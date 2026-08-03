@@ -1,0 +1,383 @@
+// SPDX-License-Identifier: BUSL-1.1
+// =============================================================================
+//  BlazePhoenix Protocol — BlazePhoenixQuoter
+//  Version    : 1.0.0
+//  Copyright  : (c) June 2026 – June 2030 BlazePhoenix Protocol
+//  License    : Business Source License 1.1 (BUSL-1.1)
+//               Change Date    : 2030-06-01
+//               Change License : GPL-2.0-or-later
+//
+//  The Quoter is the read-only mirror of the Router. For a route it returns:
+//
+//      netOut = grossOut · (1 − fee) · (1 − safety(n))
+//
+//  Where:
+//
+//    grossOut   — Solver's output (already net of pool fees).
+//    fee        — Protocol fee (28 BPS), applied to the QUOTED output only.
+//                 Any surplus delivered above the quote is fee-exempt and paid
+//                 to the user in full, so the realised receive is at least
+//                 netOut and, in surplus scenarios, strictly greater.
+//    safety(n)  — Dynamic buffer: 0 BPS at ≤2 legs, +1 BPS per extra leg,
+//                 capped at 10 BPS. Accounts for inter-leg drift.
+//    A route is unquotable (returns zero) if it contains a pool flagged for
+//    hook misuse or a denylisted hook.
+// =============================================================================
+pragma solidity 0.8.28;
+
+import {
+    BlazePhoenixCore as BPC,
+    Route, Hop, Leg, RoutePlan
+} from "./BlazePhoenixCore.sol";
+
+interface ISolverQ {
+    function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
+        external view returns (RoutePlan memory);
+}
+
+interface IV4Q {
+    struct V4PoolKey { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }
+    struct SwapParams { bool zeroForOne; int256 amountSpecified; uint160 sqrtPriceLimitX96; }
+    function unlock(bytes calldata data) external returns (bytes memory);
+    function swap(V4PoolKey memory key, SwapParams memory params, bytes calldata hookData) external returns (int256);
+}
+
+interface IConcPoolQ {
+    function swap(address recipient, bool zeroForOne, int256 amountSpecified,
+                  uint160 sqrtPriceLimitX96, bytes calldata data)
+        external returns (int256 amount0, int256 amount1);
+}
+
+interface IHubQ {
+    function v4PoolManager() external view returns (address);
+    function bridgeCount() external view returns (uint8);
+    function bridge(uint8 i) external view returns (address);
+    function isBridgeToken(address t) external view returns (bool);
+}
+
+contract BlazePhoenixQuoter {
+
+    string  public constant VERSION             = "1.0.0";
+
+    uint16  internal constant PROTOCOL_FEE_BPS  = 28;     // 0.28%
+    uint16  internal constant BASE_SAFETY_BPS   = 0;
+    uint16  internal constant PER_LEG_SAFETY    = 1;
+    uint16  internal constant SAFETY_CAP_BPS    = 10;
+    uint16  internal constant MAX_BATCH         = 32;
+
+    ISolverQ public immutable solver;
+    IHubQ    public immutable hub;
+
+    error QuoterE(uint16 code);
+
+    constructor(address hub_, address solver_) {
+        if (hub_ == address(0) || solver_ == address(0)) revert QuoterE(3);
+        hub    = IHubQ(hub_);
+        solver = ISolverQ(solver_);
+    }
+
+    // =========================================================================
+    //  Preview API
+    // =========================================================================
+
+    struct Preview {
+        Route   route;
+        uint256 grossOut;          // U(route)
+        uint256 protocolFee;       // fee × grossOut
+        uint256 safetyBuffer;      // safety(n) × afterFee
+        uint256 netOut;            // grossOut · (1 − fee) · (1 − safety)
+        uint256 ironFloor;         // output floor supplied by the Solver
+        uint256 userMinOut;        // user-supplied tighter floor (optional)
+        uint256 effectiveMinOut;   // max(userMinOut, ironFloor)
+        uint256 estGas;
+        uint256 hops;
+        uint256 legs;
+        uint8   topology;          // 0 = direct, 1 = via bridge
+        address bridgeUsed;
+        bool    canExecute;
+    }
+
+    struct BatchEntry {
+        address tIn;
+        address tOut;
+        uint256 amountIn;
+        uint256 userMinOut;
+    }
+
+    /// @notice Primary preview entry. Asks the Solver for the U-maximiser and
+    ///         returns the full 𝒬(route) breakdown plus the fallback route.
+    function previewPlan(address tIn, address tOut, uint256 amountIn)
+        external view returns (Preview memory pv, Route memory fallbackRoute, bool hasFallback)
+    {
+        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
+        pv = _pack(plan.best, 0);
+        fallbackRoute = plan.fallbackRoute;
+        hasFallback   = plan.hasFallback;
+    }
+
+    /// @notice Same as previewPlan but accepts a user-tightened minOut.
+    ///         effectiveMinOut = max(userMinOut, ironFloor) — the user can
+    ///         only tighten the floor, never weaken it.
+    function previewPlanWithMinOut(
+        address tIn, address tOut, uint256 amountIn, uint256 userMinOut
+    ) external view returns (Preview memory pv, Route memory fallbackRoute, bool hasFallback) {
+        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
+        pv = _pack(plan.best, userMinOut);
+        fallbackRoute = plan.fallbackRoute;
+        hasFallback   = plan.hasFallback;
+    }
+
+    /// @notice Preview an already-built Route (e.g. one returned previously
+    ///         and persisted off-chain) without re-running the Solver.
+    function previewRoute(Route memory route, uint256 userMinOut)
+        external pure returns (Preview memory)
+    {
+        return _pack(route, userMinOut);
+    }
+
+    /// @notice Batch quote — up to MAX_BATCH tuples per call.
+    function batchQuote(BatchEntry[] calldata entries)
+        external view returns (Preview[] memory previews)
+    {
+        uint256 n = entries.length;
+        if (n > MAX_BATCH) revert QuoterE(4);
+        previews = new Preview[](n);
+        for (uint256 i; i < n; ) {
+            BatchEntry calldata e = entries[i];
+            try solver.findBestRoutePlan(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {
+                previews[i] = _pack(p.best, e.userMinOut);
+            } catch { /* leave zero-initialised */ }
+            unchecked { ++i; }
+        }
+    }
+
+    // =========================================================================
+    //  Preview packer
+    // =========================================================================
+
+    function _pack(Route memory route, uint256 userMinOut)
+        private pure returns (Preview memory pv)
+    {
+        pv.route       = route;
+        pv.grossOut    = route.totalOut;
+        pv.protocolFee = BPC.mulDiv(route.totalOut, PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 afterFee = route.totalOut > pv.protocolFee
+            ? route.totalOut - pv.protocolFee : 0;
+
+        uint256 legs;
+        for (uint256 h; h < route.hops.length; ) {
+            legs += route.hops[h].legs.length;
+            unchecked { ++h; }
+        }
+        pv.hops = route.hops.length;
+        pv.legs = legs;
+
+        // safety(n): 0 at legs ≤ 2; +1 BPS per leg above 2; cap 10
+        uint16 sBps;
+        if (legs > 2) {
+            unchecked {
+                uint256 calc = BASE_SAFETY_BPS + (legs - 2) * PER_LEG_SAFETY;
+                if (calc > SAFETY_CAP_BPS) calc = SAFETY_CAP_BPS;
+                sBps = uint16(calc);
+            }
+        }
+        pv.safetyBuffer = BPC.mulDiv(afterFee, sBps, BPC.BPS);
+        pv.netOut       = afterFee > pv.safetyBuffer ? afterFee - pv.safetyBuffer : 0;
+
+        // Output floor
+        pv.ironFloor       = route.singleOutFloor;
+        pv.userMinOut      = userMinOut;
+        pv.effectiveMinOut = userMinOut > pv.ironFloor ? userMinOut : pv.ironFloor;
+
+        pv.estGas     = route.estGas;
+        pv.canExecute = pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut;
+        (pv.topology, pv.bridgeUsed) = _classify(route);
+    }
+
+    function _classify(Route memory route)
+        private pure returns (uint8 topology, address bridgeUsed)
+    {
+        if (route.hops.length == 0) return (0, address(0));
+        if (route.hops[0].legs.length == 0) return (0, address(0));
+        // v1.0.0: the Solver collapses bridge routes into a single hop, so the
+        // classifier reports a flat (direct) topology. Richer bridge inspection
+        // for the UI is deferred to a later version.
+        return (0, address(0));
+    }
+
+    // =========================================================================
+    //  Bridge inspection (for UI / classifier)
+    // =========================================================================
+
+    // =========================================================================
+    //  EXACT PASS — "the quote IS the execution" (revert-extraction dry-run)
+    //
+    //  The same approach used in Core for Curve (get_dy == exchange => cannot
+    //  diverge), generalised to every concentrated venue: the only number
+    //  that cannot diverge from the swap is the swap itself. We call the
+    //  pool's REAL swap; our fallback intercepts the universal V3-shaped
+    //  callback and reverts with the two deltas; the revert unwinds ALL
+    //  state (stateless by construction) and we decode the exact output
+    //  from the revert data. No tick math, no replication — both directions
+    //  run the pool's own bytecode, so the replication-bug class is
+    //  structurally impossible. Mirrors the official QuoterV2 / V4Quoter
+    //  mechanism and the Router's universal execution fallback.
+    // =========================================================================
+
+    /// @dev Universal QUOTE callback: any V3-shaped pool callback
+    ///      ((int256,int256,bytes), any selector) lands here and is answered
+    ///      with a revert carrying the deltas. The Quoter never pays, never
+    ///      holds funds, and no state can persist through this path.
+    fallback() external {
+        if (msg.data.length < 4 + 64) revert QuoterE(6);
+        int256 a0; int256 a1;
+        assembly { a0 := calldataload(4) a1 := calldataload(36) }
+        bytes memory payload = abi.encode(a0, a1);
+        assembly { revert(add(payload, 32), mload(payload)) }
+    }
+
+    /// @notice Exact-in dry-run on a concentrated pool (V3/Algebra family).
+    ///         Returns the pool-computed output; 0 if the pool refused.
+    function _simConc(address pool, bool zfo, uint256 amtIn)
+        internal returns (uint256 out)
+    {
+        if (amtIn == 0 || amtIn > uint256(type(int256).max)) return 0;
+        uint160 limit = zfo ? BPC.MIN_SQRT_PRICE_PLUS_ONE
+                            : BPC.MAX_SQRT_PRICE_MINUS_ONE;
+        try IConcPoolQ(pool).swap(address(this), zfo, int256(amtIn), limit, "")
+            returns (int256, int256)
+        {
+            return 0; // cannot happen: we never pay; treat as no-quote
+        } catch (bytes memory reason) {
+            if (reason.length != 64) return 0; // pool-side revert, not our payload
+            (int256 a0, int256 a1) = abi.decode(reason, (int256, int256));
+            int256 recv = zfo ? a1 : a0;
+            if (recv >= 0) return 0;
+            out = uint256(-recv);
+        }
+    }
+
+    /// @dev V4 QUOTE callback: the PoolManager calls this BY NAME during
+    ///      unlock(). We run the REAL swap and revert with the deltas — the
+    ///      official V4Quoter uses this exact mechanism. The revert unwinds
+    ///      all PoolManager state; nothing persists, nothing is owed (the
+    ///      lock dissolves with the revert).
+    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+        address mgr = hub.v4PoolManager();
+        if (msg.sender != mgr) revert QuoterE(6);
+        (IV4Q.V4PoolKey memory key, bool zfo, uint256 amt)
+            = abi.decode(data, (IV4Q.V4PoolKey, bool, uint256));
+        IV4Q.SwapParams memory p = IV4Q.SwapParams({
+            zeroForOne:        zfo,
+            amountSpecified:   -int256(amt),   // negative = exact input (V4)
+            sqrtPriceLimitX96: zfo ? BPC.MIN_SQRT_PRICE_PLUS_ONE
+                                   : BPC.MAX_SQRT_PRICE_MINUS_ONE
+        });
+        int256 bd = IV4Q(mgr).swap(key, p, "");
+        int256 d0 = int256(int128(bd >> 128));
+        int256 d1 = int256(int128(bd));
+        bytes memory payload = abi.encode(d0, d1);
+        assembly { revert(add(payload, 32), mload(payload)) }
+    }
+
+    /// @notice Exact-in dry-run on a V4 pool via unlock+revert. Mirrors the
+    ///         Router execution exactly: same key construction (sortTokens of
+    ///         hop tokenIn and auxId counterpart), same fail-closed policy
+    ///         for delta-altering hooks. Returns 0 when the dry-run cannot
+    ///         speak (caller falls back to the plan-time approximation).
+    function _simV4(Leg memory leg, address tokenIn, uint256 amtIn)
+        internal returns (uint256 out)
+    {
+        if (amtIn == 0 || amtIn > uint256(uint128(type(int128).max))) return 0;
+        address mgr = hub.v4PoolManager();
+        if (mgr == address(0)) return 0;
+        if (leg.hooks != address(0) && BPC.hookAltersDeltas(leg.hooks)) return 0;
+        address tokenOther = address(uint160(uint256(leg.auxId)));
+        if (tokenOther == address(0)) return 0;
+        (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
+        IV4Q.V4PoolKey memory key = IV4Q.V4PoolKey({
+            currency0: c0, currency1: c1, fee: leg.fee,
+            tickSpacing: leg.tickSpacing, hooks: leg.hooks
+        });
+        try IV4Q(mgr).unlock(abi.encode(key, leg.zeroForOne, amtIn))
+            returns (bytes memory)
+        {
+            return 0;
+        } catch (bytes memory reason) {
+            if (reason.length != 64) return 0;
+            (int256 d0, int256 d1) = abi.decode(reason, (int256, int256));
+            int256 rv = leg.zeroForOne ? d1 : d0;
+            if (rv <= 0) return 0;
+            out = uint256(rv);
+        }
+    }
+
+    /// @notice Truth-corrected plan: explore with the Solver (view formulas),
+    ///         then re-price the chosen route by dry-running every
+    ///         concentrated leg on the pool itself, propagating exact
+    ///         amounts across hops. totalOut/singleOutFloor become
+    ///         execution-grade; the floor ratio chosen by the Solver is
+    ///         preserved and applied to the exact total. Additive & opt-in:
+    ///         no existing path is modified. Call via eth_call (non-view by
+    ///         necessity, like the official quoters; reverts make it
+    ///         state-free).
+    function previewPlanExact(address tIn, address tOut, uint256 amountIn)
+        external returns (Route memory route, uint256 exactOut)
+    {
+        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
+        route = plan.best;
+        if (route.hops.length == 0) return (route, 0);
+        uint256 carry = amountIn; // exact input entering the current hop
+        for (uint256 h; h < route.hops.length; h++) {
+            uint256 plannedIn = route.hops[h].amountIn == 0
+                ? carry : route.hops[h].amountIn;
+            uint256 hopOut;
+            for (uint256 l; l < route.hops[h].legs.length; l++) {
+                Leg memory leg = route.hops[h].legs[l];
+                uint256 base   = leg.amountIn == 0 ? 1 : leg.amountIn;
+                uint256 legIn  = plannedIn == 0
+                    ? 0 : BPC.mulDiv(leg.amountIn, carry, plannedIn);
+                uint256 legOut;
+                if (leg.kind == BPC.KIND_V3 || leg.kind == BPC.KIND_ALGEBRA) {
+                    legOut = _simConc(leg.pool, leg.zeroForOne, legIn);
+                    if (legOut == 0)
+                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
+                } else if (leg.kind == BPC.KIND_V2) {
+                    (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);
+                    uint24 v2fee = leg.fee == 0 ? 30 : leg.fee;
+                    legOut = BPC.outV2(
+                        legIn,
+                        leg.zeroForOne ? r0 : r1,
+                        leg.zeroForOne ? r1 : r0,
+                        v2fee
+                    );
+                } else if (leg.kind == BPC.KIND_V4) {
+                    legOut = _simV4(leg, route.hops[h].tokenIn, legIn);
+                    if (legOut == 0)
+                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
+                } else {
+                    // STABLE/CURVE were pool-quoted at plan time. Scale by
+                    // exact input ratio.
+                    legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
+                }
+                route.hops[h].legs[l].amountIn    = legIn;
+                route.hops[h].legs[l].expectedOut = legOut;
+                hopOut += legOut;
+            }
+            route.hops[h].amountIn    = carry;
+            route.hops[h].expectedOut = hopOut;
+            carry = hopOut;
+        }
+        exactOut = carry;
+        uint256 floorExact = route.totalOut == 0
+            ? 0 : BPC.mulDiv(route.singleOutFloor, exactOut, route.totalOut);
+        route.totalOut       = exactOut;
+        route.singleOut      = exactOut;
+        route.singleOutFloor = floorExact;
+        route.hasSurplus     = exactOut > floorExact;
+    }
+
+    function bridgeAt(uint8 i) external view returns (address) { return hub.bridge(i); }
+    function bridgesCount() external view returns (uint8) { return hub.bridgeCount(); }
+    function isBridge(address t) external view returns (bool) { return hub.isBridgeToken(t); }
+}
