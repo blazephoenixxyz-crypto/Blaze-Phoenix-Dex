@@ -446,3 +446,58 @@ self-improving (vitality, depth buckets, eviction). Cutting it trades routing qu
 so it is a product decision rather than a pure optimisation, and is left unimplemented pending
 that decision. The non-destructive variants worth evaluating are batching the per-leg calls into
 one, and skipping the write when the slot would be unchanged in the same block.
+
+## The meta-pattern: the protocol computes the number it needs, then discards it
+
+External research (Aug 2026) into who actually achieves the lowest swap gas, cross-checked
+against this repo's own measurements. The conclusion is structural, not a micro-optimisation.
+
+### Why the industry's biggest win is unavailable to us
+
+Ambient/CrocSwap runs the entire DEX in a single contract with pools as lightweight data
+structures; Ekubo reports 20-30% cheaper than leading AMMs by the same route; Uniswap V4 nets
+transient debits/credits and settles only the balance. All three win the same way: **singleton
+architecture that avoids token transfers**. An aggregator routing through *third-party* pools
+cannot adopt it — we do not own the pools. This is a structural ceiling on how cheap a
+BlazePhoenix swap can get, and it should be stated plainly rather than chased.
+
+### Why deferred writes don't rescue the hot path either
+
+Flash accounting works for V4 because it nets *transfers to the same counterparty*. Our
+per-leg `recordSwap` writes touch **distinct storage slots** (one per pool), and netting cannot
+merge distinct slots. Accumulating them in transient storage (TSTORE at 100 gas vs SSTORE at
+5,000-22,100) would still owe the same N cold SSTOREs at settlement. Dead end, for a real
+reason worth recording.
+
+EIP-2930 access lists are likewise ~break-even by construction: listing a storage key costs
+1,900 upfront to make the access cost 100 instead of 2,100. Net ~100 gas. Not a lever.
+
+### What IS available, and is already half-built
+
+Measured marginal cost of one extra leg: **≈28,700 gas** (`GasReport`) **+ ~3,889** registry
+feedback = **≈32,600 gas per additional leg**. Against that, the Solver picks legs purely by
+`psi` weight: `_cutByWeight` and the allocation loop contain no gas term.
+
+And yet `BlazePhoenixSolver._estGas` already exists — it prices each leg by venue kind (90k V2,
+110k V3/Algebra, 140k Curve, 180k V4) and the Quoter publishes it as `Preview.estGas`. **It is
+computed, reported, and never used as a decision input.** The protocol already knows what an
+extra leg costs and does not consult that number when deciding whether to add one.
+
+This is what 1inch ships as "Lowest Gas mode" (favouring simpler routes) and what Uniswap's Auto
+Router documents as splitting "only when it results in a better net rate". It is fully
+EVM-agnostic, needs no new opcode, and strictly improves the user's NET output.
+
+### The catch that makes it a design decision, not a patch
+
+Comparing a leg's gas (denominated in the chain's native token) against its marginal output
+(denominated in `tokenOut`) requires a price between them — and this protocol is deliberately
+oracle-free ("no oracle, no off-chain solver"). Two oracle-free resolutions exist:
+
+1. **Caller-supplied budget** — the caller passes gas price already expressed in `tokenOut`
+   terms, keeping the contract oracle-free and the decision verifiable.
+2. **Self-quoting** — the Solver prices gas through its own WETH pools. Elegant and internally
+   consistent, but self-referential, and inherits whatever manipulation resistance those pools
+   have.
+
+Until one is chosen, `_estGas` remains reporting-only. That choice is the open item; the
+measurement supporting it is done.
