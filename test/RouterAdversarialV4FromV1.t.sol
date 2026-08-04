@@ -202,4 +202,12 @@ contract RouterAdversarialV4FromV1Test is Test {
     function invariant_reentrancyBlocked() public view {
         assertTrue(!mgr.reenteredOk(), "V4-ADV: reentrancy during V4 lock succeeded");
     }
+
+    /// @dev Non-vacuousness guard: mints happen before each swap attempt, so conservation and
+    ///      holds-nothing would hold trivially over a campaign where every swap reverted. Must be
+    ///      afterInvariant (runs once at the end), not an invariant_ function (also evaluated at
+    ///      step zero, where the counter is trivially 0).
+    function afterInvariant() public view {
+        assertGt(adv.settled(), 0, "no V4 swap ever settled across the whole campaign - vacuous pass");
+    }
 }

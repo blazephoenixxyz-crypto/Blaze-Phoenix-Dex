@@ -962,19 +962,21 @@ library BlazePhoenixCore {
     ///         by the Hub on every tick/register (see
     ///         BlazePhoenixHub._stampTs) — no new slot field needed.
     function vitality(uint256 slot, uint32 currentTs) internal pure returns (uint256 v) {
+        // Single source of truth for the decay arithmetic (see _decayedSwapCount) —
+        // vitality() adds only its ranking policy on top, never a second copy of the
+        // maths. R5: a figure computed in two places will diverge.
+        v = uint256(_decayedSwapCount(slot, currentTs));
+        if (v != 0) return v;
+        // v == 0 covers two states the scorer must tell apart: (a) the slot is DEAD —
+        // empty, never ticked, or past the 32-step full-decay horizon — which scores a
+        // true 0 and drops the pool from ranking, and (b) a LIVE slot whose count merely
+        // rounded away under the shift, floored to 1 so a real pool never vanishes.
         if (slot == 0) return 0;
         uint32 lastTs = decodeLastUpdateTs(slot);
         if (lastTs == 0) return 0;
         uint32 age = currentTs > lastTs ? currentTs - lastTs : 0;
-        uint32 swapCount = decodeSwapCount(slot);
-        if (age >= VITALITY_DECAY_STEP_SECONDS) {
-            uint256 shift = age / VITALITY_DECAY_STEP_SECONDS;
-            if (shift > 31) return 0;
-            v = uint256(swapCount) >> shift;
-        } else {
-            v = uint256(swapCount);
-        }
-        if (v == 0) v = 1;
+        if (age / VITALITY_DECAY_STEP_SECONDS > 31) return 0;
+        return 1;
     }
 
     /// @notice Composite fitness of a pool given its slot, bridge bit and
@@ -999,7 +1001,8 @@ library BlazePhoenixCore {
     ///      total (see docs/INVARIANTS_AND_TIME.md R3: "price by what remains, never a historical
     ///      scalar" — swapCount was previously a raw cumulative counter that never reset in
     ///      storage, so a single dust swap after a full decay instantly restored the pool's
-    ///      entire historical vitality).
+    ///      entire historical vitality). vitality() delegates its decay arithmetic here and adds
+    ///      only its dead-vs-floored ranking policy, so the maths exists in exactly one place.
     function _decayedSwapCount(uint256 slot, uint32 currentTs) internal pure returns (uint32) {
         if (slot == 0) return 0;
         uint32 lastTs = decodeLastUpdateTs(slot);

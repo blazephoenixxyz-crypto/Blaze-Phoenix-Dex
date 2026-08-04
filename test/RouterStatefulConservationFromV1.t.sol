@@ -118,4 +118,10 @@ contract RouterStatefulConservationFromV1Test is StdInvariant, Test {
             + B.balanceOf(treasury1) + B.balanceOf(treasury2);
         assertEq(sum, handler.mintedB(), "token B not conserved across the sequence");
     }
+
+    /// @dev Non-vacuousness guard: mints (and the `quoted == 0` early return) happen before the
+    ///      swap, so conservation would hold trivially over a campaign of zero executed swaps.
+    function afterInvariant() public view {
+        assertGt(handler.swaps(), 0, "no swap ever settled across the whole campaign - vacuous pass");
+    }
 }

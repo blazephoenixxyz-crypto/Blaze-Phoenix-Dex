@@ -48,6 +48,11 @@ contract DiscoveryColdWarmTest is Test {
     function test_ColdVsWarmVsColdAgain() public {
         address user = address(0xBEEF);
         uint256 amountIn = 1_000e6;
+        // Seed the clock ONCE. Re-reading block.timestamp at a second call site in the same
+        // function returns a stale pre-warp value on this forge build (1.7.1-dev), which would
+        // silently make the TTL-expiry step below a no-op and turn call #3 back into a WARM
+        // lookup while still being reported as COLD-AGAIN.
+        uint256 t = block.timestamp;
         deal(BASE_USDC, user, amountIn * 10);
         vm.prank(user);
         IERC20ColdWarm(BASE_USDC).approve(address(router), type(uint256).max);
@@ -60,7 +65,7 @@ contract DiscoveryColdWarmTest is Test {
         // Execute it for real so Hub.recordSwap populates the registry with
         // fresh (block.timestamp) entries for every leg that was used.
         vm.prank(user);
-        router.swapExactIn(pv1.route, amountIn, 0, user, block.timestamp + 60);
+        router.swapExactIn(pv1.route, amountIn, 0, user, t + 60);
         console2.log("registered pools after 1 execution:", hub.getActivePools(BASE_USDC, BASE_WETH).length);
 
         // ── Call 2: WARM. Same block, pair now has recent registry entries. ──
@@ -72,7 +77,8 @@ contract DiscoveryColdWarmTest is Test {
 
         // ── Call 3: COLD AGAIN. Warp past DISCOVERY_TTL_SECONDS (3600s) so ──
         // every registry entry is stale -> discoverFor runs again.
-        vm.warp(block.timestamp + 3_601);
+        t += 3_601;
+        vm.warp(t);
         (BlazePhoenixQuoter.Preview memory pv3,,) = quoter.previewPlan(BASE_USDC, BASE_WETH, amountIn);
         assertGt(pv3.grossOut, 0, "cold-again: must still find a route via fresh discovery");
         _logRoute("COLD-AGAIN (TTL expired)", pv3);
