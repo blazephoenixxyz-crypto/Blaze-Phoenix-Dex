@@ -632,10 +632,42 @@ Cause: raising `optimizer_runs` optimises for runtime gas by inlining and unroll
 bytecode. The Solver is the largest contract and is only 2,654 bytes clear at 1,000 runs, so the
 jump to 999,999 pushes it over.
 
-Immediate consequence for anyone deploying: **use the default profile (1,000 runs), not
-`release`.** The README's guidance is wrong as written and is corrected in this commit.
+**RESOLVED** in a later commit by deduplication rather than architecture — see below. Both
+profiles now build every contract inside the limit.
 
 Structural consequence: the Solver is size-constrained. It cannot take the runtime-gas
 optimisation the release profile was meant to provide, and it has limited room for new features.
 That makes the periphery/lens split (moving the read-only surface out of the core) a real
 requirement rather than a nicety if the Solver grows further.
+
+
+### How it was fixed — R5, not an external library
+
+The obvious fix was to make `BPC.universalQuote` a `public` library function so the Core deploys
+once and callers DELEGATECALL it. Measured: Solver 21,922 -> 19,062 (-2,860) and the Router
+completely unaffected (it does not call universalQuote). But it costs **+15,065 gas COLD /
++12,565 WARM on every `findBestRoutePlan`** (+9%), and this protocol solves ON-CHAIN by design —
+that is its decentralisation property, so a permanent 9% tax on the core operation to buy bytes
+is the wrong trade. It also adds a library address to link per chain, and a new trust surface
+(a mislinked Core silently produces wrong quotes; blast radius is limited only because the
+Router re-derives everything from realised execution).
+
+The actual cause was duplication. `BPC.universalQuote` is an `internal` library function, so
+**every call site gets its own inlined copy of the entire multi-venue quote engine**. The Solver
+had two: `_quote` and `_quoteWithDepth` were byte-for-byte identical — the same ten-field
+`QuoteCtx` construction and the same call — differing only in whether the depth was returned or
+discarded. Two copies of the quote engine to save one discard.
+
+`_quote` now delegates to `_quoteWithDepth`. One implementation, R5.
+
+| Profile | Solver before | Solver after | Margin after |
+|---|---|---|---|
+| `default` | 21,922 | **20,962** | 3,614 |
+| `release` | 25,326 (**-750, undeployable**) | **23,954** | **+622** |
+
+Core stays `internal` and embedded — no external library, no delegatecall, no per-chain linking,
+no added trust surface, and no change to on-chain solve gas. 199/199 tests pass unchanged.
+
+The general lesson, and it is the same rule the sibling Staking contract's postmortem reached
+independently: **with internal libraries, a duplicated call site is duplicated bytecode.**
+Deduplication is a size measure, not a style preference.

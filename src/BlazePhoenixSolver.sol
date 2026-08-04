@@ -696,23 +696,20 @@ contract BlazePhoenixSolver {
         (out, depth) = BPC.universalQuote(c, amt);
     }
 
+    /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than
+    ///      rebuilding an identical QuoteCtx and calling `universalQuote` a second time.
+    ///
+    ///      This matters for BYTECODE, not just tidiness: `BPC.universalQuote` is an `internal`
+    ///      library function, so every call site gets its own INLINED copy of the whole
+    ///      multi-venue quote engine (V2, V3, Solidly, Curve, V4). Two call sites meant two
+    ///      copies inside this contract. The Solver is the largest contract in the protocol and
+    ///      the one closest to the EIP-170 ceiling, so a duplicated call site is a duplicated
+    ///      quote engine. R5, "one implementation per published quantity" — deduplication is a
+    ///      size measure here, not a style preference.
     function _quote(PoolInfo memory cand, address tIn, uint256 amt)
-        private view returns (uint256)
+        private view returns (uint256 out)
     {
-        QuoteCtx memory c = QuoteCtx({
-            kind:        cand.kind,
-            pool:        cand.pool,
-            zeroForOne:  cand.token0 == tIn,
-            fee:         cand.fee,
-            tickSpacing: cand.tickSpacing,
-            stable:      cand.stable,
-            tokenIn:     tIn,
-            tokenOther:  cand.token0 == tIn ? cand.token1 : cand.token0,
-            hooks:       cand.hooks,
-            v4Manager:   cand.kind == BPC.KIND_V4 ? hub.v4PoolManager() : address(0)
-        });
-        (uint256 out, ) = BPC.universalQuote(c, amt);
-        return out;
+        (out, ) = _quoteWithDepth(cand, tIn, amt);
     }
 
     // =========================================================================
