@@ -545,3 +545,56 @@ expensive gas only where it buys fidelity, never during candidate scanning* — 
 applies it correctly to the QUOTE phase (cheap sufficient reads for V2/Curve/Solidly, costly
 revert-extraction only once on the chosen route). **The same principle is never applied to the
 EXECUTION phase.** That asymmetry, not any individual opcode, is the standing gas finding.
+
+---
+
+# SEAL — consolidated state as of 2026-08-04
+
+Everything below was measured or verified in this repository, not asserted. 199 offline tests
+pass; `main` and `dev-v2-reconstruction` point at the same commit; the working tree is clean.
+
+## Closed and verified
+
+| Area | State |
+|---|---|
+| V1's 3 open GitHub issues (#4 key mismatch, #5 fee evasion, #6 block-based vitality) | Fixed in V2, verified by code inspection, credited in V1's `SECURITY_HALL_OF_FAME.md` |
+| R3 violation — `swapCount` never decayed in storage | Fixed (`_decayedSwapCount`), proven end-to-end through `Router → Hub.recordSwap → tickSlot` |
+| R5 violation — decay maths duplicated in `vitality()` | Fixed; equivalence proven by differential fuzz, 12,000 runs, zero divergence |
+| V1 test extraction (15 files) | All assessed: 9 ported, 2 redundant, 2 non-portable, gaps folded in |
+| Public surface coverage | `swapExactInWith7702`, `Hub.setOperator`, `Hub.setV4Manager` were untested — now covered |
+| Dead code | `TREASURY2_SHARE` removed; `_swap`'s two unused params removed; `MODE_CREATE2_V3CL` investigated and correctly KEPT (dispatched arithmetically) |
+| Gas levers | CREATE2-vs-factory-call **refuted** (3%, dearer at margin); CREATE3 **not applicable**; access lists ~break-even; SSTORE2 **real but off the swap path** |
+| Security architecture cost | ~89,000 gas/leg overhead, calibrated against the industry's published 30-80k band |
+
+## Open BY DECISION — named so nothing is lost
+
+None of these are oversights. Each is a product decision or a scoped change deliberately not
+taken unilaterally.
+
+1. **Gas-aware leg selection.** `_estGas` is computed, published by the Quoter, and consulted by
+   nothing. An extra leg costs ~32,600 gas. This is the single largest remaining lever.
+   *Blocked on:* comparing gas (native token) against output (`tokenOut`) needs a price, and the
+   protocol is deliberately oracle-free. Two oracle-free resolutions are documented above;
+   choosing between them changes user-visible routing and is a product call.
+2. **SSTORE2 factory registry.** Measured −5,419 gas/factory, but verified NOT to touch the swap
+   path (the Router never calls the Solver; both solve paths are `view`). Buys `eth_call`
+   headroom, not user savings. Deliberately not implemented for swap-gas reasons.
+3. **Rotating discovery cursor** (note 049) — discovery is ~7,062 gas/factory and linear.
+4. **`swapExactInWithPermit2`** — still untested; needs a Permit2 mock. The 7702 sibling is now
+   covered.
+5. **Deferred/batched `recordSwap`** — 15,554 gas/swap (8%). Removing it trades routing quality
+   for gas; batching or skip-if-unchanged are the non-destructive variants.
+6. **Fork suites** are excluded from the 199 and need live RPC: `BaseFork`, `EthereumCurveFork`,
+   `BaseTop100`, `DiscoveryColdWarm`, `DiscoveryDiag`.
+7. **`KIND_BALANCER_V2`** remains a stub aliased to V2 math (pre-existing, documented).
+8. **Super Padrão / permissionless `proposePool`** (note 061) and **CoW netting** (note 057) —
+   both explicitly deferred by prior decision.
+
+## The one structural conclusion
+
+The industry's lowest-gas designs (Ambient, Ekubo, Uniswap V4) all win through singleton
+architecture that avoids token transfers. **An aggregator routing through third-party pools
+cannot adopt that** — we do not own the pools. That is a ceiling, not a bug, and it means the
+remaining wins here are routing discipline (item 1), not micro-optimisation. Note 047 already
+states the governing principle and the code applies it to the quote phase but not the execution
+phase. That asymmetry is the finding this work ends on.
