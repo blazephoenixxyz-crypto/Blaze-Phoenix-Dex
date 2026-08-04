@@ -409,3 +409,40 @@ fees/spacings arrays.
 | CREATE2 modes instead of factory-call | ~3% at realistic counts; *more* expensive at the margin | **Refuted** — see previous section |
 | CREATE3 | n/a to this path | **Not applicable** — third-party pools don't use it |
 | Arbitrum Stylus (note 058) | 49-86% published, chain-conditional | Real but Arbitrum-only, not portable |
+
+## Which gas actually reaches the user — and why SSTORE2 does NOT
+
+Before implementing the SSTORE2 registry the measurement above argued for, one structural fact
+was verified rather than assumed:
+
+- `Solver.findBestRoutePlan` and `Hub.discoverFor` are both `view`.
+- The Router **never calls the Solver**. `solver` appears in `BlazePhoenixRouter.sol` only as an
+  immutable and its constructor check — there is no call site in the swap path.
+
+**Therefore discovery gas is never paid by a swap.** Solving happens off-chain through a free
+`eth_call`. The SSTORE2 registry saving (−5,419/factory) applies only to view calls and to any
+on-chain integrator that solves inside its own transaction. It would **not** make a single user
+swap cheaper. Implementing it for swap-gas reasons would be effort against the wrong path.
+
+That saving is still not worthless — `eth_call` is free but gas-*bounded*, and the top-100 sweep
+measured ~1.5M gas per cold quote, which is within an order of magnitude of typical node
+`eth_call` caps. SSTORE2 buys headroom there, not user savings.
+
+### What a user's swap actually pays for the registry
+
+`forge test --match-test test_Metrics_RegistryFeedbackCostPerSwap -vv`. The Router calls
+`hub.recordSwap` once per leg (inside the tx, wrapped in try/catch). Pausing the Hub makes that
+call revert on `whenLive` and be swallowed, isolating the write-side work:
+
+| | Gas |
+|---|---|
+| Swap, Hub live (registry writes) | 185,876 |
+| Swap, Hub paused (registry feedback swallowed) | 170,322 |
+| **Registry feedback cost** | **15,554 (8% of the swap), ~3,889 per leg** |
+
+This — not the factory registry — is the only registry machinery a user pays for, and it is
+fully EVM-agnostic. It is also **not free to remove**: `recordSwap` is what makes the registry
+self-improving (vitality, depth buckets, eviction). Cutting it trades routing quality for gas,
+so it is a product decision rather than a pure optimisation, and is left unimplemented pending
+that decision. The non-destructive variants worth evaluating are batching the per-leg calls into
+one, and skipping the write when the slot would be unchanged in the same block.

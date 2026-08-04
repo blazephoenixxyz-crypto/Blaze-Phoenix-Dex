@@ -97,6 +97,35 @@ contract LifecycleMetricsTest is Test {
         }
     }
 
+    /// @notice What does registry feedback actually cost INSIDE a swap? The Router calls
+    ///         `hub.recordSwap` once per leg, wrapped in try/catch. Pausing the Hub makes that
+    ///         call revert on `whenLive` and be swallowed, so the delta isolates the write-side
+    ///         work (tick + stamp + the eviction/insert logic) that a live registry performs.
+    ///         This is the only part of the discovery/registry machinery a USER pays for —
+    ///         solving itself is a free `view` call and never runs inside the transaction.
+    function test_Metrics_RegistryFeedbackCostPerSwap() public {
+        uint256 t = block.timestamp;
+        // Warm everything first so we measure steady state, not first-touch registration.
+        for (uint256 i; i < 3; ++i) { t += 60; vm.warp(t); _swapGas(); }
+
+        t += 60; vm.warp(t);
+        uint256 gLive = _swapGas();
+
+        hub.setPaused(true);
+        t += 60; vm.warp(t);
+        uint256 gPaused = _swapGas();
+        hub.setPaused(false);
+
+        console2.log("=== registry feedback cost inside a swap ===");
+        console2.log("swap with Hub live   (recordSwap writes), gas:", gLive);
+        console2.log("swap with Hub paused (recordSwap reverts), gas:", gPaused);
+        if (gLive > gPaused) {
+            console2.log("registry write cost per swap, gas:", gLive - gPaused);
+            console2.log("   as percent of the swap:", ((gLive - gPaused) * 100) / gLive);
+            console2.log("   legs in this route:", pools.length);
+        }
+    }
+
     function test_Metrics_DiscoveryColdVsWarm_AndVitalityLifecycle() public {
         uint256 t = block.timestamp;
 
