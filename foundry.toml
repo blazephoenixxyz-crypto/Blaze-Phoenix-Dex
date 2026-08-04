@@ -1,0 +1,47 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"
+optimizer = true
+# via_ir stays ON: several functions (Solver._buildHop/_weights, Router.
+# _execute) are written assuming the via-IR pipeline's stack-slot folding —
+# turning it off would likely hit "stack too deep". What's dialed back is
+# optimizer_runs: 999999 makes the Yul optimizer extremely memory-hungry, and
+# on constrained hardware (this dev machine: ~11GB RAM+swap) it thrashed swap
+# for 35+ minutes without finishing a single build and had to be killed. Use
+# `[profile.release]` below (FOUNDRY_PROFILE=release) for the real
+# gas-optimized build before an actual deploy; keep default fast for local
+# dev/test iteration.
+optimizer_runs = 1000
+via_ir = true
+fs_permissions = [{ access = "read", path = "./" }]
+
+[fuzz]
+runs = 256
+
+[invariant]
+# Kept modest on purpose: this repo's dev hardware runs under proot (heavy
+# ptrace syscall-interception overhead per EVM call), so the stock Foundry
+# defaults (runs=256, depth=500 => ~128k calls) are impractically slow here.
+# Raise both on real CI/hardware for a deeper Monte Carlo search — e.g.
+# `forge test --match-contract Invariant --invariant-runs 256 --invariant-depth 500`.
+runs = 50
+depth = 50
+fail_on_revert = false
+
+[profile.release]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"
+optimizer = true
+optimizer_runs = 999999
+via_ir = true
+fs_permissions = [{ access = "read", path = "./" }]
+
+[rpc_endpoints]
+base = "https://mainnet.base.org"
+mainnet = "https://ethereum.publicnode.com"

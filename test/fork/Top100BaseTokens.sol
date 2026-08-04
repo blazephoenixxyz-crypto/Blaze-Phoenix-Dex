@@ -1,0 +1,115 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.28;
+
+/// @notice Real Base mainnet token addresses, top-100 by GLOBAL CoinGecko
+/// market-cap rank among tokens that have a verified Base deployment
+/// (cross-referenced via /coins/markets + /coins/list?include_platform=true,
+/// fetched 2026-08-04 - see the vault session log, not hand-typed/guessed;
+/// EIP-55 checksums are solc's own, extracted from its error output rather
+/// than computed by hand).
+library Top100BaseTokens {
+    struct Entry { string symbol; address token; }
+
+    function all() internal pure returns (Entry[100] memory e) {
+        e[0] = Entry("USDC", 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
+        e[1] = Entry("USDS", 0x820C137fa70C8691f0e44Dc420a5e53c168921Dc);
+        e[2] = Entry("LINK", 0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196);
+        e[3] = Entry("USDE", 0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34);
+        e[4] = Entry("AAVE", 0x63706e401c06ac8513145b7687A14804d17f814b);
+        e[5] = Entry("MORPHO", 0xBAa5CC21fd487B8Fcc2F632f3F4E8D37262a0842);
+        e[6] = Entry("ICP", 0x00f3C42833C3170159af4E92dbb451Fb3F708917);
+        e[7] = Entry("EURSAFO", 0xD879846CbE20751bDE8a9342a3CCa00A3E56CA47);
+        e[8] = Entry("EUTBL", 0xa0769f7A8fC65e47dE93797b4e21C073c117Fc80);
+        e[9] = Entry("ENA", 0x58538e6A46E07434d7E7375Bc268D3cb839C0133);
+        e[10] = Entry("JTRSY", 0x8c213ee79581Ff4984583C6a801e5263418C4b86);
+        e[11] = Entry("JAAA", 0x5a0F93D040De44e78F251b03c43be9CF317Dcf64);
+        e[12] = Entry("GHO", 0x6Bb7a212910682DCFdbd5BCBb3e28FB4E8da10Ee);
+        e[13] = Entry("VVV", 0xacfE6019Ed1A7Dc6f7B508C02d1b04ec88cC21bf);
+        e[14] = Entry("USD0", 0x758a3e0b1F842C9306B783f8A4078C6C8C03a270);
+        e[15] = Entry("CAKE", 0x3055913c90Fcc1A6CE9a358911721eEb942013A1);
+        e[16] = Entry("EURC", 0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42);
+        e[17] = Entry("AERO", 0x940181a94A35A4569E4529A3CDfB74e38FD98631);
+        e[18] = Entry("ETHFI", 0x6C240DDA6b5c336DF09A4D011139beAAa1eA2Aa2);
+        e[19] = Entry("VIRTUAL", 0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b);
+        e[20] = Entry("CRV", 0x8Ee73c484A26e0A5df2Ee2a4960B789967dd0415);
+        e[21] = Entry("SPX", 0x50dA645f148798F68EF2d7dB7C1CB22A6819bb2C);
+        e[22] = Entry("APXUSD", 0xD993935E13851dd7517af10687EC7e5022127228);
+        e[23] = Entry("OHM", 0x060cb087a9730E13aa191f31A6d86bFF8DfcdCC0);
+        e[24] = Entry("ZRO", 0x6985884C4392D348587B19cb9eAAf157F13271cd);
+        e[25] = Entry("PENDLE", 0xA99F6e6785Da0F5d6fB42495Fe424BCE029Eeb3E);
+        e[26] = Entry("KAITO", 0x98d0baa52b2D063E780DE12F615f963Fe8537553);
+        e[27] = Entry("AUSD", 0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a);
+        e[28] = Entry("CRVUSD", 0x417Ac0e078398C154EdFadD9Ef675d30Be60Af93);
+        e[29] = Entry("SYRUP", 0x688AEe022AA544f150678B8E5720b6b96a9E9a2F);
+        e[30] = Entry("VELVET", 0xbF927b841994731C573BDF09ceB0c6B0Aa887cDd);
+        e[31] = Entry("USDAI", 0x0A1a1A107E45b7Ced86833863f482BC5f4ed82EF);
+        e[32] = Entry("REUSD", 0x7D214438D0F27AfCcC23B3d1e1a53906aCE5CFEa);
+        e[33] = Entry("APYUSD", 0x2c271ddF484aC0386d216eB7eB9Ff02D4Dc0F6AA);
+        e[34] = Entry("COMP", 0x9e1028F5F1D5eDE59748FFceE5532509976840E0);
+        e[35] = Entry("USTBL", 0xe4880249745eAc5F1eD9d8F7DF844792D560e750);
+        e[36] = Entry("TEL", 0x09bE1692ca16e06f536F0038fF11D1dA8524aDB1);
+        e[37] = Entry("SAFO", 0x0BB754d8940e283D9Ff6855ab5dAfBC14165c059);
+        e[38] = Entry("EIGEN", 0x2081Ab0D9EC9e4303234Ab26D86b20B3367946ee);
+        e[39] = Entry("CHZ", 0x70c8392DE9b39a1E48d12A70Af6FF4Be25D6D0A2);
+        e[40] = Entry("TRAC", 0xA81a52B4dda010896cDd386C7fBdc5CDc835ba23);
+        e[41] = Entry("SNX", 0x22e6966B799c4D5B13BE962E1D117b56327FDa66);
+        e[42] = Entry("XCN", 0x9c632E6Aaa3eA73f91554f8A3cB2ED2F29605e0C);
+        e[43] = Entry("THBILL", 0xfDD22Ce6D1F66bc0Ec89b20BF16CcB6670F55A5a);
+        e[44] = Entry("ALFW", 0x19CF86D38ae55d1dC08F50588f11b6acc297f977);
+        e[45] = Entry("1INCH", 0xc5fecC3a29Fb57B5024eEc8a2239d4621e111CBE);
+        e[46] = Entry("SAND", 0xac531Eb26Ca1d21b85126De8FB87E80E09002DcF);
+        e[47] = Entry("FRXUSD", 0xe5020A6d073a794B6E7f05678707dE47986Fb0b6);
+        e[48] = Entry("AWE", 0x1B4617734C43F6159F3a70b7E06d883647512778);
+        e[49] = Entry("SOSO", 0x624e2e7fDc8903165F64891672267AB0FCB98831);
+        e[50] = Entry("FLUID", 0x61E030A56D33e8260FdD81f03B162A79Fe3449Cd);
+        e[51] = Entry("DRV", 0x9d0E8f5b25384C7310CB8C6aE32C8fbeb645d083);
+        e[52] = Entry("TIBBIR", 0xA4A2E2ca3fBfE21aed83471D28b6f65A233C6e00);
+        e[53] = Entry("O", 0x182FA643E5f29d5EcA75e7b9CF9336A3fe4620b2);
+        e[54] = Entry("VCNT", 0xdCf5130274753c8050aB061B1a1DCbf583f5bFd0);
+        e[55] = Entry("RSR", 0xaB36452DbAC151bE02b16Ca17d8919826072f64a);
+        e[56] = Entry("YFI", 0x9EaF8C1E34F05a589EDa6BAfdF391Cf6Ad3CB239);
+        e[57] = Entry("CGUSD", 0xCa72827a3D211CfD8F6b00Ac98824872b72CAb49);
+        e[58] = Entry("ZEN", 0xf43eB8De897Fbc7F2502483B2Bef7Bb9EA179229);
+        e[59] = Entry("BEAM", 0x2A66d51407b84b82b5AFF3DeC4D49f72CBCD322a);
+        e[60] = Entry("BRLV", 0xd2047ebdb205Ee6862b69ae9fB3501652cC97d36);
+        e[61] = Entry("RAVE", 0x1aA8fD5BCce2231C6100d55Bf8B377cff33Acfc3);
+        e[62] = Entry("RIF", 0xe5e851b01DD3Eda24FDe709a407dB44555B6d1E0);
+        e[63] = Entry("MAG7.SSI", 0x9E6A46f294bB67c20F1D1E7AfB0bBEf614403B55);
+        e[64] = Entry("SOON", 0xb9E1Fd5A02D3A33b25a14d661414E6ED6954a721);
+        e[65] = Entry("FXUSD", 0x55380fe7A1910dFf29A47B622057ab4139DA42C5);
+        e[66] = Entry("COW", 0xc694a91e6b071bF030A18BD3053A7fE09B6DaE69);
+        e[67] = Entry("ALLO", 0x032d86656Db142138AC97d2c5C4E3766E8c0482d);
+        e[68] = Entry("HOT", 0xf3dD141109Dfe8e4c006F88a2A8747a086e7C1f8);
+        e[69] = Entry("KTA", 0xc0634090F2Fe6c6d75e61Be2b949464aBB498973);
+        e[70] = Entry("BABYDOGE", 0x58ecEF26335Af7b04A998105a6603B0Dc475aF33);
+        e[71] = Entry("MTBILL", 0xDD629E5241CbC5919847783e6C96B2De4754e438);
+        e[72] = Entry("FT", 0x5DD1A7A369e8273371d2DBf9d83356057088082c);
+        e[73] = Entry("SUPER", 0x391359ab0CCef572DcaC78F74E47D7C06Db0b982);
+        e[74] = Entry("W", 0xB0fFa8000886e57F86dd5264b9582b2Ad87b2b91);
+        e[75] = Entry("DIEM", 0xF4d97F2da56e8c3098f3a8D538DB630A2606a024);
+        e[76] = Entry("CHIP", 0x0C1c1C109FE34733fca54b82d7B46B75CFb71F6e);
+        e[77] = Entry("RIVER", 0xdA7AD9dea9397cffdDAE2F8a052B82f1484252B3);
+        e[78] = Entry("REKT", 0xB3e3c89B8D9c88B1fe96856E382959eE6291ebbA);
+        e[79] = Entry("BIO", 0x226A2FA2556C48245E57cd1cbA4C6c9e67077DD2);
+        e[80] = Entry("CYS", 0x19e8d59ff3D7A31289e0Dc04Db48d43b02c7ffa6);
+        e[81] = Entry("OMI", 0x3792DBDD07e87413247DF995e692806aa13D3299);
+        e[82] = Entry("XVS", 0xebB7873213c8d1d9913D8eA39Aa12d74cB107995);
+        e[83] = Entry("DOLA", 0x4621b7A9c75199271F773Ebd9A499dbd165c3191);
+        e[84] = Entry("DEGEN", 0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed);
+        e[85] = Entry("AXL", 0x23ee2343B892b1BB63503a4FAbc840E0e2C6810f);
+        e[86] = Entry("NPC", 0xB166E8B140D35D9D8226E40C09f757BAC5A4d87d);
+        e[87] = Entry("TOSHI", 0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4);
+        e[88] = Entry("SUSHI", 0x7D49a065D17d6d4a55dc13649901fdBB98B2AFBA);
+        e[89] = Entry("ZCHF", 0xD4dD9e2F021BB459D5A5f6c24C12fE09c5D45553);
+        e[90] = Entry("BR", 0xd6122ddADa244913521F3d62006eaF756c157660);
+        e[91] = Entry("BASEDHYPE", 0x84a9183C9D11146d8E6A820Dfc675a61B11EaDeb);
+        e[92] = Entry("GPS", 0x0C1dC73159e30c4b06170F2593D3118968a0DCa5);
+        e[93] = Entry("RED", 0x4eB92702bA4cfbF80561BAd64D89C706Ac824960);
+        e[94] = Entry("MGLO", 0xFCc9Cc1209651Ed8867332d6F664CF82743A2584);
+        e[95] = Entry("MOG", 0x2Da56AcB9Ea78330f947bD57C54119Debda7AF71);
+        e[96] = Entry("BRETT", 0x532f27101965dd16442E59d40670FaF5eBB142E4);
+        e[97] = Entry("SQD", 0xd4554BEa546EFa83C1E6B389ecac40EA999B3E78);
+        e[98] = Entry("T", 0x26f3901aC8a79c50fb0d8289C74f0d09AdC42E29);
+        e[99] = Entry("FOLKS", 0xFF7F8F301F7A706E3CfD3D2275f5dc0b9EE8009B);
+    }
+}

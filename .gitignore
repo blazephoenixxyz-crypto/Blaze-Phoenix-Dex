@@ -1,0 +1,23 @@
+# Foundry build artifacts (regenerable via `forge build`)
+out/
+cache/
+
+# Deployment run logs — local/dev broadcasts only so far (anvil test keys),
+# never meant to accumulate here; a real deploy's logs should be reviewed
+# and added deliberately, not swept in automatically.
+broadcast/
+
+# Operational deploy scripts — real treasury addresses and per-chain
+# venue/rollout config. Kept locally (private vault), intentionally never
+# published to this public repository.
+script/DeployAll.s.sol
+script/DeployRobinhood.s.sol
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
