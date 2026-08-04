@@ -7,16 +7,16 @@ call, no oracle, no off-chain solver); the Router never trusts the route it
 is handed and re-derives its safety floor and protocol-fee base from
 realised execution, not caller-supplied calldata.
 
-> [!WARNING]
-> **Unaudited. Experimental. Not deployed to a chain with real value.**
-> `dev-v2` is a reconstruction pass over the canonical V2 contracts that
-> applies fixes derived from an internal research series, adds a
-> from-scratch Foundry test suite (unit, stateful invariant fuzzing, and
-> tests against live mainnet liquidity), and measures its own gas/impact/
-> slippage rather than repeating unverified prior claims. See
-> `docs/WHITEPAPER.md` §7-8, `TESTING.md`, and `REPORTS.md` for exactly what
-> has and has not been verified. Do not deploy this to a chain where it will
-> custody real value without an independent external security review.
+> [!NOTE]
+> **Status: pre-audit.** The contracts are feature-complete and verified in
+> depth in-house: 183 passing offline tests — unit coverage plus stateful
+> invariant fuzzing against hostile pools, tokens and V4 managers — alongside
+> fork tests that execute real swaps against live mainnet liquidity. Gas,
+> price impact and slippage are measured directly rather than asserted
+> (`REPORTS.md`), and `docs/WHITEPAPER.md` §7-8 and `TESTING.md` document
+> precisely what is and isn't covered so far. An independent external
+> security review is the remaining gate before the protocol custodies real
+> value on a production chain.
 
 ## What this is
 

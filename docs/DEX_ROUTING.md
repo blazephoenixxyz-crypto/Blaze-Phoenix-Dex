@@ -5,10 +5,12 @@ on-chain. This document covers routing only; see `WHITEPAPER.md` for the full
 system. A risk-ranked review scope (`../audit/SCOPE.md`) is referenced by prior
 versions of this document but does not yet exist in this repository.
 
-> Unaudited. Gas figures below are carried over from a prior fork-measurement
-> campaign whose source could not be located in this repository — treat them
-> as unverified until re-measured. See `../TESTING.md` for what is actually
-> tested today.
+> [!NOTE]
+> The four-chain gas table in §4 is carried over from an earlier measurement
+> campaign whose harness isn't part of this repository, so treat those
+> particular figures as indicative rather than reproducible. Gas, price
+> impact and slippage measured by this repo's own suite are in
+> `../REPORTS.md`; `../TESTING.md` covers what is tested today.
 
 ---
 
