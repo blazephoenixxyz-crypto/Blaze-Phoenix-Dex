@@ -194,7 +194,7 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
-        return _swap(route, amountIn, userMinOut, recipient, deadline, false, bytes32(0));
+        return _swap(route, amountIn, userMinOut, recipient, deadline);
     }
 
     /// @notice Permit2 SignatureTransfer — zero standing allowance.
@@ -213,12 +213,23 @@ contract BlazePhoenixRouter {
         return _swapPrePulled(route, amountIn, userMinOut, recipient, deadline);
     }
 
-    /// @notice EIP-7702 atomic auth — EOA delegated this Router for the tx.
+    /// @notice EIP-7702 entry point — a NAMED ALIAS of `swapExactIn`, deliberately.
+    /// @dev    Under EIP-7702 the EOA delegates code to itself for the transaction, so
+    ///         `msg.sender` is still the EOA and the classic pull path already works unchanged —
+    ///         there is no 7702-specific logic to run, and this body is byte-for-byte identical
+    ///         to `swapExactIn`. It exists so a 7702 integrator can express intent at the call
+    ///         site, and is kept for interface stability.
+    ///
+    ///         Be precise about where the 7702 saving comes from: it is the *transaction
+    ///         structure* (bundling `approve` + `swap` into one tx, removing a ~21k base cost
+    ///         plus the allowance SSTORE), NOT this function. Calling this instead of
+    ///         `swapExactIn` saves nothing on its own. See
+    ///         `test_7702_IsAnExactAliasOfSwapExactIn` for the executable statement of that.
     function swapExactInWith7702(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
-        return _swap(route, amountIn, userMinOut, recipient, deadline, false, bytes32(0));
+        return _swap(route, amountIn, userMinOut, recipient, deadline);
     }
 
     // =========================================================================
@@ -227,7 +238,7 @@ contract BlazePhoenixRouter {
 
     function _swap(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, uint256 deadline, bool /*prePulled*/, bytes32 /*commit*/
+        address recipient, uint256 deadline
     ) private returns (uint256) {
         if (block.timestamp > deadline) revert RouterE(4);
         if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
