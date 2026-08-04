@@ -343,3 +343,69 @@ boundaries (dead slot vs floored-to-1 live slot, the 32-step horizon, the never-
 sentinel, clock underflow) and the `psi()` consumer. Consumer survey: `swapCount` is read by
 exactly one function, and both `tickSlot` call sites are immediately wrapped in `_stampTs`, so
 no tick-without-stamp path exists that could double-decay.
+
+## Derivation mode and gas — a plausible optimisation, measured and refuted
+
+`forge test --match-contract DiscoveryModeGas -vv` (added 2026-08-04).
+
+`BPC.deriveAddress` resolves a pool two ways: modes 0-3 staticcall the factory (one call per
+probe), modes 4-7 compute `keccak256(0xff‖factory‖salt‖initCodeHash)` locally with no calls.
+The intuitive conclusion — "CREATE2 skips a CALL, so migrating factories to CREATE2 modes is a
+large discovery saving" — is **wrong at any realistic factory count**. Both arms below discover
+the same number of pools, so the delta is purely the derivation mechanism:
+
+| Factories | Factory-call (mode 0) | CREATE2 (mode 4) | Saved |
+|---|---|---|---|
+| 1 | 12,978 | 8,732 | 4,246 (32%) |
+| 4 | 30,008 | 29,031 | 977 (3%) |
+| 9 | 69,479 | 67,298 | 2,181 (3%) |
+
+| Marginal gas per extra factory | |
+|---|---|
+| factory-call | 7,062 |
+| CREATE2 | **7,320** |
+
+**At the margin CREATE2 is slightly more expensive, not cheaper.** The 32% figure at n=1 is a
+fixed-overhead artifact that disappears once `discoverFor`'s base cost amortises. Mechanism
+(reasoned, not separately measured): CREATE2 avoids a cold account access for the CALL (~2,600)
+but pays a cold SLOAD for `initHash` (~2,100) plus the keccak, so the two roughly cancel; what
+actually dominates is the per-factory `Factory` struct reads (address, kind, mode, initHash,
+plus the `fees`/`spacings` arrays), which both modes pay identically.
+
+**Consequence for optimisation work:** discovery costs ~7,000 gas per registered factory
+*regardless of derivation mode*, so the lever is not a cheaper derivation — it is scanning
+**fewer factories per call**. That is exactly the amortised rotating-cursor discovery in the
+research series (note 049), which remains unimplemented. Switching venue registrations to
+CREATE2 modes for gas reasons would be effort spent for ~3%.
+
+CREATE3 does not apply to this path at all: it addresses deploying *our own* contracts
+deterministically across chains, whereas `deriveAddress` derives *third-party* pool addresses
+(Uniswap/Curve/Solidly), none of which deploy via CREATE3. It cannot affect per-swap gas.
+
+## SSTORE2 for the factory registry — theory from note 056 §5, measured
+
+`forge test --match-contract Sstore2RegistryGas -vv` (added 2026-08-04). Read path only (the
+path every `discoverFor` pays); the write happens once in `addFactory` and is out of scope.
+Data shape mirrors `Hub.Factory` as wired on Base (address + kind + mode + initHash +
+uint24[4] fees + int24[4] spacings).
+
+| | Storage (SLOADs) | SSTORE2 (EXTCODECOPY) | Saved |
+|---|---|---|---|
+| One factory record | 24,045 | 16,836 | 7,209 (29%) |
+| Full sweep, 9 factories | 164,076 | 115,304 | 48,772 (29%) — **5,419/factory** |
+
+Both arms pay an identical external CALL in the harness, so that overhead is common-mode and
+the delta is the real read-path difference. Note 056 §5 predicted "~2606 via bytecode vs ~4200
+in storage" (38%); the measured percentage is lower (29%) but the **absolute** saving is far
+larger than the note's 64-byte example, because the real `Factory` record carries the
+fees/spacings arrays.
+
+### Ranked gas levers, by measurement rather than intuition
+
+| Lever | Measured effect | Verdict |
+|---|---|---|
+| SSTORE2 registry (note 056 §5) | −5,419 gas per factory scanned | **Real.** Biggest single lever found |
+| Scan fewer factories (note 049 rotating cursor) | discovery is ~7,062 gas/factory, linear | **Real**, unimplemented |
+| CREATE2 modes instead of factory-call | ~3% at realistic counts; *more* expensive at the margin | **Refuted** — see previous section |
+| CREATE3 | n/a to this path | **Not applicable** — third-party pools don't use it |
+| Arbitrum Stylus (note 058) | 49-86% published, chain-conditional | Real but Arbitrum-only, not portable |
