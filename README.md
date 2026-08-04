@@ -69,8 +69,15 @@ forge test --match-path "test/fork/*" -vvv     # fork tests — need RPC access,
 
 `foundry.toml` ships two profiles: `default` (fast local iteration,
 `optimizer_runs = 1000`) and `release` (`FOUNDRY_PROFILE=release forge build`,
-`optimizer_runs = 999999` — the real gas-optimized build to use before an
-actual deploy).
+`optimizer_runs = 999999`).
+
+> [!WARNING]
+> **Deploy with the default profile, not `release`.** At 999,999 runs the Yul
+> optimizer inlines aggressively enough to push `BlazePhoenixSolver` to 25,326
+> bytes — 750 bytes over the EIP-170 limit, so the artifact cannot be deployed.
+> `forge build` still exits 0 and writes it, so the failure only surfaces on
+> chain. The default profile builds every contract within the limit (Solver
+> 21,922, margin 2,654). See `REPORTS.md` for the full per-contract table.
 
 ## Deploying
 

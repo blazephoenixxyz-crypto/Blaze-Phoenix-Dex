@@ -598,3 +598,44 @@ cannot adopt that** — we do not own the pools. That is a ceiling, not a bug, a
 remaining wins here are routing discipline (item 1), not micro-optimisation. Note 047 already
 states the governing principle and the code applies it to the quote phase but not the execution
 phase. That asymmetry is the finding this work ends on.
+
+---
+
+## DEPLOY BLOCKER — the documented release build produces an undeployable Solver
+
+Found 2026-08-04 by building every profile rather than assuming they work.
+
+`forge build --sizes` (default profile, `optimizer_runs = 1000`) — everything fits:
+
+| Contract | Runtime (B) | Margin vs 24,576 |
+|---|---|---|
+| BlazePhoenixCore (library) | 57 | 24,519 |
+| BlazePhoenixQuoter | 9,841 | 14,735 |
+| BlazePhoenixHub | 15,318 | 9,258 |
+| BlazePhoenixRouter | 17,243 | 7,333 |
+| BlazePhoenixSolver | 21,922 | 2,654 |
+
+`FOUNDRY_PROFILE=release forge build --sizes` (`optimizer_runs = 999999`) — the profile this
+repo's own README calls *"the real gas-optimized build to use before an actual deploy"*:
+
+| Contract | Runtime (B) | Margin vs 24,576 |
+|---|---|---|
+| BlazePhoenixHub | 19,275 | 5,301 |
+| BlazePhoenixRouter | 20,865 | 3,711 |
+| **BlazePhoenixSolver** | **25,326** | **−750 — EXCEEDS EIP-170** |
+
+**The release build cannot be deployed.** `forge build` exits 0 and emits the artifact anyway, so
+nothing surfaces the problem: it would be discovered at deploy time, on-chain, with a failed
+transaction.
+
+Cause: raising `optimizer_runs` optimises for runtime gas by inlining and unrolling, which grows
+bytecode. The Solver is the largest contract and is only 2,654 bytes clear at 1,000 runs, so the
+jump to 999,999 pushes it over.
+
+Immediate consequence for anyone deploying: **use the default profile (1,000 runs), not
+`release`.** The README's guidance is wrong as written and is corrected in this commit.
+
+Structural consequence: the Solver is size-constrained. It cannot take the runtime-gas
+optimisation the release profile was meant to provide, and it has limited room for new features.
+That makes the periphery/lens split (moving the read-only surface out of the core) a real
+requirement rather than a nicety if the Solver grows further.
