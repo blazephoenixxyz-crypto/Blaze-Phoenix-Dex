@@ -294,3 +294,52 @@ real integration test against mutable state can hit that an ephemeral
    routes through a central Vault's `batchSwap`). No deploy configuration
    registers a Balancer factory. If Balancer support is wanted, it needs a
    real Vault-based adapter, not the current aliasing.
+
+## Registry lifecycle — discovery cold vs warm, and the vitality trajectory
+
+`forge test --match-contract LifecycleMetrics -vv` (added 2026-08-04). Controlled offline
+setup: 4 factories, 4 V2 pools (1M/1M reserves), pools reachable ONLY via discovery so the
+first solve genuinely pays cold-start cost.
+
+| Phase | Gas |
+|---|---|
+| `discoverFor()` alone (4 factories) | 94,566 |
+| Solve **COLD** (empty registry) | 169,093 |
+| Solve **WARM** (registry fresh, discovery skipped) | 132,691 |
+| Solve after `DISCOVERY_TTL_SECONDS` lapses | 170,542 |
+| **Freshness-gate reduction** | **−36,402 (−21%)** |
+
+| Swap | Gas |
+|---|---|
+| #1 (registers 4 pools, cold SSTOREs) | 658,859 |
+| #2 | 185,908 |
+| #3–#5 | ~186,000 |
+
+Vitality trajectory (sum across the 4 pools): 4 after one swap → 20 after five → 8 after one
+decay step (~6.8h) → **0** past the 32-step horizon (~9.1 days) → **4** after a reactivating
+swap (NOT 20). That last figure is the R3 fix verified end-to-end through the real
+`Router → Hub.recordSwap → tickSlot` path, not a direct unit poke.
+
+### Two findings this measurement surfaced
+
+1. **The freshness gate's reduction is 21% here, not the ~72-80% in `docs/DEX_ROUTING.md` §4.**
+   Not a contradiction — the saving is proportional to the number of factories swept. With 4
+   factories discovery is cheap, so skipping it saves little; the published table came from a
+   ~9-factory real-chain setup. **The benefit scales with the deploy's factory count**, an
+   environment assumption invisible in the contract logic. Quoting "−72%" without quoting the
+   factory count is an incomplete claim.
+2. **The first swap on a pair costs 3.5× the steady-state swap** (658,859 vs ~186,000) because
+   it builds the registry for that pair. That cost is an uncompensated positive externality:
+   nothing reimburses the trader who pays it.
+
+### Consistency of the `vitality()` refactor
+
+`vitality()` was changed to delegate its decay arithmetic to `_decayedSwapCount` (R5: one
+implementation per published quantity) rather than carry a second copy. Verified by
+differential fuzz rather than by "the suite is still green":
+`test/VitalityRefactorEquivalence.t.sol` re-implements the pre-refactor version verbatim and
+fuzzes both over the same inputs — **12,000 runs, zero divergence**, covering the branch
+boundaries (dead slot vs floored-to-1 live slot, the 32-step horizon, the never-ticked
+sentinel, clock underflow) and the `psi()` consumer. Consumer survey: `swapCount` is read by
+exactly one function, and both `tickSlot` call sites are immediately wrapped in `_stampTs`, so
+no tick-without-stamp path exists that could double-decay.

@@ -88,8 +88,12 @@ contract BlazePhoenixRouter {
     string  public constant VERSION             = "2.0.0";
 
     uint16  internal constant PROTOCOL_FEE_BPS  = 28;       // 0.28%
-    uint16  internal constant TREASURY1_SHARE   = 3_000;    // 30% of fee
-    uint16  internal constant TREASURY2_SHARE   = 7_000;    // 70% of fee
+    /// @dev Treasury 1 takes 30% of the fee; treasury 2 takes the remainder (70%), computed as
+    ///      `fee - t1` so the two always sum to exactly `fee` with no rounding dust left behind.
+    ///      Deliberately NOT paired with a TREASURY2_SHARE constant: a second constant would be
+    ///      dead (nothing could read it) and would silently drift into a lie the moment this one
+    ///      changed.
+    uint16  internal constant TREASURY1_SHARE   = 3_000;
     uint8   internal constant MAX_LEGS_PER_HOP  = 5;
 
     /// @notice Per-leg output floor, in BPS of the leg's pro-rata attested

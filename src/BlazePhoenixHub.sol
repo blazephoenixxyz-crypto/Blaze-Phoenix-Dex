@@ -61,6 +61,9 @@ contract BlazePhoenixHub {
     uint8   internal constant MODE_CREATE2_V2        = 4;
     uint8   internal constant MODE_CREATE2_V3        = 5;
     uint8   internal constant MODE_CREATE2_CLONE     = 6;
+    // Live, but dispatched by arithmetic (`sub = mode - 4`) inside BPC.deriveAddress rather than
+    // by name, so a naive "unreferenced identifier" scan will flag it as dead. It is not: mode 7
+    // is the V3-CL salt family (keccak(t0, t1, tickSpacing) — Velodrome/Aerodrome CL).
     uint8   internal constant MODE_CREATE2_V3CL      = 7;
     uint8   internal constant MODE_CURVE_META        = 8;
 
