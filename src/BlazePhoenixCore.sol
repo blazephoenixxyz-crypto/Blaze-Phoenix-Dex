@@ -992,12 +992,33 @@ library BlazePhoenixCore {
         if (isConcentrated)  f += (f * 500)   / BPS;
     }
 
-    /// @notice Update the slot after a swap. Increments swap count, refreshes
-    ///         last-block, and (optionally) re-buckets depth.
+    /// @dev True decayed swapCount as of currentTs — no scoring floor (unlike vitality(), which
+    ///      floors a decayed-to-zero live slot to 1 for display/ranking). 0 here genuinely means
+    ///      no activity survives the decay window. Shared by vitality() and tickSlot() so a
+    ///      reactivation counts from what actually remains, never from the pre-decay historical
+    ///      total (see docs/INVARIANTS_AND_TIME.md R3: "price by what remains, never a historical
+    ///      scalar" — swapCount was previously a raw cumulative counter that never reset in
+    ///      storage, so a single dust swap after a full decay instantly restored the pool's
+    ///      entire historical vitality).
+    function _decayedSwapCount(uint256 slot, uint32 currentTs) internal pure returns (uint32) {
+        if (slot == 0) return 0;
+        uint32 lastTs = decodeLastUpdateTs(slot);
+        if (lastTs == 0) return 0;
+        uint32 swapCount = decodeSwapCount(slot);
+        uint32 age = currentTs > lastTs ? currentTs - lastTs : 0;
+        if (age < VITALITY_DECAY_STEP_SECONDS) return swapCount;
+        uint256 shift = age / VITALITY_DECAY_STEP_SECONDS;
+        if (shift > 31) return 0;
+        return uint32(uint256(swapCount) >> shift);
+    }
+
+    /// @notice Update the slot after a swap. Increments swap count (from its currently-decayed
+    ///         base, not the raw historical total), refreshes last-block, and (optionally)
+    ///         re-buckets depth.
     function tickSlot(
-        uint256 slot, uint32 currentBlock, uint256 newDepthWad
+        uint256 slot, uint32 currentBlock, uint256 newDepthWad, uint32 currentTs
     ) internal pure returns (uint256) {
-        uint32 sc = decodeSwapCount(slot);
+        uint32 sc = _decayedSwapCount(slot, currentTs);
         unchecked { sc = sc == type(uint32).max ? sc : sc + 1; }
         // clear swapCount + lastBlk + bucket
         uint256 s = slot

@@ -526,7 +526,7 @@ contract BlazePhoenixHub {
         uint256 s = $.slot[key];
         if (s != 0) {
             // existing pool — tick + stamp wall-clock activity time
-            uint256 newSlot = BPC.tickSlot(s, uint32(block.number), depthWad);
+            uint256 newSlot = BPC.tickSlot(s, uint32(block.number), depthWad, uint32(block.timestamp));
             $.slot[key] = _stampTs(newSlot);
             emit Volume(key, amtIn, amtOut);
             return;
@@ -535,7 +535,7 @@ contract BlazePhoenixHub {
         if (!_canInsert($.pairKeys[t0][t1], depthWad)) return;
         _register(key, pool, kind, fee, hooks, t0, t1, false);
         // initial tick + stamp wall-clock activity time
-        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthWad));
+        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthWad, uint32(block.timestamp)));
         emit Volume(key, amtIn, amtOut);
     }
 
