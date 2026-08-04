@@ -501,3 +501,47 @@ oracle-free ("no oracle, no off-chain solver"). Two oracle-free resolutions exis
 
 Until one is chosen, `_estGas` remains reporting-only. That choice is the open item; the
 measurement supporting it is done.
+
+## What the security architecture costs — and how that compares to the industry
+
+`forge test --match-contract SecurityArchitectureGas -vv`. The same economic trade executed two
+ways: through the Router with every guarantee active, versus pushing tokens into the pair and
+calling `swap()` directly with no guarantees at all. Measured in steady state (a warm-up swap
+runs first, so the one-off cold registry SSTOREs that register a new pool are not counted).
+
+| One V2 leg | Gas |
+|---|---|
+| Router — floor re-derivation, on-chain fee base, per-leg pull bound, reentrancy guard, registry feedback | 97,553 |
+| Raw pool swap — no guarantees | 8,538 |
+| **Security + accounting overhead** | **89,015** |
+| of which registry feedback (isolated earlier) | ~3,889 |
+| **pure verification cost** | **~85,126** |
+
+The 11.4x ratio overstates the case — the raw arm against a trivial mock is unrealistically
+cheap. **The absolute overhead, ~89,000 gas, is the number worth quoting.**
+
+### Calibration against published figures
+
+Industry reporting puts aggregator overhead at **30,000-80,000 gas over a single direct swap**
+(a $5,000 USDC→ETH trade cited at ~$4 gas direct on Uniswap V3 vs ~$8 on 1inch). BlazePhoenix
+measures **~89,000 for one leg** — at, and slightly above, the top of that band.
+
+That is not an anomaly and not a bug: the guarantees are real and deliberately chosen (the
+Router re-derives its floor and fee base from realised execution rather than trusting caller
+calldata). But it does calibrate the opening question of this work — *"isn't that a lot of
+gas?"* — with a defensible answer: **yes, we sit at the expensive end of the aggregator band,
+by design, and the single unexploited lever is leg count rather than micro-optimisation.**
+
+### Where this lands against the rest of the measurements
+
+- Per extra leg: ~28,700 (execution) + ~3,889 (registry) ≈ **32,600**.
+- So a 5-leg route carries roughly 89,000 + 4 × 32,600 ≈ **220,000 gas of overhead** over a raw
+  single-pool swap — consistent with the 186,000-per-swap steady state measured separately.
+- `_estGas` already prices each leg (90k V2 / 110k V3 / 140k Curve / 180k V4) and the Quoter
+  publishes it, but no code path consults it when choosing how many legs to take.
+
+Research note 047 ("Fidelidade Proporcional ao Custo") states the governing principle — *spend
+expensive gas only where it buys fidelity, never during candidate scanning* — and the codebase
+applies it correctly to the QUOTE phase (cheap sufficient reads for V2/Curve/Solidly, costly
+revert-extraction only once on the chosen route). **The same principle is never applied to the
+EXECUTION phase.** That asymmetry, not any individual opcode, is the standing gas finding.
