@@ -300,6 +300,9 @@ contract BlazePhoenixRouter {
             uint256 realIn = h == 0 ? amountIn : BPC.balanceOf(hop.tokenIn, address(this));
             uint256 quotedIn;
             for (uint256 l; l < legs; ) { quotedIn += hop.legs[l].amountIn; unchecked { ++l; } }
+            // scaleNum/scaleDen are capped for hop 0 in _execute (issue #1) —
+            // the cap lives there, not here, to keep this function inside its
+            // razor-thin via-IR stack budget.
             scaleNum = realIn;
             scaleDen = quotedIn == 0 ? 1 : quotedIn;
         }
@@ -402,6 +405,19 @@ contract BlazePhoenixRouter {
             // stack frame shallow.
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
                 _hopScaleImpactAndQuote(hop, h, amountIn);
+            // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
+            // holds the caller's FULL exact-in amount (scaleNum), but the Solver
+            // may have DELIBERATELY committed less — the phantom-tier capacity
+            // clamp cuts leg.amountIn below what a thin V3/Algebra pool can pay.
+            // The plan's truth is Σ leg.amountIn (scaleDen); scaling up to
+            // scaleNum would reconstruct the pre-cut order and force-feed the
+            // whole thing into the pool (a revert with the per-leg floor, or a
+            // ~20–27% one-way loss without it). Cap so a hop never spends past
+            // what its legs committed; the residual sweep returns the remainder.
+            // Fee-on-transfer is unaffected: there scaleNum (received) < scaleDen,
+            // so the cap never fires and the existing scale-DOWN still applies.
+            // Hop 1+ is untouched — realIn is the true bridge output, all spent.
+            if (h == 0 && scaleNum > scaleDen) scaleNum = scaleDen;
             impactAcc += hopImpact;
             onchainQuoteAcc += hopQuote;
 

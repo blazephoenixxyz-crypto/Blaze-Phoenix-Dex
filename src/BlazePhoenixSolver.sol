@@ -525,7 +525,13 @@ contract BlazePhoenixSolver {
         if (legCount == 0) return hop;
 
         Leg[] memory legs = new Leg[](legCount);
-        for (uint256 i; i < legCount; ) { legs[i] = tmpLegs[i]; unchecked { ++i; } }
+        // Σ of the COMMITTED (post-clamp) leg inputs — the honest hop.amountIn.
+        // Accumulated in the copy loop that already runs, so no extra pass and
+        // no hot-loop local (issue #1): when a phantom cut freed capital that no
+        // surviving venue could reabsorb, this is < the caller's amountIn and the
+        // Router's residual sweep returns the difference.
+        uint256 committedIn;
+        for (uint256 i; i < legCount; ) { legs[i] = tmpLegs[i]; committedIn += tmpLegs[i].amountIn; unchecked { ++i; } }
 
         // Multi-leg conservatism (≥3 legs): shave each expectedOut by legCount × 5 BPS.
         if (legCount >= 3) {
@@ -540,7 +546,7 @@ contract BlazePhoenixSolver {
         }
         hop = Hop({
             tokenIn: tIn, tokenOut: tOut,
-            amountIn: amountIn, expectedOut: totalOut, legs: legs
+            amountIn: committedIn, expectedOut: totalOut, legs: legs
         });
     }
 
@@ -674,7 +680,12 @@ contract BlazePhoenixSolver {
         });
         hop = Hop({
             tokenIn: tIn, tokenOut: tOut,
-            amountIn: amountIn, expectedOut: out_, legs: legs
+            // Report the COMMITTED input (post-clamp legIn), not the caller's
+            // original order, so hop.amountIn can never disagree with the leg it
+            // actually carries. The Router derives the spend cap from Σ leg.amountIn
+            // regardless, but an honest hop.amountIn keeps previewPlan and every
+            // off-chain reader truthful — issue #1 (NetGakarot).
+            amountIn: legIn, expectedOut: out_, legs: legs
         });
     }
 
