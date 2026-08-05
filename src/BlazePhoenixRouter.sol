@@ -394,6 +394,19 @@ contract BlazePhoenixRouter {
         // "Fee base" section below).
         uint256 onchainQuoteAcc;
 
+        // Pre-swap balance of every intermediate (bridge) token, so the residual
+        // sweep below returns only what THIS swap produced — never a balance the
+        // Router happened to hold at entry. Mirrors the tokenIn sweep's baseIn
+        // guard, making both sweeps symmetric (finding: NetGakarot-class review —
+        // the bridge sweep otherwise handed a crafted route the Router's
+        // dust/mis-sent balance of any caller-named intermediate token).
+        uint256[] memory bridgeBase = new uint256[](route.hops.length);
+        for (uint256 bh; bh + 1 < route.hops.length; ) {
+            address bt = route.hops[bh].tokenOut;
+            if (bt != tokenIn && bt != tokenOut) bridgeBase[bh] = BPC.balanceOf(bt, address(this));
+            unchecked { ++bh; }
+        }
+
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
@@ -462,7 +475,8 @@ contract BlazePhoenixRouter {
             address bridge = route.hops[h].tokenOut;
             if (bridge != tokenIn && bridge != tokenOut) {
                 uint256 rb = BPC.balanceOf(bridge, address(this));
-                if (rb > 0) BPC.safeTransfer(bridge, msg.sender, rb);
+                uint256 bb = bridgeBase[h];
+                if (rb > bb) BPC.safeTransfer(bridge, msg.sender, rb - bb);
             }
             unchecked { ++h; }
         }
