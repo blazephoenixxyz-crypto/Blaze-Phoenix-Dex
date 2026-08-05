@@ -89,6 +89,26 @@ factory/bridge addresses a real deploy would, with placeholder test
 treasuries, so the test suite exercises real discovery and execution
 without depending on the actual deploy configuration.
 
+## Security & bug bounty
+
+The design doctrine is **verification over attestation**: the source is public
+and verified, safety properties are re-derived on-chain at execution rather than
+trusted from calldata, and every reported issue is reproduced against this repo's
+own code and closed with a regression test that fails on the old code and passes
+on the fix.
+
+- **Open, permissive bounty.** Read the verified source, find a real issue, report
+  it — you're credited in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md)
+  and, once the pool is funded, paid.
+- **Private disclosure:** **security@blazephoenix.xyz** / blazephoenixxyz@proton.me.
+  Non-critical reports may be filed as a GitHub issue.
+- Fix internals are kept brief in public — the verified source and the tests are
+  the record.
+
+Recent: a **High**-severity route-scaling / capacity-clamp interaction reported by
+[NetGakarot](https://github.com/NetGakarot) — validated, fixed and regression-tested
+(`test/RouterUndoesSolverCapacityClamp.t.sol`).
+
 ## License
 
 [Business Source License 1.1](./LICENSE) (BUSL-1.1). Converts to
