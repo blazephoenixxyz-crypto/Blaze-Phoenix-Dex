@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FOUNDRY_PROFILE: default
+
+jobs:
+  test:
+    name: build + test (fast profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Show versions
+        run: forge --version
+
+      - name: Build
+        run: forge build
+
+      - name: Test
+        run: forge test -vvv
+
+      - name: Deeper invariant/fuzz pass
+        run: forge test --match-path "test/*Invariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
+
+  size-guard:
+    name: EIP-170 size guard (release profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Release build with sizes
+        id: sizes
+        env:
+          FOUNDRY_PROFILE: release
+        run: |
+          set -o pipefail
+          forge build --sizes | tee sizes.txt
+
+      - name: Enforce EIP-170 with margin (< 24000 bytes runtime)
+        env:
+          FOUNDRY_PROFILE: release
+        run: |
+          # Fail if any BlazePhoenix* contract's deployed/runtime size >= 24000 bytes.
+          # EIP-170 hard limit is 24576; we require a safety margin.
+          python3 - <<'PY'
+          import re, sys
+          limit = 24000
+          bad = []
+          rows = []
+          with open("sizes.txt") as f:
+              for line in f:
+                  if "BlazePhoenix" not in line:
+                      continue
+                  # forge --sizes rows look like: | Name | runtime | initcode | ... |
+                  nums = [int(x.replace(",", "")) for x in re.findall(r"[\d,]+", line) if x.strip(",").isdigit() or "," in x]
+                  name_m = re.search(r"BlazePhoenix\w*", line)
+                  name = name_m.group(0) if name_m else "?"
+                  if nums:
+                      runtime = nums[0]
+                      rows.append((name, runtime))
+                      if runtime >= limit:
+                          bad.append((name, runtime))
+          print("Runtime sizes (bytes):")
+          for n, r in rows:
+              print(f"  {n:32s} {r:6d}  ({limit - r:+d} to margin, {24576 - r:+d} to hard limit)")
+          if bad:
+              print("\nEIP-170 MARGIN VIOLATION:")
+              for n, r in bad:
+                  print(f"  {n} = {r} bytes >= {limit}")
+              sys.exit(1)
+          print("\nAll BlazePhoenix contracts under the 24000-byte margin. OK.")
+          PY
