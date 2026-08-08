@@ -30,7 +30,7 @@
 //
 //  Storage layout follows ERC-7201 namespacing for proxy compatibility.
 // =============================================================================
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,

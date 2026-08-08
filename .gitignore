@@ -13,6 +13,10 @@ broadcast/
 script/DeployAll.s.sol
 script/DeployRobinhood.s.sol
 
+# Internal design/audit docs — describe unfixed vulnerabilities and proprietary
+# design. Kept locally (private vault) and intentionally never published here.
+docs/internal/
+
 # Environment / secrets
 .env
 .env.*
@@ -21,3 +25,6 @@ script/DeployRobinhood.s.sol
 .vscode/
 .idea/
 .DS_Store
+
+# SDD scratch workspace
+.superpowers/

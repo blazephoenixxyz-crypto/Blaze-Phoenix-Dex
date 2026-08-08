@@ -38,7 +38,7 @@
 //  user's protection is userMinOut and the Router's own floors, not this
 //  preview's fee line.
 // =============================================================================
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,

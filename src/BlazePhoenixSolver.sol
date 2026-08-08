@@ -28,7 +28,7 @@
 //  Budget: MAX_LEGS = 5 globally. Bridge routes split it between the two
 //  stages dynamically (typically 3 legs to the bridge, 2 from it).
 // =============================================================================
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,

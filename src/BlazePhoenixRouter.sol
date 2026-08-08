@@ -23,7 +23,7 @@
 //  floor. Registry feedback (Hub.recordSwap) is sent only on the success
 //  path, so no storage is written when the floor rejects.
 // =============================================================================
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,

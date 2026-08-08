@@ -31,7 +31,7 @@
 //  Math primitives are defined here only; other contracts import this library
 //  as BPC.
 // =============================================================================
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // ─── Shared structs (used by Solver, Router, Quoter) ────────────────────────
 

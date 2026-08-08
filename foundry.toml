@@ -3,7 +3,9 @@ src = "src"
 test = "test"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.28"
+solc_version = "0.8.36"
+evm_version = "cancun"
+bytecode_hash = "none"
 optimizer = true
 # via_ir stays ON: several functions (Solver._buildHop/_weights, Router.
 # _execute) are written assuming the via-IR pipeline's stack-slot folding —
@@ -36,7 +38,9 @@ src = "src"
 test = "test"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.28"
+solc_version = "0.8.36"
+evm_version = "cancun"
+bytecode_hash = "none"
 optimizer = true
 optimizer_runs = 999999
 via_ir = true
