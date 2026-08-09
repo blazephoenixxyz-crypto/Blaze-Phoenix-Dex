@@ -136,7 +136,8 @@ contract BlazePhoenixRouter {
 
     error RouterE(uint16 code);
     // 1 = unauthorized, 2 = paused, 3 = bad input, 4 = deadline,
-    // 5 = slippage, 6 = callback auth, 7 = reentrancy, 8 = swap failed
+    // 5 = slippage, 6 = callback auth, 7 = reentrancy, 8 = swap failed,
+    // 9 = disallowed V4 hook, 10 = userMinOut == 0 with amountIn > 0 (BP-04)
 
     modifier onlyAdmin() { if (msg.sender != admin) revert RouterE(1); _; }
     // Control powers (treasuries, permit2, pause, admin transfer) are disabled
@@ -184,16 +185,20 @@ contract BlazePhoenixRouter {
 
     /// @notice Classic exact-input swap. User pre-approves the Router.
     /// @dev    userMinOut is the PRIMARY slippage guard — derive it from a
-    ///         fresh quote (Quoter.previewPlanExact) on every call. Passing 0
-    ///         delegates protection to the protocol floors alone (hard-capped
-    ///         at 25% below the attested quote per leg, 20% below the
-    ///         realised total in aggregate), which BOUNDS sandwich loss but
-    ///         does not eliminate it. The same applies to the Permit2 and
-    ///         7702 entries below. Integrators MUST pass a real bound.
+    ///         fresh quote (Quoter.previewPlanExact) on every call. BP-04:
+    ///         passing 0 with a non-zero amountIn REVERTS (RouterE(10)) in
+    ///         all three entry points — the protocol floors alone (hard-
+    ///         capped at 25% below the attested quote per leg, 20% below
+    ///         the realised total in aggregate) only BOUND sandwich loss,
+    ///         they do not eliminate it, so a real bound is mandatory.
+    ///         I8 (idempotence) is preserved: the guard is conditioned on
+    ///         amountIn > 0, so a zero-amount call never reverts solely
+    ///         because userMinOut is 0.
     function swapExactIn(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
+        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);
     }
 
@@ -203,6 +208,7 @@ contract BlazePhoenixRouter {
         address recipient, uint256 deadline,
         IPermit2.PermitTransferFrom calldata permit, bytes calldata signature
     ) external whenLive nrEntrant returns (uint256) {
+        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         if (permit.permitted.amount < amountIn) revert RouterE(3);
         IPermit2(permit2).permitTransferFrom(
             permit,
@@ -229,6 +235,7 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
+        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);
     }
 
