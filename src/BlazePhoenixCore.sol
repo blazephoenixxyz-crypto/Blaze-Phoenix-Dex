@@ -712,7 +712,7 @@ library BlazePhoenixCore {
     function _solY(uint256 x, uint256 K, uint256 y0)
         private pure returns (uint256 y)
     {
-        if (x == 0 || K == 0) return 0;
+        if (x == 0 || K == 0) return y0;
         y = y0;
         for (uint256 i; i < 64; ) {
             uint256 ky = _solK(x, y);
@@ -720,7 +720,7 @@ library BlazePhoenixCore {
             // 512-bit intermediates (mulDiv) so a deep stable pool cannot make
             // this overflow into a checked-arithmetic revert (a quote DoS).
             uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 3 * mulDiv(y, y, WAD), WAD);
-            if (fp == 0) return 0;   // derivative vanished: fail closed
+            if (fp == 0) return y0;  // derivative vanished -> caller maps to out = 0
             uint256 yPrev = y;
             if (ky < K) {
                 uint256 dy = mulDiv(K - ky, WAD, fp);
@@ -735,10 +735,12 @@ library BlazePhoenixCore {
             if (d <= 1) return y;   // converged
             unchecked { ++i; }
         }
-        // Iteration cap reached without convergence: fail closed (return 0) so
-        // the caller treats this pool as unpriceable instead of trusting an
-        // unconverged root — matching Curve (raise) and Aerodrome (revert "!y").
-        return 0;
+        // Iteration cap reached without convergence: fail closed. Return y0 —
+        // the seed, equal to the output reserve Y — so the caller's `y >= Y`
+        // guard maps this to out = 0 (pool treated as unpriceable), matching
+        // Curve (raise) / Aerodrome (revert "!y"). Returning 0 here would make
+        // the caller compute out = Y - 0 = Y, a catastrophic over-quote.
+        return y0;
     }
 
     // =========================================================================
