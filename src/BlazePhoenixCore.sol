@@ -765,7 +765,7 @@ library BlazePhoenixCore {
     /// @dev    The single quote dispatcher used by Solver and Quoter; kind
     ///         branching lives here only.
     function universalQuote(QuoteCtx memory c, uint256 amountIn)
-        internal view returns (uint256 out, uint256 depthWad)
+        public view returns (uint256 out, uint256 depthWad)
     {
         if (amountIn == 0) return (0, 0);
         uint8 k = c.kind;

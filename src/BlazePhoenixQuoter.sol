@@ -42,7 +42,7 @@ pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,
-    Route, Hop, Leg, RoutePlan
+    Route, Hop, Leg, RoutePlan, QuoteCtx
 } from "./BlazePhoenixCore.sol";
 
 interface ISolverQ {
@@ -358,14 +358,22 @@ contract BlazePhoenixQuoter {
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
                 } else if (leg.kind == BPC.KIND_V2) {
-                    (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);
-                    uint24 v2fee = leg.fee == 0 ? 30 : leg.fee;
-                    legOut = BPC.outV2(
-                        legIn,
-                        leg.zeroForOne ? r0 : r1,
-                        leg.zeroForOne ? r1 : r0,
-                        v2fee
-                    );
+                    // DEDUP BP-14/P4: price via the ONE Core dispatcher — the
+                    // same deployed library bytecode the Solver links — not a
+                    // local re-implementation of the V2 branch. The 0 -> 30
+                    // bps fee default now lives in universalQuote alone
+                    // (parity pinned by test/CoreV2QuoteParity.t.sol). The
+                    // ctx carries coordinates only; the KIND_V2 branch reads
+                    // pool/zeroForOne/fee and nothing else. NOTE: structural
+                    // quote==exec coherence holds for Solver<->Quoter here;
+                    // the Router keeps its own inlined copies (gas/stack) —
+                    // compile-time coherence, registered in the Seam Register.
+                    QuoteCtx memory qc;
+                    qc.kind       = BPC.KIND_V2;
+                    qc.pool       = leg.pool;
+                    qc.zeroForOne = leg.zeroForOne;
+                    qc.fee        = leg.fee;
+                    (legOut, ) = BPC.universalQuote(qc, legIn);
                 } else if (leg.kind == BPC.KIND_V4) {
                     legOut = _simV4(leg, route.hops[h].tokenIn, legIn);
                     if (legOut == 0)
