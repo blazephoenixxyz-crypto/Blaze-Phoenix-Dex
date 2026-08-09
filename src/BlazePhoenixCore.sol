@@ -444,9 +444,11 @@ library BlazePhoenixCore {
             // staticcall succeed with empty returndata, so an unguarded mload
             // would read stale memory as reserves. >= (not ==) because a real
             // getReserves() returns 96 bytes (uint112,uint112,uint32).
-            if and(staticcall(GAS_CAP, pool, m, 4, m, 64), iszero(lt(returndatasize(), 64))) {
-                r0 := and(mload(m), 0xffffffffffffffffffffffffffff)
-                r1 := and(mload(add(m, 32)), 0xffffffffffffffffffffffffffff)
+            if staticcall(GAS_CAP, pool, m, 4, m, 64) {
+                if iszero(lt(returndatasize(), 64)) {
+                    r0 := and(mload(m), 0xffffffffffffffffffffffffffff)
+                    r1 := and(mload(add(m, 32)), 0xffffffffffffffffffffffffffff)
+                }
             }
         }
     }
@@ -472,7 +474,9 @@ library BlazePhoenixCore {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0x1a68650200000000000000000000000000000000000000000000000000000000)
-            if and(staticcall(GAS_CAP, pool, m, 4, m, 32), iszero(lt(returndatasize(), 32))) { liq := mload(m) }
+            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
+                if iszero(lt(returndatasize(), 32)) { liq := mload(m) }
+            }
         }
     }
 
@@ -482,11 +486,15 @@ library BlazePhoenixCore {
             let m := mload(0x40)
             // Uniswap V3 slot0() (0x3850c7bd): sqrtPriceX96 is word 0
             mstore(m, 0x3850c7bd00000000000000000000000000000000000000000000000000000000)
-            if and(staticcall(GAS_CAP, pool, m, 4, m, 64), iszero(lt(returndatasize(), 32))) { sp := mload(m) }
+            if staticcall(GAS_CAP, pool, m, 4, m, 64) {
+                if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
+            }
             // Algebra (Camelot) fallback: globalState() (0xe76c01e4), price word 0
             if iszero(sp) {
                 mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000)
-                if and(staticcall(GAS_CAP, pool, m, 4, m, 64), iszero(lt(returndatasize(), 32))) { sp := mload(m) }
+                if staticcall(GAS_CAP, pool, m, 4, m, 64) {
+                    if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
+                }
             }
         }
     }
@@ -495,7 +503,9 @@ library BlazePhoenixCore {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0x0dfe168100000000000000000000000000000000000000000000000000000000)
-            if and(staticcall(GAS_CAP, pool, m, 4, m, 32), iszero(lt(returndatasize(), 32))) { t := mload(m) }
+            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
+                if iszero(lt(returndatasize(), 32)) { t := mload(m) }
+            }
         }
     }
 
@@ -503,7 +513,9 @@ library BlazePhoenixCore {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0xd21220a700000000000000000000000000000000000000000000000000000000)
-            if and(staticcall(GAS_CAP, pool, m, 4, m, 32), iszero(lt(returndatasize(), 32))) { t := mload(m) }
+            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
+                if iszero(lt(returndatasize(), 32)) { t := mload(m) }
+            }
         }
     }
 
