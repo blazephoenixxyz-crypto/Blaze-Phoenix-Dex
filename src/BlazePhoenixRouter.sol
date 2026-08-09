@@ -400,6 +400,11 @@ contract BlazePhoenixRouter {
         // caller-supplied route.totalOut as the fee-base reference (see the
         // "Fee base" section below).
         uint256 onchainQuoteAcc;
+        // Quote of the FINAL hop only, denominated in tokenOut — the correct
+        // reference for the protocol floor. onchainQuoteAcc SUMS the per-hop
+        // quotes, whose units differ across a multi-hop route, so it cannot
+        // serve as a tokenOut-denominated floor; the last hop's quote can.
+        uint256 finalHopQuote;
 
         // Pre-swap balance of every intermediate (bridge) token, so the residual
         // sweep below returns only what THIS swap produced — never a balance the
@@ -440,6 +445,7 @@ contract BlazePhoenixRouter {
             if (h == 0 && scaleNum > scaleDen) scaleNum = scaleDen;
             impactAcc += hopImpact;
             onchainQuoteAcc += hopQuote;
+            if (h + 1 == route.hops.length) finalHopQuote = hopQuote;
 
             for (uint256 l; l < legs; ) {
                 Leg calldata leg = hop.legs[l];
@@ -511,9 +517,17 @@ contract BlazePhoenixRouter {
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.
-        // protocolFloorOut is a fraction of the realised output; userMinOut is
-        // an absolute amount. effMin is the strictest of all three.
-        uint256 protocolFloorOut = BPC.mulDiv(totalReceived, floorBps, BPC.BPS);
+        // protocolFloorOut is a fraction of the in-frame on-chain quote of the
+        // final hop (denominated in tokenOut, unforgeable by calldata), NOT of
+        // the realised output. Anchoring it to the realised output made it
+        // mathematically inert: with floorBps <= BPS it could never exceed the
+        // realised amount, so the guard below never fired. Deriving it from the
+        // measured final-hop quote lets a fill that lands far below the quote
+        // revert. userMinOut is an absolute amount; effMin is the strictest of
+        // all three. If the final-hop quote is unavailable (finalHopQuote == 0)
+        // the protocol floor is inert for this swap and userMinOut, which the
+        // entrypoints force to be non-zero, remains the backstop.
+        uint256 protocolFloorOut = BPC.mulDiv(finalHopQuote, floorBps, BPC.BPS);
         uint256 effMin = userMinOut;
         // Fee-on-transfer (MEASURED during execution, unforgeable by a crafted
         // Route): the quote-derived singleOutFloor assumed no transfer fee and
@@ -599,6 +613,12 @@ contract BlazePhoenixRouter {
     ///         measured bridge balance. When nothing shrank the input,
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
     function _execScaled(Leg calldata leg, address tokenIn, uint256 amt) private {
+        // A zero-input leg is a no-op: skip it entirely. This also closes the
+        // maxAmt == 0 "no cap" path in _v3Callback — a leg scaled to zero input
+        // (for example the last leg when the Router holds no remaining input)
+        // must never reach pool.swap(), where the transient amount cap would be
+        // 0 and therefore unbounded. The residual sweep returns unspent input.
+        if (amt == 0) return;
         // ─── Per-leg iron floor (see LEG_FLOOR_BPS) ───
         // Measure THIS leg's real contribution to the Router's tokenOut
         // balance and require ≥ 75% of its pro-rata attested quote. The
@@ -856,6 +876,12 @@ contract BlazePhoenixRouter {
         // The pool cannot demand more than the input we intended to spend.
         // Bounds a malicious registered pool to the current leg's budget.
         if (maxAmt != 0 && owed > maxAmt) revert RouterE(8);
+        // Single-shot (checks-effects-interactions): clear the transient auth
+        // context BEFORE paying, so a pool that re-enters this callback during
+        // its own swap() reads expected == 0 on the second entry and reverts(6).
+        // Without this a malicious registered pool could pull the committed
+        // input more than once, draining the input budgeted to sibling legs.
+        assembly { tstore(sP, 0) tstore(sT, 0) tstore(sA, 0) }
         BPC.safeTransfer(tIn, msg.sender, owed);
     }
 
@@ -887,6 +913,15 @@ contract BlazePhoenixRouter {
         if (owedDelta > 0 || receivedDelta < 0) revert RouterE(8);
         uint256 owe  = uint256(-owedDelta);
         uint256 recv = uint256(receivedDelta);
+        // The pool cannot demand more input than the amount committed to this
+        // leg — mirrors the V3 callback's maxAmt cap. Bounds a malicious pool
+        // or hook to the current leg's budget so it cannot pull the input
+        // budgeted to sibling legs.
+        if (owe > amt) revert RouterE(8);
+        // Single-shot (checks-effects-interactions): clear the transient unlock
+        // context before settling, so any re-entry into this callback reads
+        // tIn == 0 and reverts(6).
+        assembly { tstore(sI, 0) tstore(sO, 0) }
         IV4PoolManager(mgr).sync(tIn);
         BPC.safeTransfer(tIn, mgr, owe);
         IV4PoolManager(mgr).settle();

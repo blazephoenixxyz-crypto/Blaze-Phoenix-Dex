@@ -440,7 +440,11 @@ library BlazePhoenixCore {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0x0902f1ac00000000000000000000000000000000000000000000000000000000)
-            if staticcall(GAS_CAP, pool, m, 4, m, 64) {
+            // Guard returndatasize >= 64 (two words): a codeless address makes
+            // staticcall succeed with empty returndata, so an unguarded mload
+            // would read stale memory as reserves. >= (not ==) because a real
+            // getReserves() returns 96 bytes (uint112,uint112,uint32).
+            if and(staticcall(GAS_CAP, pool, m, 4, m, 64), iszero(lt(returndatasize(), 64))) {
                 r0 := and(mload(m), 0xffffffffffffffffffffffffffff)
                 r1 := and(mload(add(m, 32)), 0xffffffffffffffffffffffffffff)
             }
@@ -468,7 +472,7 @@ library BlazePhoenixCore {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0x1a68650200000000000000000000000000000000000000000000000000000000)
-            if staticcall(GAS_CAP, pool, m, 4, m, 32) { liq := mload(m) }
+            if and(staticcall(GAS_CAP, pool, m, 4, m, 32), iszero(lt(returndatasize(), 32))) { liq := mload(m) }
         }
     }
 
@@ -478,11 +482,11 @@ library BlazePhoenixCore {
             let m := mload(0x40)
             // Uniswap V3 slot0() (0x3850c7bd): sqrtPriceX96 is word 0
             mstore(m, 0x3850c7bd00000000000000000000000000000000000000000000000000000000)
-            if staticcall(GAS_CAP, pool, m, 4, m, 64) { sp := mload(m) }
+            if and(staticcall(GAS_CAP, pool, m, 4, m, 64), iszero(lt(returndatasize(), 32))) { sp := mload(m) }
             // Algebra (Camelot) fallback: globalState() (0xe76c01e4), price word 0
             if iszero(sp) {
                 mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000)
-                if staticcall(GAS_CAP, pool, m, 4, m, 64) { sp := mload(m) }
+                if and(staticcall(GAS_CAP, pool, m, 4, m, 64), iszero(lt(returndatasize(), 32))) { sp := mload(m) }
             }
         }
     }
@@ -491,7 +495,7 @@ library BlazePhoenixCore {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0x0dfe168100000000000000000000000000000000000000000000000000000000)
-            if staticcall(GAS_CAP, pool, m, 4, m, 32) { t := mload(m) }
+            if and(staticcall(GAS_CAP, pool, m, 4, m, 32), iszero(lt(returndatasize(), 32))) { t := mload(m) }
         }
     }
 
@@ -499,7 +503,7 @@ library BlazePhoenixCore {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0xd21220a700000000000000000000000000000000000000000000000000000000)
-            if staticcall(GAS_CAP, pool, m, 4, m, 32) { t := mload(m) }
+            if and(staticcall(GAS_CAP, pool, m, 4, m, 32), iszero(lt(returndatasize(), 32))) { t := mload(m) }
         }
     }
 
@@ -685,9 +689,13 @@ library BlazePhoenixCore {
     }
 
     function _solK(uint256 x, uint256 y) private pure returns (uint256) {
-        uint256 a = (x * y) / WAD;
-        uint256 b = ((x * x) / WAD + (y * y) / WAD);
-        return (a * b) / WAD;
+        // 512-bit intermediates (mulDiv) so the Solidly cubic invariant does not
+        // revert on large stable reserves: the raw products x*y, x*x, y*y and
+        // a*b overflow around x ~ 1.5e28, turning a quote into a checked-
+        // arithmetic revert (a quote DoS on deep stable pools). See vault 093 M1.
+        uint256 a = mulDiv(x, y, WAD);
+        uint256 b = mulDiv(x, x, WAD) + mulDiv(y, y, WAD);
+        return mulDiv(a, b, WAD);
     }
 
     /// @notice Solve the Solidly stable invariant k = x³y + xy³ for y, given
@@ -708,23 +716,29 @@ library BlazePhoenixCore {
         y = y0;
         for (uint256 i; i < 64; ) {
             uint256 ky = _solK(x, y);
-            // f'(y) = x·(x² + 3y²)/WAD²  — the invariant's derivative in y.
-            uint256 fp = (x * ((x * x) / WAD + 3 * ((y * y) / WAD))) / WAD;
-            if (fp == 0) break;
+            // f'(y) = x·(x² + 3y²)/WAD² — the invariant's derivative in y.
+            // 512-bit intermediates (mulDiv) so a deep stable pool cannot make
+            // this overflow into a checked-arithmetic revert (a quote DoS).
+            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 3 * mulDiv(y, y, WAD), WAD);
+            if (fp == 0) return 0;   // derivative vanished: fail closed
             uint256 yPrev = y;
             if (ky < K) {
-                uint256 dy = ((K - ky) * WAD) / fp;
+                uint256 dy = mulDiv(K - ky, WAD, fp);
                 y += (dy == 0 ? 1 : dy);
             } else {
-                uint256 dy = ((ky - K) * WAD) / fp;
+                uint256 dy = mulDiv(ky - K, WAD, fp);
                 if (dy == 0) dy = 1;
                 if (dy >= y) dy = y / 2;   // never step past zero
                 y -= dy;
             }
             uint256 d = y > yPrev ? y - yPrev : yPrev - y;
-            if (d <= 1) break;
+            if (d <= 1) return y;   // converged
             unchecked { ++i; }
         }
+        // Iteration cap reached without convergence: fail closed (return 0) so
+        // the caller treats this pool as unpriceable instead of trusting an
+        // unconverged root — matching Curve (raise) and Aerodrome (revert "!y").
+        return 0;
     }
 
     // =========================================================================
