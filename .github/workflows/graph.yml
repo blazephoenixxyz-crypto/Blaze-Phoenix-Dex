@@ -1,0 +1,40 @@
+name: knowledge-graph
+
+# Builds the code knowledge graph in the cloud (GitHub compute), so it never
+# has to be built on the maintainer's device. The AST extraction uses no LLM,
+# so it costs no model tokens. The resulting graph.json is published as a build
+# artifact to download and query locally with the lightweight
+# `graphify path` / `graphify explain` commands.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [v3-hardening, main]
+    paths:
+      - 'src/**'
+      - '.github/workflows/graph.yml'
+
+jobs:
+  build-graph:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install graphify
+        run: pip install graphifyy
+
+      - name: Build the DEX code graph (AST only, no LLM)
+        run: graphify update src
+
+      - name: Upload the graph artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dex-code-graph
+          path: graphify-out/
+          if-no-files-found: error
