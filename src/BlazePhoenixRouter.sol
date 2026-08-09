@@ -100,11 +100,13 @@ contract BlazePhoenixRouter {
     ///         quote. Bounds the damage any single manipulated / sandwiched
     ///         pool can inflict REGARDLESS of how loose the caller's aggregate
     ///         userMinOut is: each leg must deliver at least this fraction of
-    ///         its own quote, rescaled to the input it actually spent. A
-    ///         deliberately DIFFERENT (unchanged) value from the aggregate
-    ///         hard floor, which was raised to 80% (see BlazePhoenixCore.
-    ///         FLOOR_HARD_MAX_LOSS_BPS) — this one stays at 75% per leg.
-    uint16  internal constant LEG_FLOOR_BPS     = 7_500;
+    ///         its own quote, rescaled to the input it actually spent. Raised
+    ///         to 80% to match the aggregate hard floor (BlazePhoenixCore.
+    ///         FLOOR_HARD_MAX_LOSS_BPS): the protocol runs across Ethereum L1
+    ///         and multiple L2s where public mempools make single-pool
+    ///         manipulation a live threat, so the per-leg guard is tightened
+    ///         rather than left looser than the aggregate.
+    uint16  internal constant LEG_FLOOR_BPS     = 8_000;
 
     /// @notice Transient storage slots — used to pass per-swap context to
     ///         the universal callback fallback without dirtying state.
