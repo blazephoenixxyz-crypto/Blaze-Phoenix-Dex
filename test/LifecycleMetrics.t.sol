@@ -82,7 +82,13 @@ contract LifecycleMetricsTest is Test {
         Route memory route = plan.best;
         vm.prank(user);
         uint256 g0 = gasleft();
-        router.swapExactIn(route, AMT, 0, user, type(uint256).max);
+        // BP-04: userMinOut must be > 0 (RouterE(10)). 1 wei satisfies the
+        // guard without constraining the fill — this harness measures GAS,
+        // not slippage. Calldata cost rises 12 gas (one zero byte -> non-
+        // zero) on BOTH sides of every live-vs-paused comparison, so the
+        // reported DELTAS are unchanged; absolute figures shift once versus
+        // pre-BP-04 logs.
+        router.swapExactIn(route, AMT, 1, user, type(uint256).max);
         gasUsed = g0 - gasleft();
     }
 

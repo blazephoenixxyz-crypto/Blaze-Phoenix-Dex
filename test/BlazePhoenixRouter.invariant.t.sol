@@ -48,7 +48,7 @@ contract RouterHandler is Test {
     function tokensLength() external view returns (uint256) { return tokens.length; }
     function tokenAt(uint256 i) external view returns (MockERC20) { return tokens[i]; }
 
-    function swap(uint256 pairSeed, uint256 amountSeed, bool reverseDirection) external {
+    function swap(uint256 pairSeed, uint256 amountSeed, uint256 minOutSeed, bool reverseDirection) external {
         callCount++;
         if (pairs.length == 0) return;
         MockV2Pair pair = pairs[pairSeed % pairs.length];
@@ -85,9 +85,26 @@ contract RouterHandler is Test {
         uint256 t1BalBefore = MockERC20(tOut).balanceOf(treasury1);
         uint256 t2BalBefore = MockERC20(tOut).balanceOf(treasury2);
 
+        // BP-04: userMinOut == 0 now reverts RouterE(10) at the entry point —
+        // fuzz a REAL bound in [1, quoted] instead. Two distinct guards can
+        // then fire: (a) the pre-fee check compares the GROSS output against
+        // effMin = max(userMinOut, protocolFloorOut, singleOutFloor) — an
+        // honest pool pays the quote, so it passes for any minOut <= quoted;
+        // (b) the post-fee check reverts when DELIVERED (gross minus the
+        // 28 bps protocol fee) lands below userMinOut — draws in the narrow
+        // band (quoted - fee, quoted] exercise that user-slippage revert
+        // while the rest settle. Non-vacuity is MEASURED by afterInvariant,
+        // not assumed here.
+        uint256 minOut = bound(minOutSeed, 1, quoted);
+
         vm.prank(user);
-        try router.swapExactIn(route, amountIn, 0, user, block.timestamp + 1) returns (uint256 delivered) {
+        try router.swapExactIn(route, amountIn, minOut, user, block.timestamp + 1) returns (uint256 delivered) {
             successCount++;
+            // Sentinel write for invariant_DeliveredNeverBelowUserMinOut:
+            // unreachable today BY CONSTRUCTION (the Router's final check
+            // reverts when delivered < userMinOut) — it records a violation
+            // only if a refactor ever removes that check.
+            if (delivered < minOut) ghost_deliveredBelowMinOut = true;
             uint256 feeDelta = (MockERC20(tOut).balanceOf(treasury1) - t1BalBefore)
                               + (MockERC20(tOut).balanceOf(treasury2) - t2BalBefore);
             // fee must never exceed PROTOCOL_FEE_BPS (28/10000) of the gross
@@ -167,5 +184,31 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
     function invariant_FeeNeverExceedsProtocolMax() public view {
         assertFalse(handler.ghost_feeBoundViolated(),
             "a swap collected more than PROTOCOL_FEE_BPS of its own gross output");
+    }
+
+    /// @notice REGRESSION SENTINEL, not coverage: the Router's final check
+    ///         (delivered >= userMinOut on every successful return) makes the
+    ///         handler's ghost unreachable BY CONSTRUCTION today. This turns
+    ///         red only if a refactor ever removes that post-fee check —
+    ///         which would let a fee-on-transfer tokenOut slip a user below
+    ///         the bound they set (the BP-04 mandate).
+    function invariant_DeliveredNeverBelowUserMinOut() public view {
+        assertFalse(handler.ghost_deliveredBelowMinOut(),
+            "a successful swap delivered less than the caller's userMinOut");
+    }
+
+    /// @notice ANTI-VACUITY — the real lesson of 2026-08-09: a new entry
+    ///         guard (BP-04, RouterE(10)) silently turned every handler swap
+    ///         into a revert and the invariants above went green over an
+    ///         empty universe ("no adversarial route ever settled"). Runs
+    ///         once at the end of each invariant run: if the handler was
+    ///         exercised, swaps MUST have settled. The gate of 10 stays
+    ///         engaged under the configured depth (50) and never trips on a
+    ///         short custom run.
+    function afterInvariant() public view {
+        if (handler.callCount() >= 10) {
+            assertGt(handler.successCount(), 0,
+                "vacuous invariant run: zero swaps settled (entry-guard regression?)");
+        }
     }
 }

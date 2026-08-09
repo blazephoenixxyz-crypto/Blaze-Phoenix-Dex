@@ -307,11 +307,21 @@ contract BlazePhoenixRouter {
             uint256 realIn = h == 0 ? amountIn : BPC.balanceOf(hop.tokenIn, address(this));
             uint256 quotedIn;
             for (uint256 l; l < legs; ) { quotedIn += hop.legs[l].amountIn; unchecked { ++l; } }
-            // scaleNum/scaleDen are capped for hop 0 in _execute (issue #1) —
-            // the cap lives there, not here, to keep this function inside its
-            // razor-thin via-IR stack budget.
+            // SECURITY (issue #1 cap × BP-02 floor seam): the hop-0 cap is
+            // applied HERE, BEFORE the quote loop below, so hopQuote/hopImpact
+            // are priced on the SAME legAmt _execute later spends. Capping
+            // only in _execute (as before) let the quote scale UP past the
+            // plan's committed Σ leg.amountIn while execution stayed capped —
+            // quote > realised on every input-surplus swap, so the 96%
+            // protocol floor rejected legitimate fills (CI 2026-08-09).
+            // Single source of truth: do NOT re-add a cap in _execute.
+            // The cap mutates existing named returns only — no new locals —
+            // so the razor-thin via-IR stack budget is untouched. If a future
+            // edit still trips stack-too-deep here, fold it into the
+            // assignment: scaleNum = (h == 0 && realIn > scaleDen) ? scaleDen : realIn;
             scaleNum = realIn;
             scaleDen = quotedIn == 0 ? 1 : quotedIn;
+            if (h == 0 && scaleNum > scaleDen) scaleNum = scaleDen;
         }
         address v4mgr;
         for (uint256 l; l < legs; ) {
@@ -431,18 +441,21 @@ contract BlazePhoenixRouter {
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
                 _hopScaleImpactAndQuote(hop, h, amountIn);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
-            // holds the caller's FULL exact-in amount (scaleNum), but the Solver
-            // may have DELIBERATELY committed less — the phantom-tier capacity
-            // clamp cuts leg.amountIn below what a thin V3/Algebra pool can pay.
-            // The plan's truth is Σ leg.amountIn (scaleDen); scaling up to
-            // scaleNum would reconstruct the pre-cut order and force-feed the
-            // whole thing into the pool (a revert with the per-leg floor, or a
-            // ~20–27% one-way loss without it). Cap so a hop never spends past
-            // what its legs committed; the residual sweep returns the remainder.
+            // may hold MORE input than the plan committed (the phantom-tier
+            // capacity clamp cuts leg.amountIn on purpose); spending past
+            // Σ leg.amountIn would force-feed the pre-cut order into a thin
+            // pool (a revert with the per-leg floor, or a ~20–27% one-way
+            // loss without it). The cap (scaleNum = min(scaleNum, scaleDen)
+            // for h == 0) lives INSIDE _hopScaleImpactAndQuote, applied
+            // BEFORE its quote loop, so the scaleNum returned above is
+            // already capped and hopQuote/hopImpact price the SAME legAmt
+            // the loop below executes — the BP-02 floor compares realised
+            // output with a quote of the amounts actually spent, never a
+            // scaled-up phantom. Single source of truth: do NOT re-cap here —
+            // a second cap site is exactly the seam that broke on 2026-08-09.
             // Fee-on-transfer is unaffected: there scaleNum (received) < scaleDen,
             // so the cap never fires and the existing scale-DOWN still applies.
             // Hop 1+ is untouched — realIn is the true bridge output, all spent.
-            if (h == 0 && scaleNum > scaleDen) scaleNum = scaleDen;
             impactAcc += hopImpact;
             onchainQuoteAcc += hopQuote;
             if (h + 1 == route.hops.length) finalHopQuote = hopQuote;

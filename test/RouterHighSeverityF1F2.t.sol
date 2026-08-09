@@ -160,12 +160,64 @@ contract RouterHighSeverityF1F2Test is Test {
         uint256 amountIn = 1_000e18;
         Route memory route = _singleLegRoute(BPC.KIND_V2, address(pair), amountIn);
 
-        // userMinOut = 0: with F1 inert, this route had NO floor and would
-        // accept a 50% loss. After the fix the protocol floor (96% of the
-        // on-chain quote) rejects it.
+        // BP-04 forces userMinOut > 0 (RouterE(10)), so use a DELIBERATELY
+        // weak user bound: 1e18 sits far below both the on-chain quote
+        // (~700e18 — the helper's fee field is 3000 and outV2 is BPS-
+        // denominated, i.e. a 30% fee pool; the floor property is ratio-
+        // based and does not care) and the short-pay fill (~350e18 = 50% of
+        // the ~700e18 the Router asks the pair for). Attribution is
+        // therefore contrafactual: if the protocol floor were inert (the
+        // original F1 bug), this swap would SUCCEED (delivered ~349e18 >>
+        // 1e18) — the RouterE(5) below can only come from the protocol
+        // floor (96% of the final-hop on-chain quote ≈ 672e18) rejecting
+        // the 50% fill. The test still targets the FLOOR, not the user's
+        // own slippage bound.
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
-        router.swapExactIn(route, amountIn, 0, user, block.timestamp + 1);
+        router.swapExactIn(route, amountIn, 1e18, user, block.timestamp + 1);
+    }
+
+    // ─── F1b (BP-02 × hop-0 cap seam): a plan that commits LESS than the
+    //      pulled amountIn (phantom-tier clamp) must still EXECUTE — the
+    //      floor prices the capped amounts, never a scaled-up quote that
+    //      execution does not spend. Red before the pre-quote-cap fix
+    //      (false RouterE(5)), green after. ───
+    function test_F1b_Floor_AllowsLegitFillWhenHop0CapBinds() public {
+        ShortPayV2Pair pair = new ShortPayV2Pair(address(tokenIn), address(tokenOut));
+        pair.setReserves(uint112(1e30), uint112(1e30));
+        // Honest pair: default payNum/payDen = 1/1 — pays exactly what it is
+        // asked. This test is about the floor's quote base, not underpay.
+        tokenOut.mint(address(pair), 1e24);
+
+        uint256 amountIn = 1_000e18;
+        // The leg commits only 600e18 of the 1_000e18 pulled: scaleNum
+        // (1000e18) > scaleDen (Σ leg.amountIn = 600e18). Pre-fix the quote
+        // was scaled UP by 1000/600 while execution capped to 600e18 —
+        // realised ≈ 60% of the quote < 96% floor → false RouterE(5).
+        // Post-fix quote == executed amounts → the swap succeeds and the
+        // uncommitted 400e18 is swept back to the caller.
+        Route memory route = _singleLegRoute(BPC.KIND_V2, address(pair), 600e18);
+        // Realistic 0.30% V2 fee IN BPS (the helper's default of 3000 means
+        // 30% to outV2 — fine for F1's ratio property, wrong for the
+        // absolute bounds asserted here): quote = outV2(600e18) ≈ 598.2e18,
+        // floor ≈ 574.3e18, delivered after the 28 bps protocol fee
+        // ≈ 596.5e18.
+        route.hops[0].legs[0].fee = 30;
+        // Keep the hop's own header honest about the full pull (the Router
+        // derives its spend cap from Σ leg.amountIn, never from this field).
+        route.hops[0].amountIn = amountIn;
+
+        uint256 outBefore = tokenOut.balanceOf(user);
+        uint256 inBefore  = tokenIn.balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
+        // Bound tolerates the 28 bps protocol fee with wide margin (fails
+        // only if the protocol fee ever exceeds ~6%).
+        assertGt(tokenOut.balanceOf(user) - outBefore, 560e18);
+        // Only the committed 600e18 left the user's balance for good — the
+        // hop-0 cap held (issue #1 still enforced: max spend Σ leg.amountIn)
+        // and the residual sweep returned the uncommitted 400e18.
+        assertEq(inBefore - tokenIn.balanceOf(user), 600e18);
     }
 
     // ─── F2: a V3 callback that re-enters to multi-pull must be rejected ───
@@ -187,9 +239,33 @@ contract RouterHighSeverityF1F2Test is Test {
 
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(6)));
-        router.swapExactIn(route, amountIn, 0, user, block.timestamp + 1);
+        // userMinOut = 1 satisfies the BP-04 entry guard (RouterE(10)); it is
+        // never evaluated — the single-shot callback guard reverts mid-
+        // execution, on the second pull.
+        router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
         // NOTE: zfo referenced so the compiler keeps the address-ordering intent
         // explicit for a reader auditing which token is the "owed" side.
         assertTrue(zfo == (address(tokenIn) < address(tokenOut)));
+    }
+
+    // ─── BP-04 positive coverage: the entry guard itself stays covered ───
+    // After this change-set every swap call site in the suite passes
+    // userMinOut > 0, so without THIS test the suite would stay green even
+    // if a refactor deleted the guard — silently reopening the unbounded-
+    // sandwich gap BP-04 closes. The guard precedes all route validation,
+    // so an empty route suffices. (swapExactInWithPermit2 carries the byte-
+    // identical guard line; its coverage belongs with the permit2 fixtures —
+    // see the Seam Register / residual.)
+    function test_BP04_ZeroMinOutReverts_AndZeroAmountDoesNot() public {
+        Route memory route;   // empty: the guard fires before route checks
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(10)));
+        router.swapExactIn(route, 1e18, 0, user, block.timestamp + 1);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(10)));
+        router.swapExactInWith7702(route, 1e18, 0, user, block.timestamp + 1);
+        // I8 idempotence: a zero-amount call must never revert ON THE GUARD —
+        // this one reverts later, for its own reason (RouterE(3): empty
+        // route), proving the guard is conditioned on amountIn > 0.
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
+        router.swapExactIn(route, 0, 0, user, block.timestamp + 1);
     }
 }
