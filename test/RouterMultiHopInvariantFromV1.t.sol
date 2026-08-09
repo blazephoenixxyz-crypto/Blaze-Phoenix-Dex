@@ -90,7 +90,7 @@ contract MultiHopHandler {
             hops: hops, totalOut: amt, singleOut: amt, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
         });
-        try router.swapExactIn(r, amt, 0, recipient, block.timestamp + 1) returns (uint256) {
+        try router.swapExactIn(r, amt, 1, recipient, block.timestamp + 1) returns (uint256) {
             unchecked { ++swaps; }
         } catch {}
     }

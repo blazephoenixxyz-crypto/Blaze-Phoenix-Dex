@@ -81,11 +81,11 @@ contract UntestedSurfaceTest is Test {
 
         uint256 snap = vm.snapshotState();
         vm.prank(user);
-        uint256 viaClassic = router.swapExactIn(r, amt, 0, user, dl);
+        uint256 viaClassic = router.swapExactIn(r, amt, 1, user, dl);
         vm.revertToState(snap);
 
         vm.prank(user);
-        uint256 via7702 = router.swapExactInWith7702(r, amt, 0, user, dl);
+        uint256 via7702 = router.swapExactInWith7702(r, amt, 1, user, dl);
 
         assertEq(via7702, viaClassic,
             "the 7702 entry point must deliver exactly what swapExactIn delivers - it is an alias");
@@ -103,12 +103,12 @@ contract UntestedSurfaceTest is Test {
 
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 4));
-        router.swapExactInWith7702(r, amt, 0, user, past);
+        router.swapExactInWith7702(r, amt, 1, user, past);
 
         router.setPaused(true);
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 2));
-        router.swapExactInWith7702(r, amt, 0, user, future);
+        router.swapExactInWith7702(r, amt, 1, user, future);
     }
 
     // ─── Hub privileged mutators (dimension 4) ────────────────────────────────

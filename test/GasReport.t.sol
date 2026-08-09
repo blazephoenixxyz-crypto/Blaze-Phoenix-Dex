@@ -79,7 +79,7 @@ contract GasReportTest is Test {
         require(okApprove, "approve failed");
         uint256 g0 = gasleft();
         vm.prank(user);
-        delivered = router.swapExactIn(plan.best, amountIn, 0, user, block.timestamp + 1);
+        delivered = router.swapExactIn(plan.best, amountIn, 1, user, block.timestamp + 1);
         gasUsed = g0 - gasleft();
     }
 
@@ -168,7 +168,7 @@ contract GasReportTest is Test {
         vm.prank(user);
         tokenIn.approve(address(router), amountIn);
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(plan.best, amountIn, 0, user, block.timestamp + 1);
+        uint256 delivered = router.swapExactIn(plan.best, amountIn, 1, user, block.timestamp + 1);
         assertGt(delivered, 0, "fee-on-transfer tokenIn must now complete, not revert");
         assertEq(tokenIn.balanceOf(address(router)), 0, "Router must hold nothing afterward");
     }
@@ -212,7 +212,7 @@ contract GasReportTest is Test {
         vm.prank(user);
         tokenIn.approve(address(router), amountIn);
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(pv.route, amountIn, 0, user, block.timestamp + 1);
+        uint256 delivered = router.swapExactIn(pv.route, amountIn, 1, user, block.timestamp + 1);
 
         console2.log("[slippage/quiet] quotedNetOut=%s realisedDelivered=%s", pv.netOut, delivered);
     }
@@ -237,7 +237,7 @@ contract GasReportTest is Test {
         vm.prank(user);
         tokenIn.approve(address(router), amountIn);
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(pv.route, amountIn, 0, user, block.timestamp + 1);
+        uint256 delivered = router.swapExactIn(pv.route, amountIn, 1, user, block.timestamp + 1);
 
         int256 driftBps = pv.netOut == 0 ? int256(0)
             : (int256(delivered) - int256(pv.netOut)) * int256(BPC.BPS) / int256(pv.netOut);
@@ -265,7 +265,7 @@ contract GasReportTest is Test {
         tokenIn.approve(address(router), amountIn);
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 5));
-        router.swapExactIn(pv.route, amountIn, 0, user, block.timestamp + 1);
+        router.swapExactIn(pv.route, amountIn, 1, user, block.timestamp + 1);
         console2.log("[slippage/protected] a ~19%% stale-quote gap on a 5%%-of-pool trade was rejected, not silently absorbed");
     }
 }

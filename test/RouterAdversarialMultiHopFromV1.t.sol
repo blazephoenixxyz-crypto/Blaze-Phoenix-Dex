@@ -76,7 +76,7 @@ contract MHAdversary {
         // expectedOut/totalOut left at 0 on both hops so the per-leg/aggregate floor is skipped
         // and any stranding manifests as a failed invariant, not a clean revert.
 
-        try router.swapExactIn(r, amt, 0, address(this), block.timestamp + 1)
+        try router.swapExactIn(r, amt, 1, address(this), block.timestamp + 1)
             returns (uint256) { unchecked { ++settled; } } catch {}
     }
 }

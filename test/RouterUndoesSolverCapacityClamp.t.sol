@@ -112,7 +112,7 @@ contract RouterUndoesSolverCapacityClampTest is Test {
         uint256 userAbefore = tokenA.balanceOf(user);
 
         vm.prank(user);
-        router.swapExactIn(route, ORDER, 0, user, block.timestamp + 1);
+        router.swapExactIn(route, ORDER, 1, user, block.timestamp + 1);
 
         // The pool was fed at most what it committed to (~committed), NOT ORDER:
         // 166× force-feeding (the reported symptom) is gone.
@@ -142,7 +142,7 @@ contract RouterUndoesSolverCapacityClampTest is Test {
         uint256 amt = 1_000e18;
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amt);
         vm.prank(user);
-        uint256 out = router.swapExactIn(plan.best, amt, 0, user, block.timestamp + 1);
+        uint256 out = router.swapExactIn(plan.best, amt, 1, user, block.timestamp + 1);
         assertGt(out, 0, "fee-on-transfer swap must still deliver output");
     }
 }

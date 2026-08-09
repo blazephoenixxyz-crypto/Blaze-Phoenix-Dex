@@ -58,6 +58,6 @@ contract RouterExecGuardsFromV1Test is Test {
         Route memory r; r.hops = hops;
 
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(9)));
-        router.swapExactIn(r, amt, 0, recipient, block.timestamp + 1);
+        router.swapExactIn(r, amt, 1, recipient, block.timestamp + 1);
     }
 }

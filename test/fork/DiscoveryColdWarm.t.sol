@@ -65,7 +65,7 @@ contract DiscoveryColdWarmTest is Test {
         // Execute it for real so Hub.recordSwap populates the registry with
         // fresh (block.timestamp) entries for every leg that was used.
         vm.prank(user);
-        router.swapExactIn(pv1.route, amountIn, 0, user, t + 60);
+        router.swapExactIn(pv1.route, amountIn, 1, user, t + 60);
         console2.log("registered pools after 1 execution:", hub.getActivePools(BASE_USDC, BASE_WETH).length);
 
         // ── Call 2: WARM. Same block, pair now has recent registry entries. ──

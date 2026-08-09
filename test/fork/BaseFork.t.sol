@@ -95,7 +95,7 @@ contract BaseForkTest is Test {
         assertGt(pv.grossOut, 0, "precondition: a route must exist to execute");
 
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(pv.route, amountIn, 0, user, block.timestamp + 60);
+        uint256 delivered = router.swapExactIn(pv.route, amountIn, 1, user, block.timestamp + 60);
 
         console2.log("delivered (wei WETH):", delivered);
         assertEq(IERC20Fork(BASE_WETH).balanceOf(user) - wethBefore, delivered);

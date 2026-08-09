@@ -94,7 +94,7 @@ contract EthereumCurveForkTest is Test {
         assertGt(pv.grossOut, 0);
 
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(pv.route, amountIn, 0, user, block.timestamp + 60);
+        uint256 delivered = router.swapExactIn(pv.route, amountIn, 1, user, block.timestamp + 60);
 
         console2.log("delivered (wei DAI):", delivered);
         assertGt(delivered, 0);

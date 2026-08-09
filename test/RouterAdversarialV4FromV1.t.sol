@@ -80,7 +80,7 @@ contract HostileV4Manager {
         // guard failed.
         if (reenter && address(router) != address(0)) {
             Route memory empty;
-            try router.swapExactIn(empty, 1, 0, address(this), type(uint256).max)
+            try router.swapExactIn(empty, 1, 1, address(this), type(uint256).max)
                 returns (uint256) { reenteredOk = true; } catch {}
         }
         if (useOverride) return _pack(d0Ov, d1Ov);

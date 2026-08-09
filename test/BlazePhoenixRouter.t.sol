@@ -75,7 +75,7 @@ contract BlazePhoenixRouterTest is Test {
         Route memory route = _buildRoute(amountIn, 1);
 
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(route, amountIn, 0, user, block.timestamp + 1);
+        uint256 delivered = router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
 
         assertApproxEqRel(delivered, realQuote, 0.01e18);
 
@@ -112,7 +112,7 @@ contract BlazePhoenixRouterTest is Test {
         Route memory route = _buildRoute(1_000e18, 1);
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 4));
-        router.swapExactIn(route, 1_000e18, 0, user, 999);
+        router.swapExactIn(route, 1_000e18, 1, user, 999);
     }
 
     function test_SwapExactIn_RevertsOnZeroAmountIn() public {
@@ -126,7 +126,7 @@ contract BlazePhoenixRouterTest is Test {
         Route memory route;
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 3));
-        router.swapExactIn(route, 1_000e18, 0, user, block.timestamp + 1);
+        router.swapExactIn(route, 1_000e18, 1, user, block.timestamp + 1);
     }
 
     function test_SwapExactIn_RevertsWhenBelowUserMinOut() public {
@@ -147,7 +147,7 @@ contract BlazePhoenixRouterTest is Test {
         Route memory route = _buildRoute(1_000e18, 1);
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 2));
-        router.swapExactIn(route, 1_000e18, 0, user, block.timestamp + 1);
+        router.swapExactIn(route, 1_000e18, 1, user, block.timestamp + 1);
     }
 
     // =========================================================================
@@ -255,7 +255,7 @@ contract BlazePhoenixRouterTest is Test {
         });
 
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(route, amountIn, 0, user, block.timestamp + 1);
+        uint256 delivered = router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
         assertApproxEqRel(delivered, expectedOut, 0.01e18);
     }
 
@@ -286,7 +286,7 @@ contract BlazePhoenixRouterTest is Test {
 
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
-        router.swapExactIn(route, amountIn, 0, user, block.timestamp + 1);
+        router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
     }
 
     // =========================================================================
@@ -323,12 +323,12 @@ contract BlazePhoenixRouterTest is Test {
         });
 
         bytes memory nestedCalldata = abi.encodeWithSelector(
-            router.swapExactIn.selector, route, uint256(100e18), uint256(0), user, block.timestamp + 1
+            router.swapExactIn.selector, route, uint256(100e18), uint256(1), user, block.timestamp + 1
         );
         evil.setAttack(address(router), nestedCalldata);
 
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(route, 100e18, 0, user, block.timestamp + 1);
+        uint256 delivered = router.swapExactIn(route, 100e18, 1, user, block.timestamp + 1);
 
         assertGt(delivered, 0, "the OUTER (legitimate) swap must still complete");
         assertTrue(evil.lastReentryAttempted(), "the token's transferFrom must have attempted the nested call");

@@ -84,13 +84,13 @@ contract SecurityArchitectureGasTest is Test {
         // register the pool, which is a one-off amortised across every later trade. Comparing
         // that against a raw call would overstate the standing overhead.
         vm.prank(user);
-        router.swapExactIn(r, AMT, 0, user, dl);
+        router.swapExactIn(r, AMT, 1, user, dl);
 
         // ── Arm A: through the Router, every guarantee active, steady state ──
         uint256 snap = vm.snapshotState();
         vm.prank(user);
         uint256 g0 = gasleft();
-        router.swapExactIn(r, AMT, 0, user, dl);
+        router.swapExactIn(r, AMT, 1, user, dl);
         uint256 gRouter = g0 - gasleft();
         vm.revertToState(snap);
 

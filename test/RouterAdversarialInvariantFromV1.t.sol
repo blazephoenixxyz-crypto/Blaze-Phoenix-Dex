@@ -60,7 +60,7 @@ contract HostileToken {
 
     function _reenter() internal {
         Route memory empty;
-        try router.swapExactIn(empty, 1, 0, address(this), type(uint256).max) returns (uint256) {
+        try router.swapExactIn(empty, 1, 1, address(this), type(uint256).max) returns (uint256) {
             reentered = true; // would mean the guard FAILED
         } catch {}
     }
@@ -188,7 +188,7 @@ contract Adversary {
             hops: hops, totalOut: amt, singleOut: amt, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
         });
-        try router.swapExactIn(r, amt, 0, address(this), block.timestamp + 1) returns (uint256) {
+        try router.swapExactIn(r, amt, 1, address(this), block.timestamp + 1) returns (uint256) {
             unchecked { ++settled; }
         } catch {}
     }
@@ -253,7 +253,7 @@ contract Adversary {
             hops: hops, totalOut: amt, singleOut: amt, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
         });
-        try router.swapExactIn(r, amt, 0, address(this), block.timestamp + 1) returns (uint256) {
+        try router.swapExactIn(r, amt, 1, address(this), block.timestamp + 1) returns (uint256) {
             unchecked { ++settled; }
         } catch {}
     }
