@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/HubFuzz.t.sol — only keyOf's order-independence, which
 // has zero coverage anywhere in this repo's own BlazePhoenixHub.t.sol (it's exercised as a helper

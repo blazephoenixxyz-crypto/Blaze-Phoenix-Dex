@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Closes coverage gaps found by auditing the PUBLIC surface against the test suite. Three
 // externally-callable functions had zero references anywhere in tests:

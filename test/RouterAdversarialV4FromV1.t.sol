@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/RouterAdversarialV4.t.sol — a genuine, significant gap:
 // this repo's V4 coverage was limited to the two auth-rejection cases (wrong caller; real manager

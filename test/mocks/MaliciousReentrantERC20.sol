@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 /// @notice A minimally-functional ERC20 whose transferFrom() can, once
 ///         armed, attempt a nested call into an arbitrary target/calldata

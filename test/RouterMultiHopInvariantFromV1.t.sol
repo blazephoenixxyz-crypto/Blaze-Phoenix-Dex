@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/RouterMultiHopInvariant.t.sol — a genuine gap: this
 // repo's own BlazePhoenixRouter.invariant.t.sol sets up a 4-token chain (T0-T1-T2-T3) but its

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/RouterExecGuards.t.sol — only the V4 hookAltersDeltas
 // guard. The reentrancy guard (RouterE(7)) is already fully covered here by

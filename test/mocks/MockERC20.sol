@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 /// @notice Configurable ERC20 for exercising BlazePhoenixCore's raw-assembly
 ///         safeTransfer/safeTransferFrom against non-standard token behaviour:

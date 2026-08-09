@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 /// @notice Minimal factory-call-family mock (selector 0xe6a43905,
 ///         getPair(address,address)) used to exercise BlazePhoenixHub's

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/RouterSplitInvariant.t.sol — completes this repo's
 // route-shape invariant coverage (single-leg -> multi-hop [RouterMultiHopInvariantFromV1] ->

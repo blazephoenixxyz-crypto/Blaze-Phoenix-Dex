@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/RouterStatefulInvariant.t.sol — only the property this
 // repo's own BlazePhoenixRouter.invariant.t.sol doesn't check. That suite already covers

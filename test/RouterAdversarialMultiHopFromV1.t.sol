@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/RouterAdversarialMultiHop.t.sol — the last of the 15 V1
 // test files assessed for this reconstruction. Every other adversarial suite here is single-hop.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/SolverCapacity.t.sol — only the scenario this repo's
 // own BlazePhoenixSolver.t.sol doesn't already cover under "Capacity clamp — two-tier

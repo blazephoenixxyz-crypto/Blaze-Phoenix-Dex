@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 /// @notice Real Base mainnet token addresses, top-100 by GLOBAL CoinGecko
 /// market-cap rank among tokens that have a verified Base deployment

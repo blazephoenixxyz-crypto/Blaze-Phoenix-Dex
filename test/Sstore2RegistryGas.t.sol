@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Testing the SSTORE2 theory from research note 056 §5 against this codebase's REAL data shape.
 //

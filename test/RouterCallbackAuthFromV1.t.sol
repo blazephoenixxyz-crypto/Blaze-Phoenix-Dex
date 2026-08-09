@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Ported from Blaze-Phoenix-Dex (V1) test/RouterCallbackAuth.t.sol — only what this repo's own
 // BlazePhoenixRouter.t.sol doesn't already cover under "Universal V3-shaped callback" (which has
