@@ -215,13 +215,24 @@ contract BlazePhoenixRouter {
         if (amountIn > type(uint128).max) revert RouterE(3);
         if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         if (permit.permitted.amount < amountIn) revert RouterE(3);
+        // Measure the actual receive around the Permit2 pull, exactly like the
+        // classic path does around safeTransferFrom: fee-on-transfer tokens
+        // deliver less than requested, and executing on the nominal amountIn
+        // would make hop-0 push more than the Router holds. Work with what was
+        // actually received. (The hops-length check moves up so an empty route
+        // still reverts RouterE(3) — now BEFORE tokens move, not after.)
+        if (route.hops.length == 0) revert RouterE(3);
+        address tokenIn = route.hops[0].tokenIn;
+        uint256 balBefore = BPC.balanceOf(tokenIn, address(this));
         IPermit2(permit2).permitTransferFrom(
             permit,
             IPermit2.SignatureTransferDetails({ to: address(this), requestedAmount: amountIn }),
             msg.sender, signature
         );
+        uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
+        if (received == 0) revert RouterE(8);
         // Tokens are now on the Router; skip the user-pull in the core path.
-        return _swapPrePulled(route, amountIn, userMinOut, recipient, deadline);
+        return _swapPrePulled(route, received, userMinOut, recipient, deadline);
     }
 
     /// @notice EIP-7702 entry point — a NAMED ALIAS of `swapExactIn`, deliberately.
