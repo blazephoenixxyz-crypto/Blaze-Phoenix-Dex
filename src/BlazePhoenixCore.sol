@@ -7,6 +7,12 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //  Fingerprint : 0x0cdf3cc72daa3ca37778f5f6974830edc0020f42cb5c3dc875fe510ea0e3202c
+//  Rights      : Original work. Copyright subsists automatically upon creation
+//                (Berne Convention, 1886); this code is licensed under BUSL-1.1
+//                above, and reproduction outside that grant is infringement.
+//                Authorship is provable — the keccak256 preimage of the
+//                Fingerprint is a private phrase held by the authors, and
+//                revealing it proves origin.
 //
 //  Shared library for the BlazePhoenix protocol. Provides the arithmetic
 //  primitives, AMM quote math, pool-address derivation, packed pool-state
