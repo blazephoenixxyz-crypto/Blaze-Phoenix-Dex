@@ -113,6 +113,9 @@ library BlazePhoenixCore {
     uint256 internal constant Q96        = 0x1000000000000000000000000;
     uint256 internal constant GAS_CAP    = 100_000;
 
+    // Protocol domain separator.
+    bytes32 internal constant DOMAIN     = 0x3109786ac499c23108f996ed4c85cbcc91a65025ea43d1c2cfbca5182abb4def;
+
     // ─── Pool kinds (universal taxonomy) ───────────────────────────────
 
     uint8   internal constant KIND_V2          = 0;
