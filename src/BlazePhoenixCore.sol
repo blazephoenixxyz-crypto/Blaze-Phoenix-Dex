@@ -6,6 +6,7 @@
 //  License    : Business Source License 1.1 (BUSL-1.1)
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
+//  Fingerprint : 0x0cdf3cc72daa3ca37778f5f6974830edc0020f42cb5c3dc875fe510ea0e3202c
 //
 //  Shared library for the BlazePhoenix protocol. Provides the arithmetic
 //  primitives, AMM quote math, pool-address derivation, packed pool-state
