@@ -548,14 +548,20 @@ contract BlazePhoenixRouter {
         // Route): the quote-derived singleOutFloor assumed no transfer fee and
         // is inflated, so it would reject a correct fill. Drop it for this
         // swap only; the user stays protected by userMinOut (their own bound)
-        // and protocolFloorOut (an ironFloor fraction of the REAL output).
-        // Honest tokens never set the flag — behaviour unchanged for them.
+        // and by protocolFloorOut re-priced below onto the measured NET —
+        // finalHopQuote prices GROSS amounts, so an un-re-priced floor would
+        // falsely reject a correct FoT fill once the transfer fee exceeds
+        // ~(BPS − floorBps)/BPS (≈ >4%). The slot holds the compounded
+        // measured net ratio in bps (see _noteFot); honest tokens never set
+        // it — behaviour unchanged for them.
         uint256 sF = TSLOT_FOT;
         uint256 fotSeen; assembly { fotSeen := tload(sF) }
         if (fotSeen == 0) {
             if (route.singleOutFloor > effMin) effMin = route.singleOutFloor;
         } else {
             assembly { tstore(sF, 0) }
+            if (fotSeen > BPC.BPS) fotSeen = BPC.BPS; // belt; writers clamp
+            protocolFloorOut = BPC.mulDiv(protocolFloorOut, fotSeen, BPC.BPS);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
         if (amountOut < effMin) revert RouterE(5);
@@ -628,11 +634,12 @@ contract BlazePhoenixRouter {
     ///         measured bridge balance. When nothing shrank the input,
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
     function _execScaled(Leg calldata leg, address tokenIn, uint256 amt) private {
-        // A zero-input leg is a no-op: skip it entirely. This also closes the
-        // maxAmt == 0 "no cap" path in _v3Callback — a leg scaled to zero input
-        // (for example the last leg when the Router holds no remaining input)
-        // must never reach pool.swap(), where the transient amount cap would be
-        // 0 and therefore unbounded. The residual sweep returns unspent input.
+        // A zero-input leg is a no-op: skip it entirely. A leg scaled to zero
+        // input (for example the last leg when the Router holds no remaining
+        // input) must never reach pool.swap(): the budget cap in _v3Callback
+        // is now UNCONDITIONAL, so a zero cap would revert the whole swap
+        // (RouterE 8) instead of no-oping. The residual sweep returns unspent
+        // input.
         if (amt == 0) return;
         // ─── Per-leg iron floor (see LEG_FLOOR_BPS) ───
         // Measure THIS leg's real contribution to the Router's tokenOut
@@ -706,6 +713,23 @@ contract BlazePhoenixRouter {
         return leg.zeroForOne ? t0 : t1;
     }
 
+    /// @notice Record a measured fee-on-transfer NET ratio (bps) for this
+    ///         swap in transient storage. TSLOT_FOT == 0 means "no FoT seen";
+    ///         otherwise it holds the compounded measured net ratio, clamped
+    ///         to [1, BPS] so a nonzero write always keeps the flag set and
+    ///         can never inflate the floor. Multiple FoT hops compound
+    ///         multiplicatively (each hop's fee applies to what survived the
+    ///         previous one).
+    function _noteFot(uint256 netBps) private {
+        if (netBps == 0) netBps = 1;
+        if (netBps > BPC.BPS) netBps = BPC.BPS;
+        uint256 sF = TSLOT_FOT;
+        uint256 prev; assembly { prev := tload(sF) }
+        if (prev != 0) netBps = BPC.mulDiv(prev, netBps, BPC.BPS);
+        if (netBps == 0) netBps = 1;
+        assembly { tstore(sF, netBps) }
+    }
+
     function _execV2Amt(Leg calldata leg, address tokenIn, uint256 amt) private {
         // Reserves BEFORE transfer: outV2 expects the pre-swap reserveIn.
         // Reading after the transfer double-counts `amt` in rIn and inflates
@@ -737,9 +761,11 @@ contract BlazePhoenixRouter {
             uint256 realIn = BPC.balanceOf(tokenIn, leg.pool) - rInB;
             if (realIn == 0) revert RouterE(8);
             outAmt = BPC.outV2(realIn, rInB, rOutB, v2fee);
-            // Flag (transient) so the floor drops the fee-blind quote floor.
-            uint256 sF = TSLOT_FOT;
-            assembly { tstore(sF, 1) }
+            // Record the measured NET ratio (bps) — not just a boolean — so
+            // the floor logic both drops the fee-blind quote floor and
+            // re-prices the gross-quoted protocol floor on the real net.
+            // Stacked FoT hops compound multiplicatively inside _noteFot.
+            _noteFot(BPC.mulDiv(realIn, BPC.BPS, amt));
         }
         if (outAmt == 0) revert RouterE(8);
         uint256 a0 = leg.zeroForOne ? 0 : outAmt;
@@ -782,9 +808,16 @@ contract BlazePhoenixRouter {
         uint256 sT = TSLOT_TOKEN;
         uint256 sA = TSLOT_AMT;
         address pool = leg.pool;
-        // Record the max input the callback is allowed to pull. A V3-shaped
-        // pool that demands more than `amt` is rejected.
-        assembly { tstore(sP, pool) tstore(sT, tokenIn) tstore(sA, amt) }
+        // Callback context: leg budget in the low 240 bits, per-hop
+        // fee-on-transfer gross-up hint rHat (bps) in the high 16 bits.
+        // rHat == 0 ⇒ the callback's first pass pays exactly `owed` and the
+        // measured top-up corrects — margin is never donated on a guess.
+        // (A Solver-supplied per-hop hint lands with the next leg-format
+        // revision; the Router packs 0 for now.) Amounts ≥ 2^240 cannot be
+        // real token amounts and are rejected rather than silently truncated.
+        if (amt >> 240 != 0) revert RouterE(8);
+        uint256 rHat = 0;
+        assembly { tstore(sP, pool) tstore(sT, tokenIn) tstore(sA, or(amt, shl(240, rHat))) }
         uint160 limit = leg.zeroForOne
             ? BPC.MIN_SQRT_PRICE_PLUS_ONE
             : BPC.MAX_SQRT_PRICE_MINUS_ONE;
@@ -883,21 +916,64 @@ contract BlazePhoenixRouter {
         uint256 sA = TSLOT_AMT;
         address expected;
         address tIn;
-        uint256 maxAmt;
-        assembly { expected := tload(sP) tIn := tload(sT) maxAmt := tload(sA) }
+        uint256 packed;
+        assembly { expected := tload(sP) tIn := tload(sT) packed := tload(sA) }
         if (msg.sender != expected || expected == address(0)) revert RouterE(6);
+        uint256 maxAmt = packed & ((uint256(1) << 240) - 1); // leg budget
+        uint256 rHat   = packed >> 240;                      // FoT hint (bps)
+        if (rHat >= BPC.BPS) rHat = 0; // malformed hint: fall back to measure
         uint256 owed = a0 > 0 ? uint256(a0) : (a1 > 0 ? uint256(a1) : 0);
         if (owed == 0) revert RouterE(8);
-        // The pool cannot demand more than the input we intended to spend.
-        // Bounds a malicious registered pool to the current leg's budget.
-        if (maxAmt != 0 && owed > maxAmt) revert RouterE(8);
+        // UNCONDITIONAL budget cap: the pool can never demand more than the
+        // input this leg was given. A zero-input leg never reaches swap()
+        // (see _execScaled), so maxAmt == 0 here is a forged/stale context
+        // and owed > 0 == maxAmt reverts. The old `maxAmt != 0` escape that
+        // turned a zero cap into "no cap" is gone.
+        if (owed > maxAmt) revert RouterE(8);
         // Single-shot (checks-effects-interactions): clear the transient auth
         // context BEFORE paying, so a pool that re-enters this callback during
         // its own swap() reads expected == 0 on the second entry and reverts(6).
         // Without this a malicious registered pool could pull the committed
         // input more than once, draining the input budgeted to sibling legs.
         assembly { tstore(sP, 0) tstore(sT, 0) tstore(sA, 0) }
-        BPC.safeTransfer(tIn, msg.sender, owed);
+
+        // ─── Pay → measure → top-up (fee-on-transfer tokenIn) ───
+        // The pool verifies its OWN balance delta ≥ owed after this callback
+        // returns; no transfer happens between its snapshot and ours, so
+        // requiring the same measured delta here is exactly the pool's own
+        // acceptance condition. The gross-up is computed on the LIVE `owed`
+        // (partial-fill safe — never on a precomputed net), total paid is
+        // capped at the leg budget, and any safety margin stays Router-side
+        // (the residIn sweep returns it) — it is never sent to the pool.
+        uint256 bal0 = BPC.balanceOf(tIn, msg.sender);
+        // First pass: gross by the hint. rHat == 0 ⇒ pay exactly owed — we
+        // never donate margin to the pool on a guess. owed ≤ maxAmt < 2^240,
+        // so the ceil arithmetic cannot overflow.
+        uint256 pay = rHat == 0
+            ? owed
+            : (owed * BPC.BPS + (BPC.BPS - rHat - 1)) / (BPC.BPS - rHat);
+        if (pay > maxAmt) pay = maxAmt;
+        BPC.safeTransfer(tIn, msg.sender, pay);
+        uint256 recv = BPC.balanceOf(tIn, msg.sender) - bal0;
+        if (recv < owed) {
+            // Second (final) pass: gross the shortfall by the MEASURED live
+            // net ratio recv/pay. Hard cap of 2 transfers total, then a
+            // distinct revert — an unbounded loop against a hostile token is
+            // worse than a clean failure.
+            if (recv == 0) revert RouterE(11);
+            uint256 short = owed - recv;
+            uint256 top = BPC.mulDiv(short, pay, recv);
+            if (mulmod(short, pay, recv) != 0) top += 1;
+            if (top > maxAmt - pay) top = maxAmt - pay; // total ≤ leg budget
+            if (top == 0) revert RouterE(11);
+            BPC.safeTransfer(tIn, msg.sender, top);
+            pay += top;
+            recv = BPC.balanceOf(tIn, msg.sender) - bal0;
+            if (recv < owed) revert RouterE(11);
+        }
+        // Record the measured net ratio so the floor logic drops the
+        // fee-blind quote floor and re-prices the gross-quoted protocol floor.
+        if (recv < pay) _noteFot(BPC.mulDiv(recv, BPC.BPS, pay));
     }
 
     /// @notice V4 unlockCallback — invoked by the PoolManager after unlock().
