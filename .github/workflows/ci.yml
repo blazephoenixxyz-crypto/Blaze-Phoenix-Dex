@@ -51,24 +51,12 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Fork tests
-        # Real Curve/Balancer/venue pools on forked mainnet + Base. The archive
-        # RPC comes from the ALCHEMY_KEY secret, consumed by the ${ALCHEMY_KEY}
-        # templates in foundry.toml's [rpc_endpoints]; never hard-coded.
+        # dRPC (no rate limit, all 5 chains) forks directly - no Anvil, no
+        # throttling. The DRPC_KEY secret feeds foundry.toml's [rpc_endpoints]
+        # via ${DRPC_KEY}; never hard-coded.
         env:
-          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-        # A heavy live-fork sweep (100 tokens) rate-limits the archive RPC (429)
-        # when forge forks it directly. Run a local Anvil fork instead: Anvil
-        # caches forked state, so the RPC is hit far less. Base is reached via
-        # BASE_RPC -> the local Anvil; mainnet (light) stays direct.
-        run: |
-          anvil --fork-url "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}" --silent --port 8545 \
-            --compute-units-per-second 100 --fork-retry-backoff 3000 --retries 15 &
-          ANVIL=$!
-          for i in $(seq 1 40); do cast block-number --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1 && break; sleep 1; done
-          BASE_RPC=http://127.0.0.1:8545 forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseTop100Test"
-          RESULT=$?
-          kill $ANVIL 2>/dev/null || true
-          exit $RESULT
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+        run: forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseTop100Test"
 
   size-guard:
     name: EIP-170 size guard (release profile)
