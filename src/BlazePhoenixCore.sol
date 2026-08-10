@@ -422,6 +422,31 @@ library BlazePhoenixCore {
         require(ok, "BPC:approve");
     }
 
+    /// @notice USDT-safe approval. A leg that leaves a non-zero residual
+    ///         allowance (a partial/fee-on-transfer pull) would make the NEXT
+    ///         approval revert on USDT-family tokens, whose approve() reverts
+    ///         when going non-zero -> non-zero. So: try approve(amt) directly
+    ///         (the common, zero-residual case — cheap, one call); only if that
+    ///         fails or the token signals false, reset to 0 and set again. The
+    ///         reset path is off the hot path for well-behaved tokens.
+    function forceApprove(address token, address spender, uint256 amt) internal {
+        bool ok;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x095ea7b300000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4),  and(spender, 0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(m, 36), amt)
+            ok := call(gas(), token, 0, m, 68, 0, 32)
+            // A token that returns an explicit `false` (rather than reverting)
+            // counts as failure too.
+            if and(ok, eq(returndatasize(), 32)) { ok := iszero(iszero(mload(0))) }
+        }
+        if (!ok) {
+            safeApprove(token, spender, 0);
+            safeApprove(token, spender, amt);
+        }
+    }
+
     /// @dev Guards on returndatasize()==32 before reading the result — a
     ///      staticcall to a CODELESS address (EOA, an unset/garbage token
     ///      address) still returns success trivially with zero returndata,

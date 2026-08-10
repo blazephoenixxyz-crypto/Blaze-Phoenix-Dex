@@ -872,7 +872,7 @@ contract BlazePhoenixRouter {
         if (tokenOut == address(0)) revert RouterE(8);
         (int128 i, int128 j, bool ok) = BPC.curveResolveIndices(leg.pool, tokenIn, tokenOut);
         if (!ok) revert RouterE(8);
-        BPC.safeApprove(tokenIn, leg.pool, amt);
+        BPC.forceApprove(tokenIn, leg.pool, amt);
 
         // Verify the RESULT, not just the call's success. tricrypto-NG pools
         // (uint256 exchange signature) ACCEPT the int128 selector without
