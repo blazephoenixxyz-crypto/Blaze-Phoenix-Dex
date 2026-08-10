@@ -8,7 +8,7 @@ import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
 import {Top100BaseTokens} from "./Top100BaseTokens.sol";
-import {Route} from "../../src/BlazePhoenixCore.sol";
+import {Route, Hop, Leg} from "../../src/BlazePhoenixCore.sol";
 
 /// @notice Extrapolation of BaseFork.t.sol across 100 REAL Base mainnet
 ///         tokens (top-100 by global CoinGecko market-cap rank among tokens
@@ -43,6 +43,7 @@ contract BaseTop100Test is Test {
         uint256 noRoute;
         uint256 selfPair; // token IS USDC itself (rank-1 stablecoin), skip
         uint256 totalGas;
+        uint256[8] memory venueLegs; // legs routed per KIND (0=V2 1=V3 2=STABLE 3=BAL 4=V4 5=SOLIDLY 6=ALGEBRA 7=CRVCRYPTO)
 
         for (uint256 i; i < tokens.length; ++i) {
             address token = tokens[i].token;
@@ -50,12 +51,19 @@ contract BaseTop100Test is Test {
 
             uint256 g0 = gasleft();
             try quoter.previewPlan(BASE_USDC, token, amountIn)
-                returns (BlazePhoenixQuoter.Preview memory pv, Route memory, bool)
+                returns (BlazePhoenixQuoter.Preview memory pv, Route memory route, bool)
             {
                 uint256 gasUsed = g0 - gasleft();
                 totalGas += gasUsed;
                 if (pv.grossOut > 0) {
                     routeFound++;
+                    for (uint256 h; h < route.hops.length; ++h) {
+                        Leg[] memory legs = route.hops[h].legs;
+                        for (uint256 l; l < legs.length; ++l) {
+                            uint8 k = legs[l].kind;
+                            if (k < 8) venueLegs[k]++;
+                        }
+                    }
                     console2.log("[FOUND]", tokens[i].symbol, pv.grossOut, gasUsed);
                 } else {
                     noRoute++;
@@ -72,6 +80,14 @@ contract BaseTop100Test is Test {
         console2.log("noRoute   :", noRoute);
         console2.log("selfPair  :", selfPair);
         if (routeFound > 0) console2.log("avgGasPerFoundQuote:", totalGas / routeFound);
+        console2.log("legs V2      :", venueLegs[0]);
+        console2.log("legs V3      :", venueLegs[1]);
+        console2.log("legs STABLE  :", venueLegs[2]);
+        console2.log("legs BALANCER:", venueLegs[3]);
+        console2.log("legs V4      :", venueLegs[4]);
+        console2.log("legs SOLIDLY :", venueLegs[5]);
+        console2.log("legs ALGEBRA :", venueLegs[6]);
+        console2.log("legs CRVCRYPTO:", venueLegs[7]);
 
         // Discovery-coverage floor, not a strict correctness bound: at least
         // a meaningful fraction of top-100-by-market-cap tokens must be

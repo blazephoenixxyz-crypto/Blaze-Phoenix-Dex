@@ -56,6 +56,16 @@ library BaseTestDeploy {
         internal
         returns (BlazePhoenixHub hub, BlazePhoenixSolver solver, BlazePhoenixRouter router, BlazePhoenixQuoter quoter)
     {
+        return deploy(admin, true);
+    }
+
+    /// @param wstEthBridge when false, the 3rd (wstETH) bridge is omitted - used
+    ///        to A/B the routing-combinatorics and gas cost of a 2-bridge vs
+    ///        3-bridge deployment over identical tokens and venues.
+    function deploy(address admin, bool wstEthBridge)
+        internal
+        returns (BlazePhoenixHub hub, BlazePhoenixSolver solver, BlazePhoenixRouter router, BlazePhoenixQuoter quoter)
+    {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(admin, BASE_V4_MGR);
         solver = new BlazePhoenixSolver(address(hub));
