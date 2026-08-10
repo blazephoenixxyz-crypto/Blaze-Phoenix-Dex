@@ -661,6 +661,10 @@ library BlazePhoenixCore {
         uint256 ain, uint256 rIn, uint256 rOut, uint256 fee,
         uint8 dIn, uint8 dOut
     ) private pure returns (uint256) {
+        // Fail-closed on tokens with >18 decimals: 10**(18-d) would underflow
+        // and revert on the hot path. Return 0 so the per-leg / aggregate floors
+        // absorb the pool instead of bricking the whole route (keeps the eval total).
+        if (dIn > 18 || dOut > 18) return 0;
         uint256 sIn  = (dIn  == 0) ? 1 : 10 ** (18 - dIn);
         uint256 sOut = (dOut == 0) ? 1 : 10 ** (18 - dOut);
         uint256 X = rIn  * sIn;

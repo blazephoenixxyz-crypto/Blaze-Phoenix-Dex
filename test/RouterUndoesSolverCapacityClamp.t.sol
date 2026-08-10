@@ -36,6 +36,7 @@ import {
 } from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract RouterUndoesSolverCapacityClampTest is Test {
     BlazePhoenixHub    hub;
@@ -126,12 +127,32 @@ contract RouterUndoesSolverCapacityClampTest is Test {
         assertGt(tokenB.balanceOf(user), 0, "caller receives the honest partial fill");
     }
 
-    /// Permissiveness: fee-on-transfer tokenIn must still route. Here realIn
-    /// (what the Router actually received) is LESS than the plan's committed sum,
-    /// so the hop-0 cap never fires and the pre-existing scale-DOWN handles it —
-    /// the swap succeeds and nothing reverts. (Deep, non-thin pool so no clamp.)
+    /// Route-where-natural: fee-on-transfer tokenIn is served by a V2 pool, which
+    /// funds FoT natively — its swap() re-syncs reserves from the measured balance
+    /// delta, so the haircut is absorbed and the swap still delivers output. (A
+    /// V3-only route now fails closed; see test_FeeOnTransfer_V3Only_FailsClosed.)
     function test_FeeOnTransfer_TokenIn_StillRoutes() public {
-        // A deep pool that can pay the whole order — no phantom clamp here.
+        // Deep, balanced V2 pool that funds fee-on-transfer on the measured delta.
+        MockV2Pair p = new MockV2Pair(address(tokenA), address(tokenB));
+        uint112 R = uint112(1_000_000e18);
+        tokenA.mint(address(p), R);
+        tokenB.mint(address(p), R);
+        p.setReserves(R, R);
+        hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
+
+        tokenA.setFeeOnTransferBps(100); // 1% deflationary transfer
+
+        uint256 amt = 1_000e18;
+        RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amt);
+        vm.prank(user);
+        uint256 out = router.swapExactIn(plan.best, amt, 1, user, block.timestamp + 1);
+        assertGt(out, 0, "fee-on-transfer swap must still deliver output via V2");
+    }
+
+    /// The dual of the above: a fee-on-transfer tokenIn routed through a V3-only
+    /// venue fails closed. V3 exact-in cannot fund the FoT haircut without an
+    /// oracle, so the Router reverts (RouterE 13) rather than silently under-deliver.
+    function test_FeeOnTransfer_V3Only_FailsClosed() public {
         MockV3Pool p = new MockV3Pool(address(tokenA), address(tokenB), 100);
         p.setState(uint160(BPC.Q96), DEEP_L);
         tokenB.mint(address(p), 1_000_000e18);
@@ -142,7 +163,7 @@ contract RouterUndoesSolverCapacityClampTest is Test {
         uint256 amt = 1_000e18;
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amt);
         vm.prank(user);
-        uint256 out = router.swapExactIn(plan.best, amt, 1, user, block.timestamp + 1);
-        assertGt(out, 0, "fee-on-transfer swap must still deliver output");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(13)));
+        router.swapExactIn(plan.best, amt, 1, user, block.timestamp + 1);
     }
 }

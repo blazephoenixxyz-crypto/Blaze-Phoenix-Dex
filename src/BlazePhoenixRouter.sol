@@ -200,6 +200,7 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
+        if (amountIn > type(uint128).max) revert RouterE(3);
         if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);
     }
@@ -210,6 +211,7 @@ contract BlazePhoenixRouter {
         address recipient, uint256 deadline,
         IPermit2.PermitTransferFrom calldata permit, bytes calldata signature
     ) external whenLive nrEntrant returns (uint256) {
+        if (amountIn > type(uint128).max) revert RouterE(3);
         if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         if (permit.permitted.amount < amountIn) revert RouterE(3);
         IPermit2(permit2).permitTransferFrom(
@@ -237,6 +239,7 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
+        if (amountIn > type(uint128).max) revert RouterE(3);
         if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);
     }
