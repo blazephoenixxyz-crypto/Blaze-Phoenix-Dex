@@ -744,7 +744,14 @@ library BlazePhoenixCore {
                 y -= dy;
             }
             uint256 d = y > yPrev ? y - yPrev : yPrev - y;
-            if (d <= 1) return y;   // converged
+            if (d <= 1) {
+                // INV-11/INV-10: land the converged exit on the residual-safe
+                // side (K_post >= K_pre => rounding against the taker). _solK is
+                // increasing in y for x > 0, so bumping y by one whenever the
+                // residual is K-deficient guarantees the safe side; O(1) gas.
+                if (_solK(x, y) < K) y += 1;
+                return y;   // converged
+            }
             unchecked { ++i; }
         }
         // Iteration cap reached without convergence: fail closed. Return y0 —
