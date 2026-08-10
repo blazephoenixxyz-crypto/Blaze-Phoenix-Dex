@@ -82,6 +82,16 @@ contract BlazePhoenixSolver {
     /// @notice Per-leg conservatism BPS for routes with ≥3 legs.
     uint16  internal constant LEG_SAFETY_BPS       = 5;
 
+    /// @notice A split is accepted only if it beats the single-best leg's
+    ///         full-size quote by at least this margin. Each extra leg costs
+    ///         real execution gas (~30k measured), and the allocator otherwise
+    ///         contains no gas term at all — this bps threshold is the honest,
+    ///         oracle-free proxy for that cost (comparing gas in the native
+    ///         token against output in tokenOut would need a price, and the
+    ///         protocol is deliberately oracle-free). Planning-view only:
+    ///         execution floors and userMinOut are untouched.
+    uint16  internal constant MIN_SPLIT_IMPROVEMENT_BPS = 20;
+
     /// @notice Capacity clamp for concentrated (single-tick-quoted) legs, in
     ///         BPS of the pool's REAL tokenOut balance. The single-tick V3 /
     ///         Algebra formula models the current liquidity as if it spanned
@@ -542,6 +552,21 @@ contract BlazePhoenixSolver {
                 legs[i].expectedOut = BPC.mulDiv(legs[i].expectedOut, BPC.BPS - shave, BPC.BPS);
                 totalOut += legs[i].expectedOut;
                 unchecked { ++i; }
+            }
+        }
+        // MIN-SPLIT IMPROVEMENT GATE. A multi-leg split must EARN its legs:
+        // unless it beats the top-weight survivor's single-leg full-size quote
+        // by >= MIN_SPLIT_IMPROVEMENT_BPS, collapse to that single leg. Kills
+        // micro-splits whose marginal output gain is smaller than the real
+        // gas cost of the extra legs. cands[0] is the top-weight survivor
+        // (post FUNNEL CUT); one extra full-size quote in the view path only.
+        if (legCount >= 2) {
+            Hop memory single = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
+            if (
+                single.legs.length != 0 && single.expectedOut > 0 &&
+                totalOut < BPC.mulDiv(single.expectedOut, BPC.BPS + MIN_SPLIT_IMPROVEMENT_BPS, BPC.BPS)
+            ) {
+                return single;
             }
         }
         hop = Hop({

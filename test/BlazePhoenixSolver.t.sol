@@ -117,10 +117,13 @@ contract BlazePhoenixSolverTest is Test {
         // Same 1.6 ratio, one pool 10x deeper than the other -> both survive
         // the median band filter (near-identical marginal rate) and the
         // depth-weighted split must allocate roughly 10x more to the deep one.
+        // amountIn is 10% of the deep reserve so the split's impact saving
+        // (~83 bps over single-pool) clears MIN_SPLIT_IMPROVEMENT_BPS — the
+        // gate keeps splits that genuinely pay for their legs.
         MockV2Pair deep    = _seedV2(address(tokenA), address(tokenB), 1_000_000e18, 1_600_000e18);
         MockV2Pair shallow = _seedV2(address(tokenA), address(tokenB), 100_000e18,   160_000e18);
 
-        uint256 amountIn = 10_000e18;
+        uint256 amountIn = 100_000e18;
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amountIn);
 
         assertEq(plan.best.hops[0].legs.length, 2, "both pools should survive the band filter");
@@ -137,6 +140,29 @@ contract BlazePhoenixSolverTest is Test {
         assertGt(amtDeep, amtShallow * 5);
         // Full conservation: nothing lost, nothing invented.
         assertEq(amtDeep + amtShallow, amountIn);
+    }
+
+    // =========================================================================
+    //  Min-split improvement gate: a split must EARN its extra legs
+    // =========================================================================
+
+    /// @notice Same two-pool topology, but a small trade (1% of the deep
+    ///         reserve): the split's impact saving is only ~9 bps — less than
+    ///         MIN_SPLIT_IMPROVEMENT_BPS (20) — so the plan must collapse to
+    ///         the single deep leg. An extra leg costs ~30k real execution
+    ///         gas; a split that cannot beat the single-best pool by the
+    ///         threshold is a net loss for the user and must not ship.
+    function test_MinSplitGate_CollapsesMicroSplitToSingleLeg() public {
+        MockV2Pair deep    = _seedV2(address(tokenA), address(tokenB), 1_000_000e18, 1_600_000e18);
+        _seedV2(address(tokenA), address(tokenB), 100_000e18, 160_000e18);
+
+        uint256 amountIn = 10_000e18; // split gain ~9 bps < 20 bps threshold
+        RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amountIn);
+
+        assertEq(plan.best.hops[0].legs.length, 1, "micro-split must collapse to the single best leg");
+        assertEq(plan.best.hops[0].legs[0].pool, address(deep), "the deep pool is the single-best leg");
+        // The single leg carries the full input - nothing stranded by the collapse.
+        assertEq(plan.best.hops[0].amountIn, amountIn);
     }
 
     // =========================================================================
