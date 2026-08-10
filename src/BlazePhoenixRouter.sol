@@ -343,8 +343,7 @@ contract BlazePhoenixRouter {
                         uint24 v2fee = leg.fee == 0 ? 30 : leg.fee;
                         quoteAcc += BPC.outV2(legAmt, rIn, rOut, v2fee);
                     } else {
-                        uint256 liveFee = BPC.readDynamicFee(leg.pool, leg.stable, leg.fee);
-                        quoteAcc += BPC.outSolidly(legAmt, rIn, rOut, liveFee, leg.stable);
+                        quoteAcc += _solidlyLegQuote(leg, hop.tokenIn, legAmt, rIn, rOut);
                     }
                 } else { impactAcc += 50; }
             } else if (leg.kind == BPC.KIND_V3 || leg.kind == BPC.KIND_ALGEBRA) {
@@ -369,6 +368,24 @@ contract BlazePhoenixRouter {
                 impactAcc += 50;
             } else { impactAcc += 50; }
             unchecked { ++l; }
+        }
+    }
+
+    /// @dev Solidly leg reference quote. Prefers the pool's own getAmountOut —
+    ///      decimal-agnostic and identical to what _execSolidlyAmt settles — so a
+    ///      stable pair with mismatched decimals (e.g. DOLA-18 / USDC-6) prices
+    ///      correctly instead of hitting outSolidly's equal-decimals fast path,
+    ///      which corrupted the fee base and protocol floor. Falls back to the
+    ///      replicated curve only on forks that do not expose getAmountOut (the
+    ///      pre-existing conservative path, unchanged). Extracted for the same
+    ///      via-IR stack-depth reason as _stableLegQuote / _v4LegQuote.
+    function _solidlyLegQuote(
+        Leg calldata leg, address tokenIn, uint256 legAmt, uint256 rIn, uint256 rOut
+    ) private view returns (uint256 quote) {
+        quote = BPC.solidlyGetAmountOut(leg.pool, legAmt, tokenIn);
+        if (quote == 0) {
+            uint256 liveFee = BPC.readDynamicFee(leg.pool, leg.stable, leg.fee);
+            quote = BPC.outSolidly(legAmt, rIn, rOut, liveFee, leg.stable);
         }
     }
 
