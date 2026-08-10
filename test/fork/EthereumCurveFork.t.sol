@@ -6,7 +6,7 @@ import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
-import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, PoolInfo} from "../../src/BlazePhoenixCore.sol";
 
 interface IERC20Fork {
     function balanceOf(address) external view returns (uint256);
@@ -29,6 +29,12 @@ contract EthereumCurveForkTest is Test {
     address constant DAI  = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    // Curve main Registry (exposes find_pool_for_coins) — verified on-chain to
+    // return the 3pool for the USDC/DAI pair in both token orderings. This is
+    // the address a real deploy wires as a MODE_CURVE_META factory to enable
+    // Curve pool discovery through Hub.discoverFor.
+    address constant CURVE_REGISTRY = 0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5;
+    uint8   constant MODE_CURVE_META = 8;
 
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
@@ -106,5 +112,28 @@ contract EthereumCurveForkTest is Test {
         assertEq(IERC20Fork(DAI).balanceOf(user), delivered);
         assertEq(IERC20Fork(USDC).balanceOf(address(router)), 0);
         assertEq(IERC20Fork(DAI).balanceOf(address(router)), 0);
+    }
+
+    /// @notice Proves the DISCOVERY path a real deploy relies on — not the
+    ///         manual seedPool the other tests use. Registering the Curve
+    ///         registry as a MODE_CURVE_META factory lets Hub.discoverFor find
+    ///         the 3pool for a USDC/DAI pair via find_pool_for_coins, exactly as
+    ///         production wiring would. The registry address was verified
+    ///         on-chain to return the 3pool for this pair (both token orderings).
+    function test_Discovery_FindsCurve3PoolViaRegistryScan() public {
+        hub.addFactory(
+            CURVE_REGISTRY, BPC.KIND_STABLE, MODE_CURVE_META, bytes32(0),
+            new uint24[](0), new int24[](0)
+        );
+        PoolInfo[] memory hits = hub.discoverFor(USDC, DAI);
+        bool found;
+        for (uint256 i; i < hits.length; ++i) {
+            if (hits[i].pool == CURVE_3POOL) {
+                assertEq(uint256(hits[i].kind), uint256(BPC.KIND_STABLE), "3pool under KIND_STABLE");
+                assertTrue(hits[i].stable, "3pool flagged stable");
+                found = true;
+            }
+        }
+        assertTrue(found, "discoverFor must find the real Curve 3pool via the registry scan");
     }
 }
