@@ -35,8 +35,13 @@ contract EthereumCurveForkTest is Test {
     BlazePhoenixRouter router;
     BlazePhoenixQuoter quoter;
 
+    // Pinned to a recent finalized mainnet block: reproducible Curve quotes and
+    // execution across runs, and hot-cached archive state (dRPC) instead of
+    // flaky latest-state reads that can time out mid-fork.
+    uint256 constant MAINNET_BLOCK = 25_700_000;
+
     function setUp() public {
-        vm.createSelectFork("mainnet");
+        vm.createSelectFork("mainnet", MAINNET_BLOCK);
 
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
