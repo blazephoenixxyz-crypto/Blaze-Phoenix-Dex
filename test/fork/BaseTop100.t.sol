@@ -30,8 +30,14 @@ contract BaseTop100Test is Test {
     BlazePhoenixRouter router;
     BlazePhoenixQuoter quoter;
 
+    // Pinned Base block: makes gas reproducible across runs (mandatory for the
+    // 2-vs-3 bridge A/B, where a drifting fork block would change liquidity and
+    // pollute the gas delta) and lets storage reads hit hot node cache instead
+    // of flaky latest-state archive queries that time out mid-sweep.
+    uint256 constant BASE_BLOCK = 49_800_000;
+
     function setUp() public {
-        vm.createSelectFork("base");
+        vm.createSelectFork("base", BASE_BLOCK);
         (hub, solver, router, quoter) = BaseTestDeploy.deploy(address(this));
     }
 
