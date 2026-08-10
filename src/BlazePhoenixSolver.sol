@@ -39,6 +39,8 @@ interface IHubR {
     function getActivePools(address tA, address tB) external view returns (PoolInfo[] memory);
     function discoverFor(address tA, address tB) external view returns (PoolInfo[] memory);
     function getPsi(bytes32 key) external view returns (uint256);
+    function psisOf(address[] calldata pools, address[] calldata tAs, address[] calldata tBs)
+        external view returns (uint256[] memory);
     function getSlot(bytes32 key) external view returns (uint256);
     function keyOf(address pool, address tA, address tB) external pure returns (bytes32);
     function bridge(uint8 i) external view returns (address);
@@ -785,13 +787,22 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < n; ) { active[i] = merged[i]; unchecked { ++i; } }
 
         // Compute fitness for each and select top-K with selection sort.
-        uint256[] memory ps = new uint256[](n);
-        for (uint256 i; i < n; ) {
-            bytes32 key = hub.keyOf(active[i].pool, active[i].token0, active[i].token1);
-            uint256 p = hub.getPsi(key);
-            ps[i] = p == 0 ? 1 : p;
-            unchecked { ++i; }
+        // ONE batched external call for the whole candidate set (previously
+        // keyOf + getPsi per candidate = 2n calls): pure view-path saving.
+        uint256[] memory ps;
+        {
+            address[] memory pls = new address[](n);
+            address[] memory t0s = new address[](n);
+            address[] memory t1s = new address[](n);
+            for (uint256 i; i < n; ) {
+                pls[i] = active[i].pool;
+                t0s[i] = active[i].token0;
+                t1s[i] = active[i].token1;
+                unchecked { ++i; }
+            }
+            ps = hub.psisOf(pls, t0s, t1s);
         }
+        for (uint256 i; i < n; ) { if (ps[i] == 0) ps[i] = 1; unchecked { ++i; } }
         uint256 k = n < keep ? n : keep;
         out = new PoolInfo[](k);
         for (uint256 ki; ki < k; ) {

@@ -509,13 +509,32 @@ contract BlazePhoenixHub {
         }
     }
 
-    function getPsi(bytes32 key) external view returns (uint256) {
+    function getPsi(bytes32 key) external view returns (uint256) { return _psi(key); }
+
+    function _psi(bytes32 key) private view returns (uint256) {
         HubStore storage $ = _store();
         uint256 s = $.slot[key];
         if (s == 0) return 0;
         uint8 kind = BPC.decodeKind(s);
         bool conc  = (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA || kind == BPC.KIND_V4);
         return BPC.psi(s, uint32(block.timestamp), _isBridged(s), conc);
+    }
+
+    /// @notice Batch fitness read: one external call for a whole candidate set
+    ///         (each pool with its pair tokens), replacing two calls per
+    ///         candidate (keyOf + getPsi) in the Solver's top-K selection.
+    ///         Pure view addition — buys eth_call gas headroom and RPC latency
+    ///         on the (free) planning path, zero new state surface.
+    function psisOf(address[] calldata pools, address[] calldata tAs, address[] calldata tBs)
+        external view returns (uint256[] memory ps)
+    {
+        uint256 n = pools.length;
+        if (tAs.length != n || tBs.length != n) revert HubE(4);
+        ps = new uint256[](n);
+        for (uint256 i; i < n; ) {
+            ps[i] = _psi(keyOf(pools[i], tAs[i], tBs[i]));
+            unchecked { ++i; }
+        }
     }
 
     /// @notice True when either side of the pair is a registered bridge token.
