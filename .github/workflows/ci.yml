@@ -128,6 +128,29 @@ jobs:
           print("\nAll BlazePhoenix contracts under the 24000-byte margin. OK.")
           PY
 
+  formal:
+    name: formal verification (Halmos symbolic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Halmos
+        run: pip install halmos
+
+      - name: Symbolic checks (Core load-bearing math)
+        # Executes test/formal/CoreFormalSpec.t.sol's check_* functions
+        # SYMBOLICALLY over the real compiled bytecode (incl. the Yul the
+        # source-level SMTChecker cannot see): iron-floor bounds, impact/quote
+        # bounds, V3 fail-closed guards, mulDiv-vs-exact. A pass is a proof
+        # over the bounded input domain, not a sampled fuzz.
+        run: halmos --contract CoreFormalSpec -v
+
   gas-metrics:
     name: gas metrics (offline ledger)
     runs-on: ubuntu-latest
