@@ -114,7 +114,7 @@ library BlazePhoenixCore {
     uint256 internal constant GAS_CAP    = 100_000;
 
     // Protocol domain separator.
-    bytes32 internal constant DOMAIN     = 0x3109786ac499c23108f996ed4c85cbcc91a65025ea43d1c2cfbca5182abb4def;
+    bytes32 internal constant DOMAIN     = 0x5a4c8fb3318679ccd8afce8752c8d272b447abeff6f412a8fc800087b3f9eead;
 
     // ─── Pool kinds (universal taxonomy) ───────────────────────────────
 
