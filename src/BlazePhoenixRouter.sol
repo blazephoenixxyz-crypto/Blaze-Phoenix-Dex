@@ -133,6 +133,17 @@ contract BlazePhoenixRouter {
         address indexed user, address indexed tokenIn, address indexed tokenOut,
         uint256 amountIn, uint256 amountOut, uint256 legs
     );
+    /// @notice Verifiable execution-quality proof, emitted per swap: the
+    ///         in-frame on-chain quote the fee/floor were derived from
+    ///         (`quoted`, gross), the amount actually delivered to the recipient
+    ///         (`realized`, net of the protocol fee — see the Fee event), the
+    ///         floor that had to be cleared (`floorUsed`), and the block. Lets
+    ///         anyone audit realized-vs-quoted on-chain, with no oracle and no
+    ///         trust in our own reported numbers — the protocol's core promise.
+    event ExecutionProof(
+        address indexed user, address indexed tokenOut,
+        uint256 quoted, uint256 realized, uint256 floorUsed, uint256 blockNumber
+    );
     event Fee(address indexed token, uint256 amount, uint256 toT1, uint256 toT2);
     event Surplus(address indexed token, uint256 amount);
     event Cfg(uint8 id, address who);
@@ -644,6 +655,7 @@ contract BlazePhoenixRouter {
         amountOut = delivered;
         _recordHits(route);
         emit Swap(msg.sender, tokenIn, tokenOut, amountIn, delivered, totalLegs);
+        emit ExecutionProof(msg.sender, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number);
         return delivered;
     }
 
