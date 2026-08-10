@@ -12,6 +12,7 @@ broadcast/
 # published to this public repository.
 script/DeployAll.s.sol
 script/DeployRobinhood.s.sol
+test/DeployAll.t.sol            # Anvil harness for the operational deploy — stays private with the scripts
 
 # Internal design/audit docs — describe unfixed vulnerabilities and proprietary
 # design. Kept locally (private vault) and intentionally never published here.
