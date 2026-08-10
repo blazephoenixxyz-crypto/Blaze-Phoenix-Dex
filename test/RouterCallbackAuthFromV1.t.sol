@@ -31,7 +31,7 @@ contract RouterCallbackAuthFromV1Test is Test {
     address attacker = makeAddr("attacker");
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), v4mgr);
         BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
         router = new BlazePhoenixRouter(

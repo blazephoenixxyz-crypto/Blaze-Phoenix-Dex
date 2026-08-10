@@ -55,7 +55,7 @@ library BaseTestDeploy {
         internal
         returns (BlazePhoenixHub hub, BlazePhoenixSolver solver, BlazePhoenixRouter router, BlazePhoenixQuoter quoter)
     {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(admin, BASE_V4_MGR);
         solver = new BlazePhoenixSolver(address(hub));
         router = new BlazePhoenixRouter(address(hub), address(solver), admin, TEST_TREASURY_1, TEST_TREASURY_2);

@@ -30,7 +30,7 @@ contract BlazePhoenixQuoterTest is Test {
     uint16 constant PROTOCOL_FEE_BPS = 28;
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         solver = new BlazePhoenixSolver(address(hub));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));

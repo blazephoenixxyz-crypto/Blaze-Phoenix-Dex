@@ -38,7 +38,7 @@ contract SolverCapacityFromV1Test is Test {
     uint256 constant BAL_2 = 1_900e18;
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         solver = new BlazePhoenixSolver(address(hub));
         tokenA = new MockERC20("A", "A");

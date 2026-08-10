@@ -14,7 +14,7 @@ contract BlazePhoenixHubTest is Test {
     address tokenB = address(0x2222);
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(admin, address(0xBEEF));
         hub.setRoles(address(this), address(this), address(this));
     }
@@ -320,7 +320,7 @@ contract BlazePhoenixHubTest is Test {
     }
 
     function test_Initialize_RevertsWhenCalledByNonDeployer() public {
-        BlazePhoenixHub fresh = new BlazePhoenixHub();
+        BlazePhoenixHub fresh = new BlazePhoenixHub(address(this));
         vm.prank(address(0xBAD));
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 1));
         fresh.initialize(address(0xBAD), address(0));

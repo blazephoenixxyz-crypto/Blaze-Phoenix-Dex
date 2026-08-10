@@ -48,7 +48,7 @@ contract DiscoveryModeGasTest is Test {
     }
 
     function _hubWithFactoryCallMode(uint256 n) internal returns (BlazePhoenixHub hub) {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         for (uint256 i; i < n; ++i) {
             MockV2Factory f = new MockV2Factory();
@@ -61,7 +61,7 @@ contract DiscoveryModeGasTest is Test {
     }
 
     function _hubWithCreate2Mode(uint256 n) internal returns (BlazePhoenixHub hub) {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         for (uint256 i; i < n; ++i) {
             // The factory needs no code at all on this path — it is only salt material.

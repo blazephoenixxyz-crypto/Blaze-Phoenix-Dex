@@ -166,7 +166,7 @@ contract RouterAdversarialV4FromV1Test is Test {
 
     function setUp() public {
         mgr = new HostileV4Manager();
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr)); // V4 manager = the hostile one
         BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), treasury1, treasury2);

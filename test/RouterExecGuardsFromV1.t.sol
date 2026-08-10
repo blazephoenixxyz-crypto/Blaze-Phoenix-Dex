@@ -28,7 +28,7 @@ contract RouterExecGuardsFromV1Test is Test {
     address recipient = makeAddr("recipient");
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), v4mgr); // nonzero V4 manager, required to reach the hook check
         BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
         router = new BlazePhoenixRouter(

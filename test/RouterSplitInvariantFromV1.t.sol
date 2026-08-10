@@ -97,7 +97,7 @@ contract RouterSplitInvariantFromV1Test is StdInvariant, Test {
     address treasury2 = makeAddr("treasury2");
 
     function setUp() public {
-        BlazePhoenixHub hub = new BlazePhoenixHub();
+        BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), makeAddr("v4mgr"));
         BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), treasury1, treasury2);

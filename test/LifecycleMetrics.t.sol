@@ -41,7 +41,7 @@ contract LifecycleMetricsTest is Test {
     uint256 constant AMT = 100e18;
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         solver = new BlazePhoenixSolver(address(hub));
         router = new BlazePhoenixRouter(

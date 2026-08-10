@@ -27,7 +27,7 @@ contract BlazePhoenixSolverTest is Test {
     MockERC20 bridgeToken;
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         solver = new BlazePhoenixSolver(address(hub));
 

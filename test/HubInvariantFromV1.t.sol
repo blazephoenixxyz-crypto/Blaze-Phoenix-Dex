@@ -44,7 +44,7 @@ contract HubInvariantFromV1Test is StdInvariant, Test {
     uint256 constant MAX_SLOTS = 16;
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         handler = new HubInvariantHandler(hub, T0, T1);
         hub.setRoles(address(handler), address(0x5), address(0x6)); // router = handler

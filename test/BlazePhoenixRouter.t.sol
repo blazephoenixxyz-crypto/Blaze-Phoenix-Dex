@@ -22,7 +22,7 @@ contract BlazePhoenixRouterTest is Test {
     address user = address(0xBEEF);
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         tokenIn = new MockERC20("In", "IN");
         tokenOut = new MockERC20("Out", "OUT");
         pair = new MockV2Pair(address(tokenIn), address(tokenOut));

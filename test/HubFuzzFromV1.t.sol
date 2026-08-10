@@ -26,7 +26,7 @@ contract HubFuzzFromV1Test is Test {
     BlazePhoenixHub hub;
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
     }
 

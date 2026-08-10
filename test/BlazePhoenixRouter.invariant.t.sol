@@ -138,7 +138,7 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
     address treasury2 = address(0xFEE2);
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         router = new BlazePhoenixRouter(address(hub), address(0xBEEF), address(this), treasury1, treasury2);
 
         tokens.push(new MockERC20("T0", "T0"));

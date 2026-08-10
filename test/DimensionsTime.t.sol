@@ -23,7 +23,7 @@ contract DimensionsTimeTest is Test {
     address pool = address(0x3333);
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0xBEEF));
         hub.setRoles(address(this), address(this), address(this));
     }

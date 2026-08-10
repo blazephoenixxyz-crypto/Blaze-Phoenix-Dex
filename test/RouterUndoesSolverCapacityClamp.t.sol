@@ -54,7 +54,7 @@ contract RouterUndoesSolverCapacityClampTest is Test {
     uint256 constant POOL_HOLDING_B = 1_000e18;  // the pool's WHOLE real tokenB balance
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         tokenA = new MockERC20("A", "A");
         tokenB = new MockERC20("B", "B");

@@ -149,10 +149,14 @@ contract BlazePhoenixHub {
 
     // ─── Constructor / initializer ─────────────────────────────────────
 
-    constructor() {
-        // The deploying account is recorded as the only address allowed to
-        // initialize, which closes the initialize front-running window.
-        _store().admin = msg.sender;
+    constructor(address admin_) {
+        // The admin is fixed at construction (an explicit argument, NOT
+        // msg.sender) so the Hub can be deployed through a CREATE3 factory —
+        // where msg.sender is the one-shot proxy that could never call
+        // initialize, which would otherwise brick the registry permanently.
+        // Only this admin may initialize, so the front-running window stays shut.
+        _ne0(admin_);
+        _store().admin = admin_;
     }
 
     function initialize(address admin_, address v4Manager_) external {

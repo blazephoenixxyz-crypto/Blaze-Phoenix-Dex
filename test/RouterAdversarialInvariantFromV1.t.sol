@@ -276,7 +276,7 @@ contract RouterAdversarialInvariantFromV1Test is StdInvariant, Test {
     address sink = makeAddr("fotSink");
 
     function setUp() public {
-        hub = new BlazePhoenixHub();
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), makeAddr("v4mgr"));
         BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), treasury1, treasury2);
