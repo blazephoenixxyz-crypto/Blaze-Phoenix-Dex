@@ -56,10 +56,10 @@ jobs:
         # templates in foundry.toml's [rpc_endpoints]; never hard-coded.
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-        # TEMPORARY: run only the minimal RPC probe to confirm the archive RPC
-        # works, isolated from the stale/legacy fork tests. Restore
-        # "test/fork/**" once the fresh extensive suite is in.
-        run: forge test -vvv --match-path "test/fork/RpcProbe.t.sol"
+        # RPC confirmed. Now validating the comprehensive Base sweep (100 real
+        # tokens + gas) before scaling the same pattern to the other chains.
+        # Other legacy fork files stay excluded until refreshed per chain.
+        run: forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseTop100Test"
 
   size-guard:
     name: EIP-170 size guard (release profile)
