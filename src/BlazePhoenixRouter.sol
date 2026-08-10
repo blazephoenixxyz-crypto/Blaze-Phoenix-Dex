@@ -808,16 +808,9 @@ contract BlazePhoenixRouter {
         uint256 sT = TSLOT_TOKEN;
         uint256 sA = TSLOT_AMT;
         address pool = leg.pool;
-        // Callback context: leg budget in the low 240 bits, per-hop
-        // fee-on-transfer gross-up hint rHat (bps) in the high 16 bits.
-        // rHat == 0 ⇒ the callback's first pass pays exactly `owed` and the
-        // measured top-up corrects — margin is never donated on a guess.
-        // (A Solver-supplied per-hop hint lands with the next leg-format
-        // revision; the Router packs 0 for now.) Amounts ≥ 2^240 cannot be
-        // real token amounts and are rejected rather than silently truncated.
-        if (amt >> 240 != 0) revert RouterE(8);
-        uint256 rHat = 0;
-        assembly { tstore(sP, pool) tstore(sT, tokenIn) tstore(sA, or(amt, shl(240, rHat))) }
+        // Record the max input the callback is allowed to pull. A V3-shaped
+        // pool that demands more than `amt` is rejected.
+        assembly { tstore(sP, pool) tstore(sT, tokenIn) tstore(sA, amt) }
         uint160 limit = leg.zeroForOne
             ? BPC.MIN_SQRT_PRICE_PLUS_ONE
             : BPC.MAX_SQRT_PRICE_MINUS_ONE;
@@ -916,64 +909,29 @@ contract BlazePhoenixRouter {
         uint256 sA = TSLOT_AMT;
         address expected;
         address tIn;
-        uint256 packed;
-        assembly { expected := tload(sP) tIn := tload(sT) packed := tload(sA) }
+        uint256 maxAmt;
+        assembly { expected := tload(sP) tIn := tload(sT) maxAmt := tload(sA) }
         if (msg.sender != expected || expected == address(0)) revert RouterE(6);
-        uint256 maxAmt = packed & ((uint256(1) << 240) - 1); // leg budget
-        uint256 rHat   = packed >> 240;                      // FoT hint (bps)
-        if (rHat >= BPC.BPS) rHat = 0; // malformed hint: fall back to measure
         uint256 owed = a0 > 0 ? uint256(a0) : (a1 > 0 ? uint256(a1) : 0);
         if (owed == 0) revert RouterE(8);
-        // UNCONDITIONAL budget cap: the pool can never demand more than the
-        // input this leg was given. A zero-input leg never reaches swap()
-        // (see _execScaled), so maxAmt == 0 here is a forged/stale context
-        // and owed > 0 == maxAmt reverts. The old `maxAmt != 0` escape that
-        // turned a zero cap into "no cap" is gone.
+        // The pool can never demand more than the input this leg was given.
+        // A zero-input leg never reaches swap() (see _execScaled), so a zero
+        // maxAmt is a forged/stale context and owed > 0 reverts (fail-closed).
         if (owed > maxAmt) revert RouterE(8);
         // Single-shot (checks-effects-interactions): clear the transient auth
-        // context BEFORE paying, so a pool that re-enters this callback during
-        // its own swap() reads expected == 0 on the second entry and reverts(6).
-        // Without this a malicious registered pool could pull the committed
-        // input more than once, draining the input budgeted to sibling legs.
+        // context BEFORE paying, so a pool that re-enters this callback reads
+        // expected == 0 on the second entry and reverts(6) — no multi-pull.
         assembly { tstore(sP, 0) tstore(sT, 0) tstore(sA, 0) }
-
-        // ─── Pay → measure → top-up (fee-on-transfer tokenIn) ───
-        // The pool verifies its OWN balance delta ≥ owed after this callback
-        // returns; no transfer happens between its snapshot and ours, so
-        // requiring the same measured delta here is exactly the pool's own
-        // acceptance condition. The gross-up is computed on the LIVE `owed`
-        // (partial-fill safe — never on a precomputed net), total paid is
-        // capped at the leg budget, and any safety margin stays Router-side
-        // (the residIn sweep returns it) — it is never sent to the pool.
+        // Pay exactly what the pool demands, then verify it MEASURABLY received
+        // it. V3 pools cannot absorb fee-on-transfer tokenIn (their own pre/post
+        // balance check reverts opaquely), so fail closed with a distinct,
+        // actionable error: RouterE(13) = V3 does not support FoT tokenIn --
+        // route via V2/Solidly, which handle FoT natively (owner decision
+        // 2026-08-10: FoT = route-where-natural). Meta-law: trust the measured
+        // balance delta at the seam of action, not the nominal transfer.
         uint256 bal0 = BPC.balanceOf(tIn, msg.sender);
-        // First pass: gross by the hint. rHat == 0 ⇒ pay exactly owed — we
-        // never donate margin to the pool on a guess. owed ≤ maxAmt < 2^240,
-        // so the ceil arithmetic cannot overflow.
-        uint256 pay = rHat == 0
-            ? owed
-            : (owed * BPC.BPS + (BPC.BPS - rHat - 1)) / (BPC.BPS - rHat);
-        if (pay > maxAmt) pay = maxAmt;
-        BPC.safeTransfer(tIn, msg.sender, pay);
-        uint256 recv = BPC.balanceOf(tIn, msg.sender) - bal0;
-        if (recv < owed) {
-            // Second (final) pass: gross the shortfall by the MEASURED live
-            // net ratio recv/pay. Hard cap of 2 transfers total, then a
-            // distinct revert — an unbounded loop against a hostile token is
-            // worse than a clean failure.
-            if (recv == 0) revert RouterE(11);
-            uint256 short = owed - recv;
-            uint256 top = BPC.mulDiv(short, pay, recv);
-            if (mulmod(short, pay, recv) != 0) top += 1;
-            if (top > maxAmt - pay) top = maxAmt - pay; // total ≤ leg budget
-            if (top == 0) revert RouterE(11);
-            BPC.safeTransfer(tIn, msg.sender, top);
-            pay += top;
-            recv = BPC.balanceOf(tIn, msg.sender) - bal0;
-            if (recv < owed) revert RouterE(11);
-        }
-        // Record the measured net ratio so the floor logic drops the
-        // fee-blind quote floor and re-prices the gross-quoted protocol floor.
-        if (recv < pay) _noteFot(BPC.mulDiv(recv, BPC.BPS, pay));
+        BPC.safeTransfer(tIn, msg.sender, owed);
+        if (BPC.balanceOf(tIn, msg.sender) - bal0 < owed) revert RouterE(13);
     }
 
     /// @notice V4 unlockCallback — invoked by the PoolManager after unlock().
