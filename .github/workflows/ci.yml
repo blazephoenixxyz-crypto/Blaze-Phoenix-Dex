@@ -127,3 +127,23 @@ jobs:
               sys.exit(1)
           print("\nAll BlazePhoenix contracts under the 24000-byte margin. OK.")
           PY
+
+  gas-metrics:
+    name: gas metrics (offline ledger)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Measure gas ledger (offline harness, reporting-only)
+        # Not a pass/fail correctness gate - surfaces the MEASURED gas ledger
+        # (cold-vs-warm discovery, security-architecture overhead, registry
+        # feedback, SSTORE2/CREATE2 levers) into a small dedicated log so gas
+        # regressions are visible per-commit and the warm/cold numbers stay
+        # current instead of being trusted from a stale one-off measurement.
+        run: forge test --match-contract "LifecycleMetrics|SecurityArchitectureGas|Sstore2RegistryGas|DiscoveryModeGas" -vv
