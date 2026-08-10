@@ -56,10 +56,18 @@ jobs:
         # templates in foundry.toml's [rpc_endpoints]; never hard-coded.
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-        # RPC confirmed. Now validating the comprehensive Base sweep (100 real
-        # tokens + gas) before scaling the same pattern to the other chains.
-        # Other legacy fork files stay excluded until refreshed per chain.
-        run: forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseTop100Test"
+        # A heavy live-fork sweep (100 tokens) rate-limits the archive RPC (429)
+        # when forge forks it directly. Run a local Anvil fork instead: Anvil
+        # caches forked state, so the RPC is hit far less. Base is reached via
+        # BASE_RPC -> the local Anvil; mainnet (light) stays direct.
+        run: |
+          anvil --fork-url "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}" --silent --port 8545 &
+          ANVIL=$!
+          for i in $(seq 1 40); do cast block-number --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1 && break; sleep 1; done
+          BASE_RPC=http://127.0.0.1:8545 forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseTop100Test"
+          RESULT=$?
+          kill $ANVIL 2>/dev/null || true
+          exit $RESULT
 
   size-guard:
     name: EIP-170 size guard (release profile)

@@ -46,6 +46,7 @@ library BaseTestDeploy {
     address internal constant BASE_PCK2   = 0x02a84c1b3BBD7401a5f7fa98a384EBC70bB5749E;
     address internal constant BASE_WETH = 0x4200000000000000000000000000000000000006;
     address internal constant BASE_USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+    address internal constant BASE_WSTETH = 0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452; // 3rd bridge: liquid staked ETH
 
     /// @dev Placeholder test-only fee recipients — never the real treasuries.
     address internal constant TEST_TREASURY_1 = address(0x7E51111111111111111111111111111111111111);
@@ -64,6 +65,7 @@ library BaseTestDeploy {
 
         hub.addBridge(BASE_WETH);
         hub.addBridge(BASE_USDC);
+        hub.addBridge(BASE_WSTETH);
         hub.addFactory(BASE_UNIV3,  KIND_V3,      MODE_CREATE2_V3,   UNIV3_INIT, _v3Fees(), _v3Sp());
         hub.addFactory(BASE_AERO,   KIND_SOLIDLY, MODE_CALL_SOLIDLY, bytes32(0), _none24(), _noneSp());
         hub.addFactory(BASE_UNIV2,  KIND_V2,      MODE_CALL_GENERIC, bytes32(0), _none24(), _noneSp());
