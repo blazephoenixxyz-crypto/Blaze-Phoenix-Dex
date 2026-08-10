@@ -170,8 +170,9 @@ contract BlazePhoenixHubTest is Test {
     function test_AddBridge_RevertsAboveMaxBridges() public {
         hub.addBridge(address(0x5555));
         hub.addBridge(address(0x6666));
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 7));
         hub.addBridge(address(0x7777));
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 7));
+        hub.addBridge(address(0x8888));
     }
 
     function test_RemoveBridge_ShiftsArrayAndClearsFlag() public {

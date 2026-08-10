@@ -44,7 +44,7 @@ contract BlazePhoenixHub {
     // ─── Pool-fitness constants ────────────────────────────────────────
 
     uint8   internal constant MAX_SLOTS              = 16;
-    uint8   internal constant MAX_BRIDGES            = 2;
+    uint8   internal constant MAX_BRIDGES            = 3;
     uint8   internal constant MAX_FACTORIES          = 16;
     uint16  internal constant EVICTION_IMPROVE_BPS   = 1_000;
 
