@@ -38,6 +38,26 @@ jobs:
       - name: Deeper invariant/fuzz pass
         run: forge test --match-path "test/*Invariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
 
+  fork-tests:
+    name: fork tests (Curve / Balancer, archive RPC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Fork tests
+        # Real Curve/Balancer/venue pools on forked mainnet + Base. The archive
+        # RPC comes from the ALCHEMY_KEY secret, consumed by the ${ALCHEMY_KEY}
+        # templates in foundry.toml's [rpc_endpoints]; never hard-coded.
+        env:
+          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
+        run: forge test -vvv --match-path "test/fork/**"
+
   size-guard:
     name: EIP-170 size guard (release profile)
     runs-on: ubuntu-latest
