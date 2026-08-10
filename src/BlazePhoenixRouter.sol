@@ -36,6 +36,7 @@ interface IHubW {
         address tA, address tB, uint256 amtIn, uint256 amtOut, uint256 depthWad
     ) external;
     function v4PoolManager() external view returns (address);
+    function isHookLive(address hook) external view returns (bool);
     function bridge(uint8 i) external view returns (address);
     function bridgeCount() external view returns (uint8);
 }
@@ -876,7 +877,15 @@ contract BlazePhoenixRouter {
     function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private {
         address mgr = hub.v4PoolManager();
         if (mgr == address(0)) revert RouterE(8);
-        if (leg.hooks != address(0) && BPC.hookAltersDeltas(leg.hooks)) revert RouterE(9);
+        if (leg.hooks != address(0)) {
+            // Delta-hooks stay blocked: the vanilla V4 quote cannot price custom
+            // accounting, so quote would diverge from execution.
+            if (BPC.hookAltersDeltas(leg.hooks)) revert RouterE(9);
+            // Codehash pin (Layer 3): route a hook only while it is admitted AND
+            // its code is unchanged since admission — closes proxy-upgrade and
+            // crafted-route-with-unadmitted-hook vectors; auto-pauses on change.
+            if (!hub.isHookLive(leg.hooks)) revert RouterE(9);
+        }
         // V4 has no pool address — leg.pool holds the truncated poolId, not a
         // token. The counterpart currency travels in auxId (low 160 bits).
         address tokenOther = address(uint160(uint256(leg.auxId)));

@@ -113,8 +113,9 @@ contract BlazePhoenixHub {
         // V4 registry (singleton-managed, manual entries)
         V4Entry[] v4Entries;
         address v4PoolManager;
-        // hooks allow-list
+        // hooks allow-list + codehash pin (Layer 3: auto-pause on code change)
         mapping(address => bool) hookAllowed;
+        mapping(address => bytes32) hookCodehash;
         // status
         bool paused;
         bool initialized;
@@ -213,7 +214,25 @@ contract BlazePhoenixHub {
 
     // ─── Curator (permanent: grows the registry only) ──────────────────
 
-    function allowHook(address h, bool ok) external onlyAdmin { _store().hookAllowed[h] = ok; }
+    function allowHook(address h, bool ok) external onlyAdmin {
+        HubStore storage $ = _store();
+        $.hookAllowed[h] = ok;
+        // Pin the code at admission (Layer 3). A later code change (proxy
+        // upgrade, selfdestruct+redeploy) makes isHookLive() false → the hook is
+        // auto-paused (not routable) WITHOUT eviction; re-admitting re-pins it.
+        if (ok) $.hookCodehash[h] = h.codehash; else delete $.hookCodehash[h];
+    }
+
+    /// @notice A hook is routable only while allow-listed AND its runtime code
+    ///         still matches the codehash pinned at admission. A hook whose code
+    ///         changes is auto-paused (not routable) with its pools' registry
+    ///         state preserved (read-only) — it resumes only if re-admitted. A
+    ///         hookless pool (h == 0) is always live.
+    function isHookLive(address h) public view returns (bool) {
+        if (h == address(0)) return true;
+        HubStore storage $ = _store();
+        return $.hookAllowed[h] && h.codehash == $.hookCodehash[h];
+    }
 
     // ─── Bridges (max 2) ───────────────────────────────────────────────
 
@@ -446,8 +465,14 @@ contract BlazePhoenixHub {
             bytes32 key = ks[i];
             uint256 s = _store().slot[key];
             if (BPC.isActive(s)) {
-                out[w] = _readPoolInfo(key, t0, t1, s);
-                unchecked { ++w; }
+                PoolInfo memory pi = _readPoolInfo(key, t0, t1, s);
+                // A V4 pool whose hook is paused (code changed since admission,
+                // or de-listed) stays in the registry (read-only) but is not a
+                // routable candidate — resumes automatically once re-admitted.
+                if (pi.kind != BPC.KIND_V4 || pi.hooks == address(0) || isHookLive(pi.hooks)) {
+                    out[w] = pi;
+                    unchecked { ++w; }
+                }
             }
             unchecked { ++i; }
         }
