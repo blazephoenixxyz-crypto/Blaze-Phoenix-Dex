@@ -161,7 +161,9 @@ contract BlazePhoenixRouter {
     error RouterE(uint16 code);
     // 1 = unauthorized, 2 = paused, 3 = bad input, 4 = deadline,
     // 5 = slippage, 6 = callback auth, 7 = reentrancy, 8 = swap failed,
-    // 9 = disallowed V4 hook, 10 = userMinOut == 0 with amountIn > 0 (BP-04)
+    // 9 = disallowed V4 hook, 10 = userMinOut == 0 with amountIn > 0 (BP-04),
+    // 13 = FoT token on a V3-only route (route-where-natural), 14 = rescue
+    // not queued or still inside the 48h timelock
 
     modifier onlyAdmin() { if (msg.sender != admin) revert RouterE(1); _; }
     // Control powers (treasuries, permit2, pause, admin transfer) are disabled
@@ -203,6 +205,42 @@ contract BlazePhoenixRouter {
     ///         their current values forever. The Router keeps executing swaps
     ///         under that fixed configuration. Irreversible.
     function renounceControl() external onlyControl { controlRenounced = true; emit Cfg(0, address(0)); }
+
+    // ─── Rescue (48h timelock) ────────────────────────────────────────
+    // The Router holds no user funds at rest (every swap settles or reverts in
+    // its own frame; fees stream to the treasuries), so rescue only ever moves
+    // accidental direct sends. It grants the admin NO new power (setTreasuries
+    // already redirects value) — the 48h delay + events exist so any rescue is
+    // publicly observable before it can execute. Dies with renounceControl,
+    // like every other control power: renounce means renounce.
+
+    uint256 private constant RESCUE_DELAY = 48 hours;
+    mapping(bytes32 => uint256) public rescueEta;
+
+    event RescueQueued(address indexed token, address indexed to, uint256 eta);
+    event Rescued(address indexed token, address indexed to, uint256 amount);
+
+    function queueRescue(address token, address to) external onlyControl {
+        if (to == address(0)) revert RouterE(3);
+        uint256 eta = block.timestamp + RESCUE_DELAY;
+        rescueEta[keccak256(abi.encodePacked(token, to))] = eta;
+        emit RescueQueued(token, to, eta);
+    }
+
+    function cancelRescue(address token, address to) external onlyControl {
+        delete rescueEta[keccak256(abi.encodePacked(token, to))];
+        emit RescueQueued(token, to, 0);
+    }
+
+    function executeRescue(address token, address to) external onlyControl {
+        bytes32 k = keccak256(abi.encodePacked(token, to));
+        uint256 eta = rescueEta[k];
+        if (eta == 0 || block.timestamp < eta) revert RouterE(14);
+        delete rescueEta[k];
+        uint256 amt = BPC.balanceOf(token, address(this));
+        if (amt > 0) BPC.safeTransfer(token, to, amt);
+        emit Rescued(token, to, amt);
+    }
 
     // =========================================================================
     //  ENTRY POINTS — three auth schemes, one execution core
