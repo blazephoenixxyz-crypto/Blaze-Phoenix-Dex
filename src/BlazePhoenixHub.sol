@@ -98,10 +98,12 @@ contract BlazePhoenixHub {
         address quoter;
         mapping(address => bool) operator;
         // pool registry
-        mapping(bytes32 => uint256) slot;       // packed pool state per key
+        mapping(bytes32 => uint256) slot;       // packed pool state per key (kind lives HERE, encodeSlot)
         mapping(bytes32 => address) poolOf;     // pool address per key
-        mapping(bytes32 => uint8)   kindOf;     // kind per key
-        mapping(bytes32 => address) hooksOf;    // hooks per key (V4)
+        // kindOf mapping DELETED (2026-08-11 gas audit): it was write-only dead
+        // storage — kind is decoded from the packed slot by every consumer —
+        // and cost 22.1k per fresh pool registration for nothing.
+        mapping(bytes32 => address) hooksOf;    // hooks per key (V4 only; zero-guarded write)
         // pair index
         mapping(address => mapping(address => bytes32[])) pairKeys;
         // bridges
@@ -652,8 +654,9 @@ contract BlazePhoenixHub {
             address evictPool = $.poolOf[evictKey];
             $.slot[evictKey] = 0;
             $.poolOf[evictKey] = address(0);
-            $.kindOf[evictKey] = 0;
-            $.hooksOf[evictKey] = address(0);
+            // hooksOf: clear only when set — non-V4 pools never wrote it, and
+            // a 0→0 SSTORE still costs 2.2k cold for nothing.
+            if ($.hooksOf[evictKey] != address(0)) $.hooksOf[evictKey] = address(0);
             ks[worstIdx] = key;
             emit Evicted(evictKey, evictPool);
         } else {
@@ -667,8 +670,7 @@ contract BlazePhoenixHub {
         );
         $.slot[key]    = _markBridged(s, bridged);
         $.poolOf[key]  = pool;
-        $.kindOf[key]  = kind;
-        $.hooksOf[key] = hooks;
+        if (hooks != address(0)) $.hooksOf[key] = hooks;
         emit Registered(key, pool, kind);
     }
 
