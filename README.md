@@ -21,7 +21,8 @@ realised execution, not caller-supplied calldata.
 ## What this is
 
 - **Router** (`BlazePhoenixRouter.sol`) — executes a route leg by leg across
-  five auth entry points (classic, Permit2, EIP-7702) and five AMM kinds
+  four entry points (classic, Permit2, native-ETH, and a fully-on-chain
+  solve+execute; EIP-7702 flows use the classic path unchanged) and five AMM kinds
   (V2-style push-swap, V3-style callback, Solidly, Curve `exchange`, V4
   unlock/settle), re-deriving its output floor and protocol-fee base from
   what actually executed on-chain, never from the caller's claim.

@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 // Closes coverage gaps found by auditing the PUBLIC surface against the test suite. Three
 // externally-callable functions had zero references anywhere in tests:
 //
-//   * Router.swapExactInWith7702  — one of the five auth entry points the README advertises
+//   * (Router.swapExactInWith7702 was removed for EIP-170 headroom — 7702 uses the classic path)
 //   * Hub.setOperator             — a privileged role mutator (dimension 4: privilege)
 //   * Hub.setV4Manager            — repoints the V4 singleton every V4 leg trusts
 //
@@ -69,47 +69,9 @@ contract UntestedSurfaceTest is Test {
         });
     }
 
-    /// @notice The 7702 entry point delivers exactly what swapExactIn delivers, for the same
-    ///         inputs and the same starting state. Documents the alias as an executable fact.
-    function test_7702_IsAnExactAliasOfSwapExactIn() public {
-        uint256 amt = 1_000e18;
-        // Build the route BEFORE pranking: _route() makes an external pair.token0() call, which
-        // would otherwise consume vm.prank's single-next-call scope and run the swap as the test
-        // contract (which holds no tokens) instead of `user`.
-        Route memory r = _route(amt);
-        uint256 dl = block.timestamp + 1;
-
-        uint256 snap = vm.snapshotState();
-        vm.prank(user);
-        uint256 viaClassic = router.swapExactIn(r, amt, 1, user, dl);
-        vm.revertToState(snap);
-
-        vm.prank(user);
-        uint256 via7702 = router.swapExactInWith7702(r, amt, 1, user, dl);
-
-        assertEq(via7702, viaClassic,
-            "the 7702 entry point must deliver exactly what swapExactIn delivers - it is an alias");
-        assertGt(via7702, 0, "the swap must actually settle for this comparison to mean anything");
-    }
-
-    /// @notice 7702 is still subject to every guard the classic path enforces — an alias must
-    ///         not be a bypass.
-    function test_7702_RespectsPauseAndDeadline() public {
-        uint256 amt = 1_000e18;
-        // Same reason as above: hoist the external calls out from under prank/expectRevert.
-        Route memory r = _route(amt);
-        uint256 past = block.timestamp - 1;
-        uint256 future = block.timestamp + 1;
-
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 4));
-        router.swapExactInWith7702(r, amt, 1, user, past);
-
-        router.setPaused(true);
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 2));
-        router.swapExactInWith7702(r, amt, 1, user, future);
-    }
+    // The former swapExactInWith7702 alias was removed (EIP-170 headroom); its
+    // guards are the same code as swapExactIn's — covered by the swapExactIn
+    // and BP-04 tests. 7702 flows now go through swapExactIn unchanged.
 
     // ─── Hub privileged mutators (dimension 4) ────────────────────────────────
 

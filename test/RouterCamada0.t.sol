@@ -84,14 +84,6 @@ contract RouterCamada0Test is Test {
         router.swapExactIn(route, amountIn, 0, user, block.timestamp + 1);
     }
 
-    function test_BP04_reverts_zero_minout_with_amount_7702() public {
-        uint256 amountIn = 1_000e18;
-        Route memory route = _buildRoute(amountIn, 1);
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 10));
-        router.swapExactInWith7702(route, amountIn, 0, user, block.timestamp + 1);
-    }
-
     function test_BP04_reverts_zero_minout_with_amount_permit2() public {
         uint256 amountIn = 1_000e18;
         Route memory route = _buildRoute(amountIn, 1);
@@ -136,23 +128,6 @@ contract RouterCamada0Test is Test {
         }
     }
 
-    /// @notice Same I8 exemption on the 7702 alias — byte-for-byte identical
-    ///         body means byte-for-byte identical exemption.
-    function test_BP04_zero_amount_is_noop_7702() public {
-        Route memory route = _buildRoute(0, 1);
-        uint256 deadline = block.timestamp + 1;
-        vm.prank(user);
-        (bool ok, bytes memory ret) = address(router).call(
-            abi.encodeWithSelector(
-                router.swapExactInWith7702.selector, route, uint256(0), uint256(0), user, deadline
-            )
-        );
-        if (!ok) {
-            assertEq(
-                ret,
-                abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 3),
-                "amountIn==0 must never trip the BP-04 guard (RouterE(10)) on the 7702 entry"
-            );
-        }
-    }
+    // test_BP04_zero_amount_is_noop_7702 removed with the 7702 alias — the
+    // classic test_BP04_zero_amount_is_noop above covers the identical guard.
 }

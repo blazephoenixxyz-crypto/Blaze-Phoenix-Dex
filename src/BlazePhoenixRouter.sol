@@ -310,24 +310,12 @@ contract BlazePhoenixRouter {
         return _swapPrePulled(route, received, userMinOut, recipient, deadline);
     }
 
-    /// @notice EIP-7702 entry point — a NAMED ALIAS of `swapExactIn`, deliberately.
-    /// @dev    Under EIP-7702 the EOA delegates code to itself for the transaction, so
-    ///         `msg.sender` is still the EOA and the classic pull path already works unchanged —
-    ///         there is no 7702-specific logic to run, and this body is byte-for-byte identical
-    ///         to `swapExactIn`. It exists so a 7702 integrator can express intent at the call
-    ///         site, and is kept for interface stability.
-    ///
-    ///         Be precise about where the 7702 saving comes from: it is the *transaction
-    ///         structure* (bundling `approve` + `swap` into one tx, removing a ~21k base cost
-    ///         plus the allowance SSTORE), NOT this function. Calling this instead of
-    ///         `swapExactIn` saves nothing on its own. See
-    ///         `test_7702_IsAnExactAliasOfSwapExactIn` for the executable statement of that.
-    function swapExactInWith7702(
-        Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, uint256 deadline
-    ) external whenLive nrEntrant returns (uint256) {
-        return _checkedSwap(route, amountIn, userMinOut, recipient, deadline);
-    }
+    // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates
+    // code to itself, so `msg.sender` is still the EOA and `swapExactIn`'s
+    // classic pull path already works unchanged. The former swapExactInWith7702
+    // was a byte-identical alias that saved nothing on its own (the 7702 gain
+    // is the tx structure — bundling approve+swap — not the function); it was
+    // removed to reclaim EIP-170 headroom. 7702 integrators call swapExactIn.
 
     /// @notice Native-ETH entry: wraps `msg.value` into the chain's canonical
     ///         WETH and routes it, so a user never has to pre-wrap.

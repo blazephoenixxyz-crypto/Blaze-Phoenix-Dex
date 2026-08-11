@@ -260,8 +260,6 @@ contract RouterHighSeverityF1F2Test is Test {
         Route memory route;   // empty: the guard fires before route checks
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(10)));
         router.swapExactIn(route, 1e18, 0, user, block.timestamp + 1);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(10)));
-        router.swapExactInWith7702(route, 1e18, 0, user, block.timestamp + 1);
         // I8 idempotence: a zero-amount call must never revert ON THE GUARD —
         // this one reverts later, for its own reason (RouterE(3): empty
         // route), proving the guard is conditioned on amountIn > 0.
