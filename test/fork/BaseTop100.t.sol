@@ -49,6 +49,10 @@ contract BaseTop100Test is Test {
         uint256 noRoute;
         uint256 selfPair; // token IS USDC itself (rank-1 stablecoin), skip
         uint256 totalGas;
+        uint256 minGas = type(uint256).max;
+        uint256 maxGas;
+        uint256 maxImpactBps;
+        uint256 totalImpactBps;
         uint256[8] memory venueLegs; // legs routed per KIND (0=V2 1=V3 2=STABLE 3=BAL 4=V4 5=SOLIDLY 6=ALGEBRA 7=CRVCRYPTO)
 
         for (uint256 i; i < tokens.length; ++i) {
@@ -63,6 +67,11 @@ contract BaseTop100Test is Test {
                 totalGas += gasUsed;
                 if (pv.grossOut > 0) {
                     routeFound++;
+                    if (gasUsed < minGas) minGas = gasUsed;
+                    if (gasUsed > maxGas) maxGas = gasUsed;
+                    uint256 imp = route.expectedImpactBps;
+                    totalImpactBps += imp;
+                    if (imp > maxImpactBps) maxImpactBps = imp;
                     for (uint256 h; h < route.hops.length; ++h) {
                         Leg[] memory legs = route.hops[h].legs;
                         for (uint256 l; l < legs.length; ++l) {
@@ -85,7 +94,10 @@ contract BaseTop100Test is Test {
         console2.log("routeFound:", routeFound);
         console2.log("noRoute   :", noRoute);
         console2.log("selfPair  :", selfPair);
-        if (routeFound > 0) console2.log("avgGasPerFoundQuote:", totalGas / routeFound);
+        if (routeFound > 0) {
+            console2.log("gas min/avg/max:", minGas, totalGas / routeFound, maxGas);
+            console2.log("impactBps avg/max:", totalImpactBps / routeFound, maxImpactBps);
+        }
         console2.log("legs V2      :", venueLegs[0]);
         console2.log("legs V3      :", venueLegs[1]);
         console2.log("legs STABLE  :", venueLegs[2]);

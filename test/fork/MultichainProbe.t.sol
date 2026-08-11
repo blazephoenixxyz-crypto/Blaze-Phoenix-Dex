@@ -146,6 +146,71 @@ abstract contract ChainProbeBase is Test {
         }
     }
 
+    /// @dev Chain-agnostic discovery sweep: quote `dollarIn` -> each token,
+    ///      tally routes found / venue-kind legs / avg gas, exactly like the
+    ///      Base top-100 sweep but parameterized so V4 (KIND 4) coverage is
+    ///      measured on EVERY chain, not just Base. Seeded with the verified
+    ///      token set per chain; the array is the only thing that grows.
+    function _sweep(string memory chain, address dollarIn, address[] memory tokens, uint256 amountIn)
+        internal
+    {
+        uint256 routeFound;
+        uint256 noRoute;
+        uint256 totalGas;
+        uint256 minGas = type(uint256).max;
+        uint256 maxGas;
+        uint256 maxImpactBps;
+        uint256 totalImpactBps;
+        uint256[8] memory venueLegs; // 0=V2 1=V3 2=STABLE 3=BAL 4=V4 5=SOLIDLY 6=ALGEBRA 7=CRVCRYPTO
+        for (uint256 i; i < tokens.length; ++i) {
+            if (tokens[i] == dollarIn || tokens[i] == address(0)) continue;
+            uint256 g0 = gasleft();
+            try quoter.previewPlan(dollarIn, tokens[i], amountIn)
+                returns (BlazePhoenixQuoter.Preview memory pv, Route memory route, bool)
+            {
+                uint256 gasUsed = g0 - gasleft();
+                totalGas += gasUsed;
+                if (pv.grossOut > 0) {
+                    routeFound++;
+                    if (gasUsed < minGas) minGas = gasUsed;
+                    if (gasUsed > maxGas) maxGas = gasUsed;
+                    uint256 nLegs;
+                    for (uint256 h; h < route.hops.length; ++h) {
+                        Leg[] memory legs = route.hops[h].legs;
+                        nLegs += legs.length;
+                        for (uint256 l; l < legs.length; ++l) {
+                            uint8 k = legs[l].kind;
+                            if (k < 8) venueLegs[k]++;
+                        }
+                    }
+                    uint256 imp = route.expectedImpactBps;
+                    totalImpactBps += imp;
+                    if (imp > maxImpactBps) maxImpactBps = imp;
+                    // per-token detail: token · grossOut · gas · hops · legs · impact bps
+                    console2.log("[FOUND]", tokens[i], pv.grossOut, gasUsed);
+                    console2.log("   hops/legs/impactBps:", route.hops.length, nLegs, imp);
+                } else {
+                    noRoute++;
+                    console2.log("[ZERO ]", tokens[i]);
+                }
+            } catch {
+                noRoute++;
+                console2.log("[REVERT]", tokens[i]);
+            }
+        }
+        console2.log("==== SWEEP", chain, "====");
+        console2.log("routeFound / noRoute:", routeFound, noRoute);
+        if (routeFound > 0) {
+            console2.log("gas min/avg/max:", minGas, totalGas / routeFound, maxGas);
+            console2.log("impactBps avg/max:", totalImpactBps / routeFound, maxImpactBps);
+        }
+        console2.log("legs V2/V3/STABLE:", venueLegs[0], venueLegs[1], venueLegs[2]);
+        console2.log("legs V4/SOLIDLY/ALGEBRA:", venueLegs[4], venueLegs[5], venueLegs[6]);
+        // Coverage floor: a meaningful fraction of the verified deep tokens on
+        // each chain must route (loose — liquidity fluctuates on the fork tip).
+        assertGt(routeFound, tokens.length / 3, "sweep: too few routes discovered");
+    }
+
     function _v3Fees() internal pure returns (uint24[] memory f) {
         f = new uint24[](4); f[0]=100; f[1]=500; f[2]=3000; f[3]=10000;
     }
@@ -210,6 +275,21 @@ contract OptimismProbeTest is ChainProbeBase {
         console2.log("OP V4 USDC/WETH 5bps: out/depth", out, depth);
         _assertV4Measured(out, depth);
     }
+
+    /// @notice General routing sweep — USDC -> each verified deep OP token.
+    function test_Sweep_USDCtoVerifiedTokens() public {
+        address[] memory t = new address[](10);
+        t[0]=OP_WETH; t[1]=OP_WSTETH;
+        t[2]=0x94b008aA00579c1307B0EF2c499aD98a8ce58e58; // USDT (bridged)
+        t[3]=0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1; // DAI
+        t[4]=0x68f180fcCe6836688e9084f035309E29Bf0A2095; // WBTC
+        t[5]=0x4200000000000000000000000000000000000042; // OP
+        t[6]=0x9560e827aF36c94D2Ac33a39bCE1Fe78631088Db; // VELO
+        t[7]=0x8700dAec35aF8Ff88c16BdF0418774CB3D7599B4; // SNX
+        t[8]=0x350a791Bfc2C21F9Ed5d10980Dad2e2638ffa7f6; // LINK
+        t[9]=0x7F5c764cBc14f9669B88837ca1490cCa17c31607; // USDC.e
+        _sweep("OPTIMISM", OP_USDC, t, 1_000e6);
+    }
 }
 
 // =============================================================================
@@ -266,6 +346,21 @@ contract ArbitrumProbeTest is ChainProbeBase {
         (uint256 out, uint256 depth) = _v4LiveQuote(ARB_V4_MGR, ARB_USDC, ARB_WETH, 500, 10, 1_000e6);
         console2.log("ARB V4 USDC/WETH 5bps: out/depth", out, depth);
         _assertV4Measured(out, depth);
+    }
+
+    /// @notice General routing sweep — USDC -> each verified deep Arbitrum token.
+    function test_Sweep_USDCtoVerifiedTokens() public {
+        address[] memory t = new address[](10);
+        t[0]=ARB_WETH; t[1]=ARB_WSTETH;
+        t[2]=0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9; // USDT0
+        t[3]=0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1; // DAI
+        t[4]=0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f; // WBTC
+        t[5]=0x912CE59144191C1204E64559FE8253a0e49E6548; // ARB
+        t[6]=0xf97f4df75117a78c1A5a0DBb814Af92458539FB4; // LINK
+        t[7]=0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a; // GMX
+        t[8]=0x0c880f6761F1af8d9Aa9C466984b80DAb9a8c9e8; // PENDLE
+        t[9]=0x11cDb42B0EB46D95f990BeDD4695A6e3fA034978; // CRV
+        _sweep("ARBITRUM", ARB_USDC, t, 1_000e6);
     }
 }
 
@@ -333,6 +428,18 @@ contract RobinhoodProbeTest is ChainProbeBase {
             return;
         }
         console2.log("RH V4 WETH/USDG key not matched (hooked or nonstandard) - nothing asserted");
+    }
+
+    /// @notice General routing sweep — USDG (the chain dollar) -> verified
+    ///         Robinhood tokens. Thinner set: young chain, fewer deep pairs;
+    ///         floor scales with tokens.length/3 so it stays honest.
+    function test_Sweep_USDGtoVerifiedTokens() public {
+        address[] memory t = new address[](4);
+        t[0]=RH_WETH;
+        t[1]=0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34; // USDe
+        t[2]=0x020bfC650A365f8BB26819deAAbF3E21291018b4; // CASHCAT
+        t[3]=0xe934e36A439C94017B64a3FecE66AF12099aBF50; // STONKBROKER
+        _sweep("ROBINHOOD", RH_USDG, t, 1_000e6);
     }
 }
 
