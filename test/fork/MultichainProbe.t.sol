@@ -22,7 +22,7 @@ pragma solidity 0.8.36;
 // =============================================================================
 
 import {Test, console2} from "forge-std/Test.sol";
-import {BlazePhoenixCore as BPC, QuoteCtx} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, QuoteCtx, Route, Leg} from "../../src/BlazePhoenixCore.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
