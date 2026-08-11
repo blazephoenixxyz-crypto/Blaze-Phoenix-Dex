@@ -22,6 +22,7 @@ pragma solidity 0.8.36;
 // =============================================================================
 
 import {Test, console2} from "forge-std/Test.sol";
+import {BlazePhoenixCore as BPC, QuoteCtx} from "../../src/BlazePhoenixCore.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
@@ -115,6 +116,36 @@ abstract contract ChainProbeBase is Test {
         assertEq(IERC20Probe(weth).balanceOf(address(router)), 0);
     }
 
+    /// @dev Direct library-level V4 quote against the LIVE PoolManager —
+    ///      measures whether a V4 pool actually prices through our path
+    ///      (guarded extsload → effV4Fee → outV3), independent of whether a
+    ///      route happened to pick a V4 leg.
+    function _v4LiveQuote(
+        address v4Manager, address tokenIn, address tokenOther,
+        uint24 fee, int24 tickSpacing, uint256 amountIn
+    ) internal view returns (uint256 out, uint256 depth) {
+        QuoteCtx memory c;
+        c.kind        = BPC.KIND_V4;
+        c.zeroForOne  = tokenIn < tokenOther;
+        c.fee         = fee;
+        c.tickSpacing = tickSpacing;
+        c.tokenIn     = tokenIn;
+        c.tokenOther  = tokenOther;
+        c.hooks       = address(0);
+        c.v4Manager   = v4Manager;
+        (out, depth) = BPC.universalQuote(c, amountIn);
+    }
+
+    /// @dev The V4 live invariant that can never be flaky: an initialized pool
+    ///      (depth > 0) MUST quote; an absent one MUST return exactly 0.
+    function _assertV4Measured(uint256 out, uint256 depth) internal pure {
+        if (depth > 0) {
+            require(out > 0, "live V4 pool must quote non-zero");
+        } else {
+            require(out == 0, "absent V4 pool must fail closed");
+        }
+    }
+
     function _v3Fees() internal pure returns (uint24[] memory f) {
         f = new uint24[](4); f[0]=100; f[1]=500; f[2]=3000; f[3]=10000;
     }
@@ -170,6 +201,15 @@ contract OptimismProbeTest is ChainProbeBase {
     function test_Execute_USDCtoWETH() public {
         _execute(OP_USDC, OP_WETH, 1_000e6);
     }
+
+    /// @notice Measured, not guessed: does the canonical-key V4 USDC/WETH pool
+    ///         exist and quote on Optimism? Logs the answer either way; the
+    ///         assert is the exists→quotes / absent→zero invariant only.
+    function test_V4CanonicalKey_Measured() public view {
+        (uint256 out, uint256 depth) = _v4LiveQuote(OP_V4_MGR, OP_USDC, OP_WETH, 500, 10, 1_000e6);
+        console2.log("OP V4 USDC/WETH 5bps: out/depth", out, depth);
+        _assertV4Measured(out, depth);
+    }
 }
 
 // =============================================================================
@@ -221,6 +261,12 @@ contract ArbitrumProbeTest is ChainProbeBase {
     function test_Execute_USDCtoWETH() public {
         _execute(ARB_USDC, ARB_WETH, 1_000e6);
     }
+
+    function test_V4CanonicalKey_Measured() public view {
+        (uint256 out, uint256 depth) = _v4LiveQuote(ARB_V4_MGR, ARB_USDC, ARB_WETH, 500, 10, 1_000e6);
+        console2.log("ARB V4 USDC/WETH 5bps: out/depth", out, depth);
+        _assertV4Measured(out, depth);
+    }
 }
 
 // =============================================================================
@@ -263,5 +309,53 @@ contract RobinhoodProbeTest is ChainProbeBase {
 
     function test_Execute_USDGtoWETH() public {
         _execute(RH_USDG, RH_WETH, 1_000e6);
+    }
+
+    /// @notice The live WETH/USDG v4 pool's key params are unpublished; its
+    ///         poolId (GeckoTerminal, single-source) is. Try the standard
+    ///         hookless fee/tickSpacing pairs + the dynamic-fee sentinel: if
+    ///         one reproduces the poolId, the key is FOUND — quote it and
+    ///         assert. If none match, the pool is hooked/nonstandard: log and
+    ///         pass (no guess asserted).
+    function test_V4_FindWETHUSDGKey_AndQuote() public view {
+        bytes32 target = 0x30dac7167c36242d1bacfd30561d444cf014529ee55978991d03e4ee178e725a;
+        (address s0, address s1) = BPC.sortTokens(RH_WETH, RH_USDG);
+        uint24[5] memory fees = [uint24(100), uint24(500), uint24(3000), uint24(10000), uint24(0x800000)];
+        int24[5] memory tss = [int24(1), int24(10), int24(60), int24(200), int24(60)];
+        for (uint256 i = 0; i < 5; i++) {
+            if (BPC.computeV4PoolId(s0, s1, fees[i], tss[i], address(0)) != target) continue;
+            console2.log("RH V4 key found: fee/tickSpacing", uint256(fees[i]), uint256(uint24(tss[i])));
+            (uint256 out, uint256 depth) =
+                _v4LiveQuote(RH_V4_MGR, RH_USDG, RH_WETH, fees[i], tss[i], 1_000e6);
+            console2.log("RH V4 USDG->WETH: out/depth", out, depth);
+            _assertV4Measured(out, depth);
+            assertGt(depth, 0, "matched key must be initialized on-chain");
+            return;
+        }
+        console2.log("RH V4 WETH/USDG key not matched (hooked or nonstandard) - nothing asserted");
+    }
+}
+
+// =============================================================================
+//  BASE — direct live-V4 measurement (the canonical USDC/WETH 5bps v4 pool).
+//  The Base fork suite registers this key but never asserted a V4 quote; this
+//  pins it: the pool is live and MUST price through our exact path.
+// =============================================================================
+contract BaseV4ProbeTest is ChainProbeBase {
+    address constant BASE_V4_MGR = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
+    address constant BASE_WETH   = 0x4200000000000000000000000000000000000006;
+    address constant BASE_USDC   = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+
+    function setUp() public {
+        vm.createSelectFork("base");
+    }
+
+    function test_V4CanonicalPool_QuotesLive() public view {
+        (uint256 out, uint256 depth) = _v4LiveQuote(BASE_V4_MGR, BASE_USDC, BASE_WETH, 500, 10, 1_000e6);
+        console2.log("BASE V4 USDC/WETH 5bps: out/depth", out, depth);
+        assertGt(depth, 0, "canonical Base V4 USDC/WETH must be initialized");
+        assertGt(out, 0, "canonical Base V4 USDC/WETH must quote");
+        assertGt(out, 0.0001 ether);
+        assertLt(out, 10 ether);
     }
 }
