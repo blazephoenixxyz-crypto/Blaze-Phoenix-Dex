@@ -56,6 +56,29 @@ optimizer_runs = 5000
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }]
 
+# SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the
+# glacier-abacus `smtchecker` job (this profile is what that job greps for).
+# Report-only by nature: solc prints warnings for properties it cannot prove,
+# it never fails the build. Targets the load-bearing arithmetic invariants
+# (overflow/underflow, assertion, divByZero) across the Core assembly and the
+# floor/median paths. Kept off the fast/release profiles because CHC solving
+# is minutes-slow and must never gate normal CI.
+[profile.smt]
+src = "src"
+test = "test"
+out = "out-smt"
+libs = ["lib"]
+solc_version = "0.8.36"
+evm_version = "cancun"
+via_ir = true
+[profile.smt.model_checker]
+engine = "chc"
+timeout = 120000            # ms per query; the cloud job caps wall time separately
+targets = ["assert", "overflow", "underflow", "divByZero"]
+contracts = { "src/BlazePhoenixCore.sol" = ["BlazePhoenixCore"] }
+invariants = ["contract", "reentrancy"]
+show_unproved = true
+
 [rpc_endpoints]
 base = "https://lb.drpc.live/base/${DRPC_KEY}"
 mainnet = "https://lb.drpc.live/ethereum/${DRPC_KEY}"
