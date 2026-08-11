@@ -519,8 +519,8 @@ contract BlazePhoenixRouter {
         if (tokenOther == address(0)) return 0;
         (address t0, address t1) = BPC.sortTokens(tokenIn, tokenOther);
         bytes32 pid = BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
-        (uint160 sp4, uint128 lq4) = BPC.v4SqrtAndLiq(v4mgr, pid);
-        if (sp4 != 0 && lq4 != 0) quote = BPC.outV3(legAmt, sp4, lq4, leg.fee, leg.zeroForOne);
+        (uint160 sp4, uint128 lq4, uint24 lpF4, uint24 pF4) = BPC.v4SqrtAndLiq(v4mgr, pid);
+        if (sp4 != 0 && lq4 != 0) quote = BPC.outV3(legAmt, sp4, lq4, BPC.effV4Fee(leg.fee, lpF4, pF4), leg.zeroForOne);
     }
 
     function _execute(
@@ -1150,7 +1150,7 @@ contract BlazePhoenixRouter {
                     // the PoolManager singleton directly.
                     if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                     bytes32 pid = BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
-                    ( , uint128 liq) = BPC.v4SqrtAndLiq(v4mgr, pid);
+                    ( , uint128 liq, , ) = BPC.v4SqrtAndLiq(v4mgr, pid);
                     depth = uint256(liq);
                 } else {
                     depth = uint256(BPC.getLiquidity(leg.pool));

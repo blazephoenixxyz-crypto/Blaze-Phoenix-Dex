@@ -882,9 +882,9 @@ library BlazePhoenixCore {
             // iron floor catches large-swap divergence.
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
-            (uint160 sp, uint128 liq) = v4SqrtAndLiq(c.v4Manager, pid);
+            (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) = v4SqrtAndLiq(c.v4Manager, pid);
             if (sp == 0 || liq == 0) return (0, 0);
-            out = outV3(amountIn, sp, liq, c.fee, c.zeroForOne);
+            out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF), c.zeroForOne);
             depthWad = uint256(liq);
             return (out, depthWad);
         }
@@ -896,9 +896,9 @@ library BlazePhoenixCore {
     ///         6)); slot0 (offset 0) packs sqrtPriceX96 in its low 160 bits;
     ///         liquidity is at offset +3 (low 128 bits).
     function v4SqrtAndLiq(address manager, bytes32 poolId)
-        internal view returns (uint160 sqrtP, uint128 liq)
+        internal view returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee)
     {
-        if (manager == address(0)) return (0, 0);
+        if (manager == address(0)) return (0, 0, 0, 0);
         bytes32 base = keccak256(abi.encode(poolId, uint256(6)));
         bytes32 word0;
         bytes32 word3;
@@ -911,8 +911,28 @@ library BlazePhoenixCore {
             mstore(add(m, 4), add(base, 3))
             if staticcall(GAS_CAP, manager, m, 36, m, 32) { word3 := mload(m) }
         }
-        sqrtP = uint160(uint256(word0));
-        liq   = uint128(uint256(word3));
+        sqrtP    = uint160(uint256(word0));
+        liq      = uint128(uint256(word3));
+        // slot0 packing (verified vs StateView): [0,160) sqrtPriceX96 |
+        // [160,184) tick | [184,208) protocolFee | [208,232) lpFee.
+        protoFee = uint24(uint256(word0) >> 184);
+        lpFee    = uint24(uint256(word0) >> 208);
+    }
+
+    /// @notice INV-20 (V4-FEE-MEASURED): the effective swap fee for a V4 leg.
+    ///         A static-fee key carries the real fee in the key itself. A
+    ///         dynamic-fee key uses the sentinel 0x800000 — its true fee lives
+    ///         only in slot0's lpFee (measure-not-nominal). Fail closed while a
+    ///         non-zero protocolFee is present: its composition with lpFee is
+    ///         not yet anchored, so we return an unquotable fee (outV3 → 0)
+    ///         rather than under-charge. Measured protocolFee on Base = 0 today,
+    ///         so this loses nothing in practice.
+    function effV4Fee(uint24 keyFee, uint24 lpFee, uint24 protoFee)
+        internal pure returns (uint24)
+    {
+        if (keyFee != 0x800000) return keyFee;      // static: the key is truth
+        if (protoFee != 0)      return 0xFFFFFF;     // dynamic + protoFee: fail-closed (≥1e6 → outV3 returns 0)
+        return lpFee;                                 // dynamic: the measured slot0 fee
     }
 
     function _curveCryptoGetDy(address pool, bool zfo, uint256 dx)
