@@ -266,6 +266,16 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
+        return _checkedSwap(route, amountIn, userMinOut, recipient, deadline);
+    }
+
+    /// @dev Shared entry checks + core swap — one body for the classic and
+    ///      7702 entry points (they are deliberately identical; folding them
+    ///      keeps the Router inside the EIP-170 safety margin).
+    function _checkedSwap(
+        Route calldata route, uint256 amountIn, uint256 userMinOut,
+        address recipient, uint256 deadline
+    ) private returns (uint256) {
         if (amountIn > type(uint128).max) revert RouterE(3);
         if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);
@@ -316,9 +326,7 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
     ) external whenLive nrEntrant returns (uint256) {
-        if (amountIn > type(uint128).max) revert RouterE(3);
-        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
-        return _swap(route, amountIn, userMinOut, recipient, deadline);
+        return _checkedSwap(route, amountIn, userMinOut, recipient, deadline);
     }
 
     /// @notice Native-ETH entry: wraps `msg.value` into the chain's canonical
@@ -380,10 +388,10 @@ contract BlazePhoenixRouter {
     ) external whenLive nrEntrant returns (uint256) {
         if (amountIn == 0 || amountIn > type(uint128).max) revert RouterE(3);
         if (userMinOut == 0) revert RouterE(10);
-        if (block.timestamp > deadline) revert RouterE(4);
+        // deadline + empty-route re-checked inside _swapPrePulled — not here
+        // (dedupe law: same tx, same state, never pay twice — in bytecode too).
         RoutePlan memory plan = ISolverR(solver).findBestRoutePlan(tokenIn, tokenOut, amountIn);
-        if (plan.best.hops.length == 0) revert RouterE(3);
-        if (plan.best.hops[0].tokenIn != tokenIn) revert RouterE(3); // fail-closed
+        if (plan.best.hops.length == 0 || plan.best.hops[0].tokenIn != tokenIn) revert RouterE(3); // fail-closed
         uint256 balBefore = BPC.balanceOf(tokenIn, address(this));
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
