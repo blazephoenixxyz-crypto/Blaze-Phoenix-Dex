@@ -56,6 +56,10 @@ interface IPermit2 {
     ) external;
 }
 
+interface IWETH {
+    function deposit() external payable;
+}
+
 interface IUniswapV2Pair {
     function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external;
 }
@@ -126,6 +130,12 @@ contract BlazePhoenixRouter {
     address public treasury1;
     address public treasury2;
     address public permit2;
+    /// @notice The chain's canonical wrapped-native token (WETH9-shaped).
+    ///         Zero until set by control: native-ETH entry is DISABLED by
+    ///         default and fail-closed, so a chain where it was never wired
+    ///         simply cannot take native input. Frozen by renounceControl like
+    ///         every other control-set value.
+    address public weth;
     bool    public paused;
     bool    public controlRenounced;
 
@@ -185,6 +195,7 @@ contract BlazePhoenixRouter {
         treasury1=t1; treasury2=t2; emit Cfg(1,t1); emit Cfg(2,t2);
     }
     function setPermit2(address p)          external onlyControl { permit2=p; emit Cfg(3,p); }
+    function setWeth(address w)             external onlyControl { weth=w; emit Cfg(4,w); }
     function setPaused(bool b)              external onlyControl { paused=b; }
 
     /// @notice Permanently surrender every control power. Treasuries, the
@@ -265,6 +276,41 @@ contract BlazePhoenixRouter {
         if (amountIn > type(uint128).max) revert RouterE(3);
         if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);
+    }
+
+    /// @notice Native-ETH entry: wraps `msg.value` into the chain's canonical
+    ///         WETH and routes it, so a user never has to pre-wrap.
+    ///
+    /// @dev    Why this does NOT reopen the msg.value double-spend the missing
+    ///         receive() guards against: the value is wrapped EXACTLY ONCE, at
+    ///         entry, into a measured WETH balance, and everything downstream
+    ///         works on that ERC20 amount — msg.value is never read again, and
+    ///         this Router exposes no multicall/batch surface that could replay
+    ///         a single msg.value across several swaps. The fallback still
+    ///         rejects bare ETH (RouterE(3)) and there is still no receive(),
+    ///         so ETH can only ever enter through this one accounted path.
+    ///         Fail-closed when `weth` was never wired (RouterE(3)).
+    ///         Native OUTPUT is deliberately not implemented: the recipient
+    ///         receives WETH, which no swap path can silently trap.
+    function swapExactInNative(
+        Route calldata route, uint256 userMinOut, address recipient, uint256 deadline
+    ) external payable whenLive nrEntrant returns (uint256) {
+        address w = weth;
+        if (w == address(0)) revert RouterE(3);              // native entry not wired
+        uint256 amountIn = msg.value;
+        if (amountIn == 0 || amountIn > type(uint128).max) revert RouterE(3);
+        if (userMinOut == 0) revert RouterE(10);
+        if (route.hops.length == 0) revert RouterE(3);
+        if (route.hops[0].tokenIn != w) revert RouterE(3);   // route must start in WETH
+
+        // Wrap once and work with the MEASURED balance delta, the same
+        // discipline the ERC20 paths use around their pulls.
+        uint256 balBefore = BPC.balanceOf(w, address(this));
+        IWETH(w).deposit{value: amountIn}();
+        uint256 received = BPC.balanceOf(w, address(this)) - balBefore;
+        if (received == 0) revert RouterE(8);
+
+        return _swapPrePulled(route, received, userMinOut, recipient, deadline);
     }
 
     // =========================================================================
