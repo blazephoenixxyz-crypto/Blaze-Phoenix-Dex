@@ -27,8 +27,13 @@ pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,
-    Route, Hop, Leg
+    Route, Hop, Leg, RoutePlan
 } from "./BlazePhoenixCore.sol";
+
+interface ISolverR {
+    function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
+        external view returns (RoutePlan memory);
+}
 
 interface IHubW {
     function recordSwap(
@@ -349,6 +354,53 @@ contract BlazePhoenixRouter {
         if (received == 0) revert RouterE(8);
 
         return _swapPrePulled(route, received, userMinOut, recipient, deadline);
+    }
+
+    // ─── Fully-on-chain route: solve + execute in ONE transaction ─────────
+
+    /// @notice Self-contained exact-input swap — the philosophy entry point:
+    ///         the route is found by the on-chain Solver INSIDE this same
+    ///         transaction. The caller supplies only (tokenIn, tokenOut,
+    ///         amountIn, userMinOut, recipient, deadline); no plan enters
+    ///         from outside, so there is no quote-vs-execution seam at all —
+    ///         solve and execution read the same block state, atomically.
+    /// @dev    Costs the solve on top of execution (L2-cheap; the calldata-
+    ///         plan entry points remain the gas-lean path). userMinOut stays
+    ///         MANDATORY (BP-04): in-tx solving removes plan staleness, not
+    ///         sandwich exposure — the tx can still be ordered behind an
+    ///         attacker's. The Solver returns `Route memory` while the
+    ///         execution core is calldata-typed for the hot path, so the plan
+    ///         crosses via an external SELF-call (`selfExecutePrePulled`),
+    ///         which re-encodes memory→calldata. The pull happens HERE, in
+    ///         the caller's own context, because inside the self-call
+    ///         msg.sender is the Router, not the user.
+    function swapBestExactIn(
+        address tokenIn, address tokenOut, uint256 amountIn,
+        uint256 userMinOut, address recipient, uint256 deadline
+    ) external whenLive nrEntrant returns (uint256) {
+        if (amountIn == 0 || amountIn > type(uint128).max) revert RouterE(3);
+        if (userMinOut == 0) revert RouterE(10);
+        if (block.timestamp > deadline) revert RouterE(4);
+        RoutePlan memory plan = ISolverR(solver).findBestRoutePlan(tokenIn, tokenOut, amountIn);
+        if (plan.best.hops.length == 0) revert RouterE(3);
+        if (plan.best.hops[0].tokenIn != tokenIn) revert RouterE(3); // fail-closed
+        uint256 balBefore = BPC.balanceOf(tokenIn, address(this));
+        BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
+        uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
+        if (received == 0) revert RouterE(8);
+        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline);
+    }
+
+    /// @notice memory→calldata bridge for `swapBestExactIn`. Self-only
+    ///         (RouterE(1)) and deliberately NOT nrEntrant — the outer entry
+    ///         already holds the transient lock, so a guarded inner would
+    ///         always trip RouterE(7).
+    function selfExecutePrePulled(
+        Route calldata route, uint256 amountIn, uint256 userMinOut,
+        address recipient, uint256 deadline
+    ) external returns (uint256) {
+        if (msg.sender != address(this)) revert RouterE(1);
+        return _swapPrePulled(route, amountIn, userMinOut, recipient, deadline);
     }
 
     // =========================================================================

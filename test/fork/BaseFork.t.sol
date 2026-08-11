@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import {Test, console2} from "forge-std/Test.sol";
+import {Route} from "../../src/BlazePhoenixCore.sol";
 import {BaseTestDeploy} from "./BaseTestDeploy.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
@@ -105,5 +106,40 @@ contract BaseForkTest is Test {
         // against a real multi-venue execution path).
         assertEq(IERC20Fork(BASE_USDC).balanceOf(address(router)), 0);
         assertEq(IERC20Fork(BASE_WETH).balanceOf(address(router)), 0);
+    }
+
+    /// @notice The fully-on-chain entry point: NO plan in calldata — the
+    ///         Solver runs inside the swap transaction itself, against the
+    ///         exact same block state the execution reads. Philosophy pin:
+    ///         a user needs only (tokenIn, tokenOut, amount).
+    function test_SwapBest_USDCtoWETH_FullyOnchain() public {
+        address user = address(0xBEEF);
+        uint256 amountIn = 1_000e6;
+        deal(BASE_USDC, user, amountIn);
+        uint256 wethBefore = IERC20Fork(BASE_WETH).balanceOf(user);
+
+        vm.prank(user);
+        IERC20Fork(BASE_USDC).approve(address(router), amountIn);
+
+        uint256 g0 = gasleft();
+        vm.prank(user);
+        uint256 delivered = router.swapBestExactIn(
+            BASE_USDC, BASE_WETH, amountIn, 1, user, block.timestamp + 60
+        );
+        console2.log("swapBest gas (solve+execute):", g0 - gasleft());
+        console2.log("swapBest delivered (wei WETH):", delivered);
+
+        assertGt(delivered, 0);
+        assertEq(IERC20Fork(BASE_WETH).balanceOf(user) - wethBefore, delivered);
+        assertEq(IERC20Fork(BASE_USDC).balanceOf(address(router)), 0);
+        assertEq(IERC20Fork(BASE_WETH).balanceOf(address(router)), 0);
+    }
+
+    /// @notice The memory→calldata bridge must be callable ONLY by the
+    ///         Router itself — RouterE(1) for anyone else.
+    function test_SelfExecutePrePulled_RejectsExternalCallers() public {
+        Route memory r;
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 1));
+        router.selfExecutePrePulled(r, 1, 1, address(this), block.timestamp + 60);
     }
 }
