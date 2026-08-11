@@ -42,7 +42,11 @@ solc_version = "0.8.36"
 evm_version = "cancun"
 bytecode_hash = "none"
 optimizer = true
-optimizer_runs = 999999
+# 999999 maxed runtime-gas bias but left the Router 246 B over the 24000
+# margin once the native-ETH entry landed (measured: 24246 @ 999999).
+# 5000 trades a small hot-path gas delta for deploy headroom; re-measure
+# the gas side with forge snapshot at the S3 testnet rehearsal.
+optimizer_runs = 5000
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }]
 
