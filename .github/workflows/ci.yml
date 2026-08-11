@@ -184,6 +184,14 @@ jobs:
         # the deeper invariant/fuzz pass in the fast job.
         run: halmos --contract CoreFormalSpec -v || true
 
+      - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
+        # test/formal/EffV4FeeFormalSpec.t.sol. Pure comparison logic, no 512-bit
+        # mulDiv over-approximation — Halmos discharges it cleanly, so this is a
+        # REAL gate (no `|| true`): the dynamic-fee sentinel can never survive as
+        # a usable fee and a non-zero protocolFee always fails closed to >=1e6.
+        # Keyless: this is the free-prover equivalent of the Certora scaffold.
+        run: halmos --contract EffV4FeeFormalSpec -v
+
   gas-metrics:
     name: gas metrics (offline ledger)
     runs-on: ubuntu-latest
