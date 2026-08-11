@@ -877,9 +877,15 @@ library BlazePhoenixCore {
         }
         if (k == KIND_V4) {
             // V4 quote: extsload state read + V3 concentrated-liquidity formula.
-            // Current-tick approximation (no tick-crossing, ignores hooks) —
-            // acceptable since the Router rejects delta-altering hooks and the
-            // iron floor catches large-swap divergence.
+            // Current-tick approximation (no tick-crossing, ignores hooks).
+            // Hook seam (INV-20): a dynamic-fee pool's hook can override the
+            // fee per-swap in beforeSwap (needs only BEFORE_SWAP_FLAG — the
+            // delta-flag reject does NOT gate it) or move it mid-block via
+            // updateDynamicLPFee, so slot0's lpFee is the stored fee, not
+            // necessarily the executed one. The defenses are the Hub's manual
+            // hook allow-list (admission) and the Router's iron floor re-derived
+            // from realised output (execution), which bound a hostile override
+            // to a revert or a within-slack shortfall — never a bad fill.
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
             (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) = v4SqrtAndLiq(c.v4Manager, pid);
@@ -906,10 +912,17 @@ library BlazePhoenixCore {
             let m := mload(0x40)
             mstore(m, 0x1e2eaeaf00000000000000000000000000000000000000000000000000000000)
             mstore(add(m, 4), base)
-            if staticcall(GAS_CAP, manager, m, 36, m, 32) { word0 := mload(m) }
+            // Codeless-address guard (same doctrine as balanceOf/getReserves):
+            // staticcall to an empty account succeeds with no returndata, and
+            // an unguarded mload would read the selector/arg bytes as state.
+            if staticcall(GAS_CAP, manager, m, 36, m, 32) {
+                if eq(returndatasize(), 32) { word0 := mload(m) }
+            }
             mstore(m, 0x1e2eaeaf00000000000000000000000000000000000000000000000000000000)
             mstore(add(m, 4), add(base, 3))
-            if staticcall(GAS_CAP, manager, m, 36, m, 32) { word3 := mload(m) }
+            if staticcall(GAS_CAP, manager, m, 36, m, 32) {
+                if eq(returndatasize(), 32) { word3 := mload(m) }
+            }
         }
         sqrtP    = uint160(uint256(word0));
         liq      = uint128(uint256(word3));

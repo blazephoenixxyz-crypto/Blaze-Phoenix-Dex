@@ -33,6 +33,8 @@ contract V4FeeMeasuredTest is Test {
         // non-zero protocolFee → unquotable sentinel that trips outV3's >=1e6 guard
         assertEq(BPC.effV4Fee(DYN, 3000, 1), 0xFFFFFF);
         assertGe(uint256(BPC.effV4Fee(DYN, 3000, 1)), 1_000_000);
+        // protocolFee packs two 12-bit halves — both set must also fail closed
+        assertEq(BPC.effV4Fee(DYN, 3000, uint24((1 << 12) | 1)), 0xFFFFFF);
     }
 
     function test_Sentinel_NeverSurvivesAsFee() public pure {
