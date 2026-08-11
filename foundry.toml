@@ -22,6 +22,12 @@ fs_permissions = [{ access = "read", path = "./" }]
 
 [fuzz]
 runs = 256
+# Pinned: the anti-vacuity asserts (BP-04) require campaigns to actually
+# settle; with a random seed each CI run, Router bytecode changes shift the
+# test-derived addresses and unlucky walks settle 0 V4 swaps (flaky red on
+# RouterAdversarialV4FromV1). Deterministic CI > seed lottery; the deep
+# profile can run unseeded for diversity.
+seed = "0xb1a2ef00"
 
 [invariant]
 # Kept modest on purpose: this repo's dev hardware runs under proot (heavy
