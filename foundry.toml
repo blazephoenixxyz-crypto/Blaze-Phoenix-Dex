@@ -49,10 +49,12 @@ evm_version = "cancun"
 bytecode_hash = "none"
 optimizer = true
 # 999999 maxed runtime-gas bias but left the Router 246 B over the 24000
-# margin once the native-ETH entry landed (measured: 24246 @ 999999).
-# 5000 trades a small hot-path gas delta for deploy headroom; re-measure
-# the gas side with forge snapshot at the S3 testnet rehearsal.
-optimizer_runs = 5000
+# margin once the native-ETH entry landed (measured: 24246 @ 999999);
+# 5000 still measured 24107 (-107 short). 3000 buys the remaining margin;
+# re-measure the gas side with forge snapshot at the S3 testnet rehearsal.
+# If a future feature outgrows this dial, the next lever is Router revert
+# strings -> custom errors (~14 sites, est. 400-800 B) — code, not config.
+optimizer_runs = 3000
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }]
 

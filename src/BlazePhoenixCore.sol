@@ -185,6 +185,10 @@ library BlazePhoenixCore {
                 twos  := add(div(sub(0, twos), twos), 1)
             }
             prod0 |= prod1 * twos;
+            // XOR intended, not exponentiation: (3*d)^2 is the Newton-Raphson
+            // seed with d*inv = 1 mod 2^4; the six doublings below lift it to
+            // 2^256 (canonical 512-bit mulDiv construction).
+            // slither-disable-next-line incorrect-exp
             uint256 inv = (3 * d) ^ 2;
             inv *= 2 - d * inv;
             inv *= 2 - d * inv;
