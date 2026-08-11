@@ -128,6 +128,29 @@ jobs:
           print("\nAll BlazePhoenix contracts under the 24000-byte margin. OK.")
           PY
 
+      - name: Record release artifact hashes (deploy provenance)
+        env:
+          FOUNDRY_PROFILE: release
+        run: |
+          # sha256 of each deployed (runtime) bytecode from THIS release build.
+          # The recorded hash is what a post-deploy `cast code | sha256sum` on
+          # chain must reproduce — pinning the audited artifact to the deploy.
+          set -euo pipefail
+          {
+            echo "# release artifact hashes — commit ${GITHUB_SHA}"
+            for c in BlazePhoenixCore BlazePhoenixHub BlazePhoenixQuoter BlazePhoenixRouter BlazePhoenixSolver; do
+              f="out/${c}.sol/${c}.json"
+              test -f "$f" || { echo "MISSING ARTIFACT: $f"; exit 1; }
+              h=$(jq -r '.deployedBytecode.object' "$f" | sha256sum | cut -d' ' -f1)
+              echo "${c}: sha256=${h}"
+            done
+          } | tee release-hashes.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-hashes
+          path: release-hashes.txt
+
   formal:
     name: formal verification (Halmos symbolic)
     runs-on: ubuntu-latest
