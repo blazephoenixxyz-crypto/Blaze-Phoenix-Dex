@@ -56,7 +56,7 @@ jobs:
         # via ${DRPC_KEY}; never hard-coded.
         env:
           DRPC_KEY: ${{ secrets.DRPC_KEY }}
-        run: forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseTop100Test|EthereumCurveForkTest"
+        run: forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseTop100Test|EthereumCurveForkTest|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest"
 
   size-guard:
     name: EIP-170 size guard (release profile)
