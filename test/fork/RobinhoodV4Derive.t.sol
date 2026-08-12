@@ -200,6 +200,11 @@ contract RobinhoodV4DeriveTest is Test {
     /// nothing: the derive-scan never emits a candidate whose slot0/liquidity
     /// proof did not pass.
     function test_FailClosed_NativeAndNonexistent() public {
+        // Snapshot the learning state first: the assertion below is that a view
+        // scan does not MUTATE it, which is a before/after property — not an
+        // absolute zero (setUp may legitimately have seeded a code).
+        uint256 codeBefore = hub.v4CodeOf(MOMO);
+
         PoolInfo[] memory none = hub.discoverFor(address(0), MOMO);
         assertEq(none.length, 0, "native-currency pair must yield nothing");
 
@@ -210,6 +215,6 @@ contract RobinhoodV4DeriveTest is Test {
         assertEq(none.length, 0, "nonexistent pair must yield nothing");
 
         // View scans never mutate learning state.
-        assertEq(hub.v4CodeOf(MOMO), 0, "a view scan must not learn");
+        assertEq(hub.v4CodeOf(MOMO), codeBefore, "a view scan must not learn");
     }
 }
