@@ -3,7 +3,7 @@ pragma solidity ^0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
-import {PoolInfo} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, PoolInfo} from "../../src/BlazePhoenixCore.sol";
 
 // =============================================================================
 //  Robinhood Chain (id 4663) fork proof for permissionless, on-chain-VERIFIED
@@ -44,19 +44,46 @@ contract RobinhoodV4DiscoveryTest is Test {
 
     /// A live hookless pool anchored on a bridge is claimable and becomes a
     /// routable candidate; re-claiming is idempotent (no duplicate entry).
+    ///
+    /// The pool is DISCOVERED rather than hard-coded: a launchpad pool's
+    /// liquidity can be withdrawn at any time, and claimV4 correctly refuses a
+    /// drained pool (HubE(9)) — pinning one key would make this test fail on a
+    /// live-chain event rather than on a regression. Measure, don't assume.
     function test_ClaimV4_AdmitsLiveHooklessPool() public {
-        bytes32 key = hub.claimV4(USDG, SPAC, SPAC_USDG_FEE, SPAC_USDG_TS);
+        (uint24 fee, int24 ts, bool ok) = _findLiveHooklessPool(USDG, SPAC);
+        if (!ok) {
+            emit log("no live hookless SPAC/USDG pool on this fork - nothing asserted");
+            return;
+        }
+
+        bytes32 key = hub.claimV4(USDG, SPAC, fee, ts);
         assertTrue(key != bytes32(0), "claim returned empty key");
 
         PoolInfo[] memory pools = hub.getActivePools(SPAC, USDG);
         assertGt(pools.length, 0, "claimed pool is not an active candidate");
 
-        bytes32 key2 = hub.claimV4(USDG, SPAC, SPAC_USDG_FEE, SPAC_USDG_TS);
+        bytes32 key2 = hub.claimV4(USDG, SPAC, fee, ts);
         assertEq(key2, key, "idempotent re-claim changed the key");
         assertEq(
             hub.getActivePools(SPAC, USDG).length, pools.length,
             "re-claim created a duplicate registry entry"
         );
+    }
+
+    /// Scans the launchpad tier convention (fee = 100 * tickSpacing) for a
+    /// hookless pool that is initialized AND still holds liquidity.
+    function _findLiveHooklessPool(address a, address b)
+        private view returns (uint24 fee, int24 ts, bool ok)
+    {
+        (address c0, address c1) = BPC.sortTokens(a, b);
+        for (uint256 j = 99; j >= 1; --j) {
+            uint24 f = uint24(10000 * j);
+            int24  t = int24(uint24(100 * j));
+            ( , uint128 liq, , ) =
+                BPC.v4SqrtAndLiq(V4_MGR, BPC.computeV4PoolId(c0, c1, f, t, address(0)));
+            if (liq != 0) return (f, t, true);
+        }
+        return (0, 0, false);
     }
 
     /// Fail-closed: neither currency is a bridge anchor (anti-spam gate).
