@@ -2,11 +2,12 @@
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixCore
 //  Version    : 2.0.0
-//  Copyright  : (c) June 2026 – June 2030 BlazePhoenix Protocol
+//  Copyright  : (c) July 2026 – July 2030 BlazePhoenix Protocol
 //  License    : Business Source License 1.1 (BUSL-1.1)
-//               Change Date    : 2030-06-01
+//               Change Date    : 2030-07-01
 //               Change License : GPL-2.0-or-later
 //  Fingerprint : 0x0cdf3cc72daa3ca37778f5f6974830edc0020f42cb5c3dc875fe510ea0e3202c
+//  Build ref   : 0x5a4c8fb3318679ccd8afce8752c8d272b447abeff6f412a8fc800087b3f9eead
 //  Rights      : Original work. Copyright subsists automatically upon creation
 //                (Berne Convention, 1886); this code is licensed under BUSL-1.1
 //                above, and reproduction outside that grant is infringement.
