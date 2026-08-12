@@ -53,6 +53,9 @@ contract BlazePhoenixHub {
     uint8   internal constant KIND_V2                = 0;
     uint8   internal constant KIND_V3                = 1;
     uint8   internal constant KIND_STABLE            = 2;
+    // Mirrors BPC.KIND_V4: singleton-managed (no factory enumeration); the
+    // only factory mode that accepts it is MODE_V4_DERIVE.
+    uint8   internal constant KIND_V4                = 4;
     uint8   internal constant KIND_SOLIDLY           = 5;
     uint8   internal constant KIND_ALGEBRA           = 6;
     uint8   internal constant KIND_CURVE             = 7;
@@ -66,6 +69,27 @@ contract BlazePhoenixHub {
     // is the V3-CL salt family (keccak(t0, t1, tickSpacing) — Velodrome/Aerodrome CL).
     uint8   internal constant MODE_CREATE2_V3CL      = 7;
     uint8   internal constant MODE_CURVE_META        = 8;
+    // MODE_V4_DERIVE: Uniswap-V4 derive-scan. V4's singleton PoolManager has
+    // no factory/pair enumeration, so this mode DERIVES hookless candidate
+    // poolIds (learned per-token pattern code -> canonical tiers -> the row's
+    // paired extras -> a bounded generator grid) and emits only the ones
+    // proven live on the PoolManager via extsload. The row's `factory` field
+    // records the PoolManager for operator legibility (and `_ne0`); the scan
+    // itself always reads `$.v4PoolManager` — the single source of truth,
+    // which `setV4Manager` can still rotate while control lasts.
+    uint8   internal constant MODE_V4_DERIVE         = 9;
+
+    // ─── V4 derive-scan bounds ─────────────────────────────────────────
+    // Per-scan cap on emitted V4 pools (early-stop), sized to the Solver's
+    // appetite for parallel candidates on one pair.
+    uint256 internal constant V4_CAP                 = 8;
+    // Generator Pi_K: fee = 10_000*j, tickSpacing = 100*j, hookless — the
+    // observed launchpad family ("ratio-100" pools). j descends from
+    // V4_GRID_MAX so the high-fee launch tiers (the ones that exist before a
+    // token matures into canonical tiers) are probed first; V4_GRID_PROBES
+    // caps what a cold miss can cost. Must satisfy V4_GRID_PROBES <= V4_GRID_MAX.
+    uint256 internal constant V4_GRID_MAX            = 99;
+    uint256 internal constant V4_GRID_PROBES         = 40;
 
     // ─── ERC-7201 namespace ────────────────────────────────────────────
 
@@ -122,6 +146,16 @@ contract BlazePhoenixHub {
         bool paused;
         bool initialized;
         bool controlRenounced;
+        // V4 derive-discovery: learned per-token "pattern code" — the packed
+        // (fee << 24 | uint24(tickSpacing)) hookless tier this token's V4
+        // pool was last PROVEN at (claimV4 or a routed V4 swap). 0 = unknown
+        // (a real tier always has tickSpacing >= 1, so a valid code is never
+        // zero). DISCOVERY-HINT METADATA ONLY (INV-16 boundary): read
+        // exclusively by the derive-scan and the recordSwap healer — never by
+        // psi/fitness/eviction/route-ranking — so a stale or manipulated code
+        // can only ever waste one probe: every candidate is re-proven live
+        // before emission and proven again at quote time.
+        mapping(address => uint256) v4CodeOf;
     }
 
     function _store() private pure returns (HubStore storage $) {
@@ -276,12 +310,17 @@ contract BlazePhoenixHub {
     ///         derive wrong pool addresses silently, so every structurally
     ///         impossible combination reverts with HubE(5). Rules:
     ///           * kind  <= KIND_MAX (7)                          [invalidKind]
-    ///           * mode  <= MODE_MAX (7): 0-3 factory-call, 4-7 CREATE2
-    ///           * CREATE2 modes (mode >= 4) require initHash != 0      [R1]
+    ///           * mode  <= MODE_MAX (9): 0-3 factory-call, 4-7 CREATE2,
+    ///             8 Curve meta-registry, 9 V4 derive-scan
+    ///           * CREATE2 modes (mode >= 4) require initHash != 0, except
+    ///             modes 8 and 9 which derive nothing via CREATE2         [R1]
     ///           * mode 4 (V2 salt)  is only valid for kind V2
     ///           * mode 6 (clone)    is only valid for kind SOLIDLY
     ///           * mode 5 (V3 salt)  is valid for V3 or ALGEBRA; ALGEBRA
     ///             additionally requires every fee == 0 (dynamic-fee sentinel) [R2]
+    ///           * mode 9 (V4 derive) is only valid for kind V4, and its
+    ///             fees/spacings are PAIRED explicit extras (fees[i] with
+    ///             spacings[i], never a cross-product) — equal length required
     ///         Factory-call modes (mode < 4) carry no initHash requirement.
     function addFactory(
         address factory, uint8 kind, uint8 mode, bytes32 initHash,
@@ -297,10 +336,14 @@ contract BlazePhoenixHub {
         // at registration so the Solver never routes through them. Re-enable
         // with proper coins() resolution + dedicated tests in v1.1.
         if ((kind == KIND_STABLE || kind == KIND_CURVE) && mode != MODE_CURVE_META) revert HubE(5);
-        if (mode > MODE_CURVE_META)          revert HubE(5); // invalidMode
+        if (mode > MODE_V4_DERIVE)           revert HubE(5); // invalidMode
 
-        // 2) CREATE2 modes require a non-zero init-code hash (R1)
-        if (mode >= MODE_CREATE2_V2 && mode != MODE_CURVE_META && initHash == bytes32(0)) revert HubE(5);
+        // 2) CREATE2 modes require a non-zero init-code hash (R1). The two
+        //    non-CREATE2 high modes (Curve meta, V4 derive) are exempt.
+        if (
+            mode >= MODE_CREATE2_V2 && mode != MODE_CURVE_META
+                && mode != MODE_V4_DERIVE && initHash == bytes32(0)
+        ) revert HubE(5);
 
         // 3) salt-slot ↔ kind coherence
         if (mode == MODE_CREATE2_V2 && kind != KIND_V2)      revert HubE(5);
@@ -315,6 +358,13 @@ contract BlazePhoenixHub {
                     unchecked { ++i; }
                 }
             }
+        }
+        // V4 derive-scan coherence: mode 9 is only meaningful for the V4
+        // kind, and its fees/spacings are PAIRED explicit extras — enforce
+        // equal length so a misregistered row cannot silently mispair them.
+        if (mode == MODE_V4_DERIVE) {
+            if (kind != KIND_V4) revert HubE(5);
+            if (fees.length != spacings.length) revert HubE(5);
         }
 
         HubStore storage $ = _store();
@@ -402,6 +452,9 @@ contract BlazePhoenixHub {
         if (sp == 0 || liq == 0) revert HubE(9);
         // Dynamic fee must resolve to a quotable value (INV-20), else fail closed.
         if (BPC.effV4Fee(fee, lpF, pF) >= 1_000_000) revert HubE(9);
+        // Learn the token-side pattern code from every successful on-chain
+        // proof — idempotent re-claims included, so a stale hint self-heals.
+        _writeV4Code(s0, s1, fee, tickSpacing);
         address poolAddr = address(uint160(uint256(pid)));
         key = keyOf(poolAddr, s0, s1);
         // Idempotent: a live re-claim must not push a duplicate V4Entry nor
@@ -428,7 +481,9 @@ contract BlazePhoenixHub {
             uint256 fc = fac.fees.length == 0 ? 1 : fac.fees.length;
             uint256 sc = fac.spacings.length == 0 ? 1 : fac.spacings.length;
             uint256 mul = (fac.mode == 2 || fac.mode == 6) ? 2 : 1;
-            if (fac.mode == MODE_CURVE_META) { maxOut += 4; } else { maxOut += fc * sc * mul; }
+            if (fac.mode == MODE_CURVE_META) { maxOut += 4; }
+            else if (fac.mode == MODE_V4_DERIVE) { maxOut += V4_CAP; }
+            else { maxOut += fc * sc * mul; }
             unchecked { ++i; }
         }
         hits = new PoolInfo[](maxOut);
@@ -445,6 +500,7 @@ contract BlazePhoenixHub {
         Factory storage fac, address t0, address t1, PoolInfo[] memory hits, uint256 k
     ) private view returns (uint256) {
         if (fac.mode == MODE_CURVE_META) return _scanCurve(fac, t0, t1, hits, k);
+        if (fac.mode == MODE_V4_DERIVE)  return _scanV4(fac, t0, t1, hits, k);
         uint24[] storage fees = fac.fees;
         int24[]  storage sps  = fac.spacings;
         uint256 fc = fees.length == 0 ? 1 : fees.length;
@@ -513,6 +569,286 @@ contract BlazePhoenixHub {
             unchecked { k++; }
         }
         return k;
+    }
+
+    // ─── V4 derive-scan (MODE_V4_DERIVE) ───────────────────────────────
+    //
+    //  Uniswap V4 has no factory enumeration, so candidates are DERIVED —
+    //  hookless poolIds recomputed from (t0, t1, fee, tickSpacing, hooks=0) —
+    //  and only the ones PROVEN live on the PoolManager (sqrtP != 0 &&
+    //  liquidity != 0, unforgeable extsload reads) are emitted. Probe order
+    //  is cheapest-first:
+    //    (a) learned per-token pattern codes — the steady-state ONE-probe path
+    //    (b) provenance seam (token factory()/airlock()) — cold scans only
+    //    (c) canonical Uniswap tiers, one batched extsload
+    //    (d) the row's paired explicit extras, one batched extsload
+    //    (e) generator Pi_K cold-start grid, one batched extsload, entered
+    //        ONLY when (a)-(d) found nothing: the grid bootstraps unknown
+    //        tokens, and once any pool is proven the residual exotic tiers
+    //        are left to claimV4/learning instead of being paid on every scan
+    //  Early-stop at V4_CAP emitted pools. Native currency is out of scope.
+    //  A hooked pool cannot be emitted: its HOOKLESS poolId does not exist in
+    //  the PoolManager, so it fails the live proof by construction.
+    //
+    //  `kf` packs the two scan counters into one word — low 128 bits: the
+    //  global hits write-cursor `k`; high 128 bits: pools found by THIS scan.
+
+    function _scanV4(
+        Factory storage fac, address t0, address t1, PoolInfo[] memory hits, uint256 k
+    ) private view returns (uint256) {
+        if (t0 == address(0)) return k;      // native currency: out of scope
+        HubStore storage $ = _store();
+        address mgr = $.v4PoolManager;
+        if (mgr == address(0)) return k;     // unconfigured manager: fail closed
+        uint256 kf = k;
+        // (a) learned pattern codes of both tokens (identical codes dedup)
+        uint256 cA = $.v4CodeOf[t0];
+        uint256 cB = $.v4CodeOf[t1];
+        if (cA != 0) kf = _admitV4(mgr, t0, t1, cA, hits, kf);
+        if (cB != 0 && cB != cA) kf = _admitV4(mgr, t0, t1, cB, hits, kf);
+        // (b) provenance seam — only worth its two staticcalls on a cold scan
+        if (kf >> 128 == 0) _probeV4Provenance($, t0, t1);
+        // (c) canonical tiers, then (d) paired extras — one batch each
+        kf = _probeV4Batch(mgr, t0, t1, _v4CanonicalTiers(), hits, kf);
+        kf = _probeV4Batch(mgr, t0, t1, _v4ExtraTiers(fac), hits, kf);
+        // (e) generator cold-start — only when nothing was found above
+        if (kf >> 128 == 0) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf);
+        return uint256(uint128(kf));
+    }
+
+    /// @dev Probe a packed tier list against (t0, t1) with ONE batched
+    ///      extsload for all slot0 words, then fully verify only the non-zero
+    ///      survivors — a miss costs one batched SLOAD, not a full read pair.
+    function _probeV4Batch(
+        address mgr, address t0, address t1, uint256[] memory tiers,
+        PoolInfo[] memory hits, uint256 kf
+    ) private view returns (uint256) {
+        uint256 n = tiers.length;
+        if (n == 0 || kf >> 128 >= V4_CAP) return kf;
+        bytes32[] memory pids = new bytes32[](n);
+        for (uint256 i; i < n; ) {
+            pids[i] = BPC.computeV4PoolId(
+                t0, t1, uint24(tiers[i] >> 24), int24(uint24(tiers[i])), address(0)
+            );
+            unchecked { ++i; }
+        }
+        bytes32[] memory w0 = BPC.v4Slot0Batch(mgr, pids);
+        for (uint256 i; i < n; ) {
+            if (kf >> 128 >= V4_CAP) break;
+            // sqrtPriceX96 occupies slot0's low 160 bits; zero = uninitialized.
+            if (uint160(uint256(w0[i])) != 0) {
+                kf = _admitV4(mgr, t0, t1, tiers[i], hits, kf);
+            }
+            unchecked { ++i; }
+        }
+        return kf;
+    }
+
+    /// @dev Fully verify ONE hookless candidate tier and emit it if live:
+    ///      re-reads slot0 + liquidity through the audited single-read path
+    ///      (belt-and-braces over the batch filter; the re-read is warm),
+    ///      applies the INV-20 dynamic-fee gate, and dedups by pool address
+    ///      (existing doctrine — one venue must not saturate the top-K).
+    ///      `code` is the packed tier (fee << 24 | uint24(tickSpacing)).
+    function _admitV4(
+        address mgr, address t0, address t1, uint256 code,
+        PoolInfo[] memory hits, uint256 kf
+    ) private view returns (uint256) {
+        uint256 k = uint256(uint128(kf));
+        if (kf >> 128 >= V4_CAP || k >= hits.length) return kf;
+        uint24 fee = uint24(code >> 24);
+        int24  ts  = int24(uint24(code));
+        bytes32 pid = BPC.computeV4PoolId(t0, t1, fee, ts, address(0));
+        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) = BPC.v4SqrtAndLiq(mgr, pid);
+        if (sp == 0 || liq == 0) return kf;                      // not live: fail closed
+        if (BPC.effV4Fee(fee, lpF, pF) >= 1_000_000) return kf;  // unresolvable dynamic fee
+        address p = address(uint160(uint256(pid)));
+        for (uint256 d; d < k; ) {
+            if (hits[d].pool == p) return kf;
+            unchecked { ++d; }
+        }
+        hits[k] = PoolInfo({
+            active: true, stable: false, kind: BPC.KIND_V4, fee: fee,
+            tickSpacing: ts, token0: t0, token1: t1, pool: p, hooks: address(0)
+        });
+        unchecked { return kf + 1 + (uint256(1) << 128); }
+    }
+
+    /// @dev (b) On-chain provenance, v0: best-effort, fully guarded reads of
+    ///      the non-bridge token's `factory()` / `airlock()`. A launchpad-
+    ///      minted token that answers identifies its family; the family ->
+    ///      canonical-tier map is deliberately NOT hardcoded yet (deployment
+    ///      config work), so today a non-zero answer adds no probe — the seam
+    ///      exists so that map lands later as a pure extension without
+    ///      changing scan order. Both calls tolerate reverts, empty returns
+    ///      and EOAs; they can never revert the scan.
+    function _probeV4Provenance(HubStore storage $, address t0, address t1) private view {
+        address target = $.isBridge[t0] ? t1 : t0;
+        (bool ok, bytes memory ret) =
+            target.staticcall(abi.encodeWithSelector(0xc45a0155)); // factory()
+        if (!(ok && ret.length == 32 && abi.decode(ret, (uint256)) != 0)) {
+            (ok, ret) = target.staticcall(abi.encodeWithSelector(0xf78a8a3e)); // airlock()
+            // Result intentionally unused in v0 (see above).
+        }
+    }
+
+    /// @dev Canonical Uniswap fee tiers — the most common hookless configs.
+    function _v4CanonicalTiers() private pure returns (uint256[] memory t) {
+        t = new uint256[](4);
+        t[0] = _v4Code(500, 10);
+        t[1] = _v4Code(3000, 60);
+        t[2] = _v4Code(10_000, 200);
+        t[3] = _v4Code(100, 1);
+    }
+
+    /// @dev The row's paired explicit extras: fees[i] with spacings[i], never
+    ///      a cross-product. addFactory enforces equal length; min() is a
+    ///      defensive belt for rows registered before that rule existed.
+    function _v4ExtraTiers(Factory storage fac) private view returns (uint256[] memory t) {
+        uint256 fn = fac.fees.length;
+        uint256 sn = fac.spacings.length;
+        uint256 n = fn < sn ? fn : sn;
+        t = new uint256[](n);
+        for (uint256 i; i < n; ) {
+            t[i] = _v4Code(fac.fees[i], fac.spacings[i]);
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev Generator Pi_K cold-start grid: fee = 10_000*j, ts = 100*j, j
+    ///      descending from V4_GRID_MAX, capped at V4_GRID_PROBES candidates
+    ///      (j never underflows: V4_GRID_PROBES <= V4_GRID_MAX).
+    function _v4GridTiers() private pure returns (uint256[] memory t) {
+        t = new uint256[](V4_GRID_PROBES);
+        uint256 j = V4_GRID_MAX;
+        for (uint256 i; i < V4_GRID_PROBES; ) {
+            t[i] = _v4Code(uint24(10_000 * j), int24(uint24(100 * j)));
+            unchecked { ++i; --j; }
+        }
+    }
+
+    /// @dev Pack a tier into a pattern code. A valid V4 tickSpacing is >= 1,
+    ///      so a real code is never 0 (0 = "no code learned").
+    function _v4Code(uint24 fee, int24 ts) private pure returns (uint256) {
+        return (uint256(fee) << 24) | uint256(uint24(ts));
+    }
+
+    /// @dev True iff the hookless poolId of (t0, t1, fee, ts) truncates to
+    ///      `pool` — the unforgeable link between a registry pool address and
+    ///      a claimed tier.
+    function _v4IdMatches(address pool, address t0, address t1, uint24 fee, int24 ts)
+        private pure returns (bool)
+    {
+        return address(uint160(uint256(
+            BPC.computeV4PoolId(t0, t1, fee, ts, address(0))
+        ))) == pool;
+    }
+
+    // ─── V4 pattern-code learning (discovery-hint metadata ONLY) ───────
+    //
+    //  INV-16 BOUNDARY: everything below writes/reads $.v4CodeOf and nothing
+    //  else. The code never feeds psi/fitness/eviction/route-ranking —
+    //  routing weight comes exclusively from measured marginal output. A
+    //  wrong code (staleness, manipulation) costs at most one wasted probe in
+    //  _scanV4, because every candidate is re-proven live before emission and
+    //  proven again at quote time. No revert paths: learning must never break
+    //  a swap or a claim.
+
+    /// @dev Write the pattern code on the pair's NON-BRIDGE side(s). Bridges
+    ///      pair with many tokens at many tiers — a per-bridge code would
+    ///      thrash — so the code is the launch-tier fingerprint of the minted
+    ///      token only. Last proof wins: self-correcting toward the tier that
+    ///      actually trades. Skips the SSTORE when the code is unchanged.
+    function _writeV4Code(address t0, address t1, uint24 fee, int24 ts) private {
+        HubStore storage $ = _store();
+        uint256 c = _v4Code(fee, ts);
+        if (!$.isBridge[t0] && $.v4CodeOf[t0] != c) $.v4CodeOf[t0] = c;
+        if (!$.isBridge[t1] && $.v4CodeOf[t1] != c) $.v4CodeOf[t1] = c;
+    }
+
+    /// @dev recordSwap-side healer for an already-registered V4 pool: recover
+    ///      the swapped pool's tickSpacing (steady state: one SLOAD + one
+    ///      keccak — the learned code already describes the pool) and refresh
+    ///      the non-bridge side(s). Fail-open: unrecoverable means no update.
+    function _noteV4Code(address pool, address t0, address t1, uint24 fee) private {
+        (int24 ts, bool ok) = _recoverV4Ts(pool, t0, t1, fee);
+        if (ok) _writeV4Code(t0, t1, fee, ts);
+    }
+
+    /// @dev Recover the tickSpacing of a routed hookless V4 pool from
+    ///      (pool, t0, t1, fee) — recordSwap does not carry tickSpacing and
+    ///      the Router stays unchanged, so the missing coordinate is
+    ///      reconstructed and VERIFIED against the truncated poolId before
+    ///      being trusted. The sources mirror exactly what the derive-scan
+    ///      can emit, so the loop is closed:
+    ///        1. learned per-token codes (one SLOAD + one keccak steady state)
+    ///        2. generator inverse (fee = 10_000*j  =>  ts = 100*j)
+    ///        3. canonical tiers
+    ///        4. MODE_V4_DERIVE rows' paired extras
+    ///        5. the registered V4Entry — the backstop that always resolves a
+    ///           pool admitted via claimV4/addV4
+    ///      A hooked pool never matches (hookless derivation) => (0, false).
+    function _recoverV4Ts(address pool, address t0, address t1, uint24 fee)
+        private view returns (int24 ts, bool ok)
+    {
+        HubStore storage $ = _store();
+        // 1) learned codes
+        uint256 c = $.v4CodeOf[t0];
+        if (c != 0 && uint24(c >> 24) == fee) {
+            ts = int24(uint24(c));
+            if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+        }
+        c = $.v4CodeOf[t1];
+        if (c != 0 && uint24(c >> 24) == fee) {
+            ts = int24(uint24(c));
+            if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+        }
+        // 2) generator inverse
+        if (fee != 0 && fee % 10_000 == 0 && fee / 10_000 <= V4_GRID_MAX) {
+            ts = int24(uint24((fee / 10_000) * 100));
+            if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+        }
+        // 3) canonical tiers
+        uint256[] memory tiers = _v4CanonicalTiers();
+        for (uint256 i; i < tiers.length; ) {
+            if (uint24(tiers[i] >> 24) == fee) {
+                ts = int24(uint24(tiers[i]));
+                if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+            }
+            unchecked { ++i; }
+        }
+        // 4) V4_DERIVE rows' paired extras
+        uint256 fn = $.factories.length;
+        for (uint256 fi; fi < fn; ) {
+            Factory storage fac = $.factories[fi];
+            if (fac.mode == MODE_V4_DERIVE) {
+                uint256 en = fac.fees.length < fac.spacings.length
+                    ? fac.fees.length
+                    : fac.spacings.length;
+                for (uint256 i; i < en; ) {
+                    if (fac.fees[i] == fee) {
+                        ts = fac.spacings[i];
+                        if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+                    }
+                    unchecked { ++i; }
+                }
+            }
+            unchecked { ++fi; }
+        }
+        // 5) the registered V4Entry backstop
+        uint256 vn = $.v4Entries.length;
+        for (uint256 vi; vi < vn; ) {
+            V4Entry storage e = $.v4Entries[vi];
+            if (
+                e.currency0 == t0 && e.currency1 == t1 && e.fee == fee
+                    && e.hooks == address(0)
+            ) {
+                ts = e.tickSpacing;
+                if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+            }
+            unchecked { ++vi; }
+        }
+        return (0, false);
     }
 
     // ─── Registry reads ────────────────────────────────────────────────
@@ -616,6 +952,10 @@ contract BlazePhoenixHub {
     function v4PoolManager() external view returns (address) { return _store().v4PoolManager; }
     function v4EntryCount() external view returns (uint256) { return _store().v4Entries.length; }
     function v4EntryAt(uint256 i) external view returns (V4Entry memory) { return _store().v4Entries[i]; }
+    /// @notice Learned V4 pattern code of a token: packed
+    ///         (fee << 24 | uint24(tickSpacing)), 0 = none. Hint metadata
+    ///         only — never a routing weight (INV-16).
+    function v4CodeOf(address token) external view returns (uint256) { return _store().v4CodeOf[token]; }
 
     function keyOf(address pool, address tA, address tB) public pure returns (bytes32) {
         (address s0, address s1) = BPC.sortTokens(tA, tB);
@@ -641,11 +981,35 @@ contract BlazePhoenixHub {
             // existing pool — tick + stamp wall-clock activity time
             uint256 newSlot = BPC.tickSlot(s, uint32(block.number), depthWad, uint32(block.timestamp));
             $.slot[key] = _stampTs(newSlot);
+            // Hookless V4 leg: refresh the tokens' learned pattern code
+            // (discovery-hint metadata only — never fitness; see INV-16
+            // boundary at the learning section). Hooked pools are excluded:
+            // the code describes a hookless derivation.
+            if (kind == BPC.KIND_V4 && hooks == address(0)) _noteV4Code(pool, t0, t1, fee);
             emit Volume(key, amtIn, amtOut);
             return;
         }
         // unknown — attempt insert
         if (!_canInsert($.pairKeys[t0][t1], depthWad)) return;
+        if (kind == BPC.KIND_V4) {
+            // A V4 pool reaching FIRST registration here was found by the
+            // derive-scan (a view — it could not persist anything). The
+            // registry's V4 reads REQUIRE a matching V4Entry (tickSpacing
+            // recovery for quote-time poolId recomputation), and recordSwap
+            // does not carry tickSpacing — so recover it and verify against
+            // the truncated poolId. The derivation is hookless-only, so a
+            // hooked pool never matches. Unrecoverable => skip registration
+            // entirely: an entry-less V4 registration would be dead weight
+            // that marks the pair "known" and starves rediscovery. The swap
+            // itself is unaffected either way (fail closed, fail open).
+            (int24 v4Ts, bool okTs) = _recoverV4Ts(pool, t0, t1, fee);
+            if (!okTs) return;
+            $.v4Entries.push(V4Entry({
+                currency0: t0, currency1: t1, fee: fee,
+                tickSpacing: v4Ts, hooks: address(0)
+            }));
+            _writeV4Code(t0, t1, fee, v4Ts);
+        }
         _register(key, pool, kind, fee, hooks, t0, t1, false);
         // initial tick + stamp wall-clock activity time
         $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthWad, uint32(block.timestamp)));

@@ -952,6 +952,58 @@ library BlazePhoenixCore {
         return lpFee;                                 // dynamic: the measured slot0 fee
     }
 
+    /// @notice Batch slot0 read for many V4 poolIds in ONE staticcall via the
+    ///         PoolManager's `extsload(bytes32[])` (selector 0xdbd035ff). Used
+    ///         by the Hub's derive-scan to filter candidate tiers: a candidate
+    ///         earns the full `v4SqrtAndLiq` verification only if its slot0
+    ///         word is non-zero, which roughly halves the cost of a miss (one
+    ///         batched SLOAD instead of two single-slot calls). Same guarded
+    ///         doctrine as `v4SqrtAndLiq`: a codeless or non-conforming
+    ///         manager yields all-zero words (fail-closed), never a revert.
+    /// @return word0s Raw slot0 word per poolId (zero => uninitialized pool).
+    function v4Slot0Batch(address manager, bytes32[] memory poolIds)
+        internal view returns (bytes32[] memory word0s)
+    {
+        uint256 n = poolIds.length;
+        word0s = new bytes32[](n);
+        if (manager == address(0) || n == 0) return word0s;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0xdbd035ff00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4), 0x20)  // abi offset of the slots array
+            mstore(add(m, 36), n)    // array length
+            // Per poolId the argument is the pool's base storage slot,
+            // keccak256(abi.encode(poolId, POOLS_SLOT = 6)); slot0 sits at
+            // offset 0, so the base IS the slot0 key. The hash preimage uses
+            // scratch space (0x00..0x3f), as memory-safe rules allow.
+            let src := add(poolIds, 32)
+            for { let i := 0 } lt(i, n) { i := add(i, 1) } {
+                mstore(0x00, mload(add(src, shl(5, i))))
+                mstore(0x20, 6)
+                mstore(add(add(m, 68), shl(5, i)), keccak256(0x00, 0x40))
+            }
+            let cdLen := add(68, shl(5, n))
+            // Expected return: abi-encoded bytes32[] = offset ++ length ++ words.
+            let retLen := add(64, shl(5, n))
+            let rp := add(m, cdLen)
+            // Gas cap scales with the batch (~2100 per cold SLOAD plus call/abi
+            // overhead): generous but bounded, so a hostile or bloated manager
+            // can never consume the whole scan's gas.
+            if staticcall(add(30000, mul(n, 3000)), manager, m, cdLen, rp, retLen) {
+                if and(
+                    eq(returndatasize(), retLen),
+                    and(eq(mload(rp), 0x20), eq(mload(add(rp, 32)), n))
+                ) {
+                    let dst := add(word0s, 32)
+                    let sw := add(rp, 64)
+                    for { let i := 0 } lt(i, n) { i := add(i, 1) } {
+                        mstore(add(dst, shl(5, i)), mload(add(sw, shl(5, i))))
+                    }
+                }
+            }
+        }
+    }
+
     function _curveCryptoGetDy(address pool, bool zfo, uint256 dx)
         internal view returns (uint256 outAmt)
     {
