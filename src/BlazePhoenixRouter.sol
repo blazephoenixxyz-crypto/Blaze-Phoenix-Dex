@@ -1079,6 +1079,15 @@ contract BlazePhoenixRouter {
             got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
             if (got == 0) revert RouterE(8);
         }
+        // Revoke whatever the pool did not spend. `leg.pool` arrives in calldata
+        // and is never authenticated, so a contract that behaves like a pool but
+        // pulls less than `amt` would otherwise keep a standing allowance over
+        // the Router for this token — indefinitely, and usable against any
+        // balance the Router holds later. A legitimate pool consumes the whole
+        // allowance during exchange, so this is a no-op for them. Approving zero
+        // is always accepted, including by tokens that reject a non-zero
+        // re-approval.
+        BPC.forceApprove(tokenIn, leg.pool, 0);
     }
 
     function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private {
