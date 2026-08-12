@@ -168,7 +168,7 @@ contract SwapBestExactInHardeningTest is Test {
             address(router),
             abi.encodeCall(
                 router.selfExecutePrePulled,
-                (crafted, 1e18, 1, address(0xBAD), block.timestamp + 1))
+                (crafted, 1e18, 1, address(0xBAD), block.timestamp + 1, address(0xBAD)))
         );
 
         vm.prank(user);

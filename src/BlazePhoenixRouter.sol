@@ -307,7 +307,7 @@ contract BlazePhoenixRouter {
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
         // Tokens are now on the Router; skip the user-pull in the core path.
-        return _swapPrePulled(route, received, userMinOut, recipient, deadline);
+        return _swapPrePulled(route, received, userMinOut, recipient, deadline, msg.sender);
     }
 
     // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates
@@ -349,7 +349,7 @@ contract BlazePhoenixRouter {
         uint256 received = BPC.balanceOf(w, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
 
-        return _swapPrePulled(route, received, userMinOut, recipient, deadline);
+        return _swapPrePulled(route, received, userMinOut, recipient, deadline, msg.sender);
     }
 
     // ─── Fully-on-chain route: solve + execute in ONE transaction ─────────
@@ -384,7 +384,7 @@ contract BlazePhoenixRouter {
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
-        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline);
+        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);
     }
 
     /// @notice memory→calldata bridge for `swapBestExactIn`. Self-only
@@ -393,10 +393,10 @@ contract BlazePhoenixRouter {
     ///         always trip RouterE(7).
     function selfExecutePrePulled(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, uint256 deadline
+        address recipient, uint256 deadline, address payer
     ) external returns (uint256) {
         if (msg.sender != address(this)) revert RouterE(1);
-        return _swapPrePulled(route, amountIn, userMinOut, recipient, deadline);
+        return _swapPrePulled(route, amountIn, userMinOut, recipient, deadline, payer);
     }
 
     // =========================================================================
@@ -417,17 +417,17 @@ contract BlazePhoenixRouter {
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
-        return _execute(route, received, userMinOut, recipient, tokenIn);
+        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);
     }
 
     function _swapPrePulled(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, uint256 deadline
+        address recipient, uint256 deadline, address payer
     ) private returns (uint256) {
         if (block.timestamp > deadline) revert RouterE(4);
         if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
         address tokenIn = route.hops[0].tokenIn;
-        return _execute(route, amountIn, userMinOut, recipient, tokenIn);
+        return _execute(route, amountIn, userMinOut, recipient, tokenIn, payer);
     }
 
     /// @notice Per-hop real-balance-ratio scaling AND price impact (BPS) AND
@@ -571,9 +571,15 @@ contract BlazePhoenixRouter {
         if (sp4 != 0 && lq4 != 0) quote = BPC.outV3(legAmt, sp4, lq4, BPC.effV4Fee(leg.fee, lpF4, pF4), leg.zeroForOne);
     }
 
+    /// @dev `payer` is who funded this swap and therefore who the unspent
+    ///      input belongs to. It is passed explicitly rather than read from
+    ///      `msg.sender`, because `swapBestExactIn` reaches this function
+    ///      through an external SELF-call, where `msg.sender` is the Router.
+    ///      Inferring the payer there refunded the residual to the Router
+    ///      itself and stranded it.
     function _execute(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, address tokenIn
+        address recipient, address tokenIn, address payer
     ) private returns (uint256 amountOut) {
         address tokenOut = route.hops[route.hops.length - 1].tokenOut;
         // Input-token balance at entry (the input is already in the Router).
@@ -672,14 +678,14 @@ contract BlazePhoenixRouter {
         if (tokenIn != tokenOut) {
             uint256 baseIn  = tinStart > amountIn ? tinStart - amountIn : 0;
             uint256 residIn = BPC.balanceOf(tokenIn, address(this));
-            if (residIn > baseIn) BPC.safeTransfer(tokenIn, msg.sender, residIn - baseIn);
+            if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);
         }
         for (uint256 h; h + 1 < route.hops.length; ) {
             address bridge = route.hops[h].tokenOut;
             if (bridge != tokenIn && bridge != tokenOut) {
                 uint256 rb = BPC.balanceOf(bridge, address(this));
                 uint256 bb = bridgeBase[h];
-                if (rb > bb) BPC.safeTransfer(bridge, msg.sender, rb - bb);
+                if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);
             }
             unchecked { ++h; }
         }

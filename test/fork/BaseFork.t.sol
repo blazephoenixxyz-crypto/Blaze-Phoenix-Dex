@@ -140,6 +140,6 @@ contract BaseForkTest is Test {
     function test_SelfExecutePrePulled_RejectsExternalCallers() public {
         Route memory r;
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 1));
-        router.selfExecutePrePulled(r, 1, 1, address(this), block.timestamp + 60);
+        router.selfExecutePrePulled(r, 1, 1, address(this), block.timestamp + 60, address(this));
     }
 }
