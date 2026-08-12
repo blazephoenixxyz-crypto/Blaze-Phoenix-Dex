@@ -729,6 +729,19 @@ contract BlazePhoenixRouter {
         // ~(BPS − floorBps)/BPS (≈ >4%). The slot holds the compounded
         // measured net ratio in bps (see _noteFot); honest tokens never set
         // it — behaviour unchanged for them.
+        //
+        // SCOPING (known, bounded, deliberately deferred): the slot compounds
+        // ONE ratio for the whole route, while finalHopQuote is priced on the
+        // measured bridge input of the final hop — upstream input-side taxes
+        // are therefore already absorbed in the quote, and multiplying by the
+        // fully-compounded ratio can only OVER-discount this secondary floor
+        // (more permissive, never a false reject). The user remains protected
+        // by the mandatory non-zero userMinOut (primary bound, enforced on
+        // the delivered amount) and by the per-leg LEG_FLOOR_BPS guard at
+        // every pool seam. Per-hop scoping would need a second transient flag
+        // (the singleOutFloor drop above must still trigger on FoT seen in
+        // ANY hop) — a floor-semantics rewrite not worth the risk for a
+        // safety net that only backs up two harder bounds.
         uint256 sF = TSLOT_FOT;
         uint256 fotSeen; assembly { fotSeen := tload(sF) }
         if (fotSeen == 0) {
@@ -949,31 +962,64 @@ contract BlazePhoenixRouter {
         IUniswapV2Pair(leg.pool).swap(a0, a1, address(this), "");
     }
 
-    /// @notice Solidly-class execution, pool-priced. The pair's own
-    ///         getAmountOut(amountIn, tokenIn) — live fee, stable curve and
-    ///         rounding included — is the exact maximum its K check will
-    ///         accept, so we request it (minus 1 wei of rounding armour
-    ///         against non-canonical forks) and leave nothing behind. Only
-    ///         when the selector is absent do we fall back to replicating the
-    ///         curve with the live factory fee and a 200 bps K-margin, the
-    ///         historical conservative path.
+    /// @notice Solidly-class execution, pool-priced on the MEASURED input.
+    ///         The pair's own getAmountOut(amountIn, tokenIn) — live fee,
+    ///         stable curve and rounding included — is the exact maximum its
+    ///         K check will accept, so we request it (minus 1 wei of rounding
+    ///         armour against non-canonical forks) and leave nothing behind.
+    ///         Only when the selector is absent do we fall back to
+    ///         replicating the curve with the live factory fee and a 200 bps
+    ///         K-margin, the historical conservative path.
+    ///
+    ///         Transfer-then-quote ordering (mirrors _execV2Amt): quoting the
+    ///         NOMINAL `amt` before the transfer priced an input the pool
+    ///         never received when tokenIn takes a transfer fee — the K check
+    ///         then rejects the over-ask and every FoT-through-Solidly swap
+    ///         reverted, a DoS on exactly the pairing the routing policy
+    ///         supports natively (owner decision 2026-08-10: FoT =
+    ///         route-where-natural). A plain ERC-20 transfer does not touch
+    ///         the pair's STORED reserves, so a post-transfer getAmountOut
+    ///         still prices against pre-swap reserves — for honest tokens the
+    ///         figure is bit-identical to the pre-transfer quote (zero
+    ///         behavioural change), and for FoT tokens quoting the measured
+    ///         input yields precisely the pair's own K-check maximum.
     function _execSolidlyAmt(Leg calldata leg, address tokenIn, uint256 amt) private {
-        // Quote BEFORE transfer — getAmountOut reads current reserves.
-        uint256 outAmt = BPC.solidlyGetAmountOut(leg.pool, amt, tokenIn);
+        uint256 balBefore = BPC.balanceOf(tokenIn, leg.pool);
+        BPC.safeTransfer(tokenIn, leg.pool, amt);
+        uint256 askIn = amt;
+        if (BPC.balanceOf(tokenIn, leg.pool) - balBefore != amt) {
+            // Fee-on-transfer MEASURED (pool received a different amount than
+            // sent). Same doctrine as _execV2Amt: realIn = balance − synced
+            // reserve, read in the post-transfer state, is exactly the input
+            // figure the pair's K check will see — robust even when the
+            // token's transfer hook trades on THIS pair mid-transfer.
+            (uint256 r0b, uint256 r1b) = BPC.getReserves(leg.pool);
+            uint256 rInB = leg.zeroForOne ? r0b : r1b;
+            uint256 realIn = BPC.balanceOf(tokenIn, leg.pool) - rInB;
+            if (realIn == 0) revert RouterE(8);
+            askIn = realIn;
+            // Record the measured NET ratio (bps) so _execute both drops the
+            // fee-blind quote floor and re-prices the gross-quoted protocol
+            // floor on the real net. Stacked FoT hops compound inside
+            // _noteFot; over-delivering (reflection) tokens clamp to BPS.
+            _noteFot(BPC.mulDiv(realIn, BPC.BPS, amt));
+        }
+        uint256 outAmt = BPC.solidlyGetAmountOut(leg.pool, askIn, tokenIn);
         if (outAmt > 1) {
             unchecked { outAmt -= 1; }
         } else {
-            // Fallback for forks without getAmountOut. Reserves BEFORE
-            // transfer — same fix as _execV2Amt.
+            // Fallback for forks without getAmountOut, priced on the same
+            // measured input. Stored reserves are unchanged by the transfer
+            // above (only swap/mint/burn/sync move them), so this still reads
+            // pre-swap reserves — same fix as _execV2Amt.
             (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);
             uint256 rIn  = leg.zeroForOne ? r0 : r1;
             uint256 rOut = leg.zeroForOne ? r1 : r0;
             uint256 liveFee = BPC.readDynamicFee(leg.pool, leg.stable, leg.fee);
-            outAmt = BPC.outSolidly(amt, rIn, rOut, liveFee, leg.stable);
+            outAmt = BPC.outSolidly(askIn, rIn, rOut, liveFee, leg.stable);
             outAmt = (outAmt * 9800) / BPC.BPS;
         }
         if (outAmt == 0) revert RouterE(8);
-        BPC.safeTransfer(tokenIn, leg.pool, amt);
         uint256 a0 = leg.zeroForOne ? 0 : outAmt;
         uint256 a1 = leg.zeroForOne ? outAmt : 0;
         IUniswapV2Pair(leg.pool).swap(a0, a1, address(this), "");
