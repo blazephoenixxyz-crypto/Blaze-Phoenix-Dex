@@ -1,0 +1,44 @@
+name: knowledge-graph
+
+# Builds a Solidity call graph in the cloud (GitHub compute) with Slither and
+# publishes it as a build artifact, so the graph is never built on the
+# maintainer's device. Slither is Solidity-native (graphify does not parse
+# .sol). The printer runs read-only and costs no model tokens.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [v3-hardening, main]
+    paths:
+      - 'src/**'
+      - '.github/workflows/graph.yml'
+
+jobs:
+  call-graph:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Slither
+        run: pip install slither-analyzer
+
+      - name: Generate the Solidity call graph (.dot files)
+        run: slither . --print call-graph || true
+
+      - name: Upload the call graph
+        uses: actions/upload-artifact@v4
+        with:
+          name: solidity-call-graph
+          path: '**/*.dot'
+          if-no-files-found: warn

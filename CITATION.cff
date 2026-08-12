@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: BlazePhoenix-Dex
+message: "If you reference or build on this software, please cite it as below."
+type: software
+authors:
+  - alias: Mitra
+    website: "https://x.com/Sigmacrit"
+  - alias: Fable
+    given-names: Claude
+repository-code: "https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex"
+url: "https://blazephoenix.xyz"
+abstract: >-
+  An on-chain DeFi router and aggregator that prices routes on the pool's
+  measured marginal output rather than self-reported state, with
+  quote-equals-execution and fail-closed guarantees, across Uniswap V2/V3/V4,
+  Solidly, and Curve. Includes permissionless on-chain Uniswap V4 pool discovery.
+keywords:
+  - defi
+  - dex-aggregator
+  - ethereum
+  - evm
+  - uniswap-v4
+  - solidity
+  - smart-contracts
+license: BUSL-1.1
+version: 2.0.0
+date-released: "2026-07-01"

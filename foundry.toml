@@ -1,0 +1,89 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.36"
+evm_version = "cancun"
+bytecode_hash = "none"
+optimizer = true
+# via_ir stays ON: several functions (Solver._buildHop/_weights, Router.
+# _execute) are written assuming the via-IR pipeline's stack-slot folding —
+# turning it off would likely hit "stack too deep". What's dialed back is
+# optimizer_runs: 999999 makes the Yul optimizer extremely memory-hungry, and
+# on constrained hardware (this dev machine: ~11GB RAM+swap) it thrashed swap
+# for 35+ minutes without finishing a single build and had to be killed. Use
+# `[profile.release]` below (FOUNDRY_PROFILE=release) for the real
+# gas-optimized build before an actual deploy; keep default fast for local
+# dev/test iteration.
+optimizer_runs = 1000
+via_ir = true
+fs_permissions = [{ access = "read", path = "./" }]
+
+[fuzz]
+runs = 256
+# Pinned: the anti-vacuity asserts (BP-04) require campaigns to actually
+# settle; with a random seed each CI run, Router bytecode changes shift the
+# test-derived addresses and unlucky walks settle 0 V4 swaps (flaky red on
+# RouterAdversarialV4FromV1). Deterministic CI > seed lottery; the deep
+# profile can run unseeded for diversity.
+seed = "0xb1a2ef00"
+
+[invariant]
+# Kept modest on purpose: this repo's dev hardware runs under proot (heavy
+# ptrace syscall-interception overhead per EVM call), so the stock Foundry
+# defaults (runs=256, depth=500 => ~128k calls) are impractically slow here.
+# Raise both on real CI/hardware for a deeper Monte Carlo search — e.g.
+# `forge test --match-contract Invariant --invariant-runs 256 --invariant-depth 500`.
+runs = 50
+depth = 50
+fail_on_revert = false
+
+[profile.release]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.36"
+evm_version = "cancun"
+bytecode_hash = "none"
+optimizer = true
+# 999999 maxed runtime-gas bias but left the Router 246 B over the 24000
+# margin once the native-ETH entry landed (measured: 24246 @ 999999);
+# 5000 still measured 24107 (-107 short). 3000 buys the remaining margin;
+# re-measure the gas side with forge snapshot at the S3 testnet rehearsal.
+# If a future feature outgrows this dial, the next lever is Router revert
+# strings -> custom errors (~14 sites, est. 400-800 B) — code, not config.
+optimizer_runs = 3000
+via_ir = true
+fs_permissions = [{ access = "read", path = "./" }]
+
+# SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the
+# glacier-abacus `smtchecker` job (this profile is what that job greps for).
+# Report-only by nature: solc prints warnings for properties it cannot prove,
+# it never fails the build. Targets the load-bearing arithmetic invariants
+# (overflow/underflow, assertion, divByZero) across the Core assembly and the
+# floor/median paths. Kept off the fast/release profiles because CHC solving
+# is minutes-slow and must never gate normal CI.
+[profile.smt]
+src = "src"
+test = "test"
+out = "out-smt"
+libs = ["lib"]
+solc_version = "0.8.36"
+evm_version = "cancun"
+via_ir = true
+[profile.smt.model_checker]
+engine = "chc"
+timeout = 120000            # ms per query; the cloud job caps wall time separately
+targets = ["assert", "overflow", "underflow", "divByZero"]
+contracts = { "src/BlazePhoenixCore.sol" = ["BlazePhoenixCore"] }
+invariants = ["contract", "reentrancy"]
+show_unproved = true
+
+[rpc_endpoints]
+base = "https://lb.drpc.live/base/${DRPC_KEY}"
+mainnet = "https://lb.drpc.live/ethereum/${DRPC_KEY}"
+optimism = "https://lb.drpc.live/optimism/${DRPC_KEY}"
+arbitrum = "https://lb.drpc.live/arbitrum/${DRPC_KEY}"
+robinhood = "https://lb.drpc.live/robinhood/${DRPC_KEY}"

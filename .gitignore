@@ -1,0 +1,33 @@
+# Foundry build artifacts (regenerable via `forge build`)
+out/
+cache/
+
+# Deployment run logs — local/dev broadcasts only so far (anvil test keys),
+# never meant to accumulate here; a real deploy's logs should be reviewed
+# and added deliberately, not swept in automatically.
+broadcast/
+
+# Operational deploy scripts — real treasury addresses and per-chain
+# venue/rollout config. Kept locally (private vault), intentionally never
+# published to this public repository.
+script/DeployAll.s.sol
+script/DeployRobinhood.s.sol
+# Anvil harness for the operational deploy — stays private with the scripts.
+test/DeployAll.t.sol
+
+# Internal design/audit docs — describe unfixed vulnerabilities and proprietary
+# design. Kept locally (private vault) and intentionally never published here.
+docs/internal/
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+
+# SDD scratch workspace
+.superpowers/
+graphify-out/

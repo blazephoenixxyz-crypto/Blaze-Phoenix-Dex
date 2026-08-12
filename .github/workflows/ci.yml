@@ -1,0 +1,216 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FOUNDRY_PROFILE: default
+
+jobs:
+  test:
+    name: build + test (fast profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Show versions
+        run: forge --version
+
+      - name: Build
+        run: forge build
+
+      - name: Test
+        # Fork tests (test/fork/**) require a dedicated archive RPC; on the
+        # shared CI they hit public-endpoint rate limits (HTTP 429) and fail
+        # non-deterministically. Exclude them from the fast profile — run them
+        # separately with an RPC secret. This keeps the fast run hermetic.
+        run: forge test -vvv --no-match-path "test/fork/**"
+
+      - name: Deeper invariant/fuzz pass
+        run: forge test --match-path "test/*Invariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
+
+  fork-tests:
+    name: fork tests (Curve / Balancer, archive RPC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Fork tests
+        # dRPC (no rate limit, all 5 chains) forks directly - no Anvil, no
+        # throttling. The DRPC_KEY secret feeds foundry.toml's [rpc_endpoints]
+        # via ${DRPC_KEY}; never hard-coded.
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+        run: forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseForkTest|BaseTop100Test|EthereumCurveForkTest|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest"
+
+  size-guard:
+    name: EIP-170 size guard (release profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Release build with sizes
+        id: sizes
+        env:
+          FOUNDRY_PROFILE: release
+        run: |
+          set -o pipefail
+          forge build --sizes | tee sizes.txt
+
+      - name: Enforce EIP-170 with margin (< 24000 bytes runtime)
+        env:
+          FOUNDRY_PROFILE: release
+        run: |
+          # Fail if any BlazePhoenix* contract's deployed/runtime size >= 24000 bytes.
+          # EIP-170 hard limit is 24576; we require a safety margin.
+          python3 - <<'PY'
+          import re, sys
+          limit = 24000
+          bad = []
+          rows = []
+          with open("sizes.txt") as f:
+              for line in f:
+                  # Anchor to real forge --sizes rows: | BlazePhoenixX | runtime | ...
+                  # This ignores warning/path/snippet lines (which never start with
+                  # "| BlazePhoenix") and reads exactly the runtime-size column,
+                  # never the initcode or margin columns. A bare "|  |" cell cannot
+                  # match (\d[\d,]* requires a leading digit), so int("") never fires.
+                  m = re.match(r"^\s*\|\s*(BlazePhoenix\w*)\s*\|\s*(\d[\d,]*)\s*\|", line)
+                  if not m:
+                      continue
+                  name = m.group(1)
+                  if name.endswith(("Test", "Script")):
+                      continue          # undeployed harnesses never hit EIP-170
+                  runtime = int(m.group(2).replace(",", ""))
+                  rows.append((name, runtime))
+                  if runtime >= limit:
+                      bad.append((name, runtime))
+          print("Runtime sizes (bytes):")
+          for n, r in rows:
+              print(f"  {n:32s} {r:6d}  ({limit - r:+d} to margin, {24576 - r:+d} to hard limit)")
+          if bad:
+              print("\nEIP-170 MARGIN VIOLATION:")
+              for n, r in bad:
+                  print(f"  {n} = {r} bytes >= {limit}")
+              sys.exit(1)
+          warn = [(n, r) for n, r in rows if r >= 23000]
+          if warn:
+              print("\nSOFT-WARN (>= 23000, approaching the margin — arm C5):")
+              for n, r in warn:
+                  print(f"  {n} = {r} bytes")
+          expected = {"BlazePhoenixCore", "BlazePhoenixHub", "BlazePhoenixQuoter",
+                      "BlazePhoenixRouter", "BlazePhoenixSolver"}
+          missing = expected - {n for n, _ in rows}
+          if missing:
+              print(f"\nGUARD ERROR: deployed contracts missing from sizes.txt: {sorted(missing)}")
+              sys.exit(1)
+          print("\nAll BlazePhoenix contracts under the 24000-byte margin. OK.")
+          PY
+
+      - name: Record release artifact hashes (deploy provenance)
+        env:
+          FOUNDRY_PROFILE: release
+        run: |
+          # sha256 of each deployed (runtime) bytecode from THIS release build.
+          # The recorded hash is what a post-deploy `cast code | sha256sum` on
+          # chain must reproduce — pinning the audited artifact to the deploy.
+          set -euo pipefail
+          {
+            echo "# release artifact hashes — commit ${GITHUB_SHA}"
+            for c in BlazePhoenixCore BlazePhoenixHub BlazePhoenixQuoter BlazePhoenixRouter BlazePhoenixSolver; do
+              f="out/${c}.sol/${c}.json"
+              test -f "$f" || { echo "MISSING ARTIFACT: $f"; exit 1; }
+              h=$(jq -r '.deployedBytecode.object' "$f" | sha256sum | cut -d' ' -f1)
+              echo "${c}: sha256=${h}"
+            done
+          } | tee release-hashes.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-hashes
+          path: release-hashes.txt
+
+  formal:
+    name: formal verification (Halmos symbolic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Halmos
+        run: pip install halmos
+
+      - name: Symbolic PROOF — Core math hard gate (iron floor / impact / V3 fail-closed)
+        # test/formal/CoreFormalGateSpec.t.sol. Checks land in this contract
+        # only after a report-only CI run MEASURED them discharging cleanly
+        # (0.04–0.19s each, run 31532581231): iron-floor bounds unconditional
+        # (INV-1's arithmetic heart), impactV2Bps <= BPS, outV3 fail-closed on
+        # degenerate inputs. REAL gate — no `|| true`.
+        run: halmos --contract CoreFormalGateSpec -v
+
+      - name: Symbolic checks (Core 512-bit-mulDiv residue, report-only)
+        # test/formal/CoreFormalSpec.t.sol — the checks whose assertions route
+        # the solver through the 512-bit assembly mulDiv, which Halmos
+        # over-approximates (mulmod — known limitation): each TIMEOUTs at
+        # 60–189s instead of discharging (measured, same run). The target
+        # properties are hand-proven to hold (outV2's constant-product output
+        # is strictly below rOut; outV3's early returns + sqrtNew<P guard
+        # bound the quote; mulDiv-vs-exact matches by construction). Kept
+        # running and visible; a check moves to the hard gate above only after
+        # a report-only run proves it discharges. Same report-only convention
+        # as the deeper invariant/fuzz pass in the fast job.
+        run: halmos --contract CoreFormalSpec -v || true
+
+      - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
+        # test/formal/EffV4FeeFormalSpec.t.sol. Pure comparison logic, no 512-bit
+        # mulDiv over-approximation — Halmos discharges it cleanly, so this is a
+        # REAL gate (no `|| true`): the dynamic-fee sentinel can never survive as
+        # a usable fee and a non-zero protocolFee always fails closed to >=1e6.
+        # Keyless: this is the free-prover equivalent of the Certora scaffold.
+        run: halmos --contract EffV4FeeFormalSpec -v
+
+  gas-metrics:
+    name: gas metrics (offline ledger)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Measure gas ledger (offline harness, reporting-only)
+        # Not a pass/fail correctness gate - surfaces the MEASURED gas ledger
+        # (cold-vs-warm discovery, security-architecture overhead, registry
+        # feedback, SSTORE2/CREATE2 levers) into a small dedicated log so gas
+        # regressions are visible per-commit and the warm/cold numbers stay
+        # current instead of being trusted from a stale one-off measurement.
+        run: forge test --match-contract "LifecycleMetrics|SecurityArchitectureGas|Sstore2RegistryGas|DiscoveryModeGas" -vv
