@@ -166,22 +166,25 @@ jobs:
       - name: Install Halmos
         run: pip install halmos
 
-      - name: Symbolic checks (Core load-bearing math)
-        # Executes test/formal/CoreFormalSpec.t.sol's check_* functions
-        # SYMBOLICALLY over the real compiled bytecode (incl. the Yul the
-        # source-level SMTChecker cannot see): iron-floor bounds, impact/quote
-        # bounds, V3 fail-closed guards, mulDiv-vs-exact.
-        #
-        # REPORT-ONLY (|| true) for now: Halmos over-approximates the 512-bit
-        # assembly mulDiv (mulmod — a known Halmos limitation), so it emits
-        # "potential" assertion paths the SMT solver cannot discharge. The
-        # target properties are hand-proven to hold (the iron floor's final
-        # clamp forces f>=8000 and the base-total branch only runs when
-        # total<base so f<=9600; outV3's early returns + sqrtNew<P guard bound
-        # the quote). Kept running and visible; will be flipped to a hard gate
-        # once the specs carry vm.assume caller-domain bounds and stop
-        # asserting through the assembly mulDiv. Same report-only convention as
-        # the deeper invariant/fuzz pass in the fast job.
+      - name: Symbolic PROOF — Core math hard gate (iron floor / impact / V3 fail-closed)
+        # test/formal/CoreFormalGateSpec.t.sol. Checks land in this contract
+        # only after a report-only CI run MEASURED them discharging cleanly
+        # (0.04–0.19s each, run 31532581231): iron-floor bounds unconditional
+        # (INV-1's arithmetic heart), impactV2Bps <= BPS, outV3 fail-closed on
+        # degenerate inputs. REAL gate — no `|| true`.
+        run: halmos --contract CoreFormalGateSpec -v
+
+      - name: Symbolic checks (Core 512-bit-mulDiv residue, report-only)
+        # test/formal/CoreFormalSpec.t.sol — the checks whose assertions route
+        # the solver through the 512-bit assembly mulDiv, which Halmos
+        # over-approximates (mulmod — known limitation): each TIMEOUTs at
+        # 60–189s instead of discharging (measured, same run). The target
+        # properties are hand-proven to hold (outV2's constant-product output
+        # is strictly below rOut; outV3's early returns + sqrtNew<P guard
+        # bound the quote; mulDiv-vs-exact matches by construction). Kept
+        # running and visible; a check moves to the hard gate above only after
+        # a report-only run proves it discharges. Same report-only convention
+        # as the deeper invariant/fuzz pass in the fast job.
         run: halmos --contract CoreFormalSpec -v || true
 
       - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
