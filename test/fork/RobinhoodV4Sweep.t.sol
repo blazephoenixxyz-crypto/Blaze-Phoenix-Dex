@@ -72,7 +72,7 @@ contract RobinhoodV4SweepTest is Test {
             try hub.claimV4(USDG, c.token, c.fee, c.tickSpacing) returns (bytes32) {
                 discovered++;
                 try quoter.previewPlan(USDG, c.token, 100e6) returns (
-                    BlazePhoenixQuoter.Preview memory pv, bytes memory, bytes memory
+                    BlazePhoenixQuoter.Preview memory pv, Route memory, bool
                 ) {
                     if (pv.grossOut > 0 && _hasV4Leg(pv.route)) routedViaV4++;
                 } catch {}
