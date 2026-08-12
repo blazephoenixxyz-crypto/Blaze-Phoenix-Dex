@@ -146,6 +146,8 @@ contract BlazePhoenixHub {
 
     // 1 = unauthorized, 2 = paused, 3 = zero address, 4 = bad input
     // 5 = unknown pool, 6 = max slots, 7 = bridge cap, 8 = hook denied
+    // 9 = V4 claim ineligible (no bridge anchor / not a live hookless pool /
+    //     unresolved dynamic fee)
 
     function _auth(bool ok) internal pure { if (!ok) revert HubE(1); }
     function _ne0 (address a) internal pure { if (a == address(0)) revert HubE(3); }
@@ -352,6 +354,64 @@ contract BlazePhoenixHub {
         address poolAddr = address(uint160(uint256(pid)));
         key = keyOf(poolAddr, s0, s1);
         _register(key, poolAddr, BPC.KIND_V4, fee, hooks, s0, s1, true);
+        emit V4Add($.v4Entries.length - 1, s0, s1, fee);
+    }
+
+    /// @notice Permissionless, on-chain-VERIFIED registration of a HOOKLESS V4
+    ///         pool. Unlike addV4 (operator-trusted), anyone may call this: the
+    ///         trust comes from the chain, not a role. Uniswap V4 has no
+    ///         factory/pair enumeration (a singleton PoolManager), so the only
+    ///         autonomous discovery shape is populate-once / read-forever — and
+    ///         the population is made safe by proving the pool on-chain rather
+    ///         than trusting the caller.
+    ///
+    ///         SAFE-GATE (quote == exec by construction):
+    ///           - hookless only (the poolId is derived with hooks == 0), so the
+    ///             vanilla V4 quote prices the pool exactly; delta-altering hooks
+    ///             cannot be admitted here — their hookless poolId does not exist
+    ///             and the existence proof below fails closed;
+    ///           - native-currency keys are rejected (_ne0 on both currencies);
+    ///           - a dynamic-fee pool is admitted only if its effective fee
+    ///             resolves from slot0 (INV-20), else it fails closed;
+    ///           - at least one side must be a protocol bridge anchor: anti-spam,
+    ///             and it guarantees the pool composes with the routing graph;
+    ///           - the pool must be initialized AND hold real liquidity in the
+    ///             configured PoolManager (proven by extsload, unforgeable —
+    ///             faking either costs capital).
+    ///
+    ///         Entries are provisional (trusted = false): a permissionlessly
+    ///         claimed pool must earn fitness and is weighted by MEASURED
+    ///         marginal output, so a thin or hostile venue self-weights toward
+    ///         zero (INV-16).
+    /// @return key The registry key. Idempotent: re-claiming a live pool returns
+    ///         the existing key without creating a duplicate entry.
+    function claimV4(address c0, address c1, uint24 fee, int24 tickSpacing)
+        external returns (bytes32 key)
+    {
+        _ne0(c0); _ne0(c1);                 // native currency (address(0)) rejected
+        if (c0 == c1) revert HubE(4);
+        HubStore storage $ = _store();
+        // Anchor gate: one side must be a trusted bridge.
+        if (!$.isBridge[c0] && !$.isBridge[c1]) revert HubE(9);
+        (address s0, address s1) = BPC.sortTokens(c0, c1);
+        // HOOKLESS ONLY — the poolId is derived with hooks == address(0).
+        bytes32 pid = BPC.computeV4PoolId(s0, s1, fee, tickSpacing, address(0));
+        // On-chain existence + liquidity proof (unforgeable).
+        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) =
+            BPC.v4SqrtAndLiq($.v4PoolManager, pid);
+        if (sp == 0 || liq == 0) revert HubE(9);
+        // Dynamic fee must resolve to a quotable value (INV-20), else fail closed.
+        if (BPC.effV4Fee(fee, lpF, pF) >= 1_000_000) revert HubE(9);
+        address poolAddr = address(uint160(uint256(pid)));
+        key = keyOf(poolAddr, s0, s1);
+        // Idempotent: a live re-claim must not push a duplicate V4Entry nor
+        // re-register (which would thrash the fitness-ranked eviction).
+        if ($.poolOf[key] != address(0)) return key;
+        $.v4Entries.push(V4Entry({
+            currency0: s0, currency1: s1, fee: fee,
+            tickSpacing: tickSpacing, hooks: address(0)
+        }));
+        _register(key, poolAddr, BPC.KIND_V4, fee, address(0), s0, s1, false);
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
 
