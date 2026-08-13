@@ -174,6 +174,21 @@ jobs:
         # degenerate inputs. REAL gate — no `|| true`.
         run: halmos --contract CoreFormalGateSpec -v
 
+      - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
+        # test/formal/EffV4FeeFormalSpec.t.sol. Pure comparison logic, no 512-bit
+        # mulDiv over-approximation — Halmos discharges it cleanly, so this is a
+        # REAL gate (no `|| true`): the dynamic-fee sentinel can never survive as
+        # a usable fee and a non-zero protocolFee always fails closed to >=1e6.
+        # Keyless: this is the free-prover equivalent of the Certora scaffold.
+        #
+        # MOVED AHEAD of the report-only step, and the reason matters: the
+        # report-only checks below TIMEOUT at 60-189s each, which consumed the
+        # job's 30-minute budget and got the runner shut down mid-step. `|| true`
+        # guards against a non-zero exit, not against exhausting the clock — so
+        # this proof was never reaching the runner at all. We believed we had two
+        # hard gates and were running one.
+        run: halmos --contract EffV4FeeFormalSpec -v
+
       - name: Symbolic checks (Core 512-bit-mulDiv residue, report-only)
         # test/formal/CoreFormalSpec.t.sol — the checks whose assertions route
         # the solver through the 512-bit assembly mulDiv, which Halmos
@@ -185,15 +200,14 @@ jobs:
         # running and visible; a check moves to the hard gate above only after
         # a report-only run proves it discharges. Same report-only convention
         # as the deeper invariant/fuzz pass in the fast job.
+        # Bounded, and running last, so it can never again starve the proofs
+        # above. `|| true` stops a failing exit code; it does nothing about a
+        # runaway clock, and the clock was the problem — these checks are
+        # EXPECTED to time out, so the step must be allowed to end without
+        # taking the job with it.
+        timeout-minutes: 8
+        continue-on-error: true
         run: halmos --contract CoreFormalSpec -v || true
-
-      - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
-        # test/formal/EffV4FeeFormalSpec.t.sol. Pure comparison logic, no 512-bit
-        # mulDiv over-approximation — Halmos discharges it cleanly, so this is a
-        # REAL gate (no `|| true`): the dynamic-fee sentinel can never survive as
-        # a usable fee and a non-zero protocolFee always fails closed to >=1e6.
-        # Keyless: this is the free-prover equivalent of the Certora scaffold.
-        run: halmos --contract EffV4FeeFormalSpec -v
 
   gas-metrics:
     name: gas metrics (offline ledger)
