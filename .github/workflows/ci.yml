@@ -205,9 +205,12 @@ jobs:
         # runaway clock, and the clock was the problem — these checks are
         # EXPECTED to time out, so the step must be allowed to end without
         # taking the job with it.
-        timeout-minutes: 8
-        continue-on-error: true
-        run: halmos --contract CoreFormalSpec -v || true
+        # Bound the PROCESS, not the step. `timeout-minutes:` here marked the
+        # step `cancelled`, and GitHub propagates a cancellation to the job even
+        # under continue-on-error — so the gates passed and the run went red
+        # anyway. Wrapping the command means it exits 124 on the clock, `|| true`
+        # swallows that, and the step finishes green like any other report.
+        run: timeout 480 halmos --contract CoreFormalSpec -v || true
 
   gas-metrics:
     name: gas metrics (offline ledger)
