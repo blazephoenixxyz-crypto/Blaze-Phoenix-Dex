@@ -133,6 +133,28 @@ library BlazePhoenixCore {
     uint8   internal constant KIND_SOLIDLY     = 5;
     uint8   internal constant KIND_ALGEBRA     = 6;
     uint8   internal constant KIND_CURVE_CRYPTO = 7;
+    /// @notice A V4 pool one of whose currencies is NATIVE (address(0)).
+    /// @dev    A separate kind rather than a runtime `currency == address(0)`
+    ///         test, and the distinction is the whole point: native settlement
+    ///         is the ONE place where the router's "every asset is an ERC-20
+    ///         with balanceOf" invariant does not hold. Encoding that as a kind
+    ///         makes the exception a TYPE — visible in the pool record, carried
+    ///         in the route plan, greppable by an auditor — instead of a
+    ///         condition rediscovered at each call site. Every other kind keeps
+    ///         the invariant unconditionally.
+    ///
+    ///         The quote math needs no branch: it sorts the two currencies and
+    ///         derives the pool id, and address(0) sorts first by construction.
+    ///
+    ///         Measured 2026-08-13 across the chains served: 62.9% of the
+    ///         ETH-denominated liquidity inside V4 sits in native pools
+    ///         (Arbitrum 99.6%, Optimism 95.0%, Base 48.9%). Wrapping at the
+    ///         edge made all of it unreachable.
+    ///
+    ///         address(0) is also the only token identifier that is genuinely
+    ///         chain-agnostic — it is the same on every EVM chain, so a native
+    ///         route depends on no per-chain configuration at all.
+    uint8   internal constant KIND_V4_NATIVE   = 8;
 
     // ─── Output-floor constants ────────────────────────────────────────
     // The floor starts tight (96%) for clean, low-impact, single-leg swaps and
@@ -880,7 +902,13 @@ library BlazePhoenixCore {
             depthWad = 0;
             return (out, depthWad);
         }
-        if (k == KIND_V4) {
+        if (k == KIND_V4 || k == KIND_V4_NATIVE) {
+            // Both V4 kinds quote identically and deliberately share this branch:
+            // the pool id is derived from the two sorted currencies, and a native
+            // currency is just address(0), which sorts first. Nothing in the
+            // pricing depends on whether a currency is native — only settlement
+            // does, and settlement lives in the Router.
+            //
             // V4 quote: extsload state read + V3 concentrated-liquidity formula.
             // Current-tick approximation (no tick-crossing, ignores hooks).
             // Hook seam (INV-20): a dynamic-fee pool's hook can override the
