@@ -73,6 +73,22 @@ A report must be previously unknown to us and must demonstrate impact, not merel
 describe a theoretical concern. Duplicates are settled by timestamp of the first
 report received.
 
+## Safe harbour
+
+Research conducted in good faith under this policy is **authorised**, and we will
+not pursue or support legal action against you for it. If a third party brings an
+action against you for research that complied with this policy, we will make that
+authorisation known publicly and in writing.
+
+Good faith means, concretely: you work only against the contracts named in Scope;
+you do not destroy data, degrade service for others, or access funds or
+information beyond the minimum needed to demonstrate the issue; you stop at proof
+of concept rather than extracting value; and you report promptly and give us a
+reasonable window before disclosing publicly.
+
+If you are unsure whether something is in bounds, ask first at the address below.
+A question costs you nothing and we would rather answer it than have you guess.
+
 ## Recognition
 
 Valid, previously-unknown findings are credited in our Security Hall of Fame
