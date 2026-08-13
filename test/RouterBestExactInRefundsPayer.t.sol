@@ -118,15 +118,18 @@ contract RouterBestExactInRefundsPayerTest is Test {
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), ORDER);
         Route memory route = plan.best;
 
+        // Both measurements must meet the SAME market. Re-seeding the pool does
+        // not restore it — it registers a SECOND one, and the Solver then has
+        // more depth to commit against, so the second pass spends more for a
+        // reason the test invented rather than one the entry point caused.
+        uint256 snap = vm.snapshotState();
+
         uint256 before1 = tokenA.balanceOf(user);
         vm.prank(user);
         router.swapExactIn(route, ORDER, 1, user, block.timestamp + 1);
         uint256 spentDirect = before1 - tokenA.balanceOf(user);
 
-        // Re-fund the user and rebuild the pool so the second leg of the
-        // comparison meets the same state, not the depleted remains of the first.
-        tokenA.mint(user, ORDER);
-        _seedThinV3();
+        vm.revertToState(snap);
 
         uint256 before2 = tokenA.balanceOf(user);
         vm.prank(user);
