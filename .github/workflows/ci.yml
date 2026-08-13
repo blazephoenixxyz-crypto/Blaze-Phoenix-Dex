@@ -56,7 +56,23 @@ jobs:
         # via ${DRPC_KEY}; never hard-coded.
         env:
           DRPC_KEY: ${{ secrets.DRPC_KEY }}
-        run: forge test -vvv --match-path "test/fork/**" --match-contract "RpcProbeTest|BaseForkTest|BaseTop100Test|EthereumCurveForkTest|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest"
+        # Retried, because the observed failures are third-party RPC timeouts
+        # ("operation timed out" from lb.drpc.live), not verdicts about our code
+        # — the same commit passed and failed on consecutive runs. Retrying
+        # collapses failures that are independent between attempts; it does
+        # nothing for a real one, which fails all three deterministically. So
+        # this cuts the false-red rate without weakening the signal at all.
+        run: |
+          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|EthereumCurveForkTest|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest"
+          for attempt in 1 2 3; do
+            if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC"; then
+              exit 0
+            fi
+            echo "::warning::fork attempt $attempt failed — retrying in 20s (dRPC timeouts are the usual cause)"
+            sleep 20
+          done
+          echo "::error::fork tests failed three consecutive attempts — treat this as real, not as a flake"
+          exit 1
 
   size-guard:
     name: EIP-170 size guard (release profile)
@@ -189,28 +205,16 @@ jobs:
         # hard gates and were running one.
         run: halmos --contract EffV4FeeFormalSpec -v
 
-      - name: Symbolic checks (Core 512-bit-mulDiv residue, report-only)
-        # test/formal/CoreFormalSpec.t.sol — the checks whose assertions route
-        # the solver through the 512-bit assembly mulDiv, which Halmos
-        # over-approximates (mulmod — known limitation): each TIMEOUTs at
-        # 60–189s instead of discharging (measured, same run). The target
-        # properties are hand-proven to hold (outV2's constant-product output
-        # is strictly below rOut; outV3's early returns + sqrtNew<P guard
-        # bound the quote; mulDiv-vs-exact matches by construction). Kept
-        # running and visible; a check moves to the hard gate above only after
-        # a report-only run proves it discharges. Same report-only convention
-        # as the deeper invariant/fuzz pass in the fast job.
-        # Bounded, and running last, so it can never again starve the proofs
-        # above. `|| true` stops a failing exit code; it does nothing about a
-        # runaway clock, and the clock was the problem — these checks are
-        # EXPECTED to time out, so the step must be allowed to end without
-        # taking the job with it.
-        # Bound the PROCESS, not the step. `timeout-minutes:` here marked the
-        # step `cancelled`, and GitHub propagates a cancellation to the job even
-        # under continue-on-error — so the gates passed and the run went red
-        # anyway. Wrapping the command means it exits 124 on the clock, `|| true`
-        # swallows that, and the step finishes green like any other report.
-        run: timeout 480 halmos --contract CoreFormalSpec -v || true
+      # The report-only 512-bit-mulDiv checks used to run here and no longer do.
+      # They cannot decide — each TIMEOUTs by design — so their expected
+      # contribution to a merge decision is exactly zero, while their variance
+      # was enough to take this job down with them. A term with no expectation
+      # and real variance can only add noise to an estimator, so it does not
+      # belong in the one job whose verdict blocks a merge.
+      #
+      # They still run, on their own schedule, in formal-explore.yml — which
+      # keeps the repo's own convention intact: a check is promoted to a hard
+      # gate above only after a report-only run proves it discharges.
 
   gas-metrics:
     name: gas metrics (offline ledger)
