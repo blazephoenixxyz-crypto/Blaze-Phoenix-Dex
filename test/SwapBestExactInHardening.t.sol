@@ -189,7 +189,10 @@ contract SwapBestExactInHardeningTest is Test {
         Route memory crafted;
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 1));
         vm.prank(user);
-        router.selfExecutePrePulled(crafted, 1e18, 1, user, block.timestamp + 1);
+        // The final argument is the payer the caller *claims* funded the swap.
+        // Naming yourself is worth nothing here: the self-only check fires on
+        // msg.sender before payer is ever read.
+        router.selfExecutePrePulled(crafted, 1e18, 1, user, block.timestamp + 1, user);
     }
 
     // ─── 4. quote ↔ execution parity (the core promise, fuzzed) ──────────────
