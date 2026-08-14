@@ -168,7 +168,7 @@ contract SwapBestExactInHardeningTest is Test {
             address(router),
             abi.encodeCall(
                 router.selfExecutePrePulled,
-                (crafted, 1e18, 1, address(0xBAD), block.timestamp + 1))
+                (crafted, 1e18, 1, address(0xBAD), block.timestamp + 1, address(0xBAD)))
         );
 
         vm.prank(user);
@@ -189,7 +189,7 @@ contract SwapBestExactInHardeningTest is Test {
         Route memory crafted;
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 1));
         vm.prank(user);
-        router.selfExecutePrePulled(crafted, 1e18, 1, user, block.timestamp + 1);
+        router.selfExecutePrePulled(crafted, 1e18, 1, user, block.timestamp + 1, user);
     }
 
     // ─── 4. quote ↔ execution parity (the core promise, fuzzed) ──────────────

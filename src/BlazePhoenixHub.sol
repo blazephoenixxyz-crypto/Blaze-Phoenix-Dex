@@ -867,7 +867,8 @@ contract BlazePhoenixHub {
                 // A V4 pool whose hook is paused (code changed since admission,
                 // or de-listed) stays in the registry (read-only) but is not a
                 // routable candidate — resumes automatically once re-admitted.
-                if (pi.kind != BPC.KIND_V4 || pi.hooks == address(0) || isHookLive(pi.hooks)) {
+                if ((pi.kind != BPC.KIND_V4 && pi.kind != BPC.KIND_V4_NATIVE)
+                    || pi.hooks == address(0) || isHookLive(pi.hooks)) {
                     out[w] = pi;
                     unchecked { ++w; }
                 }
@@ -894,13 +895,34 @@ contract BlazePhoenixHub {
         // it is part of the poolId the quote recomputes — so recover it from
         // the matching V4Entry.
         p.tickSpacing = 0;
-        if (p.kind == BPC.KIND_V4) {
+        if (p.kind == BPC.KIND_V4 || p.kind == BPC.KIND_V4_NATIVE) {
             uint256 vn = $.v4Entries.length;
             for (uint256 vi; vi < vn; ) {
                 V4Entry storage e = $.v4Entries[vi];
-                if (e.currency0 == t0 && e.currency1 == t1 && e.fee == p.fee && e.hooks == p.hooks) {
-                    p.tickSpacing = e.tickSpacing;
-                    break;
+                if (p.kind == BPC.KIND_V4) {
+                    if (e.currency0 == t0 && e.currency1 == t1 && e.fee == p.fee && e.hooks == p.hooks) {
+                        p.tickSpacing = e.tickSpacing;
+                        break;
+                    }
+                } else if (e.currency0 == address(0) && e.fee == p.fee && e.hooks == p.hooks
+                    && (e.currency1 == t0 || e.currency1 == t1)) {
+                    // Native entry (currency0 = address(0), currency1 = the
+                    // ERC20 counterpart). Verify by the unforgeable truncated-
+                    // poolId match — a same-fee native entry of another pair
+                    // can then never mis-resolve this one — and ORIENT the
+                    // WETH-canonical pair: token0 = the wrapped-native side,
+                    // token1 = the counterpart. This orientation is the
+                    // contract the Solver's zeroForOne / auxId / quote-ctx
+                    // construction relies on (token0 == tIn ⇔ input is the
+                    // pool's currency0).
+                    if (address(uint160(uint256(BPC.computeV4PoolId(
+                            address(0), e.currency1, p.fee, e.tickSpacing, p.hooks
+                        )))) == p.pool) {
+                        p.tickSpacing = e.tickSpacing;
+                        p.token0 = e.currency1 == t0 ? t1 : t0;
+                        p.token1 = e.currency1;
+                        break;
+                    }
                 }
                 unchecked { ++vi; }
             }
@@ -914,7 +936,8 @@ contract BlazePhoenixHub {
         uint256 s = $.slot[key];
         if (s == 0) return 0;
         uint8 kind = BPC.decodeKind(s);
-        bool conc  = (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA || kind == BPC.KIND_V4);
+        bool conc  = (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
+            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE);
         return BPC.psi(s, uint32(block.timestamp), _isBridged(s), conc);
     }
 
@@ -1004,9 +1027,10 @@ contract BlazePhoenixHub {
         // CURVE_CRYPTO(7) address their assets through coins(uint256), never
         // token0/token1, so verifying them would reject every legitimate
         // Curve venue; V4(4)'s `pool` is a truncated poolId with no bytecode
-        // and proves itself below. kind >= 8 shifts the mask to 0 — a future
-        // kind stays unverified (today's behaviour) instead of becoming
-        // silently unregistrable.
+        // and proves itself below, as does V4_NATIVE(8) with its native-pair
+        // poolId. kind > 8 shifts the mask to 0 — a future kind stays
+        // unverified (today's behaviour) instead of becoming silently
+        // unregistrable.
         // Cost: at most two staticcalls (short-circuited to one on the first
         // mismatch), on the COLD first-registration path ONLY — the hot path
         // returned at the tick above and pays nothing.
@@ -1033,6 +1057,36 @@ contract BlazePhoenixHub {
                 tickSpacing: v4Ts, hooks: address(0)
             }));
             _writeV4Code(t0, t1, fee, v4Ts);
+        }
+        if (kind == BPC.KIND_V4_NATIVE) {
+            // Native V4 pool routed under its WETH-canonical pair (tA/tB are
+            // the Router's hop tokens — routes speak WETH). Authenticity: the
+            // truncated NATIVE poolId, derived from (address(0), T), must
+            // match `pool`. recordSwap does not carry which side is the
+            // wrapped-native one, so try both orientations — the 160-bit
+            // truncation match is unforgeable, and the orientation that
+            // matches identifies the ERC20 counterpart T. Reuses the exact
+            // _recoverV4Ts ladder with the native pair (its steps are
+            // pair-parametric; passing address(0) as one side derives native
+            // poolIds throughout, and the entries backstop matches native
+            // entries by currency0 == address(0)). Hookless-only by
+            // construction, like V4. Unrecoverable => skip registration,
+            // never revert (same doctrine as the V4 branch above). The entry
+            // stores the REAL pool currencies; _readPoolInfo re-orients the
+            // pair to WETH-canonical form for the Solver from it.
+            address ncp = t1;
+            (int24 nTs, bool okN) = _recoverV4Ts(pool, address(0), t1, fee);
+            if (!okN) { ncp = t0; (nTs, okN) = _recoverV4Ts(pool, address(0), t0, fee); }
+            if (!okN) return;
+            $.v4Entries.push(V4Entry({
+                currency0: address(0), currency1: ncp, fee: fee,
+                tickSpacing: nTs, hooks: address(0)
+            }));
+            // Learn the tier on the ERC20 side only (passed twice: the second
+            // write self-skips as unchanged) — a v4CodeOf[address(0)] entry
+            // would be dead storage no scan ever reads (_scanV4 rejects
+            // native-side pairs), costing a 20k SSTORE on a user's swap.
+            _writeV4Code(ncp, ncp, fee, nTs);
         }
         _register(key, pool, kind, fee, hooks, t0, t1, false);
         // initial tick + stamp wall-clock activity time
@@ -1077,7 +1131,8 @@ contract BlazePhoenixHub {
     function _psiOfSlot(uint256 s) private view returns (uint256) {
         if (s == 0) return 0;
         uint8 kind = BPC.decodeKind(s);
-        bool conc = (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA || kind == BPC.KIND_V4);
+        bool conc = (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
+            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE);
         return BPC.psi(s, uint32(block.timestamp), _isBridged(s), conc);
     }
 

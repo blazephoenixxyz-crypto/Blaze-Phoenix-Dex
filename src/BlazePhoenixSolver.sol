@@ -527,7 +527,7 @@ contract BlazePhoenixSolver {
                 stable:      cands[i].stable,
                 amountIn:    share,
                 expectedOut: outL,
-                auxId:       (cands[i].kind == BPC.KIND_STABLE || cands[i].kind == BPC.KIND_CURVE_CRYPTO || cands[i].kind == BPC.KIND_V4)
+                auxId:       (cands[i].kind == BPC.KIND_STABLE || cands[i].kind == BPC.KIND_CURVE_CRYPTO || cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
                     ? bytes32(uint256(uint160(cands[i].token0 == tIn ? cands[i].token1 : cands[i].token0)))
                     : bytes32(0)
             });
@@ -608,7 +608,8 @@ contract BlazePhoenixSolver {
     ///      pair reserves (V2 / Solidly / Balancer), pool-quoted output
     ///      (Curve stable / crypto).
     function _famOf(uint8 kind) private pure returns (uint256) {
-        if (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA || kind == BPC.KIND_V4) return 0;
+        if (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
+            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE) return 0;
         if (kind == BPC.KIND_STABLE || kind == BPC.KIND_CURVE_CRYPTO) return 2;
         return 1;
     }
@@ -701,7 +702,7 @@ contract BlazePhoenixSolver {
             fee: cand.fee, tickSpacing: cand.tickSpacing,
             zeroForOne: cand.token0 == tIn, stable: cand.stable,
             amountIn: legIn, expectedOut: out_,
-            auxId: (cand.kind == BPC.KIND_STABLE || cand.kind == BPC.KIND_CURVE_CRYPTO || cand.kind == BPC.KIND_V4)
+            auxId: (cand.kind == BPC.KIND_STABLE || cand.kind == BPC.KIND_CURVE_CRYPTO || cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
                 ? bytes32(uint256(uint160(cand.token0 == tIn ? cand.token1 : cand.token0)))
                 : bytes32(0)
         });
@@ -719,17 +720,32 @@ contract BlazePhoenixSolver {
     function _quoteWithDepth(PoolInfo memory cand, address tIn, uint256 amt)
         private view returns (uint256 out, uint256 depth)
     {
+        bool zfo = cand.token0 == tIn;
+        address qIn = tIn;
+        address other = zfo ? cand.token1 : cand.token0;
+        if (cand.kind == BPC.KIND_V4_NATIVE) {
+            // Native V4: PoolInfo carries the pair in WETH-canonical form
+            // with token0 = the wrapped-native side (the registry's
+            // orientation contract — see Hub._readPoolInfo). The pool's REAL
+            // currency0 is address(0): substitute it on whichever side is
+            // token0 before the quote sorts the pair, so universalQuote
+            // derives the native poolId (address(0) sorts first by
+            // construction). zeroForOne needs no branch: token0 == tIn
+            // already means "input is currency0" under this orientation.
+            if (zfo) qIn = address(0); else other = address(0);
+        }
         QuoteCtx memory c = QuoteCtx({
             kind:        cand.kind,
             pool:        cand.pool,
-            zeroForOne:  cand.token0 == tIn,
+            zeroForOne:  zfo,
             fee:         cand.fee,
             tickSpacing: cand.tickSpacing,
             stable:      cand.stable,
-            tokenIn:     tIn,
-            tokenOther:  cand.token0 == tIn ? cand.token1 : cand.token0,
+            tokenIn:     qIn,
+            tokenOther:  other,
             hooks:       cand.hooks,
-            v4Manager:   cand.kind == BPC.KIND_V4 ? hub.v4PoolManager() : address(0)
+            v4Manager:   (cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
+                ? hub.v4PoolManager() : address(0)
         });
         (out, depth) = BPC.universalQuote(c, amt);
     }
@@ -962,7 +978,11 @@ contract BlazePhoenixSolver {
             uint256 base = 90_000;
             if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) base = 110_000;
             else if (k == BPC.KIND_STABLE || k == BPC.KIND_CURVE_CRYPTO) base = 140_000;
+            // Native V4 pays the same unlock plus the JIT unwrap/wrap
+            // (~35k estimated for WETH withdraw+deposit on warm slots;
+            // re-measure at the testnet rehearsal).
             else if (k == BPC.KIND_V4) base = 180_000;
+            else if (k == BPC.KIND_V4_NATIVE) base = 215_000;
             g += base;
             unchecked { ++i; }
         }
