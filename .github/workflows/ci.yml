@@ -25,6 +25,21 @@ jobs:
       - name: Show versions
         run: forge --version
 
+      - name: Yul evaluation-order guard
+        # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
+        # `and(staticcall(...), eq(returndatasize(), 32))` tests the size left
+        # by the PREVIOUS external call, not by this one. That shipped once
+        # (Core._curveCryptoGetDy) and cost us a silently inert protocol floor;
+        # the fix is the ok-variable idiom the rest of the codebase already
+        # uses. A comment asking people not to "simplify" it back is a plea —
+        # this is the rule. Costs ~2s and no compiler. The comment filter is
+        # required: the warning comment itself contains the literal pattern.
+        run: |
+          if grep -rnE 'and\((staticcall|call|delegatecall|callcode)\(' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Yul builtin arguments evaluate right-to-left: capture the call result in a variable first, then test returndatasize()."
+            exit 1
+          fi
+
       - name: Build
         run: forge build
 
@@ -35,7 +50,12 @@ jobs:
         # separately with an RPC secret. This keeps the fast run hermetic.
         run: forge test -vvv --no-match-path "test/fork/**"
 
-      - name: Deeper invariant/fuzz pass
+      - name: Deeper invariant/fuzz pass (REPORT-ONLY — never gates)
+        # `|| true` is deliberate: this deep campaign is a search, not a bound,
+        # and its variance would make the gating job flaky. Labelled so nobody
+        # reads a green tick here as a proof — the gate is the hermetic run
+        # above plus the Halmos specs. If one of these ever starts discharging
+        # deterministically, promote it into the gate and drop the `|| true`.
         run: forge test --match-path "test/*Invariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
 
   fork-tests:
