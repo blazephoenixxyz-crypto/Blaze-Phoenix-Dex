@@ -991,6 +991,30 @@ contract BlazePhoenixHub {
         }
         // unknown — attempt insert
         if (!_canInsert($.pairKeys[t0][t1], depthWad)) return;
+        // Pair-shaped kinds: PROVE the pool really trades (t0, t1) before it
+        // enters the registry. Every argument here is caller-controlled
+        // calldata carried in the Router's Route — pool, kind AND depth — so
+        // without this an attacker registers a contract they wrote under a
+        // pair they picked, at a depth they picked, holding neither token.
+        // This mirrors the authenticity proof the V4 branch below already has
+        // (poolId recomputation); no other kind had one.
+        // The mask is the Router's own "the pool field is a pair" taxonomy
+        // (_legTokenOut): bits V2(0), V3(1), BALANCER_V2(3), SOLIDLY(5),
+        // ALGEBRA(6) => 0x6b. Cleared deliberately: STABLE(2) and
+        // CURVE_CRYPTO(7) address their assets through coins(uint256), never
+        // token0/token1, so verifying them would reject every legitimate
+        // Curve venue; V4(4)'s `pool` is a truncated poolId with no bytecode
+        // and proves itself below. kind >= 8 shifts the mask to 0 — a future
+        // kind stays unverified (today's behaviour) instead of becoming
+        // silently unregistrable.
+        // Cost: at most two staticcalls (short-circuited to one on the first
+        // mismatch), on the COLD first-registration path ONLY — the hot path
+        // returned at the tick above and pays nothing.
+        // Mismatch => skip registration, NEVER revert: the user's swap has
+        // already executed and must not fail over a registry decision — the
+        // same fail-without-registering the V4 !okTs case takes.
+        if (((uint256(0x6b) >> kind) & 1) != 0
+            && (BPC.token0Of(pool) != t0 || BPC.token1Of(pool) != t1)) return;
         if (kind == BPC.KIND_V4) {
             // A V4 pool reaching FIRST registration here was found by the
             // derive-scan (a view — it could not persist anything). The
