@@ -580,6 +580,25 @@ contract BlazePhoenixRouter {
         // Every unit pulled for this swap MUST be consumed by the legs; the
         // holds-nothing check after the hop loop enforces it.
         uint256 tinStart = BPC.balanceOf(tokenIn, address(this));
+        // Output-token baseline — the exact mirror of tinStart/baseIn, and for
+        // the same reason: the post-hop measurement must be a DELTA, never a
+        // raw balance. Any tokenOut the Router already holds is mis-sent or
+        // airdropped money that the 48h timelocked rescue (queueRescue /
+        // executeRescue) exists to return to its owner; measured as a raw
+        // balance it is handed to the first swapper as fee-exempt surplus, so
+        // no rescue could ever be executed on a token anyone routes through.
+        // The delta also restores the RouterE(8) zero-output check, which a
+        // stray balance would satisfy for a swap that produced nothing.
+        // Degenerate tokenIn == tokenOut: the entry balance ALREADY contains
+        // this swap's amountIn, so the baseline is the same pre-existing
+        // remainder the input sweep uses (tinStart - amountIn) — taking the
+        // raw balance here would count amountIn on both sides and underflow
+        // the delta whenever output < input. That case also skips the tokenIn
+        // sweep below, so the remainder is subtracted exactly once; and
+        // reusing tinStart avoids a second staticcall for the same token.
+        uint256 toutStart = tokenIn == tokenOut
+            ? (tinStart > amountIn ? tinStart - amountIn : 0)
+            : BPC.balanceOf(tokenOut, address(this));
         uint256 totalLegs;
         // Floor re-derivation: sum of per-leg real impact (BPS), averaged later.
         uint256 impactAcc;
@@ -684,8 +703,14 @@ contract BlazePhoenixRouter {
             unchecked { ++h; }
         }
 
-        // Measure final balance.
-        uint256 totalReceived = BPC.balanceOf(tokenOut, address(this));
+        // Measure what THIS swap produced: the balance DELTA against the entry
+        // baseline (see toutStart), so the pre-existing balance stays in the
+        // Router for the rescue path instead of being paid out below. Checked
+        // arithmetic is the guard of last resort: a route that spent part of
+        // that baseline (an intermediate hop whose tokenIn is tokenOut) leaves
+        // the balance under the baseline and reverts here — the safe outcome,
+        // since those funds were never this swap's to spend.
+        uint256 totalReceived = BPC.balanceOf(tokenOut, address(this)) - toutStart;
         if (totalReceived == 0) revert RouterE(8);
         amountOut = totalReceived;
 

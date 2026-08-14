@@ -1033,6 +1033,15 @@ library BlazePhoenixCore {
         }
     }
 
+    /// @dev Both guards capture the staticcall result in `ok` FIRST and only
+    ///      then test returndatasize(). Do NOT "simplify" this back into a
+    ///      single `and(staticcall(...), eq(returndatasize(), 32))`: Yul
+    ///      evaluates the arguments of a builtin RIGHT TO LEFT, so the
+    ///      returndatasize() term would run BEFORE the staticcall and report
+    ///      the size left by the PREVIOUS external call. That breaks the guard
+    ///      both ways — a valid quote gets discarded (outAmt stays 0, so the
+    ///      protocol floor goes inert for that swap), or a short/oversized
+    ///      return passes the check and mload(m) reads stale buffer garbage.
     function _curveCryptoGetDy(address pool, bool zfo, uint256 dx)
         internal view returns (uint256 outAmt)
     {
@@ -1042,7 +1051,8 @@ library BlazePhoenixCore {
             let m := mload(0x40)
             mstore(m, 0x556d6e9f00000000000000000000000000000000000000000000000000000000)
             mstore(add(m, 4), i) mstore(add(m, 36), j) mstore(add(m, 68), dx)
-            if and(staticcall(GAS_CAP, pool, m, 100, m, 32), eq(returndatasize(), 32)) {
+            let ok := staticcall(GAS_CAP, pool, m, 100, m, 32)
+            if and(ok, eq(returndatasize(), 32)) {
                 outAmt := mload(m)
             }
         }
@@ -1051,7 +1061,8 @@ library BlazePhoenixCore {
                 let m := mload(0x40)
                 mstore(m, 0x5e0d443f00000000000000000000000000000000000000000000000000000000)
                 mstore(add(m, 4), i) mstore(add(m, 36), j) mstore(add(m, 68), dx)
-                if and(staticcall(GAS_CAP, pool, m, 100, m, 32), eq(returndatasize(), 32)) {
+                let ok := staticcall(GAS_CAP, pool, m, 100, m, 32)
+                if and(ok, eq(returndatasize(), 32)) {
                     outAmt := mload(m)
                 }
             }
