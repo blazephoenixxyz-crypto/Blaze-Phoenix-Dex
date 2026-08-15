@@ -467,6 +467,13 @@ contract BlazePhoenixHub {
         // Idempotent: a live re-claim must not push a duplicate V4Entry nor
         // re-register (which would thrash the fitness-ranked eviction).
         if ($.poolOf[key] != address(0)) return key;
+        // A4: a permissionless claim must clear the SAME admission margin a
+        // swap-driven registration does (recordSwap -> _canInsert). _register
+        // evicts the weakest incumbent UNCONDITIONALLY, so on a FULL pair a dust
+        // claim would displace a healthy pool with no 25% margin. depth = the
+        // pool's MEASURED liquidity (liq), the exact signal _recordHits feeds
+        // recordSwap for a V4 leg — unforgeable without real capital (INV-16).
+        if (!_canInsert($.pairKeys[s0][s1], uint256(liq))) return key;
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
             tickSpacing: tickSpacing, hooks: address(0)
