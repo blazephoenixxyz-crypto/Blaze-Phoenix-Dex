@@ -6,6 +6,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract BlazePhoenixHubTest is Test {
     BlazePhoenixHub hub;
@@ -229,32 +230,42 @@ contract BlazePhoenixHubTest is Test {
     }
 
     function test_RecordSwap_NewPoolRegistersThenTicksOnNextCall() public {
-        hub.recordSwap(address(0x7777), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
-        bytes32 key = hub.keyOf(address(0x7777), tokenA, tokenB);
+        // A real pair mock is required since fa6c847: recordSwap gates first
+        // registration on token0()/token1() matching the pair (a codeless bare
+        // address returns address(0) and is silently skipped, by design).
+        address pool = address(new MockV2Pair(tokenA, tokenB));
+        hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+        bytes32 key = hub.keyOf(pool, tokenA, tokenB);
         assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1);
 
-        hub.recordSwap(address(0x7777), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+        hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 2, "second call must tick the SAME slot");
         assertEq(hub.getActivePools(tokenA, tokenB).length, 1);
     }
 
     function test_RecordSwap_EvictsWeakestWhenFullAndNewcomerClearsMargin() public {
-        // Fill all 16 slots with equal, shallow depth.
+        // Fill all 16 slots with equal, shallow depth. Each pool is a distinct
+        // MockV2Pair (distinct address => distinct registry key) that passes the
+        // token0()/token1() authenticity gate. The first-inserted ranks weakest
+        // (equal psi ties resolve to the lowest index in _register's strict `<`).
+        address[] memory pools = new address[](16);
         for (uint256 i; i < 16; ++i) {
-            hub.recordSwap(address(uint160(1000 + i)), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+            pools[i] = address(new MockV2Pair(tokenA, tokenB));
+            hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         }
         assertEq(hub.getActivePools(tokenA, tokenB).length, 16);
 
-        // A vastly deeper newcomer (1000x) clears the 25% margin and must evict slot 0.
-        hub.recordSwap(address(0x9999), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e21);
+        // A vastly deeper newcomer (1000x) clears the 25% margin and must evict the weakest.
+        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e21);
 
         PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);
         assertEq(active.length, 16, "count stays capped at MAX_SLOTS");
         bool sawEvictedPool;
         bool sawNewcomer;
         for (uint256 i; i < active.length; ++i) {
-            if (active[i].pool == address(uint160(1000))) sawEvictedPool = true;
-            if (active[i].pool == address(0x9999)) sawNewcomer = true;
+            if (active[i].pool == pools[0]) sawEvictedPool = true;
+            if (active[i].pool == newcomer) sawNewcomer = true;
         }
         assertFalse(sawEvictedPool, "weakest incumbent must be evicted");
         assertTrue(sawNewcomer, "deep newcomer must be admitted");
@@ -262,14 +273,16 @@ contract BlazePhoenixHubTest is Test {
 
     function test_RecordSwap_RejectsInsertWhenMarginNotCleared() public {
         for (uint256 i; i < 16; ++i) {
-            hub.recordSwap(address(uint160(2000 + i)), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+            hub.recordSwap(address(new MockV2Pair(tokenA, tokenB)), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         }
+        assertEq(hub.getActivePools(tokenA, tokenB).length, 16);
         // Same depth as incumbents -> fails the strict 25% margin -> rejected.
-        hub.recordSwap(address(0x9999), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
 
         PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);
         for (uint256 i; i < active.length; ++i) {
-            assertTrue(active[i].pool != address(0x9999), "newcomer must be rejected without clearing the margin");
+            assertTrue(active[i].pool != newcomer, "newcomer must be rejected without clearing the margin");
         }
     }
 

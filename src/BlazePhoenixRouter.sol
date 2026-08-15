@@ -63,6 +63,7 @@ interface IPermit2 {
 
 interface IWETH {
     function deposit() external payable;
+    function withdraw(uint256) external;
 }
 
 interface IUniswapV2Pair {
@@ -118,6 +119,15 @@ contract BlazePhoenixRouter {
     ///         rather than left looser than the aggregate.
     uint16  internal constant LEG_FLOOR_BPS     = 8_000;
 
+    /// @notice A1/MP-1: minimum fraction (BPS) of the MEASURED delivered output the
+    ///         in-frame on-chain quote must cover to be trusted as the fee base.
+    ///         Below this the quote is implausible (a forged V3 leg.fee near 1e6, or
+    ///         a dead Curve/V4 leg, drives the quote toward 0), so the fee is charged
+    ///         on the delivered amount instead — a low quote can never make the
+    ///         protocol fee ~0 while real output is delivered. Honest swaps quote
+    ///         ~= delivered (coverage ~100%).
+    uint16  internal constant MIN_QUOTE_COVERAGE_BPS = 5_000;
+
     /// @notice Transient storage slots — used to pass per-swap context to
     ///         the universal callback fallback without dirtying state.
     uint256 private constant TSLOT_POOL  = uint256(keccak256("blaze.r.pool"));
@@ -127,6 +137,12 @@ contract BlazePhoenixRouter {
     uint256 private constant TSLOT_V4OUT = uint256(keccak256("blaze.r.v4out"));
     uint256 private constant TSLOT_LOCK  = uint256(keccak256("blaze.r.lock"));
     uint256 private constant TSLOT_FOT   = uint256(keccak256("blaze.r.fot"));
+    /// @dev Native-ETH receive() gate: holds the ONE address allowed to send
+    ///      raw ETH to the Router at this instant (the canonical WETH during a
+    ///      JIT unwrap, the V4 PoolManager during a native take), zero at
+    ///      every other moment. Set/cleared around exactly one external call
+    ///      each time — see unlockCallback's native seam and receive().
+    uint256 private constant TSLOT_ETHOK = uint256(keccak256("blaze.r.ethok"));
 
     IHubW public immutable hub;
     address public immutable solver;
@@ -307,7 +323,7 @@ contract BlazePhoenixRouter {
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
         // Tokens are now on the Router; skip the user-pull in the core path.
-        return _swapPrePulled(route, received, userMinOut, recipient, deadline);
+        return _swapPrePulled(route, received, userMinOut, recipient, deadline, msg.sender);
     }
 
     // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates
@@ -349,7 +365,7 @@ contract BlazePhoenixRouter {
         uint256 received = BPC.balanceOf(w, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
 
-        return _swapPrePulled(route, received, userMinOut, recipient, deadline);
+        return _swapPrePulled(route, received, userMinOut, recipient, deadline, msg.sender);
     }
 
     // ─── Fully-on-chain route: solve + execute in ONE transaction ─────────
@@ -384,7 +400,7 @@ contract BlazePhoenixRouter {
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
-        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline);
+        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);
     }
 
     /// @notice memory→calldata bridge for `swapBestExactIn`. Self-only
@@ -393,10 +409,10 @@ contract BlazePhoenixRouter {
     ///         always trip RouterE(7).
     function selfExecutePrePulled(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, uint256 deadline
+        address recipient, uint256 deadline, address payer
     ) external returns (uint256) {
         if (msg.sender != address(this)) revert RouterE(1);
-        return _swapPrePulled(route, amountIn, userMinOut, recipient, deadline);
+        return _swapPrePulled(route, amountIn, userMinOut, recipient, deadline, payer);
     }
 
     // =========================================================================
@@ -417,17 +433,17 @@ contract BlazePhoenixRouter {
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
-        return _execute(route, received, userMinOut, recipient, tokenIn);
+        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);
     }
 
     function _swapPrePulled(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, uint256 deadline
+        address recipient, uint256 deadline, address payer
     ) private returns (uint256) {
         if (block.timestamp > deadline) revert RouterE(4);
         if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
         address tokenIn = route.hops[0].tokenIn;
-        return _execute(route, amountIn, userMinOut, recipient, tokenIn);
+        return _execute(route, amountIn, userMinOut, recipient, tokenIn, payer);
     }
 
     /// @notice Per-hop real-balance-ratio scaling AND price impact (BPS) AND
@@ -459,12 +475,26 @@ contract BlazePhoenixRouter {
     ///         the exact same key construction execution uses, so they
     ///         cannot diverge from what actually settles — if auxId is wrong
     ///         the leg fails identically in both places.
-    function _hopScaleImpactAndQuote(Hop calldata hop, uint256 h, uint256 amountIn)
+    function _hopScaleImpactAndQuote(Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase)
         private view returns (uint256 scaleNum, uint256 scaleDen, uint256 impactAcc, uint256 quoteAcc)
     {
         uint256 legs = hop.legs.length;
         {
-            uint256 realIn = h == 0 ? amountIn : BPC.balanceOf(hop.tokenIn, address(this));
+            // R3 / BP-15 (invariant I1 — holds-nothing on the INPUT side): hop 0
+            // uses the measured amountIn; hop 1+ uses the bridge received from the
+            // previous hop MINUS foreignBase (= bridgeBase[h-1], the Router's
+            // pre-swap balance of that bridge token). Without the subtraction a
+            // crafted route sized leg.amountIn to the Router's stranded/mis-sent
+            // balance of the bridge, so scaling spent funds the 48h rescue exists
+            // to return. Capping scaleNum to scaleDen does NOT close it (the
+            // attacker sizes scaleDen to that balance); only excluding the pre-swap
+            // balance does. Mirrors the bridge residual sweep, which baselines the
+            // same amount.
+            uint256 realIn = amountIn;
+            if (h != 0) {
+                uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
+                realIn = bal > foreignBase ? bal - foreignBase : 0;
+            }
             uint256 quotedIn;
             for (uint256 l; l < legs; ) { quotedIn += hop.legs[l].amountIn; unchecked { ++l; } }
             // SECURITY (issue #1 cap × BP-02 floor seam): the hop-0 cap is
@@ -517,7 +547,7 @@ contract BlazePhoenixRouter {
             } else if (leg.kind == BPC.KIND_CURVE_CRYPTO) {
                 quoteAcc += BPC._curveCryptoGetDy(leg.pool, leg.zeroForOne, legAmt);
                 impactAcc += 50;
-            } else if (leg.kind == BPC.KIND_V4) {
+            } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 quoteAcc += _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
                 impactAcc += 50;
@@ -565,21 +595,59 @@ contract BlazePhoenixRouter {
     {
         address tokenOther = address(uint160(uint256(leg.auxId)));
         if (tokenOther == address(0)) return 0;
+        if (leg.kind == BPC.KIND_V4_NATIVE) {
+            // Native pool: the side equal to the canonical WETH maps to
+            // currency address(0) — the SAME substitution _execV4Amt applies,
+            // so quote and execution derive the poolId from one key
+            // construction and cannot diverge. A malformed native leg (weth
+            // unwired, or neither side the real WETH) is 0-quoted here and
+            // reverts RouterE(8) there — consistent with the auxId==0 case.
+            // `weth` is read direct (no local) to keep this frame stack-lean.
+            if (weth == address(0)) return 0;
+            if (tokenIn == weth) tokenIn = address(0);
+            else if (tokenOther == weth) tokenOther = address(0);
+            else return 0;
+        }
         (address t0, address t1) = BPC.sortTokens(tokenIn, tokenOther);
         bytes32 pid = BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
         (uint160 sp4, uint128 lq4, uint24 lpF4, uint24 pF4) = BPC.v4SqrtAndLiq(v4mgr, pid);
         if (sp4 != 0 && lq4 != 0) quote = BPC.outV3(legAmt, sp4, lq4, BPC.effV4Fee(leg.fee, lpF4, pF4), leg.zeroForOne);
     }
 
+    /// @dev `payer` is who funded this swap and therefore who the unspent
+    ///      input belongs to. It is passed explicitly rather than read from
+    ///      `msg.sender`, because `swapBestExactIn` reaches this function
+    ///      through an external SELF-call, where `msg.sender` is the Router.
+    ///      Inferring the payer there refunded the residual to the Router
+    ///      itself and stranded it.
     function _execute(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
-        address recipient, address tokenIn
+        address recipient, address tokenIn, address payer
     ) private returns (uint256 amountOut) {
         address tokenOut = route.hops[route.hops.length - 1].tokenOut;
         // Input-token balance at entry (the input is already in the Router).
         // Every unit pulled for this swap MUST be consumed by the legs; the
         // holds-nothing check after the hop loop enforces it.
         uint256 tinStart = BPC.balanceOf(tokenIn, address(this));
+        // Output-token baseline — the exact mirror of tinStart/baseIn, and for
+        // the same reason: the post-hop measurement must be a DELTA, never a
+        // raw balance. Any tokenOut the Router already holds is mis-sent or
+        // airdropped money that the 48h timelocked rescue (queueRescue /
+        // executeRescue) exists to return to its owner; measured as a raw
+        // balance it is handed to the first swapper as fee-exempt surplus, so
+        // no rescue could ever be executed on a token anyone routes through.
+        // The delta also restores the RouterE(8) zero-output check, which a
+        // stray balance would satisfy for a swap that produced nothing.
+        // Degenerate tokenIn == tokenOut: the entry balance ALREADY contains
+        // this swap's amountIn, so the baseline is the same pre-existing
+        // remainder the input sweep uses (tinStart - amountIn) — taking the
+        // raw balance here would count amountIn on both sides and underflow
+        // the delta whenever output < input. That case also skips the tokenIn
+        // sweep below, so the remainder is subtracted exactly once; and
+        // reusing tinStart avoids a second staticcall for the same token.
+        uint256 toutStart = tokenIn == tokenOut
+            ? (tinStart > amountIn ? tinStart - amountIn : 0)
+            : BPC.balanceOf(tokenOut, address(this));
         uint256 totalLegs;
         // Floor re-derivation: sum of per-leg real impact (BPS), averaged later.
         uint256 impactAcc;
@@ -615,8 +683,23 @@ contract BlazePhoenixRouter {
             // this hop's real impact/on-chain quote — all in one call (see
             // _hopScaleImpactAndQuote's docs) to keep this loop's via-IR
             // stack frame shallow.
+            // R3/BP-15 (I1, holds-nothing): hops MUST chain — hop.tokenIn ==
+            // previous hop.tokenOut — so the pre-swap ("foreign") balance of the
+            // token being scaled is known and excluded. Without continuity a crafted
+            // route named an arbitrary STRANDED token as hop.tokenIn and scaled the
+            // Router's whole balance of it into the swap; bridgeBase[h-1] baselines
+            // route.hops[h-1].tokenOut, which is that same token ONLY under
+            // continuity. tokenIn/tokenOut-typed bridges carry bridgeBase==0, so use
+            // their own entry baselines (baseIn / toutStart) instead.
+            uint256 foreignBase;
+            if (h != 0) {
+                if (hop.tokenIn != route.hops[h - 1].tokenOut) revert RouterE(3);
+                foreignBase = hop.tokenIn == tokenIn
+                    ? (tinStart > amountIn ? tinStart - amountIn : 0)
+                    : (hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1]);
+            }
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
-                _hopScaleImpactAndQuote(hop, h, amountIn);
+                _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past
@@ -632,7 +715,10 @@ contract BlazePhoenixRouter {
             // a second cap site is exactly the seam that broke on 2026-08-09.
             // Fee-on-transfer is unaffected: there scaleNum (received) < scaleDen,
             // so the cap never fires and the existing scale-DOWN still applies.
-            // Hop 1+ is untouched — realIn is the true bridge output, all spent.
+            // Hop 1+ spends the bridge received from the previous hop MINUS the
+            // Router's pre-swap balance of that bridge (bridgeBase[h-1]) — see
+            // R3/BP-15 in _hopScaleImpactAndQuote: foreign/stranded bridge balances
+            // are never scaled into the swap (invariant I1, holds-nothing).
             impactAcc += hopImpact;
             onchainQuoteAcc += hopQuote;
             if (h + 1 == route.hops.length) finalHopQuote = hopQuote;
@@ -672,20 +758,26 @@ contract BlazePhoenixRouter {
         if (tokenIn != tokenOut) {
             uint256 baseIn  = tinStart > amountIn ? tinStart - amountIn : 0;
             uint256 residIn = BPC.balanceOf(tokenIn, address(this));
-            if (residIn > baseIn) BPC.safeTransfer(tokenIn, msg.sender, residIn - baseIn);
+            if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);
         }
         for (uint256 h; h + 1 < route.hops.length; ) {
             address bridge = route.hops[h].tokenOut;
             if (bridge != tokenIn && bridge != tokenOut) {
                 uint256 rb = BPC.balanceOf(bridge, address(this));
                 uint256 bb = bridgeBase[h];
-                if (rb > bb) BPC.safeTransfer(bridge, msg.sender, rb - bb);
+                if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);
             }
             unchecked { ++h; }
         }
 
-        // Measure final balance.
-        uint256 totalReceived = BPC.balanceOf(tokenOut, address(this));
+        // Measure what THIS swap produced: the balance DELTA against the entry
+        // baseline (see toutStart), so the pre-existing balance stays in the
+        // Router for the rescue path instead of being paid out below. Checked
+        // arithmetic is the guard of last resort: a route that spent part of
+        // that baseline (an intermediate hop whose tokenIn is tokenOut) leaves
+        // the balance under the baseline and reverts here — the safe outcome,
+        // since those funds were never this swap's to spend.
+        uint256 totalReceived = BPC.balanceOf(tokenOut, address(this)) - toutStart;
         if (totalReceived == 0) revert RouterE(8);
         amountOut = totalReceived;
 
@@ -763,7 +855,23 @@ contract BlazePhoenixRouter {
         // pool state read during THIS execution, not from calldata. The
         // surplus policy is unchanged: any amount ABOVE this quote is still
         // fee-exempt and paid to the user in full.
-        uint256 feeBase = totalReceived > onchainQuoteAcc ? onchainQuoteAcc : totalReceived;
+        // A1 / C1b / MP-1 (Lei Unificadora — a LOW quote must NOT evade the fee):
+        // feeBase is normally min(delivered, on-chain quote) so surplus above the
+        // quote stays fee-exempt. But the V3/Algebra quote prices with caller
+        // leg.fee while execution charges the pool's real fee, so leg.fee near 1e6
+        // drives outV3 toward 0; a dead/wrong-index Curve or V4 leg quotes 0; and a
+        // forged leg paired with an honest DUST co-leg keeps the SUM barely
+        // non-zero. Any of these shrinks onchainQuoteAcc far below what was
+        // delivered, turning the bulk into fee-exempt "surplus" (~0 protocol fee).
+        // Require the quote to COVER at least MIN_QUOTE_COVERAGE_BPS of the MEASURED
+        // delivery; below that it is implausible and the fee is charged on the
+        // delivered amount (pro-protocol, invariant I7) — the fee can never be
+        // forged small while real output is delivered. Honest swaps quote ~=
+        // delivered (coverage ~100%) and keep the surplus exemption unchanged.
+        uint256 feeBase =
+            onchainQuoteAcc >= BPC.mulDiv(totalReceived, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)
+                ? (onchainQuoteAcc < totalReceived ? onchainQuoteAcc : totalReceived)
+                : totalReceived;
         // Still floored at protocolFloorOut as defence-in-depth, in case a
         // pool kind's on-chain quote path reads stale/zero state.
         if (feeBase < protocolFloorOut) feeBase = protocolFloorOut;
@@ -847,7 +955,12 @@ contract BlazePhoenixRouter {
         if (guard) balBefore = BPC.balanceOf(legOut, address(this));
 
         uint8 k = leg.kind;
-        if (k == BPC.KIND_V2 || k == BPC.KIND_BALANCER_V2) {
+        // KIND_BALANCER_V2 removed (EIP-170 dead-code pass): a Balancer Vault
+        // pool has no getReserves()/swap(uint,uint,address,bytes), so the old
+        // _execV2Amt path always computed outAmt == 0 and reverted RouterE(8).
+        // The default arm below reverts RouterE(8) directly — same outcome,
+        // fewer bytes.
+        if (k == BPC.KIND_V2) {
             _execV2Amt(leg, tokenIn, amt);
         } else if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) {
             _execV3Amt(leg, tokenIn, amt);
@@ -855,7 +968,7 @@ contract BlazePhoenixRouter {
             _execSolidlyAmt(leg, tokenIn, amt);
         } else if (k == BPC.KIND_STABLE || k == BPC.KIND_CURVE_CRYPTO) {
             _execCurveAmt(leg, tokenIn, amt);
-        } else if (k == BPC.KIND_V4) {
+        } else if (k == BPC.KIND_V4 || k == BPC.KIND_V4_NATIVE) {
             _execV4Amt(leg, tokenIn, amt);
         } else {
             revert RouterE(8);
@@ -877,7 +990,7 @@ contract BlazePhoenixRouter {
     ///         then fails open to the aggregate floors (the per-leg guard is
     ///         an extra bound, never a gate on execution).
     function _legTokenOut(Leg calldata leg, address tokenIn) private view returns (address) {
-        if (leg.kind == BPC.KIND_V4 ||
+        if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE ||
             leg.kind == BPC.KIND_STABLE || leg.kind == BPC.KIND_CURVE_CRYPTO) {
             return address(uint160(uint256(leg.auxId)));
         }
@@ -891,7 +1004,7 @@ contract BlazePhoenixRouter {
     ///         This is robust against bridge collapsing where two stages with
     ///         different token pairs share a single hop wrapper.
     function _legTokenIn(Leg calldata leg) private view returns (address) {
-        if (leg.kind == BPC.KIND_V4) {
+        if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
             // V4 pools store the "other" token in leg.pool; tokenIn is the
             // implicit counterpart resolved by the unlock callback. The caller
             // path uses the hop-level tracking, so we fall back to that.
@@ -1058,16 +1171,22 @@ contract BlazePhoenixRouter {
         // leg. Measure tokenOut and
         // fall through to the uint256 signature if int128 produced nothing.
         uint256 balBefore = BPC.balanceOf(tokenOut, address(this));
-        (bool ok1, ) = leg.pool.call(abi.encodeWithSignature(
-            "exchange(int128,int128,uint256,uint256)", i, j, amt, uint256(0)));
+        // Hardcoded selectors (EIP-170): 0x3df02124 == bytes4(keccak256(
+        // "exchange(int128,int128,uint256,uint256)")), 0x5b41b908 == bytes4(
+        // keccak256("exchange(uint256,uint256,uint256,uint256)")) — verified
+        // with `cast sig`. encodeWithSelector drops the signature strings and
+        // the runtime keccak from the bytecode; the calldata produced is
+        // byte-identical to the encodeWithSignature form.
+        (bool ok1, ) = leg.pool.call(abi.encodeWithSelector(
+            bytes4(0x3df02124), i, j, amt, uint256(0)));
         if (!ok1) { /* tolerated: the result is verified by the tokenOut balance delta */ }
         uint256 got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
         if (got == 0) {
             // int128 path yielded nothing — try uint256. The earlier approval
             // is untouched (no tokens moved), so reuse it. Do NOT re-approve:
             // a second non-zero approve reverts on strict tokens (BPC:approve).
-            (bool ok2, ) = leg.pool.call(abi.encodeWithSignature(
-                "exchange(uint256,uint256,uint256,uint256)",
+            (bool ok2, ) = leg.pool.call(abi.encodeWithSelector(
+                bytes4(0x5b41b908),
                 uint256(uint128(i)), uint256(uint128(j)), amt, uint256(0)));
             if (!ok2) { /* tolerated: the result is verified by the tokenOut balance delta */ }
             got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
@@ -1091,10 +1210,27 @@ contract BlazePhoenixRouter {
         // token. The counterpart currency travels in auxId (low 160 bits).
         address tokenOther = address(uint160(uint256(leg.auxId)));
         if (tokenOther == address(0)) revert RouterE(8);
-        (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
         uint256 sI = TSLOT_V4IN;
         uint256 sO = TSLOT_V4OUT;
+        // Transient context FIRST, with the ERC20 (WETH-canonical) addresses:
+        // the callback settles/wraps through these, never through the mapped
+        // currencies. Stored before the native checks below on purpose — a
+        // revert rolls tstores back (EIP-1153 revert semantics), and mutating
+        // tokenIn/tokenOther in place after the store spends zero extra stack
+        // slots in a frame the via-IR pipeline keeps razor-thin.
         assembly { tstore(sI, tokenIn) tstore(sO, tokenOther) }
+        if (leg.kind == BPC.KIND_V4_NATIVE) {
+            // Native pool: the side equal to the canonical WETH maps to
+            // currency address(0) in the pool key. Fail-closed (8) when weth
+            // is unwired or NEITHER side is the real WETH — auxId is caller
+            // calldata, and the callback's unwrap/wrap must only ever touch
+            // the canonical WETH contract, never an attacker-named token.
+            if (weth == address(0)) revert RouterE(8);
+            if (tokenIn == weth) tokenIn = address(0);
+            else if (tokenOther == weth) tokenOther = address(0);
+            else revert RouterE(8);
+        }
+        (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
         IV4PoolManager.V4PoolKey memory key = IV4PoolManager.V4PoolKey({
             currency0: c0, currency1: c1, fee: leg.fee,
             tickSpacing: leg.tickSpacing, hooks: leg.hooks
@@ -1124,14 +1260,27 @@ contract BlazePhoenixRouter {
         _v3Callback(a0, a1);
     }
 
-    // Deliberately no receive(): a plain ETH transfer (empty calldata) would
-    // otherwise be silently trapped forever (no sweep function exists). With
-    // no receive() defined, an empty-calldata call falls through to the
-    // payable fallback above, whose `msg.value > 0` check at the top already
-    // reverts it with RouterE(3) — no new code needed, just the absence of a
-    // receive() that would have intercepted it first. Native ETH in/out is a
-    // deliberately deferred feature (see vault note "053 - Primitiva de ETH
-    // Nativo como WETH"), not implemented in this version.
+    // receive(): the ONE narrow surface through which the Router can be paid
+    // raw ETH — and only mid-flight inside a native-V4 unlock. TSLOT_ETHOK
+    // holds the exact address allowed to send at this instant (the canonical
+    // WETH during the JIT unwrap, the V4 PoolManager during a native take —
+    // see unlockCallback) and is zero at every other moment, so a bare
+    // transfer from ANYONE else — mid-unlock strangers included — reverts
+    // RouterE(3) exactly as the receive()-less Router did. The "no silently
+    // trapped ETH" property is preserved: outside the two flag windows the
+    // Router cannot be paid ETH at all, and inside them the same callback
+    // frame immediately settles or wraps the exact amount, leaving nothing at
+    // rest. A zero-value empty-calldata call also reverts (flag is 0), which
+    // matches the old fall-through-to-fallback behaviour bit for bit. Kept to
+    // one tload + compare so it runs inside the 2300-gas stipend of WETH9's
+    // transfer()-based withdraw. (Supersedes the "deliberately no receive()"
+    // doctrine of vault note "053 - Primitiva de ETH Nativo como WETH": the
+    // guarded window is the sealed native-V4 design, not an open door.)
+    receive() external payable {
+        uint256 sE = TSLOT_ETHOK;
+        uint256 ok; assembly { ok := tload(sE) }
+        if (ok == 0 || msg.sender != address(uint160(ok))) revert RouterE(3);
+    }
 
     function _v3Callback(int256 a0, int256 a1) private {
         uint256 sP = TSLOT_POOL;
@@ -1201,10 +1350,37 @@ contract BlazePhoenixRouter {
         // context before settling, so any re-entry into this callback reads
         // tIn == 0 and reverts(6).
         assembly { tstore(sI, 0) tstore(sO, 0) }
-        IV4PoolManager(mgr).sync(tIn);
-        BPC.safeTransfer(tIn, mgr, owe);
-        IV4PoolManager(mgr).settle();
-        IV4PoolManager(mgr).take(tOut, address(this), recv);
+        // ─── Native-ETH JIT seam (KIND_V4_NATIVE) ───
+        // key.currency0 == address(0) marks a native pool (currency1 can never
+        // be native: address(0) sorts first and currencies are distinct). The
+        // route still speaks WETH — tIn/tOut above are the ERC20 addresses,
+        // and _execV4Amt has already proven the mapped side IS the canonical
+        // WETH. Input native (zfo): unwrap exactly `owe` and settle with
+        // value — native settle takes NO sync. Output native (!zfo): take raw
+        // ETH and wrap it back into WETH inside this same frame, so outside
+        // this seam the pipeline sees only WETH balances and every existing
+        // balance-delta measurement (per-leg floor, toutStart, sweeps) keeps
+        // working unchanged. TSLOT_ETHOK opens receive() to exactly one
+        // sender for exactly one call, closed again before anything else runs.
+        uint256 sE = TSLOT_ETHOK;
+        if (key.currency0 == address(0) && zfo) {
+            assembly { tstore(sE, tIn) }
+            IWETH(tIn).withdraw(owe);
+            assembly { tstore(sE, 0) }
+            IV4PoolManager(mgr).settle{value: owe}();
+        } else {
+            IV4PoolManager(mgr).sync(tIn);
+            BPC.safeTransfer(tIn, mgr, owe);
+            IV4PoolManager(mgr).settle();
+        }
+        if (key.currency0 == address(0) && !zfo) {
+            assembly { tstore(sE, mgr) }
+            IV4PoolManager(mgr).take(address(0), address(this), recv);
+            assembly { tstore(sE, 0) }
+            IWETH(tOut).deposit{value: recv}();
+        } else {
+            IV4PoolManager(mgr).take(tOut, address(this), recv);
+        }
         return "";
     }
 
@@ -1232,7 +1408,7 @@ contract BlazePhoenixRouter {
                     depth = _v2Depth(leg.pool);
                 } else if (curveLike) {
                     depth = leg.expectedOut;
-                } else if (leg.kind == BPC.KIND_V4) {
+                } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
                     // leg.pool is the truncated poolId-as-address (no
                     // bytecode): getLiquidity(leg.pool) would silently
                     // staticcall a non-contract and read 0, so every V4 pool
@@ -1241,9 +1417,15 @@ contract BlazePhoenixRouter {
                     // tickSpacing, hooks) — t0/t1 above are already the
                     // pool's real (currency0, currency1) ordering by
                     // construction of zeroForOne — and read liquidity from
-                    // the PoolManager singleton directly.
+                    // the PoolManager singleton directly. For a native pool
+                    // t0 is the WETH side by that same construction (the leg
+                    // executed, so _execV4Amt proved it), and the pool's real
+                    // currency0 is address(0) — substitute it, keeping this
+                    // pid identical to the one quote and execution used.
                     if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
-                    bytes32 pid = BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
+                    bytes32 pid = leg.kind == BPC.KIND_V4_NATIVE
+                        ? BPC.computeV4PoolId(address(0), t1, leg.fee, leg.tickSpacing, leg.hooks)
+                        : BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
                     ( , uint128 liq, , ) = BPC.v4SqrtAndLiq(v4mgr, pid);
                     depth = uint256(liq);
                 } else {

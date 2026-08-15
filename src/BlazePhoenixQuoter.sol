@@ -309,6 +309,19 @@ contract BlazePhoenixQuoter {
         if (leg.hooks != address(0) && BPC.hookAltersDeltas(leg.hooks)) return 0;
         address tokenOther = address(uint160(uint256(leg.auxId)));
         if (tokenOther == address(0)) return 0;
+        if (leg.kind == BPC.KIND_V4_NATIVE) {
+            // Native pool: substitute address(0) for the wrapped-native side.
+            // Which side that is falls out of zeroForOne alone (the Solver's
+            // orientation contract: zeroForOne ⇔ the input is the pool's
+            // currency0, and a native pool's currency0 is ALWAYS address(0)
+            // since it sorts first) — so no WETH address is needed here, and
+            // the Quoter never settles anything: the dry-run reverts before
+            // any payment, making a wrong key merely a 0-quote, never a loss.
+            // For a well-formed leg this derivation agrees exactly with the
+            // Router's weth-verified substitution — same key, same poolId.
+            if (leg.zeroForOne) tokenIn = address(0);
+            else tokenOther = address(0);
+        }
         (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
         IV4Q.V4PoolKey memory key = IV4Q.V4PoolKey({
             currency0: c0, currency1: c1, fee: leg.fee,
@@ -374,7 +387,7 @@ contract BlazePhoenixQuoter {
                     qc.zeroForOne = leg.zeroForOne;
                     qc.fee        = leg.fee;
                     (legOut, ) = BPC.universalQuote(qc, legIn);
-                } else if (leg.kind == BPC.KIND_V4) {
+                } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
                     legOut = _simV4(leg, route.hops[h].tokenIn, legIn);
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);

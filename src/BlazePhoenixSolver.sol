@@ -351,7 +351,16 @@ contract BlazePhoenixSolver {
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
-                balsOut[i] = BPC.balanceOf(tOut, cands[i].pool);
+                // V3/BP-18 (CRITICAL, devil's-advocate): a V4 pool's address is a
+                // codeless truncated poolId whose balanceOf ANYONE can fund with
+                // 1 wei — reading the capital anchor from it lets a dust transfer
+                // forge maxBal>0 and steer the band. V4 custodies tokens in the
+                // PoolManager singleton, so its true per-pool balance is 0: force
+                // it, sourcing the capital anchor only from real token-custodying
+                // kinds (also keeps _weights' "V4 reports balance 0" honest).
+                balsOut[i] = (cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
+                    ? 0
+                    : BPC.balanceOf(tOut, cands[i].pool);
             }
             unchecked { ++i; }
         }
@@ -396,13 +405,35 @@ contract BlazePhoenixSolver {
             // The anchor is derived here by post-scanning the cached arrays
             // (first max wins, matching the historical in-loop tracker) so the
             // probe loop above carries no scalar accumulators.
+            // V3 / BP-18: use the real capital anchor (largest tokenOut balance of
+            // a token-custodying candidate — V4 is forced to 0 above, so this can
+            // no longer be dust-forged on a pseudo-address) when one exists.
+            // Otherwise (a V4-only set) anchor on the DEEPEST candidate by measured
+            // liquidity rather than the plain median: a plain median is shifted for
+            // FREE by >=5 stale fakes, whereas out-depthing the honest venue costs
+            // real capital in the PoolManager. This RAISES the attack cost from free
+            // to capital-at-risk; it does NOT make it impossible — active-tick L is
+            // cheap to inflate with a one-spacing position, so a fully robust anchor
+            // (L discounted by tick width, or a full-size-quote sanity check on the
+            // band base) is deferred WITH the V2 tick-cap work.
             uint256 maxBal;
             uint256 anchorRate;
+            uint256 maxDepth;
+            uint256 depthRate;
             for (uint256 i; i < n; ) {
                 if (balsOut[i] > maxBal) { maxBal = balsOut[i]; anchorRate = rates[i]; }
+                if (depths[i]  > maxDepth) { maxDepth = depths[i]; depthRate = rates[i]; }
                 unchecked { ++i; }
             }
-            uint256 base = maxBal > 0 ? anchorRate : median;
+            uint256 base = maxBal > 0
+                ? anchorRate
+                : (maxDepth > 0 ? depthRate : median);
+            // Zero-base guard (devil's-advocate): a live candidate can have
+            // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
+            // depth/capital anchor could set base=0 and collapse the band to
+            // hi=lo=0, killing an otherwise routable hop. median is guaranteed
+            // non-zero here (the median==0 early-return above), so fall back to it.
+            if (base == 0) base = median;
             hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
             lo = BPC.mulDiv(base, BPC.BPS - MEDIAN_FILTER_BPS, BPC.BPS);
         }
@@ -527,7 +558,7 @@ contract BlazePhoenixSolver {
                 stable:      cands[i].stable,
                 amountIn:    share,
                 expectedOut: outL,
-                auxId:       (cands[i].kind == BPC.KIND_STABLE || cands[i].kind == BPC.KIND_CURVE_CRYPTO || cands[i].kind == BPC.KIND_V4)
+                auxId:       (cands[i].kind == BPC.KIND_STABLE || cands[i].kind == BPC.KIND_CURVE_CRYPTO || cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
                     ? bytes32(uint256(uint160(cands[i].token0 == tIn ? cands[i].token1 : cands[i].token0)))
                     : bytes32(0)
             });
@@ -608,7 +639,8 @@ contract BlazePhoenixSolver {
     ///      pair reserves (V2 / Solidly / Balancer), pool-quoted output
     ///      (Curve stable / crypto).
     function _famOf(uint8 kind) private pure returns (uint256) {
-        if (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA || kind == BPC.KIND_V4) return 0;
+        if (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
+            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE) return 0;
         if (kind == BPC.KIND_STABLE || kind == BPC.KIND_CURVE_CRYPTO) return 2;
         return 1;
     }
@@ -701,7 +733,7 @@ contract BlazePhoenixSolver {
             fee: cand.fee, tickSpacing: cand.tickSpacing,
             zeroForOne: cand.token0 == tIn, stable: cand.stable,
             amountIn: legIn, expectedOut: out_,
-            auxId: (cand.kind == BPC.KIND_STABLE || cand.kind == BPC.KIND_CURVE_CRYPTO || cand.kind == BPC.KIND_V4)
+            auxId: (cand.kind == BPC.KIND_STABLE || cand.kind == BPC.KIND_CURVE_CRYPTO || cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
                 ? bytes32(uint256(uint160(cand.token0 == tIn ? cand.token1 : cand.token0)))
                 : bytes32(0)
         });
@@ -719,17 +751,32 @@ contract BlazePhoenixSolver {
     function _quoteWithDepth(PoolInfo memory cand, address tIn, uint256 amt)
         private view returns (uint256 out, uint256 depth)
     {
+        bool zfo = cand.token0 == tIn;
+        address qIn = tIn;
+        address other = zfo ? cand.token1 : cand.token0;
+        if (cand.kind == BPC.KIND_V4_NATIVE) {
+            // Native V4: PoolInfo carries the pair in WETH-canonical form
+            // with token0 = the wrapped-native side (the registry's
+            // orientation contract — see Hub._readPoolInfo). The pool's REAL
+            // currency0 is address(0): substitute it on whichever side is
+            // token0 before the quote sorts the pair, so universalQuote
+            // derives the native poolId (address(0) sorts first by
+            // construction). zeroForOne needs no branch: token0 == tIn
+            // already means "input is currency0" under this orientation.
+            if (zfo) qIn = address(0); else other = address(0);
+        }
         QuoteCtx memory c = QuoteCtx({
             kind:        cand.kind,
             pool:        cand.pool,
-            zeroForOne:  cand.token0 == tIn,
+            zeroForOne:  zfo,
             fee:         cand.fee,
             tickSpacing: cand.tickSpacing,
             stable:      cand.stable,
-            tokenIn:     tIn,
-            tokenOther:  cand.token0 == tIn ? cand.token1 : cand.token0,
+            tokenIn:     qIn,
+            tokenOther:  other,
             hooks:       cand.hooks,
-            v4Manager:   cand.kind == BPC.KIND_V4 ? hub.v4PoolManager() : address(0)
+            v4Manager:   (cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
+                ? hub.v4PoolManager() : address(0)
         });
         (out, depth) = BPC.universalQuote(c, amt);
     }
@@ -962,7 +1009,11 @@ contract BlazePhoenixSolver {
             uint256 base = 90_000;
             if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) base = 110_000;
             else if (k == BPC.KIND_STABLE || k == BPC.KIND_CURVE_CRYPTO) base = 140_000;
+            // Native V4 pays the same unlock plus the JIT unwrap/wrap
+            // (~35k estimated for WETH withdraw+deposit on warm slots;
+            // re-measure at the testnet rehearsal).
             else if (k == BPC.KIND_V4) base = 180_000;
+            else if (k == BPC.KIND_V4_NATIVE) base = 215_000;
             g += base;
             unchecked { ++i; }
         }
