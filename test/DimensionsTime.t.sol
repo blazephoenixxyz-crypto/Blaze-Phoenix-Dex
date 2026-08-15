@@ -15,17 +15,21 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract DimensionsTimeTest is Test {
     BlazePhoenixHub hub;
     address tokenA = address(0x1111);
     address tokenB = address(0x2222);
-    address pool = address(0x3333);
+    address pool;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0xBEEF));
         hub.setRoles(address(this), address(this), address(this));
+        // Real pair mock: recordSwap gates first registration on token0()/token1()
+        // matching the pair since fa6c847 (a codeless address is silently skipped).
+        pool = address(new MockV2Pair(tokenA, tokenB));
     }
 
     /// @notice R3 regression: tickSlot() used to increment the RAW stored swapCount forever and

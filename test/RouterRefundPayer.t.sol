@@ -27,7 +27,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 
 contract RouterRefundPayerTest is Test {
     BlazePhoenixHub hub;
@@ -36,12 +36,17 @@ contract RouterRefundPayerTest is Test {
 
     MockERC20 tokenA;
     MockERC20 tokenB;
-    MockV2Pair pair;
+    MockV3Pool pool;
 
     address user = address(0xBEEF);
 
     uint112 constant R_A = 1_000_000e18;
-    uint112 constant R_B = 1_600_000e18;
+    // sqrtPriceX96 for price 1.0 (2**96). Deep PHANTOM liquidity + thin REAL
+    // holdings makes the single-tick outV3 over-promise, so the V3/Algebra-only
+    // capacity clamp cuts the plan below the pull and a residual exists to refund.
+    uint160 constant SQRT_P_1 = 79228162514264337593543950336;
+    uint128 constant PHANTOM_LIQ = 1_000_000e18;
+    uint256 constant REAL_HELD = 50_000e18;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -53,25 +58,18 @@ contract RouterRefundPayerTest is Test {
 
         tokenA = new MockERC20("A", "A");
         tokenB = new MockERC20("B", "B");
-        pair = _seedV2(address(tokenA), address(tokenB), R_A, R_B);
+        // Thin over-promising V3 pool: single-tick outV3 quotes far more than the
+        // pool physically holds, so the Solver's V3/Algebra capacity clamp fires and
+        // commits < amountIn. (A V2 pool could never over-promise — outV2 is
+        // reserve-bounded — which is why the old V2 fixture left no residual.)
+        pool = new MockV3Pool(address(tokenA), address(tokenB), 3000);
+        pool.setState(SQRT_P_1, PHANTOM_LIQ);
+        tokenB.mint(address(pool), REAL_HELD);
+        hub.seedPool(address(pool), BPC.KIND_V3, 3000, address(0), address(tokenA), address(tokenB));
 
         tokenA.mint(user, 1_000_000e18);
         vm.prank(user);
         tokenA.approve(address(router), type(uint256).max);
-    }
-
-    function _seedV2(address tX, address tY, uint256 reserveX, uint256 reserveY)
-        internal returns (MockV2Pair p)
-    {
-        p = new MockV2Pair(tX, tY);
-        MockERC20(tX).mint(address(p), reserveX);
-        MockERC20(tY).mint(address(p), reserveY);
-        (address t0, ) = tX < tY ? (tX, tY) : (tY, tX);
-        p.setReserves(
-            uint112(tX == t0 ? reserveX : reserveY),
-            uint112(tX == t0 ? reserveY : reserveX)
-        );
-        hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), tX, tY);
     }
 
     function test_Refund_BestExactIn_ResidualGoesToPayer_NotRouter() public {
