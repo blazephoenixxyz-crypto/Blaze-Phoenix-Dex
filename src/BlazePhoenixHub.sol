@@ -156,6 +156,12 @@ contract BlazePhoenixHub {
         // can only ever waste one probe: every candidate is re-proven live
         // before emission and proven again at quote time.
         mapping(address => uint256) v4CodeOf;
+        // V1 / invariant I11 (no unbounded scan on the hot path): O(1) recovery of
+        // a V4 pool's V4Entry by its registry key (stored value is index+1 into
+        // v4Entries; 0 = absent). The global v4Entries array is append-only and
+        // permissionlessly grown by claimV4, so scanning it in _readPoolInfo made
+        // every V4 quote pay O(#entries) on the per-solve getActivePools path.
+        mapping(bytes32 => uint256) v4EntryOf;
     }
 
     function _store() private pure returns (HubStore storage $) {
@@ -403,6 +409,7 @@ contract BlazePhoenixHub {
         bytes32 pid = BPC.computeV4PoolId(s0, s1, fee, tickSpacing, hooks);
         address poolAddr = address(uint160(uint256(pid)));
         key = keyOf(poolAddr, s0, s1);
+        $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
         _register(key, poolAddr, BPC.KIND_V4, fee, hooks, s0, s1, true);
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
@@ -464,6 +471,7 @@ contract BlazePhoenixHub {
             currency0: s0, currency1: s1, fee: fee,
             tickSpacing: tickSpacing, hooks: address(0)
         }));
+        $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
         _register(key, poolAddr, BPC.KIND_V4, fee, address(0), s0, s1, false);
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
@@ -896,6 +904,24 @@ contract BlazePhoenixHub {
         // the matching V4Entry.
         p.tickSpacing = 0;
         if (p.kind == BPC.KIND_V4 || p.kind == BPC.KIND_V4_NATIVE) {
+            // V1 / invariant I11: O(1) entry recovery by key (index+1), replacing
+            // the linear scan below on the hot per-solve path. Every registered V4
+            // pool has an entry recorded under its key at registration (v4EntryOf),
+            // so this hits; on a miss it falls through to the scan (fail-closed,
+            // unreachable for pools registered after this fix).
+            uint256 ep = $.v4EntryOf[key];
+            if (ep != 0) {
+                V4Entry storage e0 = $.v4Entries[ep - 1];
+                p.tickSpacing = e0.tickSpacing;
+                if (p.kind == BPC.KIND_V4_NATIVE) {
+                    // Native entry: currency0 == address(0), currency1 == the ERC20
+                    // counterpart. Orient WETH-canonical (token0 = wrapped-native
+                    // side, token1 = counterpart) exactly as the scan did.
+                    p.token0 = e0.currency1 == t0 ? t1 : t0;
+                    p.token1 = e0.currency1;
+                }
+                return p;
+            }
             uint256 vn = $.v4Entries.length;
             for (uint256 vi; vi < vn; ) {
                 V4Entry storage e = $.v4Entries[vi];
@@ -1056,6 +1082,7 @@ contract BlazePhoenixHub {
                 currency0: t0, currency1: t1, fee: fee,
                 tickSpacing: v4Ts, hooks: address(0)
             }));
+            $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
             _writeV4Code(t0, t1, fee, v4Ts);
         }
         if (kind == BPC.KIND_V4_NATIVE) {
@@ -1082,6 +1109,7 @@ contract BlazePhoenixHub {
                 currency0: address(0), currency1: ncp, fee: fee,
                 tickSpacing: nTs, hooks: address(0)
             }));
+            $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
             // Learn the tier on the ERC20 side only (passed twice: the second
             // write self-skips as unchanged) — a v4CodeOf[address(0)] entry
             // would be dead storage no scan ever reads (_scanV4 rejects
