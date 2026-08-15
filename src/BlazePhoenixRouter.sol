@@ -955,7 +955,12 @@ contract BlazePhoenixRouter {
         if (guard) balBefore = BPC.balanceOf(legOut, address(this));
 
         uint8 k = leg.kind;
-        if (k == BPC.KIND_V2 || k == BPC.KIND_BALANCER_V2) {
+        // KIND_BALANCER_V2 removed (EIP-170 dead-code pass): a Balancer Vault
+        // pool has no getReserves()/swap(uint,uint,address,bytes), so the old
+        // _execV2Amt path always computed outAmt == 0 and reverted RouterE(8).
+        // The default arm below reverts RouterE(8) directly — same outcome,
+        // fewer bytes.
+        if (k == BPC.KIND_V2) {
             _execV2Amt(leg, tokenIn, amt);
         } else if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) {
             _execV3Amt(leg, tokenIn, amt);
@@ -1166,16 +1171,22 @@ contract BlazePhoenixRouter {
         // leg. Measure tokenOut and
         // fall through to the uint256 signature if int128 produced nothing.
         uint256 balBefore = BPC.balanceOf(tokenOut, address(this));
-        (bool ok1, ) = leg.pool.call(abi.encodeWithSignature(
-            "exchange(int128,int128,uint256,uint256)", i, j, amt, uint256(0)));
+        // Hardcoded selectors (EIP-170): 0x3df02124 == bytes4(keccak256(
+        // "exchange(int128,int128,uint256,uint256)")), 0x5b41b908 == bytes4(
+        // keccak256("exchange(uint256,uint256,uint256,uint256)")) — verified
+        // with `cast sig`. encodeWithSelector drops the signature strings and
+        // the runtime keccak from the bytecode; the calldata produced is
+        // byte-identical to the encodeWithSignature form.
+        (bool ok1, ) = leg.pool.call(abi.encodeWithSelector(
+            bytes4(0x3df02124), i, j, amt, uint256(0)));
         if (!ok1) { /* tolerated: the result is verified by the tokenOut balance delta */ }
         uint256 got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
         if (got == 0) {
             // int128 path yielded nothing — try uint256. The earlier approval
             // is untouched (no tokens moved), so reuse it. Do NOT re-approve:
             // a second non-zero approve reverts on strict tokens (BPC:approve).
-            (bool ok2, ) = leg.pool.call(abi.encodeWithSignature(
-                "exchange(uint256,uint256,uint256,uint256)",
+            (bool ok2, ) = leg.pool.call(abi.encodeWithSelector(
+                bytes4(0x5b41b908),
                 uint256(uint128(i)), uint256(uint128(j)), amt, uint256(0)));
             if (!ok2) { /* tolerated: the result is verified by the tokenOut balance delta */ }
             got = BPC.balanceOf(tokenOut, address(this)) - balBefore;

@@ -640,8 +640,16 @@ library BlazePhoenixCore {
     // CURVE ADAPTER — ask the pool, never replicate. Quote(get_dy) and exec
     // (exchange) both on the pool => cannot diverge. int128/uint256 variants
     // handled by try-then-fallback. No registry, no formula replication.
+    // NOTE (EIP-170): several heavyweight, cold-path view/pure quote helpers
+    // below are `public` ON PURPOSE — public library functions compile into
+    // the deployed BlazePhoenixCore library (which already exists for
+    // universalQuote) and are reached via delegatecall, instead of being
+    // inlined into every caller. This is what keeps the Router under the CI
+    // size margin. Delegatecall-safe: all of them are view/pure (no storage,
+    // no transient state). Do NOT flip them back to internal without
+    // re-measuring `FOUNDRY_PROFILE=release forge build --sizes`.
     function curveResolveIndices(address pool, address tokenIn, address tokenOut)
-        internal view returns (int128 i, int128 j, bool ok) {
+        public view returns (int128 i, int128 j, bool ok) {
         int128 fi = -1; int128 fj = -1;
         for (uint256 k; k < 8; ) {
             address coin = _curveCoin(pool, k);
@@ -661,7 +669,7 @@ library BlazePhoenixCore {
         coin = abi.decode(ret, (address));
     }
     function curveGetDy(address pool, int128 i, int128 j, uint256 dx)
-        internal view returns (uint256 dy) {
+        public view returns (uint256 dy) {
         (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature(
             "get_dy(int128,int128,uint256)", i, j, dx));
         if (!ok || ret.length < 32) {
@@ -681,7 +689,7 @@ library BlazePhoenixCore {
     ///         pool does not expose the selector (caller falls back to the
     ///         replicated curve with a conservative haircut).
     function solidlyGetAmountOut(address pool, uint256 amountIn, address tokenIn)
-        internal view returns (uint256 out)
+        public view returns (uint256 out)
     {
         (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature(
             "getAmountOut(uint256,address)", amountIn, tokenIn));
@@ -690,7 +698,7 @@ library BlazePhoenixCore {
 
     function outSolidly(
         uint256 ain, uint256 rIn, uint256 rOut, uint256 fee, bool stable
-    ) internal pure returns (uint256) {
+    ) public pure returns (uint256) {
         if (ain == 0 || rIn == 0 || rOut == 0) return 0;
         if (!stable) return outV2(ain, rIn, rOut, fee);
         if (fee >= BPS) return 0;
@@ -748,7 +756,7 @@ library BlazePhoenixCore {
     ///         agree on the fee the pool will actually charge at swap time —
     ///         eliminating the K() over-quote race that would otherwise revert.
     function readDynamicFee(address pool, bool stable, uint256 cfgFee)
-        internal view returns (uint256 fee)
+        public view returns (uint256 fee)
     {
         fee = cfgFee;
         (bool ok, bytes memory ret) = pool.staticcall(
@@ -842,7 +850,12 @@ library BlazePhoenixCore {
     {
         if (amountIn == 0) return (0, 0);
         uint8 k = c.kind;
-        if (k == KIND_V2 || k == KIND_BALANCER_V2) {
+        // KIND_BALANCER_V2 removed from this arm (EIP-170 dead-code pass): a
+        // Balancer Vault pool exposes no getReserves(), so this branch always
+        // read (0,0) and quoted 0 — the kind never produced a routable quote.
+        // Falling through to the default (0,0) return is byte-for-byte the
+        // same observable result.
+        if (k == KIND_V2) {
             (uint256 r0, uint256 r1) = getReserves(c.pool);
             (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
             // UniV2/Sushi charge 0.30%. fee==0 (no fee list) -> 30 bps default,
@@ -935,7 +948,7 @@ library BlazePhoenixCore {
     ///         6)); slot0 (offset 0) packs sqrtPriceX96 in its low 160 bits;
     ///         liquidity is at offset +3 (low 128 bits).
     function v4SqrtAndLiq(address manager, bytes32 poolId)
-        internal view returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee)
+        public view returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee)
     {
         if (manager == address(0)) return (0, 0, 0, 0);
         bytes32 base = keccak256(abi.encode(poolId, uint256(6)));
@@ -1043,7 +1056,7 @@ library BlazePhoenixCore {
     ///      protocol floor goes inert for that swap), or a short/oversized
     ///      return passes the check and mload(m) reads stale buffer garbage.
     function _curveCryptoGetDy(address pool, bool zfo, uint256 dx)
-        internal view returns (uint256 outAmt)
+        public view returns (uint256 outAmt)
     {
         uint256 i = zfo ? 0 : 1;
         uint256 j = zfo ? 1 : 0;
@@ -1291,7 +1304,7 @@ library BlazePhoenixCore {
 
     function impactV3Bps(
         uint256 amountIn, uint160 sqrtP, uint128 liq, uint24 feePpm, bool zeroForOne
-    ) internal pure returns (uint256) {
+    ) public pure returns (uint256) {
         if (amountIn == 0 || sqrtP == 0 || liq == 0) return BPS;
         uint256 out = outV3(amountIn, sqrtP, liq, feePpm, zeroForOne);
         if (out == 0) return BPS;

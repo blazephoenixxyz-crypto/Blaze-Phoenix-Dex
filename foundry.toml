@@ -50,11 +50,19 @@ bytecode_hash = "none"
 optimizer = true
 # 999999 maxed runtime-gas bias but left the Router 246 B over the 24000
 # margin once the native-ETH entry landed (measured: 24246 @ 999999);
-# 5000 still measured 24107 (-107 short). 3000 buys the remaining margin;
-# re-measure the gas side with forge snapshot at the S3 testnet rehearsal.
-# If a future feature outgrows this dial, the next lever is Router revert
-# strings -> custom errors (~14 sites, est. 400-800 B) — code, not config.
-optimizer_runs = 3000
+# 5000 still measured 24107 (-107 short). 3000 bought the margin then, but
+# the fa6c847 hardening pass outgrew it (Router 25,684 @ 3000).
+# Remediation 2026-08-15: (1) heavyweight cold-path Core quote helpers went
+# public -> deployed-library delegatecalls (see the EIP-170 note in
+# BlazePhoenixCore.sol), (2) dead KIND_BALANCER_V2 branches removed,
+# (3) runs re-measured: 3000->24,754 / 2000->24,679 / 1500->24,098 /
+# 1000->23,829 / 800->23,184. 800 keeps every BlazePhoenix* contract under
+# the CI's 24,000 guard with ~800 B of Router headroom for the next
+# feature; re-measure the gas side with forge snapshot at the S3 testnet
+# rehearsal. Next code lever if this dial is ever exhausted: Router/Core
+# revert strings -> custom errors (~14 sites, est. 400-800 B; needs the two
+# "BPC:" expectRevert pins in BlazePhoenixCore.t.sol updated with it).
+optimizer_runs = 800
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }]
 
