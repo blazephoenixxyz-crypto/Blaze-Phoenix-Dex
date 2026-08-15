@@ -472,7 +472,12 @@ contract BlazePhoenixHub {
         // evicts the weakest incumbent UNCONDITIONALLY, so on a FULL pair a dust
         // claim would displace a healthy pool with no 25% margin. depth = the
         // pool's MEASURED liquidity (liq), the exact signal _recordHits feeds
-        // recordSwap for a V4 leg — unforgeable without real capital (INV-16).
+        // recordSwap for a V4 leg. HONEST SCOPE (devil's-advocate): liq is read
+        // live, so it is JIT / flash-liquidity-inflatable within one tx (the same
+        // bound recordSwap already carries) — this RAISES the griefing bar, it is
+        // NOT "unforgeable". Vitality floors at 1 and decays to 0 in ~9 days, so an
+        // emptied squatter self-weights down (INV-16) and the pool it evicted
+        // re-registers on its next routed swap.
         if (!_canInsert($.pairKeys[s0][s1], uint256(liq))) return key;
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
