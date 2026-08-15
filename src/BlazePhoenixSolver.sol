@@ -396,13 +396,28 @@ contract BlazePhoenixSolver {
             // The anchor is derived here by post-scanning the cached arrays
             // (first max wins, matching the historical in-loop tracker) so the
             // probe loop above carries no scalar accumulators.
+            // V3 / BP-18 (INV-16 — anchor on a MEASURED, capital-backed signal):
+            // use the capital anchor (largest real tokenOut balance) when one
+            // exists; otherwise anchor on the DEEPEST candidate by measured
+            // liquidity, NOT the plain median. V4 pools custody tokens in the
+            // PoolManager singleton, so their per-pool balanceOf is 0 and no
+            // capital anchor forms — a set of >=5 hair-thin fake V4 pools at a
+            // stale price could then shift the plain median and exclude the honest
+            // venue. Liquidity (depths[i]) is read from the PoolManager and cannot
+            // be faked without locking real capital, so the deepest pool's rate is
+            // a far costlier target than the median.
             uint256 maxBal;
             uint256 anchorRate;
+            uint256 maxDepth;
+            uint256 depthRate;
             for (uint256 i; i < n; ) {
                 if (balsOut[i] > maxBal) { maxBal = balsOut[i]; anchorRate = rates[i]; }
+                if (depths[i]  > maxDepth) { maxDepth = depths[i]; depthRate = rates[i]; }
                 unchecked { ++i; }
             }
-            uint256 base = maxBal > 0 ? anchorRate : median;
+            uint256 base = maxBal > 0
+                ? anchorRate
+                : (maxDepth > 0 ? depthRate : median);
             hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
             lo = BPC.mulDiv(base, BPC.BPS - MEDIAN_FILTER_BPS, BPC.BPS);
         }
