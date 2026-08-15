@@ -466,12 +466,26 @@ contract BlazePhoenixRouter {
     ///         the exact same key construction execution uses, so they
     ///         cannot diverge from what actually settles — if auxId is wrong
     ///         the leg fails identically in both places.
-    function _hopScaleImpactAndQuote(Hop calldata hop, uint256 h, uint256 amountIn)
+    function _hopScaleImpactAndQuote(Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase)
         private view returns (uint256 scaleNum, uint256 scaleDen, uint256 impactAcc, uint256 quoteAcc)
     {
         uint256 legs = hop.legs.length;
         {
-            uint256 realIn = h == 0 ? amountIn : BPC.balanceOf(hop.tokenIn, address(this));
+            // R3 / BP-15 (invariant I1 — holds-nothing on the INPUT side): hop 0
+            // uses the measured amountIn; hop 1+ uses the bridge received from the
+            // previous hop MINUS foreignBase (= bridgeBase[h-1], the Router's
+            // pre-swap balance of that bridge token). Without the subtraction a
+            // crafted route sized leg.amountIn to the Router's stranded/mis-sent
+            // balance of the bridge, so scaling spent funds the 48h rescue exists
+            // to return. Capping scaleNum to scaleDen does NOT close it (the
+            // attacker sizes scaleDen to that balance); only excluding the pre-swap
+            // balance does. Mirrors the bridge residual sweep, which baselines the
+            // same amount.
+            uint256 realIn = amountIn;
+            if (h != 0) {
+                uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
+                realIn = bal > foreignBase ? bal - foreignBase : 0;
+            }
             uint256 quotedIn;
             for (uint256 l; l < legs; ) { quotedIn += hop.legs[l].amountIn; unchecked { ++l; } }
             // SECURITY (issue #1 cap × BP-02 floor seam): the hop-0 cap is
@@ -661,7 +675,7 @@ contract BlazePhoenixRouter {
             // _hopScaleImpactAndQuote's docs) to keep this loop's via-IR
             // stack frame shallow.
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
-                _hopScaleImpactAndQuote(hop, h, amountIn);
+                _hopScaleImpactAndQuote(hop, h, amountIn, h == 0 ? 0 : bridgeBase[h - 1]);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past
@@ -677,7 +691,10 @@ contract BlazePhoenixRouter {
             // a second cap site is exactly the seam that broke on 2026-08-09.
             // Fee-on-transfer is unaffected: there scaleNum (received) < scaleDen,
             // so the cap never fires and the existing scale-DOWN still applies.
-            // Hop 1+ is untouched — realIn is the true bridge output, all spent.
+            // Hop 1+ spends the bridge received from the previous hop MINUS the
+            // Router's pre-swap balance of that bridge (bridgeBase[h-1]) — see
+            // R3/BP-15 in _hopScaleImpactAndQuote: foreign/stranded bridge balances
+            // are never scaled into the swap (invariant I1, holds-nothing).
             impactAcc += hopImpact;
             onchainQuoteAcc += hopQuote;
             if (h + 1 == route.hops.length) finalHopQuote = hopQuote;
