@@ -160,7 +160,7 @@ contract HardeningA4ClaimV4MarginTest is Test {
         assertGe(psiThin, 1, "a registered pool never scores 0");
         assertGt(
             psiDeep, psiThin,
-            "a deep-liq claim must outscore a thin-liq claim — depth was persisted"
+            "a deep-liq claim must outscore a thin-liq claim -- depth was persisted"
         );
     }
 
