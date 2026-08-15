@@ -195,9 +195,13 @@ contract HardeningR3HopForeignBalanceTest is Test {
     function test_ForeignBridgeBalance_NotScaledIntoOutput_EqualsBaseline() public {
         // Baseline: no foreign balance, pool set 1.
         _fund(pAC1, pCB1);
+        // Build the route BEFORE vm.prank: _honestRoute makes token0() view
+        // calls that would otherwise consume the prank, leaving swapExactIn
+        // to run as the test contract (no balance/approval).
+        Route memory r1 = _honestRoute(pAC1, pCB1);
         uint256 bBefore = B.balanceOf(user);
         vm.prank(user);
-        uint256 out1 = router.swapExactIn(_honestRoute(pAC1, pCB1), AMT, 1, user, block.timestamp + 1);
+        uint256 out1 = router.swapExactIn(r1, AMT, 1, user, block.timestamp + 1);
         uint256 delivered1 = B.balanceOf(user) - bBefore;
         assertGt(out1, 0, "baseline swap must fill");
         assertEq(C.balanceOf(address(router)), 0, "I1 at rest: no bridge C after baseline");
@@ -208,9 +212,10 @@ contract HardeningR3HopForeignBalanceTest is Test {
         // Identical swap, identical fresh pool set 2, with the foreign balance
         // sitting on the Router.
         _fund(pAC2, pCB2);
+        Route memory r2 = _honestRoute(pAC2, pCB2); // built before the prank (same footgun)
         bBefore = B.balanceOf(user);
         vm.prank(user);
-        uint256 out2 = router.swapExactIn(_honestRoute(pAC2, pCB2), AMT, 1, user, block.timestamp + 1);
+        uint256 out2 = router.swapExactIn(r2, AMT, 1, user, block.timestamp + 1);
         uint256 delivered2 = B.balanceOf(user) - bBefore;
 
         // The pin: the foreign balance bought the caller NOTHING extra. Pre-fix
