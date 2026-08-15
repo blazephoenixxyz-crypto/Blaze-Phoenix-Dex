@@ -831,7 +831,19 @@ contract BlazePhoenixRouter {
         // pool state read during THIS execution, not from calldata. The
         // surplus policy is unchanged: any amount ABOVE this quote is still
         // fee-exempt and paid to the user in full.
-        uint256 feeBase = totalReceived > onchainQuoteAcc ? onchainQuoteAcc : totalReceived;
+        // A1 / C1b / MP-1 (Lei Unificadora — a quote of 0 must NOT evade the fee):
+        // feeBase is normally min(delivered, on-chain quote) so surplus above the
+        // quote stays fee-exempt. But a crafted leg.fee (>= ~1e6, or 999_999 for a
+        // dust leg) drives outV3 to ~0 (Core.outV3), and a dead / wrong-index Curve
+        // or V4 leg quotes 0 naturally (C1b) — collapsing onchainQuoteAcc to 0 turned
+        // the WHOLE delivered amount into fee-exempt "surplus", so the protocol
+        // collected nothing while the pool charged its real fee. When the on-chain
+        // quote is unavailable (== 0) we charge the fee on the MEASURED delivered
+        // amount (pro-protocol default, invariant I7): the fee can never be forged to
+        // 0 while output is delivered. Honest swaps (quote > 0) are unchanged.
+        uint256 feeBase = onchainQuoteAcc != 0 && onchainQuoteAcc < totalReceived
+            ? onchainQuoteAcc
+            : totalReceived;
         // Still floored at protocolFloorOut as defence-in-depth, in case a
         // pool kind's on-chain quote path reads stale/zero state.
         if (feeBase < protocolFloorOut) feeBase = protocolFloorOut;
