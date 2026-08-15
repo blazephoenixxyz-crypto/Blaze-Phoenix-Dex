@@ -351,7 +351,16 @@ contract BlazePhoenixSolver {
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
-                balsOut[i] = BPC.balanceOf(tOut, cands[i].pool);
+                // V3/BP-18 (CRITICAL, devil's-advocate): a V4 pool's address is a
+                // codeless truncated poolId whose balanceOf ANYONE can fund with
+                // 1 wei — reading the capital anchor from it lets a dust transfer
+                // forge maxBal>0 and steer the band. V4 custodies tokens in the
+                // PoolManager singleton, so its true per-pool balance is 0: force
+                // it, sourcing the capital anchor only from real token-custodying
+                // kinds (also keeps _weights' "V4 reports balance 0" honest).
+                balsOut[i] = (cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
+                    ? 0
+                    : BPC.balanceOf(tOut, cands[i].pool);
             }
             unchecked { ++i; }
         }
@@ -396,16 +405,17 @@ contract BlazePhoenixSolver {
             // The anchor is derived here by post-scanning the cached arrays
             // (first max wins, matching the historical in-loop tracker) so the
             // probe loop above carries no scalar accumulators.
-            // V3 / BP-18 (INV-16 — anchor on a MEASURED, capital-backed signal):
-            // use the capital anchor (largest real tokenOut balance) when one
-            // exists; otherwise anchor on the DEEPEST candidate by measured
-            // liquidity, NOT the plain median. V4 pools custody tokens in the
-            // PoolManager singleton, so their per-pool balanceOf is 0 and no
-            // capital anchor forms — a set of >=5 hair-thin fake V4 pools at a
-            // stale price could then shift the plain median and exclude the honest
-            // venue. Liquidity (depths[i]) is read from the PoolManager and cannot
-            // be faked without locking real capital, so the deepest pool's rate is
-            // a far costlier target than the median.
+            // V3 / BP-18: use the real capital anchor (largest tokenOut balance of
+            // a token-custodying candidate — V4 is forced to 0 above, so this can
+            // no longer be dust-forged on a pseudo-address) when one exists.
+            // Otherwise (a V4-only set) anchor on the DEEPEST candidate by measured
+            // liquidity rather than the plain median: a plain median is shifted for
+            // FREE by >=5 stale fakes, whereas out-depthing the honest venue costs
+            // real capital in the PoolManager. This RAISES the attack cost from free
+            // to capital-at-risk; it does NOT make it impossible — active-tick L is
+            // cheap to inflate with a one-spacing position, so a fully robust anchor
+            // (L discounted by tick width, or a full-size-quote sanity check on the
+            // band base) is deferred WITH the V2 tick-cap work.
             uint256 maxBal;
             uint256 anchorRate;
             uint256 maxDepth;
@@ -418,6 +428,12 @@ contract BlazePhoenixSolver {
             uint256 base = maxBal > 0
                 ? anchorRate
                 : (maxDepth > 0 ? depthRate : median);
+            // Zero-base guard (devil's-advocate): a live candidate can have
+            // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
+            // depth/capital anchor could set base=0 and collapse the band to
+            // hi=lo=0, killing an otherwise routable hop. median is guaranteed
+            // non-zero here (the median==0 early-return above), so fall back to it.
+            if (base == 0) base = median;
             hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
             lo = BPC.mulDiv(base, BPC.BPS - MEDIAN_FILTER_BPS, BPC.BPS);
         }

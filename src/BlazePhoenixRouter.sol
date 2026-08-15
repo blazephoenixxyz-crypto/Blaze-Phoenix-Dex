@@ -119,6 +119,15 @@ contract BlazePhoenixRouter {
     ///         rather than left looser than the aggregate.
     uint16  internal constant LEG_FLOOR_BPS     = 8_000;
 
+    /// @notice A1/MP-1: minimum fraction (BPS) of the MEASURED delivered output the
+    ///         in-frame on-chain quote must cover to be trusted as the fee base.
+    ///         Below this the quote is implausible (a forged V3 leg.fee near 1e6, or
+    ///         a dead Curve/V4 leg, drives the quote toward 0), so the fee is charged
+    ///         on the delivered amount instead — a low quote can never make the
+    ///         protocol fee ~0 while real output is delivered. Honest swaps quote
+    ///         ~= delivered (coverage ~100%).
+    uint16  internal constant MIN_QUOTE_COVERAGE_BPS = 5_000;
+
     /// @notice Transient storage slots — used to pass per-swap context to
     ///         the universal callback fallback without dirtying state.
     uint256 private constant TSLOT_POOL  = uint256(keccak256("blaze.r.pool"));
@@ -674,8 +683,23 @@ contract BlazePhoenixRouter {
             // this hop's real impact/on-chain quote — all in one call (see
             // _hopScaleImpactAndQuote's docs) to keep this loop's via-IR
             // stack frame shallow.
+            // R3/BP-15 (I1, holds-nothing): hops MUST chain — hop.tokenIn ==
+            // previous hop.tokenOut — so the pre-swap ("foreign") balance of the
+            // token being scaled is known and excluded. Without continuity a crafted
+            // route named an arbitrary STRANDED token as hop.tokenIn and scaled the
+            // Router's whole balance of it into the swap; bridgeBase[h-1] baselines
+            // route.hops[h-1].tokenOut, which is that same token ONLY under
+            // continuity. tokenIn/tokenOut-typed bridges carry bridgeBase==0, so use
+            // their own entry baselines (baseIn / toutStart) instead.
+            uint256 foreignBase;
+            if (h != 0) {
+                if (hop.tokenIn != route.hops[h - 1].tokenOut) revert RouterE(3);
+                foreignBase = hop.tokenIn == tokenIn
+                    ? (tinStart > amountIn ? tinStart - amountIn : 0)
+                    : (hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1]);
+            }
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
-                _hopScaleImpactAndQuote(hop, h, amountIn, h == 0 ? 0 : bridgeBase[h - 1]);
+                _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past
@@ -831,19 +855,23 @@ contract BlazePhoenixRouter {
         // pool state read during THIS execution, not from calldata. The
         // surplus policy is unchanged: any amount ABOVE this quote is still
         // fee-exempt and paid to the user in full.
-        // A1 / C1b / MP-1 (Lei Unificadora — a quote of 0 must NOT evade the fee):
+        // A1 / C1b / MP-1 (Lei Unificadora — a LOW quote must NOT evade the fee):
         // feeBase is normally min(delivered, on-chain quote) so surplus above the
-        // quote stays fee-exempt. But a crafted leg.fee (>= ~1e6, or 999_999 for a
-        // dust leg) drives outV3 to ~0 (Core.outV3), and a dead / wrong-index Curve
-        // or V4 leg quotes 0 naturally (C1b) — collapsing onchainQuoteAcc to 0 turned
-        // the WHOLE delivered amount into fee-exempt "surplus", so the protocol
-        // collected nothing while the pool charged its real fee. When the on-chain
-        // quote is unavailable (== 0) we charge the fee on the MEASURED delivered
-        // amount (pro-protocol default, invariant I7): the fee can never be forged to
-        // 0 while output is delivered. Honest swaps (quote > 0) are unchanged.
-        uint256 feeBase = onchainQuoteAcc != 0 && onchainQuoteAcc < totalReceived
-            ? onchainQuoteAcc
-            : totalReceived;
+        // quote stays fee-exempt. But the V3/Algebra quote prices with caller
+        // leg.fee while execution charges the pool's real fee, so leg.fee near 1e6
+        // drives outV3 toward 0; a dead/wrong-index Curve or V4 leg quotes 0; and a
+        // forged leg paired with an honest DUST co-leg keeps the SUM barely
+        // non-zero. Any of these shrinks onchainQuoteAcc far below what was
+        // delivered, turning the bulk into fee-exempt "surplus" (~0 protocol fee).
+        // Require the quote to COVER at least MIN_QUOTE_COVERAGE_BPS of the MEASURED
+        // delivery; below that it is implausible and the fee is charged on the
+        // delivered amount (pro-protocol, invariant I7) — the fee can never be
+        // forged small while real output is delivered. Honest swaps quote ~=
+        // delivered (coverage ~100%) and keep the surplus exemption unchanged.
+        uint256 feeBase =
+            onchainQuoteAcc >= BPC.mulDiv(totalReceived, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)
+                ? (onchainQuoteAcc < totalReceived ? onchainQuoteAcc : totalReceived)
+                : totalReceived;
         // Still floored at protocolFloorOut as defence-in-depth, in case a
         // pool kind's on-chain quote path reads stale/zero state.
         if (feeBase < protocolFloorOut) feeBase = protocolFloorOut;

@@ -480,6 +480,12 @@ contract BlazePhoenixHub {
         }));
         $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
         _register(key, poolAddr, BPC.KIND_V4, fee, address(0), s0, s1, false);
+        // A4: persist the MEASURED depth bucket (mirrors recordSwap's new-pool
+        // path) so a claimed pool is fitness-ranked on its real liquidity instead
+        // of defaulting to bucket 0 (psi ~1) — otherwise the pool that just won
+        // admission on its depth becomes the pair's weakest slot / next eviction
+        // target the instant it is registered.
+        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), uint256(liq), uint32(block.timestamp)));
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
 
