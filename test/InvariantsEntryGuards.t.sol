@@ -111,7 +111,10 @@ contract InvariantsEntryGuardsTest is Test {
         try router.swapExactIn(r, 0, 0, recipient, block.timestamp + 1) returns (uint256 outAmt) {
             assertEq(outAmt, 0, "a zero-amount swap must deliver nothing");
         } catch (bytes memory err) {
-            bytes4 sel = bytes4(err);
+            // Loaded rather than cast: bytes -> bytes4 is a truncating cast and
+            // the repo's linter flags it, correctly.
+            bytes4 sel;
+            if (err.length >= 4) { assembly { sel := mload(add(err, 0x20)) } }
             if (sel == BlazePhoenixRouter.RouterE.selector) {
                 uint16 code;
                 assembly { code := mload(add(err, 0x24)) }
