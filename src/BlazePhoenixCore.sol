@@ -407,25 +407,37 @@ library BlazePhoenixCore {
     {
         if (manager == address(0)) return new PoolInfo[](0);
         (address c0, address c1) = sortTokens(tokenIn, tokenOut);
-        uint24[4] memory fees  = [uint24(100), 500, 3000, 10000];
-        int24[4]  memory ticks = [int24(1), 10, 60, 200];
+        // Canonical hookless (fee, tickSpacing) grid, probed one tier at a time via
+        // a shared helper (kept out of an array literal so the optimizer emits one
+        // copy, not four inlined ones).
         PoolInfo[] memory tmp = new PoolInfo[](4);
         uint256 cnt;
-        for (uint256 i; i < 4; ) {
-            bytes32 pid = computeV4PoolId(c0, c1, fees[i], ticks[i], address(0));
-            (uint160 sp, uint128 liq, , ) = v4SqrtAndLiq(manager, pid);
-            if (sp != 0 && liq != 0) {
-                tmp[cnt] = PoolInfo({
-                    active: true, stable: false, kind: KIND_V4,
-                    fee: fees[i], tickSpacing: ticks[i],
-                    token0: c0, token1: c1, pool: manager, hooks: address(0)
-                });
-                unchecked { ++cnt; }
-            }
-            unchecked { ++i; }
-        }
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1,   100,   1);
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1,   500,  10);
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1,  3000,  60);
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1, 10000, 200);
         found = new PoolInfo[](cnt);
         for (uint256 i; i < cnt; ) { found[i] = tmp[i]; unchecked { ++i; } }
+    }
+
+    /// @dev Derive one canonical hookless V4 PoolId, probe it via extsload, and
+    ///      append it to `tmp` if it holds a live price and liquidity. Returns the
+    ///      updated count.
+    function _probeV4Tier(
+        PoolInfo[] memory tmp, uint256 cnt, address manager,
+        address c0, address c1, uint24 fee, int24 tickSpacing
+    ) internal view returns (uint256) {
+        bytes32 pid = computeV4PoolId(c0, c1, fee, tickSpacing, address(0));
+        (uint160 sp, uint128 liq, , ) = v4SqrtAndLiq(manager, pid);
+        if (sp != 0 && liq != 0) {
+            tmp[cnt] = PoolInfo({
+                active: true, stable: false, kind: KIND_V4,
+                fee: fee, tickSpacing: tickSpacing,
+                token0: c0, token1: c1, pool: manager, hooks: address(0)
+            });
+            unchecked { ++cnt; }
+        }
+        return cnt;
     }
 
     /// @notice True if `a` has runtime bytecode.
