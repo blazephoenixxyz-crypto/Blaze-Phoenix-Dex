@@ -818,34 +818,15 @@ contract BlazePhoenixSolver {
         // that was previously removed for permanently suppressing discovery.
         PoolInfo[] memory dis;
         if (!_registryFresh(reg)) dis = hub.discoverFor(tA, tB);
-        // V4 discovery: deployer-blind and allowlist-free. Every V4 pool is
-        // keccak256(PoolKey) in the one PoolManager, so we DERIVE the canonical
-        // hookless ids and keep the ones that exist — one extsload sweep, no admin
-        // list. Singleton pools all share pool == manager, so they must be deduped
-        // by (fee, tickSpacing, hooks), never by address, or they collapse to one.
-        PoolInfo[] memory v4 = BPC.discoverV4(hub.v4PoolManager(), tA, tB);
         uint256 rn = reg.length;
         uint256 dn = dis.length;
-        uint256 vn = v4.length;
-        PoolInfo[] memory merged = new PoolInfo[](rn + dn + vn);
+        PoolInfo[] memory merged = new PoolInfo[](rn + dn);
         uint256 n;
         for (uint256 i; i < rn; ) { merged[n] = reg[i]; unchecked { ++n; ++i; } }
         for (uint256 i; i < dn; ) {
             bool dup;
             for (uint256 j; j < rn; ) { if (dis[i].pool == reg[j].pool) { dup = true; break; } unchecked { ++j; } }
             if (!dup) { merged[n] = dis[i]; unchecked { ++n; } }
-            unchecked { ++i; }
-        }
-        for (uint256 i; i < vn; ) {
-            bool dup;
-            for (uint256 j; j < n; ) {
-                if (merged[j].kind == BPC.KIND_V4
-                    && merged[j].fee == v4[i].fee
-                    && merged[j].tickSpacing == v4[i].tickSpacing
-                    && merged[j].hooks == v4[i].hooks) { dup = true; break; }
-                unchecked { ++j; }
-            }
-            if (!dup) { merged[n] = v4[i]; unchecked { ++n; } }
             unchecked { ++i; }
         }
         if (n == 0) return new PoolInfo[](0);
