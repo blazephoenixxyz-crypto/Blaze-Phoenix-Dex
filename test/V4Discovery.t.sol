@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.28;
+pragma solidity 0.8.36;
 
 // Unit test for BPC.discoverV4 — the deterministic, deployer-blind, allowlist-free
 // discovery of hookless V4 pools. A mock singleton returns the packed slot0/liquidity
