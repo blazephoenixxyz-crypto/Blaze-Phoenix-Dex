@@ -1,0 +1,24 @@
+name: zzdebug
+on:
+  push:
+    branches: ["feat/v4-onchain-discovery"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: forge build (surface the error)
+        run: |
+          set -o pipefail
+          if forge build 2>&1 | tee b.log; then
+            echo "BUILD OK"
+          else
+            digest=$(grep -aE "Error|error\[|-->|TypeError|DeclarationError|ParserError|Warning" b.log | head -40)
+            [ -n "$digest" ] || digest=$(tail -40 b.log)
+            echo "::error title=compile::$(echo "$digest" | sed ':a;N;$!ba;s/\n/%0A/g')"
+            exit 1
+          fi
