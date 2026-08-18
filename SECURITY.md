@@ -39,6 +39,23 @@ The invariant catalogue is documented in [`llms.txt`](./llms.txt). Invariants ar
 exercised in CI by the test suite, Halmos symbolic proofs, and Slither static
 analysis; a report that defeats one of these is especially welcome.
 
+## Verification pipeline and track record
+
+An independent external audit has not happened yet; it is planned before
+launch. What runs on every push, today, in public CI: a ~290-test forge suite
+(unit, fuzz, stateful invariants) plus ~40 fork tests against live chain
+liquidity; Certora Prover (INV-20 fail-closed) and Halmos symbolic proofs;
+Slither (fail on high), Aderyn and Solhint static gates; an EIP-170 size guard;
+an offline gas ledger.
+
+Track record so far, across this repo and the staking sibling: **21 external
+reports triaged (8 public + 13 private), every confirmed finding fixed with
+regression tests, zero Critical** — no direct theft or permanent freeze of user
+funds has ever been demonstrated. Internal adversarial audits are red-first:
+a finding becomes a failing CI test before any fix is written. The public
+ledger of findings and credits lives in
+[`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) and [`REPORTS.md`](./REPORTS.md).
+
 ## Bounty programme
 
 **40,000,000 BZPX is allocated to security research** — 4% of a fixed
