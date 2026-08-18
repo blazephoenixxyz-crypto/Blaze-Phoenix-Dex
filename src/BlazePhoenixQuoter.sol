@@ -359,6 +359,17 @@ contract BlazePhoenixQuoter {
         for (uint256 h; h < route.hops.length; h++) {
             uint256 plannedIn = route.hops[h].amountIn == 0
                 ? carry : route.hops[h].amountIn;
+            // HOP-0 CAP — the quote-side twin of BlazePhoenixRouter.sol:514.
+            // carry starts at the caller's FULL order, but when the Solver's
+            // capacity clamp fired the plan committed LESS than that, so
+            // carry/plannedIn > 1 would rescale every leg back to its
+            // PRE-clamp size and dry-run the pool with liquidity the plan
+            // never committed — an "execution-grade" quote that no execution
+            // can fill (the NetGakarot shape the Router already caps). The
+            // Router never spends more than the committed Σ leg.amountIn on
+            // hop 0; the quote must not price more than the Router spends.
+            // Later hops legitimately scale: their carry is a real output.
+            if (h == 0 && carry > plannedIn) carry = plannedIn;
             uint256 hopOut;
             for (uint256 l; l < route.hops[h].legs.length; l++) {
                 Leg memory leg = route.hops[h].legs[l];
