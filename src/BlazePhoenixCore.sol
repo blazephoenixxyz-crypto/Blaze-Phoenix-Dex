@@ -384,6 +384,62 @@ library BlazePhoenixCore {
         return keccak256(abi.encode(currency0, currency1, fee, tickSpacing, hooks));
     }
 
+    /// @notice Allowlist-free, deployer-blind discovery of hookless V4 pools for a
+    ///         pair. V4 is a singleton: every pool of every deployer is
+    ///         keccak256(PoolKey) in the one PoolManager, so a pool is found not by
+    ///         trusting who made it but by DERIVING its id. Serious hookless
+    ///         liquidity clusters on a tiny canonical (fee, tickSpacing) grid, so we
+    ///         derive those ids (hooks = address(0)) and probe each via extsload;
+    ///         the ones that read a live price+liquidity exist. `view` → eth_call →
+    ///         zero gas, deterministic, no registry, no admin. Replaces a 99-call
+    ///         sweep / an admin allowlist with one read.
+    ///
+    ///         Hooked pools carry an arbitrary 160-bit hook address (only the low 14
+    ///         bits are constrained, to permission flags) and are therefore
+    ///         unenumerable on-chain by construction — a contract cannot read the
+    ///         Initialize logs that are their only registry. They are out of scope
+    ///         here; an off-chain feed would supply their (self-proving) keys.
+    ///         Produces KIND_V4 (ERC20-pair) pools; native-ETH V4 pools (currency0 =
+    ///         address(0), KIND_V4_NATIVE) are a separate axis and not derived here.
+    ///         Tiers verified live on Base: all four carry a WETH/USDC pool.
+    function discoverV4(address manager, address tokenIn, address tokenOut)
+        internal view returns (PoolInfo[] memory found)
+    {
+        if (manager == address(0)) return new PoolInfo[](0);
+        (address c0, address c1) = sortTokens(tokenIn, tokenOut);
+        // Canonical hookless (fee, tickSpacing) grid, probed one tier at a time via
+        // a shared helper (kept out of an array literal so the optimizer emits one
+        // copy, not four inlined ones).
+        PoolInfo[] memory tmp = new PoolInfo[](4);
+        uint256 cnt;
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1,   100,   1);
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1,   500,  10);
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1,  3000,  60);
+        cnt = _probeV4Tier(tmp, cnt, manager, c0, c1, 10000, 200);
+        found = new PoolInfo[](cnt);
+        for (uint256 i; i < cnt; ) { found[i] = tmp[i]; unchecked { ++i; } }
+    }
+
+    /// @dev Derive one canonical hookless V4 PoolId, probe it via extsload, and
+    ///      append it to `tmp` if it holds a live price and liquidity. Returns the
+    ///      updated count.
+    function _probeV4Tier(
+        PoolInfo[] memory tmp, uint256 cnt, address manager,
+        address c0, address c1, uint24 fee, int24 tickSpacing
+    ) internal view returns (uint256) {
+        bytes32 pid = computeV4PoolId(c0, c1, fee, tickSpacing, address(0));
+        (uint160 sp, uint128 liq, , ) = v4SqrtAndLiq(manager, pid);
+        if (sp != 0 && liq != 0) {
+            tmp[cnt] = PoolInfo({
+                active: true, stable: false, kind: KIND_V4,
+                fee: fee, tickSpacing: tickSpacing,
+                token0: c0, token1: c1, pool: manager, hooks: address(0)
+            });
+            unchecked { ++cnt; }
+        }
+        return cnt;
+    }
+
     /// @notice True if `a` has runtime bytecode.
     function hasCode(address a) internal view returns (bool ok) {
         uint256 sz;
