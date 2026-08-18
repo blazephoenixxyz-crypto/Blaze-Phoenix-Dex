@@ -75,13 +75,13 @@ contract V4DiscoveryTest is Test {
         assertEq(found.length, 0, "a price without liquidity is not a routable pool");
     }
 
-    function test_emptyWhenNoManager() public view {
+    function test_emptyWhenNoManager() public {
         PoolInfo[] memory found = BPC.discoverV4(address(0), WETH, USDC);
-        assertEq(found.length, 0, "no manager on this chain → nothing to discover");
+        assertEq(found.length, 0, "no manager on this chain -> nothing to discover");
     }
 
-    function test_emptyWhenNoPools() public view {
+    function test_emptyWhenNoPools() public {
         PoolInfo[] memory found = BPC.discoverV4(address(mgr), WETH, USDC);
-        assertEq(found.length, 0, "unseeded manager → no pools");
+        assertEq(found.length, 0, "unseeded manager -> no pools");
     }
 }
