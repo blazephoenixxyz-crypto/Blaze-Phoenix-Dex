@@ -1192,6 +1192,19 @@ contract BlazePhoenixRouter {
             got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
             if (got == 0) revert RouterE(8);
         }
+        // HUNT-001. `leg.pool` is an arbitrary address off the caller's Route —
+        // no registry validates it — and the approval above is NOT necessarily
+        // spent: this arm judges success by the tokenOut delta, so a "pool" that
+        // pays out of its own stock without pulling anything completes the swap
+        // and walks away holding a standing allowance over the Router. That is
+        // the Dexible / LI.FI / Kame shape. The holds-nothing sweep keeps the
+        // Router empty at rest, which is what bounds the damage today — but a
+        // standing approval to an attacker is a liability that survives every
+        // future change to that invariant, so retire it here, at its source.
+        // safeApprove (not forceApprove) reuses the primitive already inlined
+        // for the USDT pre-set path; approve(spender, 0) is the one write no
+        // ERC-20, strict or not, ever rejects.
+        BPC.safeApprove(tokenIn, leg.pool, 0);
     }
 
     function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private {
