@@ -1188,28 +1188,39 @@ contract BlazePhoenixHub {
     ) private {
         HubStore storage $ = _store();
         bytes32[] storage ks = $.pairKeys[t0][t1];
-        if (ks.length >= MAX_SLOTS) {
-            // Evict the lowest-scoring slot (rank by fitness, not vitality,
-            // consistent with _canInsert so the pool we admit is the pool we
-            // chose to make room for).
-            uint256 worstIdx;
-            uint256 worst = type(uint256).max;
-            for (uint256 i; i < ks.length; ) {
-                uint256 v = _psiOfSlot($.slot[ks[i]]);
-                if (v < worst) { worst = v; worstIdx = i; }
-                unchecked { ++i; }
+        // KEY-EXISTENCE GUARD: re-registering a key already listed for this
+        // pair (addV4/seedPool called twice with identical params) must refresh
+        // the slot in place, never append a second copy. getActivePools does
+        // not dedup, so a duplicate both double-lists the pool to the Solver
+        // and inflates the O(n) scan every quote walks. poolOf is the O(1)
+        // witness of presence — written only below, cleared only on eviction,
+        // which is the same moment the key leaves ks. recordSwap and the
+        // permissionless V4 path already self-guard (slot != 0 / poolOf != 0),
+        // so this only closes the operator entry-points.
+        if ($.poolOf[key] == address(0)) {
+            if (ks.length >= MAX_SLOTS) {
+                // Evict the lowest-scoring slot (rank by fitness, not vitality,
+                // consistent with _canInsert so the pool we admit is the pool we
+                // chose to make room for).
+                uint256 worstIdx;
+                uint256 worst = type(uint256).max;
+                for (uint256 i; i < ks.length; ) {
+                    uint256 v = _psiOfSlot($.slot[ks[i]]);
+                    if (v < worst) { worst = v; worstIdx = i; }
+                    unchecked { ++i; }
+                }
+                bytes32 evictKey = ks[worstIdx];
+                address evictPool = $.poolOf[evictKey];
+                $.slot[evictKey] = 0;
+                $.poolOf[evictKey] = address(0);
+                // hooksOf: clear only when set — non-V4 pools never wrote it, and
+                // a 0→0 SSTORE still costs 2.2k cold for nothing.
+                if ($.hooksOf[evictKey] != address(0)) $.hooksOf[evictKey] = address(0);
+                ks[worstIdx] = key;
+                emit Evicted(evictKey, evictPool);
+            } else {
+                ks.push(key);
             }
-            bytes32 evictKey = ks[worstIdx];
-            address evictPool = $.poolOf[evictKey];
-            $.slot[evictKey] = 0;
-            $.poolOf[evictKey] = address(0);
-            // hooksOf: clear only when set — non-V4 pools never wrote it, and
-            // a 0→0 SSTORE still costs 2.2k cold for nothing.
-            if ($.hooksOf[evictKey] != address(0)) $.hooksOf[evictKey] = address(0);
-            ks[worstIdx] = key;
-            emit Evicted(evictKey, evictPool);
-        } else {
-            ks.push(key);
         }
         bool bridged = $.isBridge[t0] || $.isBridge[t1];
         uint256 s = BPC.encodeSlot(
