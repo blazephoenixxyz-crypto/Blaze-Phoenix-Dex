@@ -542,6 +542,21 @@ library BlazePhoenixCore {
         }
     }
 
+    /// @notice Uniswap-V3 pool fee via the immutable fee() getter (0xddca3f43).
+    /// @dev    Returns 0 when unreadable — Algebra's fee is dynamic and lives in
+    ///         globalState(), not fee(), so an Algebra pool reads 0 here and the
+    ///         caller must fail closed (never trust caller-supplied leg.fee for
+    ///         the protocol-fee base: execution charges the pool's own fee).
+    function getV3Fee(address pool) internal view returns (uint24 f) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0xddca3f4300000000000000000000000000000000000000000000000000000000)
+            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
+                if iszero(lt(returndatasize(), 32)) { f := and(mload(m), 0xffffff) }
+            }
+        }
+    }
+
     /// @notice V3 slot0 → sqrtPriceX96.
     function getSqrtPriceX96(address pool) internal view returns (uint160 sp) {
         assembly ("memory-safe") {

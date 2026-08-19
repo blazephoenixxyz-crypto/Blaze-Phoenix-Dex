@@ -41,12 +41,20 @@ contract FindingAnchorDonationTest is Test {
     function test_WithoutDonation_RoutesHonestPool() public view {
         assertEq(_routedPool(), address(honest), "anchor must select the deep honest pool");
     }
-    function test_WithDonation_AnchorFlipsToAttackerPool() public {
+    // FIXED (T2): a raw-balance donation must NOT move the anchor. After donating
+    // 2000e18 tokenOut to the attacker pool, the band must still anchor on real
+    // depth (getReserves), so the honest deep pool stays selected.
+    function test_WithDonation_AnchorHolds_RoutesHonest() public {
         tokenB.mint(address(this), 2000e18);
         tokenB.transfer(address(attacker), 2000e18);
-        assertEq(_routedPool(), address(attacker), "donation must flip the capital anchor");
+        assertEq(_routedPool(), address(honest), "donation must NOT flip the anchor");
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), AMOUNT_IN);
-        assertLt(plan.best.totalOut, 600e18, "gamed route must quote ~half the honest output");
-        emit log_named_uint("attacker_totalOut", plan.best.totalOut);
+        // Honest output here is ~499e18: a 1000e18 order into a 1000e18/1000e18
+        // pool is 100% of reserves, so constant-product delivers ~half. The
+        // attacker pool (1000e18/500e18) would deliver only ~249e18. Staying on
+        // honest (>=400e18) proves the donation no longer steers the route.
+        assertGt(plan.best.totalOut, 400e18, "must keep the honest pool output, not the ~249e18 gamed one");
+        emit log_named_uint("honest_totalOut", plan.best.totalOut);
     }
+
 }

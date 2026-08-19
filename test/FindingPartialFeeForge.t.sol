@@ -49,7 +49,7 @@ contract FindingPartialFeeForgeTest is Test {
     function _grossOut() internal view returns (uint256) { return BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, POOL_FEE, zfo); }
     function _treasuries() internal view returns (uint256) { return tokenB.balanceOf(T1) + tokenB.balanceOf(T2); }
 
-    function test_PartialForge_EvadesHalfTheFee() public {
+    function test_PartialForge_DoesNotEvadeFee() public {
         uint24 forged = 500_000;
         uint256 gross = _grossOut();
         uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, forged, zfo);
@@ -62,19 +62,19 @@ contract FindingPartialFeeForgeTest is Test {
         uint256 delivered = router.swapExactIn(_route(forged), AMOUNT_IN, 1, user, block.timestamp + 1);
         uint256 collected = _treasuries() - tBefore;
         uint256 honestFee = BPC.mulDiv(gross, PROTOCOL_FEE_BPS, BPC.BPS);
-        uint256 forgedFee = BPC.mulDiv(forgedQuote, PROTOCOL_FEE_BPS, BPC.BPS);
         assertEq(delivered, gross - collected, "user receives gross minus collected fee");
-        assertApproxEqRel(collected, forgedFee, 0.01e18, "fee = 28bps of forged quote");
-        assertLt(collected, honestFee, "collected fee must be below the honest fee");
+        // FIXED (T1): the quote prices with the pool's REAL fee, so a forged
+        // leg.fee is ignored — the protocol still collects the honest fee.
+        assertApproxEqRel(collected, honestFee, 0.01e18, "fee must equal 28bps of the honest quote");
         uint256 t0 = _treasuries();
         vm.prank(user);
         router.swapExactIn(_route(POOL_FEE), AMOUNT_IN, 1, user, block.timestamp + 1);
         uint256 honestCollected = _treasuries() - t0;
         assertApproxEqRel(honestCollected, honestFee, 0.01e18, "honest swap collects full fee");
+        assertApproxEqRel(collected, honestCollected, 0.01e18, "forged leg.fee collects the SAME as honest");
         emit log_named_uint("collected_forged", collected);
         emit log_named_uint("collected_honest", honestCollected);
         emit log_named_uint("forged_quote", forgedQuote);
         emit log_named_uint("gross_out", gross);
-        assertLt(collected, honestCollected, "forged fee must collect less than honest");
     }
 }

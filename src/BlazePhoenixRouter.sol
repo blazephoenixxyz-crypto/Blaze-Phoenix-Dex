@@ -538,8 +538,16 @@ contract BlazePhoenixRouter {
                 uint160 sp = BPC.getSqrtPriceX96(leg.pool);
                 uint128 lq = BPC.getLiquidity(leg.pool);
                 if (legAmt != 0 && sp != 0 && lq != 0) {
-                    impactAcc += BPC.impactV3Bps(legAmt, sp, lq, leg.fee, leg.zeroForOne);
-                    quoteAcc  += BPC.outV3(legAmt, sp, lq, leg.fee, leg.zeroForOne);
+                    // A1/C1b/T1: the fee base must price with the fee EXECUTION
+                    // charges (the pool's own), never the caller's leg.fee — a
+                    // partial forge (leg.fee in [50%,100%) coverage) otherwise
+                    // shrinks the base and evades up to ~half the protocol fee.
+                    // Read the real V3 fee(); an unreadable fee (Algebra dynamic /
+                    // non-standard) fails closed to an unquotable fee so the
+                    // MIN_QUOTE_COVERAGE_BPS floor charges on the delivered amount.
+                    uint24 rf = BPC.getV3Fee(leg.pool);
+                    impactAcc += BPC.impactV3Bps(legAmt, sp, lq, rf != 0 ? rf : leg.fee, leg.zeroForOne);
+                    quoteAcc  += BPC.outV3(legAmt, sp, lq, rf != 0 ? rf : 0xFFFFFF, leg.zeroForOne);
                 } else { impactAcc += 50; }
             } else if (leg.kind == BPC.KIND_STABLE) {
                 quoteAcc += _stableLegQuote(leg, hop.tokenIn, legAmt);
