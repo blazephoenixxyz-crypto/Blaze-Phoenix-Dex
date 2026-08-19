@@ -1,40 +1,38 @@
-# Security Hall of Fame — BlazePhoenix DEX (V2)
+# Security Hall of Fame — BlazePhoenix
 
-BlazePhoenix runs an open, permissive bug-bounty: read the verified source, find
-a real issue, report it, and — if it holds up — you go here, with our thanks.
-Every listed finding was reproduced against this repo's own code and closed with
-a regression test that fails on the old code and passes on the fix.
+BlazePhoenix runs an open, permissive bug-bounty across both
+[BlazePhoenix DEX](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex)
+and [BlazePhoenix Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking),
+sharing one reward pool. Read the verified source, find a real issue, report it —
+and, with your consent, you are thanked here.
+
+We keep the technical details in the verified source and our private records, not
+on this page. This is only our gratitude and a list of names: every researcher
+below reported a real issue that we reproduced against this repo's own code.
 
 > Private disclosure: **security@blazephoenix.xyz** / blazephoenixxyz@proton.me.
 > Non-critical reports may be filed as a GitHub issue. Responsible disclosure is
-> credited here and, once the bounty pool is funded, paid. We keep fix internals
-> brief in public — the verified source is the record.
+> credited here and, once the bounty pool is funded, paid.
 
 ---
 
-## 🏆 Researchers
+## 🏆 With our thanks
 
-| Researcher | Ref | Severity | Status |
-|---|---|---|---|
-| **[NetGakarot (Gakarot)](https://github.com/NetGakarot)** | #1 — route input-scaling vs. the capacity clamp | **High** | ✅ Fixed & regression-tested |
+To everyone who took the time to read the source, think adversarially, and tell
+us privately what they found — thank you. You made BlazePhoenix safer.
+
+- **[NetGakarot (Gakarot)](https://github.com/NetGakarot)**
+- **duxun**
+- **AmanDara1**
+- **amitbhakar**
+- **auditor_1b3f2c**
+- **siam siddik**
+- **Thomas**
+- **llen**
+- **Anonymous**
 
 ---
 
-## Findings (summary only)
-
-### #1 — Router input-scaling could override the Solver's capacity clamp
-**Reporter:** NetGakarot (Gakarot) · **Severity:** High
-
-A precise, well-reproduced report: under a specific single-venue condition the
-Router's per-hop input scaling could override the Solver's capacity clamp, so a
-route the Solver intended as a safe partial fill would either fail or over-fill.
-Excellent root-cause analysis and a clean proof-of-concept.
-
-**Resolution.** Fixed by enforcing, at execution, the invariant the clamp already
-intended (a hop cannot spend beyond what its legs committed; the remainder is
-returned to the caller), plus honest plan reporting. Fee-on-transfer behaviour is
-unchanged. Details live in the verified source and the regression test
-`test/RouterUndoesSolverCapacityClamp.t.sol`; we deliberately keep the public
-write-up high-level.
-
-*Thank you, NetGakarot — this is exactly the kind of report the bounty is for.*
+*If you reported an issue and would like your name added, changed, or removed —
+or a handle linked — just tell us at the address above. Recognition here is
+offered with your consent, whether or not an award applies.*
