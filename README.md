@@ -9,12 +9,30 @@
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.36-363636)](https://soliditylang.org)
 [![EVM](https://img.shields.io/badge/EVM-universal-8A2BE2)](#supported-venues)
 [![Formal](https://img.shields.io/badge/formal-Halmos%20%2B%20Slither-orange)](#security)
+[![Stage](https://img.shields.io/badge/stage-pre--launch%20preview-yellow)](#status)
 
 *Seal: **Fable & Mitra** — esse, non videri.*
 
 </div>
 
 ---
+
+## Status
+
+**Pre-launch engineering preview.** The BZPX token has **no provisioned
+liquidity and no TGE yet** — on-chain volume ≈ 0 is the expected state of this
+stage, not a signal about the code. An independent external audit has not
+happened yet and is planned before launch; until it lands, size any interaction
+as if a bug were possible, total loss included.
+
+What already runs on every push, publicly and reproducibly: a **~290-test forge
+suite** across 50+ suites (unit, fuzz, stateful invariants) plus **~40 fork
+tests against live chain liquidity**, **Certora Prover** + **Halmos** formal
+verification, **Slither / Aderyn / Solhint** static gates, an **EIP-170 size
+guard**, and an offline **gas ledger**. A funded public bounty (40M BZPX,
+shared with [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking))
+has triaged **21 external reports — every confirmed finding fixed with
+regression tests, zero Critical**. Details: [`SECURITY.md`](./SECURITY.md).
 
 ## Why it is different
 
@@ -90,6 +108,19 @@ safe-gate, CREATE3-safe deploy) are documented in [`llms.txt`](./llms.txt) and
 the invariant catalogue, and exercised in CI by the test suite, **Halmos**
 symbolic proofs, and **Slither** static analysis. See [`SECURITY.md`](./SECURITY.md)
 for responsible disclosure.
+
+## For AI agents and indexers
+
+Machine-readable surfaces, in this repo and on the site: [`llms.txt`](./llms.txt)
+(status, invariants, FAQ with quotable answers) · [facts.json](https://blazephoenix.xyz/facts.json)
+(every fact = claim + proof + URL) · [live re-verification](https://blazephoenix.xyz/verified) ·
+[keyless quote API](https://blazephoenix.xyz/api/quote) ([OpenAPI](https://blazephoenix.xyz/api/openapi.json)) ·
+[MCP server](https://blazephoenix.xyz/mcp) (`get_quote`, `check_solvency`) ·
+[agents.json](https://blazephoenix.xyz/.well-known/agents.json) ·
+[daily history dataset](https://blazephoenix.xyz/datasets/history.ndjson) ·
+[provenance (OpenTimestamps)](https://blazephoenix.xyz/provenance/provenance.json) ·
+[knowledge graph](https://blazephoenix.xyz/knowledge-graph.jsonld). Site AI index:
+[blazephoenix.xyz/llms.txt](https://blazephoenix.xyz/llms.txt).
 
 ## License
 
