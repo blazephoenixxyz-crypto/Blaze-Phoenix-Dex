@@ -884,7 +884,27 @@ library BlazePhoenixCore {
             uint160 sp  = getSqrtPriceX96(c.pool);
             uint128 liq = getLiquidity(c.pool);
             out      = outV3(amountIn, sp, liq, c.fee, c.zeroForOne);
-            depthWad = uint256(liq);
+            // depthWad must be TOKEN-DENOMINATED to be comparable across venue
+            // families: the Solver's band anchor picks max(depths[]) across V2
+            // (min(r0,r1), linear token units) and V3 candidates alike. Raw L is
+            // on a sqrt scale, so returning it made a V3 pool out-anchor an
+            // equally-deep V2 pool by a factor of ~sqrt(price) — a systematic
+            // bias at any price away from 1, not an edge case. Convert L to the
+            // virtual reserves it represents at the current price and take the
+            // short side, the same quantity V2 reports:
+            //     x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
+            // mulDiv carries the 512-bit intermediate (L*sp overflows uint256).
+            // This tightens NO tolerance and adds NO revert path — it only fixes
+            // the unit of an existing comparison. Within a family the price
+            // cancels in _weights' depth[i]/maxByFam ratio, so allocation is
+            // unchanged; only the cross-family anchor choice is corrected.
+            if (sp != 0) {
+                uint256 x0 = mulDiv(uint256(liq), Q96, sp);
+                uint256 x1 = mulDiv(uint256(liq), sp, Q96);
+                depthWad = x0 < x1 ? x0 : x1;
+            } else {
+                depthWad = uint256(liq);
+            }
             return (out, depthWad);
         }
         if (k == KIND_STABLE) {
