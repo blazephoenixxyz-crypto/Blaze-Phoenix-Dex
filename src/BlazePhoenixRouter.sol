@@ -538,8 +538,16 @@ contract BlazePhoenixRouter {
                 uint160 sp = BPC.getSqrtPriceX96(leg.pool);
                 uint128 lq = BPC.getLiquidity(leg.pool);
                 if (legAmt != 0 && sp != 0 && lq != 0) {
-                    impactAcc += BPC.impactV3Bps(legAmt, sp, lq, leg.fee, leg.zeroForOne);
-                    quoteAcc  += BPC.outV3(legAmt, sp, lq, leg.fee, leg.zeroForOne);
+                    // A1/C1b/T1: the fee base must price with the fee EXECUTION
+                    // charges (the pool's own), never the caller's leg.fee — a
+                    // partial forge (leg.fee in [50%,100%) coverage) otherwise
+                    // shrinks the base and evades up to ~half the protocol fee.
+                    // Read the real V3 fee(); an unreadable fee (Algebra dynamic /
+                    // non-standard) fails closed to an unquotable fee so the
+                    // MIN_QUOTE_COVERAGE_BPS floor charges on the delivered amount.
+                    uint24 rf = BPC.getV3Fee(leg.pool);
+                    impactAcc += BPC.impactV3Bps(legAmt, sp, lq, rf != 0 ? rf : leg.fee, leg.zeroForOne);
+                    quoteAcc  += BPC.outV3(legAmt, sp, lq, rf != 0 ? rf : 0xFFFFFF, leg.zeroForOne);
                 } else { impactAcc += 50; }
             } else if (leg.kind == BPC.KIND_STABLE) {
                 quoteAcc += _stableLegQuote(leg, hop.tokenIn, legAmt);
@@ -1192,6 +1200,19 @@ contract BlazePhoenixRouter {
             got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
             if (got == 0) revert RouterE(8);
         }
+        // HUNT-001. `leg.pool` is an arbitrary address off the caller's Route —
+        // no registry validates it — and the approval above is NOT necessarily
+        // spent: this arm judges success by the tokenOut delta, so a "pool" that
+        // pays out of its own stock without pulling anything completes the swap
+        // and walks away holding a standing allowance over the Router. That is
+        // the Dexible / LI.FI / Kame shape. The holds-nothing sweep keeps the
+        // Router empty at rest, which is what bounds the damage today — but a
+        // standing approval to an attacker is a liability that survives every
+        // future change to that invariant, so retire it here, at its source.
+        // safeApprove (not forceApprove) reuses the primitive already inlined
+        // for the USDT pre-set path; approve(spender, 0) is the one write no
+        // ERC-20, strict or not, ever rejects.
+        BPC.safeApprove(tokenIn, leg.pool, 0);
     }
 
     function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private {

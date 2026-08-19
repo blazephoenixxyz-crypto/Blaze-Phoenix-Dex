@@ -95,3 +95,5 @@ mainnet = "https://lb.drpc.live/ethereum/${DRPC_KEY}"
 optimism = "https://lb.drpc.live/optimism/${DRPC_KEY}"
 arbitrum = "https://lb.drpc.live/arbitrum/${DRPC_KEY}"
 robinhood = "https://lb.drpc.live/robinhood/${DRPC_KEY}"
+# Unichain (chainId 130) — verificada ao vivo 2026-08-19 via dRPC.
+unichain = "https://lb.drpc.live/unichain/${DRPC_KEY}"

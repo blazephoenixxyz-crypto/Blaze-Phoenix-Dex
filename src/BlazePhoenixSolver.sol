@@ -416,18 +416,23 @@ contract BlazePhoenixSolver {
             // cheap to inflate with a one-spacing position, so a fully robust anchor
             // (L discounted by tick width, or a full-size-quote sanity check on the
             // band base) is deferred WITH the V2 tick-cap work.
-            uint256 maxBal;
-            uint256 anchorRate;
+            // T2 (Thomas): anchor on MEASURED DEPTH, never raw balanceOf. The old
+            // capital anchor read balsOut[i] = balanceOf(tokenOut, pool), which a
+            // plain donation (transfer to the pool) inflates WITHOUT moving the
+            // reserve or price — and the donation is recoverable (V2 skim / V3 LP
+            // claim), so it is not "capital at risk". That let an attacker win the
+            // anchor with a donation, center the band on their bad rate, and filter
+            // the honest deep pool OUT (~75% user loss, preview gamed identically).
+            // depths[] is getReserves (V2/Solidly) / getLiquidity (V3), which a
+            // donation cannot move; V4 depth is its measured liquidity. Falls back
+            // to the median only when no candidate reports depth.
             uint256 maxDepth;
             uint256 depthRate;
             for (uint256 i; i < n; ) {
-                if (balsOut[i] > maxBal) { maxBal = balsOut[i]; anchorRate = rates[i]; }
-                if (depths[i]  > maxDepth) { maxDepth = depths[i]; depthRate = rates[i]; }
+                if (depths[i] > maxDepth) { maxDepth = depths[i]; depthRate = rates[i]; }
                 unchecked { ++i; }
             }
-            uint256 base = maxBal > 0
-                ? anchorRate
-                : (maxDepth > 0 ? depthRate : median);
+            uint256 base = maxDepth > 0 ? depthRate : median;
             // Zero-base guard (devil's-advocate): a live candidate can have
             // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
             // depth/capital anchor could set base=0 and collapse the band to
