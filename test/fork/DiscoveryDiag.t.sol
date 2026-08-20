@@ -15,6 +15,11 @@ contract DiscoveryDiagTest is Test {
     BlazePhoenixHub hub;
 
     function setUp() public {
+        // Sem DRPC_KEY nao ha fork. SALTAR, nao falhar: um teste que rebenta por falta de uma
+        // variavel de ambiente e ruido que esconde falhas reais na suite local — foram 15 destas
+        // a mascarar o resultado. O job `fork-tests` do CI tem o segredo e continua a corre-los
+        // a serio, portanto a cobertura nao se perde; so deixa de haver vermelho falso.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("base");
         (hub, , , ) = BaseTestDeploy.deploy(address(this));
     }

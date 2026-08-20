@@ -241,6 +241,11 @@ contract OptimismProbeTest is ChainProbeBase {
     address constant OP_REF_POOL = 0xc1738D90E2E26C35784A0d3E3d8A9f795074bcA4;
 
     function setUp() public {
+        // Sem DRPC_KEY nao ha fork. SALTAR, nao falhar: um teste que rebenta por falta de uma
+        // variavel de ambiente e ruido que esconde falhas reais na suite local — foram 15 destas
+        // a mascarar o resultado. O job `fork-tests` do CI tem o segredo e continua a corre-los
+        // a serio, portanto a cobertura nao se perde; so deixa de haver vermelho falso.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("optimism");
         _core(OP_V4_MGR);
         hub.addBridge(OP_WETH);
@@ -317,6 +322,11 @@ contract ArbitrumProbeTest is ChainProbeBase {
     address constant ARB_REF_POOL = 0xC6962004f452bE9203591991D15f6b388e09E8D0;
 
     function setUp() public {
+        // Sem DRPC_KEY nao ha fork. SALTAR, nao falhar: um teste que rebenta por falta de uma
+        // variavel de ambiente e ruido que esconde falhas reais na suite local — foram 15 destas
+        // a mascarar o resultado. O job `fork-tests` do CI tem o segredo e continua a corre-los
+        // a serio, portanto a cobertura nao se perde; so deixa de haver vermelho falso.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("arbitrum");
         _core(ARB_V4_MGR);
         hub.addBridge(ARB_WETH);
@@ -383,6 +393,11 @@ contract RobinhoodProbeTest is ChainProbeBase {
     address constant RH_REF_POOL = 0x52e65B17fB6E5BA00Ed806f37Afcd2DaA50271Ca;
 
     function setUp() public {
+        // Sem DRPC_KEY nao ha fork. SALTAR, nao falhar: um teste que rebenta por falta de uma
+        // variavel de ambiente e ruido que esconde falhas reais na suite local — foram 15 destas
+        // a mascarar o resultado. O job `fork-tests` do CI tem o segredo e continua a corre-los
+        // a serio, portanto a cobertura nao se perde; so deixa de haver vermelho falso.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("robinhood");
         _core(RH_V4_MGR);
         hub.addBridge(RH_WETH);
@@ -454,6 +469,11 @@ contract BaseV4ProbeTest is ChainProbeBase {
     address constant BASE_USDC   = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
     function setUp() public {
+        // Sem DRPC_KEY nao ha fork. SALTAR, nao falhar: um teste que rebenta por falta de uma
+        // variavel de ambiente e ruido que esconde falhas reais na suite local — foram 15 destas
+        // a mascarar o resultado. O job `fork-tests` do CI tem o segredo e continua a corre-los
+        // a serio, portanto a cobertura nao se perde; so deixa de haver vermelho falso.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("base");
     }
 
