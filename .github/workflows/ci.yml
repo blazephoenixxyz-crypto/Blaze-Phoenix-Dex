@@ -40,6 +40,23 @@ jobs:
             exit 1
           fi
 
+      - name: Depth unit guard (L cru nunca vira depthWad)
+        # `depthWad` tem de ser TOKEN-denominado para ser comparavel entre familias de venue:
+        # o V2 reporta min(r0,r1), unidades lineares. L esta em escala-RAIZ, logo entrega-lo cru
+        # faz uma pool concentrada ancorar acima de uma V2 igualmente funda por ~sqrt(preco).
+        # Isto ja foi corrigido TRES vezes em sitios diferentes (universalQuote V3, universalQuote
+        # V4, Hub.claimV4) e mesmo assim faltava num QUARTO (Router._recordHits), que corre em
+        # todos os swaps executados e reescrevia o bucket que o claimV4 tinha gravado certo.
+        # A conversao vive agora numa unica primitiva, `BPC.depthFromL`. Esta guarda existe para
+        # que nao apareca um quinto irmao: nenhum produtor de profundidade pode atribuir liquidez
+        # crua. O corpo da propria primitiva devolve `uint256(liq)` no caso sp == 0, e por isso e
+        # um `return`, nao uma atribuicao — fica de fora do padrao por construcao.
+        run: |
+          if grep -rnE '(depth|depthWad|depthTok)[[:space:]]*=[[:space:]]*uint256\((liq|BPC\.getLiquidity|getLiquidity)' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Liquidez crua atribuida a uma variavel de profundidade. L e escala-raiz; usa BPC.depthFromL(liq, sqrtPriceX96) para obter unidades de token."
+            exit 1
+          fi
+
       - name: Build
         run: forge build
 

@@ -558,6 +558,28 @@ library BlazePhoenixCore {
     }
 
     /// @notice V3 slot0 → sqrtPriceX96.
+    /// @dev L -> profundidade TOKEN-DENOMINADA. A UNICA copia.
+    ///      `depthWad` tem de ser comparavel entre familias de venue: o V2 reporta min(r0,r1),
+    ///      unidades lineares de token. L esta em escala-RAIZ, logo entrega-lo cru faz uma pool
+    ///      concentrada ancorar acima de uma V2 igualmente funda por ~sqrt(preco) — vies
+    ///      sistematico em qualquer par cujo preco esteja longe de 1, nao caso limite.
+    ///      Converte L nas reservas virtuais que representa ao preco corrente e toma o lado curto:
+    ///          x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
+    ///      mulDiv carrega o intermedio de 512 bits (L*sp transborda uint256).
+    ///
+    ///      PORQUE E UMA PRIMITIVA E NAO TRES COPIAS: esta conversao existia inline em TRES
+    ///      sitios (universalQuote V3, universalQuote V4, Hub.claimV4) e faltava por completo num
+    ///      QUARTO (Router._recordHits), que corre em todos os swaps executados. Copias irmas que
+    ///      divergem sao a assinatura de defeito desta base de codigo — o mulDiv de 512 bits e a
+    ///      fee viva do Algebra foram a mesma coisa. Uma copia nao pode divergir de si propria.
+    ///      `sp == 0` (leitura falhada) devolve L cru, preservando o comportamento anterior.
+    function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {
+        if (sp == 0) return uint256(liq);
+        uint256 x0 = mulDiv(uint256(liq), Q96, sp);
+        uint256 x1 = mulDiv(uint256(liq), sp, Q96);
+        return x0 < x1 ? x0 : x1;
+    }
+
     function getSqrtPriceX96(address pool) internal view returns (uint160 sp) {
         assembly ("memory-safe") {
             let m := mload(0x40)
@@ -969,13 +991,7 @@ library BlazePhoenixCore {
             // the unit of an existing comparison. Within a family the price
             // cancels in _weights' depth[i]/maxByFam ratio, so allocation is
             // unchanged; only the cross-family anchor choice is corrected.
-            if (sp != 0) {
-                uint256 x0 = mulDiv(uint256(liq), Q96, sp);
-                uint256 x1 = mulDiv(uint256(liq), sp, Q96);
-                depthWad = x0 < x1 ? x0 : x1;
-            } else {
-                depthWad = uint256(liq);
-            }
+            depthWad = depthFromL(liq, sp);
             return (out, depthWad);
         }
         if (k == KIND_STABLE) {
@@ -1047,11 +1063,7 @@ library BlazePhoenixCore {
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
             // ~sqrt(price). sp is non-zero here (guarded on entry).
-            {
-                uint256 v0 = mulDiv(uint256(liq), Q96, sp);
-                uint256 v1 = mulDiv(uint256(liq), sp, Q96);
-                depthWad = v0 < v1 ? v0 : v1;
-            }
+            depthWad = depthFromL(liq, sp);
             return (out, depthWad);
         }
     }

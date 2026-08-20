@@ -1514,10 +1514,19 @@ contract BlazePhoenixRouter {
                     bytes32 pid = leg.kind == BPC.KIND_V4_NATIVE
                         ? BPC.computeV4PoolId(address(0), t1, leg.fee, leg.tickSpacing, leg.hooks)
                         : BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
-                    ( , uint128 liq, , ) = BPC.v4SqrtAndLiq(v4mgr, pid);
-                    depth = uint256(liq);
+                    // UNIDADES: token-denominado, como os outros tres produtores de depthWad
+                    // (universalQuote V3, universalQuote V4, Hub.claimV4). Este era o QUARTO
+                    // sitio e o unico sem a conversao — e corre em TODOS os swaps executados,
+                    // pelo que o `tickSlot` de recordSwap reescrevia o bucket correto que o
+                    // claimV4 tinha gravado, desfazendo esse fix no primeiro swap roteado.
+                    // O sqrtPrice ja vinha a ser lido aqui e deitado fora: converter e gratis.
+                    (uint160 sp4, uint128 liq, , ) = BPC.v4SqrtAndLiq(v4mgr, pid);
+                    depth = BPC.depthFromL(liq, sp4);
                 } else {
-                    depth = uint256(BPC.getLiquidity(leg.pool));
+                    // V3/Algebra: L cru esta em escala-raiz e nao e comparavel com o min(r0,r1)
+                    // que o V2 reporta. Uma leitura de slot0 a mais no caminho de registo (que
+                    // ja corre dentro de try/catch e fora do caminho critico do swap).
+                    depth = BPC.depthFromL(BPC.getLiquidity(leg.pool), BPC.getSqrtPriceX96(leg.pool));
                 }
                 try hub.recordSwap(
                     leg.pool, leg.kind, leg.fee, leg.hooks,
