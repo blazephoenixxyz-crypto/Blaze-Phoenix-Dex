@@ -554,19 +554,39 @@ contract BlazePhoenixRouter {
                 // Real concentrated-liquidity impact, matching the Solver's
                 // plan-time computation (Core.impactV3Bps). A dead read
                 // (sp/liq == 0) falls back to the conservative constant.
-                uint160 sp = BPC.getSqrtPriceX96(leg.pool);
+                // Preco E fee viva na MESMA leitura: v3StateAndDynFee faz slot0() e, se falhar,
+                // globalState() do Algebra — que devolve preco, tick e fee juntos. O
+                // getSqrtPriceX96 que estava aqui ja fazia esse fallback mas DEITAVA FORA a
+                // palavra da fee que vinha na mesma resposta (o mesmo desperdicio que o
+                // v4SqrtAndLiq tinha no _recordHits). Para uma pool Algebra isto passa de tres
+                // staticcalls a duas.
+                (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(leg.pool);
                 uint128 lq = BPC.getLiquidity(leg.pool);
                 if (legAmt != 0 && sp != 0 && lq != 0) {
-                    // A1/C1b/T1: the fee base must price with the fee EXECUTION
-                    // charges (the pool's own), never the caller's leg.fee — a
-                    // partial forge (leg.fee in [50%,100%) coverage) otherwise
-                    // shrinks the base and evades up to ~half the protocol fee.
-                    // Read the real V3 fee(); an unreadable fee (Algebra dynamic /
-                    // non-standard) fails closed to an unquotable fee so the
-                    // MIN_QUOTE_COVERAGE_BPS floor charges on the delivered amount.
-                    uint24 rf = BPC.getV3Fee(leg.pool);
-                    impactAcc += BPC.impactV3Bps(legAmt, sp, lq, rf != 0 ? rf : leg.fee, leg.zeroForOne);
-                    quoteAcc  += BPC.outV3(legAmt, sp, lq, rf != 0 ? rf : 0xFFFFFF, leg.zeroForOne);
+                    // A1/C1b/T1 + INV-20: a base da fee tem de precificar com a fee que a EXECUCAO
+                    // cobra (a da propria pool), NUNCA a leg.fee do chamador — uma forja parcial
+                    // (leg.fee em [50%,100%) de cobertura) encolhe a base e evade ate metade da
+                    // fee do protocolo.
+                    //
+                    // O QUE ESTAVA ERRADO, e era o irmao da linha ao lado: o mesmo `rf` falhado
+                    // tinha DOIS fallbacks diferentes em linhas consecutivas — a cotacao caia para
+                    // 0xFFFFFF (fail-closed, o fix T1) e o impacto caia para `leg.fee`, ou seja
+                    // CALLDATA. E o impacto alimenta avgImpact -> ironFloorBps -> protocolFloorOut:
+                    // a fee que o chamador escreveu acabava a definir o piso do PROTOCOLO.
+                    //
+                    // E por baixo disso um HIGH: pools Algebra nao expoem fee(), logo getV3Fee
+                    // devolvia 0, a cotacao caia no sentinela e o braco do Router cotava ZERO para
+                    // toda a familia Algebra — o irmao nao-medido do INV-20, do lado de ca.
+                    //
+                    // PRECEDENCIA MEDIDA, uma so fee para os dois consumidores: fee estatica
+                    // medida (V3) ganha; senao a dinamica medida (Algebra); senao fail-closed com
+                    // um sentinela >= 1e6, que faz o outV3 devolver 0 e o impactV3Bps devolver BPS
+                    // (o maximo, conservador). Em nenhum ramo entra calldata.
+                    uint24 live = dyn
+                        ? (dynFee != 0 ? dynFee : 0xFFFFFF)
+                        : (BPC.getV3Fee(leg.pool) != 0 ? BPC.getV3Fee(leg.pool) : 0xFFFFFF);
+                    impactAcc += BPC.impactV3Bps(legAmt, sp, lq, live, leg.zeroForOne);
+                    quoteAcc  += BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne);
                 } else { impactAcc += 50; }
             } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
