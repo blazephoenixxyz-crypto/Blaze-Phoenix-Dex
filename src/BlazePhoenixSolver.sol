@@ -358,7 +358,7 @@ contract BlazePhoenixSolver {
                 // PoolManager singleton, so its true per-pool balance is 0: force
                 // it, sourcing the capital anchor only from real token-custodying
                 // kinds (also keeps _weights' "V4 reports balance 0" honest).
-                balsOut[i] = (cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
+                balsOut[i] = BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? 0
                     : BPC.balanceOf(tOut, cands[i].pool);
             }
@@ -521,7 +521,7 @@ contract BlazePhoenixSolver {
             // pool's REAL tokenOut holdings, so a thin pool can never inflate
             // totalOut past what it could physically pay. Zero balance (V4
             // singleton accounting) leaves the quote untouched.
-            if ((cands[i].kind == BPC.KIND_V3 || cands[i].kind == BPC.KIND_ALGEBRA)
+            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)
                 && balsOut[i] > 0)
             {
                 uint256 cap = BPC.mulDiv(balsOut[i], MAX_CONC_DRAIN_BPS, BPC.BPS);
@@ -563,7 +563,7 @@ contract BlazePhoenixSolver {
                 stable:      cands[i].stable,
                 amountIn:    share,
                 expectedOut: outL,
-                auxId:       (cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
+                auxId:       BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? bytes32(uint256(uint160(cands[i].token0 == tIn ? cands[i].token1 : cands[i].token0)))
                     : bytes32(0)
             });
@@ -644,8 +644,11 @@ contract BlazePhoenixSolver {
     ///      pair reserves (V2 / Solidly / Balancer), pool-quoted output
     ///      (Curve stable / crypto).
     function _famOf(uint8 kind) private pure returns (uint256) {
-        if (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
-            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE) return 0;
+        // Concentrada em qualquer forma — na pool (V3/Algebra) ou no singleton (V4). Quatro
+        // comparacoes escritas a mao eram quatro sitios para esquecer quando entra um kind
+        // novo; o KIND_V4_NATIVE provou-o ao obrigar a tocar nos cinco contratos sem trazer
+        // uma linha de matematica de pricing nova.
+        if (BPC.kindHasAny(kind, BPC.A_CONC_POOL | BPC.A_CONC_SING)) return 0;
         return 1;
     }
 
@@ -718,7 +721,7 @@ contract BlazePhoenixSolver {
         // pool's tick ladder at a collapsing marginal price. Aggressive but
         // possible (cap < quote <= holdings): full commit, promise capped.
         uint256 legIn = amountIn;
-        if (cand.kind == BPC.KIND_V3 || cand.kind == BPC.KIND_ALGEBRA) {
+        if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
             uint256 balOut = BPC.balanceOf(tOut, cand.pool);
             if (balOut > 0) {
                 uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);
@@ -737,7 +740,7 @@ contract BlazePhoenixSolver {
             fee: cand.fee, tickSpacing: cand.tickSpacing,
             zeroForOne: cand.token0 == tIn, stable: cand.stable,
             amountIn: legIn, expectedOut: out_,
-            auxId: (cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
+            auxId: BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)
                 ? bytes32(uint256(uint160(cand.token0 == tIn ? cand.token1 : cand.token0)))
                 : bytes32(0)
         });
@@ -779,7 +782,7 @@ contract BlazePhoenixSolver {
             tokenIn:     qIn,
             tokenOther:  other,
             hooks:       cand.hooks,
-            v4Manager:   (cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
+            v4Manager:   BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)
                 ? hub.v4PoolManager() : address(0)
         });
         (out, depth) = BPC.universalQuote(c, amt);
@@ -912,7 +915,7 @@ contract BlazePhoenixSolver {
                 (uint256 r0, uint256 r1) = BPC.getReserves(hop.legs[i].pool);
                 uint256 rIn = hop.legs[i].zeroForOne ? r0 : r1;
                 d = BPC.impactV2Bps(hop.legs[i].amountIn, rIn);
-            } else if (hop.legs[i].kind == BPC.KIND_V3 || hop.legs[i].kind == BPC.KIND_ALGEBRA) {
+            } else if (BPC.kindHas(hop.legs[i].kind, BPC.A_CONC_POOL)) {
                 uint128 liq  = BPC.getLiquidity(hop.legs[i].pool);
                 uint160 sp   = BPC.getSqrtPriceX96(hop.legs[i].pool);
                 d = BPC.impactV3Bps(
@@ -967,7 +970,7 @@ contract BlazePhoenixSolver {
                     (uint256 r0, uint256 r1) = BPC.getReserves(L.pool);
                     uint256 rIn = L.zeroForOne ? r0 : r1;
                     d = BPC.impactV2Bps(L.amountIn, rIn);
-                } else if (L.kind == BPC.KIND_V3 || L.kind == BPC.KIND_ALGEBRA) {
+                } else if (BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
                     uint128 liq2 = BPC.getLiquidity(L.pool);
                     uint160 sp2  = BPC.getSqrtPriceX96(L.pool);
                     d = BPC.impactV3Bps(
@@ -1007,15 +1010,11 @@ contract BlazePhoenixSolver {
         g = 30_000;
         uint256 n = hop.legs.length;
         for (uint256 i; i < n; ) {
-            uint8 k = hop.legs[i].kind;
-            uint256 base = 90_000;
-            if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) base = 110_000;
-            // Native V4 pays the same unlock plus the JIT unwrap/wrap
-            // (~35k estimated for WETH withdraw+deposit on warm slots;
-            // re-measure at the testnet rehearsal).
-            else if (k == BPC.KIND_V4) base = 180_000;
-            else if (k == BPC.KIND_V4_NATIVE) base = 215_000;
-            g += base;
+            // A escada vive na THETA_GAS (8 bits por kind, unidades de 5.000) e SO e lida
+            // aqui — por isso e uma palavra separada da THETA_ATTR, que o Router, o Hub e o
+            // Quoter carregam. O V4 nativo paga o mesmo unlock mais o unwrap/wrap JIT (~35k
+            // estimados para WETH withdraw+deposit em slots quentes; re-medir no ensaio).
+            g += BPC.kindGasBase(hop.legs[i].kind);
             unchecked { ++i; }
         }
     }
