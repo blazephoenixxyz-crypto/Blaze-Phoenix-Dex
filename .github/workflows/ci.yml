@@ -84,6 +84,39 @@ jobs:
             exit 1
           fi
 
+      - name: Router grants no allowance (guarda de propriedade, nao de bug)
+        # O HUNT-001 (achado #1 da caca overnight) vivia em _execCurveAmt, que e o UNICO sitio de
+        # todo o Router/Hub/Solver que concede uma allowance — Router:1241 (forceApprove) e
+        # Router:1282 (safeApprove). Quando o Curve sair, a vulnerabilidade morre COM o alvo, e os
+        # 3 testes de test/hunt/ResidualApproval.t.sol morrem com ela.
+        # O PERIGO NAO E O CORTE — e o que se perde no corte: hoje "o Router nao deixa allowances
+        # de pe" e um FACTO TESTADO; sem esta guarda passa a ser um ACIDENTE de ninguem chamar
+        # approve. O primeiro integrador que reintroduzir um approve (um adaptador, um permit2 de
+        # saida) recupera a vulnerabilidade sem ninguem ficar vermelho.
+        # A propriedade fica assim MAIS forte do que antes do corte: de "esta allowance e segura"
+        # para "nao existem allowances". As primitivas em BlazePhoenixCore (L440/L459) FICAM — sao
+        # a biblioteca; o que se proibe e o Router chama-las.
+        run: |
+          if grep -nE '(forceApprove|safeApprove|\.approve\()' src/BlazePhoenixRouter.sol | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::O Router nao pode conceder allowances. Se precisas mesmo de uma, o padrao seguro esta em _execCurveAmt no historico do git — e le antes o test/hunt/ResidualApproval.t.sol para saber o que ela custa."
+            exit 1
+          fi
+
+      - name: Curve/Balancer excisado (decisao do dono 2026-08-20)
+        # Removidos por decisao: quase nenhuma L2 os tem, e custavam bytecode em cinco contratos.
+        # O corte apaga tres superficies que eram cada uma a UNICA da sua classe: o unico approve
+        # do Router (acima), o unico produtor de depthWad atestado pelo caller (o ramo curve-like
+        # de _recordHits) e o unico buraco deliberado na prova de autenticidade do Hub (a mascara
+        # 0x6b exclui os kinds 2 e 7 — para esses a pool NAO e verificada E a profundidade e
+        # atestada). As constantes KIND_STABLE=2, KIND_BALANCER_V2=3 e KIND_CURVE=7 FICAM como
+        # lapides: decodeKind le o kind dos bits do Monoslot, e renumerar reinterpretaria slots
+        # ja gravados. Esta guarda proibe o CODIGO, nao os numeros.
+        run: |
+          if grep -rnE '(curveGetDy|curveResolveIndices|_curveCryptoGetDy|_execCurveAmt|_scanCurve|find_pool_for_coins)' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Simbolo Curve/Balancer em src/. Foram excisados por decisao do dono; os numeros de kind ficam reservados como lapides, o codigo nao volta."
+            exit 1
+          fi
+
       - name: Build
         run: forge build
 
