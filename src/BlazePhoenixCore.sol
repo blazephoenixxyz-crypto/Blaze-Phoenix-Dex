@@ -156,6 +156,78 @@ library BlazePhoenixCore {
     ///         route depends on no per-chain configuration at all.
     uint8   internal constant KIND_V4_NATIVE   = 8;
 
+    // ─── θ — a taxonomia como DADOS ────────────────────────────────────
+    //
+    // COMO LER ISTO, se e a primeira vez. Cada kind ocupa um campo de bits fixo dentro de UMA
+    // constante. Perguntar "este kind tem o atributo X?" passa a ser um shift e um AND, em vez de
+    // uma cadeia de `if (k == A || k == B || ...)` repetida em cada contrato.
+    //
+    // PORQUE ISTO EXISTE. A assinatura de defeito desta base de codigo, confirmada mais de dez
+    // vezes, e "um fix aplicado a UM de dois canais simetricos". Cada sitio que enumera kinds a
+    // mao e um desses canais: quando um kind novo entra (o KIND_V4_NATIVE nao trouxe UMA LINHA de
+    // matematica de pricing nova e mesmo assim obrigou a tocar nos cinco contratos), quem se
+    // esquecer de um dos sitios cria a divergencia. Um conjunto expresso como bits nao tem irmao
+    // para divergir: a diversidade passa a ser uma COORDENADA, nao um RAMO.
+    //
+    // O QUE NAO COLAPSA, e porque nao. So os testes de PERTENCA a um conjunto entram aqui
+    // ("este kind le reservas?", "este kind expoe token0/token1?"). Os testes de IDENTIDADE
+    // (`k == KIND_V4_NATIVE`, quando a pergunta e mesmo sobre AQUELE kind e nao sobre uma classe)
+    // ficam como estao — forca-los para a tabela trocava clareza por nada. E os motores de
+    // LIQUIDACAO tambem nao colapsam: `CALLBACK`, `EXCHANGE` e `UNLOCK` sao ABIs do mundo
+    // exterior, formas que nao nos pertencem. O criterio, para cada ramo que sobra: consegues
+    // nomear a realidade externa que o obriga? Se sim, e honesto e fica.
+    //
+    // DUAS PALAVRAS, NAO UMA. A versao de palavra unica (16 bits por kind, 144 uteis) tinha a
+    // aritmetica certa mas gastava bits onde o EIP-170 doi: metade dos atributos nao era lida por
+    // nenhuma linha de producao, e eram esses que empurravam o campo para 16 bits — 18 bytes de
+    // literal, PUSH18, 19 B emitidos em CADA sitio, inclusive nos contratos que nunca leem a
+    // escada de gas. Separadas, o Router/Hub/Quoter carregam 6 B e a escada vive num sitio so.
+    //
+    // FAIL-CLOSED DE GRACA. Um kind sem bits (2, 3 e 7 — Curve/Balancer, excisados) tem campo
+    // 0x0: nao le reservas, nao e concentrado, nao e verificavel por par. Nenhum ramo de default
+    // para alguem esquecer. E os numeros NUNCA se reutilizam: `decodeKind` le o kind dos bits do
+    // Monoslot, logo dar o 2 a uma venue nova reinterpretaria pools ja gravadas.
+
+    /// @dev Atributos por kind, 4 bits cada. Kind `k` ocupa [4k+3 : 4k].
+    ///      bit 0  A_RESERVES  — profundidade e impacto vem de getReserves(); min(r0,r1) e a profundidade
+    ///      bit 1  A_CONC_POOL — sqrtPriceX96 e L lidos NO ENDERECO DA POOL
+    ///      bit 2  A_CONC_SING — estado por extsload no singleton; `pool` nao e um par; tokenOut viaja em auxId
+    ///      bit 3  A_PAIR_VER  — token0()/token1() existem, logo a prova de autenticidade do Hub aplica-se
+    uint256 internal constant THETA_ATTR = 0x040A9400A9;
+
+    uint8 internal constant A_RESERVES  = 0x1;
+    uint8 internal constant A_CONC_POOL = 0x2;
+    uint8 internal constant A_CONC_SING = 0x4;
+    uint8 internal constant A_PAIR_VER  = 0x8;
+
+    /// @dev Escada de gas por kind, 8 bits cada, em unidades de 5.000. Lida SO pelo Solver, que
+    ///      tem folga larga — por isso vive separada da THETA_ATTR, que todos carregam.
+    ///      Um campo a zero devolve o default historico de 90.000, preservando o comportamento
+    ///      exacto de hoje para um kind desconhecido.
+    uint256 internal constant THETA_GAS = 0x2B0016122400001612;
+
+    /// @notice Os 4 bits de atributo de um kind. Um kind acima de 8 devolve 0 — fail-closed.
+    function thetaOf(uint8 kind) internal pure returns (uint8) {
+        return uint8((THETA_ATTR >> (uint256(kind) << 2)) & 0xF);
+    }
+
+    /// @notice `kind` tem TODOS os atributos de `mask`? Substitui as cadeias de `k == A || k == B`.
+    function kindHas(uint8 kind, uint8 mask) internal pure returns (bool) {
+        return (thetaOf(kind) & mask) == mask;
+    }
+
+    /// @notice `kind` tem ALGUM dos atributos de `mask`? Para as perguntas do tipo "e concentrado?",
+    ///         que hoje se escrevem `k == V3 || k == ALGEBRA || k == V4 || k == V4_NATIVE`.
+    function kindHasAny(uint8 kind, uint8 mask) internal pure returns (bool) {
+        return (thetaOf(kind) & mask) != 0;
+    }
+
+    /// @notice Estimativa de gas base por perna, por kind. Zero => o default historico de 90.000.
+    function kindGasBase(uint8 kind) internal pure returns (uint256) {
+        uint256 g8 = (THETA_GAS >> (uint256(kind) << 3)) & 0xFF;
+        return g8 == 0 ? 90_000 : g8 * 5_000;
+    }
+
     // ─── Output-floor constants ────────────────────────────────────────
     // The floor starts tight (96%) for clean, low-impact, single-leg swaps and
     // loosens toward the 80% hard cap as impact, leg count and volatility rise.
