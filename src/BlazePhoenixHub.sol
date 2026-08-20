@@ -485,9 +485,7 @@ contract BlazePhoenixHub {
         // (Core): reservas virtuais ao preço atual, lado curto. sp != 0 garantido acima.
         uint256 depthTok;
         {
-            uint256 d0 = BPC.mulDiv(uint256(liq), BPC.Q96, sp);
-            uint256 d1 = BPC.mulDiv(uint256(liq), sp, BPC.Q96);
-            depthTok = d0 < d1 ? d0 : d1;
+            depthTok = BPC.depthFromL(liq, sp);
         }
         if (!_canInsert($.pairKeys[s0][s1], depthTok)) return key;
         $.v4Entries.push(V4Entry({
