@@ -393,7 +393,7 @@ contract BlazePhoenixHub {
         // 2) CREATE2 modes require a non-zero init-code hash (R1). The two
         //    non-CREATE2 high modes (Curve meta, V4 derive) are exempt.
         if (
-            mode >= MODE_CREATE2_V2 && mode != MODE_CURVE_META
+            mode >= MODE_CREATE2_V2
                 && mode != MODE_V4_DERIVE && initHash == bytes32(0)
         ) revert HubE(5);
 
@@ -562,8 +562,11 @@ contract BlazePhoenixHub {
             uint256 fc = fac.fees.length == 0 ? 1 : fac.fees.length;
             uint256 sc = fac.spacings.length == 0 ? 1 : fac.spacings.length;
             uint256 mul = (fac.mode == 2 || fac.mode == 6) ? 2 : 1;
-            if (fac.mode == MODE_CURVE_META) { maxOut += 4; }
-            else if (fac.mode == MODE_V4_DERIVE) { maxOut += V4_CAP; }
+            // O ramo MODE_CURVE_META saiu com a excisao do Curve; uma factory mode-8 so pode
+            // existir num Hub legado e `_scanFactory` para nela sem produzir hits, logo nao
+            // contribui para o teto. A contabilidade tem de espelhar o loop de scan: `_probe`
+            // escreve em `hits[k]` sem bounds-check proprio.
+            if (fac.mode == MODE_V4_DERIVE) { maxOut += V4_CAP; }
             else { maxOut += fc * sc * mul; }
             unchecked { ++i; }
         }
@@ -580,7 +583,13 @@ contract BlazePhoenixHub {
     function _scanFactory(
         Factory storage fac, address t0, address t1, PoolInfo[] memory hits, uint256 k
     ) private view returns (uint256) {
-        if (fac.mode == MODE_CURVE_META) return _scanCurve(fac, t0, t1, hits, k);
+        // Uma factory mode-8 (o antigo meta-registry do Curve) so pode existir num Hub legado:
+        // o `addFactory` de hoje rejeita esse mode para qualquer kind (ver MODES_VALID). Se uma
+        // existir, PARA aqui em vez de cair no `_probe` generico — la, `deriveAddress(mode=8)`
+        // calcula `sub = mode - 4 = 4` e cai no catch-all de salt do V3CL, derivando enderecos
+        // fantasma a cada scan. Duas comparacoes tornam-na PROVAVELMENTE inerte em vez de
+        // acidentalmente inerte.
+        if (fac.mode == MODE_CURVE_META) return k;
         if (fac.mode == MODE_V4_DERIVE)  return _scanV4(fac, t0, t1, hits, k);
         uint24[] storage fees = fac.fees;
         int24[]  storage sps  = fac.spacings;
@@ -604,28 +613,6 @@ contract BlazePhoenixHub {
         return k;
     }
 
-    function _scanCurve(
-        Factory storage fac, address t0, address t1, PoolInfo[] memory hits, uint256 k
-    ) private view returns (uint256) {
-        address meta = fac.factory;
-        for (uint256 i; i < 4; ) {
-            (bool ok, bytes memory ret) = meta.staticcall(abi.encodeWithSignature(
-                "find_pool_for_coins(address,address,uint256)", t0, t1, i));
-            if (!ok || ret.length < 32) break;
-            address p = abi.decode(ret, (address));
-            if (p == address(0)) break;
-            if (k >= hits.length) break;
-            bool dup;
-            for (uint256 d; d < k; ) { if (hits[d].pool == p) { dup = true; break; } unchecked { ++d; } }
-            if (!dup) {
-                hits[k] = PoolInfo({ active: true, stable: true, kind: KIND_STABLE, fee: 0,
-                    tickSpacing: 0, token0: t0, token1: t1, pool: p, hooks: address(0) });
-                unchecked { k++; }
-            }
-            unchecked { ++i; }
-        }
-        return k;
-    }
 
     function _probe(
         Factory storage fac, address t0, address t1, uint24 fee,

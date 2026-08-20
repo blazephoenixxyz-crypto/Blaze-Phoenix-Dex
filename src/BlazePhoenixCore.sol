@@ -739,48 +739,6 @@ library BlazePhoenixCore {
         }
     }
 
-    // CURVE ADAPTER — ask the pool, never replicate. Quote(get_dy) and exec
-    // (exchange) both on the pool => cannot diverge. int128/uint256 variants
-    // handled by try-then-fallback. No registry, no formula replication.
-    // NOTE (EIP-170): several heavyweight, cold-path view/pure quote helpers
-    // below are `public` ON PURPOSE — public library functions compile into
-    // the deployed BlazePhoenixCore library (which already exists for
-    // universalQuote) and are reached via delegatecall, instead of being
-    // inlined into every caller. This is what keeps the Router under the CI
-    // size margin. Delegatecall-safe: all of them are view/pure (no storage,
-    // no transient state). Do NOT flip them back to internal without
-    // re-measuring `FOUNDRY_PROFILE=release forge build --sizes`.
-    function curveResolveIndices(address pool, address tokenIn, address tokenOut)
-        public view returns (int128 i, int128 j, bool ok) {
-        int128 fi = -1; int128 fj = -1;
-        for (uint256 k; k < 8; ) {
-            address coin = _curveCoin(pool, k);
-            if (coin == address(0)) break;
-            if (coin == tokenIn)  fi = int128(uint128(k));
-            if (coin == tokenOut) fj = int128(uint128(k));
-            unchecked { ++k; }
-        }
-        ok = (fi >= 0 && fj >= 0); i = fi; j = fj;
-    }
-    function _curveCoin(address pool, uint256 k) internal view returns (address coin) {
-        (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature("coins(uint256)", k));
-        if (!ok || ret.length < 32) {
-            (ok, ret) = pool.staticcall(abi.encodeWithSignature("coins(int128)", int128(uint128(k))));
-            if (!ok || ret.length < 32) return address(0);
-        }
-        coin = abi.decode(ret, (address));
-    }
-    function curveGetDy(address pool, int128 i, int128 j, uint256 dx)
-        public view returns (uint256 dy) {
-        (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature(
-            "get_dy(int128,int128,uint256)", i, j, dx));
-        if (!ok || ret.length < 32) {
-            (ok, ret) = pool.staticcall(abi.encodeWithSignature(
-                "get_dy(uint256,uint256,uint256)", uint256(uint128(i)), uint256(uint128(j)), dx));
-            if (!ok || ret.length < 32) return 0;
-        }
-        dy = abi.decode(ret, (uint256));
-    }
 
     /// @notice Ask a Solidly-class pair for its own exact output. Same doctrine
     ///         as the Curve adapter (get_dy == exchange => cannot diverge):
@@ -994,15 +952,6 @@ library BlazePhoenixCore {
             depthWad = depthFromL(liq, sp);
             return (out, depthWad);
         }
-        if (k == KIND_STABLE) {
-            // Curve: ask the pool (get_dy), never replicate. Indices from coins();
-            // quote here == exchange() at execution, so they cannot diverge.
-            (int128 ci, int128 cj, bool cok) = curveResolveIndices(c.pool, c.tokenIn, c.tokenOther);
-            if (!cok) return (0, 0);
-            out      = curveGetDy(c.pool, ci, cj, amountIn);
-            depthWad = out;
-            return (out, depthWad);
-        }
         if (k == KIND_SOLIDLY) {
             (uint256 r0, uint256 r1) = getReserves(c.pool);
             (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
@@ -1030,11 +979,6 @@ library BlazePhoenixCore {
                 out = (out * 9800) / BPS;
             }
             depthWad = rI < rO ? rI : rO;
-            return (out, depthWad);
-        }
-        if (k == KIND_CURVE_CRYPTO) {
-            out = _curveCryptoGetDy(c.pool, c.zeroForOne, amountIn);
-            depthWad = 0;
             return (out, depthWad);
         }
         if (k == KIND_V4 || k == KIND_V4_NATIVE) {
@@ -1172,41 +1116,6 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @dev Both guards capture the staticcall result in `ok` FIRST and only
-    ///      then test returndatasize(). Do NOT "simplify" this back into a
-    ///      single `and(staticcall(...), eq(returndatasize(), 32))`: Yul
-    ///      evaluates the arguments of a builtin RIGHT TO LEFT, so the
-    ///      returndatasize() term would run BEFORE the staticcall and report
-    ///      the size left by the PREVIOUS external call. That breaks the guard
-    ///      both ways — a valid quote gets discarded (outAmt stays 0, so the
-    ///      protocol floor goes inert for that swap), or a short/oversized
-    ///      return passes the check and mload(m) reads stale buffer garbage.
-    function _curveCryptoGetDy(address pool, bool zfo, uint256 dx)
-        public view returns (uint256 outAmt)
-    {
-        uint256 i = zfo ? 0 : 1;
-        uint256 j = zfo ? 1 : 0;
-        assembly ("memory-safe") {
-            let m := mload(0x40)
-            mstore(m, 0x556d6e9f00000000000000000000000000000000000000000000000000000000)
-            mstore(add(m, 4), i) mstore(add(m, 36), j) mstore(add(m, 68), dx)
-            let ok := staticcall(GAS_CAP, pool, m, 100, m, 32)
-            if and(ok, eq(returndatasize(), 32)) {
-                outAmt := mload(m)
-            }
-        }
-        if (outAmt == 0) {
-            assembly ("memory-safe") {
-                let m := mload(0x40)
-                mstore(m, 0x5e0d443f00000000000000000000000000000000000000000000000000000000)
-                mstore(add(m, 4), i) mstore(add(m, 36), j) mstore(add(m, 68), dx)
-                let ok := staticcall(GAS_CAP, pool, m, 100, m, 32)
-                if and(ok, eq(returndatasize(), 32)) {
-                    outAmt := mload(m)
-                }
-            }
-        }
-    }
 
     // =========================================================================
     //  §6  POOL FITNESS SCORE (psi)

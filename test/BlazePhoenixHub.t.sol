@@ -52,7 +52,11 @@ contract BlazePhoenixHubTest is Test {
             "the SAME slot must have its swap count incremented, not a new one created");
     }
 
-    function test_AddFactory_RejectsCurveWithoutMetaMode() public {
+    /// @notice Antes da excisao (2026-08-20) o gate de kind era CONDICIONAL ao mode: so rejeitava
+    ///         curve quando o mode nao era o meta. Hoje o kind 2 nao esta em KINDS_ROUTABLE e e
+    ///         rejeitado SEMPRE — o mode deixou de ser uma porta lateral. O caso com mode meta
+    ///         vive em test/CurveExcisionRegistration.t.sol, que foi o red-first deste fix.
+    function test_AddFactory_RejectsCurveAlways() public {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 5));
         hub.addFactory(address(0x3333), BPC.KIND_STABLE, 0, bytes32(0), new uint24[](0), new int24[](0));
     }

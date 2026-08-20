@@ -568,12 +568,6 @@ contract BlazePhoenixRouter {
                     impactAcc += BPC.impactV3Bps(legAmt, sp, lq, rf != 0 ? rf : leg.fee, leg.zeroForOne);
                     quoteAcc  += BPC.outV3(legAmt, sp, lq, rf != 0 ? rf : 0xFFFFFF, leg.zeroForOne);
                 } else { impactAcc += 50; }
-            } else if (leg.kind == BPC.KIND_STABLE) {
-                quoteAcc += _stableLegQuote(leg, hop.tokenIn, legAmt);
-                impactAcc += 50;
-            } else if (leg.kind == BPC.KIND_CURVE_CRYPTO) {
-                quoteAcc += BPC._curveCryptoGetDy(leg.pool, leg.zeroForOne, legAmt);
-                impactAcc += 50;
             } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 quoteAcc += _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
@@ -601,18 +595,6 @@ contract BlazePhoenixRouter {
         }
     }
 
-    /// @dev Extracted from _hopScaleImpactAndQuote: via-IR inlines that function
-    ///      into _execute's own frame, and the STABLE branch's locals
-    ///      (tokenOut, ci, cj, ok) pushed the combined stack past the 16-slot
-    ///      EVM limit ("stack too deep"). A separate call keeps only this
-    ///      branch's return value live in the caller's frame.
-    function _stableLegQuote(Leg calldata leg, address tokenIn, uint256 legAmt)
-        private view returns (uint256 quote)
-    {
-        address tokenOut = address(uint160(uint256(leg.auxId)));
-        (int128 ci, int128 cj, bool ok) = BPC.curveResolveIndices(leg.pool, tokenIn, tokenOut);
-        if (ok) quote = BPC.curveGetDy(leg.pool, ci, cj, legAmt);
-    }
 
     /// @dev Extracted from _hopScaleImpactAndQuote for the same stack-depth reason
     ///      as _stableLegQuote — the V4 branch's locals (tokenOther, t0, t1,
@@ -1044,8 +1026,6 @@ contract BlazePhoenixRouter {
             _execV3Amt(leg, tokenIn, amt);
         } else if (k == BPC.KIND_SOLIDLY) {
             _execSolidlyAmt(leg, tokenIn, amt);
-        } else if (k == BPC.KIND_STABLE || k == BPC.KIND_CURVE_CRYPTO) {
-            _execCurveAmt(leg, tokenIn, amt);
         } else if (k == BPC.KIND_V4 || k == BPC.KIND_V4_NATIVE) {
             _execV4Amt(leg, tokenIn, amt);
         } else {
@@ -1065,8 +1045,7 @@ contract BlazePhoenixRouter {
     ///         then fails open to the aggregate floors (the per-leg guard is
     ///         an extra bound, never a gate on execution).
     function _legTokenOut(Leg calldata leg, address tokenIn) private view returns (address) {
-        if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE ||
-            leg.kind == BPC.KIND_STABLE || leg.kind == BPC.KIND_CURVE_CRYPTO) {
+        if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
             return address(uint160(uint256(leg.auxId)));
         }
         address t0 = BPC.token0Of(leg.pool);
@@ -1228,58 +1207,6 @@ contract BlazePhoenixRouter {
             address(this), leg.zeroForOne, int256(amt), limit, ""
         );
         assembly { tstore(sP, 0) tstore(sT, 0) tstore(sA, 0) }
-    }
-
-    /// @notice Curve exchange with coins()-resolved indices. tokenOut is carried
-    ///         in leg.auxId (low 160 bits), set by the Solver, so indices need not
-    ///         be assumed. Realised output is bounded by the Router's Omega floor.
-    function _execCurveAmt(Leg calldata leg, address tokenIn, uint256 amt) private {
-        address tokenOut = address(uint160(uint256(leg.auxId)));
-        if (tokenOut == address(0)) revert RouterE(8);
-        (int128 i, int128 j, bool ok) = BPC.curveResolveIndices(leg.pool, tokenIn, tokenOut);
-        if (!ok) revert RouterE(8);
-        BPC.forceApprove(tokenIn, leg.pool, amt);
-
-        // Verify the RESULT, not just the call's success. tricrypto-NG pools
-        // (uint256 exchange signature) ACCEPT the int128 selector without
-        // reverting but yield 0 — so trusting `done` alone silently drops the
-        // leg. Measure tokenOut and
-        // fall through to the uint256 signature if int128 produced nothing.
-        uint256 balBefore = BPC.balanceOf(tokenOut, address(this));
-        // Hardcoded selectors (EIP-170): 0x3df02124 == bytes4(keccak256(
-        // "exchange(int128,int128,uint256,uint256)")), 0x5b41b908 == bytes4(
-        // keccak256("exchange(uint256,uint256,uint256,uint256)")) — verified
-        // with `cast sig`. encodeWithSelector drops the signature strings and
-        // the runtime keccak from the bytecode; the calldata produced is
-        // byte-identical to the encodeWithSignature form.
-        (bool ok1, ) = leg.pool.call(abi.encodeWithSelector(
-            bytes4(0x3df02124), i, j, amt, uint256(0)));
-        if (!ok1) { /* tolerated: the result is verified by the tokenOut balance delta */ }
-        uint256 got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
-        if (got == 0) {
-            // int128 path yielded nothing — try uint256. The earlier approval
-            // is untouched (no tokens moved), so reuse it. Do NOT re-approve:
-            // a second non-zero approve reverts on strict tokens (BPC:approve).
-            (bool ok2, ) = leg.pool.call(abi.encodeWithSelector(
-                bytes4(0x5b41b908),
-                uint256(uint128(i)), uint256(uint128(j)), amt, uint256(0)));
-            if (!ok2) { /* tolerated: the result is verified by the tokenOut balance delta */ }
-            got = BPC.balanceOf(tokenOut, address(this)) - balBefore;
-            if (got == 0) revert RouterE(8);
-        }
-        // HUNT-001. `leg.pool` is an arbitrary address off the caller's Route —
-        // no registry validates it — and the approval above is NOT necessarily
-        // spent: this arm judges success by the tokenOut delta, so a "pool" that
-        // pays out of its own stock without pulling anything completes the swap
-        // and walks away holding a standing allowance over the Router. That is
-        // the Dexible / LI.FI / Kame shape. The holds-nothing sweep keeps the
-        // Router empty at rest, which is what bounds the damage today — but a
-        // standing approval to an attacker is a liability that survives every
-        // future change to that invariant, so retire it here, at its source.
-        // safeApprove (not forceApprove) reuses the primitive already inlined
-        // for the USDT pre-set path; approve(spender, 0) is the one write no
-        // ERC-20, strict or not, ever rejects.
-        BPC.safeApprove(tokenIn, leg.pool, 0);
     }
 
     function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private {
@@ -1490,12 +1417,9 @@ contract BlazePhoenixRouter {
                 // calldata already determines it).
                 address t0 = leg.zeroForOne ? hop.tokenIn  : hop.tokenOut;
                 address t1 = leg.zeroForOne ? hop.tokenOut : hop.tokenIn;
-                bool curveLike = (leg.kind == BPC.KIND_STABLE || leg.kind == BPC.KIND_CURVE_CRYPTO);
                 uint256 depth;
                 if (leg.kind == BPC.KIND_V2 || leg.kind == BPC.KIND_SOLIDLY) {
                     depth = _v2Depth(leg.pool);
-                } else if (curveLike) {
-                    depth = leg.expectedOut;
                 } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
                     // leg.pool is the truncated poolId-as-address (no
                     // bytecode): getLiquidity(leg.pool) would silently

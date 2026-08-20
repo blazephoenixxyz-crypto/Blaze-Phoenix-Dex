@@ -563,7 +563,7 @@ contract BlazePhoenixSolver {
                 stable:      cands[i].stable,
                 amountIn:    share,
                 expectedOut: outL,
-                auxId:       (cands[i].kind == BPC.KIND_STABLE || cands[i].kind == BPC.KIND_CURVE_CRYPTO || cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
+                auxId:       (cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
                     ? bytes32(uint256(uint160(cands[i].token0 == tIn ? cands[i].token1 : cands[i].token0)))
                     : bytes32(0)
             });
@@ -646,7 +646,6 @@ contract BlazePhoenixSolver {
     function _famOf(uint8 kind) private pure returns (uint256) {
         if (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
             || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE) return 0;
-        if (kind == BPC.KIND_STABLE || kind == BPC.KIND_CURVE_CRYPTO) return 2;
         return 1;
     }
 
@@ -738,7 +737,7 @@ contract BlazePhoenixSolver {
             fee: cand.fee, tickSpacing: cand.tickSpacing,
             zeroForOne: cand.token0 == tIn, stable: cand.stable,
             amountIn: legIn, expectedOut: out_,
-            auxId: (cand.kind == BPC.KIND_STABLE || cand.kind == BPC.KIND_CURVE_CRYPTO || cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
+            auxId: (cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
                 ? bytes32(uint256(uint160(cand.token0 == tIn ? cand.token1 : cand.token0)))
                 : bytes32(0)
         });
@@ -908,8 +907,7 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < legs; ) {
             uint256 d;
             if (hop.legs[i].kind == BPC.KIND_V2 ||
-                hop.legs[i].kind == BPC.KIND_SOLIDLY ||
-                hop.legs[i].kind == BPC.KIND_BALANCER_V2)
+                hop.legs[i].kind == BPC.KIND_SOLIDLY)
             {
                 (uint256 r0, uint256 r1) = BPC.getReserves(hop.legs[i].pool);
                 uint256 rIn = hop.legs[i].zeroForOne ? r0 : r1;
@@ -964,8 +962,7 @@ contract BlazePhoenixSolver {
                 uint256 d;
                 Leg memory L = hops[h].legs[i];
                 if (L.kind == BPC.KIND_V2 ||
-                    L.kind == BPC.KIND_SOLIDLY ||
-                    L.kind == BPC.KIND_BALANCER_V2)
+                    L.kind == BPC.KIND_SOLIDLY)
                 {
                     (uint256 r0, uint256 r1) = BPC.getReserves(L.pool);
                     uint256 rIn = L.zeroForOne ? r0 : r1;
@@ -1013,7 +1010,6 @@ contract BlazePhoenixSolver {
             uint8 k = hop.legs[i].kind;
             uint256 base = 90_000;
             if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) base = 110_000;
-            else if (k == BPC.KIND_STABLE || k == BPC.KIND_CURVE_CRYPTO) base = 140_000;
             // Native V4 pays the same unlock plus the JIT unwrap/wrap
             // (~35k estimated for WETH withdraw+deposit on warm slots;
             // re-measure at the testnet rehearsal).

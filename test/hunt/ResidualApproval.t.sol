@@ -125,8 +125,28 @@ contract ResidualApprovalTest is Test {
 
     /// @notice THE RED TEST. After a swap routed through an attacker-supplied
     ///         address, the Router must hold no standing allowance to it.
+    // ═══════════════════════════════════════════════════════════════════════════════════
+    //  REESCRITO EM 2026-08-20 — A SUPERFICIE FOI EXCISADA, A PROPRIEDADE FICA
+    //
+    //  O HUNT-001 vivia em `Router._execCurveAmt`, o UNICO sitio de todo o Router/Hub/Solver que
+    //  concedia uma allowance. Com a excisao do Curve/Balancer (decisao do dono: quase nenhuma L2
+    //  os tem) essa funcao deixou de existir, e com ela o vetor inteiro.
+    //
+    //  O PERIGO NAO E O CORTE — E O QUE SE PERDE NELE. Sem estes testes, "o Router nao deixa
+    //  allowances de pe" passaria de FACTO TESTADO a ACIDENTE de ninguem chamar approve. O
+    //  primeiro integrador que reintroduzisse um (um adaptador, um permit2 de saida) recuperava a
+    //  vulnerabilidade sem ninguem ficar vermelho.
+    //
+    //  A PROPRIEDADE FICA GUARDADA EM DOIS SITIOS, e ambos sao mais fortes que o teste original:
+    //    1. a guarda estatica do CI ("Router grants no allowance") — proibe o SIMBOLO, nao o bug;
+    //       passa de "esta allowance e segura" para "nao existem allowances".
+    //    2. estes testes, que agora provam que a rota do ataque REVERTE em vez de executar.
+    //  O mock PassiveCurvePool fica de proposito: e a testemunha de que o ataque era real.
+    // ═══════════════════════════════════════════════════════════════════════════════════
+
     function test_ResidualApproval_MustNotSurvive() public {
         vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
         router.swapExactIn(_route(BPC.KIND_STABLE), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 residual = IERC20Min(address(tokenIn)).allowance(address(router), address(evil));
@@ -140,6 +160,7 @@ contract ResidualApprovalTest is Test {
     ///         admission of it.
     function test_ResidualApproval_IsDrainable() public {
         vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
         router.swapExactIn(_route(BPC.KIND_STABLE), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 residual = IERC20Min(address(tokenIn)).allowance(address(router), address(evil));
@@ -163,6 +184,7 @@ contract ResidualApprovalTest is Test {
     ///         Lei III: a defect on one arm is a defect on its twin.
     function test_ResidualApproval_CurveCryptoArm() public {
         vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
         router.swapExactIn(_route(BPC.KIND_CURVE_CRYPTO), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         assertEq(
