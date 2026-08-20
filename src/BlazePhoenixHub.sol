@@ -59,6 +59,38 @@ contract BlazePhoenixHub {
     uint8   internal constant KIND_SOLIDLY           = 5;
     uint8   internal constant KIND_ALGEBRA           = 6;
     uint8   internal constant KIND_CURVE             = 7;
+
+    /// @notice Os kinds que uma factory pode registar — o conjunto, como uma palavra de bits.
+    /// @dev    Bit `k` ligado = kind `k` admissivel. Bits desligados sao LAPIDES, nao lacunas:
+    ///
+    ///           bit 2 (STABLE) e bit 7 (CURVE)  — Curve/Balancer excisados por decisao do dono
+    ///                                             em 2026-08-20: quase nenhuma L2 os tem, e
+    ///                                             custavam bytecode em cinco contratos. Com eles
+    ///                                             saiu o unico `approve` do Router (onde vivia o
+    ///                                             HUNT-001), o unico produtor de profundidade
+    ///                                             atestado pelo caller, e o unico buraco
+    ///                                             deliberado na prova de autenticidade daqui.
+    ///           bit 3 (BALANCER_V2)             — ja era codigo morto antes do corte.
+    ///           bit 8 (V4_NATIVE)               — nao se registaram por factory: derivam-se do
+    ///                                             singleton. Nunca tiveram bit e nao passam a ter.
+    ///
+    ///         OS NUMEROS NUNCA SE REUTILIZAM. `decodeKind` le o kind dos bits do Monoslot: dar o
+    ///         2 a uma venue nova reinterpretaria pools ja gravadas como sendo dessa venue. Uma
+    ///         venue nova leva um numero novo e liga o bit dele — uma linha de dados, zero ramos.
+    uint256 internal constant KINDS_ROUTABLE =
+          (uint256(1) << KIND_V2)      // 0 — constant-product
+        | (uint256(1) << KIND_V3)      // 1 — concentrada
+        | (uint256(1) << KIND_V4)      // 4 — singleton, via MODE_V4_DERIVE
+        | (uint256(1) << KIND_SOLIDLY) // 5 — pares stable/volatile
+        | (uint256(1) << KIND_ALGEBRA);// 6 — concentrada com fee dinamica
+
+    /// @notice Os modes de descoberta validos, pelo mesmo criterio.
+    /// @dev    0-3 chamam a factory (getPair/getPool); 4-7 derivam por CREATE2; 9 e o derive do V4.
+    ///         O bit 8 (o antigo MODE_CURVE_META) esta desligado: era o meta-registry do Curve e
+    ///         saiu com ele. Sem esta mascara ficaria aceite para QUALQUER kind, porque o unico
+    ///         limite anterior era `mode > MODE_V4_DERIVE` e o 8 cabia la dentro — um mode que so
+    ///         fazia sentido para uma venue removida continuaria aberto a todas as outras.
+    uint256 internal constant MODES_VALID = 0x2FF; // bits 0-7 e 9; bit 8 e lapide
     // MODE enumeration: 0-3 are factory-call (getPair/getPool variants);
     // 4-7 are CREATE2 salt families (V2 salt, V3 salt, EIP-1167 clone, V3-CL).
     uint8   internal constant MODE_CREATE2_V2        = 4;
@@ -334,15 +366,29 @@ contract BlazePhoenixHub {
     ) external onlyAdmin returns (uint8) {
         _ne0(factory);
 
-        // 1) kind / mode domain
-        if (kind > KIND_CURVE)               revert HubE(5); // invalidKind
-        // Curve-style kinds (STABLE=2, CURVE=7) are NOT supported in v1.0:
-        // their exec path needs the coins() interface the Router does not
-        // implement, and quote/exec use inconsistent pool interfaces. Reject
-        // at registration so the Solver never routes through them. Re-enable
-        // with proper coins() resolution + dedicated tests in v1.1.
-        if ((kind == KIND_STABLE || kind == KIND_CURVE) && mode != MODE_CURVE_META) revert HubE(5);
-        if (mode > MODE_V4_DERIVE)           revert HubE(5); // invalidMode
+        // 1) kind / mode domain — DOIS conjuntos, expressos como DADOS.
+        //
+        // COMO LER ISTO, se e a primeira vez. Cada bit da constante e um kind: o bit numero `k`
+        // ligado significa "o kind k e admissivel". A verificacao `(MASK >> kind) & 1` pergunta
+        // "o bit deste kind esta ligado?" — uma so operacao, em vez de uma cadeia de `if`s que
+        // nomeiam cada kind a mao.
+        //
+        // PORQUE ASSIM. Este contrato tem um meta-padrao de defeito bem documentado: um fix
+        // aplicado a UM de dois canais simetricos, e o irmao esquecido. Aconteceu 10+ vezes. Uma
+        // cadeia de `if`s e exatamente isso a acontecer: cada sitio que enumera kinds a mao e um
+        // sitio que pode ficar dessincronizado dos outros. Um conjunto expresso como uma palavra
+        // de bits nao tem irmao para divergir — a diversidade passa a ser uma COORDENADA (um bit)
+        // e nao um RAMO.
+        //
+        // NAO E PADRAO NOVO: o Hub ja o usa em `_register` (a mascara das kinds "pair-shaped", as
+        // que expoem token0()/token1()). Isto so lhe da um nome e um irmao, em vez de o deixar
+        // como literal magico solto no meio do codigo.
+        //
+        // FAIL-CLOSED DE GRACA. Um kind fora do conjunto tem bit 0 e reverte. Um kind acima de
+        // 255 nao existe (o tipo e uint8) e um shift alto devolve 0 — reverte na mesma. Nao ha
+        // ramo de "default" para alguem esquecer.
+        if (((KINDS_ROUTABLE >> kind) & 1) == 0) revert HubE(5); // invalidKind
+        if (((MODES_VALID    >> mode) & 1) == 0) revert HubE(5); // invalidMode
 
         // 2) CREATE2 modes require a non-zero init-code hash (R1). The two
         //    non-CREATE2 high modes (Curve meta, V4 derive) are exempt.
