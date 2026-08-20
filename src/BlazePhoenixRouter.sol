@@ -494,9 +494,16 @@ contract BlazePhoenixRouter {
     ///         the exact same key construction execution uses, so they
     ///         cannot diverge from what actually settles — if auxId is wrong
     ///         the leg fails identically in both places.
-    function _hopScaleImpactAndQuote(Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase)
-        private view returns (uint256 scaleNum, uint256 scaleDen, uint256 impactAcc, uint256 quoteAcc)
-    {
+    /// @dev `legQuotes` sai preenchido com a quote MEDIDA in-frame de cada perna, ao montante
+    ///      `legAmt` que esta funcao usou para a precificar. Ate agora estas quotes eram somadas
+    ///      em `quoteAcc` e o valor por perna DEITADO FORA — o gas de as medir ja estava pago e
+    ///      a medicao nao servia de piso a ninguem. E ela que alimenta o portao de cobertura em
+    ///      `_execScaled`. Comprimento = numero de pernas do hop; zero significa "sem medicao",
+    ///      e o portao falha ABERTO nesse caso.
+    function _hopScaleImpactAndQuote(
+        Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase,
+        uint256[] memory legQuotes
+    ) private view returns (uint256 scaleNum, uint256 scaleDen, uint256 impactAcc, uint256 quoteAcc) {
         uint256 legs = hop.legs.length;
         {
             // R3 / BP-15 (invariant I1 — holds-nothing on the INPUT side): hop 0
@@ -545,9 +552,11 @@ contract BlazePhoenixRouter {
                     impactAcc += BPC.impactV2Bps(legAmt, rIn);
                     if (leg.kind == BPC.KIND_V2) {
                         uint24 v2fee = leg.fee == 0 ? 30 : leg.fee;
-                        quoteAcc += BPC.outV2(legAmt, rIn, rOut, v2fee);
+                        uint256 q_ = BPC.outV2(legAmt, rIn, rOut, v2fee);
+                        legQuotes[l] = q_; quoteAcc += q_;
                     } else {
-                        quoteAcc += _solidlyLegQuote(leg, hop.tokenIn, legAmt, rIn, rOut);
+                        uint256 q_ = _solidlyLegQuote(leg, hop.tokenIn, legAmt, rIn, rOut);
+                        legQuotes[l] = q_; quoteAcc += q_;
                     }
                 } else { impactAcc += 50; }
             } else if (leg.kind == BPC.KIND_V3 || leg.kind == BPC.KIND_ALGEBRA) {
@@ -586,11 +595,13 @@ contract BlazePhoenixRouter {
                         ? (dynFee != 0 ? dynFee : 0xFFFFFF)
                         : (BPC.getV3Fee(leg.pool) != 0 ? BPC.getV3Fee(leg.pool) : 0xFFFFFF);
                     impactAcc += BPC.impactV3Bps(legAmt, sp, lq, live, leg.zeroForOne);
-                    quoteAcc  += BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne);
+                    uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne);
+                    legQuotes[l] = q_; quoteAcc += q_;
                 } else { impactAcc += 50; }
             } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
-                quoteAcc += _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
+                uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
+                legQuotes[l] = q_; quoteAcc += q_;
                 impactAcc += 50;
             } else { impactAcc += 50; }
             unchecked { ++l; }
@@ -727,8 +738,12 @@ contract BlazePhoenixRouter {
                     ? (tinStart > amountIn ? tinStart - amountIn : 0)
                     : (hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1]);
             }
+            // Uma alocacao por hop (MAX_LEGS_PER_HOP entradas, memoria, sem storage). Carrega a
+            // quote MEDIDA de cada perna ate ao portao de cobertura em `_execScaled` — antes
+            // estas medicoes eram somadas e o valor por perna deitado fora.
+            uint256[] memory legQuotes = new uint256[](hop.legs.length);
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
-                _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase);
+                _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase, legQuotes);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past
@@ -788,7 +803,12 @@ contract BlazePhoenixRouter {
                     uint256 remaining = BPC.balanceOf(legIn, address(this));
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
-                (uint256 legGot, uint256 legAtt) = _execScaled(leg, legIn, scaledAmt);
+                // `legAmt` de cotacao = mulDiv(leg.amountIn, scaleNum, scaleDen), o mesmo que o
+                // `scaledAmt` acima ANTES do clamp da ultima perna. O portao reescala por
+                // amt/legAmt, logo o clamp fica tratado — e no sentido conservador.
+                (uint256 legGot, uint256 legAtt) = _execScaled(
+                    leg, legIn, scaledAmt, legQuotes[l], BPC.mulDiv(leg.amountIn, scaleNum, scaleDen)
+                );
                 hopGot += legGot;
                 hopAttested += legAtt;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
@@ -1008,9 +1028,9 @@ contract BlazePhoenixRouter {
     ///         (covers a fee-on-transfer tokenIn), hop 1+ against the
     ///         measured bridge balance. When nothing shrank the input,
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
-    function _execScaled(Leg calldata leg, address tokenIn, uint256 amt)
-        private returns (uint256 got, uint256 attested)
-    {
+    function _execScaled(
+        Leg calldata leg, address tokenIn, uint256 amt, uint256 legQuote, uint256 legAmt
+    ) private returns (uint256 got, uint256 attested) {
         // A zero-input leg is a no-op: skip it entirely. A leg scaled to zero
         // input (for example the last leg when the Router holds no remaining
         // input) must never reach pool.swap(): the budget cap in _v3Callback
@@ -1020,7 +1040,7 @@ contract BlazePhoenixRouter {
         if (amt == 0) return (0, 0);
         // ─── Per-leg iron floor (see LEG_FLOOR_BPS) ───
         // Measure THIS leg's real contribution to the Router's tokenOut
-        // balance and require ≥ 75% of its pro-rata attested quote. The
+        // balance and require >= LEG_FLOOR_BPS (8.000 = 80%) of its bound. The
         // aggregate floors run only once, at the end of _execute; bounding
         // each leg means a single sandwiched or manipulated pool reverts the
         // swap immediately instead of hiding its loss inside an otherwise
@@ -1029,8 +1049,12 @@ contract BlazePhoenixRouter {
         // aggregate floors — a caller weakening its own crafted route gains
         // nothing that userMinOut and the protocol floor don't already bound.
         address legOut = _legTokenOut(leg, tokenIn);
-        bool guard = legOut != address(0)
-            && leg.expectedOut != 0 && leg.amountIn != 0 && amt != 0;
+        // A guarda corre se existir ALGUMA base de piso: a atestacao do chamador OU a quote
+        // medida in-frame. Antes exigia `leg.expectedOut != 0`, e isso fazia dela um OPT-OUT
+        // POR CALLDATA — quem submetia a rota desligava o seu proprio piso escrevendo zero, e
+        // com ele desligava tambem a Camada 1 (que soma estes `attested`).
+        bool guard = legOut != address(0) && amt != 0
+            && ((leg.expectedOut != 0 && leg.amountIn != 0) || (legQuote != 0 && legAmt != 0));
         uint256 balBefore;
         if (guard) balBefore = BPC.balanceOf(legOut, address(this));
 
@@ -1054,8 +1078,46 @@ contract BlazePhoenixRouter {
 
         if (guard) {
             got = BPC.balanceOf(legOut, address(this)) - balBefore;
-            attested = BPC.mulDiv(leg.expectedOut, amt, leg.amountIn);
-            if (got < BPC.mulDiv(attested, LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
+
+            // Base atestada pelo chamador, pro-rata ao montante REALMENTE gasto.
+            uint256 bound = (leg.expectedOut != 0 && leg.amountIn != 0)
+                ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)
+                : 0;
+
+            // ─── PORTAO DE COBERTURA ───
+            // A medicao nao SUBSTITUI a atestacao — acrescenta-se-lhe como segundo elemento de
+            // um max. Se a atestacao cobre plausivelmente a quote medida in-frame, usa-se a
+            // atestacao e o comportamento e byte-a-byte igual ao de hoje em rotas honestas
+            // (coverage ~100%). Se nao cobre, o chamador deflacionou-se a si proprio e o piso
+            // passa a assentar na medicao.
+            //
+            // MAX, NAO MIN. Num PISO, `min(alegado, medido)` com o alegado deflacionado devolve
+            // o deflacionado — ou seja RELAXA, exatamente o ataque que se quer fechar. Para a
+            // medicao ganhar num piso e preciso subir, nao descer. (Um desenho anterior enunciou
+            // a I4 corretamente e escolheu o operador que garante o contrario.)
+            //
+            // O RESCALE E EXATO onde importa e CONSERVADOR onde nao e. Os dois loops calculam o
+            // montante da mesma forma (`mulDiv(leg.amountIn, scaleNum, scaleDen)`), logo `amt`
+            // e `legAmt` coincidem — excepto quando o clamp da ultima perna disparou (o loop de
+            // execucao trava `scaledAmt` ao saldo restante, o de cotacao nao). Nesse caso
+            // `amt < legAmt` e o pro-rata SUBESTIMA a quote verdadeira ao montante menor, porque
+            // a curva de cotacao e concava. Subestimar o piso e falhar ABERTO: nunca inventa um
+            // limite que a execucao honesta nao consiga cumprir.
+            //
+            // FALHA ABERTA quando NAO HA MEDICAO — nunca quando o chamador o pede. Uma venue
+            // sem quote (pool morta, fee ilegivel) da `legQuote == 0` e o portao nao corre; a
+            // ausencia de medicao nao vira um valor.
+            //
+            // O LIMIAR e o que ja existe: MIN_QUOTE_COVERAGE_BPS = 5.000. Uma rota honesta
+            // teria de cotar abaixo de METADE do medido para o disparar — isso nao e desvio de
+            // precisao, e deflacao deliberada. Zero constantes novas.
+            if (legQuote != 0 && legAmt != 0) {
+                uint256 qs = BPC.mulDiv(legQuote, amt, legAmt);
+                if (bound < BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)) bound = qs;
+            }
+
+            attested = bound;
+            if (bound != 0 && got < BPC.mulDiv(bound, LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
         }
     }
 
