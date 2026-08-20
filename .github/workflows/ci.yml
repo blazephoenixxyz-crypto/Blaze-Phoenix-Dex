@@ -57,6 +57,33 @@ jobs:
             exit 1
           fi
 
+      - name: Depth producer guard (profundidade nunca vem de calldata)
+        # depthWad alimenta _canInsert (Hub) e o bucket do Monoslot, que alimenta o psi que o
+        # Solver usa para ranquear. Se um produtor grava um numero que o chamador escolheu, o
+        # chamador passa a decidir o ranking do registo — e o ramo curve-like faz exatamente isso
+        # hoje (Router:1498, `depth = leg.expectedOut`). O produtor tem de gravar o `got` MEDIDO.
+        # Complementa a guarda de unidades ja existente (L cru), que cobre a outra metade da mesma
+        # classe: uma e "unidade errada", esta e "fonte errada".
+        run: |
+          if grep -rnE '(depth|depthWad|depthTok)[[:space:]]*=[[:space:]]*leg\.expectedOut' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Profundidade do registo gravada a partir de calldata (leg.expectedOut). Usa o valor MEDIDO (delta de balanceOf) — quem submete a rota nao pode escolher o seu proprio ranking."
+            exit 1
+          fi
+
+      - name: Fee fallback guard (calldata nao substitui uma medicao falhada)
+        # I-measure: quando a leitura viva da fee falha, cair para a fee de CALLDATA e' deixar o
+        # chamador escolher o numero que alimenta impactV3Bps -> avgImpact -> ironFloorBps ->
+        # protocolFloorOut. Ou seja: a calldata acaba a definir o piso do PROTOCOLO.
+        # O padrao proibido e' o FALLBACK (`... ? ... : leg.fee`) dentro de uma chamada out*/impact*.
+        # ISENTO por construcao: `effV4Fee(leg.fee, ...)`. No V4 o leg.fee entra no
+        # computeV4PoolId, logo uma fee mentirosa produz um pid diferente que nao casa com pool
+        # viva (sp == 0) e falha fechado — esta autenticado, nao confiado.
+        run: |
+          if grep -rnE '(out|impact)[A-Za-z0-9]*\([^;]*:[[:space:]]*leg\.fee' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Fee de calldata usada como fallback de uma leitura viva falhada. Fail-closed em vez de cair para leg.fee — senao o chamador define o piso do protocolo."
+            exit 1
+          fi
+
       - name: Build
         run: forge build
 
