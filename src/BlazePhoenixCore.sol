@@ -576,6 +576,71 @@ library BlazePhoenixCore {
         }
     }
 
+    /// @notice Concentrated-liquidity state read that also MEASURES a dynamic
+    ///         fee — the Algebra counterpart of INV-20's effV4Fee.
+    /// @dev    Uniswap V3 answers slot0() and carries its fee in the immutable
+    ///         fee() getter, so `dyn` stays false and the caller keeps the
+    ///         configured fee. Algebra (Camelot) has no slot0(): its price AND
+    ///         its live dynamic fee both live in globalState() — word 0 and
+    ///         word 2 of the same return payload. Reading them together costs
+    ///         one call, the same call the price already required, so measuring
+    ///         the fee adds no call shape this library did not already make.
+    ///
+    ///         This exists because the V3/ALGEBRA quote branch used to pass the
+    ///         Hub's 0 sentinel (Hub:361-366 forces every declared Algebra fee
+    ///         to 0) straight into outV3, pricing every Algebra pool as if it
+    ///         charged NO fee while execution paid the real one — a systematic
+    ///         over-quote in the direction that harms the user. getV3Fee's own
+    ///         doc already said the caller "must fail closed" here; nothing did.
+    /// @return sp   sqrtPriceX96, or 0 when unreadable
+    /// @return f    the measured dynamic fee (only meaningful when `dyn`)
+    /// @return dyn  true when the pool answered globalState() (Algebra-shaped)
+    function v3StateAndDynFee(address pool)
+        internal view returns (uint160 sp, uint24 f, bool dyn)
+    {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            // Uniswap V3 slot0() (0x3850c7bd): sqrtPriceX96 is word 0.
+            mstore(m, 0x3850c7bd00000000000000000000000000000000000000000000000000000000)
+            let ok := staticcall(GAS_CAP, pool, m, 4, m, 64)
+            if ok {
+                if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
+            }
+            // Algebra fallback globalState() (0xe76c01e4):
+            //   word 0 = price, word 1 = tick, word 2 = fee (uint16 on both
+            //   Algebra V1 and Integral; the wider mask is harmless).
+            if iszero(sp) {
+                mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000)
+                let ok2 := staticcall(GAS_CAP, pool, m, 4, m, 96)
+                if ok2 {
+                    if iszero(lt(returndatasize(), 96)) {
+                        sp  := mload(m)
+                        f   := and(mload(add(m, 0x40)), 0xffffff)
+                        dyn := 1
+                    }
+                }
+            }
+        }
+    }
+
+    /// @notice Effective fee for a V3/Algebra-family pool — measure, don't take
+    ///         the nominal. The exact sibling of effV4Fee (INV-20).
+    /// @dev    A static V3 key is truth: a non-zero configured fee wins and no
+    ///         extra read happens. A 0 configured fee is the Hub's dynamic-fee
+    ///         sentinel for Algebra (Hub:361-366), so the live fee measured from
+    ///         globalState() is used instead. When the pool is dynamic-shaped
+    ///         but its fee could not be measured, this FAILS CLOSED with a
+    ///         sentinel >= 1e6 — outV3's own guard then quotes 0 — rather than
+    ///         quoting a fee-free number that execution will not honour. Same
+    ///         fail-closed shape effV4Fee uses for a non-zero protocolFee.
+    function effV3Fee(uint24 cfgFee, uint24 measured, bool dyn)
+        internal pure returns (uint24)
+    {
+        if (cfgFee != 0) return cfgFee;   // static key is truth
+        if (dyn) return measured;         // measured live dynamic fee (0% is legal)
+        return 0xFFFFFF;                  // unmeasurable dynamic fee -> fail closed
+    }
+
     function token0Of(address pool) internal view returns (address t) {
         assembly ("memory-safe") {
             let m := mload(0x40)
@@ -881,9 +946,15 @@ library BlazePhoenixCore {
             return (out, depthWad);
         }
         if (k == KIND_V3 || k == KIND_ALGEBRA) {
-            uint160 sp  = getSqrtPriceX96(c.pool);
+            // One read yields the price AND, for a dynamic-fee (Algebra) pool,
+            // the live fee — measured, never the Hub's 0 sentinel. See
+            // v3StateAndDynFee / effV3Fee: the INV-20 "measure, don't take the
+            // nominal" rule, applied to the OTHER dynamic-fee family in this
+            // same dispatcher. Static V3 keys are untouched (cfgFee wins, no
+            // extra read, byte-identical quote and gas).
+            (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
             uint128 liq = getLiquidity(c.pool);
-            out      = outV3(amountIn, sp, liq, c.fee, c.zeroForOne);
+            out      = outV3(amountIn, sp, liq, effV3Fee(c.fee, dynFee, isDyn), c.zeroForOne);
             // depthWad must be TOKEN-DENOMINATED to be comparable across venue
             // families: the Solver's band anchor picks max(depths[]) across V2
             // (min(r0,r1), linear token units) and V3 candidates alike. Raw L is
@@ -972,7 +1043,15 @@ library BlazePhoenixCore {
             (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) = v4SqrtAndLiq(c.v4Manager, pid);
             if (sp == 0 || liq == 0) return (0, 0);
             out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF), c.zeroForOne);
-            depthWad = uint256(liq);
+            // Same token-denomination as the V3 branch above: the band anchor
+            // compares depths[] ACROSS families, so a V4 pool reporting raw L
+            // (sqrt scale) would out-anchor an equally-deep V2 pool by
+            // ~sqrt(price). sp is non-zero here (guarded on entry).
+            {
+                uint256 v0 = mulDiv(uint256(liq), Q96, sp);
+                uint256 v1 = mulDiv(uint256(liq), sp, Q96);
+                depthWad = v0 < v1 ? v0 : v1;
+            }
             return (out, depthWad);
         }
     }
