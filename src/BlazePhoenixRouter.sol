@@ -128,6 +128,25 @@ contract BlazePhoenixRouter {
     ///         ~= delivered (coverage ~100%).
     uint16  internal constant MIN_QUOTE_COVERAGE_BPS = 5_000;
 
+    /// @notice CAMADA 1 — piso AGREGADO por hop, sobre a soma das quotes
+    ///         atestadas das pernas que trazem quote. Existe porque o piso por
+    ///         perna é local enquanto a composição é global: um atacante com UMA
+    ///         perna de L extrai ~20%·(L-1)/L sem falhar piso nenhum, e a
+    ///         garantia legítima de uma rota de H hops degrada-se para 0,8^H.
+    ///         Isto é um defeito de composição — existe sem hooks nenhuns.
+    ///         NÃO substitui nem aperta LEG_FLOOR_BPS: uma pool fina continua a
+    ///         poder falhar 20% sozinha (nenhuma rigidez nova). Limita apenas o
+    ///         que o hop INTEIRO pode sangrar, e põe a perna do atacante DENTRO
+    ///         do mesmo somatório — ou reverte, ou subsidia o que roubou.
+    /// O orçamento NÃO é uma percentagem fixa: seria rígido para hops pequenos
+    /// (um hop de 1 perna a entregar 85% passa o piso por perna e falharia um
+    /// piso de 95%) e inútil para hops grandes. É derivado — o hop pode perder
+    /// exatamente o que a sua MAIOR perna poderia legitimamente perder:
+    ///     Σ got  ≥  Σ atestado − (BPS − LEG_FLOOR_BPS)·max(atestado_j)
+    /// Para L=1 colapsa EXATAMENTE no piso por perna → zero rigidez nova, por
+    /// construção e não por calibração. Para L>1 tolera UMA pool má, nunca duas
+    /// — que é exatamente a forma do ataque.
+
     /// @notice Transient storage slots — used to pass per-swap context to
     ///         the universal callback fallback without dirtying state.
     uint256 private constant TSLOT_POOL  = uint256(keccak256("blaze.r.pool"));
@@ -731,8 +750,31 @@ contract BlazePhoenixRouter {
             onchainQuoteAcc += hopQuote;
             if (h + 1 == route.hops.length) finalHopQuote = hopQuote;
 
+            uint256 hopGot;
+            uint256 hopAttested;
+            uint256 hopQuoted;
+            // ─── CAMADA 2: ordem canónica — hookless ANTES de hooked ───
+            // Um hook ganha controlo de EVM durante o swap e pode tocar em
+            // QUALQUER contrato — incluindo o pool de uma perna ainda não
+            // executada desta mesma rota (composability normal do EVM, não uma
+            // falha do V4). Se as pernas sem hook correrem primeiro, liquidam e
+            // são verificadas por balance-delta (imediatamente, antes de `l`
+            // avançar) ANTES de qualquer código de terceiros correr: o passado
+            // não se manipula. Fecha o vetor intra-hop por ORDEM, não por
+            // tolerância — nenhuma folga apertada, nada rejeitado.
+            // Imposto AQUI e não no Solver: swapExactIn recebe a Route de
+            // calldata e itera na ordem recebida, logo ordenar no planeador é
+            // contornável por quem monta a rota à mão.
+            // Não é uma lista nem uma admissão: toda a rota é reexprimível na
+            // ordem canónica — é regra de encoding, como a ordenação de tokens.
+            bool sawHooked;
             for (uint256 l; l < legs; ) {
                 Leg calldata leg = hop.legs[l];
+                if (leg.hooks == address(0)) {
+                    if (sawHooked) revert RouterE(3);
+                } else {
+                    sawHooked = true;
+                }
                 address legIn = _legTokenIn(leg);
                 // V4 legs return address(0) from _legTokenIn (their pool field
                 // holds the *other* token, not a Uniswap-style pair). Resolve
@@ -744,8 +786,34 @@ contract BlazePhoenixRouter {
                     uint256 remaining = BPC.balanceOf(legIn, address(this));
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
-                _execScaled(leg, legIn, scaledAmt);
+                (uint256 legGot, uint256 legAtt) = _execScaled(leg, legIn, scaledAmt);
+                hopGot += legGot;
+                hopAttested += legAtt;
+                if (legAtt != 0) { unchecked { ++hopQuoted; } }
                 unchecked { ++l; }
+            }
+            // ─── CAMADA 1: orçamento partilhado por hop (agregado) ───
+            // O piso por perna é LOCAL, mas a composição é GLOBAL: num hop de L
+            // pernas, quem controla UMA perna extrai ~20%·(L-1)/L sem que perna
+            // nenhuma falhe o seu piso — e ao longo de H hops a garantia legítima
+            // degrada-se para 0,8^H (41% a 4 hops). Isto existe SEM hooks.
+            // As pernas de um hop são homogéneas (mesmo par), logo as quotes
+            // atestadas somam-se DIRETAMENTE, sem oráculo.
+            // Só entram pernas COM quote atestada — nos DOIS lados do somatório,
+            // pelo que uma perna sem quote não pode mascarar o défice de outra.
+            // Não aperta o piso por perna: uma pool fina continua a poder falhar
+            // 20% sozinha. Limita o que o HOP inteiro pode sangrar.
+            // Reutiliza medições já feitas em _execScaled — zero leituras novas.
+            if (hopAttested != 0) {
+                // Folga = o que UMA perna MÉDIA poderia legitimamente perder.
+                // MÉDIA (Σ/n), não MÁXIMO: com o máximo, um atacante inflava a
+                // PRÓPRIA perna para inflar o orçamento partilhado e drenava as
+                // outras — com a sua perna a 83% do hop extraía 16,67% e passava,
+                // invertendo o incentivo (na regra antiga ter a perna grande era
+                // mau para ele). A média não é manipulável por ele: aumentar n
+                // ENCOLHE a folga, e ele não escreve a rota da vítima.
+                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - LEG_FLOOR_BPS, BPC.BPS);
+                if (hopGot + slack < hopAttested) revert RouterE(5);
             }
             totalLegs += legs;
             unchecked { ++h; }
@@ -938,14 +1006,16 @@ contract BlazePhoenixRouter {
     ///         (covers a fee-on-transfer tokenIn), hop 1+ against the
     ///         measured bridge balance. When nothing shrank the input,
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
-    function _execScaled(Leg calldata leg, address tokenIn, uint256 amt) private {
+    function _execScaled(Leg calldata leg, address tokenIn, uint256 amt)
+        private returns (uint256 got, uint256 attested)
+    {
         // A zero-input leg is a no-op: skip it entirely. A leg scaled to zero
         // input (for example the last leg when the Router holds no remaining
         // input) must never reach pool.swap(): the budget cap in _v3Callback
         // is now UNCONDITIONAL, so a zero cap would revert the whole swap
         // (RouterE 8) instead of no-oping. The residual sweep returns unspent
         // input.
-        if (amt == 0) return;
+        if (amt == 0) return (0, 0);
         // ─── Per-leg iron floor (see LEG_FLOOR_BPS) ───
         // Measure THIS leg's real contribution to the Router's tokenOut
         // balance and require ≥ 75% of its pro-rata attested quote. The
@@ -983,12 +1053,9 @@ contract BlazePhoenixRouter {
         }
 
         if (guard) {
-            uint256 got = BPC.balanceOf(legOut, address(this)) - balBefore;
-            uint256 minLeg = BPC.mulDiv(
-                BPC.mulDiv(leg.expectedOut, amt, leg.amountIn),
-                LEG_FLOOR_BPS, BPC.BPS
-            );
-            if (got < minLeg) revert RouterE(5);
+            got = BPC.balanceOf(legOut, address(this)) - balBefore;
+            attested = BPC.mulDiv(leg.expectedOut, amt, leg.amountIn);
+            if (got < BPC.mulDiv(attested, LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
         }
     }
 

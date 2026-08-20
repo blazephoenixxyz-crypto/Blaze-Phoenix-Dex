@@ -478,7 +478,18 @@ contract BlazePhoenixHub {
         // NOT "unforgeable". Vitality floors at 1 and decays to 0 in ~9 days, so an
         // emptied squatter self-weights down (INV-16) and the pool it evicted
         // re-registers on its next routed swap.
-        if (!_canInsert($.pairKeys[s0][s1], uint256(liq))) return key;
+        // UNIDADES: L é escala-raiz; profundidade aqui tem de ser token-denominada,
+        // como min(r0,r1) do V2 — senão um pool num tier de preço extremo entra com
+        // profundidade inflada por ~sqrt(preço), passa a margem de 25% do _canInsert
+        // e despeja um pool legítimo mais fundo. Mesma conversão de universalQuote
+        // (Core): reservas virtuais ao preço atual, lado curto. sp != 0 garantido acima.
+        uint256 depthTok;
+        {
+            uint256 d0 = BPC.mulDiv(uint256(liq), BPC.Q96, sp);
+            uint256 d1 = BPC.mulDiv(uint256(liq), sp, BPC.Q96);
+            depthTok = d0 < d1 ? d0 : d1;
+        }
+        if (!_canInsert($.pairKeys[s0][s1], depthTok)) return key;
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
             tickSpacing: tickSpacing, hooks: address(0)
@@ -490,7 +501,7 @@ contract BlazePhoenixHub {
         // of defaulting to bucket 0 (psi ~1) — otherwise the pool that just won
         // admission on its depth becomes the pair's weakest slot / next eviction
         // target the instant it is registered.
-        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), uint256(liq), uint32(block.timestamp)));
+        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthTok, uint32(block.timestamp)));
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
 
