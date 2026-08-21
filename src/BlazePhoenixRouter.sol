@@ -124,7 +124,6 @@ contract BlazePhoenixRouter {
 
     string  public constant VERSION             = "2.0.0";
 
-    uint16  internal constant PROTOCOL_FEE_BPS  = 28;       // 0.28%
     /// @dev Treasury 1 takes 30% of the fee; treasury 2 takes the remainder (70%), computed as
     ///      `fee - t1` so the two always sum to exactly `fee` with no rounding dust left behind.
     ///      Deliberately NOT paired with a TREASURY2_SHARE constant: a second constant would be
@@ -143,7 +142,6 @@ contract BlazePhoenixRouter {
     ///         and multiple L2s where public mempools make single-pool
     ///         manipulation a live threat, so the per-leg guard is tightened
     ///         rather than left looser than the aggregate.
-    uint16  internal constant LEG_FLOOR_BPS     = 8_000;
 
     /// @notice A1/MP-1: minimum fraction (BPS) of the MEASURED delivered output the
     ///         in-frame on-chain quote must cover to be trusted as the fee base.
@@ -160,7 +158,7 @@ contract BlazePhoenixRouter {
     ///         perna de L extrai ~20%·(L-1)/L sem falhar piso nenhum, e a
     ///         garantia legítima de uma rota de H hops degrada-se para 0,8^H.
     ///         Isto é um defeito de composição — existe sem hooks nenhuns.
-    ///         NÃO substitui nem aperta LEG_FLOOR_BPS: uma pool fina continua a
+    ///         NÃO substitui nem aperta BPC.LEG_FLOOR_BPS: uma pool fina continua a
     ///         poder falhar 20% sozinha (nenhuma rigidez nova). Limita apenas o
     ///         que o hop INTEIRO pode sangrar, e põe a perna do atacante DENTRO
     ///         do mesmo somatório — ou reverte, ou subsidia o que roubou.
@@ -168,7 +166,7 @@ contract BlazePhoenixRouter {
     /// (um hop de 1 perna a entregar 85% passa o piso por perna e falharia um
     /// piso de 95%) e inútil para hops grandes. É derivado — o hop pode perder
     /// exatamente o que a sua MAIOR perna poderia legitimamente perder:
-    ///     Σ got  ≥  Σ atestado − (BPS − LEG_FLOOR_BPS)·max(atestado_j)
+    ///     Σ got  ≥  Σ atestado − (BPS − BPC.LEG_FLOOR_BPS)·max(atestado_j)
     /// Para L=1 colapsa EXATAMENTE no piso por perna → zero rigidez nova, por
     /// construção e não por calibração. Para L>1 tolera UMA pool má, nunca duas
     /// — que é exatamente a forma do ataque.
@@ -560,7 +558,7 @@ contract BlazePhoenixRouter {
             uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
             baseH = bal > foreignBase ? bal - foreignBase : 0;
         }
-        uint256 feeH = BPC.mulDiv(baseH, PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         if (feeH == 0) return amountIn;
         _payFee(hop.tokenIn, feeH);
         // So o hop 0 gasta o `amountIn` que viaja no frame; os seguintes leem o saldo, que a
@@ -973,7 +971,7 @@ contract BlazePhoenixRouter {
                 // invertendo o incentivo (na regra antiga ter a perna grande era
                 // mau para ele). A média não é manipulável por ele: aumentar n
                 // ENCOLHE a folga, e ele não escreve a rota da vítima.
-                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - LEG_FLOOR_BPS, BPC.BPS);
+                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);
                 if (hopGot + slack < hopAttested) revert RouterE(5);
             }
             unchecked { ++h; }
@@ -1074,7 +1072,7 @@ contract BlazePhoenixRouter {
         // fully-compounded ratio can only OVER-discount this secondary floor
         // (more permissive, never a false reject). The user remains protected
         // by the mandatory non-zero userMinOut (primary bound, enforced on
-        // the delivered amount) and by the per-leg LEG_FLOOR_BPS guard at
+        // the delivered amount) and by the per-leg BPC.LEG_FLOOR_BPS guard at
         // every pool seam. Per-hop scoping would need a second transient flag
         // (the singleOutFloor drop above must still trigger on FoT seen in
         // ANY hop) — a floor-semantics rewrite not worth the risk for a
@@ -1163,9 +1161,9 @@ contract BlazePhoenixRouter {
         // (RouterE 8) instead of no-oping. The residual sweep returns unspent
         // input.
         if (amt == 0) return (0, 0);
-        // ─── Per-leg iron floor (see LEG_FLOOR_BPS) ───
+        // ─── Per-leg iron floor (see BPC.LEG_FLOOR_BPS) ───
         // Measure THIS leg's real contribution to the Router's tokenOut
-        // balance and require >= LEG_FLOOR_BPS (8.000 = 80%) of its bound. The
+        // balance and require >= BPC.LEG_FLOOR_BPS (8.000 = 80%) of its bound. The
         // aggregate floors run only once, at the end of _execute; bounding
         // each leg means a single sandwiched or manipulated pool reverts the
         // swap immediately instead of hiding its loss inside an otherwise
@@ -1254,7 +1252,7 @@ contract BlazePhoenixRouter {
             // limiar numerico. Era um fix aplicado a UM de TRES canais simetricos — e o terceiro,
             // a Camada 1, cura-se de graca aqui porque soma este `attested`.
             // Pior ainda, os dois raciocinavam um sobre o outro de forma inconsistente: o piso
-            // agregado invoca "the per-leg LEG_FLOOR_BPS guard at every pool seam" como uma das
+            // agregado invoca "the per-leg BPC.LEG_FLOOR_BPS guard at every pool seam" como uma das
             // barreiras que o cobrem, e essa guarda nao sabia que FoT existia.
             //
             // A MEDICAO E NAO-FORJAVEL, e e por isso que ISTO e o remedio certo. `_noteFot` grava
@@ -1287,7 +1285,7 @@ contract BlazePhoenixRouter {
             }
 
             attested = bound;
-            if (bound != 0 && got < BPC.mulDiv(bound, LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
+            if (bound != 0 && got < BPC.mulDiv(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
         }
     }
 

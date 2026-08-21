@@ -27,7 +27,7 @@ contract BlazePhoenixQuoterTest is Test {
     MockERC20 tokenA;
     MockERC20 tokenB;
 
-    uint16 constant PROTOCOL_FEE_BPS = 28;
+    uint16 constant PROTOCOL_FEE_BPS = BPC.PROTOCOL_FEE_BPS;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));

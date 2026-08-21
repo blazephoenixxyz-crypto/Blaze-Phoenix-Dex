@@ -49,7 +49,7 @@ contract HardeningA1FeeCoverageTest is Test {
 
     // Router constants, pinned (blind-constant law: the test must break if
     // either silently changes).
-    uint256 constant PROTOCOL_FEE_BPS = 28;      // 0.28% of the fee base
+    uint256 constant PROTOCOL_FEE_BPS = BPC.PROTOCOL_FEE_BPS;      // 0.28% of the fee base
     uint256 constant TREASURY1_SHARE  = 3_000;   // 30/70 split
     uint256 constant MIN_QUOTE_COVERAGE_BPS = 5_000;
 

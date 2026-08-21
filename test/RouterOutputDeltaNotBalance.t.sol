@@ -52,7 +52,7 @@ contract RouterOutputDeltaNotBalanceTest is Test {
     uint256 internal constant AMOUNT_IN = 1_000e18;
     // Someone else's money, already sitting in the Router before anyone swaps.
     uint256 internal constant STUCK = 250e18;
-    uint16 internal constant PROTOCOL_FEE_BPS = 28;
+    uint16 internal constant PROTOCOL_FEE_BPS = BPC.PROTOCOL_FEE_BPS;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));

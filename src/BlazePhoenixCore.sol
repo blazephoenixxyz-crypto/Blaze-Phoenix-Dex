@@ -272,6 +272,27 @@ library BlazePhoenixCore {
     uint16  internal constant FLOOR_BASE_BPS          = 9_600; // start at 96% floor for clean swaps
     uint16  internal constant FLOOR_PER_LEG_BPS       = 200;   // each extra leg loosens 2%
     uint16  internal constant FLOOR_IMPACT_FACTOR     = 1;     // 1 BPS floor drop per BPS impact
+    // O piso POR PERNA vivia sozinho no Router enquanto os seus tres irmaos viviam aqui. Vem
+    // para o pe deles: um teto local por pool, o mesmo numero que a composicao agregada usa.
+    uint16  internal constant LEG_FLOOR_BPS           = 8_000; // cada perna entrega >= 80% do bound
+
+    // ─── Fee do protocolo — PRODUTOR UNICO ─────────────────────────────────────────────────
+    // Estava declarada DUAS vezes, uma no Router e outra no Quoter, com o mesmo valor. O
+    // comentario que a acompanhava no Router explicava — corretamente — porque uma segunda
+    // constante e perigosa ("would silently drift into a lie the moment this one changed") e
+    // recusava criar a TREASURY2_SHARE por essa razao. A regra estava escrita no sitio exato
+    // onde estava a ser violada: a propria constante a que o comentario se agarrava tinha uma
+    // gemea. E essa gemea ja tinha custado a este protocolo o Quoter a mentir sobre a fee
+    // durante duas geracoes.
+    //
+    // Vive aqui por uma razao MECANICA, nao estetica: uma `internal constant` de um CONTRATO
+    // nao e legivel de fora, e era por isso que quatro testes — incluindo um de seguranca sobre
+    // cobertura de fee — a re-declaravam como o literal 28. Isso deixava a suite red-first
+    // contra alteracoes de CODIGO e CEGA a alteracoes de CONSTANTE: mudar a fee para 30 deixava
+    // quatro testes a afirmar 28 sobre uma copia, e a prova formal a provar o piso antigo.
+    // Numa LIBRARY a constante e legivel por quem a importa, e o aparelho de medida passa a
+    // estar aparafusado ao objeto que mede — o corolario (c) do I-measure aplicado a suite.
+    uint16  internal constant PROTOCOL_FEE_BPS        = 28;    // 0.28%
 
     // ─── V3 sqrt-price bounds ──────────────────────────────────────────
 

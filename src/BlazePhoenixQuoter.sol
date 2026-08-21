@@ -105,7 +105,6 @@ contract BlazePhoenixQuoter {
 
     string  public constant VERSION             = "2.0.0";
 
-    uint16  internal constant PROTOCOL_FEE_BPS  = 28;     // 0.28%
     uint16  internal constant BASE_SAFETY_BPS   = 0;
     uint16  internal constant PER_LEG_SAFETY    = 1;
     uint16  internal constant SAFETY_CAP_BPS    = 10;
@@ -213,7 +212,7 @@ contract BlazePhoenixQuoter {
         // baixo, que e o lado errado para mentir.
         uint256 afterFee = route.totalOut;
         for (uint256 h; h < route.hops.length; ) {
-            afterFee -= BPC.mulDiv(afterFee, PROTOCOL_FEE_BPS, BPC.BPS);
+            afterFee -= BPC.mulDiv(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
             unchecked { ++h; }
         }
         // O EFEITO da fee sobre a saida, em tokenOut. Nao e o que as tesourarias recebem — elas

@@ -13,7 +13,7 @@ contract FindingPartialFeeForgeTest is Test {
     MockERC20 tokenA; MockERC20 tokenB; MockV3Pool pool;
     address user = address(0xBEEF);
     address constant T1 = address(0xFEE1); address constant T2 = address(0xFEE2);
-    uint256 constant PROTOCOL_FEE_BPS = 28; uint256 constant MIN_QUOTE_COVERAGE_BPS = 5_000;
+    uint256 constant PROTOCOL_FEE_BPS = BPC.PROTOCOL_FEE_BPS; uint256 constant MIN_QUOTE_COVERAGE_BPS = 5_000;
     uint160 constant SQRT_P_1 = 79228162514264337593543950336;
     uint128 constant LIQ = 1_000_000e18; uint24 constant POOL_FEE = 3000;
     uint256 constant AMOUNT_IN = 10_000e18;
