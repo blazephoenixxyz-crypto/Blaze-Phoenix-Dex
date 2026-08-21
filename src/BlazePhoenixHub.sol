@@ -1220,7 +1220,7 @@ contract BlazePhoenixHub {
         // This mirrors the authenticity proof the V4 branch below already has
         // (poolId recomputation); no other kind had one.
         // The mask is the Router's own "the pool field is a pair" taxonomy
-        // (_legTokenOut) — see KINDS_PAIR_PROOF. Outside it: V4(4) and
+        // (_legTokens) — see KINDS_PAIR_PROOF. Outside it: V4(4) and
         // V4_NATIVE(8), whose `pool` is a truncated poolId with no bytecode at
         // all, and which prove themselves in the branch below. kind > 8 shifts
         // the mask to 0 — a future kind stays unverified (today's behaviour)

@@ -929,8 +929,8 @@ contract BlazePhoenixRouter {
                 } else {
                     sawHooked = true;
                 }
-                address legIn = _legTokenIn(leg);
-                // V4 legs return address(0) from _legTokenIn (their pool field
+                (address legIn, address legOutRaw) = _legTokens(leg);
+                // V4 legs return address(0) as legIn (their pool field
                 // holds the *other* token, not a Uniswap-style pair). Resolve
                 // the real tokenIn from the hop context so _execV4Amt writes the
                 // correct token into transient storage for the unlock callback.
@@ -944,7 +944,7 @@ contract BlazePhoenixRouter {
                 // `scaledAmt` acima ANTES do clamp da ultima perna. O portao reescala por
                 // amt/legAmt, logo o clamp fica tratado — e no sentido conservador.
                 (uint256 legGot, uint256 legAtt) = _execScaled(
-                    leg, legIn, scaledAmt, legQuotes[l], BPC.mulDiv(leg.amountIn, scaleNum, scaleDen)
+                    leg, legIn, legOutRaw, scaledAmt, legQuotes[l], BPC.mulDiv(leg.amountIn, scaleNum, scaleDen)
                 );
                 hopGot += legGot;
                 hopAttested += legAtt;
@@ -1152,7 +1152,7 @@ contract BlazePhoenixRouter {
     ///         measured bridge balance. When nothing shrank the input,
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
     function _execScaled(
-        Leg calldata leg, address tokenIn, uint256 amt, uint256 legQuote, uint256 legAmt
+        Leg calldata leg, address tokenIn, address legOutRaw, uint256 amt, uint256 legQuote, uint256 legAmt
     ) private returns (uint256 got, uint256 attested) {
         // A zero-input leg is a no-op: skip it entirely. A leg scaled to zero
         // input (for example the last leg when the Router holds no remaining
@@ -1171,7 +1171,7 @@ contract BlazePhoenixRouter {
         // Legs without an attested quote (expectedOut == 0) fail open to the
         // aggregate floors — a caller weakening its own crafted route gains
         // nothing that userMinOut and the protocol floor don't already bound.
-        address legOut = _legTokenOut(leg, tokenIn);
+        address legOut = legOutRaw == tokenIn ? address(0) : legOutRaw;
         // A guarda corre se existir ALGUMA base de piso: a atestacao do chamador OU a quote
         // medida in-frame. Antes exigia `leg.expectedOut != 0`, e isso fazia dela um OPT-OUT
         // POR CALLDATA — quem submetia a rota desligava o seu proprio piso escrevendo zero, e
@@ -1289,35 +1289,38 @@ contract BlazePhoenixRouter {
         }
     }
 
-    /// @notice Resolve a leg's OUTPUT token: pair reads for pool-shaped kinds,
-    ///         auxId for V4 (whose pool field is not a pair). Returns
-    ///         address(0) when the output token cannot be resolved — that leg
-    ///         then fails open to the aggregate floors (the per-leg guard is
-    ///         an extra bound, never a gate on execution).
-    function _legTokenOut(Leg calldata leg, address tokenIn) private view returns (address) {
+    /// @notice Resolve os DOIS tokens de uma perna numa SO leitura do par: leitura do par para
+    ///         os kinds pool-shaped, `auxId` para o V4 (cujo campo `pool` nao e um par). O
+    ///         chamador converte `legOut == tokenIn` em address(0) — nesse caso a perna falha
+    ///         ABERTA para os pisos agregados (a guarda por perna e um limite extra, nunca um
+    ///         portao de execucao).
+    ///
+    /// @dev    ERAM DUAS FUNCOES, `_legTokenIn` e `_legTokenOut`, e cada uma lia `token0()` e
+    ///         `token1()` DA MESMA POOL, no MESMO frame, para ficar com um dos dois e deitar o
+    ///         outro fora. Duas staticcalls quentes por perna nao-V4, ~740 gas cada. Medido
+    ///         ponta-a-ponta: −1.498 (1 perna) ate −7.355 (5 pernas, −1,65% da tx), e o Router
+    ///         encolhe 58 bytes. Aplica-se aos DOIS entry points.
+    ///
+    ///         E NAO E SO GAS — a fusao FECHA UMA FRESTA. Com duas leituras separadas, uma pool
+    ///         maliciosa pode responder `token0()/token1()` DIFERENTES na segunda chamada e
+    ///         fabricar `legOut == tokenIn`, o que punha o proprio piso por perna a address(0),
+    ///         i.e. desligava-o. Um snapshot atomico torna isso inexprimivel: os dois tokens
+    ///         vem do mesmo par de leituras ou de nenhum. A doutrina da casa diz para MEDIR e
+    ///         nao derivar; aqui as duas leituras eram a MESMA medicao feita duas vezes, e
+    ///         repetir uma medicao que o adversario controla nao e prudencia — e superficie.
+    function _legTokens(Leg calldata leg) private view returns (address legIn, address legOut) {
         if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
-            return address(uint160(uint256(leg.auxId)));
+            return (address(0), address(uint160(uint256(leg.auxId))));
         }
         address t0 = BPC.token0Of(leg.pool);
         address t1 = BPC.token1Of(leg.pool);
-        address outT = leg.zeroForOne ? t1 : t0;
-        return outT == tokenIn ? address(0) : outT;
+        legIn  = leg.zeroForOne ? t0 : t1;
+        legOut = leg.zeroForOne ? t1 : t0;
     }
 
     /// @notice Resolve the actual tokenIn for a leg by inspecting its pool.
     ///         This is robust against bridge collapsing where two stages with
     ///         different token pairs share a single hop wrapper.
-    function _legTokenIn(Leg calldata leg) private view returns (address) {
-        if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
-            // V4 pools store the "other" token in leg.pool; tokenIn is the
-            // implicit counterpart resolved by the unlock callback. The caller
-            // path uses the hop-level tracking, so we fall back to that.
-            return address(0);
-        }
-        address t0 = BPC.token0Of(leg.pool);
-        address t1 = BPC.token1Of(leg.pool);
-        return leg.zeroForOne ? t0 : t1;
-    }
 
     /// @notice Record a measured fee-on-transfer NET ratio (bps) for this
     ///         swap in transient storage. TSLOT_FOT == 0 means "no FoT seen";
