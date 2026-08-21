@@ -883,6 +883,39 @@ library BlazePhoenixCore {
         return _solidlyStable(ain, rIn, rOut, fee, 0, 0);
     }
 
+    /// @notice A substituicao WETH -> address(0) de uma chave V4 nativa. UNICO produtor.
+    ///
+    /// @dev    PORQUE EXISTE. A mesma derivacao vivia escrita a mao em DOIS sitios do Router — o
+    ///         braco de cotacao e o de execucao — e o comentario de um deles JURAVA que "cannot
+    ///         diverge" sem mecanismo nenhum que o garantisse. E exatamente a situacao que deu
+    ///         origem ao `depthFromL`, cujo comentario diz o mesmo por outras palavras: uma copia
+    ///         nao pode divergir de si propria, mas duas copias podem divergir uma da outra.
+    ///         E aqui a divergencia seria silenciosa e grave: os dois lados derivariam poolIds
+    ///         DIFERENTES, e a promessa de que "cotar e executar leem a mesma pool" cairia.
+    ///
+    ///         PORQUE NAO DEVOLVE UM `ok`. A versao obvia devolve `(a, b, bool ok)` e deixa o
+    ///         veredicto no chamador. Mas em Solidity `(a, b, ) = f(...)` compila SEM AVISO —
+    ///         logo um sitio futuro pode ignorar o `ok`, e se o valor devolvido em caso de falha
+    ///         for utilizavel, segue com `tokenIn == WETH` e constroi a chave do pool ERC20 em vez
+    ///         da nativa: le uma pool DIFERENTE e devolve um numero perfeitamente valido do sitio
+    ///         errado, sem sintoma. E o corolario (c) do Axioma Meta-Supremo a morder.
+    ///
+    ///         A ALTERNATIVA E MELHOR QUE O `ok`: o valor de falha e `(0, 0)`, que e
+    ///         AUTO-IDENTIFICAVEL (num sucesso exatamente UM dos dois e zero, nunca os dois) e
+    ///         IMPOSSIVEL como chave V4 — o V4 exige `currency0 < currency1`, logo nao existe
+    ///         nem pode vir a existir uma pool (0,0). Quem esquecer a verificacao obtem uma chave
+    ///         que nao resolve: `sp == 0` do lado da cotacao (quote zero) e um `unlock` que
+    ///         reverte do lado da execucao. Nao ha `ok` para esquecer, porque nao ha `ok`.
+    ///         Falha fechada por CONSTRUCAO, e nao por disciplina de quem chama.
+    function nativeMapVerified(address tokenIn, address tokenOther, address weth)
+        internal pure returns (address, address)
+    {
+        if (weth == address(0))  return (address(0), address(0));
+        if (tokenIn == weth)     return (address(0), tokenOther);
+        if (tokenOther == weth)  return (tokenIn, address(0));
+        return (address(0), address(0));
+    }
+
     /// @notice A CURVA Solidly com os decimais corretos — o UNICO produtor desta grandeza.
     ///
     ///         PORQUE EXISTE. A mesma pergunta ("quanto devolve esta pool?") era respondida em

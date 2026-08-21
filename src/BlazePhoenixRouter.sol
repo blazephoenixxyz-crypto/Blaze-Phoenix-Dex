@@ -209,13 +209,30 @@ contract BlazePhoenixRouter {
         address indexed user, address indexed tokenIn, address indexed tokenOut,
         uint256 amountIn, uint256 amountOut, uint256 legs
     );
-    /// @notice Verifiable execution-quality proof, emitted per swap: the
-    ///         in-frame on-chain quote the fee/floor were derived from
-    ///         (`quoted`, gross), the amount actually delivered to the recipient
-    ///         (`realized`, net of the protocol fee — see the Fee event), the
-    ///         floor that had to be cleared (`floorUsed`), and the block. Lets
-    ///         anyone audit realized-vs-quoted on-chain, with no oracle and no
-    ///         trust in our own reported numbers — the protocol's core promise.
+    /// @notice Prova verificavel de qualidade de execucao, emitida por swap.
+    ///
+    /// @dev    O QUE E, e porque e que provavelmente nao existe noutro agregador: a quote de
+    ///         REFERENCIA e produzida por consenso NO MESMO FRAME da execucao e publicada como
+    ///         serie on-chain. Em todos os outros a quote e um artefacto off-chain — o que
+    ///         sobrevive na chain e o `minOut`, e a qualidade de execucao e reconstruida por
+    ///         terceiros a partir de dados externos. Aqui o benchmark e ENDOGENO: qualquer pessoa
+    ///         re-executa `findBestRoutePlan` (view) por eth_call naquele bloco e obtem o mesmo
+    ///         numero. Foi a restricao economica (zero servidores, zero RPC pago) que empurrou o
+    ///         solver para a chain; a prova caiu como subproduto.
+    ///
+    ///         O QUE CADA CAMPO E, SEM SOBRE-ALEGAR — e as tres ressalvas andam coladas a
+    ///         afirmacao de cima, senao ela vira propaganda:
+    ///         · `user` e o PAGADOR, nao o `msg.sender`. No `swapBestExactIn` chega-se aqui por
+    ///           self-call e o `msg.sender` e o proprio Router; ate 2026-08-21 a serie era emitida
+    ///           sem dono exatamente na porta que a torna unica.
+    ///         · `quoted` e o `finalHopQuote` — a quote do ULTIMO hop, nao da rota. Numa rota
+    ///           multi-hop a comparacao com `realized` esta nas unidades certas mas NAO mede a
+    ///           qualidade dos hops anteriores. Isto prova a ultima perna; nao prova a rota.
+    ///         · `realized` e o entregue MEDIDO no destinatario. Desde que a fee passou a ser
+    ///           cobrada por hop no token de cada hop, NAO ha corte do lado da saida: o `realized`
+    ///           ja nao e "liquido da fee" — a fee saiu antes, noutros tokens (ver o evento Fee,
+    ///           agora emitido uma vez por hop).
+    ///         · `floorUsed` e o piso que teve de ser vencido.
     event ExecutionProof(
         address indexed user, address indexed tokenOut,
         uint256 quoted, uint256 realized, uint256 floorUsed, uint256 blockNumber
@@ -759,10 +776,8 @@ contract BlazePhoenixRouter {
             // unwired, or neither side the real WETH) is 0-quoted here and
             // reverts RouterE(8) there — consistent with the auxId==0 case.
             // `weth` is read direct (no local) to keep this frame stack-lean.
-            if (weth == address(0)) return 0;
-            if (tokenIn == weth) tokenIn = address(0);
-            else if (tokenOther == weth) tokenOther = address(0);
-            else return 0;
+            (tokenIn, tokenOther) = BPC.nativeMapVerified(tokenIn, tokenOther, weth);
+            if (tokenIn == address(0) && tokenOther == address(0)) return 0;
         }
         (address t0, address t1) = BPC.sortTokens(tokenIn, tokenOther);
         bytes32 pid = BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
@@ -1096,8 +1111,24 @@ contract BlazePhoenixRouter {
 
         amountOut = delivered;
         _recordHits(route);
-        emit Swap(msg.sender, tokenIn, tokenOut, amountIn, delivered, totalLegs);
-        emit ExecutionProof(msg.sender, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number);
+        // ─── ATRIBUICAO: `payer`, NUNCA `msg.sender` ───
+        // O docstring desta funcao ja explica porque o `payer` existe como parametro: no
+        // `swapBestExactIn` chega-se aqui por uma SELF-CALL externa, e nesse caminho o
+        // `msg.sender` E O PROPRIO ROUTER. Os dois eventos ficavam indexados ao endereco do
+        // contrato em vez do utilizador — e precisamente na porta que os docstrings chamam o
+        // ponto de entrada da filosofia, a unica em que a rota e decidida 100% on-chain.
+        // A serie `ExecutionProof` e o unico ativo genuinamente novo deste protocolo (a quote de
+        // referencia produzida por consenso no MESMO frame da execucao, reproduzivel por qualquer
+        // pessoa com um eth_call aquele bloco). Estava a ser emitida SEM DONO exatamente na porta
+        // que a torna unica. Assinatura de defeito da casa: um comportamento aplicado a N-1 de N
+        // canais — aqui, a todas as portas menos a bandeira.
+        //
+        // E O MONTANTE E O BRUTO. `amountIn` ja vem liquido da fee do hop 0 (a fee sai de dentro
+        // do laco), portanto emiti-lo sub-reportava o que o utilizador entregou. `tinStart` menos
+        // a baseline da o montante ORIGINAL sem um unico local novo: os tokens sao pre-puxados,
+        // logo tinStart >= amountIn0 e baseIn == tinStart - amountIn0 por construcao.
+        emit Swap(payer, tokenIn, tokenOut, tinStart - baseIn, delivered, totalLegs);
+        emit ExecutionProof(payer, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number);
         return delivered;
     }
 
@@ -1398,10 +1429,8 @@ contract BlazePhoenixRouter {
             // is unwired or NEITHER side is the real WETH — auxId is caller
             // calldata, and the callback's unwrap/wrap must only ever touch
             // the canonical WETH contract, never an attacker-named token.
-            if (weth == address(0)) revert RouterE(8);
-            if (tokenIn == weth) tokenIn = address(0);
-            else if (tokenOther == weth) tokenOther = address(0);
-            else revert RouterE(8);
+            (tokenIn, tokenOther) = BPC.nativeMapVerified(tokenIn, tokenOther, weth);
+            if (tokenIn == address(0) && tokenOther == address(0)) revert RouterE(8);
         }
         (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
         IV4PoolManager.V4PoolKey memory key = IV4PoolManager.V4PoolKey({

@@ -501,16 +501,21 @@ contract BlazePhoenixSolver {
         // (measured for a WETH/USDC pair: 50/50 gave 1302 USDC vs 1638
         // when concentrated in the deep pool). depthWad reflects current
         // capacity, so weighting by it converges on the optimal allocation
-        // (depth-weighted gave 1638, matching deep-only). depthWad is only
-        // comparable within a UNIT FAMILY — concentrated liquidity L (V3 /
-        // Algebra / V4) vs pair reserves (V2 / Solidly) — so depths normalise
-        // against the max of their family, not
-        // their kind: a thin V4 can no longer claim max weight merely for
-        // being the only V4 (measured: a thin Base V4 pool drew ~49% of a
-        // 25k USDC trade and cost ~31% vs fair). When the survivor set spans
-        // multiple families AND every survivor holds a real tokenOut balance,
-        // weighting switches to that balance outright — the only cross-family
-        // comparable, unforgeable-without-capital measure (see _weights).
+        // (depth-weighted gave 1638, matching deep-only).
+        //
+        // CORRIGIDO 2026-08-21. Este paragrafo afirmava que "depthWad so e comparavel dentro de
+        // uma FAMILIA DE UNIDADES" e descrevia dois modos de peso: normalizacao por familia, e um
+        // fallback para o saldo cru quando o conjunto cruzava familias.
+        // A PREMISSA CAIU com o `depthFromL`: a conversao passou a dar profundidade
+        // TOKEN-denominada em TODAS as familias, e a guarda do CI diz textualmente que ela "tem de
+        // ser token-denominada PARA SER COMPARAVEL ENTRE FAMILIAS". O repositorio tinha as duas
+        // afirmacoes opostas escritas ao mesmo tempo — e era sobre a errada que os dois modos
+        // estavam construidos.
+        // Hoje ha UMA normalizacao, contra o maximo GLOBAL — que resolve melhor o mesmo problema
+        // (uma pool fina de um kind raro compara-se com TODAS, nao so com as da sua familia; o
+        // caso medido foi uma V4 fina a levar ~49% de 25k USDC e a custar ~31% vs justo). E o
+        // fallback para o saldo cru desapareceu com eles: era uma ancora de `balanceOf`, que a
+        // doutrina do T2 proibe porque uma doacao a infla sem custo para quem doa.
         (uint256[] memory psis, uint256 sumPsi) = _weights(cands, depths, balsOut, n);
 
         // ─── FUNNEL CUT (see MAX_CANDIDATES) ───
@@ -539,10 +544,26 @@ contract BlazePhoenixSolver {
             uint256 outL = _quote(cands[i], tIn, share);
             if (outL == 0) { unchecked { ++i; } continue; }
             // ─── Capacity clamp (see MAX_CONC_DRAIN_BPS) ───
-            // Concentrated single-tick quotes are clamped to a fraction of the
-            // pool's REAL tokenOut holdings, so a thin pool can never inflate
-            // totalOut past what it could physically pay. Zero balance (V4
-            // singleton accounting) leaves the quote untouched.
+            // Uma cotacao concentrada de tick unico e limitada a uma fraccao das existencias
+            // REAIS de tokenOut da pool, para que uma pool fina nao possa inflar o totalOut acima
+            // do que consegue FISICAMENTE pagar. Saldo zero (contabilidade no singleton do V4)
+            // deixa a cotacao intacta.
+            //
+            // PORQUE AQUI E `balanceOf` E NAO A PROFUNDIDADE MEDIDA — e porque a doutrina do T2
+            // NAO se aplica a este sitio, apesar de ele ler a mesma funcao. Uma auditoria propos
+            // trocar por `depths[i]` invocando o T2 ("nunca balanceOf cru"), e a troca foi
+            // TENTADA E MEDIDA: para uma pool V3, `depthFromL` da a reserva VIRTUAL derivada de L,
+            // que pode ser muito MAIOR que as existencias fisicas — 3.327e18 contra 1.600e18 no
+            // caso de teste. O teto ficava mais FROUXO, o oposto da intencao.
+            //
+            // A distincao que isto ensina, e que vale para o proximo sitio que leia balanceOf:
+            //   · a ANCORA DA BANDA faz uma pergunta RELATIVA ("qual destas pools e a boa?").
+            //     Uma doacao distorce a comparacao sem custo para quem doa — T2 aplica-se, e a
+            //     ancora usa profundidade medida.
+            //   · este TETO faz uma pergunta FISICA ("esta pool consegue pagar isto?"). Uma
+            //     doacao sobe o teto E sobe o que a pool consegue mesmo pagar, e os tokens doados
+            //     sao CONSUMIDOS no pagamento ao utilizador. Nao e ataque, e subsidio.
+            // Ler a mesma grandeza nao implica fazer a mesma pergunta.
             if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)
                 && balsOut[i] > 0)
             {
@@ -702,71 +723,51 @@ contract BlazePhoenixSolver {
         }
     }
 
-    /// @dev Unit family of a pool kind. Depth figures are only comparable when
-    ///      they share a unit: concentrated liquidity L (V3 / Algebra / V4),
-    ///      pair reserves (V2 / Solidly). A terceira familia (saida cotada pela
-    ///      pool) saiu com as lapides — hoje ha exactamente duas.
-    function _famOf(uint8 kind) private pure returns (uint256) {
-        // Concentrada em qualquer forma — na pool (V3/Algebra) ou no singleton (V4). Quatro
-        // comparacoes escritas a mao eram quatro sitios para esquecer quando entra um kind
-        // novo; o KIND_V4_NATIVE provou-o ao obrigar a tocar nos cinco contratos sem trazer
-        // uma linha de matematica de pricing nova.
-        if (BPC.kindHasAny(kind, BPC.A_CONC_POOL | BPC.A_CONC_SING)) return 0;
-        return 1;
-    }
 
-    /// @dev Allocation weights for the band survivors, normalised to
-    ///      [1..10000]. Two modes:
+    /// @dev Pesos de alocacao para os sobreviventes da banda, normalizados a [1..10000]:
+    ///      a profundidade MEDIDA de cada pool contra a MAIOR profundidade do conjunto.
     ///
-    ///      CAPITAL — when the set spans multiple unit families AND every
-    ///      survivor holds a real tokenOut balance, weight by that balance:
-    ///      it is the only measure comparable across families and cannot be
-    ///      faked without depositing real capital (the anchor doctrine,
-    ///      extended from filtering to allocation). V4 reports balance 0
-    ///      (singleton accounting), which keeps any V4-containing set on the
-    ///      depth path below.
+    ///      DUAS COISAS FORAM REMOVIDAS DAQUI EM 2026-08-21, e as duas pela MESMA razao.
     ///
-    ///      FAMILY-DEPTH — otherwise, each pool's cached probe depth is
-    ///      normalised against the max depth of its own unit family. Within a
-    ///      family the units agree, so a thin pool of a rare kind can no
-    ///      longer claim max weight merely for being alone in its kind.
+    ///      (1) O MODO CAPITAL. Quando o conjunto cruzava familias e todos tinham saldo, o peso
+    ///          passava a ser `balanceOf(tokenOut, pool)`. Isso era uma ANCORA lida do saldo cru
+    ///          — exatamente o que a doutrina do fix T2 proibe, escrita a poucas linhas daqui:
+    ///          "ancora na profundidade MEDIDA, NUNCA no balanceOf cru, porque uma doacao infla-o
+    ///          SEM mover a reserva nem o preco, e a doacao e recuperavel". O T2 foi aplicado a
+    ///          ancora da BANDA e nao a este peso, que decide a FATIA do split. Assinatura de
+    ///          defeito da casa: um fix aplicado a UM de dois canais que fazem a MESMA pergunta
+    ///          relativa ("qual destas pools merece mais?").
+    ///          (NOTA: o teto de capacidade tambem le `balanceOf` e NAO foi mudado — la a pergunta
+    ///          e FISICA, "consegue pagar isto?", e a doacao sobe genuinamente o que a pool paga.
+    ///          Ler a mesma grandeza nao implica fazer a mesma pergunta.)
+    ///
+    ///      (2) A NORMALIZACAO POR FAMILIA. Existia porque "depthWad so e comparavel dentro de uma
+    ///          familia de unidades". Essa premissa CAIU com o `depthFromL`: a conversao passou a
+    ///          dar profundidade TOKEN-denominada em todas as familias, e a propria guarda do CI
+    ///          diz textualmente que ela "tem de ser token-denominada PARA SER COMPARAVEL ENTRE
+    ///          FAMILIAS". O repositorio tinha as duas afirmacoes opostas escritas ao mesmo tempo.
+    ///          Com profundidades globalmente comparaveis, normalizar contra o maximo GLOBAL e
+    ///          estritamente mais correto — e resolve melhor o problema que a normalizacao por
+    ///          familia resolvia (uma pool fina de um kind raro nao ganha peso maximo por ser a
+    ///          unica do seu kind: agora compara-se com TODAS, nao so com as da sua familia).
+    ///
+    ///      O que sai com elas: `_famOf`, o array `maxByFam`, o predicado `st` empacotado e o
+    ///      ramo. O que fica e uma normalizacao, sem modos.
     function _weights(
         PoolInfo[] memory cands, uint256[] memory depth, uint256[] memory bals, uint256 n
     ) private pure returns (uint256[] memory psis, uint256 sumPsi) {
+        cands; bals;   // mantidos na assinatura: o chamador passa-os em lockstep com psis
         psis = new uint256[](n);
-        // Single scan: family maxima (for the depth path) AND the capital-mode
-        // predicate AND maxBal — the common single-family case costs exactly
-        // two passes over n, matching the historical two-loop cost (the gas
-        // bench holds newGas <= oldGas). The predicate packs into one word
-        // (bit0 = mixed families, bit1 = zero balance seen) so the scan
-        // carries one live slot instead of two booleans: this function is
-        // inlined into _buildHop by the via-IR pipeline, where every stack
-        // slot counts.
-        // DUAS familias, nao tres. A terceira (saida cotada pela pool) saiu com as lapides e a
-        // alocacao ficou. `_famOf` devolve {0,1} por construcao — ver o seu corpo.
-        uint256[] memory maxByFam = new uint256[](2);
-        uint256 st;
-        uint256 maxBal;
-        uint256 fam0 = _famOf(cands[0].kind);
+        uint256 mx;
         for (uint256 i; i < n; ) {
-            uint256 f = _famOf(cands[i].kind);
-            if (f != fam0) st |= 1;
-            if (depth[i] > maxByFam[f]) maxByFam[f] = depth[i];
-            uint256 b = bals[i];
-            if (b == 0) st |= 2;
-            if (b > maxBal) maxBal = b;
+            if (depth[i] > mx) mx = depth[i];
             unchecked { ++i; }
         }
-        // st == 1  ⇔  mixed families AND every survivor funded → capital mode.
         for (uint256 i; i < n; ) {
-            uint256 w;
-            if (st == 1) {
-                w = BPC.mulDiv(bals[i], 10000, maxBal);
-            } else {
-                uint256 mx = maxByFam[_famOf(cands[i].kind)];
-                w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10000, mx);
-            }
-            if (w == 0) w = 1;
+            // `mx == 0` so acontece se NENHUM candidato reportou profundidade: entao todos ficam
+            // com peso 1 e o split e uniforme, que e a unica coisa honesta a fazer sem medicao.
+            uint256 w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10_000, mx);
+            if (w == 0) w = 1;   // profundidade nao-nula mas minuscula nao desaparece do split
             psis[i] = w;
             sumPsi += w;
             unchecked { ++i; }
