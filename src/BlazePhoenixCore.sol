@@ -875,6 +875,42 @@ library BlazePhoenixCore {
         return _solidlyStable(ain, rIn, rOut, fee, 0, 0);
     }
 
+    /// @notice A CURVA Solidly com os decimais corretos — o UNICO produtor desta grandeza.
+    ///
+    ///         PORQUE EXISTE. A mesma pergunta ("quanto devolve esta pool?") era respondida em
+    ///         TRES sitios com TRES politicas: aqui (decimais SIM), no cotador do Router
+    ///         (decimais NAO) e no executor do Router (decimais NAO). No caminho primario os
+    ///         tres fazem a mesma chamada ao mesmo pool e concordam por construcao; a
+    ///         divergencia vivia toda no fallback. Assinatura de defeito da casa com N=3.
+    ///
+    ///         PORQUE OS DECIMAIS. O invariante stable k = x3y + xy3 e homogeneo de grau 4, logo
+    ///         com reservas na MESMA escala o resultado e invariante a escala — e por isso a via
+    ///         de decimais iguais passa (0,0) e nao normaliza nada. Com 18/6 as reservas cruas
+    ///         estao a 12 ordens de grandeza uma da outra e a curva devolve lixo. O par real
+    ///         normaliza internamente porque SABE os seus decimais; quem lhe pede tem de saber
+    ///         tambem.
+    ///
+    ///         DERIVA O PAR DA POOL, NAO DO CHAMADOR. O outro token le-se do proprio pool em vez
+    ///         de vir por argumento — de proposito. Uma primitiva de produtor unico que aceite a
+    ///         coordenada de quem a chama volta a ter a forma que permite a divergencia: bastava
+    ///         um dos tres sitios passar o token errado. So corre no fallback, logo o custo das
+    ///         duas staticcalls e pago na via rara.
+    ///
+    ///         O QUE ESTA PRIMITIVA NAO FAZ: o haircut. Ver `universalQuote` e `_execSolidlyAmt`
+    ///         — e margem de um PEDIDO, nao propriedade da curva, e nao viaja para os canais de
+    ///         cotacao. Politica unica significa uma unica CURVA, nao um unico conjunto de
+    ///         ajustes.
+    function solidlyCurveOut(
+        address pool, uint256 ain, uint256 rIn, uint256 rOut,
+        bool stable, uint256 cfgFee, address tokenIn
+    ) public view returns (uint256) {
+        uint256 liveFee = readDynamicFee(pool, stable, cfgFee);
+        if (!stable) return outSolidly(ain, rIn, rOut, liveFee, false);
+        address t0 = token0Of(pool);
+        address other = t0 == tokenIn ? token1Of(pool) : t0;
+        return outSolidlyStable(ain, rIn, rOut, liveFee, _decimalsOf(tokenIn), _decimalsOf(other));
+    }
+
     /// @notice Solidly stable quote with explicit token decimals. Normalises
     ///         both reserves and the input to 1e18 before solving the
     ///         invariant, then de-normalises the output — required when the two
@@ -1070,17 +1106,7 @@ library BlazePhoenixCore {
                 // pool's K rounding — which we cannot observe — always has
                 // slack. The haircut is intentionally the pool's gain; it
                 // never applies when getAmountOut answered above.
-                uint256 liveFee = readDynamicFee(c.pool, c.stable, c.fee);
-                if (c.stable) {
-                    // Stable invariant needs decimal-normalised reserves so
-                    // pairs with mismatched decimals (e.g. DOLA 18 / USDC 6)
-                    // quote correctly.
-                    uint8 dI = _decimalsOf(c.tokenIn);
-                    uint8 dO = _decimalsOf(c.tokenOther);
-                    out = outSolidlyStable(amountIn, rI, rO, liveFee, dI, dO);
-                } else {
-                    out = outSolidly(amountIn, rI, rO, liveFee, false);
-                }
+                out = solidlyCurveOut(c.pool, amountIn, rI, rO, c.stable, c.fee, c.tokenIn);
                 out = (out * 9800) / BPS;
             }
             depthWad = rI < rO ? rI : rO;

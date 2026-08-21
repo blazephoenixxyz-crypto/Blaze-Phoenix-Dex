@@ -646,9 +646,17 @@ contract BlazePhoenixRouter {
         Leg calldata leg, address tokenIn, uint256 legAmt, uint256 rIn, uint256 rOut
     ) private view returns (uint256 quote) {
         quote = BPC.solidlyGetAmountOut(leg.pool, legAmt, tokenIn);
-        if (quote == 0) {
-            uint256 liveFee = BPC.readDynamicFee(leg.pool, leg.stable, leg.fee);
-            quote = BPC.outSolidly(legAmt, rIn, rOut, liveFee, leg.stable);
+        // GATILHO ALINHADO COM O EXECUTOR. O irmao (`_execSolidlyAmt`) trata `<= 1` como "sem
+        // resposta" e cai no fallback; este tratava `1` como resposta valida. Com um pool a
+        // devolver exatamente 1, os dois canais tomavam ramos DIFERENTES — assinatura de
+        // defeito da casa em ponto pequeno. O `-1` do executor NAO viaja para ca: e margem de
+        // arredondamento de um PEDIDO, e este numero e um PISO.
+        if (quote <= 1) {
+            // SEM HAIRCUT, de proposito: os 200 bps do executor sao folga para o K da pool, nao
+            // uma propriedade da curva. Aplica-los aqui deflacionaria `qs` no portao de
+            // cobertura, a base da fee e o `hopAttested` — relaxava tres guardas por confusao
+            // semantica.
+            quote = BPC.solidlyCurveOut(leg.pool, legAmt, rIn, rOut, leg.stable, leg.fee, tokenIn);
         }
     }
 
@@ -1340,8 +1348,9 @@ contract BlazePhoenixRouter {
             (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);
             uint256 rIn  = leg.zeroForOne ? r0 : r1;
             uint256 rOut = leg.zeroForOne ? r1 : r0;
-            uint256 liveFee = BPC.readDynamicFee(leg.pool, leg.stable, leg.fee);
-            outAmt = BPC.outSolidly(askIn, rIn, rOut, liveFee, leg.stable);
+            outAmt = BPC.solidlyCurveOut(leg.pool, askIn, rIn, rOut, leg.stable, leg.fee, tokenIn);
+            // O haircut fica AQUI, onde e um PEDIDO: pede-se 200 bps a menos para que o
+            // arredondamento do K da pool — que nao observamos — tenha sempre folga.
             outAmt = (outAmt * 9800) / BPC.BPS;
         }
         if (outAmt == 0) revert RouterE(8);
