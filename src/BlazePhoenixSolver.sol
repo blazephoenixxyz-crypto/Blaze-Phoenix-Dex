@@ -661,6 +661,47 @@ contract BlazePhoenixSolver {
         return (budget, sumPsi);
     }
 
+    /// @dev ORDEM CANONICA (Camada 2), do lado de quem PLANEIA. Particao ESTAVEL das pernas de
+    ///      um hop: hookless para a frente, ordem relativa PRESERVADA dentro de cada grupo.
+    ///
+    ///      PORQUE EXISTE. O Router exige hookless ANTES de hooked dentro de um hop e reverte
+    ///      RouterE(3) se nao for o caso — um hook ganha controlo de EVM durante o swap e pode
+    ///      tocar no pool de uma perna ainda por executar da MESMA rota. O Solver ordenava por
+    ///      PESO, portanto uma pool hooked mais funda ficava em primeiro e a rota que ele proprio
+    ///      construiu revertia na execucao. Auto-DoS na porta canonica.
+    ///
+    ///      PORQUE AQUI E NAO NO CRITERIO DE RANKING, que era onde parecia pertencer. O
+    ///      `_buildHop` esta cronicamente a um slot do limite de stack do via_ir — o proprio
+    ///      `_cutByWeight` ja tinha sido extraido por essa razao, e o compilador volta a inlina-lo
+    ///      la dentro, pelo que qualquer local acrescentado ao comparador conta para aquele frame
+    ///      e rebenta-o. Tentei tres formas antes desta e as tres rebentaram.
+    ///      A restricao material acabou por apontar ao sitio mais honesto: a ordem das pernas e
+    ///      uma propriedade da ROTA, nao do criterio de selecao de POOLS. Aqui opera-se sobre o
+    ///      hop ja construido, e le-se exatamente como a regra que o Router verifica.
+    ///
+    ///      A ESTABILIDADE NAO E ESTETICA: a ordem dentro de cada grupo veio do peso, e uma troca
+    ///      simples destrui-la-ia. E o que esta funcao pode mudar e so a ORDEM — o multiset
+    ///      {(pool, amountIn)} fica intacto, porque cada perna viaja inteira.
+    function _orderLegs(Hop memory hop) private pure {
+        Leg[] memory legs = hop.legs;
+        uint256 k = legs.length;
+        uint256 w;
+        for (uint256 i; i < k; ) {
+            if (legs[i].hooks == address(0)) {
+                if (i != w) {
+                    Leg memory tmp = legs[i];
+                    for (uint256 j = i; j > w; ) {
+                        legs[j] = legs[j - 1];
+                        unchecked { --j; }
+                    }
+                    legs[w] = tmp;
+                }
+                unchecked { ++w; }
+            }
+            unchecked { ++i; }
+        }
+    }
+
     /// @dev Unit family of a pool kind. Depth figures are only comparable when
     ///      they share a unit: concentrated liquidity L (V3 / Algebra / V4),
     ///      pair reserves (V2 / Solidly). A terceira familia (saida cotada pela
@@ -853,14 +894,39 @@ contract BlazePhoenixSolver {
         uint256 dn = dis.length;
         PoolInfo[] memory merged = new PoolInfo[](rn + dn);
         uint256 n;
-        for (uint256 i; i < rn; ) { merged[n] = reg[i]; unchecked { ++n; ++i; } }
+        // ─── ADMISSIBILIDADE DE HOOKS ───
+        // O Router recusa na EXECUCAO qualquer perna cujo hook altere deltas (RouterE(9)), e o
+        // Solver nao sabia que essa regra existia: o `getActivePools` do Hub filtra por
+        // `isHookLive` mas NAO por isto. O resultado era uma auto-DoS na porta canonica — o
+        // `swapBestExactIn` montava in-frame uma rota que o proprio Router rejeitava, e o par
+        // ficava sem porta sem que ninguem soubesse porque.
+        //
+        // A REGRA DA CASA, EXPLICITA: a verificacao do Router NAO se apaga para os por de acordo.
+        // E ela que mantem o sistema fail-closed enquanto ISTO nao existir, e o desacordo entre
+        // os dois e o DIAGNOSTICO. Acrescenta-se conhecimento ao Solver; nao se retira ao Router.
+        //
+        // VIVE AQUI E NAO NO `getActivePools` porque isto e uma decisao de ROTEAMENTO. O
+        // `getActivePools` e um canal de LEITURA partilhado; filtrar la tirava a pool da vista de
+        // TODOS os consumidores, incluindo de quem so quer inspecionar o registo.
+        //
+        // E VIVE DENTRO DESTES DOIS LOOPS, e nao num passo proprio a seguir, por uma restricao
+        // material: sob via_ir esta funcao e inlinada no mesmo frame que o `_buildHop`, que esta
+        // cronicamente a um slot do limite — um unico contador novo rebentava-o. Aqui reutiliza-se
+        // o `n` que ja existe.
+        //
+        // CUSTO ZERO em chamadas: `hookAltersDeltas` le bits do proprio endereco do hook.
+        for (uint256 i; i < rn; ) {
+            if (!BPC.hookAltersDeltas(reg[i].hooks)) { merged[n] = reg[i]; unchecked { ++n; } }
+            unchecked { ++i; }
+        }
         for (uint256 i; i < dn; ) {
             bool dup;
             for (uint256 j; j < rn; ) { if (dis[i].pool == reg[j].pool) { dup = true; break; } unchecked { ++j; } }
-            if (!dup) { merged[n] = dis[i]; unchecked { ++n; } }
+            if (!dup && !BPC.hookAltersDeltas(dis[i].hooks)) { merged[n] = dis[i]; unchecked { ++n; } }
             unchecked { ++i; }
         }
         if (n == 0) return new PoolInfo[](0);
+
         PoolInfo[] memory active = new PoolInfo[](n);
         for (uint256 i; i < n; ) { active[i] = merged[i]; unchecked { ++i; } }
 
@@ -926,6 +992,7 @@ contract BlazePhoenixSolver {
     // =========================================================================
 
     function _assembleRoute(Hop memory hop) private view returns (Route memory route) {
+        _orderLegs(hop);
         Hop[] memory hops = new Hop[](1);
         hops[0] = hop;
         uint256 legs = hop.legs.length;
@@ -978,6 +1045,7 @@ contract BlazePhoenixSolver {
         uint256 amountIn, uint256 finalOut
     ) private view returns (Route memory route) {
         tIn; tOut; amountIn;   // retained for signature clarity
+        for (uint256 i; i < hops.length; ) { _orderLegs(hops[i]); unchecked { ++i; } }
         uint256 totalImpactBps;
         uint256 totalLegs;
         for (uint256 h; h < hops.length; ) {
