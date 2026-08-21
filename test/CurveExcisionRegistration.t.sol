@@ -38,6 +38,7 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract CurveExcisionRegistrationTest is Test {
     BlazePhoenixHub hub;
@@ -92,5 +93,38 @@ contract CurveExcisionRegistrationTest is Test {
         (uint24[] memory f, int24[] memory s) = _empty();
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(5)));
         hub.addFactory(factory, 8, MODE_CREATE2_V2, bytes32(0), f, s);
+    }
+
+    /// A SEGUNDA PORTA DE REGISTO — e o mutante que a descobriu sem vigia.
+    ///
+    /// O Hub tem DOIS caminhos de escrita no registo: o `addFactory` (admin, reverte) e o
+    /// `recordSwap` (chamado pelo Router no caminho de sucesso de um swap). O `addFactory` fechou
+    /// os kinds nao roteaveis com KINDS_ROUTABLE na excisao; o `recordSwap` nao validava kind
+    /// NENHUM. Um fix aplicado a UM de dois canais simetricos, dentro da propria excisao.
+    ///
+    /// NAO E REDUNDANTE com o `else { revert RouterE(8); }` do dispatch do Router, que e hoje o
+    /// que torna as lapides inalcancaveis: o `$.router` do Hub e TROCAVEL (setRoles), logo o
+    /// unico produtor destes kinds nao e imutavel. Esta e a defesa LOCAL — a que nao depende de
+    /// outro endereco continuar a ser o que era no dia do deploy.
+    ///
+    /// SALTA O REGISTO, NAO REVERTE: o swap do utilizador ja executou e nao pode falhar por uma
+    /// decisao de registo. Por isso a assercao e sobre o ESTADO, nao sobre um revert — e por isso
+    /// e que este caso precisava de um teste proprio em vez de caber no padrao dos outros.
+    function test_RecordSwapRejectsExcisedKind() public {
+        MockV2Pair p = new MockV2Pair(address(0xAAA1), address(0xBBB2));
+        (address t0, address t1) = (p.token0(), p.token1());
+        p.setReserves(1e21, 1e21);
+
+        // Lapide: o registo tem de ficar INTACTO.
+        hub.recordSwap(address(p), 2 /* lapide */, 30, address(0), t0, t1, 1e18, 1e18, 1e21);
+        assertEq(hub.getSlot(hub.keyOf(address(p), t0, t1)), 0,
+            "um kind excisado nao pode entrar no registo pela porta do recordSwap");
+
+        // CONTROLO, e e ele que impede que este teste passe por um motivo errado: exatamente a
+        // mesma chamada com um kind VIVO tem de registar. Sem isto, o teste passaria tambem se o
+        // recordSwap estivesse partido para toda a gente.
+        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), t0, t1, 1e18, 1e18, 1e21);
+        assertTrue(hub.getSlot(hub.keyOf(address(p), t0, t1)) != 0,
+            "um kind vivo tem de entrar pela mesma porta");
     }
 }

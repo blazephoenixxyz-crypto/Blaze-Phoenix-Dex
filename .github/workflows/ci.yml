@@ -127,6 +127,22 @@ jobs:
         # separately with an RPC secret. This keeps the fast run hermetic.
         run: forge test -vvv --no-match-path "test/fork/**"
 
+      - name: Mutation guard (os guardas tem de ter testes que os apanhem)
+        # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
+        # com testes mortos: a suite passava na mesma com o fix REMOVIDO. O caso mais recente
+        # passou 5/5 com o portao de cobertura arrancado — o revert que o teste apanhava vinha
+        # de OUTRA verificacao com o MESMO codigo de erro. Uma suite verde nao prova nada sobre
+        # um guarda especifico; so a mutacao o prova.
+        #
+        # NAO e uma ferramenta de mutacao generica, de proposito: e uma lista FIXA e VERSIONADA
+        # de mutantes, cada um emparelhado com o teste nomeado que TEM de o apanhar. Corre em
+        # segundos e falha de forma legivel, dizendo qual guarda ficou sem vigia.
+        #
+        # O CONTRATO: acrescentar um guarda de seguranca ao protocolo implica acrescentar a sua
+        # linha em .github/scripts/mutants.py. Se o alvo de um mutante deixar de existir, o job
+        # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
+        run: python3 .github/scripts/mutants.py
+
       - name: Deeper invariant/fuzz pass (REPORT-ONLY — never gates)
         # `|| true` is deliberate: this deep campaign is a search, not a bound,
         # and its variance would make the gating job flaky. Labelled so nobody
