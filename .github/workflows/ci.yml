@@ -84,6 +84,36 @@ jobs:
             exit 1
           fi
 
+      - name: Fee producer guard (um so juizo por pergunta de fee)
+        # DUAS perguntas de fee, dois produtores unicos no Core, e ZERO copias fora dele.
+        #
+        # 1. "que fee cobra uma pool V2 que nao a declara?" -> BPC.effV2Fee. O literal `== 0 ? 30`
+        #    estava escrito a mao em TRES sitios: o caminho da COTACAO do Router, o da EXECUCAO do
+        #    Router, e o universalQuote. Os dois primeiros sao o par que TEM de concordar — se
+        #    divergirem, a cotacao mente sobre o que a execucao vai fazer, que e a forma exata das
+        #    fugas de fee ja fechadas nesta base.
+        #
+        # 2. "qual e a fee VIVA desta pool concentrada?" -> BPC.effV3Fee. O Router tinha uma copia
+        #    que divergia no caso que o Core documenta em voz alta ("0% is legal"): fazia
+        #    `dynFee != 0 ? dynFee : 0xFFFFFF`, tratando um 0% MEDIDO COM SUCESSO como falha. Uma
+        #    pool Algebra de fee 0% era cotada a zero e caia fora do routing. O
+        #    test_ZeroDynamicFeeStillQuotes existia e passava — pelo OUTRO canal.
+        #
+        # A distincao que a copia perdia: o `dyn` de v3StateAndDynFee e uma flag de SUCESSO DE
+        # LEITURA, enquanto o getV3Fee devolve 0 tanto para "falhou" como para "e mesmo zero".
+        # So o segundo pode fechar sobre um zero.
+        run: |
+          if grep -rnE '==[[:space:]]*0[[:space:]]*\?[[:space:]]*30([^0-9]|$)' src/ \\
+             | grep -vE 'return declared == 0 \? 30 : declared' | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Default de fee V2 escrito a mao. Usa BPC.effV2Fee — tres copias de um literal e a assinatura de defeito da casa."
+            exit 1
+          fi
+          if grep -rnE '\?[^;]*:[[:space:]]*0xFFFFFF' src/ \
+             | grep -vE 'src/BlazePhoenixCore\.sol' | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Juizo de fee viva fora do Core. Usa BPC.effV3Fee — a copia divergia sobre se um 0% medido e legal."
+            exit 1
+          fi
+
       - name: Router grants no allowance (guarda de propriedade, nao de bug)
         # O HUNT-001 (achado #1 da caca overnight) vivia em _execCurveAmt, que e o UNICO sitio de
         # todo o Router/Hub/Solver que concede uma allowance — Router:1241 (forceApprove) e

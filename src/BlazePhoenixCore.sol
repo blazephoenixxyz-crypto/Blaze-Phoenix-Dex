@@ -789,6 +789,24 @@ library BlazePhoenixCore {
     ///         sentinel >= 1e6 — outV3's own guard then quotes 0 — rather than
     ///         quoting a fee-free number that execution will not honour. Same
     ///         fail-closed shape effV4Fee uses for a non-zero protocolFee.
+    /// @notice A fee que uma pool V2 cobra quando o par nao a declara.
+    /// @dev    PRODUTOR UNICO de um numero que estava escrito a mao em TRES sitios: o caminho da
+    ///         COTACAO do Router, o caminho da EXECUCAO do Router, e o `universalQuote` aqui.
+    ///         Os dois primeiros sao o par que TEM de concordar — se divergirem, a cotacao mente
+    ///         sobre o que a execucao vai fazer, que e a forma exata das fugas de fee ja fechadas
+    ///         nesta base. Tres copias de um literal e a assinatura de defeito da casa a espera
+    ///         de acontecer, nao um estilo.
+    ///
+    ///         30 bps e o default historico do Uniswap V2 e dos forks que nao expoem a fee. Nao
+    ///         e um palpite conservador: uma fee ASSUMIDA ABAIXO da real faz a cotacao prometer
+    ///         mais do que a pool entrega, e e a execucao que descobre a diferenca.
+    ///
+    ///         `internal` de proposito: inlinada, zero custo de travessia, e o ganho aqui e de
+    ///         CORRECAO e nao de gas — tres sitios que nao podem divergir passam a nao poder.
+    function effV2Fee(uint24 declared) internal pure returns (uint24) {
+        return declared == 0 ? 30 : declared;
+    }
+
     function effV3Fee(uint24 cfgFee, uint24 measured, bool dyn)
         internal pure returns (uint24)
     {
@@ -1130,7 +1148,7 @@ library BlazePhoenixCore {
             (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
             // UniV2/Sushi charge 0.30%. fee==0 (no fee list) -> 30 bps default,
             // so the quote matches the pool's x*y=k (else "K" revert on exec).
-            uint24 v2fee = c.fee == 0 ? 30 : c.fee;
+            uint24 v2fee = effV2Fee(c.fee);
             out      = outV2(amountIn, rI, rO, v2fee);
             depthWad = rI < rO ? rI : rO;
             return (out, depthWad);

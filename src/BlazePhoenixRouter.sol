@@ -663,7 +663,7 @@ contract BlazePhoenixRouter {
                 if (rIn != 0) {
                     impactAcc += BPC.impactV2Bps(legAmt, rIn);
                     if (leg.kind == BPC.KIND_V2) {
-                        uint24 v2fee = leg.fee == 0 ? 30 : leg.fee;
+                        uint24 v2fee = BPC.effV2Fee(leg.fee);
                         uint256 q_ = BPC.outV2(legAmt, rIn, rOut, v2fee);
                         legQuotes[l] = q_; quoteAcc += q_;
                     } else {
@@ -709,13 +709,30 @@ contract BlazePhoenixRouter {
                     // ACIMA do ternario, que e a correcao obvia, torna-a incondicional e
                     // acrescenta uma staticcall a TODA a perna Algebra, onde hoje nao e chamada
                     // de todo — regredia gas na familia para a qual este bloco foi escrito.
-                    uint24 live;
-                    if (dyn) {
-                        live = dynFee != 0 ? dynFee : 0xFFFFFF;
-                    } else {
-                        uint24 sf = BPC.getV3Fee(leg.pool);
-                        live = sf != 0 ? sf : 0xFFFFFF;
-                    }
+                    // O JUIZO DA FEE VIVA TEM UM PRODUTOR, E E O `effV3Fee` DO CORE. Aqui
+                    // estava uma copia escrita a mao, e ela DIVERGIA no caso que o Core
+                    // documenta em voz alta: `if (dyn) return measured;  // 0% is legal`. A
+                    // copia fazia `dynFee != 0 ? dynFee : 0xFFFFFF`, ou seja tratava um 0%
+                    // MEDIDO COM SUCESSO como falha de medicao. Uma pool Algebra com fee
+                    // genuinamente 0% era cotada a ZERO por este ramo (o sentinela >= 1e6 faz o
+                    // outV3 devolver 0) e caia fora do routing — liquidez legitima deitada fora
+                    // em silencio, e o Core a dizer o contrario sobre a mesma pool.
+                    //
+                    // O `test_ZeroDynamicFeeStillQuotes` existia e passava — pelo caminho do
+                    // `universalQuote`. Um fix aplicado e testado num de dois canais simetricos:
+                    // a assinatura da casa, com o teste a servir de alibi.
+                    //
+                    // A distincao que a copia perdia: o `dyn` de `v3StateAndDynFee` e uma flag
+                    // de SUCESSO DE LEITURA. Com `dyn == true` a leitura correu, logo `dynFee ==
+                    // 0` significa uma fee de 0% e nao um erro. Ja o `getV3Fee` devolve 0 tanto
+                    // para "falhou" como para "e mesmo zero", e por isso ESSE ramo continua a
+                    // fechar — passa `sf` como cfgFee, e um cfgFee zero cai no fail-closed.
+                    //
+                    // Em nenhum dos ramos entra `leg.fee`: a fee da base do protocolo nunca vem
+                    // de calldata (ver a nota A1/C1b/T1 acima).
+                    uint24 live = dyn
+                        ? BPC.effV3Fee(0, dynFee, true)
+                        : BPC.effV3Fee(BPC.getV3Fee(leg.pool), 0, false);
                     // A CURVA CORRE UMA VEZ. Estas duas linhas estavam pela ordem inversa e o
                     // `impactV3Bps` corria o `outV3` por dentro com argumentos BYTE-IDENTICOS
                     // aos da linha seguinte — a curva inteira e um delegatecall a mais, por
@@ -1379,7 +1396,7 @@ contract BlazePhoenixRouter {
         }
         uint256 outAmt;
         if (isV2) {
-            outAmt = BPC.outV2(askIn, rIn, rOut, leg.fee == 0 ? 30 : leg.fee);
+            outAmt = BPC.outV2(askIn, rIn, rOut, BPC.effV2Fee(leg.fee));
         } else {
             outAmt = BPC.solidlyGetAmountOut(leg.pool, askIn, tokenIn);
             if (outAmt > 1) {
