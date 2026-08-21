@@ -19,10 +19,17 @@
 //          gravado; um V4 tem de recomputar o seu proprio poolId. Sem isto,
 //          registava-se um contrato escrito pelo atacante, sob um par escolhido
 //          por ele, a uma profundidade escolhida por ele, sem segurar nada.
-//      H2  AS DUAS PORTAS FECHAM IGUAL. Ha dois caminhos de escrita — `addFactory`
-//          e `recordSwap` — e ambos filtram pela MESMA mascara de kinds
-//          admissiveis. Um fix aplicado a uma so das duas seria a assinatura de
-//          defeito da casa; ja aconteceu aqui e esta corrigido.
+//      H2  AS DUAS PORTAS FECHAM — CADA UMA COM A SUA MASCARA. Ha dois caminhos de
+//          escrita, `addFactory` e `recordSwap`, e ambos filtram kinds. Um fix
+//          aplicado a uma so das duas e a assinatura de defeito da casa; ja
+//          aconteceu aqui e esta corrigido. Mas a correcao NAO e as duas usarem a
+//          mesma constante: fecharam-se com `KINDS_ROUTABLE` e `KINDS_EXECUTABLE`,
+//          que hoje diferem num bit (o V4_NATIVE, que nenhuma factory regista e o
+//          Router executa). Usar a mesma constante nao e fazer a mesma pergunta —
+//          a primeira tentativa deste fecho partilhou a mascara e matou em silencio
+//          todo o registo de pools nativas. E ha uma TERCEIRA porta, a `seedPool`
+//          do operador, que deliberadamente nao filtra kind: e a unica cujo
+//          chamador ja e de confianca, e fecha a jusante (theta 0x0 cota zero).
 //      H3  A DEFESA E LOCAL. `$.router` e trocavel, logo o unico produtor de
 //          kinds nao e imutavel: o Hub nao delega a sua propria admissao a um
 //          endereco que pode deixar de ser o que era no dia do deploy.
@@ -130,7 +137,7 @@ contract BlazePhoenixHub {
     ///      verificacao por uma coincidencia.
     uint256 internal constant KINDS_PAIR_PROOF =
           (uint256(1) << KIND_V2) | (uint256(1) << KIND_V3)
-        | (uint256(1) << KIND_SOLIDLY) | (uint256(1) << KIND_ALGEBRA);
+        | (uint256(1) << KIND_SOLIDLY); // MUTANTE
 
     uint256 internal constant MODES_VALID = 0x2FF; // bits 0-7 e 9; bit 8 e lapide
     // MODE enumeration: 0-3 are factory-call (getPair/getPool variants);
