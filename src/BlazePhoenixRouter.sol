@@ -122,7 +122,7 @@ contract BlazePhoenixRouter {
     /// @notice A1/MP-1: minimum fraction (BPS) of the MEASURED delivered output the
     ///         in-frame on-chain quote must cover to be trusted as the fee base.
     ///         Below this the quote is implausible (a forged V3 leg.fee near 1e6, or
-    ///         a dead Curve/V4 leg, drives the quote toward 0), so the fee is charged
+    ///         a dead V4 leg, drives the quote toward 0), so the fee is charged
     ///         on the delivered amount instead — a low quote can never make the
     ///         protocol fee ~0 while real output is delivered. Honest swaps quote
     ///         ~= delivered (coverage ~100%).
@@ -490,9 +490,9 @@ contract BlazePhoenixRouter {
     ///         (see "Fee base" below): it replaces the caller-supplied,
     ///         unverified route.totalOut, so a crafted Route can no longer
     ///         understate its own quote to shrink the protocol's fee base.
-    ///         Curve/V4 branches ask the pool / read the PoolManager using
-    ///         the exact same key construction execution uses, so they
-    ///         cannot diverge from what actually settles — if auxId is wrong
+    ///         The V4 branch reads the PoolManager using the exact same key
+    ///         construction execution uses, so it cannot diverge from what
+    ///         actually settles — if auxId is wrong
     ///         the leg fails identically in both places.
     /// @dev `legQuotes` sai preenchido com a quote MEDIDA in-frame de cada perna, ao montante
     ///      `legAmt` que esta funcao usou para a precificar. Ate agora estas quotes eram somadas
@@ -957,7 +957,7 @@ contract BlazePhoenixRouter {
         // feeBase is normally min(delivered, on-chain quote) so surplus above the
         // quote stays fee-exempt. But the V3/Algebra quote prices with caller
         // leg.fee while execution charges the pool's real fee, so leg.fee near 1e6
-        // drives outV3 toward 0; a dead/wrong-index Curve or V4 leg quotes 0; and a
+        // drives outV3 toward 0; a dead V4 leg quotes 0; and a
         // forged leg paired with an honest DUST co-leg keeps the SUM barely
         // non-zero. Any of these shrinks onchainQuoteAcc far below what was
         // delivered, turning the bulk into fee-exempt "surplus" (~0 protocol fee).
@@ -1015,11 +1015,14 @@ contract BlazePhoenixRouter {
     // =========================================================================
     //
     //  One function selects the AMM shape for any kind:
-    //    V2 / Balancer V2 → push-then-swap with computed amountOut
-    //    V3 / Algebra      → callback-style with transient pool + token
-    //    Solidly           → push-then-swap with stable-aware amountOut
-    //    Stable / Curve    → approve + exchange dual-signature
-    //    V4                → unlock → swap → sync → settle → take
+    //    V2           → push-then-swap with computed amountOut
+    //    V3 / Algebra → callback-style with transient pool + token
+    //    Solidly      → push-then-swap with stable-aware amountOut
+    //    V4           → unlock → swap → sync → settle → take
+    //
+    //  Nao ha ramo de default que EXECUTE: qualquer outro kind cai no `else` e
+    //  reverte RouterE(8) antes de tocar numa pool. E esse revert que torna as
+    //  lapides 2, 3 e 7 inalcancaveis a partir do unico produtor de kinds.
 
     /// @notice Execute a leg with an explicit input amount that may differ
     ///         from leg.amountIn. Every hop rescales against the REAL
@@ -1059,11 +1062,10 @@ contract BlazePhoenixRouter {
         if (guard) balBefore = BPC.balanceOf(legOut, address(this));
 
         uint8 k = leg.kind;
-        // KIND_BALANCER_V2 removed (EIP-170 dead-code pass): a Balancer Vault
-        // pool has no getReserves()/swap(uint,uint,address,bytes), so the old
-        // _execV2Amt path always computed outAmt == 0 and reverted RouterE(8).
-        // The default arm below reverts RouterE(8) directly — same outcome,
-        // fewer bytes.
+        // A lapide 3 saiu deste dispatch na passagem de codigo morto do EIP-170:
+        // a venue que la vivia nao expunha getReserves(), pelo que o antigo caminho
+        // _execV2Amt calculava sempre outAmt == 0 e revertia RouterE(8). O `else`
+        // abaixo reverte directamente — mesmo resultado, menos bytes.
         if (k == BPC.KIND_V2) {
             _execV2Amt(leg, tokenIn, amt);
         } else if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) {
@@ -1122,7 +1124,7 @@ contract BlazePhoenixRouter {
     }
 
     /// @notice Resolve a leg's OUTPUT token: pair reads for pool-shaped kinds,
-    ///         auxId for V4/Curve (whose pool field is not a pair). Returns
+    ///         auxId for V4 (whose pool field is not a pair). Returns
     ///         address(0) when the output token cannot be resolved — that leg
     ///         then fails open to the aggregate floors (the per-leg guard is
     ///         an extra bound, never a gate on execution).
@@ -1192,7 +1194,7 @@ contract BlazePhoenixRouter {
             // (FLOKI does exactly that): realIn = balance − synced reserve is
             // precisely what the pair's K check will see, so the ask below is
             // the pair's own maximum — the number is born on-path, it cannot
-            // diverge. Same doctrine as the Curve get_dy and the exact pass.
+            // diverge. Same doctrine as the exact pass.
             (uint256 r0b, uint256 r1b) = BPC.getReserves(leg.pool);
             uint256 rInB  = leg.zeroForOne ? r0b : r1b;
             uint256 rOutB = leg.zeroForOne ? r1b : r0b;
@@ -1495,7 +1497,7 @@ contract BlazePhoenixRouter {
                 // tokenOut via zeroForOne — every leg in a hop trades the
                 // same pair by construction, so no staticcall is needed here
                 // for ANY kind (a prior version re-derived this via
-                // token0Of/token1Of for non-V4/Curve legs: redundant, since
+                // token0Of/token1Of for non-V4 legs: redundant, since
                 // calldata already determines it).
                 address t0 = leg.zeroForOne ? hop.tokenIn  : hop.tokenOut;
                 address t1 = leg.zeroForOne ? hop.tokenOut : hop.tokenIn;

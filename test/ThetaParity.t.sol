@@ -69,7 +69,7 @@ contract ThetaParityTest is Test {
     /// LAPIDES. Os kinds excisados (Curve/Balancer) tem campo ZERO: nenhum atributo, em nenhuma
     /// consulta. E o fail-closed de graca — nao ha ramo de default para alguem esquecer.
     function test_DeadKindsHaveNoAttributes() public pure {
-        uint8[3] memory mortos = [BPC.KIND_STABLE, BPC.KIND_BALANCER_V2, BPC.KIND_CURVE_CRYPTO];
+        uint8[3] memory mortos = [uint8(2), 3, 7];
         for (uint256 i; i < mortos.length; i++) {
             assertEq(BPC.thetaOf(mortos[i]), 0, "kind excisado ainda tem atributos");
             assertFalse(BPC.kindHasAny(mortos[i], 0xF), "kind excisado responde a alguma consulta");
@@ -111,7 +111,7 @@ contract ThetaParityTest is Test {
         assertEq(BPC.kindGasBase(BPC.KIND_V4),        180_000,  "V4");
         assertEq(BPC.kindGasBase(BPC.KIND_V4_NATIVE), 215_000,  "V4_NATIVE");
         // Kind sem campo cai no default historico — o comportamento de hoje para desconhecidos.
-        assertEq(BPC.kindGasBase(BPC.KIND_STABLE),     90_000,  "excisado cai no default");
+        assertEq(BPC.kindGasBase(2 /* lapide */),     90_000,  "excisado cai no default");
         assertEq(BPC.kindGasBase(9),                   90_000,  "desconhecido cai no default");
         assertEq(BPC.kindGasBase(255),                 90_000,  "fora do dominio cai no default");
     }

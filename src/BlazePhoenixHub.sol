@@ -49,28 +49,27 @@ contract BlazePhoenixHub {
     uint16  internal constant EVICTION_IMPROVE_BPS   = 1_000;
 
     // ─── addFactory coherence-guard constants ────────────────────────────
-    // KIND enumeration (mirrors Core): the highest valid kind is CURVE (7).
+    // Enumeracao de kinds (espelha o Core). Os numeros 2, 3 e 7 sao LAPIDES e nao sao
+    // nomeados aqui nem la — ver a nota das lapides no Core quanto a por que nao voltam.
     uint8   internal constant KIND_V2                = 0;
     uint8   internal constant KIND_V3                = 1;
-    uint8   internal constant KIND_STABLE            = 2;
     // Mirrors BPC.KIND_V4: singleton-managed (no factory enumeration); the
     // only factory mode that accepts it is MODE_V4_DERIVE.
     uint8   internal constant KIND_V4                = 4;
     uint8   internal constant KIND_SOLIDLY           = 5;
     uint8   internal constant KIND_ALGEBRA           = 6;
-    uint8   internal constant KIND_CURVE             = 7;
 
     /// @notice Os kinds que uma factory pode registar — o conjunto, como uma palavra de bits.
     /// @dev    Bit `k` ligado = kind `k` admissivel. Bits desligados sao LAPIDES, nao lacunas:
     ///
-    ///           bit 2 (STABLE) e bit 7 (CURVE)  — Curve/Balancer excisados por decisao do dono
-    ///                                             em 2026-08-20: quase nenhuma L2 os tem, e
-    ///                                             custavam bytecode em cinco contratos. Com eles
+    ///           bits 2, 3 e 7 (as LAPIDES)      — venues retiradas por decisao do dono em
+    ///                                             2026-08-20: quase nenhuma L2 as tinha e
+    ///                                             custavam bytecode em cinco contratos. Com elas
     ///                                             saiu o unico `approve` do Router (onde vivia o
     ///                                             HUNT-001), o unico produtor de profundidade
     ///                                             atestado pelo caller, e o unico buraco
     ///                                             deliberado na prova de autenticidade daqui.
-    ///           bit 3 (BALANCER_V2)             — ja era codigo morto antes do corte.
+    ///                                             O numero fica queimado; ver o Core.
     ///           bit 8 (V4_NATIVE)               — nao se registaram por factory: derivam-se do
     ///                                             singleton. Nunca tiveram bit e nao passam a ter.
     ///
@@ -86,10 +85,25 @@ contract BlazePhoenixHub {
 
     /// @notice Os modes de descoberta validos, pelo mesmo criterio.
     /// @dev    0-3 chamam a factory (getPair/getPool); 4-7 derivam por CREATE2; 9 e o derive do V4.
-    ///         O bit 8 (o antigo MODE_CURVE_META) esta desligado: era o meta-registry do Curve e
-    ///         saiu com ele. Sem esta mascara ficaria aceite para QUALQUER kind, porque o unico
+    ///         O bit 8 esta desligado: era o meta-registry de uma venue retirada e saiu com ela.
+    ///         Sem esta mascara ficaria aceite para QUALQUER kind, porque o unico
     ///         limite anterior era `mode > MODE_V4_DERIVE` e o 8 cabia la dentro — um mode que so
     ///         fazia sentido para uma venue removida continuaria aberto a todas as outras.
+    /// @dev Kinds cujo campo `pool` e um par que expoe token0()/token1() — logo a prova de
+    ///      autenticidade do `recordSwap` aplica-se-lhes. Era o literal 0x6b, que tinha o bit 3
+    ///      ligado por uma venue ja retirada.
+    ///
+    ///      NAO E A MESMA PERGUNTA QUE O A_PAIR_VER DA THETA, e por isso vive aqui e nao la: o
+    ///      A_PAIR_VER descreve a FORMA do estado ("existe token0()?"); isto e um predicado de
+    ///      ACEITACAO ("que kinds tem de PROVAR o par antes de entrar no registo?"). Que hoje
+    ///      coincidam e um facto medido, nao uma definicao — e o teste pina a igualdade por
+    ///      construcao para que, no dia em que divergirem, seja a divergencia a ser explicada
+    ///      e nao o silencio. Colapsar os dois porque os bits batem certo trocava uma
+    ///      verificacao por uma coincidencia.
+    uint256 internal constant KINDS_PAIR_PROOF =
+          (uint256(1) << KIND_V2) | (uint256(1) << KIND_V3)
+        | (uint256(1) << KIND_SOLIDLY) | (uint256(1) << KIND_ALGEBRA);
+
     uint256 internal constant MODES_VALID = 0x2FF; // bits 0-7 e 9; bit 8 e lapide
     // MODE enumeration: 0-3 are factory-call (getPair/getPool variants);
     // 4-7 are CREATE2 salt families (V2 salt, V3 salt, EIP-1167 clone, V3-CL).
@@ -100,7 +114,6 @@ contract BlazePhoenixHub {
     // by name, so a naive "unreferenced identifier" scan will flag it as dead. It is not: mode 7
     // is the V3-CL salt family (keccak(t0, t1, tickSpacing) — Velodrome/Aerodrome CL).
     uint8   internal constant MODE_CREATE2_V3CL      = 7;
-    uint8   internal constant MODE_CURVE_META        = 8;
     // MODE_V4_DERIVE: Uniswap-V4 derive-scan. V4's singleton PoolManager has
     // no factory/pair enumeration, so this mode DERIVES hookless candidate
     // poolIds (learned per-token pattern code -> canonical tiers -> the row's
@@ -347,9 +360,9 @@ contract BlazePhoenixHub {
     ///         fees) before storing. A mis-configured adapter would otherwise
     ///         derive wrong pool addresses silently, so every structurally
     ///         impossible combination reverts with HubE(5). Rules:
-    ///           * kind  <= KIND_MAX (7)                          [invalidKind]
-    ///           * mode  <= MODE_MAX (9): 0-3 factory-call, 4-7 CREATE2,
-    ///             8 Curve meta-registry, 9 V4 derive-scan
+    ///           * kind pertence a KINDS_ROUTABLE                 [invalidKind]
+    ///           * mode pertence a MODES_VALID: 0-3 factory-call,
+    ///             4-7 CREATE2, 9 V4 derive-scan (o 8 e lapide)     [invalidMode]
     ///           * CREATE2 modes (mode >= 4) require initHash != 0, except
     ///             modes 8 and 9 which derive nothing via CREATE2         [R1]
     ///           * mode 4 (V2 salt)  is only valid for kind V2
@@ -390,8 +403,9 @@ contract BlazePhoenixHub {
         if (((KINDS_ROUTABLE >> kind) & 1) == 0) revert HubE(5); // invalidKind
         if (((MODES_VALID    >> mode) & 1) == 0) revert HubE(5); // invalidMode
 
-        // 2) CREATE2 modes require a non-zero init-code hash (R1). The two
-        //    non-CREATE2 high modes (Curve meta, V4 derive) are exempt.
+        // 2) CREATE2 modes require a non-zero init-code hash (R1). Os modes altos que
+        //    NAO derivam por CREATE2 estao isentos; desses so o 9 sobrevive — o 8 e
+        //    lapide e o MODES_VALID recusa-o antes de chegar aqui.
         if (
             mode >= MODE_CREATE2_V2
                 && mode != MODE_V4_DERIVE && initHash == bytes32(0)
@@ -562,7 +576,7 @@ contract BlazePhoenixHub {
             uint256 fc = fac.fees.length == 0 ? 1 : fac.fees.length;
             uint256 sc = fac.spacings.length == 0 ? 1 : fac.spacings.length;
             uint256 mul = (fac.mode == 2 || fac.mode == 6) ? 2 : 1;
-            // O ramo MODE_CURVE_META saiu com a excisao do Curve; uma factory mode-8 so pode
+            // O ramo do mode 8 saiu com a excisao; uma factory com esse mode so pode
             // existir num Hub legado e `_scanFactory` para nela sem produzir hits, logo nao
             // contribui para o teto. A contabilidade tem de espelhar o loop de scan: `_probe`
             // escreve em `hits[k]` sem bounds-check proprio.
@@ -583,13 +597,18 @@ contract BlazePhoenixHub {
     function _scanFactory(
         Factory storage fac, address t0, address t1, PoolInfo[] memory hits, uint256 k
     ) private view returns (uint256) {
-        // Uma factory mode-8 (o antigo meta-registry do Curve) so pode existir num Hub legado:
-        // o `addFactory` de hoje rejeita esse mode para qualquer kind (ver MODES_VALID). Se uma
-        // existir, PARA aqui em vez de cair no `_probe` generico — la, `deriveAddress(mode=8)`
-        // calcula `sub = mode - 4 = 4` e cai no catch-all de salt do V3CL, derivando enderecos
-        // fantasma a cada scan. Duas comparacoes tornam-na PROVAVELMENTE inerte em vez de
+        // GUARDA GENERALIZADA. Era um teste de IDENTIDADE contra a constante do mode 8, contra
+        // uma lapide. Agora e o teste de PERTENCA contra a MESMA mascara que o
+        // `addFactory` usa para admitir. Aqui o morfismo aplica-se de facto — os dois sitios
+        // fazem literalmente a mesma pergunta ("este mode e admissivel?") — e passa a cobrir
+        // qualquer mode que venha a ser retirado no futuro, sem ninguem ter de voltar aqui.
+        //
+        // PORQUE PARAR IMPORTA: uma factory de mode inadmissivel so pode existir num Hub legado
+        // (o `addFactory` de hoje recusa-a). Se cair no `_probe` generico, o `deriveAddress`
+        // calcula `sub = mode - 4` e cai no catch-all de salt do V3CL, derivando enderecos
+        // fantasma a cada scan. Parar torna-a PROVAVELMENTE inerte em vez de
         // acidentalmente inerte.
-        if (fac.mode == MODE_CURVE_META) return k;
+        if (((MODES_VALID >> fac.mode) & 1) == 0) return k;
         if (fac.mode == MODE_V4_DERIVE)  return _scanV4(fac, t0, t1, hits, k);
         uint24[] storage fees = fac.fees;
         int24[]  storage sps  = fac.spacings;
@@ -1082,6 +1101,19 @@ contract BlazePhoenixHub {
         address tA, address tB, uint256 amtIn, uint256 amtOut, uint256 depthWad
     ) external onlyRouter whenLive {
         if (pool == address(0) || amtIn == 0) return;
+        // CANAL IRMAO. O `addFactory` fecha os kinds nao roteaveis com KINDS_ROUTABLE; esta e a
+        // SEGUNDA porta de registo do Hub e nao tinha o mesmo fecho — a assinatura de defeito da
+        // casa ("um fix aplicado a UM de dois canais simetricos") dentro da propria excisao.
+        //
+        // NAO e redundante com o `else { revert RouterE(8); }` do dispatch do Router: `$.router`
+        // e trocavel (setRoles), logo o unico produtor destes kinds NAO e imutavel. Um Router
+        // futuro que ganhe um braco novo sem que o Hub saiba escreveria no registo um kind que o
+        // resto do sistema nao sabe ler. Esta e a defesa LOCAL, a que nao depende de outro
+        // endereco continuar a ser o que era no dia do deploy.
+        //
+        // Salta o registo, NAO reverte: o swap do utilizador ja executou e nao pode falhar por
+        // uma decisao de registo — a mesma disciplina do caso !okTs do V4 mais abaixo.
+        if (((KINDS_ROUTABLE >> kind) & 1) == 0) return;
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         bytes32 key = keyOf(pool, t0, t1);
         HubStore storage $ = _store();
@@ -1108,22 +1140,18 @@ contract BlazePhoenixHub {
         // This mirrors the authenticity proof the V4 branch below already has
         // (poolId recomputation); no other kind had one.
         // The mask is the Router's own "the pool field is a pair" taxonomy
-        // (_legTokenOut): bits V2(0), V3(1), BALANCER_V2(3), SOLIDLY(5),
-        // ALGEBRA(6) => 0x6b. Cleared deliberately: STABLE(2) and
-        // CURVE_CRYPTO(7) address their assets through coins(uint256), never
-        // token0/token1, so verifying them would reject every legitimate
-        // Curve venue; V4(4)'s `pool` is a truncated poolId with no bytecode
-        // and proves itself below, as does V4_NATIVE(8) with its native-pair
-        // poolId. kind > 8 shifts the mask to 0 — a future kind stays
-        // unverified (today's behaviour) instead of becoming silently
-        // unregistrable.
+        // (_legTokenOut) — see KINDS_PAIR_PROOF. Outside it: V4(4) and
+        // V4_NATIVE(8), whose `pool` is a truncated poolId with no bytecode at
+        // all, and which prove themselves in the branch below. kind > 8 shifts
+        // the mask to 0 — a future kind stays unverified (today's behaviour)
+        // instead of becoming silently unregistrable.
         // Cost: at most two staticcalls (short-circuited to one on the first
         // mismatch), on the COLD first-registration path ONLY — the hot path
         // returned at the tick above and pays nothing.
         // Mismatch => skip registration, NEVER revert: the user's swap has
         // already executed and must not fail over a registry decision — the
         // same fail-without-registering the V4 !okTs case takes.
-        if (((uint256(0x6b) >> kind) & 1) != 0
+        if (((KINDS_PAIR_PROOF >> kind) & 1) != 0
             && (BPC.token0Of(pool) != t0 || BPC.token1Of(pool) != t1)) return;
         if (kind == BPC.KIND_V4) {
             // A V4 pool reaching FIRST registration here was found by the

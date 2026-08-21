@@ -21,7 +21,7 @@
 //
 //    1.  universalQuote(ctx, amountIn) -> (amountOut, depth)
 //        AMM quote dispatcher across pool kinds (V2, V3, V4, Solidly,
-//        Curve stable, Curve crypto, Balancer).
+//        das familias de AMM servidas).
 //
 //    2.  deriveAddress(...) -> pool
 //        Deterministic pool-address resolution via factory lookup or CREATE2,
@@ -127,12 +127,22 @@ library BlazePhoenixCore {
 
     uint8   internal constant KIND_V2          = 0;
     uint8   internal constant KIND_V3          = 1;
-    uint8   internal constant KIND_STABLE      = 2;
-    uint8   internal constant KIND_BALANCER_V2 = 3;
     uint8   internal constant KIND_V4          = 4;
     uint8   internal constant KIND_SOLIDLY     = 5;
     uint8   internal constant KIND_ALGEBRA     = 6;
-    uint8   internal constant KIND_CURVE_CRYPTO = 7;
+
+    // LAPIDES — 2, 3 e 7. Nenhuma constante os nomeia: nao existe kind 2, 3 ou 7 neste sistema.
+    //
+    // Os NUMEROS ficam queimados para sempre, e isso nao e cerimonia: `decodeKind` le o kind dos
+    // bits do Monoslot, logo atribuir o 2 a uma venue nova faria TODA a pool ja gravada sob o 2
+    // ser reinterpretada como essa venue. Uma lapide sem epitafio nao protege nada — a unica
+    // razao de o registo historico ficar escrito e impedir a reutilizacao: foram Curve stable
+    // (2), Balancer V2 (3) e Curve crypto (7), retiradas por decisao do dono em 2026-08-20.
+    //
+    // Falham fechadas em quatro sitios independentes, todos por CONSTRUCAO e nenhum por ramo:
+    // campo theta 0x0 (nenhum atributo, nenhuma consulta responde), fora de KINDS_ROUTABLE (o
+    // `addFactory` e o `recordSwap` do Hub recusam-nas), e o dispatch de execucao do Router cai
+    // no `else` e reverte RouterE(8) antes de tocar na pool.
     /// @notice A V4 pool one of whose currencies is NATIVE (address(0)).
     /// @dev    A separate kind rather than a runtime `currency == address(0)`
     ///         test, and the distinction is the whole point: native settlement
@@ -183,10 +193,9 @@ library BlazePhoenixCore {
     // literal, PUSH18, 19 B emitidos em CADA sitio, inclusive nos contratos que nunca leem a
     // escada de gas. Separadas, o Router/Hub/Quoter carregam 6 B e a escada vive num sitio so.
     //
-    // FAIL-CLOSED DE GRACA. Um kind sem bits (2, 3 e 7 — Curve/Balancer, excisados) tem campo
-    // 0x0: nao le reservas, nao e concentrado, nao e verificavel por par. Nenhum ramo de default
-    // para alguem esquecer. E os numeros NUNCA se reutilizam: `decodeKind` le o kind dos bits do
-    // Monoslot, logo dar o 2 a uma venue nova reinterpretaria pools ja gravadas.
+    // FAIL-CLOSED DE GRACA. Um kind sem bits (as lapides 2, 3 e 7) tem campo 0x0: nao le
+    // reservas, nao e concentrado, nao e verificavel por par. Nenhum ramo de default para
+    // alguem esquecer. Ver a nota das lapides acima quanto a por que os numeros nao voltam.
 
     /// @dev Atributos por kind, 4 bits cada. Kind `k` ocupa [4k+3 : 4k].
     ///      bit 0  A_RESERVES  — profundidade e impacto vem de getReserves(); min(r0,r1) e a profundidade
@@ -435,7 +444,7 @@ library BlazePhoenixCore {
         }
         // Algebra fallback (Camelot V3): dynamic-fee factories expose
         // poolByPair(address,address) not getPool(.,.,fee). CALL-based, no
-        // initCodeHash. Same try-then-fallback discipline as the Curve adapter.
+        // initCodeHash. Same try-then-fallback discipline as every derived address.
         if (pool == address(0) && mode == 1) {
             bytes memory cd2 = abi.encodeWithSelector(0xd9a641e1, t0, t1);
             assembly ("memory-safe") {
@@ -813,7 +822,7 @@ library BlazePhoenixCore {
 
 
     /// @notice Ask a Solidly-class pair for its own exact output. Same doctrine
-    ///         as the Curve adapter (get_dy == exchange => cannot diverge):
+    ///         as an ask-the-pool adapter (quote fn == exec fn => cannot diverge):
     ///         getAmountOut(amountIn, tokenIn) is computed by the pair's own
     ///         bytecode — live fee, stable curve and rounding included — so a
     ///         swap requesting exactly this figure satisfies the K invariant by
@@ -963,7 +972,7 @@ library BlazePhoenixCore {
         // Iteration cap reached without convergence: fail closed. Return y0 —
         // the seed, equal to the output reserve Y — so the caller's `y >= Y`
         // guard maps this to out = 0 (pool treated as unpriceable), matching
-        // Curve (raise) / Aerodrome (revert "!y"). Returning 0 here would make
+        // some forks (raise) / Aerodrome (revert "!y"). Returning 0 here would make
         // the caller compute out = Y - 0 = Y, a catastrophic over-quote.
         return y0;
     }
@@ -982,8 +991,8 @@ library BlazePhoenixCore {
     {
         if (amountIn == 0) return (0, 0);
         uint8 k = c.kind;
-        // KIND_BALANCER_V2 removed from this arm (EIP-170 dead-code pass): a
-        // Balancer Vault pool exposes no getReserves(), so this branch always
+        // A lapide 3 saiu deste braco (passagem de codigo morto do EIP-170): a
+        // venue que la vivia nao expunha getReserves(), pelo que este ramo sempre
         // read (0,0) and quoted 0 — the kind never produced a routable quote.
         // Falling through to the default (0,0) return is byte-for-byte the
         // same observable result.

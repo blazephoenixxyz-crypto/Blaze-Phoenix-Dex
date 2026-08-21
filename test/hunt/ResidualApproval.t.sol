@@ -147,7 +147,7 @@ contract ResidualApprovalTest is Test {
     function test_ResidualApproval_MustNotSurvive() public {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
-        router.swapExactIn(_route(BPC.KIND_STABLE), AMOUNT_IN, 1, user, block.timestamp + 1);
+        router.swapExactIn(_route(2 /* lapide */), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 residual = IERC20Min(address(tokenIn)).allowance(address(router), address(evil));
         emit log_named_uint("residual allowance (wei)", residual);
@@ -161,7 +161,7 @@ contract ResidualApprovalTest is Test {
     function test_ResidualApproval_IsDrainable() public {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
-        router.swapExactIn(_route(BPC.KIND_STABLE), AMOUNT_IN, 1, user, block.timestamp + 1);
+        router.swapExactIn(_route(2 /* lapide */), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 residual = IERC20Min(address(tokenIn)).allowance(address(router), address(evil));
         if (residual == 0) return;   // no residual => nothing to drain; the test above is the verdict
@@ -185,7 +185,7 @@ contract ResidualApprovalTest is Test {
     function test_ResidualApproval_CurveCryptoArm() public {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
-        router.swapExactIn(_route(BPC.KIND_CURVE_CRYPTO), AMOUNT_IN, 1, user, block.timestamp + 1);
+        router.swapExactIn(_route(7 /* lapide */), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         assertEq(
             IERC20Min(address(tokenIn)).allowance(address(router), address(evil)), 0,

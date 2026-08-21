@@ -66,14 +66,14 @@ contract CurveExcisionRegistrationTest is Test {
     function test_AddFactory_RejectsStableEvenWithCurveMetaMode() public {
         (uint24[] memory f, int24[] memory s) = _empty();
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(5)));
-        hub.addFactory(factory, BPC.KIND_STABLE, MODE_CURVE_META, bytes32(0), f, s);
+        hub.addFactory(factory, 2 /* lapide */, MODE_CURVE_META, bytes32(0), f, s);
     }
 
     /// KIND_CURVE_CRYPTO (7) pela mesma porta.
     function test_AddFactory_RejectsCurveCryptoEvenWithCurveMetaMode() public {
         (uint24[] memory f, int24[] memory s) = _empty();
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(5)));
-        hub.addFactory(factory, BPC.KIND_CURVE_CRYPTO, MODE_CURVE_META, bytes32(0), f, s);
+        hub.addFactory(factory, 7 /* lapide */, MODE_CURVE_META, bytes32(0), f, s);
     }
 
     /// O bug encontrado de passagem: `MODE_CURVE_META` e aceite com QUALQUER kind, porque o unico

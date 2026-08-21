@@ -227,8 +227,8 @@ contract BlazePhoenixQuoter {
     // =========================================================================
     //  EXACT PASS — "the quote IS the execution" (revert-extraction dry-run)
     //
-    //  The same approach used in Core for Curve (get_dy == exchange => cannot
-    //  diverge), generalised to every concentrated venue: the only number
+    //  The ask-the-pool doctrine (quote fn == exec fn => cannot diverge),
+    //  generalised to every concentrated venue: the only number
     //  that cannot diverge from the swap is the swap itself. We call the
     //  pool's REAL swap; our fallback intercepts the universal V3-shaped
     //  callback and reverts with the two deltas; the revert unwinds ALL
@@ -403,8 +403,13 @@ contract BlazePhoenixQuoter {
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
                 } else {
-                    // STABLE/CURVE were pool-quoted at plan time. Scale by
-                    // exact input ratio.
+                    // SOLIDLY e hoje o UNICO kind VIVO a aterrar aqui — os outros
+                    // dois que ca caiam eram lapides. A escala linear e uma
+                    // APROXIMACAO num sitio onde a medicao exacta existe
+                    // (solidlyGetAmountOut). ARMADILHA, antes de alguem a corrigir:
+                    // o `qc.kind` acima esta FIXADO em KIND_V2, portanto encaminhar
+                    // este ramo por universalQuote sem tocar nessa linha passaria a
+                    // cotar Solidly pelo braco constant-product — pior que hoje.
                     legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
                 }
                 route.hops[h].legs[l].amountIn    = legIn;

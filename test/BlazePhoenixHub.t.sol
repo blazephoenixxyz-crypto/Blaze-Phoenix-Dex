@@ -58,7 +58,7 @@ contract BlazePhoenixHubTest is Test {
     ///         vive em test/CurveExcisionRegistration.t.sol, que foi o red-first deste fix.
     function test_AddFactory_RejectsCurveAlways() public {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 5));
-        hub.addFactory(address(0x3333), BPC.KIND_STABLE, 0, bytes32(0), new uint24[](0), new int24[](0));
+        hub.addFactory(address(0x3333), 2 /* lapide */, 0, bytes32(0), new uint24[](0), new int24[](0));
     }
 
     function test_RenounceControl_LeavesCuratorPowersAvailable() public {

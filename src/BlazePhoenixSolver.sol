@@ -104,7 +104,7 @@ contract BlazePhoenixSolver {
     ///         quote is clamped to this fraction of the pool's measured
     ///         tokenOut balance — the same unforgeable capital signal as the
     ///         anchor filter, extended from filtering to capacity. Reserve-
-    ///         bounded formulas (V2 / Solidly / Curve ask-the-pool) cannot
+    ///         bounded formulas (V2 / Solidly) cannot
     ///         over-promise and are untouched; a zero balance (V4 singleton
     ///         accounting) skips the clamp.
     ///
@@ -293,8 +293,8 @@ contract BlazePhoenixSolver {
         //  call (_quoteWithDepth). Previously this identical probe quote was
         //  recomputed three times — once for the median, once for the band
         //  filter, once for the depth pass — each re-reading the pool's
-        //  state (V3 sqrtP+liquidity, V2 reserves, or a full Curve coins()
-        //  index scan) although nothing it reads can change within a single
+        //  state (V3 sqrtP+liquidity, V2 reserves, or a V4 singleton
+        //  extsload) although nothing it reads can change within a single
         //  view call. rates[i] and depths[i] stay index-aligned to cands[i]
         //  (we sort a COPY for the median), so the band filter and the depth
         //  pass reuse the cached values with zero extra staticcalls. Only the
@@ -481,8 +481,8 @@ contract BlazePhoenixSolver {
         // capacity, so weighting by it converges on the optimal allocation
         // (depth-weighted gave 1638, matching deep-only). depthWad is only
         // comparable within a UNIT FAMILY — concentrated liquidity L (V3 /
-        // Algebra / V4) vs pair reserves (V2 / Solidly) vs pool-quoted out
-        // (Curve) — so depths normalise against the max of their family, not
+        // Algebra / V4) vs pair reserves (V2 / Solidly) — so depths normalise
+        // against the max of their family, not
         // their kind: a thin V4 can no longer claim max weight merely for
         // being the only V4 (measured: a thin Base V4 pool drew ~49% of a
         // 25k USDC trade and cost ~31% vs fair). When the survivor set spans
@@ -641,8 +641,8 @@ contract BlazePhoenixSolver {
 
     /// @dev Unit family of a pool kind. Depth figures are only comparable when
     ///      they share a unit: concentrated liquidity L (V3 / Algebra / V4),
-    ///      pair reserves (V2 / Solidly / Balancer), pool-quoted output
-    ///      (Curve stable / crypto).
+    ///      pair reserves (V2 / Solidly). A terceira familia (saida cotada pela
+    ///      pool) saiu com as lapides — hoje ha exactamente duas.
     function _famOf(uint8 kind) private pure returns (uint256) {
         // Concentrada em qualquer forma — na pool (V3/Algebra) ou no singleton (V4). Quatro
         // comparacoes escritas a mao eram quatro sitios para esquecer quando entra um kind
@@ -793,7 +793,7 @@ contract BlazePhoenixSolver {
     ///
     ///      This matters for BYTECODE, not just tidiness: `BPC.universalQuote` is an `internal`
     ///      library function, so every call site gets its own INLINED copy of the whole
-    ///      multi-venue quote engine (V2, V3, Solidly, Curve, V4). Two call sites meant two
+    ///      multi-venue quote engine (V2, V3, Solidly, V4). Two call sites meant two
     ///      copies inside this contract. The Solver is the largest contract in the protocol and
     ///      the one closest to the EIP-170 ceiling, so a duplicated call site is a duplicated
     ///      quote engine. R5, "one implementation per published quantity" — deduplication is a
