@@ -92,9 +92,13 @@ contract PreviewExecutionParityTest is Test {
 
         emit log_named_decimal_uint("previsto ", pv.netOut, 18);
         emit log_named_decimal_uint("entregue ", entregue, 18);
-        // 0,5% de margem: cobre o buffer de seguranca e o arredondamento, e NAO cobre uma fee
-        // esquecida (28 bps por hop e 5,6x isto num hop, 11x em dois).
-        assertApproxEqRel(entregue, pv.netOut, 0.005e18, "o preview de um hop nao bate com a entrega");
+        // 10 bps de margem, e o numero e escolhido por MEDICAO e nao por conforto: a diferenca
+        // real e ~8,4e-9 relativa (arredondamento puro), e o buffer de seguranca e 0 ate 2 pernas.
+        // Uma fee esquecida vale 28 bps — QUASE TRES VEZES esta margem, logo cai cá fora.
+        // A primeira versao usava 0,5% e o guarda de mutacao mostrou porque estava errada: 0,5%
+        // e MAIOR que os 28 bps que o mutante apagava, portanto o teste passava mutado. Uma
+        // tolerancia maior que o defeito que se quer apanhar e um teste decorativo com outro nome.
+        assertApproxEqRel(entregue, pv.netOut, 0.001e18, "o preview de um hop nao bate com a entrega");
     }
 
     /// DOIS HOPS — e e este que apanha o modelo de fee errado. Com a fee cobrada por hop, uma rota
@@ -112,7 +116,7 @@ contract PreviewExecutionParityTest is Test {
 
         emit log_named_decimal_uint("previsto ", pv.netOut, 18);
         emit log_named_decimal_uint("entregue ", entregue, 18);
-        assertApproxEqRel(entregue, pv.netOut, 0.005e18, "o preview de dois hops nao bate com a entrega");
+        assertApproxEqRel(entregue, pv.netOut, 0.001e18, "o preview de dois hops nao bate com a entrega");
     }
 
     /// E O CAMPO `protocolFee` TEM DE COMPOR. Numa rota de dois hops o efeito da fee sobre a saida
