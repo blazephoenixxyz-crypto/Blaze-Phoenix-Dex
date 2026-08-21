@@ -199,6 +199,7 @@ contract BlazePhoenixSolver {
         Route memory direct = _planDirect(tIn, tOut, amountIn);
         Route memory viaB1;
         Route memory viaB2;
+        Route memory viaB3;
         // O `bridgeCount()` que aqui estava era REDUNDANTE. As posicoes acima do contador sao
         // SEMPRE address(0) — o `addBridge` preenche em sequencia e o `removeBridge` compacta e
         // zera a que sobra — e as duas guardas ja testavam `!= address(0)`. Era uma travessia de
@@ -222,13 +223,17 @@ contract BlazePhoenixSolver {
         if (b1 != address(0) && b1 != tIn && b1 != tOut) {
             viaB2 = _planViaBridge(tIn, tOut, amountIn, b1);
         }
+        address b2 = hub.bridge(2);
+        if (b2 != address(0) && b2 != tIn && b2 != tOut) {
+            viaB3 = _planViaBridge(tIn, tOut, amountIn, b2);
+        }
 
         Route memory best;
         Route memory second;
         uint256 bestU;
         uint256 secondU;
 
-        (bestU, secondU, best, second) = _rank(direct, viaB1, viaB2);
+        (bestU, secondU, best, second) = _rank(direct, viaB1, viaB2, viaB3);
         if (bestU == 0) revert SolverE(5);
 
         plan.best = best;
@@ -236,7 +241,14 @@ contract BlazePhoenixSolver {
         plan.hasFallback = (secondU > 0);
     }
 
-    function _rank(Route memory a, Route memory b, Route memory c)
+    /// @dev O UNICO produtor do juizo "qual rota e melhor", e o criterio e o `totalOut` — a
+    ///      saida efetivamente CONSTRUIDA e medida de cada topologia, nao um proxy. E por isso
+    ///      que todas as bridges configuradas sao expandidas e entregues aqui em vez de serem
+    ///      pre-filtradas por profundidade do registo: um pre-filtro por proxy seria um SEGUNDO
+    ///      produtor do mesmo juizo, e o pior dos dois — podia descartar exatamente a rota que
+    ///      este escolheria. A profundidade ja faz o seu trabalho onde deve, um nivel abaixo, a
+    ///      ordenar candidatos DENTRO de cada hop (`_topKPools`, `_buildHop`).
+    function _rank(Route memory a, Route memory b, Route memory c, Route memory d)
         private pure returns (uint256 bestU, uint256 secU, Route memory bestR, Route memory secR)
     {
         if (a.totalOut > 0) { bestU = a.totalOut; bestR = a; }
@@ -244,6 +256,8 @@ contract BlazePhoenixSolver {
         else if (b.totalOut > secU) { secU = b.totalOut; secR = b; }
         if (c.totalOut > bestU) { secU = bestU; secR = bestR; bestU = c.totalOut; bestR = c; }
         else if (c.totalOut > secU) { secU = c.totalOut; secR = c; }
+        if (d.totalOut > bestU) { secU = bestU; secR = bestR; bestU = d.totalOut; bestR = d; }
+        else if (d.totalOut > secU) { secU = d.totalOut; secR = d; }
     }
 
     // =========================================================================

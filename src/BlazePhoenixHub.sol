@@ -92,16 +92,23 @@ contract BlazePhoenixHub {
     ///      classificadas e INALCANCAVEIS, a despejar as que o router consegue usar. O bonus era
     ///      pago sobre liquidez que o router nao toca.
     ///
-    ///      SAO DUAS PERGUNTAS, e agora tem duas respostas: "este token e uma ancora de
-    ///      confianca?" (`isBridge`, ate MAX_BRIDGES) e "pode um hop passar por aqui?"
-    ///      (`_isRoutableBridge`, ate MAX_BRIDGE_ROUTES). Colapsa-las era o que estava a
-    ///      acontecer, e o cabecalho da seccao das bridges ainda dizia "max 2" — a intencao de
-    ///      desenho era esta desde sempre, e a constante e que derivou.
+    ///      SAO DUAS PERGUNTAS — "este token e uma ancora de confianca?" (`isBridge`) e "pode um
+    ///      hop passar por aqui?" (`_isRoutableBridge`) — e HOJE TEM A MESMA RESPOSTA, porque o
+    ///      Solver expande TODAS as bridges configuradas e deixa o `_rank` decidir pelo
+    ///      `totalOut` medido. Ficam duas perguntas com dois nomes na mesma: a igualdade e um
+    ///      FACTO, nao uma definicao, e e o `test_NenhumaBridgeConfiguradaEFantasma` que a pina.
+    ///      No dia em que alguem subir o MAX_BRIDGES sem acrescentar um bracco ao Solver, e o
+    ///      teste que explica a divergencia em vez de ela voltar a acontecer em silencio.
+    ///
+    ///      PORQUE NAO SE ESCOLHEM "AS MELHORES 2": porque isso seria um SEGUNDO produtor do
+    ///      juizo "qual rota e melhor", ao lado do `_rank` — que ja o produz, e produz melhor.
+    ///      Profundidade registada e um proxy; `totalOut` e a saida construida e medida. Um
+    ///      pre-filtro por proxy so podia descartar a rota que o produtor verdadeiro escolheria.
     ///
     ///      PINADO por `test_RoutableBridgesMatchSolverExpansion`: se alguem acrescentar um `b2`
     ///      ao Solver sem mexer aqui, ou mexer aqui sem mexer la, o teste explica a divergencia
     ///      em vez de a deixar em silencio.
-    uint8   internal constant MAX_BRIDGE_ROUTES      = 2;
+    uint8   internal constant MAX_BRIDGE_ROUTES      = MAX_BRIDGES;
     uint8   internal constant MAX_FACTORIES          = 16;
     uint16  internal constant EVICTION_IMPROVE_BPS   = 1_000;
 
