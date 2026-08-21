@@ -931,9 +931,7 @@ contract BlazePhoenixSolver {
         uint256 totalImpactBps;
         for (uint256 i; i < legs; ) {
             uint256 d;
-            if (hop.legs[i].kind == BPC.KIND_V2 ||
-                hop.legs[i].kind == BPC.KIND_SOLIDLY)
-            {
+            if (BPC.kindHas(hop.legs[i].kind, BPC.A_RESERVES)) {
                 (uint256 r0, uint256 r1) = BPC.getReserves(hop.legs[i].pool);
                 uint256 rIn = hop.legs[i].zeroForOne ? r0 : r1;
                 d = BPC.impactV2Bps(hop.legs[i].amountIn, rIn);
@@ -986,9 +984,7 @@ contract BlazePhoenixSolver {
             for (uint256 i; i < legs; ) {
                 uint256 d;
                 Leg memory L = hops[h].legs[i];
-                if (L.kind == BPC.KIND_V2 ||
-                    L.kind == BPC.KIND_SOLIDLY)
-                {
+                if (BPC.kindHas(L.kind, BPC.A_RESERVES)) {
                     (uint256 r0, uint256 r1) = BPC.getReserves(L.pool);
                     uint256 rIn = L.zeroForOne ? r0 : r1;
                     d = BPC.impactV2Bps(L.amountIn, rIn);

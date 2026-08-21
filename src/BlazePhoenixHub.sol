@@ -1064,14 +1064,12 @@ contract BlazePhoenixHub {
 
     function getPsi(bytes32 key) external view returns (uint256) { return _psi(key); }
 
+    /// @dev NAO ERAM DUAS CADEIAS IGUAIS — ERAM DOIS CORPOS IGUAIS. Esta funcao e o
+    ///      `_psiOfSlot` diferiam apenas em como obtinham o slot; tudo o resto era copia literal,
+    ///      incluindo a cadeia de quatro kinds. Colapsar a cadeia e deixar as duas funcoes
+    ///      curava o sintoma e mantinha o irmao. Agora ha UM corpo.
     function _psi(bytes32 key) private view returns (uint256) {
-        HubStore storage $ = _store();
-        uint256 s = $.slot[key];
-        if (s == 0) return 0;
-        uint8 kind = BPC.decodeKind(s);
-        bool conc  = (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
-            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE);
-        return BPC.psi(s, uint32(block.timestamp), _isBridged(s), conc);
+        return _psiOfSlot(_store().slot[key]);
     }
 
     /// @notice Batch fitness read: one external call for a whole candidate set
@@ -1272,11 +1270,13 @@ contract BlazePhoenixHub {
     }
 
     /// @notice Fitness of a slot using its packed bridge bit and kind-derived conc.
+    /// @dev O UNICO produtor de psi neste contrato. A pergunta "esta pool e de liquidez
+    ///      concentrada?" e um teste de PERTENCA a uma classe de FORMA de estado (na pool ou no
+    ///      singleton, tanto faz para o peso) — colapsa na theta sem violar a regra dos
+    ///      predicados de aceitacao, porque psi e um peso de LEITURA e nao decide admissao.
     function _psiOfSlot(uint256 s) private view returns (uint256) {
         if (s == 0) return 0;
-        uint8 kind = BPC.decodeKind(s);
-        bool conc = (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
-            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE);
+        bool conc = BPC.kindHasAny(BPC.decodeKind(s), BPC.A_CONC_POOL | BPC.A_CONC_SING);
         return BPC.psi(s, uint32(block.timestamp), _isBridged(s), conc);
     }
 

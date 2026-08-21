@@ -102,6 +102,20 @@ contract ThetaParityTest is Test {
         }
     }
 
+    /// A UNIAO — o predicado exato que as duas copias do psi no Hub tinham escrito a mao:
+    /// `k == V3 || k == ALGEBRA || k == V4 || k == V4_NATIVE`. Nao e nenhum dos dois atributos
+    /// isolados: e "concentrada EM QUALQUER SITIO", que so se exprime como kindHasAny da uniao.
+    /// Este pino e o que impede que a conversao e a cadeia se afastem enquanto a cadeia existir
+    /// em qualquer outro sitio do protocolo.
+    function test_Parity_ConcentratedAnywhere() public pure {
+        uint8 uniao = BPC.A_CONC_POOL | BPC.A_CONC_SING;
+        for (uint8 k = 0; k <= 8; k++) {
+            bool ramoAntigo = (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA
+                || k == BPC.KIND_V4 || k == BPC.KIND_V4_NATIVE);
+            assertEq(BPC.kindHasAny(k, uniao), ramoAntigo, "a uniao conc diverge da cadeia literal");
+        }
+    }
+
     /// ESCADA DE GAS: paridade com os numeros literais do Solver de hoje, e o default preservado.
     function test_Parity_GasLadder() public pure {
         assertEq(BPC.kindGasBase(BPC.KIND_V2),         90_000,  "V2");
