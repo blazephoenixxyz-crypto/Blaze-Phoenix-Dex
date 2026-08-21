@@ -123,7 +123,10 @@ contract RouterUndoesSolverCapacityClampTest is Test {
 
         // The caller spent only the committed input; the rest was swept back.
         uint256 userAspent = userAbefore - tokenA.balanceOf(user);
-        assertApproxEqAbs(userAspent, committed, 2, "caller spends only the committed input");
+        // O chamador gasta o comprometido MAIS a fee de 28 bps sobre ele. O excedente da
+        // ordem continua a ser devolvido, e sobre esse nao ha fee — que era o ponto.
+        assertApproxEqAbs(userAspent, committed + (committed * 28) / 10_000, 2,
+            "caller spends the committed input plus its 28 bps fee");
         assertGt(tokenB.balanceOf(user), 0, "caller receives the honest partial fill");
     }
 

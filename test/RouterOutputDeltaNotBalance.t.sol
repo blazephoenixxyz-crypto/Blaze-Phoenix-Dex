@@ -116,6 +116,12 @@ contract RouterOutputDeltaNotBalanceTest is Test {
     ///         the next swapper. The user takes home their own swap's output
     ///         and nothing else; the stray balance is still there afterwards,
     ///         to the wei, waiting for the rescue path that owns it.
+
+    /// @dev A fee do protocolo passou a ser cobrada na ENTRADA (2026-08-21): 28 bps do input
+    ///      comprometido, em tokenIn, antes de a rota comecar. Logo a rota preca sobre o LIQUIDO.
+    ///      Ver test/FeeEscapeViaBridgeResidual.t.sol para a razao da mudanca.
+    function _netIn(uint256 a) internal pure returns (uint256) { return a - (a * 28) / 10_000; }
+
     function test_PreExistingTokenOut_IsNotPaidToTheNextSwapper() public {
         // Someone mis-sends tokenOut to the Router (or a token airdrops it).
         // The Router holds nothing at rest, so this is by definition not ours.
@@ -123,7 +129,7 @@ contract RouterOutputDeltaNotBalanceTest is Test {
 
         // An entirely ordinary, honest swap — no crafted route, no hostile
         // pool. The attack needs nothing more than being first.
-        uint256 realQuote = BPC.outV2(AMOUNT_IN, RESERVE, RESERVE, 30);
+        uint256 realQuote = BPC.outV2(_netIn(AMOUNT_IN), RESERVE, RESERVE, 30);
         assertGt(realQuote, 0);
         Route memory route = _buildRoute(AMOUNT_IN, realQuote);
 
@@ -133,7 +139,8 @@ contract RouterOutputDeltaNotBalanceTest is Test {
 
         // The fee is charged on the on-chain quote of the legs as executed,
         // which for this route equals the realised output exactly.
-        uint256 expectedFee = BPC.mulDiv(realQuote, PROTOCOL_FEE_BPS, BPC.BPS);
+        // A fee ja foi cobrada na ENTRADA: a saida nao leva corte nenhum.
+        uint256 expectedFee = 0;
 
         // (a) The user receives ONLY the output of their own swap.
         assertEq(delivered, realQuote - expectedFee, "user paid from a foreign balance");

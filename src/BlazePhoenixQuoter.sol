@@ -7,35 +7,66 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
+//  RESPONSABILIDADE UNICA
+//      Dizer a uma pessoa o que ela vai receber, antes de decidir. Nada mais.
+//
+//  A FRONTEIRA QUE DEFINE ESTE CONTRATO
+//      O QUE O QUOTER DEVOLVE NAO E UMA ROTA SUBMETIVEL. E um PREVIEW: valor
+//      esperado, slippage, caminho, para quem vai trocar poder olhar antes de
+//      assinar. A rota que executa e calculada on-chain no momento da execucao.
+//
+//      Isto e uma decisao de desenho, nao uma limitacao. Se a saida de um view
+//      pudesse ser submetida como plano, o preview passava a ser uma superficie
+//      de ataque: bastava fazer o Quoter dizer o numero certo uma vez e usa-lo
+//      quando o estado ja fosse outro. Separando os dois, um Quoter comprometido
+//      engana a interface — e nao consegue mover um unico wei, porque o Router
+//      volta a medir tudo o que qualquer plano lhe afirme.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      Q1  Nunca sobrestima de proposito. Onde a medicao exata existe, usa-se a
+//          medicao; onde so ha aproximacao, aproxima-se PARA BAIXO.
+//      Q2  So `view`. Nao escreve, nao gasta, nao autoriza.
+//      Q3  Uma rota que contenha uma pool marcada por abuso de hook, ou um hook
+//          em denylist, nao e cotavel — devolve zero em vez de um numero bonito.
+//
 //  The Quoter is the read-only mirror of the Router. For a route it returns:
 //
-//      netOut = grossOut · (1 − fee) · (1 − safety(n))
+//      netOut = grossOut · (1 − fee)^H · (1 − safety(n))
 //
 //  Where:
 //
 //    grossOut   — Solver's output (already net of pool fees).
-//    fee        — Protocol fee (28 BPS), applied to the QUOTED output only.
-//                 Any surplus delivered above the quote is fee-exempt and paid
-//                 to the user in full, so the realised receive is at least
-//                 netOut and, in surplus scenarios, strictly greater.
+//    fee        — Protocol fee, 28 BPS. E O EXPOENTE H QUE MUDOU EM 2026-08-21: a fee deixou de
+//                 ser cobrada uma vez sobre a saida cotada e passa a ser cobrada em CADA HOP,
+//                 sobre a ENTRADA desse hop e no TOKEN desse hop. Uma rota de H hops paga H
+//                 vezes, composto — e por isso o expoente.
+//                 A razao esta escrita no Router (`_chargeHopFee`): uma rota e um caminho com
+//                 duas pontas e ambas sao coordenadas escritas pelo chamador, logo qualquer fee
+//                 ancorada numa PONTA e evadida estendendo a rota para la dessa ponta com um
+//                 token sem valor. Foi MEDIDO nas duas direccoes: ancorada na saida, 996 tokens
+//                 moveram-se com fee ZERO; ancorada na entrada, o atacante prefixava com um token
+//                 que cunhou e recebia MAIS que o utilizador honesto.
 //    safety(n)  — Dynamic buffer: 0 BPS at ≤2 legs, +1 BPS per extra leg,
 //                 capped at 10 BPS. Accounts for inter-leg drift.
 //    A route is unquotable (returns zero) if it contains a pool flagged for
 //    hook misuse or a denylisted hook.
 //
-//  NOTE on fee parity: this preview's protocolFee is computed on the
-//  Solver-attested route.totalOut, taken at face value — appropriate here
-//  because previewPlan/previewPlanWithMinOut obtain `route` from a live call
-//  to the Solver in the same view context. The Router does NOT extend this
-//  trust to its own execution path: route.totalOut arrives there as arbitrary
-//  caller calldata, so _execute re-derives its fee base from an on-chain
-//  quote of the legs as actually executed (see BlazePhoenixRouter._execute,
-//  "Fee base"). previewRoute/_pack stays pure and cannot replicate that
-//  stateful re-derivation, so the fee shown here is a pre-trade estimate —
-//  ordinary quote-to-fill drift (a block or more may pass before execution)
-//  can make the two figures differ slightly, exactly as previewed output can
-//  differ slightly from realised output. Not a discrepancy to eliminate: the
-//  user's protection is userMinOut and the Router's own floors, not this
+//  O QUE `protocolFee` SIGNIFICA AGORA, e a mudanca importa para quem le o preview: a fee real e
+//  cobrada em VARIOS tokens (um por hop), portanto nao existe um unico numero em tokenOut que
+//  seja "a fee". O campo reporta o EFEITO da fee sobre a saida — quanto menos o utilizador recebe
+//  por causa dela, expresso em tokenOut. E a grandeza util para quem vai trocar, e e honesta
+//  desde que se saiba o que e. As tesourarias recebem outra coisa (os tokens de entrada de cada
+//  hop), e o evento `Fee` do Router e que diz o que foi cobrado e em que token.
+//
+//  E A ISENCAO DO EXCEDENTE MORREU com a mudanca: era uma promessa do lado da saida ("tudo acima
+//  da quote e teu, sem fee") e nao tem analogo do lado da entrada. Decisao do dono, 2026-08-21.
+//
+//  NOTA sobre paridade: este preview parte do `route.totalOut` atestado pelo Solver, tomado pelo
+//  valor de face — apropriado aqui, porque o `previewPlan` obtem a `route` de uma chamada VIVA ao
+//  Solver no mesmo contexto de view. O Router NAO estende essa confianca ao seu caminho de
+//  execucao. A diferenca com a execucao real e deriva normal de cotacao-para-liquidacao (pode
+//  passar um bloco ou mais), exatamente como a saida prevista difere da realizada. Nao e uma
+//  discrepancia a eliminar: a protecao do utilizador e o userMinOut e os pisos do Router, nao
 //  preview's fee line.
 // =============================================================================
 pragma solidity 0.8.36;
@@ -98,9 +129,9 @@ contract BlazePhoenixQuoter {
     struct Preview {
         Route   route;
         uint256 grossOut;          // U(route)
-        uint256 protocolFee;       // fee × grossOut
+        uint256 protocolFee;       // o EFEITO da fee sobre a saida, em tokenOut (ver cabecalho)
         uint256 safetyBuffer;      // safety(n) × afterFee
-        uint256 netOut;            // grossOut · (1 − fee) · (1 − safety)
+        uint256 netOut;            // grossOut · (1 − fee)^H · (1 − safety)
         uint256 ironFloor;         // output floor supplied by the Solver
         uint256 userMinOut;        // user-supplied tighter floor (optional)
         uint256 effectiveMinOut;   // max(userMinOut, ironFloor)
@@ -175,9 +206,19 @@ contract BlazePhoenixQuoter {
     {
         pv.route       = route;
         pv.grossOut    = route.totalOut;
-        pv.protocolFee = BPC.mulDiv(route.totalOut, PROTOCOL_FEE_BPS, BPC.BPS);
-        uint256 afterFee = route.totalOut > pv.protocolFee
-            ? route.totalOut - pv.protocolFee : 0;
+        // A FEE E POR HOP, E COMPOE. Cada hop cobra sobre a SUA entrada, portanto a saida sofre
+        // o desconto uma vez por hop, multiplicativamente — nao uma vez sobre o total. Uma rota
+        // de dois hops perde ~56 bps, nao 28. Iterar (H <= 3 neste desenho) e exato; uma
+        // aproximacao linear `H * 28 bps` sobre-estimava a perda e faria o preview mentir para
+        // baixo, que e o lado errado para mentir.
+        uint256 afterFee = route.totalOut;
+        for (uint256 h; h < route.hops.length; ) {
+            afterFee -= BPC.mulDiv(afterFee, PROTOCOL_FEE_BPS, BPC.BPS);
+            unchecked { ++h; }
+        }
+        // O EFEITO da fee sobre a saida, em tokenOut. Nao e o que as tesourarias recebem — elas
+        // recebem os tokens de ENTRADA de cada hop. Ver o cabecalho.
+        pv.protocolFee = route.totalOut > afterFee ? route.totalOut - afterFee : 0;
 
         uint256 legs;
         for (uint256 h; h < route.hops.length; ) {
@@ -227,8 +268,8 @@ contract BlazePhoenixQuoter {
     // =========================================================================
     //  EXACT PASS — "the quote IS the execution" (revert-extraction dry-run)
     //
-    //  The same approach used in Core for Curve (get_dy == exchange => cannot
-    //  diverge), generalised to every concentrated venue: the only number
+    //  The ask-the-pool doctrine (quote fn == exec fn => cannot diverge),
+    //  generalised to every concentrated venue: the only number
     //  that cannot diverge from the swap is the swap itself. We call the
     //  pool's REAL swap; our fallback intercepts the universal V3-shaped
     //  callback and reverts with the two deltas; the revert unwinds ALL
@@ -377,7 +418,7 @@ contract BlazePhoenixQuoter {
                 uint256 legIn  = plannedIn == 0
                     ? 0 : BPC.mulDiv(leg.amountIn, carry, plannedIn);
                 uint256 legOut;
-                if (leg.kind == BPC.KIND_V3 || leg.kind == BPC.KIND_ALGEBRA) {
+                if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
                     legOut = _simConc(leg.pool, leg.zeroForOne, legIn);
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
@@ -398,13 +439,18 @@ contract BlazePhoenixQuoter {
                     qc.zeroForOne = leg.zeroForOne;
                     qc.fee        = leg.fee;
                     (legOut, ) = BPC.universalQuote(qc, legIn);
-                } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
+                } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                     legOut = _simV4(leg, route.hops[h].tokenIn, legIn);
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
                 } else {
-                    // STABLE/CURVE were pool-quoted at plan time. Scale by
-                    // exact input ratio.
+                    // SOLIDLY e hoje o UNICO kind VIVO a aterrar aqui — os outros
+                    // dois que ca caiam eram lapides. A escala linear e uma
+                    // APROXIMACAO num sitio onde a medicao exacta existe
+                    // (solidlyGetAmountOut). ARMADILHA, antes de alguem a corrigir:
+                    // o `qc.kind` acima esta FIXADO em KIND_V2, portanto encaminhar
+                    // este ramo por universalQuote sem tocar nessa linha passaria a
+                    // cotar Solidly pelo braco constant-product — pior que hoje.
                     legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
                 }
                 route.hops[h].legs[l].amountIn    = legIn;

@@ -46,8 +46,13 @@ contract FindingPartialFeeForgeTest is Test {
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
             hasSurplus: false, isV4Bundle: false});
     }
-    function _grossOut() internal view returns (uint256) { return BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, POOL_FEE, zfo); }
-    function _treasuries() internal view returns (uint256) { return tokenB.balanceOf(T1) + tokenB.balanceOf(T2); }
+    function _grossOut() internal view returns (uint256) { return BPC.outV3(_netIn(AMOUNT_IN), SQRT_P_1, LIQ, POOL_FEE, zfo); }
+    function _treasuries() internal view returns (uint256) { return tokenA.balanceOf(T1) + tokenA.balanceOf(T2); }
+
+
+    /// @dev A fee do protocolo passou a ser cobrada na ENTRADA (2026-08-21): 28 bps do input
+    ///      comprometido, em tokenIn, antes de a rota comecar. Logo a rota preca sobre o LIQUIDO.
+    function _netIn(uint256 a) internal pure returns (uint256) { return a - (a * 28) / 10_000; }
 
     function test_PartialForge_DoesNotEvadeFee() public {
         uint24 forged = 500_000;
@@ -61,8 +66,8 @@ contract FindingPartialFeeForgeTest is Test {
         vm.prank(user);
         uint256 delivered = router.swapExactIn(_route(forged), AMOUNT_IN, 1, user, block.timestamp + 1);
         uint256 collected = _treasuries() - tBefore;
-        uint256 honestFee = BPC.mulDiv(gross, PROTOCOL_FEE_BPS, BPC.BPS);
-        assertEq(delivered, gross - collected, "user receives gross minus collected fee");
+        uint256 honestFee = (AMOUNT_IN * PROTOCOL_FEE_BPS) / 10_000;   // 28 bps da ENTRADA
+        assertEq(delivered, gross, "a saida ja nao leva corte: a fee saiu na entrada");
         // FIXED (T1): the quote prices with the pool's REAL fee, so a forged
         // leg.fee is ignored — the protocol still collects the honest fee.
         assertApproxEqRel(collected, honestFee, 0.01e18, "fee must equal 28bps of the honest quote");

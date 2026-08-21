@@ -15,13 +15,37 @@
 //                Fingerprint is a private phrase held by the authors, and
 //                revealing it proves origin.
 //
+//  RESPONSABILIDADE UNICA
+//      Aritmetica e forma. O Core sabe COMO se calcula um preco, COMO se deriva
+//      um endereco e COMO se empacota um estado — e nao sabe mais nada. Nao tem
+//      storage, nao tem dono, nao tem pausa e nao guarda um unico wei.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      C1  Puro por defeito. Toda a matematica e `pure`; o que le cadeia e `view`
+//          e diz-se `view` no nome ou na assinatura. Nao ha terceira categoria.
+//      C2  Uma primitiva, um produtor. Cada grandeza tem exatamente UMA funcao
+//          que a produz (`depthFromL` para profundidade, `ironFloorBps` para o
+//          piso, `universalQuote` para uma cotacao). Um segundo produtor e um
+//          irmao a espera de divergir, e a divergencia e a assinatura de defeito
+//          desta base de codigo — confirmada mais de dez vezes.
+//      C3  Fail-closed sem ramo de default. Um kind desconhecido devolve campo
+//          theta 0x0: nao le reservas, nao e concentrado, nao e verificavel.
+//          Nao ha `else` para alguem se esquecer de manter sincronizado.
+//
+//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
+//      Nao decide rotas (isso e o Solver), nao executa swaps (isso e o Router),
+//      nao guarda pools (isso e o Hub) e nao tem opiniao sobre quem o chama. As
+//      funcoes que movem valor sao primitivas de transferencia sem allowance —
+//      o Router NUNCA concede allowance a ninguem, e ha uma guarda estatica no
+//      CI que o mantem verdadeiro.
+//
 //  Shared library for the BlazePhoenix protocol. Provides the arithmetic
 //  primitives, AMM quote math, pool-address derivation, packed pool-state
 //  encoding and the output floor used by Hub, Solver, Router and Quoter:
 //
 //    1.  universalQuote(ctx, amountIn) -> (amountOut, depth)
-//        AMM quote dispatcher across pool kinds (V2, V3, V4, Solidly,
-//        Curve stable, Curve crypto, Balancer).
+//        AMM quote dispatcher across the live pool kinds (V2, V3, V4,
+//        V4-native, Solidly, Algebra).
 //
 //    2.  deriveAddress(...) -> pool
 //        Deterministic pool-address resolution via factory lookup or CREATE2,
@@ -127,12 +151,22 @@ library BlazePhoenixCore {
 
     uint8   internal constant KIND_V2          = 0;
     uint8   internal constant KIND_V3          = 1;
-    uint8   internal constant KIND_STABLE      = 2;
-    uint8   internal constant KIND_BALANCER_V2 = 3;
     uint8   internal constant KIND_V4          = 4;
     uint8   internal constant KIND_SOLIDLY     = 5;
     uint8   internal constant KIND_ALGEBRA     = 6;
-    uint8   internal constant KIND_CURVE_CRYPTO = 7;
+
+    // LAPIDES — 2, 3 e 7. Nenhuma constante os nomeia: nao existe kind 2, 3 ou 7 neste sistema.
+    //
+    // Os NUMEROS ficam queimados para sempre, e isso nao e cerimonia: `decodeKind` le o kind dos
+    // bits do Monoslot, logo atribuir o 2 a uma venue nova faria TODA a pool ja gravada sob o 2
+    // ser reinterpretada como essa venue. Uma lapide sem epitafio nao protege nada — a unica
+    // razao de o registo historico ficar escrito e impedir a reutilizacao: foram Curve stable
+    // (2), Balancer V2 (3) e Curve crypto (7), retiradas por decisao do dono em 2026-08-20.
+    //
+    // Falham fechadas em quatro sitios independentes, todos por CONSTRUCAO e nenhum por ramo:
+    // campo theta 0x0 (nenhum atributo, nenhuma consulta responde), fora de KINDS_ROUTABLE (o
+    // `addFactory` e o `recordSwap` do Hub recusam-nas), e o dispatch de execucao do Router cai
+    // no `else` e reverte RouterE(8) antes de tocar na pool.
     /// @notice A V4 pool one of whose currencies is NATIVE (address(0)).
     /// @dev    A separate kind rather than a runtime `currency == address(0)`
     ///         test, and the distinction is the whole point: native settlement
@@ -155,6 +189,77 @@ library BlazePhoenixCore {
     ///         chain-agnostic — it is the same on every EVM chain, so a native
     ///         route depends on no per-chain configuration at all.
     uint8   internal constant KIND_V4_NATIVE   = 8;
+
+    // ─── θ — a taxonomia como DADOS ────────────────────────────────────
+    //
+    // COMO LER ISTO, se e a primeira vez. Cada kind ocupa um campo de bits fixo dentro de UMA
+    // constante. Perguntar "este kind tem o atributo X?" passa a ser um shift e um AND, em vez de
+    // uma cadeia de `if (k == A || k == B || ...)` repetida em cada contrato.
+    //
+    // PORQUE ISTO EXISTE. A assinatura de defeito desta base de codigo, confirmada mais de dez
+    // vezes, e "um fix aplicado a UM de dois canais simetricos". Cada sitio que enumera kinds a
+    // mao e um desses canais: quando um kind novo entra (o KIND_V4_NATIVE nao trouxe UMA LINHA de
+    // matematica de pricing nova e mesmo assim obrigou a tocar nos cinco contratos), quem se
+    // esquecer de um dos sitios cria a divergencia. Um conjunto expresso como bits nao tem irmao
+    // para divergir: a diversidade passa a ser uma COORDENADA, nao um RAMO.
+    //
+    // O QUE NAO COLAPSA, e porque nao. So os testes de PERTENCA a um conjunto entram aqui
+    // ("este kind le reservas?", "este kind expoe token0/token1?"). Os testes de IDENTIDADE
+    // (`k == KIND_V4_NATIVE`, quando a pergunta e mesmo sobre AQUELE kind e nao sobre uma classe)
+    // ficam como estao — forca-los para a tabela trocava clareza por nada. E os motores de
+    // LIQUIDACAO tambem nao colapsam: `CALLBACK`, `EXCHANGE` e `UNLOCK` sao ABIs do mundo
+    // exterior, formas que nao nos pertencem. O criterio, para cada ramo que sobra: consegues
+    // nomear a realidade externa que o obriga? Se sim, e honesto e fica.
+    //
+    // DUAS PALAVRAS, NAO UMA. A versao de palavra unica (16 bits por kind, 144 uteis) tinha a
+    // aritmetica certa mas gastava bits onde o EIP-170 doi: metade dos atributos nao era lida por
+    // nenhuma linha de producao, e eram esses que empurravam o campo para 16 bits — 18 bytes de
+    // literal, PUSH18, 19 B emitidos em CADA sitio, inclusive nos contratos que nunca leem a
+    // escada de gas. Separadas, o Router/Hub/Quoter carregam 6 B e a escada vive num sitio so.
+    //
+    // FAIL-CLOSED DE GRACA. Um kind sem bits (as lapides 2, 3 e 7) tem campo 0x0: nao le
+    // reservas, nao e concentrado, nao e verificavel por par. Nenhum ramo de default para
+    // alguem esquecer. Ver a nota das lapides acima quanto a por que os numeros nao voltam.
+
+    /// @dev Atributos por kind, 4 bits cada. Kind `k` ocupa [4k+3 : 4k].
+    ///      bit 0  A_RESERVES  — profundidade e impacto vem de getReserves(); min(r0,r1) e a profundidade
+    ///      bit 1  A_CONC_POOL — sqrtPriceX96 e L lidos NO ENDERECO DA POOL
+    ///      bit 2  A_CONC_SING — estado por extsload no singleton; `pool` nao e um par; tokenOut viaja em auxId
+    ///      bit 3  A_PAIR_VER  — token0()/token1() existem, logo a prova de autenticidade do Hub aplica-se
+    uint256 internal constant THETA_ATTR = 0x040A9400A9;
+
+    uint8 internal constant A_RESERVES  = 0x1;
+    uint8 internal constant A_CONC_POOL = 0x2;
+    uint8 internal constant A_CONC_SING = 0x4;
+    uint8 internal constant A_PAIR_VER  = 0x8;
+
+    /// @dev Escada de gas por kind, 8 bits cada, em unidades de 5.000. Lida SO pelo Solver, que
+    ///      tem folga larga — por isso vive separada da THETA_ATTR, que todos carregam.
+    ///      Um campo a zero devolve o default historico de 90.000, preservando o comportamento
+    ///      exacto de hoje para um kind desconhecido.
+    uint256 internal constant THETA_GAS = 0x2B0016122400001612;
+
+    /// @notice Os 4 bits de atributo de um kind. Um kind acima de 8 devolve 0 — fail-closed.
+    function thetaOf(uint8 kind) internal pure returns (uint8) {
+        return uint8((THETA_ATTR >> (uint256(kind) << 2)) & 0xF);
+    }
+
+    /// @notice `kind` tem TODOS os atributos de `mask`? Substitui as cadeias de `k == A || k == B`.
+    function kindHas(uint8 kind, uint8 mask) internal pure returns (bool) {
+        return (thetaOf(kind) & mask) == mask;
+    }
+
+    /// @notice `kind` tem ALGUM dos atributos de `mask`? Para as perguntas do tipo "e concentrado?",
+    ///         que hoje se escrevem `k == V3 || k == ALGEBRA || k == V4 || k == V4_NATIVE`.
+    function kindHasAny(uint8 kind, uint8 mask) internal pure returns (bool) {
+        return (thetaOf(kind) & mask) != 0;
+    }
+
+    /// @notice Estimativa de gas base por perna, por kind. Zero => o default historico de 90.000.
+    function kindGasBase(uint8 kind) internal pure returns (uint256) {
+        uint256 g8 = (THETA_GAS >> (uint256(kind) << 3)) & 0xFF;
+        return g8 == 0 ? 90_000 : g8 * 5_000;
+    }
 
     // ─── Output-floor constants ────────────────────────────────────────
     // The floor starts tight (96%) for clean, low-impact, single-leg swaps and
@@ -363,7 +468,7 @@ library BlazePhoenixCore {
         }
         // Algebra fallback (Camelot V3): dynamic-fee factories expose
         // poolByPair(address,address) not getPool(.,.,fee). CALL-based, no
-        // initCodeHash. Same try-then-fallback discipline as the Curve adapter.
+        // initCodeHash. Same try-then-fallback discipline as every derived address.
         if (pool == address(0) && mode == 1) {
             bytes memory cd2 = abi.encodeWithSelector(0xd9a641e1, t0, t1);
             assembly ("memory-safe") {
@@ -558,6 +663,36 @@ library BlazePhoenixCore {
     }
 
     /// @notice V3 slot0 → sqrtPriceX96.
+    /// @dev L -> profundidade TOKEN-DENOMINADA. A UNICA copia.
+    ///      `depthWad` tem de ser comparavel entre familias de venue: o V2 reporta min(r0,r1),
+    ///      unidades lineares de token. L esta em escala-RAIZ, logo entrega-lo cru faz uma pool
+    ///      concentrada ancorar acima de uma V2 igualmente funda por ~sqrt(preco) — vies
+    ///      sistematico em qualquer par cujo preco esteja longe de 1, nao caso limite.
+    ///      Converte L nas reservas virtuais que representa ao preco corrente e toma o lado curto:
+    ///          x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
+    ///      mulDiv carrega o intermedio de 512 bits (L*sp transborda uint256).
+    ///
+    ///      PORQUE E UMA PRIMITIVA E NAO TRES COPIAS: esta conversao existia inline em TRES
+    ///      sitios (universalQuote V3, universalQuote V4, Hub.claimV4) e faltava por completo num
+    ///      QUARTO (Router._recordHits), que corre em todos os swaps executados. Copias irmas que
+    ///      divergem sao a assinatura de defeito desta base de codigo — o mulDiv de 512 bits e a
+    ///      fee viva do Algebra foram a mesma coisa. Uma copia nao pode divergir de si propria.
+    ///      `sp == 0` (leitura falhada) devolve L cru, preservando o comportamento anterior.
+    /// @dev SEM PRECO NAO HA PROFUNDIDADE. Esta funcao devolvia `liq` cru quando o preco nao era
+    ///      legivel — ou seja, devolvia um numero NOUTRAS UNIDADES, que e exatamente o bug que ela
+    ///      existe para eliminar. L esta em escala-RAIZ; entregue cru faz uma pool concentrada
+    ///      ancorar acima de uma pool de par igualmente funda por um fator de raiz-de-preco.
+    ///      Regra: a AUSENCIA de medicao nao e um valor. O retorno correto e zero.
+    ///      Os consumidores tratam-no em seguranca: o `_weights` do Solver normaliza contra o
+    ///      maximo da familia e da peso minimo a um zero (`if (w == 0) w = 1`), sem divisao por
+    ///      zero. Falha SUAVE — a pool perde prioridade, nao envenena a comparacao.
+    function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {
+        if (sp == 0) return 0;
+        uint256 x0 = mulDiv(uint256(liq), Q96, sp);
+        uint256 x1 = mulDiv(uint256(liq), sp, Q96);
+        return x0 < x1 ? x0 : x1;
+    }
+
     function getSqrtPriceX96(address pool) internal view returns (uint160 sp) {
         assembly ("memory-safe") {
             let m := mload(0x40)
@@ -717,51 +852,9 @@ library BlazePhoenixCore {
         }
     }
 
-    // CURVE ADAPTER — ask the pool, never replicate. Quote(get_dy) and exec
-    // (exchange) both on the pool => cannot diverge. int128/uint256 variants
-    // handled by try-then-fallback. No registry, no formula replication.
-    // NOTE (EIP-170): several heavyweight, cold-path view/pure quote helpers
-    // below are `public` ON PURPOSE — public library functions compile into
-    // the deployed BlazePhoenixCore library (which already exists for
-    // universalQuote) and are reached via delegatecall, instead of being
-    // inlined into every caller. This is what keeps the Router under the CI
-    // size margin. Delegatecall-safe: all of them are view/pure (no storage,
-    // no transient state). Do NOT flip them back to internal without
-    // re-measuring `FOUNDRY_PROFILE=release forge build --sizes`.
-    function curveResolveIndices(address pool, address tokenIn, address tokenOut)
-        public view returns (int128 i, int128 j, bool ok) {
-        int128 fi = -1; int128 fj = -1;
-        for (uint256 k; k < 8; ) {
-            address coin = _curveCoin(pool, k);
-            if (coin == address(0)) break;
-            if (coin == tokenIn)  fi = int128(uint128(k));
-            if (coin == tokenOut) fj = int128(uint128(k));
-            unchecked { ++k; }
-        }
-        ok = (fi >= 0 && fj >= 0); i = fi; j = fj;
-    }
-    function _curveCoin(address pool, uint256 k) internal view returns (address coin) {
-        (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature("coins(uint256)", k));
-        if (!ok || ret.length < 32) {
-            (ok, ret) = pool.staticcall(abi.encodeWithSignature("coins(int128)", int128(uint128(k))));
-            if (!ok || ret.length < 32) return address(0);
-        }
-        coin = abi.decode(ret, (address));
-    }
-    function curveGetDy(address pool, int128 i, int128 j, uint256 dx)
-        public view returns (uint256 dy) {
-        (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature(
-            "get_dy(int128,int128,uint256)", i, j, dx));
-        if (!ok || ret.length < 32) {
-            (ok, ret) = pool.staticcall(abi.encodeWithSignature(
-                "get_dy(uint256,uint256,uint256)", uint256(uint128(i)), uint256(uint128(j)), dx));
-            if (!ok || ret.length < 32) return 0;
-        }
-        dy = abi.decode(ret, (uint256));
-    }
 
     /// @notice Ask a Solidly-class pair for its own exact output. Same doctrine
-    ///         as the Curve adapter (get_dy == exchange => cannot diverge):
+    ///         as an ask-the-pool adapter (quote fn == exec fn => cannot diverge):
     ///         getAmountOut(amountIn, tokenIn) is computed by the pair's own
     ///         bytecode — live fee, stable curve and rounding included — so a
     ///         swap requesting exactly this figure satisfies the K invariant by
@@ -788,6 +881,75 @@ library BlazePhoenixCore {
         // normalisation is needed. For pairs with DIFFERENT decimals the caller
         // must use outSolidlyStable(...,dIn,dOut) instead, which normalises.
         return _solidlyStable(ain, rIn, rOut, fee, 0, 0);
+    }
+
+    /// @notice A substituicao WETH -> address(0) de uma chave V4 nativa. UNICO produtor.
+    ///
+    /// @dev    PORQUE EXISTE. A mesma derivacao vivia escrita a mao em DOIS sitios do Router — o
+    ///         braco de cotacao e o de execucao — e o comentario de um deles JURAVA que "cannot
+    ///         diverge" sem mecanismo nenhum que o garantisse. E exatamente a situacao que deu
+    ///         origem ao `depthFromL`, cujo comentario diz o mesmo por outras palavras: uma copia
+    ///         nao pode divergir de si propria, mas duas copias podem divergir uma da outra.
+    ///         E aqui a divergencia seria silenciosa e grave: os dois lados derivariam poolIds
+    ///         DIFERENTES, e a promessa de que "cotar e executar leem a mesma pool" cairia.
+    ///
+    ///         PORQUE NAO DEVOLVE UM `ok`. A versao obvia devolve `(a, b, bool ok)` e deixa o
+    ///         veredicto no chamador. Mas em Solidity `(a, b, ) = f(...)` compila SEM AVISO —
+    ///         logo um sitio futuro pode ignorar o `ok`, e se o valor devolvido em caso de falha
+    ///         for utilizavel, segue com `tokenIn == WETH` e constroi a chave do pool ERC20 em vez
+    ///         da nativa: le uma pool DIFERENTE e devolve um numero perfeitamente valido do sitio
+    ///         errado, sem sintoma. E o corolario (c) do Axioma Meta-Supremo a morder.
+    ///
+    ///         A ALTERNATIVA E MELHOR QUE O `ok`: o valor de falha e `(0, 0)`, que e
+    ///         AUTO-IDENTIFICAVEL (num sucesso exatamente UM dos dois e zero, nunca os dois) e
+    ///         IMPOSSIVEL como chave V4 — o V4 exige `currency0 < currency1`, logo nao existe
+    ///         nem pode vir a existir uma pool (0,0). Quem esquecer a verificacao obtem uma chave
+    ///         que nao resolve: `sp == 0` do lado da cotacao (quote zero) e um `unlock` que
+    ///         reverte do lado da execucao. Nao ha `ok` para esquecer, porque nao ha `ok`.
+    ///         Falha fechada por CONSTRUCAO, e nao por disciplina de quem chama.
+    function nativeMapVerified(address tokenIn, address tokenOther, address weth)
+        internal pure returns (address, address)
+    {
+        if (weth == address(0))  return (address(0), address(0));
+        if (tokenIn == weth)     return (address(0), tokenOther);
+        if (tokenOther == weth)  return (tokenIn, address(0));
+        return (address(0), address(0));
+    }
+
+    /// @notice A CURVA Solidly com os decimais corretos — o UNICO produtor desta grandeza.
+    ///
+    ///         PORQUE EXISTE. A mesma pergunta ("quanto devolve esta pool?") era respondida em
+    ///         TRES sitios com TRES politicas: aqui (decimais SIM), no cotador do Router
+    ///         (decimais NAO) e no executor do Router (decimais NAO). No caminho primario os
+    ///         tres fazem a mesma chamada ao mesmo pool e concordam por construcao; a
+    ///         divergencia vivia toda no fallback. Assinatura de defeito da casa com N=3.
+    ///
+    ///         PORQUE OS DECIMAIS. O invariante stable k = x3y + xy3 e homogeneo de grau 4, logo
+    ///         com reservas na MESMA escala o resultado e invariante a escala — e por isso a via
+    ///         de decimais iguais passa (0,0) e nao normaliza nada. Com 18/6 as reservas cruas
+    ///         estao a 12 ordens de grandeza uma da outra e a curva devolve lixo. O par real
+    ///         normaliza internamente porque SABE os seus decimais; quem lhe pede tem de saber
+    ///         tambem.
+    ///
+    ///         DERIVA O PAR DA POOL, NAO DO CHAMADOR. O outro token le-se do proprio pool em vez
+    ///         de vir por argumento — de proposito. Uma primitiva de produtor unico que aceite a
+    ///         coordenada de quem a chama volta a ter a forma que permite a divergencia: bastava
+    ///         um dos tres sitios passar o token errado. So corre no fallback, logo o custo das
+    ///         duas staticcalls e pago na via rara.
+    ///
+    ///         O QUE ESTA PRIMITIVA NAO FAZ: o haircut. Ver `universalQuote` e `_execSolidlyAmt`
+    ///         — e margem de um PEDIDO, nao propriedade da curva, e nao viaja para os canais de
+    ///         cotacao. Politica unica significa uma unica CURVA, nao um unico conjunto de
+    ///         ajustes.
+    function solidlyCurveOut(
+        address pool, uint256 ain, uint256 rIn, uint256 rOut,
+        bool stable, uint256 cfgFee, address tokenIn
+    ) public view returns (uint256) {
+        uint256 liveFee = readDynamicFee(pool, stable, cfgFee);
+        if (!stable) return outSolidly(ain, rIn, rOut, liveFee, false);
+        address t0 = token0Of(pool);
+        address other = t0 == tokenIn ? token1Of(pool) : t0;
+        return outSolidlyStable(ain, rIn, rOut, liveFee, _decimalsOf(tokenIn), _decimalsOf(other));
     }
 
     /// @notice Solidly stable quote with explicit token decimals. Normalises
@@ -911,7 +1073,7 @@ library BlazePhoenixCore {
         // Iteration cap reached without convergence: fail closed. Return y0 —
         // the seed, equal to the output reserve Y — so the caller's `y >= Y`
         // guard maps this to out = 0 (pool treated as unpriceable), matching
-        // Curve (raise) / Aerodrome (revert "!y"). Returning 0 here would make
+        // some forks (raise) / Aerodrome (revert "!y"). Returning 0 here would make
         // the caller compute out = Y - 0 = Y, a catastrophic over-quote.
         return y0;
     }
@@ -923,15 +1085,22 @@ library BlazePhoenixCore {
     /// @notice AMM quote for a pool of any supported kind.
     /// @return out          amount out for `amountIn` tokens of `ctx.tokenIn`
     /// @return depthWad     pool depth in WAD-equivalent units
-    /// @dev    The single quote dispatcher used by Solver and Quoter; kind
-    ///         branching lives here only.
+    /// @dev    O dispatcher de cotacao do Solver e do Quoter.
+    ///
+    ///         NAO E O UNICO. Esta linha dizia "kind branching lives here only" e era FALSA: o
+    ///         Router tem um dispatcher de cotacao proprio (`_hopScaleImpactAndQuote`) e o Quoter
+    ///         outro (`previewPlanExact`). Ambos sao DELIBERADOS — o do Router existe por gas e
+    ///         profundidade de stack, o do Quoter porque o exact-pass e outra pergunta — e ambos
+    ///         estao registados no Seam Register. O que estava errado era a prosa, nao o desenho.
+    ///         Criterio 7: um facto errado escrito e pior do que nenhum, porque enviesa quem o le
+    ///         a nao ir procurar os irmaos.
     function universalQuote(QuoteCtx memory c, uint256 amountIn)
         public view returns (uint256 out, uint256 depthWad)
     {
         if (amountIn == 0) return (0, 0);
         uint8 k = c.kind;
-        // KIND_BALANCER_V2 removed from this arm (EIP-170 dead-code pass): a
-        // Balancer Vault pool exposes no getReserves(), so this branch always
+        // A lapide 3 saiu deste braco (passagem de codigo morto do EIP-170): a
+        // venue que la vivia nao expunha getReserves(), pelo que este ramo sempre
         // read (0,0) and quoted 0 — the kind never produced a routable quote.
         // Falling through to the default (0,0) return is byte-for-byte the
         // same observable result.
@@ -969,22 +1138,7 @@ library BlazePhoenixCore {
             // the unit of an existing comparison. Within a family the price
             // cancels in _weights' depth[i]/maxByFam ratio, so allocation is
             // unchanged; only the cross-family anchor choice is corrected.
-            if (sp != 0) {
-                uint256 x0 = mulDiv(uint256(liq), Q96, sp);
-                uint256 x1 = mulDiv(uint256(liq), sp, Q96);
-                depthWad = x0 < x1 ? x0 : x1;
-            } else {
-                depthWad = uint256(liq);
-            }
-            return (out, depthWad);
-        }
-        if (k == KIND_STABLE) {
-            // Curve: ask the pool (get_dy), never replicate. Indices from coins();
-            // quote here == exchange() at execution, so they cannot diverge.
-            (int128 ci, int128 cj, bool cok) = curveResolveIndices(c.pool, c.tokenIn, c.tokenOther);
-            if (!cok) return (0, 0);
-            out      = curveGetDy(c.pool, ci, cj, amountIn);
-            depthWad = out;
+            depthWad = depthFromL(liq, sp);
             return (out, depthWad);
         }
         if (k == KIND_SOLIDLY) {
@@ -1000,25 +1154,10 @@ library BlazePhoenixCore {
                 // pool's K rounding — which we cannot observe — always has
                 // slack. The haircut is intentionally the pool's gain; it
                 // never applies when getAmountOut answered above.
-                uint256 liveFee = readDynamicFee(c.pool, c.stable, c.fee);
-                if (c.stable) {
-                    // Stable invariant needs decimal-normalised reserves so
-                    // pairs with mismatched decimals (e.g. DOLA 18 / USDC 6)
-                    // quote correctly.
-                    uint8 dI = _decimalsOf(c.tokenIn);
-                    uint8 dO = _decimalsOf(c.tokenOther);
-                    out = outSolidlyStable(amountIn, rI, rO, liveFee, dI, dO);
-                } else {
-                    out = outSolidly(amountIn, rI, rO, liveFee, false);
-                }
+                out = solidlyCurveOut(c.pool, amountIn, rI, rO, c.stable, c.fee, c.tokenIn);
                 out = (out * 9800) / BPS;
             }
             depthWad = rI < rO ? rI : rO;
-            return (out, depthWad);
-        }
-        if (k == KIND_CURVE_CRYPTO) {
-            out = _curveCryptoGetDy(c.pool, c.zeroForOne, amountIn);
-            depthWad = 0;
             return (out, depthWad);
         }
         if (k == KIND_V4 || k == KIND_V4_NATIVE) {
@@ -1047,11 +1186,7 @@ library BlazePhoenixCore {
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
             // ~sqrt(price). sp is non-zero here (guarded on entry).
-            {
-                uint256 v0 = mulDiv(uint256(liq), Q96, sp);
-                uint256 v1 = mulDiv(uint256(liq), sp, Q96);
-                depthWad = v0 < v1 ? v0 : v1;
-            }
+            depthWad = depthFromL(liq, sp);
             return (out, depthWad);
         }
     }
@@ -1160,41 +1295,6 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @dev Both guards capture the staticcall result in `ok` FIRST and only
-    ///      then test returndatasize(). Do NOT "simplify" this back into a
-    ///      single `and(staticcall(...), eq(returndatasize(), 32))`: Yul
-    ///      evaluates the arguments of a builtin RIGHT TO LEFT, so the
-    ///      returndatasize() term would run BEFORE the staticcall and report
-    ///      the size left by the PREVIOUS external call. That breaks the guard
-    ///      both ways — a valid quote gets discarded (outAmt stays 0, so the
-    ///      protocol floor goes inert for that swap), or a short/oversized
-    ///      return passes the check and mload(m) reads stale buffer garbage.
-    function _curveCryptoGetDy(address pool, bool zfo, uint256 dx)
-        public view returns (uint256 outAmt)
-    {
-        uint256 i = zfo ? 0 : 1;
-        uint256 j = zfo ? 1 : 0;
-        assembly ("memory-safe") {
-            let m := mload(0x40)
-            mstore(m, 0x556d6e9f00000000000000000000000000000000000000000000000000000000)
-            mstore(add(m, 4), i) mstore(add(m, 36), j) mstore(add(m, 68), dx)
-            let ok := staticcall(GAS_CAP, pool, m, 100, m, 32)
-            if and(ok, eq(returndatasize(), 32)) {
-                outAmt := mload(m)
-            }
-        }
-        if (outAmt == 0) {
-            assembly ("memory-safe") {
-                let m := mload(0x40)
-                mstore(m, 0x5e0d443f00000000000000000000000000000000000000000000000000000000)
-                mstore(add(m, 4), i) mstore(add(m, 36), j) mstore(add(m, 68), dx)
-                let ok := staticcall(GAS_CAP, pool, m, 100, m, 32)
-                if and(ok, eq(returndatasize(), 32)) {
-                    outAmt := mload(m)
-                }
-            }
-        }
-    }
 
     // =========================================================================
     //  §6  POOL FITNESS SCORE (psi)
