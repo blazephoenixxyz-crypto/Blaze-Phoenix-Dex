@@ -1352,10 +1352,21 @@ contract BlazePhoenixRouter {
         uint256 balBefore = BPC.balanceOf(tokenIn, leg.pool);
         BPC.safeTransfer(tokenIn, leg.pool, amt);
         uint256 askIn = amt;
-        if (BPC.balanceOf(tokenIn, leg.pool) - balBefore != amt) {
+        // UMA leitura do saldo pos-transferencia, usada duas vezes. As duas subtracoes sao
+        // diferentes (`balBefore` diz quanto CHEGOU; `rInB` diz quanto ainda nao foi
+        // sincronizado para reserva), mas o MINUENDO e o mesmo, e antes era lido duas vezes.
+        //
+        // PROVA DE QUE O CACHE E LEGITIMO, e nao doutrina violada: a casa diz MEDIR e nao
+        // derivar, e por isso nao se cacheia atraves de uma transferencia (FoT/rebasing
+        // mudam o saldo). Aqui nao ha transferencia entre as duas leituras — ha um
+        // `getReserves`, e tanto ele como o `balanceOf` sao STATICCALL (ver o assembly no
+        // Core). A EVM proibe mutacao de estado dentro de um staticcall, logo o segundo
+        // valor era IGUAL ao primeiro por regra da maquina, nao por suposicao nossa.
+        uint256 balAfter = BPC.balanceOf(tokenIn, leg.pool);
+        if (balAfter - balBefore != amt) {
             (uint256 r0b, uint256 r1b) = BPC.getReserves(leg.pool);
             uint256 rInB = leg.zeroForOne ? r0b : r1b;
-            uint256 realIn = BPC.balanceOf(tokenIn, leg.pool) - rInB;
+            uint256 realIn = balAfter - rInB;
             if (realIn == 0) revert RouterE(8);
             askIn = realIn;
             if (isV2) { rIn = rInB; rOut = leg.zeroForOne ? r1b : r0b; }
