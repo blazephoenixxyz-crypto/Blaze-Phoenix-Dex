@@ -856,8 +856,13 @@ contract BlazePhoenixSolver {
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than
     ///      rebuilding an identical QuoteCtx and calling `universalQuote` a second time.
     ///
-    ///      This matters for BYTECODE, not just tidiness: `BPC.universalQuote` is an `internal`
-    ///      library function, so every call site gets its own INLINED copy of the whole
+    ///      NOTA DE CORRECAO: este paragrafo dizia que o `BPC.universalQuote` e `internal`. E
+    ///      `public` (ver Core) — logo cada sitio de chamada NAO inlina uma copia, faz
+    ///      DELEGATECALL a biblioteca ja implantada. O argumento de bytecode abaixo aplicava-se a
+    ///      um mundo anterior; hoje o motivo para nao duplicar o sitio de chamada e outro, e vale
+    ///      na mesma: dois sitios sao dois canais para divergir.
+    ///      This matters for BYTECODE, not just tidiness: se fosse `internal`, cada call site
+    ///      levava a sua propria copia INLINADA do
     ///      multi-venue quote engine (V2, V3, Solidly, V4). Two call sites meant two
     ///      copies inside this contract. The Solver is the largest contract in the protocol and
     ///      the one closest to the EIP-170 ceiling, so a duplicated call site is a duplicated

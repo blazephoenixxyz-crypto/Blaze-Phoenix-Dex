@@ -1052,8 +1052,15 @@ library BlazePhoenixCore {
     /// @notice AMM quote for a pool of any supported kind.
     /// @return out          amount out for `amountIn` tokens of `ctx.tokenIn`
     /// @return depthWad     pool depth in WAD-equivalent units
-    /// @dev    The single quote dispatcher used by Solver and Quoter; kind
-    ///         branching lives here only.
+    /// @dev    O dispatcher de cotacao do Solver e do Quoter.
+    ///
+    ///         NAO E O UNICO. Esta linha dizia "kind branching lives here only" e era FALSA: o
+    ///         Router tem um dispatcher de cotacao proprio (`_hopScaleImpactAndQuote`) e o Quoter
+    ///         outro (`previewPlanExact`). Ambos sao DELIBERADOS — o do Router existe por gas e
+    ///         profundidade de stack, o do Quoter porque o exact-pass e outra pergunta — e ambos
+    ///         estao registados no Seam Register. O que estava errado era a prosa, nao o desenho.
+    ///         Criterio 7: um facto errado escrito e pior do que nenhum, porque enviesa quem o le
+    ///         a nao ir procurar os irmaos.
     function universalQuote(QuoteCtx memory c, uint256 amountIn)
         public view returns (uint256 out, uint256 depthWad)
     {

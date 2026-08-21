@@ -50,15 +50,19 @@ contract ThetaParityTest is Test {
     }
 
     /// A_PAIR_VER: token0()/token1() existem, logo a prova de autenticidade do Hub aplica-se.
-    /// O predicado literal de hoje e a mascara 0x6b do Hub (`_register`), que e bits {0,1,3,5,6}.
-    /// NOTA: o bit 3 (BALANCER_V2) esta ligado nessa mascara e a θ NAO o replica, de proposito —
-    /// o kind 3 foi excisado e a θ trata-o como lapide (campo 0x0, fail-closed). A paridade aqui
-    /// e sobre os kinds VIVOS; a divergencia no 3 e deliberada e esta afirmada em baixo.
+    /// O predicado de hoje e a constante `KINDS_PAIR_PROOF` do Hub, usada no `recordSwap` (NAO
+    /// no `_register`, como esta prosa afirmou durante dias — era o mesmo erro que estava no
+    /// backlog da nota 122). Era o literal 0x6b = bits {0,1,3,5,6}; o bit 3 pertencia a uma venue
+    /// ja retirada e saiu quando se provou que o kind 3 e inalcancavel a partir do unico produtor
+    /// de kinds. Hoje coincide EXATAMENTE com o A_PAIR_VER — e essa coincidencia esta pinada por
+    /// construcao em `test_PairProofMaskMatchesTheta`, e NAO colapsada: continuam a ser duas
+    /// perguntas diferentes (forma do estado vs predicado de aceitacao).
     function test_Parity_PairVerifiable_LiveKinds() public pure {
         uint8[3] memory vivos = [BPC.KIND_V2, BPC.KIND_V3, BPC.KIND_SOLIDLY];
         for (uint256 i; i < vivos.length; i++) {
             assertTrue(BPC.kindHas(vivos[i], BPC.A_PAIR_VER), "kind vivo pair-shaped perdeu A_PAIR_VER");
-            assertTrue(((uint256(0x6b) >> vivos[i]) & 1) != 0, "a mascara do Hub mudou debaixo da theta");
+            // (o pino contra a constante REAL do Hub vive em test_PairProofMaskMatchesTheta —
+            //  este laco so afirma que a theta marca os kinds vivos que sao pares)
         }
         assertTrue(BPC.kindHas(BPC.KIND_ALGEBRA, BPC.A_PAIR_VER), "ALGEBRA e pair-shaped");
         // Os singleton-shaped nao expoem token0/token1 — a prova de autenticidade nao lhes aplica.
