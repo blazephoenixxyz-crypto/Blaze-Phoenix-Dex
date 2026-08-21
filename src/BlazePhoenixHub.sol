@@ -80,6 +80,28 @@ contract BlazePhoenixHub {
 
     uint8   internal constant MAX_SLOTS              = 16;
     uint8   internal constant MAX_BRIDGES            = 3;
+    /// @dev Por quantas bridges o Solver REALMENTE roteia. NAO e o MAX_BRIDGES, e a diferenca
+    ///      entre os dois era uma assimetria silenciosa: o Solver expande as bridges DESENROLADO
+    ///      a mao (`b0`, `b1` em Solver:203-215) e `_rank` tem tres lugares — directo + duas.
+    ///      A terceira bridge nunca podia ser um hop.
+    ///
+    ///      E MESMO ASSIM TINHA PODERES. O `isBridge[t]` abre a porta permissionless do
+    ///      `claimV4` ("um dos lados tem de ser uma bridge de confianca") e poe a flag `bridged`
+    ///      no Monoslot, que vale +25% de fitness no `psi` (Core). Num registo CAPADO com despejo
+    ///      por fitness, isso significa que uma terceira bridge enchia o registo de pools bem
+    ///      classificadas e INALCANCAVEIS, a despejar as que o router consegue usar. O bonus era
+    ///      pago sobre liquidez que o router nao toca.
+    ///
+    ///      SAO DUAS PERGUNTAS, e agora tem duas respostas: "este token e uma ancora de
+    ///      confianca?" (`isBridge`, ate MAX_BRIDGES) e "pode um hop passar por aqui?"
+    ///      (`_isRoutableBridge`, ate MAX_BRIDGE_ROUTES). Colapsa-las era o que estava a
+    ///      acontecer, e o cabecalho da seccao das bridges ainda dizia "max 2" — a intencao de
+    ///      desenho era esta desde sempre, e a constante e que derivou.
+    ///
+    ///      PINADO por `test_RoutableBridgesMatchSolverExpansion`: se alguem acrescentar um `b2`
+    ///      ao Solver sem mexer aqui, ou mexer aqui sem mexer la, o teste explica a divergencia
+    ///      em vez de a deixar em silencio.
+    uint8   internal constant MAX_BRIDGE_ROUTES      = 2;
     uint8   internal constant MAX_FACTORIES          = 16;
     uint16  internal constant EVICTION_IMPROVE_BPS   = 1_000;
 
@@ -399,7 +421,7 @@ contract BlazePhoenixHub {
         return $.hookAllowed[h] && h.codehash == $.hookCodehash[h];
     }
 
-    // ─── Bridges (max 2) ───────────────────────────────────────────────
+    // ─── Bridges (MAX_BRIDGES configuraveis, MAX_BRIDGE_ROUTES roteaveis) ───────────────────────────────────────────────
 
     function addBridge(address t) external onlyAdmin {
         _ne0(t);
@@ -423,6 +445,19 @@ contract BlazePhoenixHub {
         $.bridges[$.bridgeCount_ - 1] = address(0);
         unchecked { $.bridgeCount_--; }
         emit Bridge_(t, false);
+    }
+
+    /// @dev "Pode um hop passar por este token?" — distinto de `isBridge`, que responde "e uma
+    ///      ancora de confianca?". So as primeiras MAX_BRIDGE_ROUTES posicoes sao roteaveis,
+    ///      porque so essas o Solver expande. O early-out no `isBridge` mantem o caso comum (nem
+    ///      um nem outro token e bridge) exatamente ao custo de hoje: um SLOAD.
+    function _isRoutableBridge(HubStore storage $, address t) private view returns (bool) {
+        if (!$.isBridge[t]) return false;
+        for (uint8 i; i < MAX_BRIDGE_ROUTES; ) {
+            if ($.bridges[i] == t) return true;
+            unchecked { ++i; }
+        }
+        return false;
     }
 
     function bridge(uint8 i) external view returns (address) { return _store().bridges[i]; }
@@ -584,8 +619,10 @@ contract BlazePhoenixHub {
         _ne0(c0); _ne0(c1);                 // native currency (address(0)) rejected
         if (c0 == c1) revert HubE(4);
         HubStore storage $ = _store();
-        // Anchor gate: one side must be a trusted bridge.
-        if (!$.isBridge[c0] && !$.isBridge[c1]) revert HubE(9);
+        // Anchor gate: one side must be a ROUTABLE bridge. Nao basta ser uma ancora de
+        // confianca — esta porta e permissionless, e admitir um par que o router nunca
+        // consegue atravessar so serve para gastar um lugar no registo capado.
+        if (!_isRoutableBridge($, c0) && !_isRoutableBridge($, c1)) revert HubE(9);
         (address s0, address s1) = BPC.sortTokens(c0, c1);
         // HOOKLESS ONLY — the poolId is derived with hooks == address(0).
         bytes32 pid = BPC.computeV4PoolId(s0, s1, fee, tickSpacing, address(0));
@@ -1374,7 +1411,10 @@ contract BlazePhoenixHub {
                 ks.push(key);
             }
         }
-        bool bridged = $.isBridge[t0] || $.isBridge[t1];
+        // ROTEAVEL, nao apenas ancora: a flag vale +25% de fitness no `psi`, e o fitness decide
+        // despejos num registo capado. Pagar o bonus a uma pool que o router nao alcanca era
+        // despejar liquidez util em favor de liquidez inalcancavel.
+        bool bridged = _isRoutableBridge($, t0) || _isRoutableBridge($, t1);
         uint256 s = BPC.encodeSlot(
             true, fee, kind, trusted ? 0 : 2, 0,
             uint32(block.timestamp), 0, 0, 0,
