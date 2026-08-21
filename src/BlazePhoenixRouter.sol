@@ -957,16 +957,26 @@ contract BlazePhoenixRouter {
                 // the real tokenIn from the hop context so _execV4Amt writes the
                 // correct token into transient storage for the unlock callback.
                 if (legIn == address(0)) legIn = hop.tokenIn;
-                uint256 scaledAmt = BPC.mulDiv(leg.amountIn, scaleNum, scaleDen);
+                // DOIS VALORES, UM CALCULO. O `legAmt` de cotacao e mulDiv(leg.amountIn,
+                // scaleNum, scaleDen) — exatamente o `scaledAmt` ANTES do clamp da ultima perna.
+                // O portao dentro do `_execScaled` reescala por amt/legAmt, logo o clamp fica
+                // tratado, e no sentido conservador.
+                //
+                // Estava escrito com a expressao REPETIDA no argumento, porque o clamp abaixo
+                // MUTA o `scaledAmt` e recalcular era a forma de recuperar o valor pre-clamp.
+                // Custava um mulDiv de 512 bits por perna, em todas as portas de swap. Guardar
+                // o pre-clamp num local custa um slot de stack — o `_execute` estava documentado
+                // como estando no limite do via_ir, e por isso isto ficou por fazer ate haver
+                // folga medida. Se um dia voltar a rebentar aqui, e este o primeiro local a
+                // desfazer (basta repor a expressao no argumento).
+                uint256 legAmt = BPC.mulDiv(leg.amountIn, scaleNum, scaleDen);
+                uint256 scaledAmt = legAmt;
                 if (l == legs - 1) {
                     uint256 remaining = BPC.balanceOf(legIn, address(this));
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
-                // `legAmt` de cotacao = mulDiv(leg.amountIn, scaleNum, scaleDen), o mesmo que o
-                // `scaledAmt` acima ANTES do clamp da ultima perna. O portao reescala por
-                // amt/legAmt, logo o clamp fica tratado — e no sentido conservador.
                 (uint256 legGot, uint256 legAtt) = _execScaled(
-                    leg, legIn, legOutRaw, scaledAmt, legQuotes[l], BPC.mulDiv(leg.amountIn, scaleNum, scaleDen)
+                    leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
                 );
                 hopGot += legGot;
                 hopAttested += legAtt;
