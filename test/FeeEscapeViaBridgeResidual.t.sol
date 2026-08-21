@@ -195,4 +195,68 @@ contract FeeEscapeViaBridgeResidualTest is Test {
         assertGe(cobrado, minima,
             "INVARIANTE: a fee tem de ser >= 28 bps de TODO o valor que o chamador extrai, nao so do tokenOut");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    //  O SEGUNDO CANAL. Nao e "so os residuais de ponte": ha TRES saidas de valor para o
+    //  chamador no _execute e a fee toca numa. Este e o canal do `tokenIn`, que tem exatamente a
+    //  mesma forma — sem cap, sem fee:
+    //
+    //      if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);
+    //
+    //  Devolver tokenIn nao gasto e um REEMBOLSO, nao uma extraccao — a menos que a rota PRODUZA
+    //  tokenIn. Uma rota circular fa-lo: A -> B -> A. O lucro da arbitragem aterra no saldo de
+    //  tokenIn do Router e sai por esta linha, intocado.
+    //
+    //  E repara porque o caso degenerado nao salva: o sweep so e saltado quando
+    //  `tokenIn == tokenOut`. Basta declarar um terceiro token como tokenOut para o hop circular
+    //  ficar no meio da rota e o lucro sair como residual.
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    function test_LucroCircularSaiComoResidualDeTokenIn() public {
+        // Pool de volta B->A, funda.
+        MockV2Pair pairBA = new MockV2Pair(address(tB), address(tA));
+        tA.mint(address(pairBA), 1_000_000e18);
+        tB.mint(address(pairBA), 1_000_000e18);
+        pairBA.setReserves(uint112(1_000_000e18), uint112(1_000_000e18));
+        // Pool de fachada A->C que sub-consome (1 wei) — o hop 3 tem de partir de A por
+        // causa da CONTINUIDADE imposta em Router:784.
+        UnderConsumingV3Pool poolAC = new UnderConsumingV3Pool(address(tA), address(tC), address(tC));
+        tC.mint(address(poolAC), 1_000e18);
+
+        uint256 qAB = (AMOUNT_IN * 9970 * 1_000_000e18) / (1_000_000e18 * 10_000 + AMOUNT_IN * 9970);
+        uint256 qBA = (qAB * 9970 * 1_000_000e18) / (1_000_000e18 * 10_000 + qAB * 9970);
+
+        Leg[] memory l0 = new Leg[](1);
+        l0[0] = Leg({pool: address(pairAB), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+            tickSpacing: 0, zeroForOne: address(tA) < address(tB), stable: false,
+            amountIn: AMOUNT_IN, expectedOut: qAB, auxId: bytes32(0)});
+        Leg[] memory l1 = new Leg[](1);
+        l1[0] = Leg({pool: address(pairBA), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+            tickSpacing: 0, zeroForOne: address(tB) < address(tA), stable: false,
+            amountIn: qAB, expectedOut: qBA, auxId: bytes32(0)});
+        Leg[] memory l2 = new Leg[](1);
+        l2[0] = Leg({pool: address(poolAC), hooks: address(0), kind: BPC.KIND_V3, fee: 3000,
+            tickSpacing: 60, zeroForOne: address(tA) < address(tC), stable: false,
+            amountIn: qBA, expectedOut: 0, auxId: bytes32(0)});
+
+        Hop[] memory hops = new Hop[](3);
+        hops[0] = Hop({tokenIn: address(tA), tokenOut: address(tB), amountIn: AMOUNT_IN, expectedOut: qAB, legs: l0});
+        hops[1] = Hop({tokenIn: address(tB), tokenOut: address(tA), amountIn: qAB, expectedOut: qBA, legs: l1});
+        hops[2] = Hop({tokenIn: address(tA), tokenOut: address(tC), amountIn: qBA, expectedOut: 0, legs: l2});
+
+        Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+
+        uint256 aAntes = tA.balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1);
+
+        uint256 aDepois = tA.balanceOf(user);
+        uint256 devolvido = aDepois + AMOUNT_IN - aAntes;
+        uint256 feeEmA = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
+        emit log_named_decimal_uint("A devolvido pelo sweep de tokenIn", devolvido, 18);
+        emit log_named_decimal_uint("fee cobrada em A                 ", feeEmA, 18);
+
+        assertGt(devolvido, 900e18, "o valor voltou mesmo pelo canal do tokenIn");
+        assertEq(feeEmA, 0, "SEGUNDO CANAL: o sweep de tokenIn tambem nao paga fee");
+    }
 }
