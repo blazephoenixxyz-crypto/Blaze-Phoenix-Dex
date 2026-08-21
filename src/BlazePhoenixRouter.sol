@@ -659,7 +659,7 @@ contract BlazePhoenixRouter {
             Leg calldata leg = hop.legs[l];
             uint256 legAmt = BPC.mulDiv(leg.amountIn, scaleNum, scaleDen);
 
-            if (leg.kind == BPC.KIND_V2 || leg.kind == BPC.KIND_SOLIDLY) {
+            if (BPC.kindHas(leg.kind, BPC.A_RESERVES)) {
                 (uint256 ir0, uint256 ir1) = BPC.getReserves(leg.pool);
                 uint256 rIn  = leg.zeroForOne ? ir0 : ir1;
                 uint256 rOut = leg.zeroForOne ? ir1 : ir0;
@@ -674,7 +674,7 @@ contract BlazePhoenixRouter {
                         legQuotes[l] = q_; quoteAcc += q_;
                     }
                 } else { impactAcc += 50; }
-            } else if (leg.kind == BPC.KIND_V3 || leg.kind == BPC.KIND_ALGEBRA) {
+            } else if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
                 // Real concentrated-liquidity impact, matching the Solver's
                 // plan-time computation (Core.impactV3Bps). A dead read
                 // (sp/liq == 0) falls back to the conservative constant.
@@ -723,7 +723,7 @@ contract BlazePhoenixRouter {
                     uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne);
                     legQuotes[l] = q_; quoteAcc += q_;
                 } else { impactAcc += 50; }
-            } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
+            } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
                 legQuotes[l] = q_; quoteAcc += q_;
@@ -1193,11 +1193,11 @@ contract BlazePhoenixRouter {
         // a venue que la vivia nao expunha getReserves(), pelo que o antigo caminho
         // _execV2Amt calculava sempre outAmt == 0 e revertia RouterE(8). O `else`
         // abaixo reverte directamente — mesmo resultado, menos bytes.
-        if (k == BPC.KIND_V2 || k == BPC.KIND_SOLIDLY) {
+        if (BPC.kindHas(k, BPC.A_RESERVES)) {
             _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
-        } else if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) {
+        } else if (BPC.kindHas(k, BPC.A_CONC_POOL)) {
             _execV3Amt(leg, tokenIn, amt);
-        } else if (k == BPC.KIND_V4 || k == BPC.KIND_V4_NATIVE) {
+        } else if (BPC.kindHas(k, BPC.A_CONC_SING)) {
             _execV4Amt(leg, tokenIn, amt);
         } else {
             revert RouterE(8);
@@ -1297,7 +1297,7 @@ contract BlazePhoenixRouter {
     ///         then fails open to the aggregate floors (the per-leg guard is
     ///         an extra bound, never a gate on execution).
     function _legTokenOut(Leg calldata leg, address tokenIn) private view returns (address) {
-        if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
+        if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
             return address(uint160(uint256(leg.auxId)));
         }
         address t0 = BPC.token0Of(leg.pool);
@@ -1310,7 +1310,7 @@ contract BlazePhoenixRouter {
     ///         This is robust against bridge collapsing where two stages with
     ///         different token pairs share a single hop wrapper.
     function _legTokenIn(Leg calldata leg) private view returns (address) {
-        if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
+        if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
             // V4 pools store the "other" token in leg.pool; tokenIn is the
             // implicit counterpart resolved by the unlock callback. The caller
             // path uses the hop-level tracking, so we fall back to that.
@@ -1605,9 +1605,9 @@ contract BlazePhoenixRouter {
                 address t0 = leg.zeroForOne ? hop.tokenIn  : hop.tokenOut;
                 address t1 = leg.zeroForOne ? hop.tokenOut : hop.tokenIn;
                 uint256 depth;
-                if (leg.kind == BPC.KIND_V2 || leg.kind == BPC.KIND_SOLIDLY) {
+                if (BPC.kindHas(leg.kind, BPC.A_RESERVES)) {
                     depth = _v2Depth(leg.pool);
-                } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
+                } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                     // leg.pool is the truncated poolId-as-address (no
                     // bytecode): getLiquidity(leg.pool) would silently
                     // staticcall a non-contract and read 0, so every V4 pool

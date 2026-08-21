@@ -1019,7 +1019,7 @@ contract BlazePhoenixHub {
         // it is part of the poolId the quote recomputes — so recover it from
         // the matching V4Entry.
         p.tickSpacing = 0;
-        if (p.kind == BPC.KIND_V4 || p.kind == BPC.KIND_V4_NATIVE) {
+        if (BPC.kindHas(p.kind, BPC.A_CONC_SING)) {
             // V1 / invariant I11: O(1) entry recovery by key (index+1), replacing
             // the linear scan below on the hot per-solve path. Every registered V4
             // pool has an entry recorded under its key at registration (v4EntryOf),

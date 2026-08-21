@@ -399,7 +399,7 @@ contract BlazePhoenixQuoter {
                 uint256 legIn  = plannedIn == 0
                     ? 0 : BPC.mulDiv(leg.amountIn, carry, plannedIn);
                 uint256 legOut;
-                if (leg.kind == BPC.KIND_V3 || leg.kind == BPC.KIND_ALGEBRA) {
+                if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
                     legOut = _simConc(leg.pool, leg.zeroForOne, legIn);
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
@@ -420,7 +420,7 @@ contract BlazePhoenixQuoter {
                     qc.zeroForOne = leg.zeroForOne;
                     qc.fee        = leg.fee;
                     (legOut, ) = BPC.universalQuote(qc, legIn);
-                } else if (leg.kind == BPC.KIND_V4 || leg.kind == BPC.KIND_V4_NATIVE) {
+                } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                     legOut = _simV4(leg, route.hops[h].tokenIn, legIn);
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
