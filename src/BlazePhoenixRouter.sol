@@ -716,8 +716,14 @@ contract BlazePhoenixRouter {
                         uint24 sf = BPC.getV3Fee(leg.pool);
                         live = sf != 0 ? sf : 0xFFFFFF;
                     }
-                    impactAcc += BPC.impactV3Bps(legAmt, sp, lq, live, leg.zeroForOne);
+                    // A CURVA CORRE UMA VEZ. Estas duas linhas estavam pela ordem inversa e o
+                    // `impactV3Bps` corria o `outV3` por dentro com argumentos BYTE-IDENTICOS
+                    // aos da linha seguinte — a curva inteira e um delegatecall a mais, por
+                    // perna concentrada, nas quatro portas. Cotar primeiro e derivar o impacto
+                    // do numero ja obtido da o MESMO valor: o `impactV3Bps` nao faz outra coisa
+                    // senao isto (ver a nota do `impactV3FromOut` no Core).
                     uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne);
+                    impactAcc += BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne);
                     legQuotes[l] = q_; quoteAcc += q_;
                 } else { impactAcc += 50; }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {

@@ -1537,12 +1537,30 @@ library BlazePhoenixCore {
         return (bits & deltaFlags) != 0;
     }
 
-    function impactV3Bps(
-        uint256 amountIn, uint160 sqrtP, uint128 liq, uint24 feePpm, bool zeroForOne
-    ) public pure returns (uint256) {
-        if (amountIn == 0 || sqrtP == 0 || liq == 0) return BPS;
-        uint256 out = outV3(amountIn, sqrtP, liq, feePpm, zeroForOne);
-        if (out == 0) return BPS;
+    /// @notice Impacto em BPS a partir de uma saida JA COMPUTADA — a primitiva.
+    /// @dev    O PADRAO QUE ISTO MATA: "o impacto re-deriva a cotacao". Uma funcao de impacto
+    ///         que embute a curva obriga quem a chama a pagar a curva DUAS vezes, porque quem
+    ///         quer impacto ja tem a cotacao na mao. Era o caso no Router: uma linha chamava
+    ///         `impactV3Bps(legAmt, sp, lq, live, zfo)` — que corre o `outV3` por dentro — e a
+    ///         linha SEGUINTE chamava `outV3` com argumentos BYTE-IDENTICOS. Uma execucao
+    ///         inteira da curva e um delegatecall a mais, em TODAS as pernas concentradas, nas
+    ///         QUATRO portas de swap.
+    ///
+    ///         A cura nao e duplicar a matematica do racio: e extrai-la para aqui e fazer o
+    ///         `impactV3Bps` construir-se sobre ela. Continua a haver UM produtor do racio; o
+    ///         que deixa de existir e a obrigacao de recomputar a curva para lhe chegar.
+    ///
+    ///         Fica `public` (delegatecall) e nao `internal` de proposito: `internal` seria
+    ///         inlinada em cada chamador e a aritmetica de racio (4 mulDiv) pagava-se em BYTES
+    ///         no Router, que e o contrato com menos folga depois do Hub. O ganho aqui e nao
+    ///         correr a CURVA duas vezes — nao e poupar a travessia.
+    ///
+    ///         `out == 0` devolve BPS (o maximo, conservador), exatamente como antes: uma pool
+    ///         que nao cota trata-se como impacto total, nunca como impacto nulo.
+    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)
+        public pure returns (uint256)
+    {
+        if (out == 0 || amountIn == 0 || sqrtP == 0) return BPS;
         uint256 P = uint256(sqrtP);
         uint256 ratioBps;
         if (zeroForOne) {
@@ -1556,5 +1574,15 @@ library BlazePhoenixCore {
         }
         if (ratioBps >= BPS) return 0;
         return BPS - ratioBps;
+    }
+
+    /// @notice Impacto em BPS a partir dos INPUTS — para quem ainda nao tem a saida.
+    /// @dev    Delega no `impactV3FromOut` para que exista uma unica implementacao do racio.
+    ///         Quem JA tem o `out` deve chamar directamente a primitiva e nao esta.
+    function impactV3Bps(
+        uint256 amountIn, uint160 sqrtP, uint128 liq, uint24 feePpm, bool zeroForOne
+    ) public pure returns (uint256) {
+        if (amountIn == 0 || sqrtP == 0 || liq == 0) return BPS;
+        return impactV3FromOut(outV3(amountIn, sqrtP, liq, feePpm, zeroForOne), amountIn, sqrtP, zeroForOne);
     }
 }
