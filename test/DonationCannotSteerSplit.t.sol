@@ -40,7 +40,7 @@ contract DonationCannotSteerSplitTest is Test {
     MockV2Pair funda;    // a pool honesta e funda
     MockV2Pair fina;     // a pool fina do atacante
 
-    uint256 constant ORDER = 10_000e18;
+    uint256 constant ORDER = 200_000e18;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -69,10 +69,12 @@ contract DonationCannotSteerSplitTest is Test {
         }
     }
 
-    function _fatiaDaFina() private view returns (uint256 fatia, uint256 total) {
+    function _fatiaDaFina() private returns (uint256 fatia, uint256 total) {
         RoutePlan memory p = solver.findBestRoutePlan(address(tA), address(tB), ORDER);
-        if (p.best.hops.length == 0) return (0, 0);
+        assertGt(p.best.hops.length, 0, "pre-condicao: tem de haver rota");
         Leg[] memory legs = p.best.hops[0].legs;
+        // PRE-CONDICAO: o peso so decide alguma coisa se houver mais de uma perna.
+        assertGe(legs.length, 2, "pre-condicao: a rota TEM de dividir, senao o peso nao decide nada");
         for (uint256 i; i < legs.length; i++) {
             total += legs[i].amountIn;
             if (legs[i].pool == address(fina)) fatia = legs[i].amountIn;

@@ -144,19 +144,24 @@ contract BlazePhoenixSolver {
     ///         that execute fine (measured: a 43bps full fill halved).
     uint16  internal constant MAX_CONC_DRAIN_BPS   = 3_000; // 30% of real holdings
 
-    /// @notice Median-rate filter for split allocation. After quoting each
-    ///         candidate with the full amountIn, the median rate is computed
-    ///         across the survivors. Pools whose rate deviates from the
-    ///         median by more than MEDIAN_FILTER_BPS are excluded from the
-    ///         depth-weighted split.
+    /// @notice Filtro de banda para a alocacao do split. Depois de cotar cada candidato, calcula-se
+    ///         a base do mercado e excluem-se as pools cujo rate se afasta dela mais que
+    ///         MEDIAN_FILTER_BPS.
     ///
-    ///         Why median, not best?  The best pool's rate may itself be
-    ///         manipulated (e.g., a low-liquidity pool with a stale price
-    ///         pretending to offer the world).  Median is robust: to move
-    ///         the median, an attacker must move more than half the pools
-    ///         simultaneously, which is economically infeasible across
-    ///         different DEX kinds (V2 / V3 / Solidly / CL) with separate
-    ///         liquidity sets.
+    ///         PORQUE UMA MEDIANA E NAO A MELHOR: o rate da melhor pool pode ele proprio estar
+    ///         manipulado (uma pool de liquidez baixa com preco velho a fingir que oferece o
+    ///         mundo). Para mover uma mediana, um atacante tem de mover mais de METADE — e nao
+    ///         basta uma pool.
+    ///
+    ///         NOTA DE CORRECAO (2026-08-21). Este paragrafo dizia exatamente isto e era FALSO ha
+    ///         muito: a base tinha passado a ser o rate da UNICA pool mais funda, um estimador com
+    ///         PONTO DE RUTURA ZERO — um sensor forjado capturava-a inteira. A justificacao
+    ///         escrita e o estimador real tinham divergido, e a prosa mais tranquilizadora era a
+    ///         que descrevia a defesa que ja nao existia.
+    ///         Hoje a base e a MEDIANA PONDERADA PELA PROFUNDIDADE (ver `_depthWeightedMedian`),
+    ///         que repoe a propriedade que este paragrafo alega — e melhora-a: a maioria e contada
+    ///         em MASSA DE PROFUNDIDADE e nao em numero de pools, portanto nem meia duzia de pools
+    ///         de po tem voto. Ponto de rutura: 0 -> 50% da massa.
     ///
     ///         400 bps (4%) band: tight enough to exclude mis-priced pools
     ///         (Solidly-stable curves on LST/WETH pairs are typically 20-40%
@@ -448,13 +453,7 @@ contract BlazePhoenixSolver {
             // depths[] is getReserves (V2/Solidly) / getLiquidity (V3), which a
             // donation cannot move; V4 depth is its measured liquidity. Falls back
             // to the median only when no candidate reports depth.
-            uint256 maxDepth;
-            uint256 depthRate;
-            for (uint256 i; i < n; ) {
-                if (depths[i] > maxDepth) { maxDepth = depths[i]; depthRate = rates[i]; }
-                unchecked { ++i; }
-            }
-            uint256 base = maxDepth > 0 ? depthRate : median;
+            uint256 base = _depthWeightedMedian(rates, depths, n);
             // Zero-base guard (devil's-advocate): a live candidate can have
             // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
             // depth/capital anchor could set base=0 and collapse the band to
@@ -723,6 +722,76 @@ contract BlazePhoenixSolver {
         }
     }
 
+
+    /// @dev A MEDIANA PONDERADA PELA PROFUNDIDADE dos rates. E a base da banda.
+    ///
+    ///      O QUE SUBSTITUI, E PORQUE. A base era o rate da UNICA pool mais funda
+    ///      (`maxDepth`/`depthRate`). Em estatistica robusta isso e um estimador com PONTO DE
+    ///      RUTURA ZERO: basta UM sensor forjado — a pool mais funda — para capturar a base
+    ///      inteira. E o proprio codigo confessava a fraqueza, a poucas linhas daqui: "active-tick
+    ///      L is cheap to inflate with a one-spacing position... does NOT make it impossible...
+    ///      deferred".
+    ///      Pior, havia um FACTO ERRADO ESCRITO: o comentario do `MEDIAN_FILTER_BPS` justificava
+    ///      a seguranca com "para mover a mediana, um atacante tem de mover mais de metade das
+    ///      pools" — quando a base ja NAO era a mediana havia muito.
+    ///
+    ///      O QUE ISTO REPOE: exatamente a propriedade que esse comentario alegava, e com os pesos
+    ///      que o fix T2 tornou nao-forjaveis. Para capturar a base o atacante deixa de precisar
+    ///      de out-depth UMA pool e passa a precisar de mais de METADE da massa de profundidade do
+    ///      conjunto inteiro. Ponto de rutura: 0 -> 50%.
+    ///
+    ///      PORQUE SOMAR MASSA E LEGITIMO: desde o `depthFromL` a profundidade e token-denominada
+    ///      em TODAS as familias (min(x0,x1) para concentrada, min(r0,r1) para par), logo a soma
+    ///      tem sentido. Era esta a premissa que faltava antes — e e a mesma que permitiu remover
+    ///      a normalizacao por familia dos pesos.
+    ///
+    ///      DEGENERA BEM: uma pool que sozinha detem >50% da massa devolve o seu proprio rate, que
+    ///      e o comportamento antigo — e correto, porque nesse caso ela E o mercado. Com pesos
+    ///      iguais, e a mediana simples.
+    function _depthWeightedMedian(uint256[] memory rates, uint256[] memory depths, uint256 n)
+        private pure returns (uint256)
+    {
+        uint256[] memory r = new uint256[](n);
+        uint256[] memory d = new uint256[](n);
+        uint256 m;
+        uint256 massa;
+        for (uint256 i; i < n; ) {
+            // Pools mortas (rate 0) nao votam: nao tem opiniao sobre o preco.
+            if (rates[i] > 0) {
+                r[m] = rates[i];
+                d[m] = depths[i];
+                massa += depths[i];
+                unchecked { ++m; }
+            }
+            unchecked { ++i; }
+        }
+        if (m == 0 || massa == 0) return 0;
+        // Insertion sort dos PARES por rate — n <= 8, custo desprezavel. Ordenar os pares e o que
+        // distingue isto de ordenar so os rates: a massa tem de viajar com o seu rate.
+        for (uint256 i = 1; i < m; ) {
+            uint256 kr = r[i];
+            uint256 kd = d[i];
+            uint256 j = i;
+            while (j > 0 && r[j - 1] > kr) {
+                r[j] = r[j - 1];
+                d[j] = d[j - 1];
+                unchecked { --j; }
+            }
+            r[j] = kr;
+            d[j] = kd;
+            unchecked { ++i; }
+        }
+        // Caminha-se ate METADE da massa. `(massa + 1) / 2` em vez de `acc * 2 >= massa` para nao
+        // haver hipotese de transbordo no dobro de uma soma de profundidades.
+        uint256 metade = (massa + 1) / 2;
+        uint256 acc;
+        for (uint256 i; i < m; ) {
+            acc += d[i];
+            if (acc >= metade) return r[i];
+            unchecked { ++i; }
+        }
+        return r[m - 1];
+    }
 
     /// @dev Pesos de alocacao para os sobreviventes da banda, normalizados a [1..10000]:
     ///      a profundidade MEDIDA de cada pool contra a MAIOR profundidade do conjunto.
