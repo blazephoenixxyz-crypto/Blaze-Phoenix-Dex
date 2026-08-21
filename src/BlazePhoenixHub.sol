@@ -84,15 +84,19 @@ contract BlazePhoenixHub {
     uint16  internal constant EVICTION_IMPROVE_BPS   = 1_000;
 
     // ─── addFactory coherence-guard constants ────────────────────────────
-    // Enumeracao de kinds (espelha o Core). Os numeros 2, 3 e 7 sao LAPIDES e nao sao
-    // nomeados aqui nem la — ver a nota das lapides no Core quanto a por que nao voltam.
-    uint8   internal constant KIND_V2                = 0;
-    uint8   internal constant KIND_V3                = 1;
-    // Mirrors BPC.KIND_V4: singleton-managed (no factory enumeration); the
-    // only factory mode that accepts it is MODE_V4_DERIVE.
-    uint8   internal constant KIND_V4                = 4;
-    uint8   internal constant KIND_SOLIDLY           = 5;
-    uint8   internal constant KIND_ALGEBRA           = 6;
+    // Enumeracao de kinds: PRODUTOR UNICO no Core (`BPC.KIND_*`). Este ficheiro tinha aqui uma
+    // copia local que se anunciava como "espelha o Core" — e o espelho estava INCOMPLETO: parava
+    // no ALGEBRA e nao tinha nome nenhum para o KIND_V4_NATIVE (8). Uma mascara escrita com os
+    // nomes disponiveis nao conseguia sequer EXPRIMIR o bit 8, e foi por essa porta que a
+    // regressao entrou (ver KINDS_EXECUTABLE abaixo). Os numeros 2, 3 e 7 sao LAPIDES e nao sao
+    // nomeados nem aqui nem la — ver a nota das lapides no Core quanto a por que nao voltam.
+    //
+    // PORQUE ESTE COLAPSO E LEGITIMO E O DO PREDICADO NAO E: um numero de kind e uma PRIMITIVA
+    // (um produtor de um valor). Primitivas querem produtor unico — duplica-las cria irmaos que
+    // divergem, como este divergiu. Um PREDICADO DE ACEITACAO quer o oposto: manter dois juizes
+    // que hoje concordam e o que permite detetar o dia em que deixarem de concordar. Ver a nota
+    // do KINDS_PAIR_PROOF logo abaixo, onde duas mascaras coincidentes ficam DELIBERADAMENTE
+    // separadas — e onde um mutante do harness ja se escondeu uma vez.
 
     /// @notice Os kinds que uma factory pode registar — o conjunto, como uma palavra de bits.
     /// @dev    Bit `k` ligado = kind `k` admissivel. Bits desligados sao LAPIDES, nao lacunas:
@@ -112,11 +116,39 @@ contract BlazePhoenixHub {
     ///         2 a uma venue nova reinterpretaria pools ja gravadas como sendo dessa venue. Uma
     ///         venue nova leva um numero novo e liga o bit dele — uma linha de dados, zero ramos.
     uint256 internal constant KINDS_ROUTABLE =
-          (uint256(1) << KIND_V2)      // 0 — constant-product
-        | (uint256(1) << KIND_V3)      // 1 — concentrada
-        | (uint256(1) << KIND_V4)      // 4 — singleton, via MODE_V4_DERIVE
-        | (uint256(1) << KIND_SOLIDLY) // 5 — pares stable/volatile
-        | (uint256(1) << KIND_ALGEBRA);// 6 — concentrada com fee dinamica
+          (uint256(1) << BPC.KIND_V2)      // 0 — constant-product
+        | (uint256(1) << BPC.KIND_V3)      // 1 — concentrada
+        | (uint256(1) << BPC.KIND_V4)      // 4 — singleton, via MODE_V4_DERIVE
+        | (uint256(1) << BPC.KIND_SOLIDLY) // 5 — pares stable/volatile
+        | (uint256(1) << BPC.KIND_ALGEBRA);// 6 — concentrada com fee dinamica
+
+    /// @notice Os kinds que o Router SABE EXECUTAR — o conjunto legitimo na porta do `recordSwap`,
+    ///         que corre depois de a perna ja ter executado.
+    /// @dev    NAO E O `KINDS_ROUTABLE`, E ESSA DISTINCAO E O PONTO DESTA CONSTANTE.
+    ///
+    ///         `KINDS_ROUTABLE` responde a "que kinds pode uma FACTORY registar?". O bit 8 esta
+    ///         desligado la por uma razao que so vale para AQUELA pergunta: as pools V4 nativas
+    ///         nao vem de factory nenhuma, derivam-se do singleton. Esta constante responde a
+    ///         "que kinds pode o Router ter acabado de executar?" — e o V4_NATIVE e um deles: o
+    ///         Router deriva o poolId nativo antes de chamar este `recordSwap` com esse kind.
+    ///
+    ///         USAR A MESMA CONSTANTE NAO E FAZER A MESMA PERGUNTA. As duas mascaras partilham
+    ///         cinco dos seis bits; partilhar bits nao e partilhar semantica. Reutilizar aqui a
+    ///         mascara da factory deixava cair TODOS os swaps V4 nativos em silencio — o ramo
+    ///         nativo do insert ficava inalcancavel, e as pools nativas ja registadas deixavam de
+    ///         ser refrescadas ate envelhecerem para fora do registo. Medido, e pinado por
+    ///         `test_RecordSwapRefreshesNativeV4Pool`.
+    ///
+    ///         Escrita por extenso, e NAO derivada de `KINDS_ROUTABLE | (1 << KIND_V4_NATIVE)`:
+    ///         deriva-la reamarrava as duas perguntas uma a outra e devolvia o defeito pela porta
+    ///         do lado, disfarcado de elegancia.
+    uint256 internal constant KINDS_EXECUTABLE =
+          (uint256(1) << BPC.KIND_V2)        // 0 — constant-product
+        | (uint256(1) << BPC.KIND_V3)        // 1 — concentrada
+        | (uint256(1) << BPC.KIND_V4)        // 4 — singleton
+        | (uint256(1) << BPC.KIND_SOLIDLY)   // 5 — pares stable/volatile
+        | (uint256(1) << BPC.KIND_ALGEBRA)   // 6 — concentrada com fee dinamica
+        | (uint256(1) << BPC.KIND_V4_NATIVE);// 8 — singleton, perna em ETH nativo
 
     /// @notice Os modes de descoberta validos, pelo mesmo criterio.
     /// @dev    0-3 chamam a factory (getPair/getPool); 4-7 derivam por CREATE2; 9 e o derive do V4.
@@ -136,8 +168,8 @@ contract BlazePhoenixHub {
     ///      e nao o silencio. Colapsar os dois porque os bits batem certo trocava uma
     ///      verificacao por uma coincidencia.
     uint256 internal constant KINDS_PAIR_PROOF =
-          (uint256(1) << KIND_V2) | (uint256(1) << KIND_V3)
-        | (uint256(1) << KIND_SOLIDLY); // MUTANTE
+          (uint256(1) << BPC.KIND_V2) | (uint256(1) << BPC.KIND_V3)
+        | (uint256(1) << BPC.KIND_SOLIDLY) | (uint256(1) << BPC.KIND_ALGEBRA);
 
     uint256 internal constant MODES_VALID = 0x2FF; // bits 0-7 e 9; bit 8 e lapide
     // MODE enumeration: 0-3 are factory-call (getPair/getPool variants);
@@ -456,13 +488,13 @@ contract BlazePhoenixHub {
         ) revert HubE(5);
 
         // 3) salt-slot ↔ kind coherence
-        if (mode == MODE_CREATE2_V2 && kind != KIND_V2)      revert HubE(5);
-        if (mode == MODE_CREATE2_CLONE && kind != KIND_SOLIDLY) revert HubE(5);
+        if (mode == MODE_CREATE2_V2 && kind != BPC.KIND_V2)      revert HubE(5);
+        if (mode == MODE_CREATE2_CLONE && kind != BPC.KIND_SOLIDLY) revert HubE(5);
         if (mode == MODE_CREATE2_V3) {
             // V3 salt slot accepts V3 or Algebra only
-            if (kind != KIND_V3 && kind != KIND_ALGEBRA) revert HubE(5);
+            if (kind != BPC.KIND_V3 && kind != BPC.KIND_ALGEBRA) revert HubE(5);
             // Algebra is dynamic-fee: every declared fee must be the 0 sentinel (R2)
-            if (kind == KIND_ALGEBRA) {
+            if (kind == BPC.KIND_ALGEBRA) {
                 for (uint256 i; i < fees.length; ) {
                     if (fees[i] != 0) revert HubE(5);
                     unchecked { ++i; }
@@ -473,7 +505,7 @@ contract BlazePhoenixHub {
         // kind, and its fees/spacings are PAIRED explicit extras — enforce
         // equal length so a misregistered row cannot silently mispair them.
         if (mode == MODE_V4_DERIVE) {
-            if (kind != KIND_V4) revert HubE(5);
+            if (kind != BPC.KIND_V4) revert HubE(5);
             if (fees.length != spacings.length) revert HubE(5);
         }
 
@@ -1143,9 +1175,15 @@ contract BlazePhoenixHub {
         address tA, address tB, uint256 amtIn, uint256 amtOut, uint256 depthWad
     ) external onlyRouter whenLive {
         if (pool == address(0) || amtIn == 0) return;
-        // CANAL IRMAO. O `addFactory` fecha os kinds nao roteaveis com KINDS_ROUTABLE; esta e a
-        // SEGUNDA porta de registo do Hub e nao tinha o mesmo fecho — a assinatura de defeito da
-        // casa ("um fix aplicado a UM de dois canais simetricos") dentro da propria excisao.
+        // CANAL IRMAO. O `addFactory` fecha os kinds que nao aceita; esta e a SEGUNDA porta de
+        // registo do Hub e nao tinha fecho nenhum — a assinatura de defeito da casa ("um fix
+        // aplicado a UM de dois canais simetricos") dentro da propria excisao.
+        //
+        // MAS CADA PORTA FECHA COM A SUA MASCARA. A primeira versao deste fecho reutilizou o
+        // `KINDS_ROUTABLE` da factory, e isso trocou a pergunta: aqui nao se pergunta "que kinds
+        // se registam por factory?" mas "que kinds pode o Router ter acabado de executar?". O
+        // V4_NATIVE responde nao a primeira e SIM a segunda, e ficava de fora — ver
+        // KINDS_EXECUTABLE.
         //
         // NAO e redundante com o `else { revert RouterE(8); }` do dispatch do Router: `$.router`
         // e trocavel (setRoles), logo o unico produtor destes kinds NAO e imutavel. Um Router
@@ -1155,7 +1193,7 @@ contract BlazePhoenixHub {
         //
         // Salta o registo, NAO reverte: o swap do utilizador ja executou e nao pode falhar por
         // uma decisao de registo — a mesma disciplina do caso !okTs do V4 mais abaixo.
-        if (((KINDS_ROUTABLE >> kind) & 1) == 0) return;
+        if (((KINDS_EXECUTABLE >> kind) & 1) == 0) return;
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         bytes32 key = keyOf(pool, t0, t1);
         HubStore storage $ = _store();
