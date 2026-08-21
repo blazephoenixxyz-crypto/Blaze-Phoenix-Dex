@@ -7,6 +7,34 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
+//  RESPONSABILIDADE UNICA
+//      Saber que pools existem e quanto valem. O Hub e a memoria do protocolo —
+//      e memoria e a superficie mais perigosa que ha, porque tudo o que la entrar
+//      errado sai errado a toda a gente, para sempre.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      H1  NADA ENTRA SEM PROVA. Todo o argumento de registo e calldata do
+//          chamador — pool, kind e profundidade. Um kind cujo `pool` e um par tem
+//          de PROVAR que negoceia mesmo aquele par (token0/token1) antes de ser
+//          gravado; um V4 tem de recomputar o seu proprio poolId. Sem isto,
+//          registava-se um contrato escrito pelo atacante, sob um par escolhido
+//          por ele, a uma profundidade escolhida por ele, sem segurar nada.
+//      H2  AS DUAS PORTAS FECHAM IGUAL. Ha dois caminhos de escrita — `addFactory`
+//          e `recordSwap` — e ambos filtram pela MESMA mascara de kinds
+//          admissiveis. Um fix aplicado a uma so das duas seria a assinatura de
+//          defeito da casa; ja aconteceu aqui e esta corrigido.
+//      H3  A DEFESA E LOCAL. `$.router` e trocavel, logo o unico produtor de
+//          kinds nao e imutavel: o Hub nao delega a sua propria admissao a um
+//          endereco que pode deixar de ser o que era no dia do deploy.
+//      H4  RECUSAR NUNCA REVERTE UM SWAP. O swap do utilizador ja executou; uma
+//          decisao de registo nao pode fazer falhar o que ja liquidou. Falha-se
+//          a fechar sobre o REGISTO, a abrir sobre o UTILIZADOR.
+//
+//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
+//      Nao e fonte de preco — a vitalidade e a profundidade sao pistas de
+//      DESCOBERTA, nunca entradas de matematica de cotacao. Nao decide rotas. E
+//      nao tem lista branca de venues: a admissao e por prova, nao por confianca.
+//
 //  The Hub is the on-chain pool registry. Each pool's state is encoded in a
 //  single packed 256-bit slot (vitality, depth bucket, kind, timestamps,
 //  bridge bit), so reading its fitness score costs one SLOAD. Storage is

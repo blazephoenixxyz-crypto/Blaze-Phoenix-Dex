@@ -7,6 +7,32 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
+//  RESPONSABILIDADE UNICA
+//      Executar uma rota que ja foi decidida. O Router nao escolhe caminhos: ele
+//      recebe um plano, cumpre-o perna a perna, e recusa-se a entregar menos do
+//      que o piso — mesmo que quem submeteu o plano prefira que nao recuse.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      R1  NAO SEGURA NADA. No fim de qualquer chamada o saldo do Router em
+//          qualquer token, e em nativo, e zero. Quatro invariantes stateful
+//          asseridas na suite defendem isto; e a invariante M2 da meta-equacao.
+//      R2  NAO CONCEDE ALLOWANCE. Nenhum `approve` em lado nenhum. As venues que
+//          o exigiam sairam do protocolo — e com elas saiu a unica classe de bug
+//          de allowance residual que este contrato ja teve.
+//      R3  O PISO NAO E OPCIONAL. A atestacao do chamador nunca RELAXA um limite:
+//          onde ha medicao in-frame, o piso e `max(atestado, medido)`. MAX e nao
+//          MIN — num piso, o minimo com um valor deflacionado devolve o valor
+//          deflacionado, que e exatamente o ataque. Um desenho anterior enunciou
+//          "a medicao ganha" e escolheu o operador que garante o contrario.
+//      R4  A autorizacao e de uso unico. Classic, Permit2 e EIP-7702 entram por
+//          portas separadas e nenhuma delas deixa poder para tras.
+//
+//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
+//      Nao confia no `route.totalOut` que lhe chega em calldata — trata-o como
+//      afirmacao de um estranho, porque e o que ele e. Nao escreve no registo
+//      quando o piso rejeita. E nao tem ramo de execucao para kinds que nao
+//      conhece: cai no `else` e reverte antes de tocar numa pool.
+//
 //  The Router executes a route leg by leg. A leg's kind selects the AMM
 //  interaction shape, and the calldata is built by a single dispatcher
 //  rather than per-DEX functions. The Router consists of:

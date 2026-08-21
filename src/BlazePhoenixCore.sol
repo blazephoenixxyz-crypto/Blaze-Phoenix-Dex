@@ -15,13 +15,37 @@
 //                Fingerprint is a private phrase held by the authors, and
 //                revealing it proves origin.
 //
+//  RESPONSABILIDADE UNICA
+//      Aritmetica e forma. O Core sabe COMO se calcula um preco, COMO se deriva
+//      um endereco e COMO se empacota um estado — e nao sabe mais nada. Nao tem
+//      storage, nao tem dono, nao tem pausa e nao guarda um unico wei.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      C1  Puro por defeito. Toda a matematica e `pure`; o que le cadeia e `view`
+//          e diz-se `view` no nome ou na assinatura. Nao ha terceira categoria.
+//      C2  Uma primitiva, um produtor. Cada grandeza tem exatamente UMA funcao
+//          que a produz (`depthFromL` para profundidade, `ironFloorBps` para o
+//          piso, `universalQuote` para uma cotacao). Um segundo produtor e um
+//          irmao a espera de divergir, e a divergencia e a assinatura de defeito
+//          desta base de codigo — confirmada mais de dez vezes.
+//      C3  Fail-closed sem ramo de default. Um kind desconhecido devolve campo
+//          theta 0x0: nao le reservas, nao e concentrado, nao e verificavel.
+//          Nao ha `else` para alguem se esquecer de manter sincronizado.
+//
+//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
+//      Nao decide rotas (isso e o Solver), nao executa swaps (isso e o Router),
+//      nao guarda pools (isso e o Hub) e nao tem opiniao sobre quem o chama. As
+//      funcoes que movem valor sao primitivas de transferencia sem allowance —
+//      o Router NUNCA concede allowance a ninguem, e ha uma guarda estatica no
+//      CI que o mantem verdadeiro.
+//
 //  Shared library for the BlazePhoenix protocol. Provides the arithmetic
 //  primitives, AMM quote math, pool-address derivation, packed pool-state
 //  encoding and the output floor used by Hub, Solver, Router and Quoter:
 //
 //    1.  universalQuote(ctx, amountIn) -> (amountOut, depth)
-//        AMM quote dispatcher across pool kinds (V2, V3, V4, Solidly,
-//        das familias de AMM servidas).
+//        AMM quote dispatcher across the live pool kinds (V2, V3, V4,
+//        V4-native, Solidly, Algebra).
 //
 //    2.  deriveAddress(...) -> pool
 //        Deterministic pool-address resolution via factory lookup or CREATE2,

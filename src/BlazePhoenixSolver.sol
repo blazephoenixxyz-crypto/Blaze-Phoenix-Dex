@@ -7,6 +7,28 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
+//  RESPONSABILIDADE UNICA
+//      Decidir por onde passa o dinheiro. O Solver e o unico sitio do protocolo
+//      onde existe uma escolha; todo o resto executa, verifica ou lembra.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      S1  DECIDE 100% ON-CHAIN. Nao ha oraculo, nao ha assinatura off-chain, nao
+//          ha parametro de confianca. A rota nasce da cadeia e e reproduzivel por
+//          qualquer pessoa que leia os mesmos blocos — custa mais gas e o
+//          resultado e fiel ao estado real, que e a troca que o desenho escolhe.
+//      S2  COMPARA SO O QUE E COMPARAVEL. Profundidades de familias diferentes
+//          vivem em unidades diferentes (reservas de par sao lineares; L esta em
+//          escala-raiz). Normalizam-se dentro da FAMILIA, nunca entre familias —
+//          senao uma pool concentrada ancora acima de uma pool de par igualmente
+//          funda por um fator de raiz-de-preco.
+//      S3  NAO ESCREVE NADA. Tudo aqui e `view`. Um erro do Solver custa uma rota
+//          pior, nunca um estado corrompido.
+//
+//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
+//      Nao executa e nao tem poder de gastar. E a rota que devolve NAO e uma
+//      promessa: o Router volta a medir tudo o que ela afirma, porque uma rota
+//      pode chegar-lhe por outro caminho que nao este.
+//
 //  The Solver selects the output-maximising route for an exact-input swap.
 //  For each candidate route it computes the total output, discards routes
 //  whose net receive falls below the output floor (driven by impact, leg

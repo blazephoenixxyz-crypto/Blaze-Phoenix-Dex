@@ -7,6 +7,28 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
+//  RESPONSABILIDADE UNICA
+//      Dizer a uma pessoa o que ela vai receber, antes de decidir. Nada mais.
+//
+//  A FRONTEIRA QUE DEFINE ESTE CONTRATO
+//      O QUE O QUOTER DEVOLVE NAO E UMA ROTA SUBMETIVEL. E um PREVIEW: valor
+//      esperado, slippage, caminho, para quem vai trocar poder olhar antes de
+//      assinar. A rota que executa e calculada on-chain no momento da execucao.
+//
+//      Isto e uma decisao de desenho, nao uma limitacao. Se a saida de um view
+//      pudesse ser submetida como plano, o preview passava a ser uma superficie
+//      de ataque: bastava fazer o Quoter dizer o numero certo uma vez e usa-lo
+//      quando o estado ja fosse outro. Separando os dois, um Quoter comprometido
+//      engana a interface — e nao consegue mover um unico wei, porque o Router
+//      volta a medir tudo o que qualquer plano lhe afirme.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      Q1  Nunca sobrestima de proposito. Onde a medicao exata existe, usa-se a
+//          medicao; onde so ha aproximacao, aproxima-se PARA BAIXO.
+//      Q2  So `view`. Nao escreve, nao gasta, nao autoriza.
+//      Q3  Uma rota que contenha uma pool marcada por abuso de hook, ou um hook
+//          em denylist, nao e cotavel — devolve zero em vez de um numero bonito.
+//
 //  The Quoter is the read-only mirror of the Router. For a route it returns:
 //
 //      netOut = grossOut · (1 − fee) · (1 − safety(n))
