@@ -259,6 +259,13 @@ contract FeeEscapeViaBridgeResidualTest is Test {
         router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1);
         uint256 cobrada = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - antes;
 
-        assertEq(cobrada, FEE_ESPERADA, "a volta circular tambem paga 28 bps da entrada");
+        // A INVERSAO DO INCENTIVO, escrita como assercao. Com a fee no INTERIOR da rota, cada
+        // hop paga no seu proprio token. Uma volta circular de tres hops paga TRES vezes — logo
+        // encher a rota de hops deixou de ser uma forma de escapar e passou a ser uma forma de
+        // pagar mais. Era exatamente esta rota que extraia 992 A com fee ZERO.
+        assertGe(cobrada, FEE_ESPERADA,
+            "o minimo e sempre a taxa cheia sobre a entrada: nunca menos");
+        assertGt(cobrada, FEE_ESPERADA,
+            "e uma rota de tres hops paga MAIS que uma de um: os hops de po custam");
     }
 }

@@ -494,6 +494,65 @@ contract BlazePhoenixRouter {
         return _execute(route, amountIn, userMinOut, recipient, tokenIn, payer);
     }
 
+    /// @notice A fee do hop `h`, cobrada no token DESSE hop.
+    ///
+    /// @dev PORQUE NO INTERIOR E NAO NUMA PONTA — e este e o resultado que custou duas tentativas.
+    ///      Uma rota e um caminho com DUAS pontas, e ambas sao coordenadas escritas pelo chamador.
+    ///      Qualquer fee ancorada NUMA ponta e evadida estendendo a rota para la dessa ponta com um
+    ///      token sem valor:
+    ///        · ancorada na SAIDA  -> sufixo de po. MEDIDO: 996 tokens movidos, fee zero.
+    ///        · ancorada na ENTRADA -> prefixo de po. MEDIDO: o atacante prefixa com um token que
+    ///          cunhou, paga 0,028 de lixo, e recebe MAIS que o utilizador honesto.
+    ///        · ancorada no hop k   -> inserem-se k hops de po antes dele.
+    ///      E "a rota como o seu proprio oraculo" nao salva: converter cada hop para unidades
+    ///      finais pelas quotes da propria rota TELESCOPA (in_{j+1} == q_j), logo todos os hops
+    ///      mapeiam para o MESMO numero — que e precisamente o que o hop de po controla.
+    ///      RESULTADO NEGATIVO PROVADO: sem preco externo, NENHUMA ancora unica e imune. E preco
+    ///      externo esta fora por decisao do dono (zero oraculos).
+    ///
+    ///      PORQUE ISTO E IMUNE, por exaustao e nao por remendo: o atacante pode fabricar tokens
+    ///      sem valor e pode acrescentar hops, mas NAO PODE evitar que a rota atravesse a pool de
+    ///      liquidez REAL que ele quer usar — e desse hop paga a taxa cheia, no token real desse
+    ///      hop. Os hops de po passam a CUSTAR-LHE (taxa de lixo para a tesouraria, mais gas) em
+    ///      vez de o pouparem. O incentivo inverte-se.
+    ///
+    ///      E E O MESMO MOVIMENTO QUE A THETA FEZ AOS KINDS: o que era um atributo de uma
+    ///      EXTREMIDADE escolhida pelo chamador passa a ser uma invariante de TRANSITO, percorrida
+    ///      pela execucao. A fee deixa de ser uma coordenada e passa a ser uma propriedade do
+    ///      caminho.
+    ///
+    ///      A BASE E MEDIDA, NAO DECLARADA. No hop 0 e o minimo entre o que o Router recebeu e o
+    ///      que a rota COMPROMETE (declarar pernas menores roteia menos — o `scaleNum` esta
+    ///      limitado a `scaleDen`, logo nao ha proveito em sub-declarar). Nos hops seguintes e o
+    ///      saldo REAL desse token menos a baseline estrangeira — o mesmo numero que o
+    ///      escalamento ja usa. Zero staticcalls novos: as duas quantidades ja eram lidas.
+    ///
+    ///      O CUSTO, dito onde se decide: uma rota honesta de H hops paga ~H vezes a taxa. Com o
+    ///      orcamento de 2 hops deste desenho, o pior caso honesto e o dobro. O minimo cobrado e
+    ///      SEMPRE a taxa cheia sobre o valor movido — nunca menos, que era a condicao.
+    function _chargeHopFee(Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase)
+        private returns (uint256)
+    {
+        uint256 baseH;
+        if (h == 0) {
+            baseH = amountIn;
+            uint256 c;
+            for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
+            if (c < baseH) baseH = c;
+        } else {
+            uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
+            baseH = bal > foreignBase ? bal - foreignBase : 0;
+        }
+        uint256 feeH = BPC.mulDiv(baseH, PROTOCOL_FEE_BPS, BPC.BPS);
+        if (feeH == 0) return amountIn;
+        _payFee(hop.tokenIn, feeH);
+        // So o hop 0 gasta o `amountIn` que viaja no frame; os seguintes leem o saldo, que a
+        // transferencia da fee ja reduziu.
+        if (h != 0) return amountIn;
+        if (feeH >= amountIn) revert RouterE(8);
+        unchecked { return amountIn - feeH; }
+    }
+
     /// @dev A divisao 30/70 num frame proprio: sob via_ir o `_execute` esta no limite de stack,
     ///      e dois locais (t1, t2) declarados la dentro bastam para o rebentar.
     function _payFee(address token, uint256 fee) private {
@@ -725,54 +784,6 @@ contract BlazePhoenixRouter {
         // Input-token balance at entry (the input is already in the Router).
         // Every unit pulled for this swap MUST be consumed by the legs; the
         // holds-nothing check after the hop loop enforces it.
-        // ─── A FEE ANCORA NA ENTRADA ───
-        //
-        // PORQUE ISTO E A RAIZ E NAO O SINTOMA. A fee vivia do lado da SAIDA, sobre o `tokenOut`.
-        // Mas o Router tem TRES canais que devolvem valor ao chamador — o pagamento do tokenOut,
-        // o residual da ponte e o residual do tokenIn — e a fee tocava em UM. Uma rota que
-        // fizesse o valor sair como residual de ponte pagava ZERO: MEDIDO, 996 tokens movidos,
-        // 0 de fee (test/FeeEscapeViaBridgeResidual.t.sol).
-        //
-        // A raiz nao eram os residuais. Eram DUAS regras, cada uma correta sozinha, que nunca
-        // foram reconciliadas: a fee definida sobre UM token, e o holds-nothing a OBRIGAR o
-        // Router a devolver todo o resto. Tapar os canais de saida trocava a fuga por fundos
-        // presos — pior — e deixava a FORMA do problema intacta para o proximo canal.
-        //
-        // A ENTRADA NAO TEM CANAIS PARALELOS. E UMA quantidade, medida UMA vez, e todas as portas
-        // (classic, Permit2, nativa, e o auto-execute do swapBestExactIn) chegam aqui com o valor
-        // REAL ja recebido. Ninguem a pode inflacionar nem deflacionar pela rota, porque a rota
-        // so comeca depois desta linha.
-        //
-        // E COBRA-SE AQUI, ANTES do `tinStart`: a baseline do sweep de tokenIn tem de ver o saldo
-        // JA liquido de fee, senao a fee que acabou de sair seria contada como residual do
-        // utilizador e devolvida — a fuga a reentrar pela porta que a fechou.
-        //
-        // O routing nao precisa de saber: o Router ja reescala cada perna pelo que REALMENTE tem
-        // (o mesmo mecanismo que trata fee-on-transfer), portanto uma entrada 28 bps menor e,
-        // para o plano, economicamente identica a um token com imposto de 28 bps.
-        //
-        // O QUE CUSTA, sem rodeios: a ISENCAO DE FEE DO EXCEDENTE morre. Era uma promessa do lado
-        // da saida e nao tem analogo do lado da entrada. Decisao do dono, 2026-08-21.
-        // SOBRE O COMPROMETIDO, NAO SOBRE O ENTREGUE. O chamador pode entregar mais input do que
-        // a rota compromete — e o caso normal quando o clamp de capacidade do Solver corta a perna
-        // numa pool fina: a ordem inteira e puxada, so parte e roteada, e o resto e varrido de
-        // volta. Cobrar sobre o entregue fazia o utilizador pagar fee sobre capital que lhe e
-        // DEVOLVIDO, e castigava precisamente quem apanha liquidez fina. Cobrar a mais e um bug de
-        // confianca tao real como cobrar a menos.
-        //
-        // E NAO REABRE A FUGA, porque o comprometido nao e forjavel para baixo com proveito: o
-        // Router limita `scaleNum` a `scaleDen` no hop 0, logo declarar pernas mais pequenas
-        // ROTEIA menos. Quem quiser mover valor tem de o comprometer, e comprometer e pagar.
-        {
-            uint256 comprometido;
-            Leg[] calldata l0 = route.hops[0].legs;
-            for (uint256 i; i < l0.length; ) { comprometido += l0[i].amountIn; unchecked { ++i; } }
-            if (comprometido > amountIn) comprometido = amountIn;
-            uint256 feeIn = BPC.mulDiv(comprometido, PROTOCOL_FEE_BPS, BPC.BPS);
-            if (feeIn >= amountIn) revert RouterE(8);
-            if (feeIn > 0) { _payFee(tokenIn, feeIn); unchecked { amountIn -= feeIn; } }
-        }
-
         uint256 tinStart = BPC.balanceOf(tokenIn, address(this));
         // Output-token baseline — the exact mirror of tinStart/baseIn, and for
         // the same reason: the post-hop measurement must be a DELTA, never a
@@ -790,9 +801,15 @@ contract BlazePhoenixRouter {
         // the delta whenever output < input. That case also skips the tokenIn
         // sweep below, so the remainder is subtracted exactly once; and
         // reusing tinStart avoids a second staticcall for the same token.
-        uint256 toutStart = tokenIn == tokenOut
-            ? (tinStart > amountIn ? tinStart - amountIn : 0)
-            : BPC.balanceOf(tokenOut, address(this));
+        // A BASELINE DO tokenIn NASCE UMA VEZ, AQUI. Era recalculada em tres sitios como
+        // `tinStart - amountIn`, e isso deixou de ser correto quando a fee passou a sair de
+        // dentro do laco: o `amountIn` encolhe a cada hop, portanto recalcular DEPOIS dava uma
+        // baseline INFLADA, o sweep devolvia a menos, e o Router ficava a segurar a diferenca —
+        // as invariantes de holds-nothing apanharam-no. Tres leituras da mesma grandeza em
+        // momentos diferentes: a assinatura de defeito da casa, agora contra o TEMPO em vez de
+        // contra o espaco.
+        uint256 baseIn = tinStart > amountIn ? tinStart - amountIn : 0;
+        uint256 toutStart = tokenIn == tokenOut ? baseIn : BPC.balanceOf(tokenOut, address(this));
         // Floor re-derivation: sum of per-leg real impact (BPS), averaged later.
         uint256 impactAcc;
         // On-chain quote for the legs as actually executed — replaces the
@@ -838,12 +855,17 @@ contract BlazePhoenixRouter {
             if (h != 0) {
                 if (hop.tokenIn != route.hops[h - 1].tokenOut) revert RouterE(3);
                 foreignBase = hop.tokenIn == tokenIn
-                    ? (tinStart > amountIn ? tinStart - amountIn : 0)
+                    ? baseIn
                     : (hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1]);
             }
             // Uma alocacao por hop (MAX_LEGS_PER_HOP entradas, memoria, sem storage). Carrega a
             // quote MEDIDA de cada perna ate ao portao de cobertura em `_execScaled` — antes
             // estas medicoes eram somadas e o valor por perna deitado fora.
+            // ─── A FEE E UMA PROPRIEDADE DO INTERIOR DA ROTA ───
+            // Cobra-se AQUI, em cada hop, no token desse hop, e ANTES do escalamento — para que
+            // as pernas sejam precadas sobre o que resta, como ja acontece com fee-on-transfer.
+            amountIn = _chargeHopFee(hop, h, amountIn, foreignBase);
+
             uint256[] memory legQuotes = new uint256[](hop.legs.length);
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
                 _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase, legQuotes);
@@ -955,7 +977,6 @@ contract BlazePhoenixRouter {
         // excluded (it is paid out below), as is the degenerate
         // tokenIn == tokenOut case.
         if (tokenIn != tokenOut) {
-            uint256 baseIn  = tinStart > amountIn ? tinStart - amountIn : 0;
             uint256 residIn = BPC.balanceOf(tokenIn, address(this));
             if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);
         }
