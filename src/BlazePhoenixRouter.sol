@@ -69,7 +69,6 @@ interface IHubW {
     function v4PoolManager() external view returns (address);
     function isHookLive(address hook) external view returns (bool);
     function bridge(uint8 i) external view returns (address);
-    function bridgeCount() external view returns (uint8);
 }
 
 interface IPermit2 {

@@ -66,7 +66,6 @@ interface IHubR {
     function getSlot(bytes32 key) external view returns (uint256);
     function keyOf(address pool, address tA, address tB) external pure returns (bytes32);
     function bridge(uint8 i) external view returns (address);
-    function bridgeCount() external view returns (uint8);
     function isBridgeToken(address t) external view returns (bool);
     function v4PoolManager() external view returns (address);
     function v4EntryCount() external view returns (uint256);
@@ -200,18 +199,28 @@ contract BlazePhoenixSolver {
         Route memory direct = _planDirect(tIn, tOut, amountIn);
         Route memory viaB1;
         Route memory viaB2;
-        uint8 bc = hub.bridgeCount();
-        if (bc > 0) {
-            address b0 = hub.bridge(0);
-            if (b0 != address(0) && b0 != tIn && b0 != tOut) {
-                viaB1 = _planViaBridge(tIn, tOut, amountIn, b0);
-            }
+        // O `bridgeCount()` que aqui estava era REDUNDANTE. As posicoes acima do contador sao
+        // SEMPRE address(0) — o `addBridge` preenche em sequencia e o `removeBridge` compacta e
+        // zera a que sobra — e as duas guardas ja testavam `!= address(0)`. Era uma travessia de
+        // fronteira por solve para responder a uma pergunta que o proprio valor lido ja responde.
+        //
+        // O BALANCO, honesto: com >= 2 bridges configuradas (o caso de producao) sao 3 travessias
+        // a passar a 2. Com o registo VAZIO passa de 1 para 2 — pior, mas um registo sem bridges
+        // e uma ma configuracao, nao um regime a optimizar.
+        //
+        // E AS DUAS LEITURAS DESENROLADAS SAO O `MAX_BRIDGE_ROUTES` DO HUB, ESCRITO AQUI EM
+        // CODIGO. E este numero — nao o MAX_BRIDGES — que decide por quantas bridges se roteia, e
+        // a diferenca entre os dois era uma assimetria silenciosa: a terceira bridge tinha
+        // direitos de admissao e +25% de fitness sem nunca poder ser um hop. Ver a nota do
+        // MAX_BRIDGE_ROUTES no Hub e o test/RoutableBridgeAsymmetry.t.sol, que pina os dois lados.
+        // Quem acrescentar um `b2` aqui TEM de subir a constante la.
+        address b0 = hub.bridge(0);
+        if (b0 != address(0) && b0 != tIn && b0 != tOut) {
+            viaB1 = _planViaBridge(tIn, tOut, amountIn, b0);
         }
-        if (bc > 1) {
-            address b1 = hub.bridge(1);
-            if (b1 != address(0) && b1 != tIn && b1 != tOut) {
-                viaB2 = _planViaBridge(tIn, tOut, amountIn, b1);
-            }
+        address b1 = hub.bridge(1);
+        if (b1 != address(0) && b1 != tIn && b1 != tOut) {
+            viaB2 = _planViaBridge(tIn, tOut, amountIn, b1);
         }
 
         Route memory best;
