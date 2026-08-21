@@ -136,7 +136,7 @@ jobs:
         run: forge test --match-path "test/*Invariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
 
   fork-tests:
-    name: fork tests (Curve / Balancer, archive RPC)
+    name: fork tests (archive RPC)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -160,7 +160,7 @@ jobs:
         # nothing for a real one, which fails all three deterministically. So
         # this cuts the false-red rate without weakening the signal at all.
         run: |
-          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|EthereumCurveForkTest|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest"
+          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest"
           for attempt in 1 2 3; do
             if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC"; then
               exit 0

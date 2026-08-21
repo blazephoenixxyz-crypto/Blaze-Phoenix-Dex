@@ -77,11 +77,23 @@ contract DepthUnitParityTest is Test {
         assertApproxEqRel(high, low, 1e15, "o lado curto tem de ser simetrico na inversao do preco");
     }
 
-    /// Fallback preservado: leitura de preco falhada (sp == 0) devolve L cru, exatamente como o
-    /// ramo `else` que existia inline antes da primitiva. A primitiva nao muda esse caminho.
-    function test_ZeroPriceFallsBackToRawLiquidity() public pure {
-        uint128 liq = 12345e18;
-        assertEq(BPC.depthFromL(liq, 0), uint256(liq), "sp == 0 mantem o comportamento anterior");
+    /// MUDANCA DELIBERADA DE COMPORTAMENTO (2026-08-21). Este teste pinava o oposto: afirmava
+    /// que `sp == 0` devolvia L cru "exatamente como o ramo else que existia inline antes da
+    /// primitiva". Preservar o comportamento anterior era o objetivo certo para a EXTRACAO — e
+    /// o errado para a primitiva, porque o comportamento anterior era o proprio bug.
+    ///
+    /// L esta em escala-RAIZ. Devolve-lo cru quando o preco nao e legivel entrega um numero
+    /// NOUTRAS UNIDADES, que e exatamente o defeito que esta funcao existe para eliminar — o
+    /// ramo de fallback reintroduzia-o dentro da cura. A regra: a AUSENCIA de medicao nao e um
+    /// valor. Zero e a unica resposta honesta.
+    ///
+    /// E SEGURO porque os consumidores tratam o zero: o `_weights` do Solver normaliza contra o
+    /// maximo da familia e da peso minimo a uma profundidade nula, sem divisao por zero. A pool
+    /// perde prioridade em vez de envenenar a comparacao — falha SUAVE, na direcao certa.
+    function test_NoPriceMeansNoDepth() public pure {
+        assertEq(BPC.depthFromL(12345e18, 0), 0, "sem preco tem de devolver zero, nao L cru");
+        assertEq(BPC.depthFromL(type(uint128).max, 0), 0, "idem no extremo");
+        assertEq(BPC.depthFromL(0, 0), 0, "zero com zero continua zero");
     }
 
     /// Sem overflow no intermedio: L * sqrtP transborda uint256, e por isso a primitiva usa

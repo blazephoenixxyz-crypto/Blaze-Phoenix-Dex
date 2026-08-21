@@ -678,8 +678,16 @@ library BlazePhoenixCore {
     ///      divergem sao a assinatura de defeito desta base de codigo — o mulDiv de 512 bits e a
     ///      fee viva do Algebra foram a mesma coisa. Uma copia nao pode divergir de si propria.
     ///      `sp == 0` (leitura falhada) devolve L cru, preservando o comportamento anterior.
+    /// @dev SEM PRECO NAO HA PROFUNDIDADE. Esta funcao devolvia `liq` cru quando o preco nao era
+    ///      legivel — ou seja, devolvia um numero NOUTRAS UNIDADES, que e exatamente o bug que ela
+    ///      existe para eliminar. L esta em escala-RAIZ; entregue cru faz uma pool concentrada
+    ///      ancorar acima de uma pool de par igualmente funda por um fator de raiz-de-preco.
+    ///      Regra: a AUSENCIA de medicao nao e um valor. O retorno correto e zero.
+    ///      Os consumidores tratam-no em seguranca: o `_weights` do Solver normaliza contra o
+    ///      maximo da familia e da peso minimo a um zero (`if (w == 0) w = 1`), sem divisao por
+    ///      zero. Falha SUAVE — a pool perde prioridade, nao envenena a comparacao.
     function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {
-        if (sp == 0) return uint256(liq);
+        if (sp == 0) return 0;
         uint256 x0 = mulDiv(uint256(liq), Q96, sp);
         uint256 x1 = mulDiv(uint256(liq), sp, Q96);
         return x0 < x1 ? x0 : x1;

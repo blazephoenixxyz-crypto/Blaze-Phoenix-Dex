@@ -701,7 +701,9 @@ contract BlazePhoenixSolver {
         // carries one live slot instead of two booleans: this function is
         // inlined into _buildHop by the via-IR pipeline, where every stack
         // slot counts.
-        uint256[] memory maxByFam = new uint256[](3);
+        // DUAS familias, nao tres. A terceira (saida cotada pela pool) saiu com as lapides e a
+        // alocacao ficou. `_famOf` devolve {0,1} por construcao — ver o seu corpo.
+        uint256[] memory maxByFam = new uint256[](2);
         uint256 st;
         uint256 maxBal;
         uint256 fam0 = _famOf(cands[0].kind);

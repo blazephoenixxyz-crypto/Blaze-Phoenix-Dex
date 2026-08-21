@@ -250,7 +250,16 @@ contract BlazePhoenixHub {
     event Factory_(address indexed factory, uint8 kind, uint8 mode);
     event Bridge_(address indexed token, bool added);
     event V4Add(uint256 indexed idx, address c0, address c1, uint24 fee);
+    /// @dev ids: 0 admin · 1 router · 2 solver · 3 quoter · 4 operator · 5 v4PoolManager.
+    ///      O 5 nao e um "papel" no sentido de permissao — e o SINGLETON contra o qual correm os
+    ///      extsload que constituem a prova de autenticidade do claimV4. Entra aqui em vez de num
+    ///      evento proprio porque E um endereco de protocolo e cabe na forma sem custo. O que nao
+    ///      podia continuar era mudar em silencio: o Axioma Meta-Supremo pressupoe o APARELHO de
+    ///      medicao fixo, e um instrumento mutavel e inobservavel devolve um numero perfeitamente
+    ///      valido do sitio errado, sem sintoma nenhum.
     event RoleSet(uint8 role, address who);
+    /// @notice O interruptor de emergencia mudou.
+    event PausedSet(bool paused);
     event ControlRenounced();
 
     // ─── Single error path ─────────────────────────────────────────────
@@ -326,8 +335,8 @@ contract BlazePhoenixHub {
     function setOperator(address who, bool ok) external onlyControl {
         _store().operator[who] = ok; emit RoleSet(4, who);
     }
-    function setPaused(bool b) external onlyControl { _store().paused = b; }
-    function setV4Manager(address m) external onlyControl { _store().v4PoolManager = m; }
+    function setPaused(bool b) external onlyControl { _store().paused = b; emit PausedSet(b); }
+    function setV4Manager(address m) external onlyControl { _store().v4PoolManager = m; emit RoleSet(5, m); }
 
     // ─── Curator (permanent: grows the registry only) ──────────────────
 

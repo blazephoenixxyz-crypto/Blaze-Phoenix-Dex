@@ -223,6 +223,10 @@ contract BlazePhoenixRouter {
     event Fee(address indexed token, uint256 amount, uint256 toT1, uint256 toT2);
     event Surplus(address indexed token, uint256 amount);
     event Cfg(uint8 id, address who);
+    /// @notice O interruptor de emergencia mudou. Evento proprio e nao um `Cfg` com um endereco
+    ///         fabricado a partir de um bool: um flag nao e um endereco, e enfia-lo num campo de
+    ///         endereco para poupar bytes obrigaria todo o indexador a saber da mentira.
+    event PausedSet(bool paused);
 
     error RouterE(uint16 code);
     // 1 = unauthorized, 2 = paused, 3 = bad input, 4 = deadline,
@@ -264,7 +268,7 @@ contract BlazePhoenixRouter {
     }
     function setPermit2(address p)          external onlyControl { permit2=p; emit Cfg(3,p); }
     function setWeth(address w)             external onlyControl { weth=w; emit Cfg(4,w); }
-    function setPaused(bool b)              external onlyControl { paused=b; }
+    function setPaused(bool b)              external onlyControl { paused=b; emit PausedSet(b); }
 
     /// @notice Permanently surrender every control power. Treasuries, the
     ///         Permit2 address, the pause flag and admin transfer are frozen at
@@ -617,9 +621,19 @@ contract BlazePhoenixRouter {
                     // medida (V3) ganha; senao a dinamica medida (Algebra); senao fail-closed com
                     // um sentinela >= 1e6, que faz o outV3 devolver 0 e o impactV3Bps devolver BPS
                     // (o maximo, conservador). Em nenhum ramo entra calldata.
-                    uint24 live = dyn
-                        ? (dynFee != 0 ? dynFee : 0xFFFFFF)
-                        : (BPC.getV3Fee(leg.pool) != 0 ? BPC.getV3Fee(leg.pool) : 0xFFFFFF);
+                    // O HOIST TEM DE SER DENTRO DO RAMO. O ternario avaliava `getV3Fee` DUAS
+                    // vezes — o predicado testava a chamada #1 e o valor usado era o da #2, duas
+                    // staticcalls identicas a mesma pool onde basta uma. Mas icar a chamada para
+                    // ACIMA do ternario, que e a correcao obvia, torna-a incondicional e
+                    // acrescenta uma staticcall a TODA a perna Algebra, onde hoje nao e chamada
+                    // de todo — regredia gas na familia para a qual este bloco foi escrito.
+                    uint24 live;
+                    if (dyn) {
+                        live = dynFee != 0 ? dynFee : 0xFFFFFF;
+                    } else {
+                        uint24 sf = BPC.getV3Fee(leg.pool);
+                        live = sf != 0 ? sf : 0xFFFFFF;
+                    }
                     impactAcc += BPC.impactV3Bps(legAmt, sp, lq, live, leg.zeroForOne);
                     uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne);
                     legQuotes[l] = q_; quoteAcc += q_;
