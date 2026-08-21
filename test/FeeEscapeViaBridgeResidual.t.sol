@@ -153,72 +153,80 @@ contract FeeEscapeViaBridgeResidualTest is Test {
         });
     }
 
-    /// A PROVA. Se isto passar, a fee e evitavel por qualquer pessoa, sempre.
-    function test_ValorSaiComoResidualDePonteSemPagarFee() public {
-        uint256 bUserAntes = tB.balanceOf(user);
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    //  DEPOIS DO FIX (2026-08-21): a fee ancora na ENTRADA.
+    //
+    //  O que estes testes provavam era a FUGA. Agora provam o FECHO — e a invariante que os
+    //  substitui e muito mais forte do que a que existia antes:
+    //
+    //      A FEE E 28 bps DA ENTRADA MEDIDA, EM tokenIn, SEMPRE.
+    //
+    //  Nao depende da rota, porque e cobrada ANTES de a rota comecar. Um atacante e um
+    //  utilizador honesto pagam exatamente o mesmo, e nenhuma rota — por mais retorcida — pode
+    //  mudar o numero. A antiga invariante era "a fee nao excede o maximo" (um limite POR CIMA,
+    //  que nao impedia zero). Esta e uma IGUALDADE.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+
+    uint256 constant FEE_ESPERADA = (AMOUNT_IN * 28) / 10_000;   // 28 bps de 1000 = 2,8
+
+    /// A ROTA DE ATAQUE PAGA. E a mesma que extraia ~996 tokens com fee zero.
+    function test_RotaDeFugaPagaAFeeCompleta() public {
+        uint256 t1Antes = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
 
         vm.prank(user);
         router.swapExactIn(_rotaDeFuga(), AMOUNT_IN, 1, user, block.timestamp + 1);
 
-        uint256 bRecebido = tB.balanceOf(user) - bUserAntes;
-        uint256 feeEmB    = tB.balanceOf(treasury1) + tB.balanceOf(treasury2);
-        uint256 feeEmC    = tC.balanceOf(treasury1) + tC.balanceOf(treasury2);
-
-        emit log_named_decimal_uint("B que o utilizador levou (o valor real)", bRecebido, 18);
-        emit log_named_decimal_uint("fee cobrada em B                       ", feeEmB, 18);
-        emit log_named_uint       ("fee cobrada em C (o tokenOut de fachada)", feeEmC);
-
-        // O valor moveu-se mesmo: ~997 B numa pool de 1M contra um input de 1000 A.
-        assertGt(bRecebido, 900e18, "o valor tem de ter mesmo passado pela ponte");
-
-        // E A FEE NAO O SEGUIU.
-        assertEq(feeEmB, 0, "a tesouraria nao recebeu nada do token que realmente se moveu");
-
-        // 28 bps de ~997 B seriam ~2,79 B. O que se cobrou e po.
-        uint256 devida = (bRecebido * 28) / 10_000;
-        emit log_named_decimal_uint("fee que seria devida sobre o valor movido", devida, 18);
-        assertLt(feeEmC, 1e6, "a fee cobrada e po, e nao 28 bps do valor movido");
+        uint256 cobrada = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - t1Antes;
+        emit log_named_decimal_uint("fee cobrada em A (a entrada)", cobrada, 18);
+        assertEq(cobrada, FEE_ESPERADA, "a rota de fuga tem de pagar 28 bps da entrada, como todas");
     }
 
-    /// O INVARIANTE QUE FALTA, escrito por extenso. Nenhum teste do repositorio ata a fee ao VALOR
-    /// MOVIDO — o invariant_FeeNeverExceedsProtocolMax limita a fee por CIMA, e ninguem a limita
-    /// por BAIXO. Este e o teste que essa invariante teria, e HOJE FALHA.
-    function test_FeeAtadaAoValorMovido() public {
-        uint256 antes = tB.balanceOf(user);
+    /// A INVARIANTE, escrita por extenso: a fee e uma IGUALDADE sobre a entrada, nao um limite
+    /// sobre a saida. Nenhuma rota a pode mover.
+    function test_FeeEIgualEmQualquerRota() public {
+        // rota de ataque
+        uint256 a0 = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
         vm.prank(user);
         router.swapExactIn(_rotaDeFuga(), AMOUNT_IN, 1, user, block.timestamp + 1);
+        uint256 feeAtaque = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - a0;
 
-        uint256 movido = tB.balanceOf(user) - antes;                 // valor extraido pela ponte
-        uint256 cobrado = tB.balanceOf(treasury1) + tB.balanceOf(treasury2);
-        uint256 minima = (movido * 28) / 10_000;
+        // rota honesta de uma perna, o MESMO montante de entrada
+        uint256 qAB = (AMOUNT_IN * 9970 * 1_000_000e18) / (1_000_000e18 * 10_000 + AMOUNT_IN * 9970);
+        Leg[] memory l = new Leg[](1);
+        l[0] = Leg({pool: address(pairAB), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+            tickSpacing: 0, zeroForOne: address(tA) < address(tB), stable: false,
+            amountIn: AMOUNT_IN, expectedOut: qAB, auxId: bytes32(0)});
+        Hop[] memory hp = new Hop[](1);
+        hp[0] = Hop({tokenIn: address(tA), tokenOut: address(tB), amountIn: AMOUNT_IN, expectedOut: qAB, legs: l});
+        Route memory honesta = Route({hops: hp, totalOut: qAB, singleOut: qAB, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
 
-        assertGe(cobrado, minima,
-            "INVARIANTE: a fee tem de ser >= 28 bps de TODO o valor que o chamador extrai, nao so do tokenOut");
+        uint256 a1 = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
+        vm.prank(user);
+        router.swapExactIn(honesta, AMOUNT_IN, 1, user, block.timestamp + 1);
+        uint256 feeHonesta = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - a1;
+
+        assertEq(feeAtaque, feeHonesta, "a fee nao pode depender da FORMA da rota");
+        assertEq(feeAtaque, FEE_ESPERADA, "e tem de ser exatamente 28 bps da entrada");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    //  O SEGUNDO CANAL. Nao e "so os residuais de ponte": ha TRES saidas de valor para o
-    //  chamador no _execute e a fee toca numa. Este e o canal do `tokenIn`, que tem exatamente a
-    //  mesma forma — sem cap, sem fee:
-    //
-    //      if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);
-    //
-    //  Devolver tokenIn nao gasto e um REEMBOLSO, nao uma extraccao — a menos que a rota PRODUZA
-    //  tokenIn. Uma rota circular fa-lo: A -> B -> A. O lucro da arbitragem aterra no saldo de
-    //  tokenIn do Router e sai por esta linha, intocado.
-    //
-    //  E repara porque o caso degenerado nao salva: o sweep so e saltado quando
-    //  `tokenIn == tokenOut`. Basta declarar um terceiro token como tokenOut para o hop circular
-    //  ficar no meio da rota e o lucro sair como residual.
-    // ─────────────────────────────────────────────────────────────────────────────────────────
-    function test_LucroCircularSaiComoResidualDeTokenIn() public {
-        // Pool de volta B->A, funda.
+    /// A divisao 30/70 sobrevive a mudanca de token.
+    function test_DivisaoDasTesourariasMantemSe() public {
+        vm.prank(user);
+        router.swapExactIn(_rotaDeFuga(), AMOUNT_IN, 1, user, block.timestamp + 1);
+        uint256 t1 = tA.balanceOf(treasury1);
+        uint256 t2 = tA.balanceOf(treasury2);
+        assertEq(t1 + t2, FEE_ESPERADA, "o total tem de bater certo");
+        assertEq(t1, (FEE_ESPERADA * 3_000) / 10_000, "tesouraria 1 leva 30%");
+        assertEq(t2, FEE_ESPERADA - t1, "tesouraria 2 leva o resto, sem po perdido");
+    }
+
+    /// O SEGUNDO CANAL, tambem fechado. A volta circular A->B->A->C extraia 992 A com fee zero.
+    function test_SegundoCanalTambemPaga() public {
         MockV2Pair pairBA = new MockV2Pair(address(tB), address(tA));
         tA.mint(address(pairBA), 1_000_000e18);
         tB.mint(address(pairBA), 1_000_000e18);
         pairBA.setReserves(uint112(1_000_000e18), uint112(1_000_000e18));
-        // Pool de fachada A->C que sub-consome (1 wei) — o hop 3 tem de partir de A por
-        // causa da CONTINUIDADE imposta em Router:784.
         UnderConsumingV3Pool poolAC = new UnderConsumingV3Pool(address(tA), address(tC), address(tC));
         tC.mint(address(poolAC), 1_000e18);
 
@@ -246,17 +254,11 @@ contract FeeEscapeViaBridgeResidualTest is Test {
         Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
 
-        uint256 aAntes = tA.balanceOf(user);
+        uint256 antes = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
         vm.prank(user);
         router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1);
+        uint256 cobrada = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - antes;
 
-        uint256 aDepois = tA.balanceOf(user);
-        uint256 devolvido = aDepois + AMOUNT_IN - aAntes;
-        uint256 feeEmA = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
-        emit log_named_decimal_uint("A devolvido pelo sweep de tokenIn", devolvido, 18);
-        emit log_named_decimal_uint("fee cobrada em A                 ", feeEmA, 18);
-
-        assertGt(devolvido, 900e18, "o valor voltou mesmo pelo canal do tokenIn");
-        assertEq(feeEmA, 0, "SEGUNDO CANAL: o sweep de tokenIn tambem nao paga fee");
+        assertEq(cobrada, FEE_ESPERADA, "a volta circular tambem paga 28 bps da entrada");
     }
 }

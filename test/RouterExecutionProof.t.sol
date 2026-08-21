@@ -72,9 +72,15 @@ contract RouterExecutionProofTest is Test {
     /// @notice Every successful swap emits the proof with the in-frame V2
     ///         quote as `quoted`, the delivered amount as `realized`, a
     ///         non-zero floor below the quote, and the current block.
+
+    /// @dev A fee do protocolo passou a ser cobrada na ENTRADA (2026-08-21): 28 bps do input
+    ///      comprometido, em tokenIn, antes de a rota comecar. Logo a rota preca sobre o LIQUIDO.
+    ///      Ver test/FeeEscapeViaBridgeResidual.t.sol para a razao da mudanca.
+    function _netIn(uint256 a) internal pure returns (uint256) { return a - (a * 28) / 10_000; }
+
     function test_ExecutionProof_EmittedWithQuoteRealizedFloor() public {
         uint256 amountIn = 1_000e18;
-        uint256 realQuote = BPC.outV2(amountIn, 10_000e18, 10_000e18, 30);
+        uint256 realQuote = BPC.outV2(_netIn(amountIn), 10_000e18, 10_000e18, 30);
         Route memory route = _buildRoute(amountIn, realQuote);
 
         // Check indexed topics + that the event fires; data fields asserted below.

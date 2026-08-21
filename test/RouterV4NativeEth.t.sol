@@ -249,9 +249,15 @@ contract RouterV4NativeEthTest is Test {
 
     // ── (a) both directions through a native pool ────────────────────────
 
+
+    /// @dev A fee do protocolo passou a ser cobrada na ENTRADA (2026-08-21): 28 bps do input
+    ///      comprometido, em tokenIn, antes de a rota comecar. Logo a rota preca sobre o LIQUIDO.
+    ///      Ver test/FeeEscapeViaBridgeResidual.t.sol para a razao da mudanca.
+    function _netIn(uint256 a) internal pure returns (uint256) { return a - (a * 28) / 10_000; }
+
     function test_Native_WethToToken_SettlesWithValueAndDelivers() public {
         uint256 amt = 10e18;
-        uint256 realQuote = BPC.outV3(amt, uint160(BPC.Q96), LIQ, FEE, true);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, true);
         assertGt(realQuote, 0, "sanity: quotable");
         uint256 mgrEthBefore = address(mgr).balance;
 
@@ -264,14 +270,14 @@ contract RouterV4NativeEthTest is Test {
         assertEq(wethT.balanceOf(user), 100e18 - amt, "user paid WETH");
         // The manager was settled in RAW ETH (exactly the owed amount) —
         // the mock's settle() reverts on any other value.
-        assertEq(address(mgr).balance, mgrEthBefore + amt, "mgr settled in ETH");
+        assertEq(address(mgr).balance, mgrEthBefore + _netIn(amt), "mgr settled in ETH liquido de fee");
         assertEq(mgr.lastKeyId(), pid, "settlement key == native poolId");
         _assertRouterHoldsNothing();
     }
 
     function test_Native_TokenToWeth_TakesEthAndRewraps() public {
         uint256 amt = 10e18;
-        uint256 realQuote = BPC.outV3(amt, uint160(BPC.Q96), LIQ, FEE, false);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, false);
         assertGt(realQuote, 0, "sanity: quotable");
         uint256 mgrEthBefore = address(mgr).balance;
 
@@ -284,7 +290,7 @@ contract RouterV4NativeEthTest is Test {
         // wrapped back INSIDE the callback frame, invisible outside the seam.
         assertEq(wethT.balanceOf(user), 100e18 + delivered, "user got WETH out");
         assertEq(tok.balanceOf(user), 100e18 - amt, "user paid TOK");
-        assertEq(address(mgr).balance, mgrEthBefore - amt, "mgr paid raw ETH");
+        assertEq(address(mgr).balance, mgrEthBefore - _netIn(amt), "mgr paid raw ETH liquido de fee");
         assertEq(mgr.lastKeyId(), pid, "settlement key == native poolId");
         _assertRouterHoldsNothing();
     }
@@ -295,7 +301,7 @@ contract RouterV4NativeEthTest is Test {
         mgr.setStranger(stranger);
         mgr.setProbeMidSwap(true);
         uint256 amt = 5e18;
-        uint256 realQuote = BPC.outV3(amt, uint160(BPC.Q96), LIQ, FEE, false);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, false);
 
         // token -> WETH so the take window (expected sender = mgr) opens.
         Route memory route = _nativeRoute(false, amt, realQuote);
@@ -324,7 +330,7 @@ contract RouterV4NativeEthTest is Test {
 
     function test_Native_QuoteAndExecutionShareTheNativePoolId() public {
         uint256 amt = 10e18;
-        uint256 realQuote = BPC.outV3(amt, uint160(BPC.Q96), LIQ, FEE, true);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, true);
         Route memory route = _nativeRoute(true, amt, realQuote);
 
         vm.recordLogs();

@@ -221,7 +221,6 @@ contract BlazePhoenixRouter {
         uint256 quoted, uint256 realized, uint256 floorUsed, uint256 blockNumber
     );
     event Fee(address indexed token, uint256 amount, uint256 toT1, uint256 toT2);
-    event Surplus(address indexed token, uint256 amount);
     event Cfg(uint8 id, address who);
     /// @notice O interruptor de emergencia mudou. Evento proprio e nao um `Cfg` com um endereco
     ///         fabricado a partir de um bool: um flag nao e um endereco, e enfia-lo num campo de
@@ -495,6 +494,16 @@ contract BlazePhoenixRouter {
         return _execute(route, amountIn, userMinOut, recipient, tokenIn, payer);
     }
 
+    /// @dev A divisao 30/70 num frame proprio: sob via_ir o `_execute` esta no limite de stack,
+    ///      e dois locais (t1, t2) declarados la dentro bastam para o rebentar.
+    function _payFee(address token, uint256 fee) private {
+        uint256 t1 = BPC.mulDiv(fee, TREASURY1_SHARE, BPC.BPS);
+        uint256 t2 = fee - t1;
+        if (t1 > 0) BPC.safeTransfer(token, treasury1, t1);
+        if (t2 > 0) BPC.safeTransfer(token, treasury2, t2);
+        emit Fee(token, fee, t1, t2);
+    }
+
     /// @notice Per-hop real-balance-ratio scaling AND price impact (BPS) AND
     ///         the on-chain quote for the legs as actually executed, all
     ///         computed in one pass so V2/Solidly reserves and V3/Algebra
@@ -716,6 +725,54 @@ contract BlazePhoenixRouter {
         // Input-token balance at entry (the input is already in the Router).
         // Every unit pulled for this swap MUST be consumed by the legs; the
         // holds-nothing check after the hop loop enforces it.
+        // ─── A FEE ANCORA NA ENTRADA ───
+        //
+        // PORQUE ISTO E A RAIZ E NAO O SINTOMA. A fee vivia do lado da SAIDA, sobre o `tokenOut`.
+        // Mas o Router tem TRES canais que devolvem valor ao chamador — o pagamento do tokenOut,
+        // o residual da ponte e o residual do tokenIn — e a fee tocava em UM. Uma rota que
+        // fizesse o valor sair como residual de ponte pagava ZERO: MEDIDO, 996 tokens movidos,
+        // 0 de fee (test/FeeEscapeViaBridgeResidual.t.sol).
+        //
+        // A raiz nao eram os residuais. Eram DUAS regras, cada uma correta sozinha, que nunca
+        // foram reconciliadas: a fee definida sobre UM token, e o holds-nothing a OBRIGAR o
+        // Router a devolver todo o resto. Tapar os canais de saida trocava a fuga por fundos
+        // presos — pior — e deixava a FORMA do problema intacta para o proximo canal.
+        //
+        // A ENTRADA NAO TEM CANAIS PARALELOS. E UMA quantidade, medida UMA vez, e todas as portas
+        // (classic, Permit2, nativa, e o auto-execute do swapBestExactIn) chegam aqui com o valor
+        // REAL ja recebido. Ninguem a pode inflacionar nem deflacionar pela rota, porque a rota
+        // so comeca depois desta linha.
+        //
+        // E COBRA-SE AQUI, ANTES do `tinStart`: a baseline do sweep de tokenIn tem de ver o saldo
+        // JA liquido de fee, senao a fee que acabou de sair seria contada como residual do
+        // utilizador e devolvida — a fuga a reentrar pela porta que a fechou.
+        //
+        // O routing nao precisa de saber: o Router ja reescala cada perna pelo que REALMENTE tem
+        // (o mesmo mecanismo que trata fee-on-transfer), portanto uma entrada 28 bps menor e,
+        // para o plano, economicamente identica a um token com imposto de 28 bps.
+        //
+        // O QUE CUSTA, sem rodeios: a ISENCAO DE FEE DO EXCEDENTE morre. Era uma promessa do lado
+        // da saida e nao tem analogo do lado da entrada. Decisao do dono, 2026-08-21.
+        // SOBRE O COMPROMETIDO, NAO SOBRE O ENTREGUE. O chamador pode entregar mais input do que
+        // a rota compromete — e o caso normal quando o clamp de capacidade do Solver corta a perna
+        // numa pool fina: a ordem inteira e puxada, so parte e roteada, e o resto e varrido de
+        // volta. Cobrar sobre o entregue fazia o utilizador pagar fee sobre capital que lhe e
+        // DEVOLVIDO, e castigava precisamente quem apanha liquidez fina. Cobrar a mais e um bug de
+        // confianca tao real como cobrar a menos.
+        //
+        // E NAO REABRE A FUGA, porque o comprometido nao e forjavel para baixo com proveito: o
+        // Router limita `scaleNum` a `scaleDen` no hop 0, logo declarar pernas mais pequenas
+        // ROTEIA menos. Quem quiser mover valor tem de o comprometer, e comprometer e pagar.
+        {
+            uint256 comprometido;
+            Leg[] calldata l0 = route.hops[0].legs;
+            for (uint256 i; i < l0.length; ) { comprometido += l0[i].amountIn; unchecked { ++i; } }
+            if (comprometido > amountIn) comprometido = amountIn;
+            uint256 feeIn = BPC.mulDiv(comprometido, PROTOCOL_FEE_BPS, BPC.BPS);
+            if (feeIn >= amountIn) revert RouterE(8);
+            if (feeIn > 0) { _payFee(tokenIn, feeIn); unchecked { amountIn -= feeIn; } }
+        }
+
         uint256 tinStart = BPC.balanceOf(tokenIn, address(this));
         // Output-token baseline — the exact mirror of tinStart/baseIn, and for
         // the same reason: the post-hop measurement must be a DELTA, never a
@@ -736,13 +793,11 @@ contract BlazePhoenixRouter {
         uint256 toutStart = tokenIn == tokenOut
             ? (tinStart > amountIn ? tinStart - amountIn : 0)
             : BPC.balanceOf(tokenOut, address(this));
-        uint256 totalLegs;
         // Floor re-derivation: sum of per-leg real impact (BPS), averaged later.
         uint256 impactAcc;
         // On-chain quote for the legs as actually executed — replaces the
         // caller-supplied route.totalOut as the fee-base reference (see the
         // "Fee base" section below).
-        uint256 onchainQuoteAcc;
         // Quote of the FINAL hop only, denominated in tokenOut — the correct
         // reference for the protocol floor. onchainQuoteAcc SUMS the per-hop
         // quotes, whose units differ across a multi-hop route, so it cannot
@@ -812,7 +867,6 @@ contract BlazePhoenixRouter {
             // R3/BP-15 in _hopScaleImpactAndQuote: foreign/stranded bridge balances
             // are never scaled into the swap (invariant I1, holds-nothing).
             impactAcc += hopImpact;
-            onchainQuoteAcc += hopQuote;
             if (h + 1 == route.hops.length) finalHopQuote = hopQuote;
 
             uint256 hopGot;
@@ -885,7 +939,6 @@ contract BlazePhoenixRouter {
                 uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - LEG_FLOOR_BPS, BPC.BPS);
                 if (hopGot + slack < hopAttested) revert RouterE(5);
             }
-            totalLegs += legs;
             unchecked { ++h; }
         }
 
@@ -940,6 +993,16 @@ contract BlazePhoenixRouter {
         // user sets from the quote they saw. A caller can no longer RELAX
         // protection via route fields, but users must still pass a real
         // userMinOut to be protected against a bad quote-to-fill gap.
+        // `totalLegs` conta-se AQUI e nao dentro do laco de execucao, de proposito: acumulado
+        // la, ficava vivo em todo o corpo do laco e o via_ir nao tinha o slot para ele. Aqui e um
+        // laco proprio sobre CALLDATA (barato, sem storage, sem chamadas externas) e o valor nasce
+        // exatamente onde e consumido. A leitura tambem melhora: o laco de cima executa, este
+        // conta.
+        uint256 totalLegs;
+        for (uint256 th; th < route.hops.length; ) {
+            totalLegs += route.hops[th].legs.length;
+            unchecked { ++th; }
+        }
         uint256 avgImpact = totalLegs > 0 ? impactAcc / totalLegs : 0;
         uint256 floorBps  = BPC.ironFloorBps(avgImpact, totalLegs, 0);
 
@@ -992,53 +1055,12 @@ contract BlazePhoenixRouter {
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
         if (amountOut < effMin) revert RouterE(5);
 
-        // ─── Fee base ───
-        // The fee is charged on the ON-CHAIN quote for the legs as actually
-        // executed (onchainQuoteAcc, accumulated above in the same pass as
-        // the impact measurement) — never on the caller-supplied
-        // route.totalOut. A crafted Route can no longer understate its own
-        // quote to shrink the fee base: the reference figure is derived from
-        // pool state read during THIS execution, not from calldata. The
-        // surplus policy is unchanged: any amount ABOVE this quote is still
-        // fee-exempt and paid to the user in full.
-        // A1 / C1b / MP-1 (Lei Unificadora — a LOW quote must NOT evade the fee):
-        // feeBase is normally min(delivered, on-chain quote) so surplus above the
-        // quote stays fee-exempt. But the V3/Algebra quote prices with caller
-        // leg.fee while execution charges the pool's real fee, so leg.fee near 1e6
-        // drives outV3 toward 0; a dead V4 leg quotes 0; and a
-        // forged leg paired with an honest DUST co-leg keeps the SUM barely
-        // non-zero. Any of these shrinks onchainQuoteAcc far below what was
-        // delivered, turning the bulk into fee-exempt "surplus" (~0 protocol fee).
-        // Require the quote to COVER at least MIN_QUOTE_COVERAGE_BPS of the MEASURED
-        // delivery; below that it is implausible and the fee is charged on the
-        // delivered amount (pro-protocol, invariant I7) — the fee can never be
-        // forged small while real output is delivered. Honest swaps quote ~=
-        // delivered (coverage ~100%) and keep the surplus exemption unchanged.
-        uint256 feeBase =
-            onchainQuoteAcc >= BPC.mulDiv(totalReceived, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)
-                ? (onchainQuoteAcc < totalReceived ? onchainQuoteAcc : totalReceived)
-                : totalReceived;
-        // Still floored at protocolFloorOut as defence-in-depth, in case a
-        // pool kind's on-chain quote path reads stale/zero state.
-        if (feeBase < protocolFloorOut) feeBase = protocolFloorOut;
-        if (feeBase > totalReceived)    feeBase = totalReceived;
+        // A FEE JA FOI COBRADA NA ENTRADA, no topo desta funcao. Aqui nao ha base de fee, nem
+        // ramo de cobertura, nem clamps, nem excedente: tudo o que sobreviveu aos pisos e do
+        // utilizador. O que eram ~40 linhas com tres numeros a discutir entre si e uma atribuicao.
+        uint256 net = amountOut;
 
-        uint256 surplus = totalReceived > feeBase ? totalReceived - feeBase : 0;
-        uint256 fee = BPC.mulDiv(feeBase, PROTOCOL_FEE_BPS, BPC.BPS);
-        if (fee >= amountOut) revert RouterE(8);
-        uint256 net = amountOut - fee;
-
-        // Fee split 30/70 to the two treasuries.
-        if (fee > 0) {
-            uint256 t1 = BPC.mulDiv(fee, TREASURY1_SHARE, BPC.BPS);
-            uint256 t2 = fee - t1;
-            if (t1 > 0) BPC.safeTransfer(tokenOut, treasury1, t1);
-            if (t2 > 0) BPC.safeTransfer(tokenOut, treasury2, t2);
-            emit Fee(tokenOut, fee, t1, t2);
-        }
-        if (surplus > 0) emit Surplus(tokenOut, surplus);
-
-        // The full net (= quoted + surplus − fee) goes to the recipient.
+        // Tudo o que sobrou vai para o destinatario.
         // Measure the recipient's ACTUAL balance delta: fee-on-transfer tokens
         // deliver less than the nominal `net`, so we must report and protect on
         // what the user truly receives, not the nominal figure. For normal
