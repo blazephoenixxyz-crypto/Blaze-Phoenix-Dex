@@ -1085,7 +1085,12 @@ contract BlazePhoenixRouter {
         bool guard = legOut != address(0) && amt != 0
             && ((leg.expectedOut != 0 && leg.amountIn != 0) || (legQuote != 0 && legAmt != 0));
         uint256 balBefore;
-        if (guard) balBefore = BPC.balanceOf(legOut, address(this));
+        uint256 fotBefore;
+        if (guard) {
+            balBefore = BPC.balanceOf(legOut, address(this));
+            uint256 s0 = TSLOT_FOT;
+            assembly { fotBefore := tload(s0) }
+        }
 
         uint8 k = leg.kind;
         // A lapide 3 saiu deste dispatch na passagem de codigo morto do EIP-170:
@@ -1142,6 +1147,49 @@ contract BlazePhoenixRouter {
             if (legQuote != 0 && legAmt != 0) {
                 uint256 qs = BPC.mulDiv(legQuote, amt, legAmt);
                 if (bound < BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)) bound = qs;
+            }
+
+            // ─── RE-PRECAR PELA MEDICAO DE FoT ───
+            // `bound` e BRUTO: sai de `outV2(legAmt)` ou de `leg.expectedOut`, e ambos precam o
+            // que se TENCIONOU enviar. `got` e LIQUIDO — delta de balanceOf. Com um imposto de
+            // ENTRADA de t, a pool so recebe (1-t) e entrega ~(1-t) da quote bruta. Comparar os
+            // dois rejeita uma liquidacao PERFEITAMENTE CORRETA assim que t passa de 20%.
+            //
+            // A PROVA JA ESTAVA ESCRITA NO CANAL IRMAO. O piso agregado (ver `protocolFloorOut`)
+            // ja documenta o mesmo defeito e ja o corrigiu com este mesmo racio, incluindo o
+            // limiar numerico. Era um fix aplicado a UM de TRES canais simetricos — e o terceiro,
+            // a Camada 1, cura-se de graca aqui porque soma este `attested`.
+            // Pior ainda, os dois raciocinavam um sobre o outro de forma inconsistente: o piso
+            // agregado invoca "the per-leg LEG_FLOOR_BPS guard at every pool seam" como uma das
+            // barreiras que o cobrem, e essa guarda nao sabia que FoT existia.
+            //
+            // A MEDICAO E NAO-FORJAVEL, e e por isso que ISTO e o remedio certo. `_noteFot` grava
+            // um racio observado DENTRO desta transacao (o que a pool recebeu / o que lhe foi
+            // enviado). Ninguem o escreve por calldata. A alternativa tentadora — nao correr o
+            // portao quando o chamador pede — seria restaurar o opt-out por calldata que este
+            // portao existe para fechar: no ponto de decisao, o chamador honesto de um token
+            // taxado e o atacante que se deflaciona a si proprio apresentam a MESMA calldata.
+            // Nao ha predicado que os separe. Ha uma medicao que os separa. Usa-se a medicao.
+            //
+            // RACIO LOCAL A PERNA, nao o composto. `_noteFot` COMPOE multiplicativamente ao longo
+            // da rota (cada imposto aplica-se ao que sobreviveu ao anterior), mas o `bound` desta
+            // perna so foi enviesado pelo imposto DESTA perna. Recupera-se por diferenca do
+            // snapshot: se `prev != 0`, entao `after = prev * local / BPS`, logo
+            // `local = after * BPS / prev`. O mulDiv arredonda para baixo, portanto o local
+            // recuperado e <= ao verdadeiro: subestima o desconto, aperta o piso, falha ABERTO.
+            //
+            // AMBITO HONESTO: `_noteFot` so e chamado nos bracos V2 e SOLIDLY, e mede apenas o
+            // lado da ENTRADA. Uma perna V3/V4 com token FoT nao regista nada, e um imposto do
+            // lado da SAIDA nao e medido em lado nenhum. Isto fecha o que e mensuravel.
+            {
+                uint256 s1 = TSLOT_FOT;
+                uint256 fotAfter; assembly { fotAfter := tload(s1) }
+                if (fotAfter != fotBefore && bound != 0) {
+                    uint256 legNet = fotBefore == 0
+                        ? fotAfter
+                        : BPC.mulDiv(fotAfter, BPC.BPS, fotBefore);
+                    if (legNet < BPC.BPS) bound = BPC.mulDiv(bound, legNet, BPC.BPS);
+                }
             }
 
             attested = bound;
