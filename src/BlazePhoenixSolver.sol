@@ -163,14 +163,17 @@ contract BlazePhoenixSolver {
     ///         em MASSA DE PROFUNDIDADE e nao em numero de pools, portanto nem meia duzia de pools
     ///         de po tem voto. Ponto de rutura: 0 -> 50% da massa.
     ///
-    ///         400 bps (4%) band: tight enough to exclude mis-priced pools
-    ///         (Solidly-stable curves on LST/WETH pairs are typically 20-40%
-    ///         off the true rate), loose enough to admit healthy pools whose
-    ///         price impact for the trade slightly differs from a near-zero
-    ///         marginal-rate reading. Widened from the original ±2% per the
-    ///         sealed 2026-08-03 design decision (see vault note "010 -
-    ///         Invariantes, Mediana 4% & Padrões Estocásticos").
-    uint16  internal constant MEDIAN_FILTER_BPS    = 400;   // ±4%
+    ///         BANDA DE 500 bps (±5%) — decisao do dono, 2026-08-21, alargada de 400.
+    ///         O objetivo e nao EXCLUIR uma pool genuinamente melhor: a banda e simetrica, logo
+    ///         alargar admite tanto quem esta ate 5% acima da base como quem esta 5% abaixo.
+    ///         Continua apertada o suficiente para o que ela foi feita: curvas Solidly-stable em
+    ///         pares LST/WETH ficam tipicamente 20-40% fora, e essas continuam a ser excluidas.
+    ///
+    ///         O QUE ISTO CUSTA, dito onde se decide: uma pool 5% pior tambem entra, e como os
+    ///         pesos sao por PROFUNDIDADE, uma pool funda e 5% pior pode levar uma fatia grande.
+    ///         Se um dia se quiser so o lado bom, a banda tem de deixar de ser simetrica — e isso
+    ///         e uma mudanca de PREDICADO e nao de numero, portanto nao se faz por atalho.
+    uint16  internal constant MEDIAN_FILTER_BPS    = 500;   // ±5% (decisao do dono, 2026-08-21)
 
     error SolverE(uint16 code);
 
@@ -313,7 +316,7 @@ contract BlazePhoenixSolver {
         //  is small enough that each pool's marginal rate is essentially its
         //  spot price (negligible impact). Then we compute the median of
         //  those marginal rates and filter pools whose marginal rate
-        //  deviates from the median by more than MEDIAN_FILTER_BPS (±2%).
+        //  deviates from the base by more than MEDIAN_FILTER_BPS (±5%).
         //
         //  GAS: the probe-size quote is computed exactly ONCE per candidate
         //  here, capturing BOTH the marginal rate AND the depth in the same
