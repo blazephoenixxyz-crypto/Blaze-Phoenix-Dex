@@ -1338,7 +1338,13 @@ contract BlazePhoenixHub {
     ///      wall-clock time. The field is otherwise write-once at registration and
     ///      is read by nothing on-chain except the Solver's discovery-freshness
     ///      gate — so repurposing it as "last activity time" is behaviour-neutral
-    ///      for fitness/eviction (which key off lastBlk + swapCount).
+    ///      for fitness/eviction. NAO e o `lastBlk` que alimenta esse juizo, apesar de esta
+    ///      linha ja o ter afirmado: o `vitality` e o `_decayedSwapCount` do Core leem
+    ///      `decodeLastUpdateTs`, e o `decodeLastBlk` nao tem UM UNICO chamador em src/ — os
+    ///      seus unicos leitores sao tres assercoes de teste sobre a propria codificacao. O
+    ///      `lastBlk` e escrito em cada tick e nunca lido; esta registado como tal no censo de
+    ///      bits mortos do Monoslot, e a decisao de o podar ou de o reservar para a vitalidade
+    ///      estatistica e do dono.
     function _stampTs(uint256 s) private view returns (uint256) {
         return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);
     }

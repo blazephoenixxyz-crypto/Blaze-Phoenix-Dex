@@ -384,15 +384,25 @@ contract BlazePhoenixSolver {
         // pools with stale prices can form a fake majority and vote the
         // honest deep pool out of a plain median (for example: two dead
         // SushiV3 pools agreeing on a stale ~910 rate excluded the 401k-USDC
-        // pool quoting the true 1633 as an "outlier"). The pool with the
-        // largest REAL tokenOut balance is where arbitrage keeps the price
-        // true; faking this anchor requires depositing more real capital
-        // than the genuine deep pool — at which point the attacker IS the
-        // deep pool and arbitrage corrects it. balanceOf is one staticcall
-        // and unforgeable without capital (unlike concentrated L, which is
-        // free to inflate with a hair-thin position).
-        // Per-candidate real tokenOut holdings, reused by the capacity clamp in
-        // the allocation pass (no extra staticcall — read here for the anchor).
+        // pool quoting the true 1633 as an "outlier").
+        //
+        // ATENCAO A QUEM LER ISTO DE CIMA PARA BAIXO: aqui esteve escrito, durante muito
+        // tempo, que a ancora da banda era "a pool com o maior saldo REAL de tokenOut", e
+        // que `balanceOf` era inforjavel sem capital. ESSE ARGUMENTO ESTA REFUTADO e o
+        // desenho que ele defendia foi REMOVIDO — a refutacao esta escrita por extenso no
+        // fix T2, umas dezenas de linhas abaixo (procurar "T2 (Thomas)"): uma DOACAO
+        // simples (transferir para a pool) inflaciona o `balanceOf` sem mexer na reserva
+        // nem no preco, e e recuperavel (skim do V2, claim do LP no V3) — logo nao e
+        // "capital em risco". Um atacante ganhava a ancora com uma doacao, centrava a
+        // banda no seu rate mau e filtrava a pool honesta funda para FORA.
+        //
+        // A ancora de HOJE e `_depthWeightedMedian(rates, depths, n)`, e usa `depths`:
+        // getReserves (V2/Solidly), getLiquidity (V3), liquidez medida (V4) — grandezas
+        // que uma doacao nao move. NAO usa o `balsOut` deste laco.
+        //
+        // O `balsOut` continua a ser lido aqui por OUTRA razao, e so por ela: e o teto de
+        // capacidade do passo de alocacao, que so corre para os kinds concentrados na pool
+        // (A_CONC_POOL). Nao e uma ancora e nao deve voltar a ser.
         // NOTE: the loop keeps NO scalar accumulators (no validity counter, no
         // running anchor) — dead pools leave rates[i] at zero and the median
         // block below derives the zero count AND the anchor by post-scanning
