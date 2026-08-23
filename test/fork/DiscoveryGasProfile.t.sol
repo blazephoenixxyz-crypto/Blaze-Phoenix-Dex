@@ -92,6 +92,22 @@ contract DiscoveryGasProfileTest is Test {
         console2.log(etiqueta, g, "gas | pools:", ps.length);
     }
 
+    /// @dev DIFERENCA COM SINAL, e a razao e um Panic que este teste ja deu.
+    ///      A primeira versao subtraia `gB - gA` em aritmetica CHECKED, assumindo
+    ///      que acrescentar sondagens so podia AUMENTAR o gas. Nao e verdade:
+    ///      registar a linha V4-derive muda o caminho percorrido e pode sair mais
+    ///      barato — e ai a subtracao rebenta com Panic 0x11.
+    ///
+    ///      Um teste de MEDICAO que aborta ao medir nao mede nada, e o valor de
+    ///      falha (revert) e indistinguivel de "a medicao correu e deu zero".
+    function _delta(string memory etiqueta, uint256 antes, uint256 depois) internal pure {
+        if (depois >= antes) {
+            console2.log(string.concat(etiqueta, " : +"), depois - antes);
+        } else {
+            console2.log(string.concat(etiqueta, " : -"), antes - depois);
+        }
+    }
+
     /// @notice A DECOMPOSICAO.
     function test_PerfilDeGas_Descoberta() public {
         if (!ligado) return;
@@ -113,13 +129,12 @@ contract DiscoveryGasProfileTest is Test {
 
         console2.log("--- DELTAS (USDC/WETH, o par que tem V4) ---");
         console2.log("  base 8 factories      :", gA_weth);
-        console2.log("  + varredura V4 wrapped:", gB_weth - gA_weth);
-        console2.log("  + passada NATIVA      :", gC_weth - gB_weth);
+        _delta("  + varredura V4 wrapped", gA_weth, gB_weth);
+        _delta("  + passada NATIVA      ", gB_weth, gC_weth);
         console2.log("--- DELTAS (USDC/LINK) ---");
         console2.log("  base                  :", gA_link);
-        console2.log("  + V4 wrapped          :", gB_link - gA_link);
-        console2.log("  + NATIVA              :", gC_link - gA_link > gB_link - gA_link
-                                                 ? gC_link - gB_link : 0);
+        _delta("  + V4 wrapped          ", gA_link, gB_link);
+        _delta("  + NATIVA              ", gB_link, gC_link);
 
         // O NUMERO QUE DECIDE: que fatia do previewPlan e descoberta?
         uint256 a = gasleft();
