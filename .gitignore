@@ -41,3 +41,6 @@ graphify-out/
 # publico: revelam posicionamento (deficit de output, venues em falta) e nao
 # testam invariante nenhuma nossa. Os numeros vivem no cofre, nota 132.
 test/fork/Bench*.t.sol
+
+# baseline local de tamanhos (imago sz) — nunca versionado
+.bp/

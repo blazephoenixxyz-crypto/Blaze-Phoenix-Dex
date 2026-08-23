@@ -25,6 +25,23 @@ jobs:
       - name: Show versions
         run: forge --version
 
+      - name: Shared-quantity register (a pin that does not name what it pins is a hole with a green test in front of it)
+        # SHARED_QUANTITIES.md enumera toda a grandeza com mais de um produtor ou
+        # consumidor, e diz o que a prende. Esta guarda verifica que a linha nao
+        # mente: um `PINNED` tem de citar um teste que EXISTE e que NOMEIA a
+        # grandeza. Nao tenta descobrir grandezas partilhadas novas — decidir que
+        # dois consumidores fazem a MESMA pergunta e trabalho humano.
+        #
+        # A regra 2 nao e teorica: no dia em que o registo foi escrito despromoveu
+        # duas linhas. O `PreviewExecutionParity` diz pinar o PROTOCOL_FEE_BPS e
+        # nunca o nomeia (compara netOut com 0,1% de tolerancia, e o regime de
+        # exaustao escapa-lhe — FEE-01); o `DepthUnitParity` exercita o
+        # `depthFromL` quando os quatro produtores vivos chamam o `depthFromL18`,
+        # que e onde vive a normalizacao de decimais e por onde ja escapou um
+        # defeito. Sete dos achados verificados de 2026-08-23 foram desta classe:
+        # duas fontes da mesma grandeza sem nada a obriga-las a concordar.
+        run: bash .github/scripts/shared-quantities.sh
+
       - name: Yul evaluation-order guard
         # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
         # `and(staticcall(...), eq(returndatasize(), 32))` tests the size left
