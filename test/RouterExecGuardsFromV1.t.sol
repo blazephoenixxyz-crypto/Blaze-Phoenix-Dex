@@ -45,14 +45,22 @@ contract RouterExecGuardsFromV1Test is Test {
         // -> hookAltersDeltas() must flag it, and the Router must refuse the leg before unlocking.
         address badHook = address(uint160(1 << 2));
 
+        // O `auxId` TEM de nomear o tokenOut do hop. Antes da guarda de
+        // homogeneidade de perna (Router:1017, fix do LEG-01 em 2026-08-23) este
+        // teste passava `bytes32(0)` porque nada validava o campo; hoje uma rota
+        // assim morre em RouterE(3) na admissao e nunca chegaria ao gate do hook,
+        // que e o que este teste existe para provar. A rota passa a ser coerente
+        // para que o RouterE(9) continue a ser o que a mata.
+        address tout = makeAddr("tout");
         Leg memory leg = Leg({
             pool: address(0xDEAD), hooks: badHook, kind: KIND_V4, fee: 0, tickSpacing: 0,
-            zeroForOne: true, stable: false, amountIn: amt, expectedOut: 0, auxId: bytes32(0)
+            zeroForOne: true, stable: false, amountIn: amt, expectedOut: 0,
+            auxId: bytes32(uint256(uint160(tout)))
         });
         Leg[] memory legs = new Leg[](1); legs[0] = leg;
         Hop[] memory hops = new Hop[](1);
         hops[0] = Hop({
-            tokenIn: address(tin), tokenOut: makeAddr("tout"),
+            tokenIn: address(tin), tokenOut: tout,
             amountIn: amt, expectedOut: 0, legs: legs
         });
         Route memory r; r.hops = hops;

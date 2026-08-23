@@ -385,6 +385,17 @@ contract BlazePhoenixRouter {
         );
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
+        // FOT-01: A PUXADA TAMBEM E UMA TRANSFERENCIA MEDIDA. O laco das pernas
+        // marca o TSLOT_FOT quando a transferencia Router->pool entrega menos
+        // (:1476-1482), mas a puxada de ENTRADA media aqui nunca o marcava. Num
+        // token de taxa ASSIMETRICA — taxa no transferFrom, isenta o transfer,
+        // ou isenta a pool — nenhuma perna ve discrepancia, o `fotSeen` fica a
+        // zero, e o bloco dos pisos aplica o `route.singleOutFloor` tal como
+        // veio do plano: dimensionado para o amountIn NOMINAL, contra uma saida
+        // produzida a partir do `received`. O swap honesto morria em RouterE(5).
+        // (Num token que taxa TODAS as transferencias o laco ja o apanhava —
+        // por isso o defeito e desta subclasse, nao de todo o FoT.)
+        if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
         // Tokens are now on the Router; skip the user-pull in the core path.
         return _swapPrePulled(route, received, userMinOut, recipient, deadline, msg.sender);
     }
@@ -463,6 +474,19 @@ contract BlazePhoenixRouter {
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
+        // FOT-01: A PUXADA TAMBEM E UMA TRANSFERENCIA MEDIDA. O laco das pernas
+        // marca o TSLOT_FOT quando a transferencia Router->pool entrega menos
+        // (:1476-1482), mas a puxada de ENTRADA media aqui nunca o marcava. Num
+        // token de taxa ASSIMETRICA — taxa no transferFrom, isenta o transfer,
+        // ou isenta a pool — nenhuma perna ve discrepancia, o `fotSeen` fica a
+        // zero, e o bloco dos pisos aplica o `route.singleOutFloor` tal como
+        // veio do plano: dimensionado para o amountIn NOMINAL, contra uma saida
+        // produzida a partir do `received`. O swap honesto morria em RouterE(5).
+        // (Num token que taxa TODAS as transferencias o laco ja o apanhava —
+        // por isso o defeito e desta subclasse, nao de todo o FoT.)
+        if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
+        // O TSLOT_FOT e armazenamento TRANSITORIO da conta do Router, logo
+        // sobrevive a auto-chamada externa abaixo (mesma transaccao, mesma conta).
         return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);
     }
 
@@ -496,6 +520,17 @@ contract BlazePhoenixRouter {
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
+        // FOT-01: A PUXADA TAMBEM E UMA TRANSFERENCIA MEDIDA. O laco das pernas
+        // marca o TSLOT_FOT quando a transferencia Router->pool entrega menos
+        // (:1476-1482), mas a puxada de ENTRADA media aqui nunca o marcava. Num
+        // token de taxa ASSIMETRICA — taxa no transferFrom, isenta o transfer,
+        // ou isenta a pool — nenhuma perna ve discrepancia, o `fotSeen` fica a
+        // zero, e o bloco dos pisos aplica o `route.singleOutFloor` tal como
+        // veio do plano: dimensionado para o amountIn NOMINAL, contra uma saida
+        // produzida a partir do `received`. O swap honesto morria em RouterE(5).
+        // (Num token que taxa TODAS as transferencias o laco ja o apanhava —
+        // por isso o defeito e desta subclasse, nao de todo o FoT.)
+        if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
         return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);
     }
 
@@ -1015,6 +1050,36 @@ contract BlazePhoenixRouter {
                 // the real tokenIn from the hop context so _execV4Amt writes the
                 // correct token into transient storage for the unlock callback.
                 if (legIn == address(0)) legIn = hop.tokenIn;
+                // A PERNA TEM DE NEGOCIAR O PAR DO HOP. Sem isto, `_legTokens`
+                // deriva os dois tokens da POOL DO CALLDATA e o executor gasta
+                // um token que este swap nunca recebeu: um hop unico A->B cuja
+                // unica perna nomeia a pool T/B faz `legIn = T`, e o clamp
+                // abaixo entrega ao atacante o saldo INTEIRO de T parado no
+                // Router (medido: 100e18 -> 0 por 0,28e18 de fee; ver
+                // test/LegDivergentStrandedDrain.t.sol). E a forma do R3/BP-15
+                // um nivel abaixo: a guarda de continuidade do R3 vive entre
+                // HOPS e nem se aplica quando h == 0.
+                //
+                // O `legOut` fecha-se pela mesma razao e no mesmo sitio: o
+                // `_execScaled` mede o `got` na variacao do saldo de `legOut`
+                // (:1293-1314), logo uma perna que produza um token que nao e o
+                // do hop faz o `hopGot` contar unidades erradas — e drena o
+                // saldo parado do lado da SAIDA em vez do da entrada.
+                //
+                // NAO MATA O `bridge collapsing`. Essa justificacao (docstring
+                // do `_legTokens`) assenta na alegacao "the Solver collapses
+                // bridge routes into a single hop", que o `Quoter:257-260` ja
+                // documenta como FALSA desde 2026-08-22: `_planViaBridge`
+                // devolve `new Hop[](2)` desde sempre. E o `Solver:811-822`
+                // constroi cada perna a partir de `getActivePools(tIn, tOut)`
+                // com `zeroForOne: cands[i].token0 == tIn` — toda perna que o
+                // planeador produz negoceia o par exacto do hop. A guarda e um
+                // no-op para tudo o que o sistema gera.
+                //
+                // E a invariante que a CAMADA 1 ja assumia sem ninguem a impor:
+                // ":1050-1052 as pernas de um hop sao homogeneas (mesmo par),
+                // logo as quotes atestadas somam-se DIRETAMENTE".
+                if (legIn != hop.tokenIn || legOutRaw != hop.tokenOut) revert RouterE(3);
                 // DOIS VALORES, UM CALCULO. O `legAmt` de cotacao e mulDiv(leg.amountIn,
                 // scaleNum, scaleDen) — exatamente o `scaledAmt` ANTES do clamp da ultima perna.
                 // O portao dentro do `_execScaled` reescala por amt/legAmt, logo o clamp fica

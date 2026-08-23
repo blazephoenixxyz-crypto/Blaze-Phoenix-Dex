@@ -1356,10 +1356,22 @@ contract BlazePhoenixSolver {
                 d = BPC.impactV2Bps(hop.legs[i].amountIn, rIn);
             } else if (BPC.kindHas(hop.legs[i].kind, BPC.A_CONC_POOL)) {
                 uint128 liq  = BPC.getLiquidity(hop.legs[i].pool);
-                uint160 sp   = BPC.getSqrtPriceX96(hop.legs[i].pool);
+                // INV-20 no impacto: a fee EFECTIVA, nao a declarada. Para
+                // Algebra a regra R2 do Hub (Hub:511-512) obriga a fee do
+                // registo a ser o sentinela 0 — passa-lo cru ao impactV3Bps
+                // precificava a perna SEM fee nenhuma, subestimava o impacto e
+                // publicava um `singleOutFloor` mais APERTADO do que aquele que
+                // a execucao enfrenta. Como o Router so pode APERTAR o piso com
+                // o do plano (Router:1203), um fill honesto morria em RouterE(5).
+                // Os outros dois canais que precificam Algebra ja mediam
+                // (Core.universalQuote e Router._hopScaleImpactAndQuote): este
+                // era o irmao por corrigir.
+                // CUSTO ZERO EM STATICCALLS: v3StateAndDynFee ja faz o slot0()
+                // que o getSqrtPriceX96 fazia, e devolve a fee viva de borla.
+                (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(hop.legs[i].pool);
                 d = BPC.impactV3Bps(
                         hop.legs[i].amountIn, sp, liq,
-                        uint24(hop.legs[i].fee),
+                        BPC.effV3Fee(uint24(hop.legs[i].fee), dynFee, dyn),
                         hop.legs[i].zeroForOne
                     );
             } else {
@@ -1410,10 +1422,13 @@ contract BlazePhoenixSolver {
                     d = BPC.impactV2Bps(L.amountIn, rIn);
                 } else if (BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
                     uint128 liq2 = BPC.getLiquidity(L.pool);
-                    uint160 sp2  = BPC.getSqrtPriceX96(L.pool);
+                    // Ver a nota gemea em _assembleRoute: fee EFECTIVA, e o
+                    // v3StateAndDynFee substitui o getSqrtPriceX96 sem custar
+                    // um staticcall a mais.
+                    (uint160 sp2, uint24 dynFee2, bool dyn2) = BPC.v3StateAndDynFee(L.pool);
                     d = BPC.impactV3Bps(
                             L.amountIn, sp2, liq2,
-                            uint24(L.fee),
+                            BPC.effV3Fee(uint24(L.fee), dynFee2, dyn2),
                             L.zeroForOne
                         );
                 } else {

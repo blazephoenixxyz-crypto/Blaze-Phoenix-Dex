@@ -1438,7 +1438,59 @@ contract BlazePhoenixHub {
             // native-side pairs), costing a 20k SSTORE on a user's swap.
             _writeV4Code(ncp, ncp, fee, nTs);
         }
-        _register(key, pool, kind, fee, hooks, t0, t1, false);
+        // ─── REG-02 + REG-01: OS DATA DO PROPONENTE SAO COORDENADAS, NAO FACTOS ───
+        // Esta linha gravava no registo a `fee` e os `hooks` VINDOS DO CALLDATA do
+        // Router, na mesma transaccao em que a profundidade era MEDIDA. O CI ja
+        // tem a guarda "Depth producer guard (profundidade nunca vem de calldata)"
+        // com a razao escrita — "se um produtor grava um numero que o chamador
+        // escolheu, o chamador passa a decidir o ranking do registo". A `fee` e os
+        // `hooks` eram o canal irmao dessa guarda, por fechar.
+        //
+        // O QUE ISTO PERMITIA (medido em test/RegistryFeeFromCalldata.t.sol):
+        // vigiar a mempool, correr a frente do primeiro swap numa pool honesta
+        // ainda nao registada com um swap de po declarando `leg.fee = 9000`, e a
+        // pool ficava cotada com 90% de fee (effV2Fee esta em BPS) ate ao despejo.
+        // O `tickSlot` preserva os bits da fee, e o `recordSwap` auto-guarda em
+        // `slot != 0`: nem um swap honesto posterior corrigia.
+        //
+        // A FEE, por origem da verdade:
+        //   V4 / V4-nativo -> a do calldata, porque esta AUTENTICADA e nao
+        //     confiada: entra no `computeV4PoolId`, e o `_recoverV4Ts` acima ja
+        //     devolveu sem registar se o pid derivado nao bateu com a pool.
+        //   Algebra (`dyn`) -> 0, o sentinela que manda o leitor MEDIR ao vivo
+        //     (`effV3Fee`). E a regra R2 (L511-512), que so existia na porta
+        //     `addFactory` — esta porta nunca a teve.
+        //   V3 estatica -> `getV3Fee(pool)`, medida.
+        //   V2 / Solidly -> `fee()` nao existe, logo 0, e `effV2Fee(0) = 30`: o
+        //     produtor unico da casa responde, em vez do chamador.
+        // O `dyn` do `v3StateAndDynFee` discrimina pela FORMA (slot0 falha e
+        // globalState responde), nao por uma lista de venues.
+        //
+        // PORQUE NAO DISCRIMINAR PELO `kind`, que ja esta aqui de graca: porque
+        // o `kind` TAMBEM vem do calldata. Esta porta so verifica que ele esta
+        // no KINDS_EXECUTABLE — nunca que a pool E daquele tipo. Um
+        // `kind = KIND_ALGEBRA` declarado numa pool V3 real com `fee = 3000`
+        // executa limpo, gravaria o sentinela 0, e a partir dai o
+        // `effV3Fee(0, 0, dyn=false)` devolve 0xFFFFFF fail-closed: a pool ficava
+        // permanentemente incotavel. Trocar um campo de calldata por outro campo
+        // de calldata nao fecha nada — so a leitura da FORMA da pool nao confia
+        // em ninguem. Custa ~190 B do Hub, medidos: e o preco de nao ter
+        // reintroduzido o defeito ao fecha-lo.
+        //
+        // OS HOOKS: address(0) sempre, e e provavel e nao conservador. Todo o
+        // caminho que chega aqui vindo do `recordSwap` ou provou que a pool NAO
+        // tem hook (os ramos V4 derivam o poolId hookless e fazem `return` se
+        // falharem — tao explicito que a `V4Entry` fixa `hooks: address(0)` a
+        // mao) ou pertence a um kind sem hooks. Gravar o `hooks` do calldata
+        // deixava envenenar `hooksOf[key]`: um endereco nao allow-listado
+        // fazia a pool LEGITIMA cair do filtro de `getActivePools` (L1156,
+        // `pi.hooks == address(0) || isHookLive(pi.hooks)`).
+        uint24 feeReg = fee;
+        if (kind != BPC.KIND_V4 && kind != BPC.KIND_V4_NATIVE) {
+            (, , bool dynShape) = BPC.v3StateAndDynFee(pool);
+            feeReg = dynShape ? 0 : BPC.getV3Fee(pool);
+        }
+        _register(key, pool, kind, feeReg, address(0), t0, t1, false);
         // initial tick + stamp wall-clock activity time
         $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthWad, uint32(block.timestamp)));
         emit Volume(key, amtIn, amtOut);

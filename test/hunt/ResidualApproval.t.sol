@@ -146,7 +146,14 @@ contract ResidualApprovalTest is Test {
 
     function test_ResidualApproval_MustNotSurvive() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
+        // RouterE(3), nao (8), desde o fix do LEG-01 (2026-08-23). A rota nomeia
+        // `evil`, que nao reporta token0()/token1(), logo a guarda de
+        // homogeneidade de perna (Router:1017) recusa-a na ADMISSAO — antes de
+        // o dispatch chegar ao `revert RouterE(8)` do kind-lapide. E uma
+        // garantia MAIS forte, nao menos: o caminho que poderia deixar
+        // allowance nem sequer corre. A invariante que este teste existe para
+        // provar — allowance residual == 0 — continua verificada abaixo.
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         router.swapExactIn(_route(2 /* lapide */), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 residual = IERC20Min(address(tokenIn)).allowance(address(router), address(evil));
@@ -160,7 +167,14 @@ contract ResidualApprovalTest is Test {
     ///         admission of it.
     function test_ResidualApproval_IsDrainable() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
+        // RouterE(3), nao (8), desde o fix do LEG-01 (2026-08-23). A rota nomeia
+        // `evil`, que nao reporta token0()/token1(), logo a guarda de
+        // homogeneidade de perna (Router:1017) recusa-a na ADMISSAO — antes de
+        // o dispatch chegar ao `revert RouterE(8)` do kind-lapide. E uma
+        // garantia MAIS forte, nao menos: o caminho que poderia deixar
+        // allowance nem sequer corre. A invariante que este teste existe para
+        // provar — allowance residual == 0 — continua verificada abaixo.
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         router.swapExactIn(_route(2 /* lapide */), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 residual = IERC20Min(address(tokenIn)).allowance(address(router), address(evil));
@@ -184,7 +198,14 @@ contract ResidualApprovalTest is Test {
     ///         Lei III: a defect on one arm is a defect on its twin.
     function test_ResidualApproval_CurveCryptoArm() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
+        // RouterE(3), nao (8), desde o fix do LEG-01 (2026-08-23). A rota nomeia
+        // `evil`, que nao reporta token0()/token1(), logo a guarda de
+        // homogeneidade de perna (Router:1017) recusa-a na ADMISSAO — antes de
+        // o dispatch chegar ao `revert RouterE(8)` do kind-lapide. E uma
+        // garantia MAIS forte, nao menos: o caminho que poderia deixar
+        // allowance nem sequer corre. A invariante que este teste existe para
+        // provar — allowance residual == 0 — continua verificada abaixo.
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         router.swapExactIn(_route(7 /* lapide */), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         assertEq(
