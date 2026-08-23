@@ -137,7 +137,7 @@ contract HardeningA1FeeCoverageTest is Test {
 
     /// O que a pool entrega, precado sobre o que RESTA depois da fee — a rota so ve o liquido.
     function _grossOut() internal view returns (uint256) {
-        return BPC.outV3(AMOUNT_IN - FEE_IN, SQRT_P_1, LIQ, POOL_FEE, zfo);
+        return BPC.outV3(AMOUNT_IN - FEE_IN, SQRT_P_1, LIQ, POOL_FEE, zfo, 0);
     }
 
     /// As tesourarias sao pagas em tokenIn. Ler tokenB aqui era a leitura do desenho antigo.
@@ -169,7 +169,7 @@ contract HardeningA1FeeCoverageTest is Test {
 
     function test_Fee_ForgedV3LegFee_CannotZeroTheFeeBase() public {
         uint256 gross       = _grossOut();
-        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, FORGED_FEE, zfo);
+        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, FORGED_FEE, zfo, 0);
 
         // Attack preconditions, asserted so the test can never pass vacuously:
         // the forged quote is real but implausibly small — far below the 50%

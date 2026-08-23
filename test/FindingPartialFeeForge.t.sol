@@ -46,7 +46,7 @@ contract FindingPartialFeeForgeTest is Test {
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
             hasSurplus: false, isV4Bundle: false});
     }
-    function _grossOut() internal view returns (uint256) { return BPC.outV3(_netIn(AMOUNT_IN), SQRT_P_1, LIQ, POOL_FEE, zfo); }
+    function _grossOut() internal view returns (uint256) { return BPC.outV3(_netIn(AMOUNT_IN), SQRT_P_1, LIQ, POOL_FEE, zfo, 0); }
     function _treasuries() internal view returns (uint256) { return tokenA.balanceOf(T1) + tokenA.balanceOf(T2); }
 
 
@@ -57,7 +57,7 @@ contract FindingPartialFeeForgeTest is Test {
     function test_PartialForge_DoesNotEvadeFee() public {
         uint24 forged = 500_000;
         uint256 gross = _grossOut();
-        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, forged, zfo);
+        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, forged, zfo, 0);
         uint256 coverage = BPC.mulDiv(forgedQuote, 10_000, gross);
         assertGt(forgedQuote, 0, "setup: forged quote non-zero");
         assertGe(coverage, MIN_QUOTE_COVERAGE_BPS, "setup: forged quote clears the 50% bar");

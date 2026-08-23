@@ -237,7 +237,7 @@ contract BlazePhoenixRouterTest is Test {
         tokenOut.mint(address(v3pool), 1_000_000e18);
 
         uint256 amountIn = 1_000e18;
-        uint256 expectedOut = BPC.outV3(amountIn, sqrtP, liq, 3000, zfo);
+        uint256 expectedOut = BPC.outV3(amountIn, sqrtP, liq, 3000, zfo, 0);
         assertGt(expectedOut, 0);
 
         Leg[] memory legs = new Leg[](1);

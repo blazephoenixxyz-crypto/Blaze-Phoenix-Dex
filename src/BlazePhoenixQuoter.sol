@@ -31,7 +31,7 @@
 //
 //  The Quoter is the read-only mirror of the Router. For a route it returns:
 //
-//      netOut = grossOut · (1 − fee)^H · (1 − safety(n))
+//      netOut = grossOut · (1 − fee) · (1 − safety(n))      [uma so fee desde 22/08]
 //
 //  Where:
 //
@@ -130,14 +130,15 @@ contract BlazePhoenixQuoter {
         uint256 grossOut;          // U(route)
         uint256 protocolFee;       // o EFEITO da fee sobre a saida, em tokenOut (ver cabecalho)
         uint256 safetyBuffer;      // safety(n) × afterFee
-        uint256 netOut;            // grossOut · (1 − fee)^H · (1 − safety)
+        uint256 netOut;            // grossOut · (1 − fee) · (1 − safety)
         uint256 ironFloor;         // output floor supplied by the Solver
         uint256 userMinOut;        // user-supplied tighter floor (optional)
         uint256 effectiveMinOut;   // max(userMinOut, ironFloor)
         uint256 estGas;
         uint256 hops;
         uint256 legs;
-        uint8   topology;          // 0 = direct, 1 = via bridge
+        uint8   topology;          // 0 = directo, 1 = uma ponte, 2 = duas pontes
+        //                            (= hops - 1; era SEMPRE 0 ate 2026-08-22)
         address bridgeUsed;
         bool    canExecute;
     }
@@ -205,18 +206,22 @@ contract BlazePhoenixQuoter {
     {
         pv.route       = route;
         pv.grossOut    = route.totalOut;
-        // A FEE E POR HOP, E COMPOE. Cada hop cobra sobre a SUA entrada, portanto a saida sofre
-        // o desconto uma vez por hop, multiplicativamente — nao uma vez sobre o total. Uma rota
-        // de dois hops perde ~56 bps, nao 28. Iterar (H <= 3 neste desenho) e exato; uma
-        // aproximacao linear `H * 28 bps` sobre-estimava a perda e faria o preview mentir para
-        // baixo, que e o lado errado para mentir.
+        // A FEE E UMA SO, DESDE 2026-08-22. Este laco compunha `(1-fee)^H` porque
+        // o Router cobrava em CADA hop: uma rota de 2 hops perdia ~56 bps e uma
+        // de 3 perderia ~84, quando a constante diz 28. Com as topologias de tres
+        // hops o H so ia crescer.
+        //
+        // O Router passou a cobrar UMA vez, na primeira moeda de ponte que segura
+        // (input do hop 1, ou a saida quando um swap directo ja termina numa
+        // ponte). O efeito sobre a saida deixa de compor: e um desconto unico.
+        //
+        // ESTE E O CANAL IRMAO do `_chargeHopFee`. Se um deles mudar sem o outro,
+        // a cotacao volta a mentir sobre o que a execucao faz — a assinatura de
+        // defeito desta base, registada com N=3 na nota 122.
         uint256 afterFee = route.totalOut;
-        for (uint256 h; h < route.hops.length; ) {
-            afterFee -= BPC.mulDiv(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-            unchecked { ++h; }
-        }
-        // O EFEITO da fee sobre a saida, em tokenOut. Nao e o que as tesourarias recebem — elas
-        // recebem os tokens de ENTRADA de cada hop. Ver o cabecalho.
+        afterFee -= BPC.mulDiv(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // O EFEITO da fee sobre a saida, em tokenOut. Nao e o que as tesourarias
+        // recebem — elas recebem UM token de PONTE (WETH/USDC). Ver o cabecalho.
         pv.protocolFee = route.totalOut > afterFee ? route.totalOut - afterFee : 0;
 
         uint256 legs;
@@ -249,15 +254,26 @@ contract BlazePhoenixQuoter {
         (pv.topology, pv.bridgeUsed) = _classify(route);
     }
 
+    /// @dev CLASSIFICADOR REAL desde 2026-08-22. Estava morto: devolvia sempre
+    ///      `(0, address(0))` e justificava-se com "the Solver collapses bridge
+    ///      routes into a single hop". **Isso e falso** — o `_planViaBridge`
+    ///      devolve `new Hop[](2)` desde sempre, e agora ha tambem rotas de tres
+    ///      hops. Consequencia: `pv.topology` era SEMPRE 0 e `pv.bridgeUsed`
+    ///      SEMPRE zero, portanto qualquer leitor (a UI, um varrimento de
+    ///      metricas) que os usasse lia uma constante e nao uma medicao.
+    ///
+    ///      A topologia deriva-se do NUMERO DE HOPS, que e a definicao: um hop e
+    ///      directo, dois passam por uma ponte, tres por duas. E a ponte usada e
+    ///      o `tokenOut` do hop 0 — o primeiro token intermedio que a rota toca,
+    ///      que e tambem onde a fee e cobrada.
     function _classify(Route memory route)
         private pure returns (uint8 topology, address bridgeUsed)
     {
-        if (route.hops.length == 0) return (0, address(0));
-        if (route.hops[0].legs.length == 0) return (0, address(0));
-        // v2.0.0: the Solver collapses bridge routes into a single hop, so the
-        // classifier reports a flat (direct) topology. Richer bridge inspection
-        // for the UI is deferred to a later version.
-        return (0, address(0));
+        uint256 n = route.hops.length;
+        if (n == 0 || route.hops[0].legs.length == 0) return (0, address(0));
+        if (n == 1) return (0, address(0));                 // directo
+        // 1 = via uma ponte (2 hops), 2 = via duas pontes (3 hops), ...
+        return (uint8(n - 1), route.hops[0].tokenOut);
     }
 
     // =========================================================================

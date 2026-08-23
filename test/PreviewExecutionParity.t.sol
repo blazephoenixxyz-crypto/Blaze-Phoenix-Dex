@@ -119,9 +119,24 @@ contract PreviewExecutionParityTest is Test {
         assertApproxEqRel(entregue, pv.netOut, 0.001e18, "o preview de dois hops nao bate com a entrega");
     }
 
-    /// E O CAMPO `protocolFee` TEM DE COMPOR. Numa rota de dois hops o efeito da fee sobre a saida
-    /// e maior que numa de um — se for igual, o Quoter esta a descontar uma vez so.
-    function test_FeeCompoeComOsHops() public view {
+    /// @notice A FEE DEIXOU DE COMPOR — 2026-08-22, decisao do dono.
+    ///
+    /// @dev Ate 21/08 o Router cobrava em CADA hop e o Quoter modelava
+    ///      `(1-fee)^H`: uma rota de dois hops descontava ~56 bps quando a
+    ///      constante diz 28. Com as topologias de tres hops o H so ia crescer
+    ///      (~84 bps), e o numero deixava de ter relacao com o que dizia.
+    ///
+    ///      Agora cobra-se UMA vez, na primeira moeda de PONTE. Este teste
+    ///      passou a pinar o contrario do que pinava: as duas rotas descontam
+    ///      ~28 bps, e a de dois hops desconta LIGEIRAMENTE MENOS — porque a
+    ///      fee incide sobre o valor na ponte, que ja sofreu o impacto de preco
+    ///      do hop 0. Medido: 27 contra 28.
+    ///
+    ///      Esse desconto e a fuga limitada que o test/FeeEscapeViaBridgeResidual
+    ///      documenta: acrescentar um hop faz a fee descer pelo impacto de UM
+    ///      hop, e nao mais. Se algum dia esta fraccao descer muito abaixo de 27,
+    ///      ha uma fuga NOVA e este teste apanha-a.
+    function test_FeeNaoCompoeEDescontaUmaSoVez() public view {
         (BlazePhoenixQuoter.Preview memory um, , ) = quoter.previewPlan(address(tA), address(tB), AMOUNT_IN);
         (BlazePhoenixQuoter.Preview memory dois, , ) = quoter.previewPlan(address(tA), address(tC), AMOUNT_IN);
         assertEq(um.hops, 1, "pre-condicao");
@@ -130,7 +145,10 @@ contract PreviewExecutionParityTest is Test {
         // Em fraccao da saida bruta, para comparar rotas de tamanhos diferentes.
         uint256 fracUm   = BPC.mulDiv(um.protocolFee,   10_000, um.grossOut);
         uint256 fracDois = BPC.mulDiv(dois.protocolFee, 10_000, dois.grossOut);
-        assertApproxEqAbs(fracUm, 28, 1, "um hop tem de descontar ~28 bps");
-        assertApproxEqAbs(fracDois, 56, 1, "dois hops tem de descontar ~56 bps: a fee compoe");
+        assertApproxEqAbs(fracUm, 28, 1, "um hop desconta ~28 bps");
+        // NAO 56: a fee e uma so. E ligeiramente ABAIXO de 28 porque incide
+        // sobre o valor na ponte, ja depois do impacto do hop 0.
+        assertApproxEqAbs(fracDois, 27, 1, "dois hops descontam ~28 bps, nao ~56: a fee NAO compoe");
+        assertLe(fracDois, fracUm, "e nunca mais do que a rota curta");
     }
 }

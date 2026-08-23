@@ -81,8 +81,8 @@ contract FeeProducersSingleTest is Test {
         uint24 legal    = BPC.effV3Fee(0, 0, true);   // 0% medido
         uint24 fechado  = BPC.effV3Fee(0, 0, false);  // nao medido
 
-        uint256 comFeeLegal   = BPC.outV3(1e18, sp, liq, legal,   true);
-        uint256 comSentinela  = BPC.outV3(1e18, sp, liq, fechado, true);
+        uint256 comFeeLegal   = BPC.outV3(1e18, sp, liq, legal,   true, 0);
+        uint256 comSentinela  = BPC.outV3(1e18, sp, liq, fechado, true, 0);
 
         assertGt(comFeeLegal, 0, "uma pool de 0% tem de continuar cotavel");
         assertEq(comSentinela, 0, "uma fee nao medida tem de matar a cotacao");

@@ -120,6 +120,17 @@ contract FeeEscapeViaBridgeResidualTest is Test {
             address(hub), address(0xBEEF), address(this), treasury1, treasury2
         );
 
+        // A PONTE TEM DE SER PONTE PARA O HUB, nao so na prosa deste ficheiro.
+        // Ate 2026-08-23 este teste chamava `tB` "a PONTE" nos comentarios e nos
+        // asserts e NUNCA registava a bridge — `hub.isBridgeToken(tB)` devolvia
+        // false. Nenhum teste de fee do repo exercitava esse predicado, portanto
+        // o detector estava CEGO por construcao a qualquer regra baseada em
+        // pontes reais: passava so porque a ancora da fee era POSICIONAL.
+        // Quando a ancora passou a ser por VALOR (a cura da fuga do po no meio
+        // da rota), este teste teria ficado vermelho por artefacto do proprio
+        // teste — nao por defeito do produto.
+        hub.addBridge(address(tB));
+
         tA.mint(user, 10_000e18);
         vm.prank(user);
         tA.approve(address(router), type(uint256).max);
@@ -154,20 +165,33 @@ contract FeeEscapeViaBridgeResidualTest is Test {
     }
 
     // ═════════════════════════════════════════════════════════════════════════════════════════
-    //  DEPOIS DO FIX (2026-08-21): a fee ancora na ENTRADA.
+    //  2026-08-21: a fee ancorava na ENTRADA.  |  2026-08-22: ancora na PRIMEIRA PONTE.
     //
-    //  O que estes testes provavam era a FUGA. Agora provam o FECHO — e a invariante que os
-    //  substitui e muito mais forte do que a que existia antes:
+    //  A INVARIANTE DE ONTEM era mais forte NA FORMA:
+    //      "28 bps da entrada, em tokenIn, SEMPRE — cobrada ANTES de a rota comecar."
+    //  Um numero fixo antes de qualquer execucao, imune a qualquer retorcimento de rota.
     //
-    //      A FEE E 28 bps DA ENTRADA MEDIDA, EM tokenIn, SEMPRE.
+    //  A DE HOJE (decisao do dono: uma cobranca em vez de N, e em moeda de ponte):
+    //      "28 bps do valor que o Router segura na PRIMEIRA MOEDA DE PONTE da rota."
+    //  Multi-hop: o input do hop 1. Directo com destino em ponte: a saida. Directo sem ponte
+    //  no destino: a entrada.
     //
-    //  Nao depende da rota, porque e cobrada ANTES de a rota comecar. Um atacante e um
-    //  utilizador honesto pagam exatamente o mesmo, e nenhuma rota — por mais retorcida — pode
-    //  mudar o numero. A antiga invariante era "a fee nao excede o maximo" (um limite POR CIMA,
-    //  que nao impedia zero). Esta e uma IGUALDADE.
+    //  O QUE SE GANHOU: uma so cobranca (com tres hops a antiga cobraria ~84 bps efectivos
+    //  quando a constante diz 28), e a tesouraria recebe WETH/USDC em vez de po do destino.
+    //
+    //  O QUE SE PERDEU, E ESTA ESCRITO PARA NAO SER DESCOBERTO POR ACIDENTE: a fee passou a
+    //  DEPENDER DA ROTA. Ontem a classe inteira "retorcer a rota para pagar menos" estava
+    //  fechada POR CONSTRUCAO; hoje esta fechada POR ARGUMENTO — o canal de fuga conhecido e o
+    //  residual da ponte, e e exactamente a ponte que passa a ser taxada, portanto menos ponte
+    //  recebida significa menos ponte extraivel. O argumento aguenta para ESTE ataque (medido
+    //  abaixo). NAO ha prova de que aguenta para todos.
     // ═════════════════════════════════════════════════════════════════════════════════════════
 
+    /// 28 bps da ENTRADA — o tecto teorico. A cobranca real fica ligeiramente abaixo porque
+    /// incide sobre o valor NA PONTE, que sofreu o impacto de preco do hop 0.
     uint256 constant FEE_ESPERADA = (AMOUNT_IN * 28) / 10_000;   // 28 bps de 1000 = 2,8
+    /// Tolerancia para esse impacto: 1% do valor da fee. Medido: 2,7888 contra 2,8000 (0,4%).
+    uint256 constant TOLERANCIA = FEE_ESPERADA / 100;
 
     /// A ROTA DE ATAQUE PAGA. E a mesma que extraia ~996 tokens com fee zero.
     function test_RotaDeFugaPagaAFeeCompleta() public {
@@ -176,49 +200,77 @@ contract FeeEscapeViaBridgeResidualTest is Test {
         vm.prank(user);
         router.swapExactIn(_rotaDeFuga(), AMOUNT_IN, 1, user, block.timestamp + 1);
 
-        uint256 cobrada = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - t1Antes;
-        emit log_named_decimal_uint("fee cobrada em A (a entrada)", cobrada, 18);
-        assertEq(cobrada, FEE_ESPERADA, "a rota de fuga tem de pagar 28 bps da entrada, como todas");
+        t1Antes;  // a fee ja nao sai em A; a leitura fica para documentar a mudanca
+        // A FEE SAI NA PONTE (tB), nao na entrada nem no destino de fachada.
+        uint256 emB = tB.balanceOf(treasury1) + tB.balanceOf(treasury2);
+        uint256 emA = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
+        uint256 emC = tC.balanceOf(treasury1) + tC.balanceOf(treasury2);
+        emit log_named_decimal_uint("fee em B (a PONTE)", emB, 18);
+        assertEq(emA, 0, "nao sai na entrada");
+        assertEq(emC, 0, "nao sai no destino de fachada");
+        // O NUCLEO: a rota de ataque paga. Extraia ~996 tokens com fee zero antes do fix de 21/08.
+        assertGe(emB, FEE_ESPERADA - TOLERANCIA,
+            "a rota de fuga tem de pagar ~28 bps do valor movido, na moeda de ponte");
+        assertLe(emB, FEE_ESPERADA, "e nunca mais do que 28 bps da entrada");
     }
 
     /// A INVARIANTE, escrita por extenso: a fee e uma IGUALDADE sobre a entrada, nao um limite
     /// sobre a saida. Nenhuma rota a pode mover.
-    function test_FeeEIgualEmQualquerRota() public {
-        // rota de ataque
-        uint256 a0 = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
+    /// @notice A FEE DEIXOU DE SER IGUAL EM QUALQUER ROTA — e este teste passou a
+    ///         medir QUANTO e que ela varia, em vez de exigir que nao varie.
+    ///
+    /// @dev O QUE MUDOU E PORQUE ISTO E UMA FUGA, ainda que pequena.
+    ///      Ate 21/08 a fee eram 28 bps do `amountIn`, cobrados ANTES de a rota
+    ///      correr: identica para toda a gente, imune a forma da rota.
+    ///      Desde 22/08 cobra-se UMA vez, na primeira moeda de PONTE. Consequencia
+    ///      aritmetica directa:
+    ///
+    ///        rota de 1 hop cujo destino NAO e ponte  -> 28 bps da ENTRADA
+    ///        rota de 2+ hops                          -> 28 bps do valor NA PONTE,
+    ///                                                    que ja sofreu o impacto
+    ///                                                    de preco do hop 0
+    ///
+    ///      MEDIDO: 2,8000 contra 2,7888 — o atacante que acrescenta um hop inutil
+    ///      paga 0,4% menos. O desconto E o impacto do hop 0, portanto CRESCE com o
+    ///      tamanho do trade: num hop 0 com 5% de impacto, a fee desce 5%.
+    ///
+    ///      NAO COMPOE com mais hops (so ha uma cobranca), logo o desconto esta
+    ///      limitado pelo impacto de UM hop. E o preco da decisao de cobrar em
+    ///      moeda de ponte, e fica escrito aqui para ninguem o descobrir por
+    ///      acidente. Se um dia incomodar, o fecho e cobrar `max(28bps da entrada,
+    ///      28bps da ponte)` — mas isso volta a precisar do valor da entrada no
+    ///      frame, que foi o que esta mudanca simplificou.
+    function test_FeeMenorEmRotaLongaMasLimitadaPeloImpactoDeUmHop() public {
+        // rota de ataque: 2 hops, paga na ponte
+        uint256 a0 = tB.balanceOf(treasury1) + tB.balanceOf(treasury2);
         vm.prank(user);
         router.swapExactIn(_rotaDeFuga(), AMOUNT_IN, 1, user, block.timestamp + 1);
-        uint256 feeAtaque = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - a0;
+        uint256 feeAtaque = tB.balanceOf(treasury1) + tB.balanceOf(treasury2) - a0;
 
-        // rota honesta de uma perna, o MESMO montante de entrada
-        uint256 qAB = (AMOUNT_IN * 9970 * 1_000_000e18) / (1_000_000e18 * 10_000 + AMOUNT_IN * 9970);
-        Leg[] memory l = new Leg[](1);
-        l[0] = Leg({pool: address(pairAB), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
-            tickSpacing: 0, zeroForOne: address(tA) < address(tB), stable: false,
-            amountIn: AMOUNT_IN, expectedOut: qAB, auxId: bytes32(0)});
-        Hop[] memory hp = new Hop[](1);
-        hp[0] = Hop({tokenIn: address(tA), tokenOut: address(tB), amountIn: AMOUNT_IN, expectedOut: qAB, legs: l});
-        Route memory honesta = Route({hops: hp, totalOut: qAB, singleOut: qAB, singleOutFloor: 0,
-            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+        emit log_named_decimal_uint("fee da rota longa (na ponte)", feeAtaque, 18);
+        emit log_named_decimal_uint("28 bps da entrada (o tecto)", FEE_ESPERADA, 18);
 
-        uint256 a1 = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
-        vm.prank(user);
-        router.swapExactIn(honesta, AMOUNT_IN, 1, user, block.timestamp + 1);
-        uint256 feeHonesta = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - a1;
-
-        assertEq(feeAtaque, feeHonesta, "a fee nao pode depender da FORMA da rota");
-        assertEq(feeAtaque, FEE_ESPERADA, "e tem de ser exatamente 28 bps da entrada");
+        // O TECTO: nunca pode pagar MAIS do que 28 bps da entrada.
+        assertLe(feeAtaque, FEE_ESPERADA, "a fee nao pode exceder 28 bps da entrada");
+        // O CHAO: o desconto esta limitado ao impacto de UM hop. Se algum dia uma
+        // rota pagar muito abaixo disto, ha uma fuga NOVA e este teste apanha-a.
+        assertGe(feeAtaque, FEE_ESPERADA - TOLERANCIA,
+            "o desconto tem de ficar dentro do impacto de um hop");
     }
 
-    /// A divisao 30/70 sobrevive a mudanca de token.
     function test_DivisaoDasTesourariasMantemSe() public {
         vm.prank(user);
         router.swapExactIn(_rotaDeFuga(), AMOUNT_IN, 1, user, block.timestamp + 1);
-        uint256 t1 = tA.balanceOf(treasury1);
-        uint256 t2 = tA.balanceOf(treasury2);
-        assertEq(t1 + t2, FEE_ESPERADA, "o total tem de bater certo");
-        assertEq(t1, (FEE_ESPERADA * 3_000) / 10_000, "tesouraria 1 leva 30%");
-        assertEq(t2, FEE_ESPERADA - t1, "tesouraria 2 leva o resto, sem po perdido");
+        // A DIVISAO 30/70 e o que este teste pina — nao o valor absoluto, que
+        // agora depende do impacto do hop 0. Medir o total e dividi-lo mantem o
+        // teste a testar a REGRA e nao um numero que a curva mexe.
+        uint256 t1 = tB.balanceOf(treasury1);
+        uint256 t2 = tB.balanceOf(treasury2);
+        uint256 total = t1 + t2;
+        assertGe(total, FEE_ESPERADA - TOLERANCIA, "a fee tem de ser ~28 bps do valor movido");
+        assertLe(total, FEE_ESPERADA, "e nunca mais do que 28 bps da entrada");
+        assertEq(t1, (total * 3_000) / 10_000, "tesouraria 1 leva 30%");
+        assertEq(t2, total - t1, "tesouraria 2 leva o resto, sem po perdido");
     }
 
     /// O SEGUNDO CANAL, tambem fechado. A volta circular A->B->A->C extraia 992 A com fee zero.
@@ -254,18 +306,33 @@ contract FeeEscapeViaBridgeResidualTest is Test {
         Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
 
-        uint256 antes = tA.balanceOf(treasury1) + tA.balanceOf(treasury2);
+        // A volta circular A->B->A->C tem 3 hops: a fee sai no input do hop 1, que e o tB.
+        uint256 antes = tB.balanceOf(treasury1) + tB.balanceOf(treasury2);
         vm.prank(user);
         router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1);
-        uint256 cobrada = tA.balanceOf(treasury1) + tA.balanceOf(treasury2) - antes;
+        uint256 cobrada = tB.balanceOf(treasury1) + tB.balanceOf(treasury2) - antes;
 
-        // A INVERSAO DO INCENTIVO, escrita como assercao. Com a fee no INTERIOR da rota, cada
-        // hop paga no seu proprio token. Uma volta circular de tres hops paga TRES vezes — logo
-        // encher a rota de hops deixou de ser uma forma de escapar e passou a ser uma forma de
-        // pagar mais. Era exatamente esta rota que extraia 992 A com fee ZERO.
-        assertGe(cobrada, FEE_ESPERADA,
-            "o minimo e sempre a taxa cheia sobre a entrada: nunca menos");
-        assertGt(cobrada, FEE_ESPERADA,
-            "e uma rota de tres hops paga MAIS que uma de um: os hops de po custam");
+        // O INCENTIVO VOLTOU A INVERTER-SE, E ESTA E A CONSEQUENCIA QUE MAIS IMPORTA.
+        //
+        // Com a fee POR HOP (21/08), uma volta circular de tres hops pagava TRES
+        // vezes: encher a rota de hops era uma forma de pagar MAIS, e o proprio
+        // ataque se auto-desencorajava.
+        //
+        // Com a fee UNICA na primeira ponte (22/08), acrescentar hops faz a fee
+        // descer — pelo impacto de preco do hop 0, e so por esse. Medido aqui:
+        // 2,7888 contra os 2,8000 que uma rota de 1 hop sem ponte no destino paga.
+        //
+        // O ATAQUE CONTINUA A NAO COMPENSAR, e e por isso que este teste passa a
+        // pinar o LIMITE em vez da igualdade: a volta circular paga ~28 bps do
+        // valor na ponte e devolve ao atacante menos do que ele meteu (duas
+        // travessias de curva). O desconto de 0,4% nao paga a perda de ~60 bps
+        // das duas passagens. Mas o desencorajamento deixou de ser ESTRUTURAL e
+        // passou a ser ECONOMICO — depende dos numeros do mercado, nao da forma
+        // do contrato.
+        emit log_named_decimal_uint("fee da volta circular (na ponte)", cobrada, 18);
+        assertLe(cobrada, FEE_ESPERADA, "nunca mais do que 28 bps da entrada");
+        assertGe(cobrada, FEE_ESPERADA - TOLERANCIA,
+            "o desconto tem de ficar dentro do impacto de UM hop - se descer mais, ha fuga nova");
+
     }
 }

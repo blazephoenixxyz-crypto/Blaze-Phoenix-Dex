@@ -62,6 +62,7 @@ interface ISolverR {
 }
 
 interface IHubW {
+    function isBridgeToken(address t) external view returns (bool);
     function recordSwap(
         address pool, uint8 kind, uint24 fee, address hooks,
         address tA, address tB, uint256 amtIn, uint256 amtOut, uint256 depthWad
@@ -739,7 +740,7 @@ contract BlazePhoenixRouter {
                     // perna concentrada, nas quatro portas. Cotar primeiro e derivar o impacto
                     // do numero ja obtido da o MESMO valor: o `impactV3Bps` nao faz outra coisa
                     // senao isto (ver a nota do `impactV3FromOut` no Core).
-                    uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne);
+                    uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne, 0);
                     impactAcc += BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne);
                     legQuotes[l] = q_; quoteAcc += q_;
                 } else { impactAcc += 50; }
@@ -801,8 +802,8 @@ contract BlazePhoenixRouter {
         }
         (address t0, address t1) = BPC.sortTokens(tokenIn, tokenOther);
         bytes32 pid = BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
-        (uint160 sp4, uint128 lq4, uint24 lpF4, uint24 pF4) = BPC.v4SqrtAndLiq(v4mgr, pid);
-        if (sp4 != 0 && lq4 != 0) quote = BPC.outV3(legAmt, sp4, lq4, BPC.effV4Fee(leg.fee, lpF4, pF4), leg.zeroForOne);
+        (uint160 sp4, uint128 lq4, uint24 lpF4, uint24 pF4, ) = BPC.v4SqrtAndLiq(v4mgr, pid);
+        if (sp4 != 0 && lq4 != 0) quote = BPC.outV3(legAmt, sp4, lq4, BPC.effV4Fee(leg.fee, lpF4, pF4), leg.zeroForOne, 0);
     }
 
     /// @dev `payer` is who funded this swap and therefore who the unspent
@@ -869,6 +870,39 @@ contract BlazePhoenixRouter {
             unchecked { ++bh; }
         }
 
+        // ─── ONDE E QUE A FEE INCIDE ───────────────────────────────────
+        // ANCORA POR VALOR, NAO POR INDICE. A versao anterior ancorava no
+        // literal `h == 1` e ASSUMIA — nunca verificava — que `hops[1].tokenIn`
+        // era ponte. O proprio docstring de `_chargeHopFee` ja tinha nomeado o
+        // ataque que isso abre ("ancorada no hop k -> inserem-se k hops de po
+        // antes dele"); a regra nova pos k=1 e reabriu-o no meio da rota.
+        //
+        // FUGA MEDIDA (PoC, pool CPMM canonica de 30 bps): rota
+        // tU->tX->tU->tW com `tX` cunhado pelo atacante e a pool (tU,tX) dele.
+        // A fee saia inteira em `tX` — po que ele proprio imprimiu — e o `tU`
+        // ficava preso na pool dele, que ele recupera queimando LP. Saldo
+        // liquido: +280 tU, ou seja 100% da fee, por ~130k de gas.
+        //
+        // A cura e procurar o PRIMEIRO hop cuja entrada seja mesmo uma ponte.
+        // E o caso degenerado — uma rota que nao toca ponte nenhuma — volta ao
+        // comportamento PRE-DIFF (cobrar em TODOS os hops), que e o unico
+        // imune por EXAUSTAO: nao ha indice onde inserir po que escape a todos.
+        // Ancorar esse caso na entrada (h==0) reabriria o prefixo de po, e e
+        // por isso que a primeira versao desta correccao punha o
+        // `test_JUIZ_PrefixoSemValorEscapaAFee` vermelho.
+        //
+        // O Solver constroi TODAS as rotas multi-hop atraves de pontes
+        // registadas, logo o caminho honesto continua a pagar 28 bps uma unica
+        // vez, na moeda de ponte — a decisao do dono fica intacta.
+        uint256 feeHop = type(uint256).max;
+        for (uint256 fi; fi < route.hops.length; ) {
+            if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
+            unchecked { ++fi; }
+        }
+        // Lido UMA vez: o predicado usado aqui e no bloco do fim tem de ser o
+        // mesmo valor, e entre os dois corre a rota toda (hooks incluidos).
+        bool feeOnOut = route.hops.length == 1 && hub.isBridgeToken(tokenOut);
+
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
@@ -896,10 +930,34 @@ contract BlazePhoenixRouter {
             // Uma alocacao por hop (MAX_LEGS_PER_HOP entradas, memoria, sem storage). Carrega a
             // quote MEDIDA de cada perna ate ao portao de cobertura em `_execScaled` — antes
             // estas medicoes eram somadas e o valor por perna deitado fora.
-            // ─── A FEE E UMA PROPRIEDADE DO INTERIOR DA ROTA ───
-            // Cobra-se AQUI, em cada hop, no token desse hop, e ANTES do escalamento — para que
-            // as pernas sejam precadas sobre o que resta, como ja acontece com fee-on-transfer.
-            amountIn = _chargeHopFee(hop, h, amountIn, foreignBase);
+            // ─── A FEE E COBRADA UMA VEZ, NA PRIMEIRA MOEDA DE PONTE ───
+            //
+            // DECISAO DO DONO 2026-08-22. Antes cobrava-se em CADA hop, no token
+            // desse hop: uma rota de 2 hops pagava ~56 bps efectivos e uma de 3
+            // pagaria ~84, quando a constante diz 28. A composicao `(1-fee)^H`
+            // estava ate escrita no cabecalho do Quoter — o numero dizia uma
+            // coisa e a rota cobrava outra, e o H so cresceu com esta sessao.
+            //
+            // A REGRA NOVA, e e uma so: cobra-se no INPUT do hop 1, que e a
+            // primeira moeda de PONTE da rota. Numa rota directa nao ha hop 1,
+            // logo cobra-se no hop 0 (comportamento inalterado).
+            //
+            // PORQUE NA PONTE E NAO NO DESTINO: as pontes sao WETH e USDC. A
+            // tesouraria recebe um token liquido que quer deter, em vez de po de
+            // um token de cauda qualquer que calhe ser o destino.
+            //
+            // PORQUE NO INPUT DO HOP 1 E NAO NA SAIDA DO HOP 0: sao o MESMO
+            // token e o MESMO montante — a saida do hop 0 e o que o hop 1 vai
+            // gastar — mas o input do hop 1 e medido pelo SALDO REAL
+            // (`bal - foreignBase`), que ja e resistente a fee-on-transfer e a
+            // saldos estranhos. Escolher a formulacao que reutiliza a medicao
+            // existente evita um segundo produtor do "quanto e que este hop tem".
+            // Numa rota DIRECTA cujo destino JA e uma ponte, a fee sai na saida
+            // (ver o bloco no fim desta funcao) — aqui nao se cobra nada, senao
+            // cobrava-se duas vezes.
+            if (!feeOnOut && (feeHop == type(uint256).max || h == feeHop)) {
+                amountIn = _chargeHopFee(hop, h, amountIn, foreignBase);
+            }
 
             uint256[] memory legQuotes = new uint256[](hop.legs.length);
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
@@ -1121,10 +1179,29 @@ contract BlazePhoenixRouter {
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
         if (amountOut < effMin) revert RouterE(5);
 
-        // A FEE JA FOI COBRADA NA ENTRADA, no topo desta funcao. Aqui nao ha base de fee, nem
-        // ramo de cobertura, nem clamps, nem excedente: tudo o que sobreviveu aos pisos e do
-        // utilizador. O que eram ~40 linhas com tres numeros a discutir entre si e uma atribuicao.
+        // ─── A FEE, QUANDO SAI NA SAIDA ───────────────────────────────────
+        // Rota DIRECTA cujo destino ja e uma moeda de ponte (TOKEN -> WETH):
+        // a fee sai daqui, e nao da entrada. E a mesma regra do multi-hop —
+        // "cobra-se na primeira moeda de ponte que o Router segura" — aplicada
+        // ao caso em que essa moeda e o proprio destino.
+        //
+        // DEPOIS DO PISO, E A ORDEM IMPORTA. O piso valida a QUALIDADE DO SWAP
+        // ("as pools entregaram o que cotaram?"), que e uma pergunta sobre o
+        // mercado e nao sobre o protocolo. O corte do protocolo sai a seguir, do
+        // montante ja validado. Cobrar antes faria o piso rejeitar swaps
+        // perfeitamente bons por causa da nossa propria fee.
+        //
+        // E o `delivered` medido abaixo ja e o valor liquido, portanto o
+        // `userMinOut` do utilizador e comparado com o que ele REALMENTE recebe.
         uint256 net = amountOut;
+        if (feeOnOut) {
+            uint256 fOut = BPC.mulDiv(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            if (fOut != 0) {
+                if (fOut >= amountOut) revert RouterE(8);
+                _payFee(tokenOut, fOut);
+                unchecked { net = amountOut - fOut; }
+            }
+        }
 
         // Tudo o que sobrou vai para o destinatario.
         // Measure the recipient's ACTUAL balance delta: fee-on-transfer tokens
@@ -1650,7 +1727,28 @@ contract BlazePhoenixRouter {
                 address t1 = leg.zeroForOne ? hop.tokenOut : hop.tokenIn;
                 uint256 depth;
                 if (BPC.kindHas(leg.kind, BPC.A_RESERVES)) {
-                    depth = _v2Depth(leg.pool);
+                    // NORMALIZAR ANTES DO `min`. Este era o OITAVO sitio da
+                    // mesma classe de defeito: o `min(r0, r1)` cru escolhe o
+                    // lado com menos UNIDADES, nao o lado mais RASO. Um par
+                    // USDC(6)/WETH(18) com 700M USDC da 7e14 < 1e15 e cai no
+                    // bucket 0 — e como o `tickSlot` reescreve o bucket
+                    // incondicionalmente, o PRIMEIRO swap roteado desfazia o
+                    // bucket correcto que o registo ja tinha. Em pares
+                    // stable-stable TODAS as pools V2/Solidly ficavam no
+                    // bucket 0, para sempre, independentemente do tamanho.
+                    //
+                    // Consequencias medidas do bucket 0: `psi` degenera, a
+                    // defesa anti-dust do `_canInsert` fica INERTE, e pools
+                    // V2/Solidly fundas perdem o ranking do funil contra V3
+                    // do mesmo par.
+                    //
+                    // Os outros sete sitios foram curados em 2026-08-21
+                    // (Core `to18`/`shortSide18`/`depthFromL18`, Router:1684,
+                    // Hub:668). Este escapou porque vive no caminho de
+                    // REGISTO e nao no de cotacao, e o
+                    // `test/DepthBucketDecimals.t.sol` so exercita a
+                    // primitiva do Core.
+                    depth = _v2Depth18(leg.pool, t0, t1);
                 } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                     // leg.pool is the truncated poolId-as-address (no
                     // bytecode): getLiquidity(leg.pool) would silently
@@ -1675,13 +1773,19 @@ contract BlazePhoenixRouter {
                     // pelo que o `tickSlot` de recordSwap reescrevia o bucket correto que o
                     // claimV4 tinha gravado, desfazendo esse fix no primeiro swap roteado.
                     // O sqrtPrice ja vinha a ser lido aqui e deitado fora: converter e gratis.
-                    (uint160 sp4, uint128 liq, , ) = BPC.v4SqrtAndLiq(v4mgr, pid);
-                    depth = BPC.depthFromL(liq, sp4);
+                    (uint160 sp4, uint128 liq, , , ) = BPC.v4SqrtAndLiq(v4mgr, pid);
+                    // NORMALIZADO por decimais: o bucket do Monoslot nasce AQUI.
+                    // Sem isto, todo par com um lado de 6/8 casas cai no bucket 0
+                    // e a pool de mil milhoes pesa o mesmo que a de po.
+                    depth = BPC.depthFromL18(liq, sp4,
+                        BPC.decimalsOf(t0), BPC.decimalsOf(t1));
                 } else {
                     // V3/Algebra: L cru esta em escala-raiz e nao e comparavel com o min(r0,r1)
                     // que o V2 reporta. Uma leitura de slot0 a mais no caminho de registo (que
                     // ja corre dentro de try/catch e fora do caminho critico do swap).
-                    depth = BPC.depthFromL(BPC.getLiquidity(leg.pool), BPC.getSqrtPriceX96(leg.pool));
+                    depth = BPC.depthFromL18(
+                        BPC.getLiquidity(leg.pool), BPC.getSqrtPriceX96(leg.pool),
+                        BPC.decimalsOf(t0), BPC.decimalsOf(t1));
                 }
                 try hub.recordSwap(
                     leg.pool, leg.kind, leg.fee, leg.hooks,
@@ -1693,8 +1797,12 @@ contract BlazePhoenixRouter {
         }
     }
 
-    function _v2Depth(address pool) private view returns (uint256) {
+    /// @dev Profundidade de um par de reservas, em unidades de 18 casas.
+    ///      A normalizacao vem ANTES do `min` — trocar a ordem e o defeito.
+    function _v2Depth18(address pool, address t0, address t1)
+        private view returns (uint256)
+    {
         (uint256 r0, uint256 r1) = BPC.getReserves(pool);
-        return r0 < r1 ? r0 : r1;
+        return BPC.shortSide18(r0, BPC.decimalsOf(t0), r1, BPC.decimalsOf(t1));
     }
 }
