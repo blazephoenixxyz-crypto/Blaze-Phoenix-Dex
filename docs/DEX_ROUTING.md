@@ -68,7 +68,24 @@ fly and keeps those with deployed code. A coherence guard rejects structurally
 impossible `(kind, mode, initHash, fees)` combinations at registration. One
 init-code hash works across chains for Uniswap-V3-shaped venues.
 
-The full CREATE2 sweep is the dominant cost of an on-chain solve. The registry
+> **CORRIGIDO 2026-08-21 — esta secção estava desactualizada.**
+> A afirmação "the full CREATE2 sweep is the dominant cost of an on-chain solve"
+> e a tabela de −72% a −80% abaixo foram **refutadas por medição**:
+>
+> | onde | descoberta / solve |
+> |---|---|
+> | harness local (mock) | 95.663 de 208.844 |
+> | **fork da Base @49.800.000** | **75k de 2,17M = 3,4%** |
+>
+> O custo dominante é a **cotação** — até 8 candidatos por par (`MAX_CANDIDATES`),
+> 3 pares por solve, cada um com `universalQuote` (delegatecall + staticcalls à
+> pool). E o portão de frescura que saltaria a descoberta **quase nunca dispara**:
+> `MIN_FRESH_VENUES = 3` por par, mas o `recordSwap` só regista as pernas
+> **executadas** (1-2 por par desde o colapso single-leg), logo `rn < 3` sempre.
+> Ver `test/fork/DiscoveryCostBreakdown.t.sol` e `test/fork/OnchainDiscoveryCost.t.sol`.
+
+
+~~The full CREATE2 sweep is the dominant cost of an on-chain solve. The registry
 records the venues a pair actually trades through, so the Solver treats it as a
 **warm cache**: it unions registered venues with a sweep, but **skips the sweep**
 when the pair already has at least three registered venues active within a

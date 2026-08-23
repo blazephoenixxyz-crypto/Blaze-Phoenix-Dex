@@ -206,7 +206,7 @@ jobs:
         # nothing for a real one, which fails all three deterministically. So
         # this cuts the false-red rate without weakening the signal at all.
         run: |
-          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest"
+          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest"
           for attempt in 1 2 3; do
             if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC"; then
               exit 0

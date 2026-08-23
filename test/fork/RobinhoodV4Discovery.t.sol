@@ -84,7 +84,7 @@ contract RobinhoodV4DiscoveryTest is Test {
         for (uint256 j = 99; j >= 1; --j) {
             uint24 f = uint24(10000 * j);
             int24  t = int24(uint24(100 * j));
-            ( , uint128 liq, , ) =
+            ( , uint128 liq, , , ) =
                 BPC.v4SqrtAndLiq(V4_MGR, BPC.computeV4PoolId(c0, c1, f, t, address(0)));
             if (liq != 0) return (f, t, true);
         }

@@ -57,7 +57,7 @@ contract MockV3Pool {
     ) external returns (int256 amount0, int256 amount1) {
         require(amountSpecified > 0, "MockV3Pool: exact-out unsupported");
         uint256 amtIn = uint256(amountSpecified);
-        uint256 amtOut = BPC.outV3(amtIn, sqrtPriceX96, liquidity, fee, zeroForOne);
+        uint256 amtOut = BPC.outV3(amtIn, sqrtPriceX96, liquidity, fee, zeroForOne, 0);
         require(amtOut > 0, "MockV3Pool: zero out");
 
         address tokenIn  = zeroForOne ? token0 : token1;

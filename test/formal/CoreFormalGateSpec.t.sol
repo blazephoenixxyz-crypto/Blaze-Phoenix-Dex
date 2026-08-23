@@ -54,7 +54,7 @@ contract CoreFormalGateSpec is Test {
         uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee, bool zfo
     ) external pure {
         if (ain == 0 || liq == 0 || sqrtP == 0 || fee >= 1_000_000) {
-            assert(BPC.outV3(ain, sqrtP, liq, fee, zfo) == 0);
+            assert(BPC.outV3(ain, sqrtP, liq, fee, zfo, 0) == 0);
         }
     }
 }

@@ -50,7 +50,7 @@ contract CoreFormalSpec is Test {
         uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee
     ) external pure {
         vm.assume(sqrtP > 0 && liq > 0 && fee < 1_000_000);
-        uint256 out = BPC.outV3(ain, sqrtP, liq, fee, true);
+        uint256 out = BPC.outV3(ain, sqrtP, liq, fee, true, 0);
         // out = L·(√P − √P') / Q96  ≤  L·√P / Q96
         assert(out <= BPC.mulDiv(uint256(liq), uint256(sqrtP), BPC.Q96));
     }
