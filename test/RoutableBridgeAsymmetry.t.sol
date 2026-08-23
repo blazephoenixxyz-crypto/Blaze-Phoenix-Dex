@@ -58,6 +58,16 @@ contract RoutableBridgeAsymmetryTest is Test {
         hub.addBridge(B2);
     }
 
+    /// O LIMITE E O QUE O SOLVER CONSEGUE EXPANDIR, e nada mais. O Solver le `hub.bridge(0)`
+    /// e `hub.bridge(1)` DESENROLADO A MAO; uma terceira posicao no array sem um terceiro
+    /// braco la seria a bridge fantasma outra vez, e uma terceira leitura sem a posicao no
+    /// array reverte com Panic 0x32. As duas constantes tem de descer e subir JUNTAS.
+    function test_LimiteDeBridgesEExactamenteMaxBridges() public {
+        assertEq(hub.bridgeCount(), 3, "o setUp ja configurou o maximo");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 7));
+        hub.addBridge(address(0xB003));
+    }
+
     function _bridged(bytes32 key) internal view returns (bool) {
         return ((hub.getSlot(key) >> BRIDGED_BIT) & 1) == 1;
     }
@@ -103,10 +113,10 @@ contract RoutableBridgeAsymmetryTest is Test {
 
         g = gasleft();
         try hub.claimV4(B2, OTHER, 3000, 60) { } catch { }
-        uint256 gastoComB2 = g - gasleft();
+        uint256 gastoComB1 = g - gasleft();
 
-        assertLt(gastoSemAncora, gastoComB2,
-            "um par sem ancora morre NO PORTAO; com a bridge(2) tem de passar e chegar a prova");
+        assertLt(gastoSemAncora, gastoComB1,
+            "um par sem ancora morre NO PORTAO; com a bridge(1) tem de passar e chegar a prova");
     }
 
     /// O PINO ENTRE AS DUAS CONSTANTES. Hoje `MAX_BRIDGE_ROUTES == MAX_BRIDGES` e por isso

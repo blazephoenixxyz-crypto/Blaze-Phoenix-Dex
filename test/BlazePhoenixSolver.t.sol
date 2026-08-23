@@ -25,6 +25,7 @@ contract BlazePhoenixSolverTest is Test {
     MockERC20 tokenA;
     MockERC20 tokenB;
     MockERC20 bridgeToken;
+    MockERC20 b2Tok;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -34,6 +35,7 @@ contract BlazePhoenixSolverTest is Test {
         tokenA = new MockERC20("A", "A");
         tokenB = new MockERC20("B", "B");
         bridgeToken = new MockERC20("BRIDGE", "BR");
+        b2Tok       = new MockERC20("BRIDGE2", "BR2");
     }
 
     // ─── helpers ──────────────────────────────────────────────────────
@@ -118,7 +120,7 @@ contract BlazePhoenixSolverTest is Test {
         // the median band filter (near-identical marginal rate) and the
         // depth-weighted split must allocate roughly 10x more to the deep one.
         // amountIn is 10% of the deep reserve so the split's impact saving
-        // (~83 bps over single-pool) clears MIN_SPLIT_IMPROVEMENT_BPS — the
+        // (~83 bps over single-pool) clears MIN_SPLIT_IMPROVEMENT_PPM — the
         // gate keeps splits that genuinely pay for their legs.
         MockV2Pair deep    = _seedV2(address(tokenA), address(tokenB), 1_000_000e18, 1_600_000e18);
         MockV2Pair shallow = _seedV2(address(tokenA), address(tokenB), 100_000e18,   160_000e18);
@@ -147,22 +149,51 @@ contract BlazePhoenixSolverTest is Test {
     // =========================================================================
 
     /// @notice Same two-pool topology, but a small trade (1% of the deep
-    ///         reserve): the split's impact saving is only ~9 bps — less than
-    ///         MIN_SPLIT_IMPROVEMENT_BPS (20) — so the plan must collapse to
-    ///         the single deep leg. An extra leg costs ~30k real execution
-    ///         gas; a split that cannot beat the single-best pool by the
-    ///         threshold is a net loss for the user and must not ship.
-    function test_MinSplitGate_CollapsesMicroSplitToSingleLeg() public {
-        MockV2Pair deep    = _seedV2(address(tokenA), address(tokenB), 1_000_000e18, 1_600_000e18);
+    ///         reserve): a poupanca de impacto do split fica ABAIXO de
+    ///         MIN_SPLIT_IMPROVEMENT_PPM, logo o plano tem de colapsar na perna
+    ///         funda unica.
+    ///
+    ///         CENARIO REAJUSTADO A 2026-08-21. O limiar desceu de 20 para 5
+    ///         bps (ver test/SplitThreshold.t.sol: o ponto morto REAL da Base
+    ///         e 0,030 bps, e os 20 estavam 667x acima do que representavam).
+    ///         O trade de 10.000e18 dava ~9 bps de ganho — que a 5 bps passa a
+    ///         SOBREVIVER, e bem: 9 bps sao 300x o ponto morto. Para continuar
+    ///         a pinar o invariante ("ganho abaixo do limiar colapsa") o trade
+    ///         desceu para 1.000e18: menos impacto na pool funda, logo menos a
+    ///         ganhar com o split.
+    /// @dev OS DOIS LADOS DO LIMIAR, e a razao de o teste ter mudado de forma.
+    ///
+    ///      A versao anterior pinava so um lado ("este montante colapsa") e por
+    ///      isso teve de ser recalibrada de cada vez que o limiar desceu:
+    ///      10.000e18 quando o gate era 20 bps, 1.000e18 quando passou a 5, e
+    ///      teria de descer outra vez agora que sao 0,25. Um teste que muda
+    ///      sempre que a constante muda nao esta a pinar a constante — esta a
+    ///      segui-la.
+    ///
+    ///      Pinar os DOIS lados amarra o que interessa de facto: que existe um
+    ///      limiar, que abaixo dele colapsa e acima dele divide. Isso continua
+    ///      verdadeiro para qualquer valor do gate, e falha se alguem apagar o
+    ///      gate (tudo dividiria) ou o puser absurdamente alto (nada dividiria).
+    function test_MinSplitGate_LimiarTemDoisLados() public {
+        MockV2Pair deep = _seedV2(address(tokenA), address(tokenB), 1_000_000e18, 1_600_000e18);
         _seedV2(address(tokenA), address(tokenB), 100_000e18, 160_000e18);
 
-        uint256 amountIn = 10_000e18; // split gain ~9 bps < 20 bps threshold
-        RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amountIn);
+        // ABAIXO: 0,01% da pool funda. A poupanca de impacto do split e
+        // minuscula face ao custo das pernas — tem de colapsar.
+        RoutePlan memory pequeno =
+            solver.findBestRoutePlan(address(tokenA), address(tokenB), 100e18);
+        assertEq(pequeno.best.hops[0].legs.length, 1,
+            "abaixo do limiar: o micro-split tem de colapsar numa perna");
+        assertEq(pequeno.best.hops[0].legs[0].pool, address(deep),
+            "e a perna unica e a melhor, nao uma qualquer");
+        assertEq(pequeno.best.hops[0].amountIn, 100e18,
+            "o colapso nao pode deixar capital para tras");
 
-        assertEq(plan.best.hops[0].legs.length, 1, "micro-split must collapse to the single best leg");
-        assertEq(plan.best.hops[0].legs[0].pool, address(deep), "the deep pool is the single-best leg");
-        // The single leg carries the full input - nothing stranded by the collapse.
-        assertEq(plan.best.hops[0].amountIn, amountIn);
+        // ACIMA: 10% da pool funda. Aqui o split paga-se largamente.
+        RoutePlan memory grande =
+            solver.findBestRoutePlan(address(tokenA), address(tokenB), 100_000e18);
+        assertGe(grande.best.hops[0].legs.length, 2,
+            "acima do limiar: o split tem de acontecer, senao o gate esta a matar valor real");
     }
 
     // =========================================================================
@@ -220,7 +251,7 @@ contract BlazePhoenixSolverTest is Test {
         MockV3Pool pool = _seedV3(address(tokenA), address(tokenB), sqrtP, liq, balOut);
 
         uint256 amountIn = 6_000e18;
-        uint256 rawOut = BPC.outV3(amountIn, sqrtP, liq, 3000, tokenA < tokenB);
+        uint256 rawOut = BPC.outV3(amountIn, sqrtP, liq, 3000, tokenA < tokenB, 0);
         uint256 cap = BPC.mulDiv(balOut, 3_000, BPC.BPS);
         // Sanity-check the scenario actually lands in the intended regime.
         assertGt(rawOut, cap, "precondition: raw quote must exceed the 30% cap");
@@ -244,7 +275,7 @@ contract BlazePhoenixSolverTest is Test {
         MockV3Pool pool = _seedV3(address(tokenA), address(tokenB), sqrtP, liq, balOut);
 
         uint256 amountIn = 500_000e18;
-        uint256 rawOut = BPC.outV3(amountIn, sqrtP, liq, 3000, tokenA < tokenB);
+        uint256 rawOut = BPC.outV3(amountIn, sqrtP, liq, 3000, tokenA < tokenB, 0);
         uint256 cap = BPC.mulDiv(balOut, 3_000, BPC.BPS);
         assertGt(rawOut, balOut, "precondition: raw quote must exceed whole holdings (phantom)");
 
@@ -304,7 +335,7 @@ contract BlazePhoenixSolverTest is Test {
     //  MAX_CANDIDATES funnel cut — top-K by weight, not discovery/list order
     // =========================================================================
 
-    function test_FunnelCut_KeepsDeepestFiveOfSeven() public {
+    function test_FunnelCut_KeepsDeepestFourOfSeven() public {
         // Seven same-rate pools with strictly increasing depth. The direct
         // topology's leg budget is MAX_LEGS = 5, so after the median filter
         // keeps all 7 (same rate), the funnel cut must retain exactly the 5
@@ -318,7 +349,7 @@ contract BlazePhoenixSolverTest is Test {
         uint256 amountIn = 1_000e18;
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amountIn);
 
-        assertEq(plan.best.hops[0].legs.length, 5, "budget is MAX_LEGS=5");
+        assertEq(plan.best.hops[0].legs.length, 4, "o orcamento de UM hop e MAX_LEGS_PER_STAGE=4, nao o tecto global");
         bool sawShallowest;
         bool sawSecondShallowest;
         for (uint256 i; i < plan.best.hops[0].legs.length; ++i) {
@@ -377,5 +408,57 @@ contract BlazePhoenixSolverTest is Test {
             assertTrue(plan.best.hops[0].legs[i].pool != address(betterPool),
                 "fresh registry must skip discovery; the undiscovered pool cannot appear");
         }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  TOPOLOGIA DE DUAS PONTES — a mudanca-bandeira de 2026-08-22
+    // ═════════════════════════════════════════════════════════════════════════
+    //
+    //  PORQUE ESTES DOIS TESTES EXISTEM. O `test/ThreeHopRanking.t.sol` que os
+    //  precedeu declarava um `struct M` e um `_considera` DENTRO do proprio
+    //  teste e nunca instanciava o Solver: pinava a aritmetica de um acumulador
+    //  COPIADO. Apagar o `_planViaTwoBridges` inteiro deixava-o verde. A
+    //  DESCOBERTA de rotas de tres hops nao tinha uma unica linha de cobertura.
+    //  (A EXECUCAO tinha — FeeEscapeViaBridgeResidual monta a rota a mao.)
+    //
+    //  Verificado: o primeiro fica `[FAIL: SolverE(5)]` com `return route;` no
+    //  topo do `_planViaTwoBridges` real, e `[PASS]` com o codigo de producao.
+
+    /// @notice So a topologia de DUAS PONTES produz rota aqui: nao ha pool
+    ///         directa, nem A->ponte->B, nem A->ponte2->B. Se o Solver nao
+    ///         souber encadear as duas pontes, nao ha rota nenhuma.
+    function test_TresHopsPorDuasPontes() public {
+        hub.addBridge(address(bridgeToken));
+        hub.addBridge(address(b2Tok));
+        _seedV2(address(tokenA),      address(bridgeToken), 1_000_000e18, 1_000_000e18);
+        _seedV2(address(bridgeToken), address(b2Tok),       1_000_000e18, 1_000_000e18);
+        _seedV2(address(b2Tok),       address(tokenB),      1_000_000e18, 1_600_000e18);
+
+        RoutePlan memory plan =
+            solver.findBestRoutePlan(address(tokenA), address(tokenB), 1_000e18);
+        assertEq(plan.best.hops.length, 3, "so a rota por duas pontes existe");
+        assertEq(plan.best.hops[0].tokenOut, address(bridgeToken), "hop 0 -> ponte 1");
+        assertEq(plan.best.hops[1].tokenOut, address(b2Tok),       "hop 1 -> ponte 2");
+        assertEq(plan.best.hops[2].tokenOut, address(tokenB),      "hop 2 -> destino");
+    }
+
+    /// @notice O CONTROLO NEGATIVO, e e a pergunta literal do dono: "se o melhor
+    ///         preco e logo directo nao ha necessidade de 2 hops". Com uma pool
+    ///         directa MUITO mais funda, a directa tem de ganhar mesmo com as
+    ///         duas pontes registadas e roteaveis.
+    ///
+    ///         Sem este teste, o de cima ficaria verde com um Solver que
+    ///         PREFERISSE sempre a rota mais longa.
+    function test_DirectaMelhorGanhaSobreAsDuasPontes() public {
+        hub.addBridge(address(bridgeToken));
+        hub.addBridge(address(b2Tok));
+        _seedV2(address(tokenA), address(tokenB), 10_000_000e18, 16_000_000e18);
+        _seedV2(address(tokenA),      address(bridgeToken), 5_000e18, 5_000e18);
+        _seedV2(address(bridgeToken), address(b2Tok),       5_000e18, 5_000e18);
+        _seedV2(address(b2Tok),       address(tokenB),      5_000e18, 8_000e18);
+
+        RoutePlan memory plan =
+            solver.findBestRoutePlan(address(tokenA), address(tokenB), 1_000e18);
+        assertEq(plan.best.hops.length, 1, "a directa entrega mais: tem de ganhar");
     }
 }
