@@ -103,7 +103,7 @@ jobs:
         # LEITURA, enquanto o getV3Fee devolve 0 tanto para "falhou" como para "e mesmo zero".
         # So o segundo pode fechar sobre um zero.
         run: |
-          if grep -rnE '==[[:space:]]*0[[:space:]]*\?[[:space:]]*30([^0-9]|$)' src/ \\
+          if grep -rnE '==[[:space:]]*0[[:space:]]*\?[[:space:]]*30([^0-9]|$)' src/ \
              | grep -vE 'return declared == 0 \? 30 : declared' | grep -vE ':\s*(///|//|\*)'; then
             echo "::error::Default de fee V2 escrito a mao. Usa BPC.effV2Fee — tres copias de um literal e a assinatura de defeito da casa."
             exit 1
