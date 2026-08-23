@@ -257,7 +257,7 @@ contract RouterV4NativeEthTest is Test {
 
     function test_Native_WethToToken_SettlesWithValueAndDelivers() public {
         uint256 amt = 10e18;
-        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, true);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, true, 0);
         assertGt(realQuote, 0, "sanity: quotable");
         uint256 mgrEthBefore = address(mgr).balance;
 
@@ -277,7 +277,7 @@ contract RouterV4NativeEthTest is Test {
 
     function test_Native_TokenToWeth_TakesEthAndRewraps() public {
         uint256 amt = 10e18;
-        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, false);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, false, 0);
         assertGt(realQuote, 0, "sanity: quotable");
         uint256 mgrEthBefore = address(mgr).balance;
 
@@ -301,7 +301,7 @@ contract RouterV4NativeEthTest is Test {
         mgr.setStranger(stranger);
         mgr.setProbeMidSwap(true);
         uint256 amt = 5e18;
-        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, false);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, false, 0);
 
         // token -> WETH so the take window (expected sender = mgr) opens.
         Route memory route = _nativeRoute(false, amt, realQuote);
@@ -330,7 +330,7 @@ contract RouterV4NativeEthTest is Test {
 
     function test_Native_QuoteAndExecutionShareTheNativePoolId() public {
         uint256 amt = 10e18;
-        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, true);
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, true, 0);
         Route memory route = _nativeRoute(true, amt, realQuote);
 
         vm.recordLogs();

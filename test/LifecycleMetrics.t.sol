@@ -166,7 +166,7 @@ contract LifecycleMetricsTest is Test {
         }
 
         console2.log("");
-        console2.log("=== PHASE 3: WARM solve (registry fresh -> discovery skipped) ===");
+        console2.log("=== PHASE 3: WARM solve (registo POVOADO -- ver a assercao abaixo) ===");
         (uint256 gWarmSolve, uint256 legsWarm) = _solveGas();
         console2.log("findBestRoutePlan WARM, gas:", gWarmSolve);
         console2.log("  legs planned:", legsWarm);

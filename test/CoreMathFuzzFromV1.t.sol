@@ -36,10 +36,10 @@ contract CoreMathFuzzFromV1Test is Test {
         uint160 sqrtP = uint160(_b(sp, Q96 / 4, Q96 * 4)); // price ~ [0.06 .. 16]
         uint128 L = uint128(_b(liq, 1e15, 1e27));
         fee = uint24(_b(fee, 0, 999_999));
-        uint256 o1 = BPC.outV3(ain, sqrtP, L, fee, zfo);
-        uint256 o2 = BPC.outV3(ain * 2, sqrtP, L, fee, zfo);
+        uint256 o1 = BPC.outV3(ain, sqrtP, L, fee, zfo, 0);
+        uint256 o2 = BPC.outV3(ain * 2, sqrtP, L, fee, zfo, 0);
         assertGe(o2, o1, "outV3: not monotone in amountIn");
-        uint256 oFull = BPC.outV3(ain, sqrtP, L, 1_000_000, zfo);
+        uint256 oFull = BPC.outV3(ain, sqrtP, L, 1_000_000, zfo, 0);
         assertEq(oFull, 0, "outV3: fee>=100% must be unquotable (0)");
     }
 

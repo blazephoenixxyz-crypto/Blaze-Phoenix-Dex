@@ -131,6 +131,23 @@ struct QuoteCtx {
     address tokenOther;
     address hooks;
     address v4Manager;   // V4 PoolManager (for extsload state reads); 0 if N/A
+    /// @dev Decimais dos dois tokens, CODIFICADOS COMO `decimais + 1`.
+    ///      0 = "nao preenchido" -> o `universalQuote` le-os ele proprio.
+    ///
+    ///      PORQUE +1 E NAO O VALOR DIRECTO: memoria por omissao e zero, e
+    ///      existem tokens com GENUINAMENTE 0 decimais. Um sentinela `0 = nao
+    ///      preenchido` trataria esses como nao-preenchidos e, pior, um
+    ///      chamador que esquecesse os campos herdaria "0 decimais" em
+    ///      silencio — profundidade inflada por 1e18. Com +1 os dois casos
+    ///      sao distinguiveis e a correccao NUNCA depende do chamador.
+    ///
+    ///      Existe para HOISTING: os candidatos de um par partilham os mesmos
+    ///      dois tokens, e ler `decimals()` por candidato custa 2.339 gas
+    ///      (medido; o EIP-2929 nao o torna gratis porque o USDC e um proxy
+    ///      com delegatecall por dentro). Ler uma vez por PAR baixa o custo de
+    ///      +2,2% para +0,7% do solve on-chain.
+    uint8   decIn1;
+    uint8   decOther1;
 }
 
 library BlazePhoenixCore {
@@ -563,6 +580,19 @@ library BlazePhoenixCore {
         require(ok, "BPC:transferFrom");
     }
 
+    /// @dev ORFAS DESDE 2026-08-20, E FICAM. Serviam o `_execCurveAmt` do Router;
+    ///      com o Curve e o Balancer excisados nao ha um unico call site em `src/`.
+    ///
+    ///      MEDIDO a 2026-08-21, e por isso nao se apagam: sao `internal` numa
+    ///      LIBRARY, logo o compilador so as emite se forem chamadas. Build do
+    ///      Core COM elas: 6.519 bytes. SEM elas: 6.519 bytes. **Delta zero** —
+    ///      ja nao estao no bytecode deployado.
+    ///
+    ///      Apagar custaria dois ficheiros de teste e um harness para poupar
+    ///      NADA, e perder-se-ia logica de aprovacao USDT-safe testada, para o
+    ///      dia em que um venue dessa familia voltar. "Codigo morto" numa
+    ///      library internal nao e divida de BYTECODE, e divida de LEITURA — e
+    ///      esta nota paga-a.
     function safeApprove(address token, address spender, uint256 amt) internal {
         bool ok;
         assembly ("memory-safe") {
@@ -643,6 +673,22 @@ library BlazePhoenixCore {
 
     /// @notice Read an ERC-20's decimals(), defaulting to 18 if absent.
     ///         Used by the stable solver to normalise reserves to 1e18.
+    /// @notice Decimais de um token, com 18 como omissao segura. INTERNAL porque
+    ///         o caminho de REGISTO (Router e Hub) tambem precisa dela: o bucket
+    ///         que vai para o Monoslot nasce la, e um bucket cego a decimais
+    ///         colapsa o sinal de profundidade dos pares de 6/8 casas — ver
+    ///         `shortSide18` e test/DepthBucketDecimals.t.sol.
+    function decimalsOf(address token) internal view returns (uint8) { return _decimalsOf(token); }
+
+    /// @dev Decimais a partir do ctx, com leitura de recurso. A correccao nao
+    ///      depende de o chamador ter preenchido: se nao preencheu, le-se.
+    function _decIn(QuoteCtx memory c) private view returns (uint8) {
+        return c.decIn1 != 0 ? c.decIn1 - 1 : _decimalsOf(c.tokenIn);
+    }
+    function _decOther(QuoteCtx memory c) private view returns (uint8) {
+        return c.decOther1 != 0 ? c.decOther1 - 1 : _decimalsOf(c.tokenOther);
+    }
+
     function _decimalsOf(address token) private view returns (uint8 d) {
         d = 18;
         assembly ("memory-safe") {
@@ -651,7 +697,20 @@ library BlazePhoenixCore {
             if staticcall(GAS_CAP, token, m, 4, m, 32) {
                 if eq(returndatasize(), 32) {
                     let v := mload(m)
-                    if lt(v, 256) { d := v }
+                    // SETENTA E OITO, nao 256. O `to18` faz `10 ** (dec - 18)`
+                    // em aritmetica CHECKED: com `dec >= 96` isso transborda
+                    // uint256 e da Panic 0x11 — o que viola o contrato escrito
+                    // deste ficheiro ("SATURA em vez de reverter") e abre um
+                    // vector de griefing real: um token com `decimals() = 200`
+                    // faz o swap EXECUTAR todas as pernas e so depois reverter
+                    // no `_recordHits` do Router, que corre FORA do try/catch.
+                    // O gas do utilizador e queimado por inteiro.
+                    // Tambem mata o `decimalsOf(tIn) + 1` do Solver, que
+                    // transborda o uint8 com `decimals() == 255`.
+                    // 10^77 e o maior valor que cabe em uint256, logo 77 e o
+                    // maior expoente utilizavel; acima disso cai-se no default
+                    // de 18 (fail-open, coerente com o resto da funcao).
+                    if lt(v, 78) { d := v }
                 }
             }
         }
@@ -707,6 +766,71 @@ library BlazePhoenixCore {
     ///      Os consumidores tratam-no em seguranca: o `_weights` do Solver normaliza contra o
     ///      maximo da familia e da peso minimo a um zero (`if (w == 0) w = 1`), sem divisao por
     ///      zero. Falha SUAVE — a pool perde prioridade, nao envenena a comparacao.
+    /// @notice Normaliza uma quantidade token-denominada para 18 casas decimais.
+    /// @dev SATURA em vez de reverter: uma profundidade absurda tem de degradar
+    ///      para "muito funda", nunca fazer a cotacao inteira falhar.
+    function to18(uint256 v, uint8 dec) internal pure returns (uint256) {
+        if (v == 0 || dec == 18) return v;
+        if (dec > 18) return v / (10 ** (uint256(dec) - 18));
+        uint256 f = 10 ** (18 - uint256(dec));
+        unchecked {
+            uint256 r = v * f;
+            return r / f == v ? r : type(uint256).max;
+        }
+    }
+
+    /// @notice O lado CURTO de um par, ja em 18 casas — a profundidade comparavel.
+    ///
+    /// @dev PORQUE ISTO EXISTE, e nao um `min` cru como antes.
+    ///
+    ///      A versao anterior fazia `min(a0, a1)` sobre unidades CRUAS. Isso tem
+    ///      dois defeitos, e o segundo e o grave:
+    ///
+    ///      1. O MINIMO fica decidido pelos DECIMAIS, nao pela profundidade. Num
+    ///         par USDC(6)/WETH(18) o lado do USDC tem 1e12 vezes menos unidades
+    ///         para o mesmo valor, portanto ganha o `min` quase sempre — mesmo
+    ///         quando e economicamente o lado FUNDO.
+    ///
+    ///      2. O `depthBucket` corta em 1e15 unidades cruas. Traduzido:
+    ///           18 casas (WETH): sai do bucket 0 com ~3 dolares
+    ///            6 casas (USDC): so sai do bucket 0 com MIL MILHOES de dolares
+    ///            8 casas (WBTC): so sai do bucket 0 com 650 MIL MILHOES
+    ///         Logo TODAS as pools de qualquer par com 6 ou 8 casas caiam no
+    ///         bucket 0, e `bucketWeight(0) = 1` para todas. A pool de 1.400
+    ///         milhoes e a pool de 100 dolares ficavam com o MESMO peso.
+    ///
+    ///      O dano nao e inverter rankings entre pares — `_canInsert` so compara
+    ///      candidatos do MESMO par, e ai o enviesamento cancela-se. O dano e que
+    ///      o sinal de profundidade COLAPSA num unico bucket dentro desses pares,
+    ///      e `psi = vitality x bucketWeight x bonus` degenera em `vitality x 1`.
+    ///      E a defesa por profundidade e exactamente o que o comentario do
+    ///      `Hub:_canInsert` diz ter sido acrescentado para impedir: "an attacker
+    ///      can no longer keep a deep pool out merely by sending dust through 16
+    ///      shallow slots to hold their vitality at 1". Com tudo no bucket 0 essa
+    ///      defesa ficava INERTE.
+    ///
+    ///      Medido em fork da Base, bloco 49.800.000: a pool USDC/WETH de ~1.430
+    ///      milhoes de dolares saiu com bucket 0 e psi 1; a WETH/LINK, 3.481 vezes
+    ///      mais rasa, saiu com bucket 5 e psi 42. Red-first em
+    ///      test/DepthBucketDecimals.t.sol.
+    function shortSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1)
+        internal pure returns (uint256)
+    {
+        uint256 n0 = to18(a0, d0);
+        uint256 n1 = to18(a1, d1);
+        return n0 < n1 ? n0 : n1;
+    }
+
+    /// @notice `depthFromL` com normalizacao de decimais — a versao a usar.
+    /// @param d0 decimais do token0 da pool, d1 os do token1.
+    function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)
+        internal pure returns (uint256)
+    {
+        if (sp == 0) return 0;
+        return shortSide18(mulDiv(uint256(liq), Q96, sp), d0,
+                           mulDiv(uint256(liq), sp, Q96), d1);
+    }
+
     function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {
         if (sp == 0) return 0;
         uint256 x0 = mulDiv(uint256(liq), Q96, sp);
@@ -858,8 +982,17 @@ library BlazePhoenixCore {
     ///             amtOut0 = L · Q96 · (sqrtNew − sqrtP) / (sqrtP · sqrtNew)
     ///
     ///         Fee is applied to the input as the canonical (1 − fee/1e6) ratio.
+    /// @param sqrtLimit Fronteira de preco onde a swap e TRUNCADA, ou 0 para
+    ///        nao truncar. Ver `sqrtBoundary`: entre ticks inicializados o `L`
+    ///        nao muda, portanto truncar na fronteira do intervalo corrente da
+    ///        EXACTO para o que la cabe e ESTRITAMENTE ABAIXO para o resto —
+    ///        nunca acima, seja qual for a distribuicao de liquidez a frente.
+    ///        E a unica direccao de erro aceitavel: sobrestimar promete o que
+    ///        nao se entrega, e o piso de ferro nao protege porque e derivado
+    ///        desta mesma cotacao.
     function outV3(
-        uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee, bool zeroForOne
+        uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee, bool zeroForOne,
+        uint160 sqrtLimit
     ) internal pure returns (uint256 outAmt) {
         if (ain == 0 || liq == 0 || sqrtP == 0) return 0;
         if (fee >= 1_000_000) return 0;   // guard: fee ≥ 100% → unquotable
@@ -875,6 +1008,9 @@ library BlazePhoenixCore {
             uint256 product = mulDiv(amtAfterFee, P, Q96);
             uint256 sqrtNew = mulDiv(L, P, L + product);
             if (sqrtNew >= P || sqrtNew == 0) return 0;
+            // zeroForOne: o preco DESCE. Truncar significa nao o deixar cair
+            // abaixo da fronteira.
+            if (sqrtLimit != 0 && sqrtNew < sqrtLimit) sqrtNew = sqrtLimit;
             outAmt = mulDiv(L, P - sqrtNew, Q96);
         } else {
             // Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount1:
@@ -886,11 +1022,68 @@ library BlazePhoenixCore {
             uint256 dSqrt = mulDiv(amtAfterFee, Q96, L);
             uint256 sqrtNew = P + dSqrt;
             if (sqrtNew <= P) return 0;
+            // oneForZero: o preco SOBE. A fronteira e um tecto.
+            if (sqrtLimit != 0 && sqrtNew > sqrtLimit) sqrtNew = sqrtLimit;
             uint256 a = mulDiv(L, sqrtNew - P, sqrtNew);
             outAmt = mulDiv(a, Q96, P);
         }
     }
 
+
+    /// @notice Fronteira de `sqrtPrice` do intervalo de ticks corrente, na
+    ///         direccao da swap. Devolve 0 (sem limite) quando `spacing` e 0.
+    ///
+    /// @dev PORQUE ISTO E UM LIMITE VALIDO. Uma posicao de liquidez so pode
+    ///      comecar e acabar em multiplos do `tickSpacing`, logo os ticks
+    ///      INICIALIZADOS sao exactamente esses multiplos. Entre dois deles o
+    ///      `L` activo nao muda — que e precisamente a hipotese que o `outV3`
+    ///      assume e que deixa de valer ao cruzar. Truncar aqui torna a
+    ///      hipotese verdadeira por construcao.
+    ///
+    /// @dev A APROXIMACAO, e a direccao dela. A fronteira a `d` ticks esta a um
+    ///      racio de `1,0001^(d/2)` em sqrtPrice. Exponenciar custaria uma
+    ///      TickMath inteira (~300-500 B e um loop); em vez disso usa-se
+    ///      `1 + d/20000`. Como `e^x >= 1 + x`, o racio verdadeiro e SEMPRE
+    ///      maior que este, portanto a fronteira calculada fica mais PERTO que
+    ///      a real: clampa-se cedo de mais, nunca tarde de mais. Para
+    ///      `spacing = 200` a diferenca e 0,005%.
+    ///
+    ///      Se algum dia o custo em rotas perdidas justificar exactidao, a
+    ///      substituicao e local: so esta funcao muda.
+    function sqrtBoundary(uint160 sqrtP, int24 tick, int24 spacing, bool zeroForOne)
+        internal pure returns (uint160)
+    {
+        if (spacing <= 0 || sqrtP == 0) return 0;
+        int256 sp_ = int256(spacing);
+        // Distancia em ticks ate a fronteira, na direccao da swap. O `%` do
+        // Solidity trunca para zero, logo um tick negativo precisa de correccao
+        // para que `r` seja sempre a posicao DENTRO do intervalo (0 <= r < S).
+        int256 r = int256(tick) % sp_;
+        if (r < 0) r += sp_;
+        uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r);
+        // Ja estamos EM cima da fronteira: o intervalo inteiro esta a frente.
+        if (d == 0) d = uint256(sp_);
+        uint256 P = uint256(sqrtP);
+        // AS DUAS DIRECCOES NAO SAO SIMETRICAS, e assumi-lo era um defeito.
+        // A fronteira a `d` ticks esta em `P * r` a subir e `P / r` a descer,
+        // com `r = 1,0001^(d/2)`. Logo o deslocamento relativo e `r - 1` para
+        // cima mas `1 - 1/r = (r-1)/r` para baixo — MENOR. Usar o mesmo delta
+        // nos dois lados deixava o preco cair alem da fronteira real: clampava
+        // TARDE e sobrestimava, que e exactamente o que este clamp existe para
+        // impedir.
+        //
+        // 20_001 e nao 20_000: com 20_000 a aproximacao linear excede o valor
+        // verdadeiro em `d = 1` (por ~1e-9, que a esta escala sao ~1e20 wei, nao
+        // um wei). Verificado por varrimento de d = 1 a 1000 nas duas
+        // direccoes: zero violacoes, e o conservadorismo extra fica abaixo de
+        // 0,5% nos spacings canonicos (1, 10, 60, 200).
+        if (zeroForOne) {
+            uint256 dn = (P * d) / (20_001 + d);
+            return dn >= P ? uint160(1) : uint160(P - dn);
+        }
+        uint256 up = P + (P * d) / 20_001;
+        return up > type(uint160).max ? type(uint160).max : uint160(up);
+    }
 
     /// @notice Ask a Solidly-class pair for its own exact output. Same doctrine
     ///         as an ask-the-pool adapter (quote fn == exec fn => cannot diverge):
@@ -1150,7 +1343,7 @@ library BlazePhoenixCore {
             // so the quote matches the pool's x*y=k (else "K" revert on exec).
             uint24 v2fee = effV2Fee(c.fee);
             out      = outV2(amountIn, rI, rO, v2fee);
-            depthWad = rI < rO ? rI : rO;
+            depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
             return (out, depthWad);
         }
         if (k == KIND_V3 || k == KIND_ALGEBRA) {
@@ -1162,7 +1355,12 @@ library BlazePhoenixCore {
             // extra read, byte-identical quote and gas).
             (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
             uint128 liq = getLiquidity(c.pool);
-            out      = outV3(amountIn, sp, liq, effV3Fee(c.fee, dynFee, isDyn), c.zeroForOne);
+            // SEM clamp de fronteira, por enquanto: o `v3StateAndDynFee` ainda
+            // nao devolve o tick, e o custo por travessia em V3 e ~2x o da V4
+            // (o getter `ticks()` arrasta 4 slots que a cotacao nao usa, contra
+            // um `extsload` batchavel). A V4 vai primeiro porque foi la que o
+            // erro se mediu; estender a V3 e a mesma mudanca, uma leitura acima.
+            out      = outV3(amountIn, sp, liq, effV3Fee(c.fee, dynFee, isDyn), c.zeroForOne, 0);
             // depthWad must be TOKEN-DENOMINATED to be comparable across venue
             // families: the Solver's band anchor picks max(depths[]) across V2
             // (min(r0,r1), linear token units) and V3 candidates alike. Raw L is
@@ -1177,7 +1375,10 @@ library BlazePhoenixCore {
             // the unit of an existing comparison. Within a family the price
             // cancels in _weights' depth[i]/maxByFam ratio, so allocation is
             // unchanged; only the cross-family anchor choice is corrected.
-            depthWad = depthFromL(liq, sp);
+            uint8 dIn3 = _decIn(c);
+            uint8 dOt3 = _decOther(c);
+            (uint8 b0, uint8 b1) = c.zeroForOne ? (dIn3, dOt3) : (dOt3, dIn3);
+            depthWad = depthFromL18(liq, sp, b0, b1);
             return (out, depthWad);
         }
         if (k == KIND_SOLIDLY) {
@@ -1196,7 +1397,7 @@ library BlazePhoenixCore {
                 out = solidlyCurveOut(c.pool, amountIn, rI, rO, c.stable, c.fee, c.tokenIn);
                 out = (out * 9800) / BPS;
             }
-            depthWad = rI < rO ? rI : rO;
+            depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
             return (out, depthWad);
         }
         if (k == KIND_V4 || k == KIND_V4_NATIVE) {
@@ -1218,14 +1419,47 @@ library BlazePhoenixCore {
             // to a revert or a within-slack shortfall — never a bad fill.
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
-            (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) = v4SqrtAndLiq(c.v4Manager, pid);
+            // O `tick` fica por ler AQUI de proposito: o clamp de fronteira
+            // pertence a camada da PROMESSA e nao ao RANKING (ver a nota longa
+            // no `outV3`). Descarta-se com um buraco em vez de um nome, para
+            // nao deixar um aviso 2072 do solc a mascarar avisos reais.
+            (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
+                v4SqrtAndLiq(c.v4Manager, pid);
             if (sp == 0 || liq == 0) return (0, 0);
-            out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF), c.zeroForOne);
+            // SEM CLAMP DE FRONTEIRA AQUI, e a razao e uma licao medida.
+            //
+            // `universalQuote` serve DUAS perguntas diferentes: "qual pool
+            // entrega mais?" (ranking) e "quanto posso garantir?" (promessa).
+            // O clamp da fronteira de tick (`sqrtBoundary` + o parametro
+            // `sqrtLimit` do `outV3`) responde a SEGUNDA — e um limite inferior
+            // honesto. Aplica-lo aqui responde a primeira com a ferramenta
+            // errada.
+            //
+            // O dano e assimetrico e foi observado: a V2 nao tem estrutura de
+            // ticks, logo nao e clampavel; clampar so as familias concentradas
+            // faz o ranking comparar grandezas com convencoes diferentes, e uma
+            // V2 rasa passa a ganhar a uma V4 funda em qualquer trade que saia
+            // do intervalo corrente. Com `spacing = 60` isso e ~0,6% de preco —
+            // rotina. E a MESMA classe do defeito do `depthBucket` (comparar sem
+            // normalizar), que ja custou uma sessao.
+            //
+            // E a medicao diz que o clamp subestimaria: na pool ENA/USDC a
+            // 1.000 USDC a saida REAL foi 14,5% acima do modelo — havia mesmo
+            // mais liquidez para la da fronteira.
+            //
+            // O sitio certo e a camada da PROMESSA: o `expectedOut` da perna ja
+            // dimensionada, o `netOut` do Preview e o `ironFloor`. Ai um limite
+            // inferior e exactamente o que se quer, e nao ha comparacao
+            // cross-familia para enviesar.
+            out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF), c.zeroForOne, 0);
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
             // ~sqrt(price). sp is non-zero here (guarded on entry).
-            depthWad = depthFromL(liq, sp);
+            uint8 dIn4 = _decIn(c);
+            uint8 dOt4 = _decOther(c);
+            (uint8 a0, uint8 a1) = c.zeroForOne ? (dIn4, dOt4) : (dOt4, dIn4);
+            depthWad = depthFromL18(liq, sp, a0, a1);
             return (out, depthWad);
         }
     }
@@ -1235,10 +1469,16 @@ library BlazePhoenixCore {
     ///         StateView on a mainnet fork: base = keccak256(abi.encode(poolId,
     ///         6)); slot0 (offset 0) packs sqrtPriceX96 in its low 160 bits;
     ///         liquidity is at offset +3 (low 128 bits).
+    /// @dev O `tick` devolvido vem de GRACA: vive na mesma palavra do slot0
+    ///      que ja se le para o `sqrtPriceX96`, bits [160,184). E ele que
+    ///      permite ao `sqrtBoundary` saber a que distancia esta a fronteira
+    ///      do intervalo — sem ele o unico limite seguro seria "distancia
+    ///      zero", que daria saida nula.
     function v4SqrtAndLiq(address manager, bytes32 poolId)
-        public view returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee)
+        public view
+        returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee, int24 tick)
     {
-        if (manager == address(0)) return (0, 0, 0, 0);
+        if (manager == address(0)) return (0, 0, 0, 0, 0);
         bytes32 base = keccak256(abi.encode(poolId, uint256(6)));
         bytes32 word0;
         bytes32 word3;
@@ -1264,6 +1504,7 @@ library BlazePhoenixCore {
         // [160,184) tick | [184,208) protocolFee | [208,232) lpFee.
         protoFee = uint24(uint256(word0) >> 184);
         lpFee    = uint24(uint256(word0) >> 208);
+        tick     = int24(uint24(uint256(word0) >> 160));
     }
 
     /// @notice INV-20 (V4-FEE-MEASURED): the effective swap fee for a V4 leg.
@@ -1601,6 +1842,6 @@ library BlazePhoenixCore {
         uint256 amountIn, uint160 sqrtP, uint128 liq, uint24 feePpm, bool zeroForOne
     ) public pure returns (uint256) {
         if (amountIn == 0 || sqrtP == 0 || liq == 0) return BPS;
-        return impactV3FromOut(outV3(amountIn, sqrtP, liq, feePpm, zeroForOne), amountIn, sqrtP, zeroForOne);
+        return impactV3FromOut(outV3(amountIn, sqrtP, liq, feePpm, zeroForOne, 0), amountIn, sqrtP, zeroForOne);
     }
 }

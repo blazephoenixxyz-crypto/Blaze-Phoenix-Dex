@@ -35,7 +35,7 @@ contract ImpactCurveOnceTest is Test {
         feePpm   = uint24(bound(uint256(feePpm), 0, 1_000_000));
 
         uint256 dosInputs = BPC.impactV3Bps(amountIn, sqrtP, liq, feePpm, zfo);
-        uint256 out       = BPC.outV3(amountIn, sqrtP, liq, feePpm, zfo);
+        uint256 out       = BPC.outV3(amountIn, sqrtP, liq, feePpm, zfo, 0);
         uint256 derivado  = BPC.impactV3FromOut(out, amountIn, sqrtP, zfo);
 
         assertEq(derivado, dosInputs,
@@ -63,7 +63,7 @@ contract ImpactCurveOnceTest is Test {
     /// consegue medir a fee viva da pool: nunca deixa entrar calldata, deixa entrar o maximo.
     function test_SentinelaDeFeeFechaNosDoisCaminhos() public pure {
         uint160 sp = uint160(BPC.MIN_SQRT_PRICE_PLUS_ONE) + 1e6;
-        uint256 out = BPC.outV3(1e18, sp, 1e18, 0xFFFFFF, true);
+        uint256 out = BPC.outV3(1e18, sp, 1e18, 0xFFFFFF, true, 0);
         assertEq(out, 0, "o sentinela tem de matar a cotacao");
         assertEq(BPC.impactV3Bps(1e18, sp, 1e18, 0xFFFFFF, true), BPC.BPS, "dos inputs -> BPS");
         assertEq(BPC.impactV3FromOut(out, 1e18, sp, true),         BPC.BPS, "derivado -> BPS");
