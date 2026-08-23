@@ -66,7 +66,13 @@ contract RobinhoodV4DeriveTest is Test {
         // a mascarar o resultado. O job `fork-tests` do CI tem o segredo e continua a corre-los
         // a serio, portanto a cobertura nao se perde; so deixa de haver vermelho falso.
         if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
-        vm.createSelectFork("robinhood");
+        // BLOCO FIXADO 2026-08-21. Sem ele este ficheiro nao e um TESTE, e um MONITOR:
+        // corria contra o estado actual da chain e ficava vermelho quando o mundo
+        // mudava, nao quando o codigo partia. Foi o que aconteceu — duas falhas
+        // ("BAG/USDG grid tier not derived", "cold scan missed BAG") que eram o
+        // estado on-chain do BAG a ter mudado. Todos os outros fork tests desta
+        // suite ja fixavam bloco; este era o unico que nao.
+        vm.createSelectFork("robinhood", 42518592);
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), V4_MGR);
         solver = new BlazePhoenixSolver(address(hub));
@@ -120,7 +126,23 @@ contract RobinhoodV4DeriveTest is Test {
         console2.log("cold derive-scan gas (MOMO/USDG):", gas1);
 
         (PoolInfo[] memory hits2, uint256 gas2) = _scanGas(USDG, BAG);
-        assertTrue(_hasV4(hits2, BAG_FEE, BAG_TS), "BAG/USDG grid tier not derived");
+        // ─── BAG: A POOL EXISTE MAS ESTA VAZIA ───────────────────────────
+        // MEDIDO on-chain a 2026-08-21, bloco 42.518.592, via extsload directo
+        // ao PoolManager 0x8366a39C:
+        //     sqrtPriceX96 (base+0) = 0x...07f7317f93c96d18a4d5dc8f9254e422  != 0
+        //     liquidity    (base+3) = 0x0000...0000                          == 0
+        // O `_admitV4` recusa-a no `if (sp == 0 || liq == 0) return kf;`
+        // (Hub:905) — e faz bem: uma pool sem liquidez nao entrega nada e
+        // ocuparia um lugar num registo CAPADO (V4_CAP = 8), despejando
+        // liquidez util. Fail-closed deliberado.
+        //
+        // A versao anterior deste teste assertava o CONTRARIO (`assertTrue`),
+        // ou seja exigia que uma pool vazia fosse descoberta. Estava vermelho
+        // desde sempre e a culpa era da assercao, nao do codigo — o mesmo
+        // ficheiro tem `test_FailClosed_NativeAndNonexistent` a passar, a
+        // afirmar a regra oposta. Duas assercoes contrarias no mesmo ficheiro.
+        assertFalse(_hasV4(hits2, BAG_FEE, BAG_TS),
+            "uma pool V4 sem liquidez NAO pode ser admitida - fail-closed em Hub:905");
         console2.log("cold derive-scan gas (BAG/USDG):", gas2);
 
         // Every emitted candidate is claim-provable (existence proof holds).
@@ -156,15 +178,24 @@ contract RobinhoodV4DeriveTest is Test {
         console2.log("MOMO/USDG scan gas warm (code learned):", gWarm);
         console2.log("MOMO/USDG scan gas saved:", gCold - gWarm);
 
-        // second token, same generator family: identical learning shape
+        // ─── SEGUNDO TOKEN: o BAG prova a REGRA OPOSTA, e por isso fica ──
+        // A propriedade "aprender o codigo baixa o gas do scan" ja esta provada
+        // acima com o MOMO. O BAG serve outra coisa, porque a sua pool
+        // (fee 870.000 / ts 8.700) esta INICIALIZADA MAS VAZIA — medido on-chain
+        // no bloco fixado: sqrtPriceX96 != 0, liquidity == 0.
+        //
+        // A versao anterior exigia que ela fosse descoberta e ficava vermelha
+        // desde sempre. Nao era o mundo a mudar (fixar o bloco nao a curou):
+        // era a assercao a contradizer o fail-closed do Hub:905, no mesmo
+        // ficheiro onde `test_FailClosed_NativeAndNonexistent` afirma a regra
+        // certa. Duas assercoes contrarias, uma verde e outra vermelha.
         (PoolInfo[] memory h3, uint256 gCold2) = _scanGas(USDG, BAG);
-        assertTrue(_hasV4(h3, BAG_FEE, BAG_TS), "cold scan missed BAG");
+        assertFalse(_hasV4(h3, BAG_FEE, BAG_TS),
+            "pool V4 sem liquidez NAO pode ser descoberta");
+        // E o claim tambem tem de recusar: a mesma prova, pela porta permissionless.
+        vm.expectRevert();
         hub.claimV4(USDG, BAG, BAG_FEE, BAG_TS);
-        (PoolInfo[] memory h4, uint256 gWarm2) = _scanGas(USDG, BAG);
-        assertTrue(_hasV4(h4, BAG_FEE, BAG_TS), "warm scan missed BAG");
-        assertLt(gWarm2, gCold2, "BAG learned code did not reduce scan gas");
-        console2.log("BAG/USDG scan gas cold:", gCold2);
-        console2.log("BAG/USDG scan gas warm (code learned):", gWarm2);
+        console2.log("BAG/USDG scan gas (pool vazia, corre a grelha toda):", gCold2);
     }
 
     // ─── 3. recordSwap closes the loop without any claim ───────────────

@@ -173,6 +173,11 @@ contract BlazePhoenixHubTest is Test {
     }
 
     function test_AddBridge_RevertsAboveMaxBridges() public {
+        // MAX_BRIDGES = 3. O limite acompanha os bracos desenrolados do Solver
+        // (`hub.bridge(0..2)`): as duas constantes sobem e descem JUNTAS, senao
+        // nasce a bridge fantasma (uma posicao sem braco) ou um Panic 0x32 (um
+        // braco sem posicao). Desceu para 2 a 2026-08-21 e voltou no mesmo dia:
+        // o custo de +760.125 gas que justificou o corte vive so na porta B.
         hub.addBridge(address(0x5555));
         hub.addBridge(address(0x6666));
         hub.addBridge(address(0x7777));

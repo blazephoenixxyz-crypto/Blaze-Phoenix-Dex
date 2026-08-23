@@ -72,13 +72,36 @@ import {
     PoolInfo
 } from "./BlazePhoenixCore.sol";
 
+/// @dev O Router e o PRODUTOR UNICO do "qual e o WETH canonico desta chain".
+///      O Hub pergunta-lhe em vez de guardar uma segunda copia — uma constante
+///      duplicada aqui podia divergir da que o Router usa para validar o
+///      unwrap, e a divergencia seria explorada pelo lado do wrap.
+interface IRouterWeth { function weth() external view returns (address); }
+
 contract BlazePhoenixHub {
 
-    string  public constant VERSION = "2.0.0";
+    string  internal constant VERSION = "2.0.0";
 
     // ─── Pool-fitness constants ────────────────────────────────────────
 
     uint8   internal constant MAX_SLOTS              = 16;
+    /// 3 BRIDGES. Desceu para 2 a 2026-08-21 e VOLTOU a 3 no mesmo dia, porque
+    /// a medicao que justificou o corte estava a olhar para a porta errada.
+    ///
+    /// O QUE SE MEDIU: a 3a bridge custa +760.125 gas por solve a frio (+32,5%).
+    /// O QUE ESCAPOU: esse custo esta INTEIRAMENTE no SOLVE, e o solve so corre
+    /// on-chain na porta B (`swapBestExactIn`). Nas outras tres portas a rota
+    /// vem resolvida de fora, por `eth_call` — de graca.
+    ///
+    /// E o `_rank` escolhe UMA rota entre os candidatos: mais bridges avaliadas
+    /// nao tornam a rota executada maior. Medido: a calldata de `swapExactIn`
+    /// depende da TOPOLOGIA (1.028 bytes a 1 hop/1 leg, +544 por hop, +320 por
+    /// leg), nunca de quantas bridges o Solver considerou.
+    ///
+    /// Logo, na porta A — a que as quatro chains do deploy devem usar — a 3a
+    /// bridge custa ZERO on-chain e so acrescenta uma topologia candidata.
+    /// Cortar era optimizar a porta que ninguem paga: o mesmo erro que o
+    /// SSTORE2 (-48.772 gas medidos, valor esperado ~0).
     uint8   internal constant MAX_BRIDGES            = 3;
     /// @dev Por quantas bridges o Solver REALMENTE roteia. NAO e o MAX_BRIDGES, e a diferenca
     ///      entre os dois era uma assimetria silenciosa: o Solver expande as bridges DESENROLADO
@@ -568,10 +591,33 @@ contract BlazePhoenixHub {
     function addV4(
         address c0, address c1, uint24 fee, int24 tickSpacing, address hooks
     ) external onlyOperator returns (bytes32 key) {
-        _ne0(c0); _ne0(c1);
+        _ne0(c1);
         if (c0 == c1) revert HubE(4);
         HubStore storage $ = _store();
         if (hooks != address(0) && !$.hookAllowed[hooks]) revert HubE(8);
+
+        // ─── POOL DE ETH NATIVO ───────────────────────────────────────────
+        // No V4 o ETH nativo E `address(0)` como currency, e ordena SEMPRE
+        // primeiro. Era recusado aqui pelo `_ne0(c0)`, e por isso a familia
+        // inteira ficava inalcancavel: o Router SABE executa-la (KIND_V4_NATIVE,
+        // `nativeMapVerified`, a costura JIT de unwrap/wrap no unlockCallback),
+        // mas nenhuma porta de descoberta a deixava entrar no registo — e sem
+        // registo o Solver nunca a propoe. Galo e ovo.
+        //
+        // A CHAVE DA POOL usa as currencies REAIS (nativo = address(0)); o
+        // REGISTO fala WETH, para que o Solver a encontre ao rotear WETH->c1.
+        // E a mesma divisao que o Router ja faz: "a rota fala WETH, a execucao
+        // fala nativo".
+        bool nat = c0 == address(0);
+        address w;
+        if (nat) {
+            w = IRouterWeth($.router).weth();
+            // Fail-closed: sem WETH cablado nao ha traducao possivel, e uma
+            // pool WETH/WETH nao existe.
+            if (w == address(0) || c1 == w) revert HubE(3);
+        } else {
+            _ne0(c0);
+        }
         (address s0, address s1) = BPC.sortTokens(c0, c1);
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
@@ -586,9 +632,14 @@ contract BlazePhoenixHub {
         // for "how do we key a pool" now.
         bytes32 pid = BPC.computeV4PoolId(s0, s1, fee, tickSpacing, hooks);
         address poolAddr = address(uint160(uint256(pid)));
-        key = keyOf(poolAddr, s0, s1);
+        (address r0, address r1) = nat ? BPC.sortTokens(w, c1) : (s0, s1);
+        key = keyOf(poolAddr, r0, r1);
         $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
-        _register(key, poolAddr, BPC.KIND_V4, fee, hooks, s0, s1, true);
+        _register(key, poolAddr, nat ? BPC.KIND_V4_NATIVE : BPC.KIND_V4,
+                  fee, hooks, r0, r1, true);
+        // Se o WETH nao ficou em token0 pela ordenacao, marca a inversao para
+        // que o `_readPoolInfo` a desfaca ao reportar.
+        if (nat && r0 != w) $.slot[key] = _markNativeSwapped($.slot[key], true);
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
 
@@ -634,7 +685,7 @@ contract BlazePhoenixHub {
         // HOOKLESS ONLY — the poolId is derived with hooks == address(0).
         bytes32 pid = BPC.computeV4PoolId(s0, s1, fee, tickSpacing, address(0));
         // On-chain existence + liquidity proof (unforgeable).
-        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) =
+        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
             BPC.v4SqrtAndLiq($.v4PoolManager, pid);
         if (sp == 0 || liq == 0) revert HubE(9);
         // Dynamic fee must resolve to a quotable value (INV-20), else fail closed.
@@ -665,7 +716,9 @@ contract BlazePhoenixHub {
         // (Core): reservas virtuais ao preço atual, lado curto. sp != 0 garantido acima.
         uint256 depthTok;
         {
-            depthTok = BPC.depthFromL(liq, sp);
+            // Normalizado: o _canInsert compara buckets, e um bucket cego a
+            // decimais faz a pool funda e a de po projectarem o mesmo psi.
+            depthTok = BPC.depthFromL18(liq, sp, BPC.decimalsOf(s0), BPC.decimalsOf(s1));
         }
         if (!_canInsert($.pairKeys[s0][s1], depthTok)) return key;
         $.v4Entries.push(V4Entry({
@@ -786,14 +839,20 @@ contract BlazePhoenixHub {
     //  liquidity != 0, unforgeable extsload reads) are emitted. Probe order
     //  is cheapest-first:
     //    (a) learned per-token pattern codes — the steady-state ONE-probe path
-    //    (b) provenance seam (token factory()/airlock()) — cold scans only
     //    (c) canonical Uniswap tiers, one batched extsload
     //    (d) the row's paired explicit extras, one batched extsload
     //    (e) generator Pi_K cold-start grid, one batched extsload, entered
     //        ONLY when (a)-(d) found nothing: the grid bootstraps unknown
     //        tokens, and once any pool is proven the residual exotic tiers
     //        are left to claimV4/learning instead of being paid on every scan
-    //  Early-stop at V4_CAP emitted pools. Native currency is out of scope.
+    //  Early-stop at V4_CAP emitted pools.
+    //
+    //  ETH NATIVO: o par (ETH, X) tem DUAS chaves de pool no V4 — nativa
+    //  (currency0 = address(0)) e wrapped (currency0 = WETH). Sao pools
+    //  DISTINTAS, com poolId e liquidez distintos, e a nativa e sistematicamente
+    //  a funda: MEDIDO 292x na Robinhood (USDG/ETH 100/1) e 3,76x na Base
+    //  (USDC/ETH 500/10). Derivar so a wrapped nunca da erro — da uma cotacao
+    //  pior, em silencio. Emitem-se AS DUAS e o funil escolhe por profundidade.
     //  A hooked pool cannot be emitted: its HOOKLESS poolId does not exist in
     //  the PoolManager, so it fails the live proof by construction.
     //
@@ -808,13 +867,51 @@ contract BlazePhoenixHub {
         address mgr = $.v4PoolManager;
         if (mgr == address(0)) return k;     // unconfigured manager: fail closed
         uint256 kf = k;
+        // (0) ETH NATIVO PRIMEIRO. Sondado antes da wrapped por causa do
+        //     `V4_CAP` (8): um par com muitas pools wrapped esgotaria as
+        //     ranhuras antes de a nativa ser sequer construida. A ordem e a
+        //     politica.
+        //
+        //     NAO ha parametro novo nas funcoes de sondagem, e a razao e
+        //     MEDIDA: a primeira versao disto passava um `address w` por
+        //     `_probeV4Batch` e `_admitV4`, e custou 1.227 bytes — o optimizador
+        //     deixa de inlinar e replica corpos inteiros. Aqui passa-se o par
+        //     nativo DIRECTAMENTE como (address(0), other): o zero ja ordena
+        //     primeiro, portanto o `computeV4PoolId` recebe-o na posicao certa
+        //     sem um unico ternario. So a forma do PoolInfo emitido precisa de
+        //     correccao, e essa cabe num ciclo aqui.
+        address rt = $.router;
+        address w = rt == address(0) ? address(0) : IRouterWeth(rt).weth();
+        if (w != address(0) && (t0 == w || t1 == w)) {
+            address other = t0 == w ? t1 : t0;
+            uint256 ini = uint256(uint128(kf));
+            // Canonicos E extras, tal como a passada wrapped. Cortar os extras
+            // aqui poupava 33 bytes de Hub (medido, nao estimado) e abria um
+            // buraco de cobertura em escaloes exoticos — o dono escolheu a
+            // cobertura. A grelha de cold-start fica de fora: ela so entra
+            // quando NADA foi encontrado, e a passada nativa corre primeiro.
+            kf = _probeV4Batch(mgr, address(0), other, _v4CanonicalTiers(), hits, kf);
+            kf = _probeV4Batch(mgr, address(0), other, _v4ExtraTiers(fac), hits, kf);
+            // O `_admitV4` emitiu-as como KIND_V4 com token0 = address(0).
+            // Reescreve para a forma WETH-canonica: o CONTRATO DE ORIENTACAO
+            // exige token0 = lado wrapped-native, porque o Solver deriva
+            // `zeroForOne = (token0 == tokenIn)` e mapeia a currency nativa por
+            // ORIENTACAO. Sem isto a pool ficaria invisivel para metade do
+            // espaco de tokens — o mesmo defeito do bit 6 do Monoslot.
+            for (uint256 z = ini; z < uint256(uint128(kf)); ) {
+                // `token1` NAO se reescreve: o `_admitV4` ja o gravou como
+                // `other` (foi o t1 que lhe passamos). So `kind` e `token0`
+                // e que mentem.
+                hits[z].kind   = BPC.KIND_V4_NATIVE;
+                hits[z].token0 = w;
+                unchecked { ++z; }
+            }
+        }
         // (a) learned pattern codes of both tokens (identical codes dedup)
         uint256 cA = $.v4CodeOf[t0];
         uint256 cB = $.v4CodeOf[t1];
         if (cA != 0) kf = _admitV4(mgr, t0, t1, cA, hits, kf);
         if (cB != 0 && cB != cA) kf = _admitV4(mgr, t0, t1, cB, hits, kf);
-        // (b) provenance seam — only worth its two staticcalls on a cold scan
-        if (kf >> 128 == 0) _probeV4Provenance($, t0, t1);
         // (c) canonical tiers, then (d) paired extras — one batch each
         kf = _probeV4Batch(mgr, t0, t1, _v4CanonicalTiers(), hits, kf);
         kf = _probeV4Batch(mgr, t0, t1, _v4ExtraTiers(fac), hits, kf);
@@ -866,7 +963,7 @@ contract BlazePhoenixHub {
         uint24 fee = uint24(code >> 24);
         int24  ts  = int24(uint24(code));
         bytes32 pid = BPC.computeV4PoolId(t0, t1, fee, ts, address(0));
-        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF) = BPC.v4SqrtAndLiq(mgr, pid);
+        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) = BPC.v4SqrtAndLiq(mgr, pid);
         if (sp == 0 || liq == 0) return kf;                      // not live: fail closed
         if (BPC.effV4Fee(fee, lpF, pF) >= 1_000_000) return kf;  // unresolvable dynamic fee
         address p = address(uint160(uint256(pid)));
@@ -879,24 +976,6 @@ contract BlazePhoenixHub {
             tickSpacing: ts, token0: t0, token1: t1, pool: p, hooks: address(0)
         });
         unchecked { return kf + 1 + (uint256(1) << 128); }
-    }
-
-    /// @dev (b) On-chain provenance, v0: best-effort, fully guarded reads of
-    ///      the non-bridge token's `factory()` / `airlock()`. A launchpad-
-    ///      minted token that answers identifies its family; the family ->
-    ///      canonical-tier map is deliberately NOT hardcoded yet (deployment
-    ///      config work), so today a non-zero answer adds no probe — the seam
-    ///      exists so that map lands later as a pure extension without
-    ///      changing scan order. Both calls tolerate reverts, empty returns
-    ///      and EOAs; they can never revert the scan.
-    function _probeV4Provenance(HubStore storage $, address t0, address t1) private view {
-        address target = $.isBridge[t0] ? t1 : t0;
-        (bool ok, bytes memory ret) =
-            target.staticcall(abi.encodeWithSelector(0xc45a0155)); // factory()
-        if (!(ok && ret.length == 32 && abi.decode(ret, (uint256)) != 0)) {
-            (ok, ret) = target.staticcall(abi.encodeWithSelector(0xf78a8a3e)); // airlock()
-            // Result intentionally unused in v0 (see above).
-        }
     }
 
     /// @dev Canonical Uniswap fee tiers — the most common hookless configs.
@@ -1092,8 +1171,14 @@ contract BlazePhoenixHub {
         p.active      = true;
         p.kind        = BPC.decodeKind(s);
         p.fee         = BPC.decodeFee(s);
-        p.token0      = t0;
-        p.token1      = t1;
+        // Restaura o contrato de orientacao para pools V4-NATIVAS: token0 tem
+        // de ser o lado wrapped-native, que e o que o Solver e o Quoter
+        // pressupoem ao derivar a chave por `zeroForOne`. O indice continua
+        // ordenado por endereco (as buscas dependem disso); so a ORIENTACAO
+        // REPORTADA e corrigida, e o bit ja veio no slot que esta funcao recebe.
+        bool _swap = p.kind == BPC.KIND_V4_NATIVE && _nativeSwapped(s);
+        p.token0      = _swap ? t1 : t0;
+        p.token1      = _swap ? t0 : t1;
         p.pool        = $.poolOf[key];
         p.hooks       = $.hooksOf[key];
         p.stable      = false;
@@ -1189,6 +1274,32 @@ contract BlazePhoenixHub {
         return (slot >> 7) & 1 == 1;
     }
 
+    /// @dev BIT 6 do Monoslot (dentro do span reservado [7:1]): "o lado
+    ///      wrapped-native e o token1, nao o token0".
+    ///
+    ///      PORQUE EXISTE. O Solver e o Quoter derivam qual lado de uma pool
+    ///      V4-NATIVA e o `address(0)` a partir de `zeroForOne`, e os seus
+    ///      comentarios invocam um "contrato de orientacao: token0 e o lado
+    ///      wrapped-native". Esse contrato NAO EXISTIA: o `_register` indexa
+    ///      por `sortTokens`, ou seja por ENDERECO. Quando o outro token
+    ///      ordena abaixo do WETH, `token0` deixa de ser o WETH, `zeroForOne`
+    ///      inverte-se, e as duas derivacoes (Router por `nativeMapVerified`,
+    ///      Quoter por orientacao) produzem poolIds DIFERENTES — a pool nativa
+    ///      fica invisivel para metade do espaco de tokens. Fail-closed, mas
+    ///      silenciosamente inalcancavel. Ver test/V4NativeOrientation.t.sol.
+    ///
+    ///      O caso que passava (USDC na Base, 0x8335... > WETH 0x4200...) era
+    ///      o unico testado — por isso a prosa parecia verdadeira.
+    ///
+    ///      A flag torna o contrato REAL sem custo de leitura: o slot ja esta
+    ///      carregado no `_readPoolInfo`, ler um bit e gratis.
+    function _markNativeSwapped(uint256 slot, bool b) private pure returns (uint256) {
+        return b ? (slot | (uint256(1) << 6)) : (slot & ~(uint256(1) << 6));
+    }
+    function _nativeSwapped(uint256 slot) private pure returns (bool) {
+        return ((slot >> 6) & 1) == 1;
+    }
+
     function _markBridged(uint256 slot, bool b) private pure returns (uint256) {
         return b ? (slot | (uint256(1) << 7)) : (slot & ~(uint256(1) << 7));
     }
@@ -1197,7 +1308,6 @@ contract BlazePhoenixHub {
     function getPool(bytes32 key) external view returns (address) { return _store().poolOf[key]; }
     function v4PoolManager() external view returns (address) { return _store().v4PoolManager; }
     function v4EntryCount() external view returns (uint256) { return _store().v4Entries.length; }
-    function v4EntryAt(uint256 i) external view returns (V4Entry memory) { return _store().v4Entries[i]; }
     /// @notice Learned V4 pattern code of a token: packed
     ///         (fee << 24 | uint24(tickSpacing)), 0 = none. Hint metadata
     ///         only — never a routing weight (INV-16).
