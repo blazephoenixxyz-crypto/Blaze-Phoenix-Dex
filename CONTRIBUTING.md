@@ -1,6 +1,7 @@
 # Contributing
 
 Thank you for reading the source. This file describes how work lands in this repository.
+Participation is governed by the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ## Security issues do not belong here
 
