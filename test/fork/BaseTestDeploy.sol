@@ -52,11 +52,19 @@ library BaseTestDeploy {
     address internal constant TEST_TREASURY_1 = address(0x7E51111111111111111111111111111111111111);
     address internal constant TEST_TREASURY_2 = address(0x7e52222222222222222222222222222222222222);
 
+    /// @dev DEFAULT = DUAS bridges (WETH + USDC), decisao do dono a 2026-08-21.
+    ///      Medido no mesmo bloco, mesma rota, 9 factories (test/fork/DiscoveryCostBreakdown):
+    ///        2 bridges: 2.336.684 frio / 1.991.654 quente
+    ///        3 bridges: 3.096.809 frio / 2.573.846 quente
+    ///      A 3a bridge (wstETH) custa +760.125 gas a frio, +32,5%. A nota 128
+    ///      previa ~40% para o 3o braco do _rank; esta e a primeira medicao direta.
+    ///      Quem quiser o cenario de 3 bridges pede-o explicitamente com
+    ///      `deploy(admin, true)` — nao o recebe por omissao.
     function deploy(address admin)
         internal
         returns (BlazePhoenixHub hub, BlazePhoenixSolver solver, BlazePhoenixRouter router, BlazePhoenixQuoter quoter)
     {
-        return deploy(admin, true);
+        return deploy(admin, false);
     }
 
     /// @param wstEthBridge when false, the 3rd (wstETH) bridge is omitted - used
@@ -75,7 +83,13 @@ library BaseTestDeploy {
 
         hub.addBridge(BASE_WETH);
         hub.addBridge(BASE_USDC);
-        hub.addBridge(BASE_WSTETH);
+        // CORRIGIDO 2026-08-21: esta linha era INCONDICIONAL e o parametro
+        // `wstEthBridge` nunca era lido. O comentario do @param prometia um A/B
+        // de 2-vs-3 bridges que o codigo nao entregava — qualquer medicao feita
+        // com `deploy(admin, false)` correu na verdade com 3 bridges.
+        // O compilador avisava ("Warning 5667: Unused function parameter") desde
+        // sempre; ninguem leu o aviso.
+        if (wstEthBridge) hub.addBridge(BASE_WSTETH);
         hub.addFactory(BASE_UNIV3,  KIND_V3,      MODE_CREATE2_V3,   UNIV3_INIT, _v3Fees(), _v3Sp());
         hub.addFactory(BASE_AERO,   KIND_SOLIDLY, MODE_CALL_SOLIDLY, bytes32(0), _none24(), _noneSp());
         hub.addFactory(BASE_UNIV2,  KIND_V2,      MODE_CALL_GENERIC, bytes32(0), _none24(), _noneSp());

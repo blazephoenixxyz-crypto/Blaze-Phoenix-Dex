@@ -49,7 +49,7 @@ contract HardeningA1FeeCoverageTest is Test {
 
     // Router constants, pinned (blind-constant law: the test must break if
     // either silently changes).
-    uint256 constant PROTOCOL_FEE_BPS = 28;      // 0.28% of the fee base
+    uint256 constant PROTOCOL_FEE_BPS = BPC.PROTOCOL_FEE_BPS;      // 0.28% of the fee base
     uint256 constant TREASURY1_SHARE  = 3_000;   // 30/70 split
     uint256 constant MIN_QUOTE_COVERAGE_BPS = 5_000;
 
@@ -131,12 +131,18 @@ contract HardeningA1FeeCoverageTest is Test {
 
     /// @dev What the pool will actually deliver (gross, before the protocol
     ///      fee): the mock executes outV3 with ITS OWN fee on static state.
+    /// A fee do protocolo, agora ancorada na ENTRADA (2026-08-21). E uma constante: nao depende
+    /// da rota, da quote, nem do que a pool entrega.
+    uint256 constant FEE_IN = (AMOUNT_IN * PROTOCOL_FEE_BPS) / 10_000;
+
+    /// O que a pool entrega, precado sobre o que RESTA depois da fee — a rota so ve o liquido.
     function _grossOut() internal view returns (uint256) {
-        return BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, POOL_FEE, zfo);
+        return BPC.outV3(AMOUNT_IN - FEE_IN, SQRT_P_1, LIQ, POOL_FEE, zfo, 0);
     }
 
+    /// As tesourarias sao pagas em tokenIn. Ler tokenB aqui era a leitura do desenho antigo.
     function _treasuries() internal view returns (uint256) {
-        return tokenB.balanceOf(T1) + tokenB.balanceOf(T2);
+        return tokenA.balanceOf(T1) + tokenA.balanceOf(T2);
     }
 
     // ─── (a) honest swap: a normal 0.28% fee on the delivered amount ─────────
@@ -149,14 +155,13 @@ contract HardeningA1FeeCoverageTest is Test {
             _route(POOL_FEE), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 gross = _grossOut();
-        uint256 fee   = BPC.mulDiv(gross, PROTOCOL_FEE_BPS, BPC.BPS);
-        assertGt(fee, 0, "setup: the honest fee must be a real, non-zero amount");
+        assertGt(FEE_IN, 0, "setup: a fee tem de ser um montante real, nao zero");
 
-        // Honest leg quotes exactly what the pool delivers (coverage 100%), so
-        // feeBase == delivered and the treasuries take exactly 28 bps of it.
-        assertEq(_treasuries(), fee, "treasuries must take exactly 0.28% of the gross delivery");
-        assertEq(tokenB.balanceOf(T1), BPC.mulDiv(fee, TREASURY1_SHARE, BPC.BPS), "30/70 split");
-        assertEq(delivered, gross - fee, "user receives gross minus the protocol fee");
+        // A fee e 28 bps da ENTRADA, cobrada em tokenIn antes de a rota comecar. A saida ja nao
+        // leva corte nenhum: tudo o que sobrevive aos pisos e do utilizador.
+        assertEq(_treasuries(), FEE_IN, "as tesourarias levam exatamente 28 bps da entrada");
+        assertEq(tokenA.balanceOf(T1), BPC.mulDiv(FEE_IN, TREASURY1_SHARE, BPC.BPS), "divisao 30/70");
+        assertEq(delivered, gross, "a saida ja nao paga fee - o utilizador recebe o bruto");
         assertEq(tokenB.balanceOf(user) - userBefore, delivered, "reported == received");
     }
 
@@ -164,7 +169,7 @@ contract HardeningA1FeeCoverageTest is Test {
 
     function test_Fee_ForgedV3LegFee_CannotZeroTheFeeBase() public {
         uint256 gross       = _grossOut();
-        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, FORGED_FEE, zfo);
+        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, FORGED_FEE, zfo, 0);
 
         // Attack preconditions, asserted so the test can never pass vacuously:
         // the forged quote is real but implausibly small — far below the 50%
@@ -178,15 +183,14 @@ contract HardeningA1FeeCoverageTest is Test {
             _route(FORGED_FEE), AMOUNT_IN, 1, user, block.timestamp + 1);
 
         uint256 fees = _treasuries();
-        uint256 fee  = BPC.mulDiv(gross, PROTOCOL_FEE_BPS, BPC.BPS);
 
-        // The regression pin: coverage failed, so the fee is charged on the
-        // DELIVERED amount. Pre-fix, feeBase was the forged quote itself and
-        // the treasuries took ~0.28% of ~nothing — here the collected fee must
-        // exceed the ENTIRE forged quote, which no pre-fix outcome can reach.
-        assertEq(fees, fee, "fee must be 0.28% of the delivered amount, not of the forged quote");
-        assertGt(fees, forgedQuote, "collected fee must dwarf the forged quote (pre-fix: ~0)");
-        assertEq(delivered, gross - fee, "user still receives gross minus the real fee");
+        // O PINO, e e mais forte do que era. Antes: "a fee e 28 bps do ENTREGUE, e nao da quote
+        // forjada" — uma defesa contra uma manipulacao possivel. Agora a manipulacao e
+        // ESTRUTURALMENTE IMPOSSIVEL: a fee foi cobrada sobre a entrada, ANTES de o `leg.fee`
+        // sequer ser lido. Nao ha caminho por onde uma quote forjada lhe possa tocar.
+        assertEq(fees, FEE_IN, "a fee e 28 bps da entrada, e nenhuma quote lhe toca");
+        assertGt(fees, forgedQuote, "e continua a exceder a quote forjada inteira");
+        assertEq(delivered, gross, "a saida nao leva corte");
     }
 
     // ─── forged vs honest: identical delivery => identical treasury delta ────

@@ -27,7 +27,7 @@ contract BlazePhoenixQuoterTest is Test {
     MockERC20 tokenA;
     MockERC20 tokenB;
 
-    uint16 constant PROTOCOL_FEE_BPS = 28;
+    uint16 constant PROTOCOL_FEE_BPS = BPC.PROTOCOL_FEE_BPS;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -267,7 +267,7 @@ contract BlazePhoenixQuoterTest is Test {
         uint256 amountIn = 2_000e18;
         (, uint256 exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
 
-        uint256 expected = BPC.outV3(amountIn, sqrtP, liq, 3000, zfo);
+        uint256 expected = BPC.outV3(amountIn, sqrtP, liq, 3000, zfo, 0);
         assertEq(exactOut, expected, "dry-run must match the pool's own swap math exactly");
     }
 

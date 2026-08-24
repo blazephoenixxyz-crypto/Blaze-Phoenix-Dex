@@ -31,3 +31,16 @@ docs/internal/
 # SDD scratch workspace
 .superpowers/
 graphify-out/
+
+# Fixtures do benchmark contra agregadores (calldata da API da KyberSwap).
+# NAO sao fonte: sao dados de terceiros fixados num bloco, que envelhecem com a
+# janela de arquivo do RPC. Os testes que os leem saltam quando faltam.
+.bench/
+
+# Benchmarks competitivos contra agregadores de terceiros. Ficam FORA do repo
+# publico: revelam posicionamento (deficit de output, venues em falta) e nao
+# testam invariante nenhuma nossa. Os numeros vivem no cofre, nota 132.
+test/fork/Bench*.t.sol
+
+# baseline local de tamanhos (imago sz) — nunca versionado
+.bp/

@@ -13,7 +13,7 @@ contract FindingPartialFeeForgeTest is Test {
     MockERC20 tokenA; MockERC20 tokenB; MockV3Pool pool;
     address user = address(0xBEEF);
     address constant T1 = address(0xFEE1); address constant T2 = address(0xFEE2);
-    uint256 constant PROTOCOL_FEE_BPS = 28; uint256 constant MIN_QUOTE_COVERAGE_BPS = 5_000;
+    uint256 constant PROTOCOL_FEE_BPS = BPC.PROTOCOL_FEE_BPS; uint256 constant MIN_QUOTE_COVERAGE_BPS = 5_000;
     uint160 constant SQRT_P_1 = 79228162514264337593543950336;
     uint128 constant LIQ = 1_000_000e18; uint24 constant POOL_FEE = 3000;
     uint256 constant AMOUNT_IN = 10_000e18;
@@ -46,13 +46,18 @@ contract FindingPartialFeeForgeTest is Test {
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
             hasSurplus: false, isV4Bundle: false});
     }
-    function _grossOut() internal view returns (uint256) { return BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, POOL_FEE, zfo); }
-    function _treasuries() internal view returns (uint256) { return tokenB.balanceOf(T1) + tokenB.balanceOf(T2); }
+    function _grossOut() internal view returns (uint256) { return BPC.outV3(_netIn(AMOUNT_IN), SQRT_P_1, LIQ, POOL_FEE, zfo, 0); }
+    function _treasuries() internal view returns (uint256) { return tokenA.balanceOf(T1) + tokenA.balanceOf(T2); }
+
+
+    /// @dev A fee do protocolo passou a ser cobrada na ENTRADA (2026-08-21): 28 bps do input
+    ///      comprometido, em tokenIn, antes de a rota comecar. Logo a rota preca sobre o LIQUIDO.
+    function _netIn(uint256 a) internal pure returns (uint256) { return a - (a * 28) / 10_000; }
 
     function test_PartialForge_DoesNotEvadeFee() public {
         uint24 forged = 500_000;
         uint256 gross = _grossOut();
-        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, forged, zfo);
+        uint256 forgedQuote = BPC.outV3(AMOUNT_IN, SQRT_P_1, LIQ, forged, zfo, 0);
         uint256 coverage = BPC.mulDiv(forgedQuote, 10_000, gross);
         assertGt(forgedQuote, 0, "setup: forged quote non-zero");
         assertGe(coverage, MIN_QUOTE_COVERAGE_BPS, "setup: forged quote clears the 50% bar");
@@ -61,8 +66,8 @@ contract FindingPartialFeeForgeTest is Test {
         vm.prank(user);
         uint256 delivered = router.swapExactIn(_route(forged), AMOUNT_IN, 1, user, block.timestamp + 1);
         uint256 collected = _treasuries() - tBefore;
-        uint256 honestFee = BPC.mulDiv(gross, PROTOCOL_FEE_BPS, BPC.BPS);
-        assertEq(delivered, gross - collected, "user receives gross minus collected fee");
+        uint256 honestFee = (AMOUNT_IN * PROTOCOL_FEE_BPS) / 10_000;   // 28 bps da ENTRADA
+        assertEq(delivered, gross, "a saida ja nao leva corte: a fee saiu na entrada");
         // FIXED (T1): the quote prices with the pool's REAL fee, so a forged
         // leg.fee is ignored — the protocol still collects the honest fee.
         assertApproxEqRel(collected, honestFee, 0.01e18, "fee must equal 28bps of the honest quote");

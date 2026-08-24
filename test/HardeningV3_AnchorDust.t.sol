@@ -104,8 +104,8 @@ contract HardeningV3_AnchorDustTest is Test {
         // Scenario sanity: the stale pool really does quote a marginal rate
         // far outside the honest pool's ±4% band — the trap is armed.
         uint256 probe = AMOUNT_IN / 100;
-        uint256 honestOut = BPC.outV3(probe, uint160(BPC.Q96), LIQ_HONEST, FEE_HONEST, true);
-        uint256 staleOut  = BPC.outV3(probe, uint160(2 * BPC.Q96), LIQ_STALE, FEE_STALE, true);
+        uint256 honestOut = BPC.outV3(probe, uint160(BPC.Q96), LIQ_HONEST, FEE_HONEST, true, 0);
+        uint256 staleOut  = BPC.outV3(probe, uint160(2 * BPC.Q96), LIQ_STALE, FEE_STALE, true, 0);
         assertGt(honestOut, 0, "precondition: honest pool quotable");
         assertGt(staleOut, honestOut * 3, "precondition: stale rate must sit far outside the band");
     }
@@ -119,7 +119,7 @@ contract HardeningV3_AnchorDustTest is Test {
     /// @dev The honest full-size quote — what a plan anchored on the honest
     ///      pool must promise (single V4 leg: no clamp, no multi-leg shave).
     function _honestFullQuote() internal pure returns (uint256) {
-        return BPC.outV3(AMOUNT_IN, uint160(BPC.Q96), LIQ_HONEST, FEE_HONEST, true);
+        return BPC.outV3(AMOUNT_IN, uint160(BPC.Q96), LIQ_HONEST, FEE_HONEST, true, 0);
     }
 
     /// @dev Shared assertion: the plan routes EVERYTHING to the honest deep

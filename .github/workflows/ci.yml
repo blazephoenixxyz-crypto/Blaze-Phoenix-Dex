@@ -25,6 +25,23 @@ jobs:
       - name: Show versions
         run: forge --version
 
+      - name: Shared-quantity register (a pin that does not name what it pins is a hole with a green test in front of it)
+        # SHARED_QUANTITIES.md enumera toda a grandeza com mais de um produtor ou
+        # consumidor, e diz o que a prende. Esta guarda verifica que a linha nao
+        # mente: um `PINNED` tem de citar um teste que EXISTE e que NOMEIA a
+        # grandeza. Nao tenta descobrir grandezas partilhadas novas — decidir que
+        # dois consumidores fazem a MESMA pergunta e trabalho humano.
+        #
+        # A regra 2 nao e teorica: no dia em que o registo foi escrito despromoveu
+        # duas linhas. O `PreviewExecutionParity` diz pinar o PROTOCOL_FEE_BPS e
+        # nunca o nomeia (compara netOut com 0,1% de tolerancia, e o regime de
+        # exaustao escapa-lhe — FEE-01); o `DepthUnitParity` exercita o
+        # `depthFromL` quando os quatro produtores vivos chamam o `depthFromL18`,
+        # que e onde vive a normalizacao de decimais e por onde ja escapou um
+        # defeito. Sete dos achados verificados de 2026-08-23 foram desta classe:
+        # duas fontes da mesma grandeza sem nada a obriga-las a concordar.
+        run: bash .github/scripts/shared-quantities.sh
+
       - name: Yul evaluation-order guard
         # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
         # `and(staticcall(...), eq(returndatasize(), 32))` tests the size left
@@ -40,6 +57,113 @@ jobs:
             exit 1
           fi
 
+      - name: Depth unit guard (L cru nunca vira depthWad)
+        # `depthWad` tem de ser TOKEN-denominado para ser comparavel entre familias de venue:
+        # o V2 reporta min(r0,r1), unidades lineares. L esta em escala-RAIZ, logo entrega-lo cru
+        # faz uma pool concentrada ancorar acima de uma V2 igualmente funda por ~sqrt(preco).
+        # Isto ja foi corrigido TRES vezes em sitios diferentes (universalQuote V3, universalQuote
+        # V4, Hub.claimV4) e mesmo assim faltava num QUARTO (Router._recordHits), que corre em
+        # todos os swaps executados e reescrevia o bucket que o claimV4 tinha gravado certo.
+        # A conversao vive agora numa unica primitiva, `BPC.depthFromL`. Esta guarda existe para
+        # que nao apareca um quinto irmao: nenhum produtor de profundidade pode atribuir liquidez
+        # crua. O corpo da propria primitiva devolve `uint256(liq)` no caso sp == 0, e por isso e
+        # um `return`, nao uma atribuicao — fica de fora do padrao por construcao.
+        run: |
+          if grep -rnE '(depth|depthWad|depthTok)[[:space:]]*=[[:space:]]*uint256\((liq|BPC\.getLiquidity|getLiquidity)' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Liquidez crua atribuida a uma variavel de profundidade. L e escala-raiz; usa BPC.depthFromL(liq, sqrtPriceX96) para obter unidades de token."
+            exit 1
+          fi
+
+      - name: Depth producer guard (profundidade nunca vem de calldata)
+        # depthWad alimenta _canInsert (Hub) e o bucket do Monoslot, que alimenta o psi que o
+        # Solver usa para ranquear. Se um produtor grava um numero que o chamador escolheu, o
+        # chamador passa a decidir o ranking do registo — e o ramo curve-like faz exatamente isso
+        # hoje (Router:1498, `depth = leg.expectedOut`). O produtor tem de gravar o `got` MEDIDO.
+        # Complementa a guarda de unidades ja existente (L cru), que cobre a outra metade da mesma
+        # classe: uma e "unidade errada", esta e "fonte errada".
+        run: |
+          if grep -rnE '(depth|depthWad|depthTok)[[:space:]]*=[[:space:]]*leg\.expectedOut' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Profundidade do registo gravada a partir de calldata (leg.expectedOut). Usa o valor MEDIDO (delta de balanceOf) — quem submete a rota nao pode escolher o seu proprio ranking."
+            exit 1
+          fi
+
+      - name: Fee fallback guard (calldata nao substitui uma medicao falhada)
+        # I-measure: quando a leitura viva da fee falha, cair para a fee de CALLDATA e' deixar o
+        # chamador escolher o numero que alimenta impactV3Bps -> avgImpact -> ironFloorBps ->
+        # protocolFloorOut. Ou seja: a calldata acaba a definir o piso do PROTOCOLO.
+        # O padrao proibido e' o FALLBACK (`... ? ... : leg.fee`) dentro de uma chamada out*/impact*.
+        # ISENTO por construcao: `effV4Fee(leg.fee, ...)`. No V4 o leg.fee entra no
+        # computeV4PoolId, logo uma fee mentirosa produz um pid diferente que nao casa com pool
+        # viva (sp == 0) e falha fechado — esta autenticado, nao confiado.
+        run: |
+          if grep -rnE '(out|impact)[A-Za-z0-9]*\([^;]*:[[:space:]]*leg\.fee' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Fee de calldata usada como fallback de uma leitura viva falhada. Fail-closed em vez de cair para leg.fee — senao o chamador define o piso do protocolo."
+            exit 1
+          fi
+
+      - name: Fee producer guard (um so juizo por pergunta de fee)
+        # DUAS perguntas de fee, dois produtores unicos no Core, e ZERO copias fora dele.
+        #
+        # 1. "que fee cobra uma pool V2 que nao a declara?" -> BPC.effV2Fee. O literal `== 0 ? 30`
+        #    estava escrito a mao em TRES sitios: o caminho da COTACAO do Router, o da EXECUCAO do
+        #    Router, e o universalQuote. Os dois primeiros sao o par que TEM de concordar — se
+        #    divergirem, a cotacao mente sobre o que a execucao vai fazer, que e a forma exata das
+        #    fugas de fee ja fechadas nesta base.
+        #
+        # 2. "qual e a fee VIVA desta pool concentrada?" -> BPC.effV3Fee. O Router tinha uma copia
+        #    que divergia no caso que o Core documenta em voz alta ("0% is legal"): fazia
+        #    `dynFee != 0 ? dynFee : 0xFFFFFF`, tratando um 0% MEDIDO COM SUCESSO como falha. Uma
+        #    pool Algebra de fee 0% era cotada a zero e caia fora do routing. O
+        #    test_ZeroDynamicFeeStillQuotes existia e passava — pelo OUTRO canal.
+        #
+        # A distincao que a copia perdia: o `dyn` de v3StateAndDynFee e uma flag de SUCESSO DE
+        # LEITURA, enquanto o getV3Fee devolve 0 tanto para "falhou" como para "e mesmo zero".
+        # So o segundo pode fechar sobre um zero.
+        run: |
+          if grep -rnE '==[[:space:]]*0[[:space:]]*\?[[:space:]]*30([^0-9]|$)' src/ \
+             | grep -vE 'return declared == 0 \? 30 : declared' | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Default de fee V2 escrito a mao. Usa BPC.effV2Fee — tres copias de um literal e a assinatura de defeito da casa."
+            exit 1
+          fi
+          if grep -rnE '\?[^;]*:[[:space:]]*0xFFFFFF' src/ \
+             | grep -vE 'src/BlazePhoenixCore\.sol' | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Juizo de fee viva fora do Core. Usa BPC.effV3Fee — a copia divergia sobre se um 0% medido e legal."
+            exit 1
+          fi
+
+      - name: Router grants no allowance (guarda de propriedade, nao de bug)
+        # O HUNT-001 (achado #1 da caca overnight) vivia em _execCurveAmt, que e o UNICO sitio de
+        # todo o Router/Hub/Solver que concede uma allowance — Router:1241 (forceApprove) e
+        # Router:1282 (safeApprove). Quando o Curve sair, a vulnerabilidade morre COM o alvo, e os
+        # 3 testes de test/hunt/ResidualApproval.t.sol morrem com ela.
+        # O PERIGO NAO E O CORTE — e o que se perde no corte: hoje "o Router nao deixa allowances
+        # de pe" e um FACTO TESTADO; sem esta guarda passa a ser um ACIDENTE de ninguem chamar
+        # approve. O primeiro integrador que reintroduzir um approve (um adaptador, um permit2 de
+        # saida) recupera a vulnerabilidade sem ninguem ficar vermelho.
+        # A propriedade fica assim MAIS forte do que antes do corte: de "esta allowance e segura"
+        # para "nao existem allowances". As primitivas em BlazePhoenixCore (L440/L459) FICAM — sao
+        # a biblioteca; o que se proibe e o Router chama-las.
+        run: |
+          if grep -nE '(forceApprove|safeApprove|\.approve\()' src/BlazePhoenixRouter.sol | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::O Router nao pode conceder allowances. Se precisas mesmo de uma, o padrao seguro esta em _execCurveAmt no historico do git — e le antes o test/hunt/ResidualApproval.t.sol para saber o que ela custa."
+            exit 1
+          fi
+
+      - name: Curve/Balancer excisado (decisao do dono 2026-08-20)
+        # Removidos por decisao: quase nenhuma L2 os tem, e custavam bytecode em cinco contratos.
+        # O corte apaga tres superficies que eram cada uma a UNICA da sua classe: o unico approve
+        # do Router (acima), o unico produtor de depthWad atestado pelo caller (o ramo curve-like
+        # de _recordHits) e o unico buraco deliberado na prova de autenticidade do Hub (a mascara
+        # 0x6b exclui os kinds 2 e 7 — para esses a pool NAO e verificada E a profundidade e
+        # atestada). As constantes KIND_STABLE=2, KIND_BALANCER_V2=3 e KIND_CURVE=7 FICAM como
+        # lapides: decodeKind le o kind dos bits do Monoslot, e renumerar reinterpretaria slots
+        # ja gravados. Esta guarda proibe o CODIGO, nao os numeros.
+        run: |
+          if grep -rnE '(curveGetDy|curveResolveIndices|_curveCryptoGetDy|_execCurveAmt|_scanCurve|find_pool_for_coins)' src/ | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::Simbolo Curve/Balancer em src/. Foram excisados por decisao do dono; os numeros de kind ficam reservados como lapides, o codigo nao volta."
+            exit 1
+          fi
+
       - name: Build
         run: forge build
 
@@ -50,6 +174,22 @@ jobs:
         # separately with an RPC secret. This keeps the fast run hermetic.
         run: forge test -vvv --no-match-path "test/fork/**"
 
+      - name: Mutation guard (os guardas tem de ter testes que os apanhem)
+        # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
+        # com testes mortos: a suite passava na mesma com o fix REMOVIDO. O caso mais recente
+        # passou 5/5 com o portao de cobertura arrancado — o revert que o teste apanhava vinha
+        # de OUTRA verificacao com o MESMO codigo de erro. Uma suite verde nao prova nada sobre
+        # um guarda especifico; so a mutacao o prova.
+        #
+        # NAO e uma ferramenta de mutacao generica, de proposito: e uma lista FIXA e VERSIONADA
+        # de mutantes, cada um emparelhado com o teste nomeado que TEM de o apanhar. Corre em
+        # segundos e falha de forma legivel, dizendo qual guarda ficou sem vigia.
+        #
+        # O CONTRATO: acrescentar um guarda de seguranca ao protocolo implica acrescentar a sua
+        # linha em .github/scripts/mutants.py. Se o alvo de um mutante deixar de existir, o job
+        # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
+        run: python3 .github/scripts/mutants.py
+
       - name: Deeper invariant/fuzz pass (REPORT-ONLY — never gates)
         # `|| true` is deliberate: this deep campaign is a search, not a bound,
         # and its variance would make the gating job flaky. Labelled so nobody
@@ -59,7 +199,7 @@ jobs:
         run: forge test --match-path "test/*Invariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
 
   fork-tests:
-    name: fork tests (Curve / Balancer, archive RPC)
+    name: fork tests (archive RPC)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -83,7 +223,7 @@ jobs:
         # nothing for a real one, which fails all three deterministically. So
         # this cuts the false-red rate without weakening the signal at all.
         run: |
-          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|EthereumCurveForkTest|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest"
+          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest"
           for attempt in 1 2 3; do
             if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC"; then
               exit 0

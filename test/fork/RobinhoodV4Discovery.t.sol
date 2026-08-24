@@ -35,6 +35,11 @@ contract RobinhoodV4DiscoveryTest is Test {
     int24  constant SPAC_USDG_TS  = 100;
 
     function setUp() public {
+        // Sem DRPC_KEY nao ha fork. SALTAR, nao falhar: um teste que rebenta por falta de uma
+        // variavel de ambiente e ruido que esconde falhas reais na suite local — foram 15 destas
+        // a mascarar o resultado. O job `fork-tests` do CI tem o segredo e continua a corre-los
+        // a serio, portanto a cobertura nao se perde; so deixa de haver vermelho falso.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("robinhood");
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), V4_MGR);
@@ -79,7 +84,7 @@ contract RobinhoodV4DiscoveryTest is Test {
         for (uint256 j = 99; j >= 1; --j) {
             uint24 f = uint24(10000 * j);
             int24  t = int24(uint24(100 * j));
-            ( , uint128 liq, , ) =
+            ( , uint128 liq, , , ) =
                 BPC.v4SqrtAndLiq(V4_MGR, BPC.computeV4PoolId(c0, c1, f, t, address(0)));
             if (liq != 0) return (f, t, true);
         }

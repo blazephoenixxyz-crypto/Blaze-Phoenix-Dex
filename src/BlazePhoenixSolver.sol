@@ -7,6 +7,28 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
+//  RESPONSABILIDADE UNICA
+//      Decidir por onde passa o dinheiro. O Solver e o unico sitio do protocolo
+//      onde existe uma escolha; todo o resto executa, verifica ou lembra.
+//
+//  O QUE ESTE CONTRATO GARANTE
+//      S1  DECIDE 100% ON-CHAIN. Nao ha oraculo, nao ha assinatura off-chain, nao
+//          ha parametro de confianca. A rota nasce da cadeia e e reproduzivel por
+//          qualquer pessoa que leia os mesmos blocos — custa mais gas e o
+//          resultado e fiel ao estado real, que e a troca que o desenho escolhe.
+//      S2  COMPARA SO O QUE E COMPARAVEL. Profundidades de familias diferentes
+//          vivem em unidades diferentes (reservas de par sao lineares; L esta em
+//          escala-raiz). Normalizam-se dentro da FAMILIA, nunca entre familias —
+//          senao uma pool concentrada ancora acima de uma pool de par igualmente
+//          funda por um fator de raiz-de-preco.
+//      S3  NAO ESCREVE NADA. Tudo aqui e `view`. Um erro do Solver custa uma rota
+//          pior, nunca um estado corrompido.
+//
+//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
+//      Nao executa e nao tem poder de gastar. E a rota que devolve NAO e uma
+//      promessa: o Router volta a medir tudo o que ela afirma, porque uma rota
+//      pode chegar-lhe por outro caminho que nao este.
+//
 //  The Solver selects the output-maximising route for an exact-input swap.
 //  For each candidate route it computes the total output, discards routes
 //  whose net receive falls below the output floor (driven by impact, leg
@@ -16,7 +38,7 @@
 //
 //  Topology choice is exhaustive over three candidates:
 //
-//      a)  direct        : tIn → tOut, one hop, up to MAX_LEGS=5 splits
+//      a)  direct        : tIn → tOut, um hop, ate MAX_LEGS_PER_STAGE=4 splits
 //      b)  via bridge[0] : tIn → bridge[0] → tOut, 5 legs total
 //      c)  via bridge[1] : tIn → bridge[1] → tOut, 5 legs total
 //
@@ -25,7 +47,7 @@
 //  The Solver evaluates all three topologies and returns the best plus the
 //  runner-up as `fallbackRoute`.
 //
-//  Budget: MAX_LEGS = 5 globally. Bridge routes split it between the two
+//  Orcamento: MAX_LEGS = 11 global, MAX_LEGS_PER_STAGE = 4 por hop -> 4/4+4/4+4+3.
 //  stages dynamically (typically 3 legs to the bridge, 2 from it).
 // =============================================================================
 pragma solidity 0.8.36;
@@ -44,21 +66,59 @@ interface IHubR {
     function getSlot(bytes32 key) external view returns (uint256);
     function keyOf(address pool, address tA, address tB) external pure returns (bytes32);
     function bridge(uint8 i) external view returns (address);
-    function bridgeCount() external view returns (uint8);
     function isBridgeToken(address t) external view returns (bool);
     function v4PoolManager() external view returns (address);
     function v4EntryCount() external view returns (uint256);
 }
+
+// Ganho MINIMO que um split tem de ter sobre a melhor perna unica para se
+// justificar, em PARTES POR MILHAO (1 bps = 100 ppm).
+//
+// AO NIVEL DO FICHEIRO, e nao dentro do contrato, porque um TESTE tem de
+//      a poder importar pelo nome. Enquanto viveu como `internal constant`, o
+//      `test/SplitThreshold.t.sol` replicava o gate e passava o limiar como
+//      LITERAL — repor 20 bps na producao deixava esse teste verde. Um teste
+//      que nao consegue ler a constante que diz proteger nao a protege.
+//      Custo medido desta mudanca: +9 bytes de runtime (a versao `public`
+//      custava +47).
+//
+// ESCALA EM PPM porque o valor que o dono quis — 0,25 bps — nao e
+//      representavel em bps inteiros. O ponto morto MEDIDO na Base e 0,030 bps
+//      (3 ppm): o custo real das 320 B de calldata da perna extra, a
+//      105,5 gas/byte. 25 ppm sao ~8x isso.
+//      Historia: 20 bps (667x o ponto morto) -> 5 bps (167x) -> 0,25 bps (8x).
+//      Nenhuma das duas primeiras tinha sido calibrada contra medicao nenhuma.
+uint32 constant MIN_SPLIT_IMPROVEMENT_PPM = 25;
 
 contract BlazePhoenixSolver {
 
     string  public constant VERSION                = "2.0.0";
 
     /// @notice Maximum legs across the entire route, regardless of topology.
-    uint8   internal constant MAX_LEGS             = 5;
+    /// @notice Tecto GLOBAL de pernas numa rota, somando todos os hops.
+    ///         11 desde 2026-08-22 (era 5), por decisao do dono.
+    ///
+    ///         O 11 NAO E ARBITRARIO, e nao precisa de caso especial: combinado
+    ///         com o tecto por hop de 4, produz exactamente a distribuicao pedida
+    ///           directo :            min(4, 11)        = 4
+    ///           2 hops  : 4 +        min(11-4, 4)      = 4 + 4  =  8
+    ///           3 hops  : 4 + 4 +    min(11-8, 4)      = 4+4+3  = 11
+    ///         O ultimo hop de uma rota de tres fica com 3 porque o tecto global
+    ///         o aperta — nao porque alguem o escreveu em codigo. Uma constante
+    ///         a fazer o trabalho de tres.
+    ///
+    ///         SAO DUAS PERGUNTAS DIFERENTES e por isso sao duas constantes:
+    ///           "quantas pernas cabem num hop?"      -> MAX_LEGS_PER_STAGE
+    ///           "quantas pernas cabem numa ROTA?"    -> MAX_LEGS
+    ///         Colapsa-las faria uma rota directa poder gastar o orcamento todo
+    ///         num hop so, o que viola o tecto por hop.
+    uint8   internal constant MAX_LEGS             = 11;
 
     /// @notice Stage-A budget for bridge routes.  Stage B gets MAX_LEGS - A_used.
-    uint8   internal constant MAX_LEGS_PER_STAGE   = 3;
+    /// @notice Tecto de pernas POR HOP, em qualquer topologia — inclusive na
+    ///         rota directa. 4 desde 2026-08-22 (era 3, e a directa nem sequer
+    ///         o respeitava: usava o tecto global).
+    uint8   internal constant MAX_LEGS_PER_STAGE   = 4;
 
     /// @notice Candidates PROBED from the Hub per pair. Deliberately wider
     ///         than the leg budget (MAX_LEGS): the probe funnel sees more
@@ -81,18 +141,24 @@ contract BlazePhoenixSolver {
     ///         floor protects every fill regardless of how stale the registry is.
     uint256 internal constant DISCOVERY_TTL_SECONDS = 3_600; // ~1 hour, every chain
 
-    /// @notice Per-leg conservatism BPS for routes with ≥3 legs.
-    uint16  internal constant LEG_SAFETY_BPS       = 5;
 
-    /// @notice A split is accepted only if it beats the single-best leg's
-    ///         full-size quote by at least this margin. Each extra leg costs
-    ///         real execution gas (~30k measured), and the allocator otherwise
-    ///         contains no gas term at all — this bps threshold is the honest,
-    ///         oracle-free proxy for that cost (comparing gas in the native
-    ///         token against output in tokenOut would need a price, and the
-    ///         protocol is deliberately oracle-free). Planning-view only:
-    ///         execution floors and userMinOut are untouched.
-    uint16  internal constant MIN_SPLIT_IMPROVEMENT_BPS = 20;
+    /// @notice Ganho MINIMO que um split tem de ter sobre a melhor perna unica
+    ///         para se justificar, em PARTES POR MILHAO (1 bps = 100 ppm).
+    ///
+    /// @dev ESCALA EM PPM E NAO EM BPS, e a razao e que o valor que o dono quis
+    ///      — 0,25 bps — nao e representavel em bps inteiros. O ponto morto
+    ///      MEDIDO na Base e 0,030 bps (3 ppm): o custo real das 320 B de
+    ///      calldata da perna extra, a 105,5 gas/byte. 25 ppm sao ~8x isso,
+    ///      que e margem suficiente para nao dividir por ruido e pequena o
+    ///      bastante para nao deitar fora ganho real.
+    ///
+    ///      HISTORIA DESTE NUMERO, porque ela ensina: era 20 bps (667x o ponto
+    ///      morto), passou a 5 bps (167x) e agora a 0,25 bps (8x). Nenhuma das
+    ///      duas primeiras versoes tinha sido calibrada contra medicao nenhuma.
+    ///
+    ///      E POR CHAIN, um dia: 320 B custam $0,003 na Base e ~$257 em Scroll.
+    ///      O ChainProfile existe para carregar isso; ate la, este valor serve
+    ///      as L2 baratas, que sao onde o produto vive.
 
     /// @notice Capacity clamp for concentrated (single-tick-quoted) legs, in
     ///         BPS of the pool's REAL tokenOut balance. The single-tick V3 /
@@ -104,7 +170,7 @@ contract BlazePhoenixSolver {
     ///         quote is clamped to this fraction of the pool's measured
     ///         tokenOut balance — the same unforgeable capital signal as the
     ///         anchor filter, extended from filtering to capacity. Reserve-
-    ///         bounded formulas (V2 / Solidly / Curve ask-the-pool) cannot
+    ///         bounded formulas (V2 / Solidly) cannot
     ///         over-promise and are untouched; a zero balance (V4 singleton
     ///         accounting) skips the clamp.
     ///
@@ -122,28 +188,36 @@ contract BlazePhoenixSolver {
     ///         that execute fine (measured: a 43bps full fill halved).
     uint16  internal constant MAX_CONC_DRAIN_BPS   = 3_000; // 30% of real holdings
 
-    /// @notice Median-rate filter for split allocation. After quoting each
-    ///         candidate with the full amountIn, the median rate is computed
-    ///         across the survivors. Pools whose rate deviates from the
-    ///         median by more than MEDIAN_FILTER_BPS are excluded from the
-    ///         depth-weighted split.
+    /// @notice Filtro de banda para a alocacao do split. Depois de cotar cada candidato, calcula-se
+    ///         a base do mercado e excluem-se as pools cujo rate se afasta dela mais que
+    ///         MEDIAN_FILTER_BPS.
     ///
-    ///         Why median, not best?  The best pool's rate may itself be
-    ///         manipulated (e.g., a low-liquidity pool with a stale price
-    ///         pretending to offer the world).  Median is robust: to move
-    ///         the median, an attacker must move more than half the pools
-    ///         simultaneously, which is economically infeasible across
-    ///         different DEX kinds (V2 / V3 / Solidly / CL) with separate
-    ///         liquidity sets.
+    ///         PORQUE UMA MEDIANA E NAO A MELHOR: o rate da melhor pool pode ele proprio estar
+    ///         manipulado (uma pool de liquidez baixa com preco velho a fingir que oferece o
+    ///         mundo). Para mover uma mediana, um atacante tem de mover mais de METADE — e nao
+    ///         basta uma pool.
     ///
-    ///         400 bps (4%) band: tight enough to exclude mis-priced pools
-    ///         (Solidly-stable curves on LST/WETH pairs are typically 20-40%
-    ///         off the true rate), loose enough to admit healthy pools whose
-    ///         price impact for the trade slightly differs from a near-zero
-    ///         marginal-rate reading. Widened from the original ±2% per the
-    ///         sealed 2026-08-03 design decision (see vault note "010 -
-    ///         Invariantes, Mediana 4% & Padrões Estocásticos").
-    uint16  internal constant MEDIAN_FILTER_BPS    = 400;   // ±4%
+    ///         NOTA DE CORRECAO (2026-08-21). Este paragrafo dizia exatamente isto e era FALSO ha
+    ///         muito: a base tinha passado a ser o rate da UNICA pool mais funda, um estimador com
+    ///         PONTO DE RUTURA ZERO — um sensor forjado capturava-a inteira. A justificacao
+    ///         escrita e o estimador real tinham divergido, e a prosa mais tranquilizadora era a
+    ///         que descrevia a defesa que ja nao existia.
+    ///         Hoje a base e a MEDIANA PONDERADA PELA PROFUNDIDADE (ver `_depthWeightedMedian`),
+    ///         que repoe a propriedade que este paragrafo alega — e melhora-a: a maioria e contada
+    ///         em MASSA DE PROFUNDIDADE e nao em numero de pools, portanto nem meia duzia de pools
+    ///         de po tem voto. Ponto de rutura: 0 -> 50% da massa.
+    ///
+    ///         BANDA DE 500 bps (±5%) — decisao do dono, 2026-08-21, alargada de 400.
+    ///         O objetivo e nao EXCLUIR uma pool genuinamente melhor: a banda e simetrica, logo
+    ///         alargar admite tanto quem esta ate 5% acima da base como quem esta 5% abaixo.
+    ///         Continua apertada o suficiente para o que ela foi feita: curvas Solidly-stable em
+    ///         pares LST/WETH ficam tipicamente 20-40% fora, e essas continuam a ser excluidas.
+    ///
+    ///         O QUE ISTO CUSTA, dito onde se decide: uma pool 5% pior tambem entra, e como os
+    ///         pesos sao por PROFUNDIDADE, uma pool funda e 5% pior pode levar uma fatia grande.
+    ///         Se um dia se quiser so o lado bom, a banda tem de deixar de ser simetrica — e isso
+    ///         e uma mudanca de PREDICADO e nao de numero, portanto nao se faz por atalho.
+    uint16  internal constant MEDIAN_FILTER_BPS    = 500;   // ±5% (decisao do dono, 2026-08-21)
 
     error SolverE(uint16 code);
 
@@ -170,18 +244,38 @@ contract BlazePhoenixSolver {
         Route memory direct = _planDirect(tIn, tOut, amountIn);
         Route memory viaB1;
         Route memory viaB2;
-        uint8 bc = hub.bridgeCount();
-        if (bc > 0) {
-            address b0 = hub.bridge(0);
-            if (b0 != address(0) && b0 != tIn && b0 != tOut) {
-                viaB1 = _planViaBridge(tIn, tOut, amountIn, b0);
-            }
+        Route memory viaB3;
+        // O `bridgeCount()` que aqui estava era REDUNDANTE. As posicoes acima do contador sao
+        // SEMPRE address(0) — o `addBridge` preenche em sequencia e o `removeBridge` compacta e
+        // zera a que sobra — e as duas guardas ja testavam `!= address(0)`. Era uma travessia de
+        // fronteira por solve para responder a uma pergunta que o proprio valor lido ja responde.
+        //
+        // O BALANCO, honesto: com >= 2 bridges configuradas (o caso de producao) sao 3 travessias
+        // a passar a 2. Com o registo VAZIO passa de 1 para 2 — pior, mas um registo sem bridges
+        // e uma ma configuracao, nao um regime a optimizar.
+        //
+        // E AS DUAS LEITURAS DESENROLADAS SAO O `MAX_BRIDGE_ROUTES` DO HUB, ESCRITO AQUI EM
+        // CODIGO. E este numero — nao o MAX_BRIDGES — que decide por quantas bridges se roteia, e
+        // a diferenca entre os dois era uma assimetria silenciosa: a terceira bridge tinha
+        // direitos de admissao e +25% de fitness sem nunca poder ser um hop. Ver a nota do
+        // MAX_BRIDGE_ROUTES no Hub e o test/RoutableBridgeAsymmetry.t.sol, que pina os dois lados.
+        // DECISAO DO DONO 2026-08-21: MAX_BRIDGES desceu de 3 para 2 e o terceiro
+        // braco (`b2`/`viaB3`) foi REMOVIDO daqui no mesmo commit. As duas coisas TEM de
+        // andar juntas: `hub.bridge(2)` sobre um `address[2]` reverte com Panic 0x32.
+        // Medido antes do corte (fork Base, 9 factories, USDC->LINK): a 3a bridge custava
+        // +760.125 gas por solve a frio, +32,5%. Quem acrescentar um `b2` aqui TEM de subir
+        // a constante la — e vice-versa.
+        address b0 = hub.bridge(0);
+        if (b0 != address(0) && b0 != tIn && b0 != tOut) {
+            viaB1 = _planViaBridge(tIn, tOut, amountIn, b0);
         }
-        if (bc > 1) {
-            address b1 = hub.bridge(1);
-            if (b1 != address(0) && b1 != tIn && b1 != tOut) {
-                viaB2 = _planViaBridge(tIn, tOut, amountIn, b1);
-            }
+        address b1 = hub.bridge(1);
+        if (b1 != address(0) && b1 != tIn && b1 != tOut) {
+            viaB2 = _planViaBridge(tIn, tOut, amountIn, b1);
+        }
+        address b2 = hub.bridge(2);
+        if (b2 != address(0) && b2 != tIn && b2 != tOut) {
+            viaB3 = _planViaBridge(tIn, tOut, amountIn, b2);
         }
 
         Route memory best;
@@ -189,7 +283,38 @@ contract BlazePhoenixSolver {
         uint256 bestU;
         uint256 secondU;
 
-        (bestU, secondU, best, second) = _rank(direct, viaB1, viaB2);
+        Melhores memory m;
+        _considera(m, direct);
+        _considera(m, viaB1);
+        _considera(m, viaB2);
+        _considera(m, viaB3);
+        // TRES HOPS por DUAS pontes: tIn -> bX -> bY -> tOut.
+        //
+        // SEM `bridgeCount()`: os tres valores ja estao em mao (b0/b1/b2, lidos
+        // acima) e as posicoes acima do contador sao SEMPRE address(0) — o
+        // `addBridge` preenche em sequencia e o `removeBridge` compacta. Repor
+        // a chamada seria desfazer a remocao deliberada de ontem (-1.581 gas
+        // por solve) para responder a uma pergunta que os valores lidos ja
+        // respondem. As guardas `!= address(0)` fazem o resto.
+        //
+        // So se ACRESCENTAM candidatos ao juizo: uma rota directa continua a
+        // ganhar sempre que entregar mais, porque a comparacao e por `totalOut`
+        // e nao por profundidade de topologia.
+        address[3] memory bs = [b0, b1, b2];
+        for (uint256 i; i < 3; ) {
+            address x = bs[i];
+            if (x != address(0) && x != tIn && x != tOut) {
+                for (uint256 j; j < 3; ) {
+                    address y = bs[j];
+                    if (j != i && y != address(0) && y != tIn && y != tOut && y != x) {
+                        _considera(m, _planViaTwoBridges(tIn, tOut, amountIn, x, y));
+                    }
+                    unchecked { ++j; }
+                }
+            }
+            unchecked { ++i; }
+        }
+        bestU = m.bestU; secondU = m.secU; best = m.bestR; second = m.secR;
         if (bestU == 0) revert SolverE(5);
 
         plan.best = best;
@@ -197,14 +322,40 @@ contract BlazePhoenixSolver {
         plan.hasFallback = (secondU > 0);
     }
 
-    function _rank(Route memory a, Route memory b, Route memory c)
-        private pure returns (uint256 bestU, uint256 secU, Route memory bestR, Route memory secR)
-    {
-        if (a.totalOut > 0) { bestU = a.totalOut; bestR = a; }
-        if (b.totalOut > bestU) { secU = bestU; secR = bestR; bestU = b.totalOut; bestR = b; }
-        else if (b.totalOut > secU) { secU = b.totalOut; secR = b; }
-        if (c.totalOut > bestU) { secU = bestU; secR = bestR; bestU = c.totalOut; bestR = c; }
-        else if (c.totalOut > secU) { secU = c.totalOut; secR = c; }
+    /// @dev O UNICO produtor do juizo "qual rota e melhor", e o criterio e o `totalOut` — a
+    ///      saida efetivamente CONSTRUIDA e medida de cada topologia, nao um proxy. E por isso
+    ///      que todas as bridges configuradas sao expandidas e entregues aqui em vez de serem
+    ///      pre-filtradas por profundidade do registo: um pre-filtro por proxy seria um SEGUNDO
+    ///      produtor do mesmo juizo, e o pior dos dois — podia descartar exatamente a rota que
+    ///      este escolheria. A profundidade ja faz o seu trabalho onde deve, um nivel abaixo, a
+    ///      ordenar candidatos DENTRO de cada hop (`_topKPools`, `_buildHop`).
+    /// @dev ACUMULADOR, nao uma lista de parametros. Era `_rank(a,b,c,d)` — e o
+    ///      numero de parametros ERA o MAX_BRIDGE_ROUTES escrito em codigo, o que
+    ///      criou a bridge fantasma quando os dois divergiram (nota 128 §4).
+    ///      Com as topologias de duas pontes sao ate 10 candidatos; uma assinatura
+    ///      de 10 parametros voltaria a codificar a mesma constante numa aridade.
+    ///
+    ///      O acumulador apaga a possibilidade: quem acrescentar uma topologia
+    ///      chama `_considera` mais uma vez e nao ha nenhuma aridade para
+    ///      esquecer de subir. Continua a ser o PRODUTOR UNICO do juizo "qual
+    ///      rota e melhor", e continua a decidir por `totalOut` — a saida
+    ///      construida e medida, nunca um proxy.
+    ///      O numero de parametros aqui E o MAX_BRIDGE_ROUTES escrito em codigo: se
+    ///      divergirem outra vez, nasce a assimetria que a nota 128 §4 documentou —
+    ///      uma bridge com direitos de admissao e fitness que nunca pode ser um hop.
+    ///      O test/RoutableBridgeAsymmetry.t.sol pina os dois lados.
+    struct Melhores {
+        uint256    bestU;
+        uint256    secU;
+        Route      bestR;
+        Route      secR;
+    }
+
+    function _considera(Melhores memory m, Route memory r) private pure {
+        uint256 u = r.totalOut;
+        if (u == 0) return;
+        if (u > m.bestU) { m.secU = m.bestU; m.secR = m.bestR; m.bestU = u; m.bestR = r; }
+        else if (u > m.secU) { m.secU = u; m.secR = r; }
     }
 
     // =========================================================================
@@ -216,7 +367,10 @@ contract BlazePhoenixSolver {
     {
         PoolInfo[] memory cands = _topKPools(tIn, tOut, MAX_CANDIDATES);
         if (cands.length == 0) return route;
-        Hop memory hop = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS, true);
+        // TECTO POR HOP, nao o global: uma rota directa e UM hop, e o limite de
+        // 4 pernas por hop vale para ela como para qualquer outra. Antes usava o
+        // MAX_LEGS e podia gastar o orcamento inteiro num hop so.
+        Hop memory hop = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, true);
         if (hop.expectedOut == 0) return route;
         return _assembleRoute(hop);
     }
@@ -235,6 +389,7 @@ contract BlazePhoenixSolver {
         uint256 legsA = hopA.legs.length;
         if (legsA >= MAX_LEGS) return route;   // stage A used the whole budget
         uint8 budgetB = uint8(MAX_LEGS - legsA);
+        if (budgetB > MAX_LEGS_PER_STAGE) budgetB = MAX_LEGS_PER_STAGE;
         if (budgetB == 0) return route;
         PoolInfo[] memory candsB = _topKPools(bridge_, tOut, MAX_CANDIDATES);
         if (candsB.length == 0) return route;
@@ -264,6 +419,65 @@ contract BlazePhoenixSolver {
         return _assembleRouteMulti(hops, tIn, tOut, amountIn, hopB.expectedOut);
     }
 
+    /// @notice TRES HOPS por DUAS pontes: tIn -> bA -> bB -> tOut.
+    ///
+    /// @dev PORQUE EXISTE, e porque nao torna as rotas mais compridas por defeito.
+    ///      O `_rank` compara `totalOut` — a saida CONSTRUIDA e medida de cada
+    ///      topologia. Uma rota de 3 hops so ganha se entregar mais, e uma rota
+    ///      directa continua a ganhar sempre que for a melhor. Acrescentar esta
+    ///      topologia NAO alonga rotas: acrescenta um candidato ao juizo que ja
+    ///      existe.
+    ///
+    ///      O CUSTO CAI ONDE NAO IMPORTA. Sao mais tres `_buildHop` por par de
+    ///      pontes, e isso paga-se no SOLVE — que na porta A corre por `eth_call`,
+    ///      de graca. Na porta B paga-se em gas, e por isso esta topologia so
+    ///      compensa la onde os dados dominam. Ver nota 128 (as quatro portas).
+    ///
+    ///      ORCAMENTO DE PERNAS. `MAX_LEGS = 5` no total. O estagio A pode cortar
+    ///      pelo input (executa como foi construido); B e C NAO podem — o Router
+    ///      reescala-os contra o saldo REAL medido do estagio anterior, e uma
+    ///      perna cortada seria escalada de volta para cima, para alem da sua
+    ///      promessa e para dentro de um revert do piso por perna. Cada estagio a
+    ///      jusante reserva pelo menos uma perna para os seguintes.
+    function _planViaTwoBridges(
+        address tIn, address tOut, uint256 amountIn, address bA, address bB
+    ) private view returns (Route memory route) {
+        // Estagio A: tIn -> bA. Reserva 2 pernas (uma para B, uma para C).
+        PoolInfo[] memory candsA = _topKPools(tIn, bA, MAX_CANDIDATES);
+        if (candsA.length == 0) return route;
+        uint8 budgetA = MAX_LEGS_PER_STAGE;
+        if (budgetA > MAX_LEGS - 2) budgetA = uint8(MAX_LEGS - 2);   // reserva 1 para B e 1 para C
+        Hop memory hopA = _buildHop(tIn, bA, amountIn, candsA, budgetA, true);
+        if (hopA.expectedOut == 0 || hopA.legs.length == 0) return route;
+
+        // Estagio B: bA -> bB. Reserva 1 perna para C.
+        uint256 usadas = hopA.legs.length;
+        if (usadas + 2 > MAX_LEGS) return route;
+        PoolInfo[] memory candsB = _topKPools(bA, bB, MAX_CANDIDATES);
+        if (candsB.length == 0) return route;
+        uint8 budB = uint8(MAX_LEGS - usadas - 1);                    // reserva 1 para C
+        if (budB > MAX_LEGS_PER_STAGE) budB = MAX_LEGS_PER_STAGE;
+        Hop memory hopB = _buildHop(bA, bB, hopA.expectedOut, candsB, budB, false);
+        if (hopB.expectedOut == 0 || hopB.legs.length == 0) return route;
+
+        // Estagio C: bB -> tOut, com o que sobrar.
+        usadas += hopB.legs.length;
+        if (usadas >= MAX_LEGS) return route;
+        PoolInfo[] memory candsC = _topKPools(bB, tOut, MAX_CANDIDATES);
+        if (candsC.length == 0) return route;
+        uint8 budC = uint8(MAX_LEGS - usadas);
+        if (budC > MAX_LEGS_PER_STAGE) budC = MAX_LEGS_PER_STAGE;
+        Hop memory hopC = _buildHop(bB, tOut, hopB.expectedOut, candsC, budC, false);
+        if (hopC.expectedOut == 0 || hopC.legs.length == 0) return route;
+        if (usadas + hopC.legs.length > MAX_LEGS) return route;
+
+        Hop[] memory hops = new Hop[](3);
+        hops[0] = hopA;
+        hops[1] = hopB;
+        hops[2] = hopC;
+        return _assembleRouteMulti(hops, tIn, tOut, amountIn, hopC.expectedOut);
+    }
+
     // =========================================================================
     //  HOP CONSTRUCTION — depth-weighted allocation
     // =========================================================================
@@ -286,15 +500,15 @@ contract BlazePhoenixSolver {
         //  is small enough that each pool's marginal rate is essentially its
         //  spot price (negligible impact). Then we compute the median of
         //  those marginal rates and filter pools whose marginal rate
-        //  deviates from the median by more than MEDIAN_FILTER_BPS (±2%).
+        //  deviates from the base by more than MEDIAN_FILTER_BPS (±5%).
         //
         //  GAS: the probe-size quote is computed exactly ONCE per candidate
         //  here, capturing BOTH the marginal rate AND the depth in the same
         //  call (_quoteWithDepth). Previously this identical probe quote was
         //  recomputed three times — once for the median, once for the band
         //  filter, once for the depth pass — each re-reading the pool's
-        //  state (V3 sqrtP+liquidity, V2 reserves, or a full Curve coins()
-        //  index scan) although nothing it reads can change within a single
+        //  state (V3 sqrtP+liquidity, V2 reserves, or a V4 singleton
+        //  extsload) although nothing it reads can change within a single
         //  view call. rates[i] and depths[i] stay index-aligned to cands[i]
         //  (we sort a COPY for the median), so the band filter and the depth
         //  pass reuse the cached values with zero extra staticcalls. Only the
@@ -327,19 +541,37 @@ contract BlazePhoenixSolver {
         // probe pass and reused by the band filter and the depth weighting.
         uint256[] memory rates  = new uint256[](n);
         uint256[] memory depths = new uint256[](n);
+        // HOISTING DOS DECIMAIS. Todos os candidatos deste laco sao pools do
+        // MESMO par, logo tem os MESMOS dois tokens — so muda a orientacao.
+        // Ler `decimals()` la dentro custava 2.339 gas POR CANDIDATO (medido;
+        // o EIP-2929 nao o torna gratis porque o USDC e um proxy). Aqui e uma
+        // vez por par. Codificados +1 (ver QuoteCtx.decIn1): 0 significaria
+        // "nao preenchido" e ha tokens com genuinamente 0 decimais.
+        uint8 dIn1_ = BPC.decimalsOf(tIn) + 1;
+        uint8 dOt1_ = BPC.decimalsOf(tOut) + 1;
         // CAPITAL ANCHOR. Truth votes with capital, not with existence: dust
         // pools with stale prices can form a fake majority and vote the
         // honest deep pool out of a plain median (for example: two dead
         // SushiV3 pools agreeing on a stale ~910 rate excluded the 401k-USDC
-        // pool quoting the true 1633 as an "outlier"). The pool with the
-        // largest REAL tokenOut balance is where arbitrage keeps the price
-        // true; faking this anchor requires depositing more real capital
-        // than the genuine deep pool — at which point the attacker IS the
-        // deep pool and arbitrage corrects it. balanceOf is one staticcall
-        // and unforgeable without capital (unlike concentrated L, which is
-        // free to inflate with a hair-thin position).
-        // Per-candidate real tokenOut holdings, reused by the capacity clamp in
-        // the allocation pass (no extra staticcall — read here for the anchor).
+        // pool quoting the true 1633 as an "outlier").
+        //
+        // ATENCAO A QUEM LER ISTO DE CIMA PARA BAIXO: aqui esteve escrito, durante muito
+        // tempo, que a ancora da banda era "a pool com o maior saldo REAL de tokenOut", e
+        // que `balanceOf` era inforjavel sem capital. ESSE ARGUMENTO ESTA REFUTADO e o
+        // desenho que ele defendia foi REMOVIDO — a refutacao esta escrita por extenso no
+        // fix T2, umas dezenas de linhas abaixo (procurar "T2 (Thomas)"): uma DOACAO
+        // simples (transferir para a pool) inflaciona o `balanceOf` sem mexer na reserva
+        // nem no preco, e e recuperavel (skim do V2, claim do LP no V3) — logo nao e
+        // "capital em risco". Um atacante ganhava a ancora com uma doacao, centrava a
+        // banda no seu rate mau e filtrava a pool honesta funda para FORA.
+        //
+        // A ancora de HOJE e `_depthWeightedMedian(rates, depths, n)`, e usa `depths`:
+        // getReserves (V2/Solidly), getLiquidity (V3), liquidez medida (V4) — grandezas
+        // que uma doacao nao move. NAO usa o `balsOut` deste laco.
+        //
+        // O `balsOut` continua a ser lido aqui por OUTRA razao, e so por ela: e o teto de
+        // capacidade do passo de alocacao, que so corre para os kinds concentrados na pool
+        // (A_CONC_POOL). Nao e uma ancora e nao deve voltar a ser.
         // NOTE: the loop keeps NO scalar accumulators (no validity counter, no
         // running anchor) — dead pools leave rates[i] at zero and the median
         // block below derives the zero count AND the anchor by post-scanning
@@ -347,7 +579,7 @@ contract BlazePhoenixSolver {
         // arrays, probe and the index stay live across iterations.
         uint256[] memory balsOut = new uint256[](n);
         for (uint256 i; i < n; ) {
-            (uint256 o, uint256 d) = _quoteWithDepth(cands[i], tIn, probe);
+            (uint256 o, uint256 d) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
@@ -358,7 +590,7 @@ contract BlazePhoenixSolver {
                 // PoolManager singleton, so its true per-pool balance is 0: force
                 // it, sourcing the capital anchor only from real token-custodying
                 // kinds (also keeps _weights' "V4 reports balance 0" honest).
-                balsOut[i] = (cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
+                balsOut[i] = BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? 0
                     : BPC.balanceOf(tOut, cands[i].pool);
             }
@@ -426,13 +658,7 @@ contract BlazePhoenixSolver {
             // depths[] is getReserves (V2/Solidly) / getLiquidity (V3), which a
             // donation cannot move; V4 depth is its measured liquidity. Falls back
             // to the median only when no candidate reports depth.
-            uint256 maxDepth;
-            uint256 depthRate;
-            for (uint256 i; i < n; ) {
-                if (depths[i] > maxDepth) { maxDepth = depths[i]; depthRate = rates[i]; }
-                unchecked { ++i; }
-            }
-            uint256 base = maxDepth > 0 ? depthRate : median;
+            uint256 base = _depthWeightedMedian(rates, depths, n);
             // Zero-base guard (devil's-advocate): a live candidate can have
             // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
             // depth/capital anchor could set base=0 and collapse the band to
@@ -459,6 +685,14 @@ contract BlazePhoenixSolver {
                     if (nKept != i) {
                         cands[nKept]   = cands[i];
                         depths[nKept]  = depths[i];
+                        // `rates` TEM de viajar com o resto. Ate 2026-08-23 este
+                        // bloco compactava cands/depths/balsOut e deixava rates
+                        // para tras — a partir daqui `rates[i]` deixava de
+                        // pertencer a `cands[i]`. Nao doia enquanto ninguem lia
+                        // rates depois deste ponto; o fallback duplo do gate de
+                        // split passou a ler, e escolhia uma pool arbitraria.
+                        // MEDIDO: -2,0% e -2,8% de output.
+                        rates[nKept]   = rates[i];
                         balsOut[nKept] = balsOut[i];
                     }
                     unchecked { ++nKept; }
@@ -479,16 +713,21 @@ contract BlazePhoenixSolver {
         // (measured for a WETH/USDC pair: 50/50 gave 1302 USDC vs 1638
         // when concentrated in the deep pool). depthWad reflects current
         // capacity, so weighting by it converges on the optimal allocation
-        // (depth-weighted gave 1638, matching deep-only). depthWad is only
-        // comparable within a UNIT FAMILY — concentrated liquidity L (V3 /
-        // Algebra / V4) vs pair reserves (V2 / Solidly) vs pool-quoted out
-        // (Curve) — so depths normalise against the max of their family, not
-        // their kind: a thin V4 can no longer claim max weight merely for
-        // being the only V4 (measured: a thin Base V4 pool drew ~49% of a
-        // 25k USDC trade and cost ~31% vs fair). When the survivor set spans
-        // multiple families AND every survivor holds a real tokenOut balance,
-        // weighting switches to that balance outright — the only cross-family
-        // comparable, unforgeable-without-capital measure (see _weights).
+        // (depth-weighted gave 1638, matching deep-only).
+        //
+        // CORRIGIDO 2026-08-21. Este paragrafo afirmava que "depthWad so e comparavel dentro de
+        // uma FAMILIA DE UNIDADES" e descrevia dois modos de peso: normalizacao por familia, e um
+        // fallback para o saldo cru quando o conjunto cruzava familias.
+        // A PREMISSA CAIU com o `depthFromL`: a conversao passou a dar profundidade
+        // TOKEN-denominada em TODAS as familias, e a guarda do CI diz textualmente que ela "tem de
+        // ser token-denominada PARA SER COMPARAVEL ENTRE FAMILIAS". O repositorio tinha as duas
+        // afirmacoes opostas escritas ao mesmo tempo — e era sobre a errada que os dois modos
+        // estavam construidos.
+        // Hoje ha UMA normalizacao, contra o maximo GLOBAL — que resolve melhor o mesmo problema
+        // (uma pool fina de um kind raro compara-se com TODAS, nao so com as da sua familia; o
+        // caso medido foi uma V4 fina a levar ~49% de 25k USDC e a custar ~31% vs justo). E o
+        // fallback para o saldo cru desapareceu com eles: era uma ancora de `balanceOf`, que a
+        // doutrina do T2 proibe porque uma doacao a infla sem custo para quem doa.
         (uint256[] memory psis, uint256 sumPsi) = _weights(cands, depths, balsOut, n);
 
         // ─── FUNNEL CUT (see MAX_CANDIDATES) ───
@@ -496,7 +735,7 @@ contract BlazePhoenixSolver {
         // the top-`budget` survivors by WEIGHT (not discovery order), so a deep
         // late-listed pool displaces thin early-listed ones. Extracted to keep
         // this function's stack shallow.
-        if (n > budget) (n, sumPsi) = _cutByWeight(cands, psis, balsOut, budget, n);
+        if (n > budget) (n, sumPsi) = _cutByWeight(cands, psis, balsOut, rates, budget, n);
         Leg[] memory tmpLegs = new Leg[](n);
         uint256 legCount;
         uint256 totalOut;
@@ -517,11 +756,27 @@ contract BlazePhoenixSolver {
             uint256 outL = _quote(cands[i], tIn, share);
             if (outL == 0) { unchecked { ++i; } continue; }
             // ─── Capacity clamp (see MAX_CONC_DRAIN_BPS) ───
-            // Concentrated single-tick quotes are clamped to a fraction of the
-            // pool's REAL tokenOut holdings, so a thin pool can never inflate
-            // totalOut past what it could physically pay. Zero balance (V4
-            // singleton accounting) leaves the quote untouched.
-            if ((cands[i].kind == BPC.KIND_V3 || cands[i].kind == BPC.KIND_ALGEBRA)
+            // Uma cotacao concentrada de tick unico e limitada a uma fraccao das existencias
+            // REAIS de tokenOut da pool, para que uma pool fina nao possa inflar o totalOut acima
+            // do que consegue FISICAMENTE pagar. Saldo zero (contabilidade no singleton do V4)
+            // deixa a cotacao intacta.
+            //
+            // PORQUE AQUI E `balanceOf` E NAO A PROFUNDIDADE MEDIDA — e porque a doutrina do T2
+            // NAO se aplica a este sitio, apesar de ele ler a mesma funcao. Uma auditoria propos
+            // trocar por `depths[i]` invocando o T2 ("nunca balanceOf cru"), e a troca foi
+            // TENTADA E MEDIDA: para uma pool V3, `depthFromL` da a reserva VIRTUAL derivada de L,
+            // que pode ser muito MAIOR que as existencias fisicas — 3.327e18 contra 1.600e18 no
+            // caso de teste. O teto ficava mais FROUXO, o oposto da intencao.
+            //
+            // A distincao que isto ensina, e que vale para o proximo sitio que leia balanceOf:
+            //   · a ANCORA DA BANDA faz uma pergunta RELATIVA ("qual destas pools e a boa?").
+            //     Uma doacao distorce a comparacao sem custo para quem doa — T2 aplica-se, e a
+            //     ancora usa profundidade medida.
+            //   · este TETO faz uma pergunta FISICA ("esta pool consegue pagar isto?"). Uma
+            //     doacao sobe o teto E sobe o que a pool consegue mesmo pagar, e os tokens doados
+            //     sao CONSUMIDOS no pagamento ao utilizador. Nao e ataque, e subsidio.
+            // Ler a mesma grandeza nao implica fazer a mesma pergunta.
+            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)
                 && balsOut[i] > 0)
             {
                 uint256 cap = BPC.mulDiv(balsOut[i], MAX_CONC_DRAIN_BPS, BPC.BPS);
@@ -563,7 +818,7 @@ contract BlazePhoenixSolver {
                 stable:      cands[i].stable,
                 amountIn:    share,
                 expectedOut: outL,
-                auxId:       (cands[i].kind == BPC.KIND_STABLE || cands[i].kind == BPC.KIND_CURVE_CRYPTO || cands[i].kind == BPC.KIND_V4 || cands[i].kind == BPC.KIND_V4_NATIVE)
+                auxId:       BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? bytes32(uint256(uint160(cands[i].token0 == tIn ? cands[i].token1 : cands[i].token0)))
                     : bytes32(0)
             });
@@ -581,28 +836,72 @@ contract BlazePhoenixSolver {
         uint256 committedIn;
         for (uint256 i; i < legCount; ) { legs[i] = tmpLegs[i]; committedIn += tmpLegs[i].amountIn; unchecked { ++i; } }
 
-        // Multi-leg conservatism (≥3 legs): shave each expectedOut by legCount × 5 BPS.
-        if (legCount >= 3) {
-            uint256 shave = legCount * LEG_SAFETY_BPS;
-            if (shave > BPC.BPS) shave = BPC.BPS;
-            totalOut = 0;
-            for (uint256 i; i < legCount; ) {
-                legs[i].expectedOut = BPC.mulDiv(legs[i].expectedOut, BPC.BPS - shave, BPC.BPS);
-                totalOut += legs[i].expectedOut;
-                unchecked { ++i; }
-            }
-        }
+        // REMOVIDO: o corte de conservadorismo por perna (era `legCount * 5 bps`
+        // acima de 3 pernas), por decisao do dono em 2026-08-22.
+        //
+        // A RAZAO E MEDIDA, nao estetica. A fidelidade cotacao-vs-execucao no
+        // mesmo bloco foi medida em 9 pares da Base: pior caso **-2 bps**. O
+        // corte tirava 5 bps POR PERNA — 27x o erro observado, e ate 55 bps numa
+        // rota de 11 pernas. Pela assimetria que governa este ficheiro,
+        // subestimar nao e neutro: perde-se ranking, e portanto rotas que
+        // deviam ganhar. Era o mesmo padrao do gate de split, que
+        // estava 200-667x acima do ponto morto real e foi cortado de 20 para 5.
+        //
+        // O que fica a proteger a execucao continua de pe e nao depende disto:
+        // o piso por perna, o piso agregado da Camada 1, e o `userMinOut`
+        // obrigatorio — esses sao verificados contra a saida REALIZADA, nao
+        // contra uma estimativa encolhida a priori.
+        //
+        // O contra-argumento que fica registado: os -2 bps foram medidos numa
+        // janela CALMA (o preco moveu 0,05 bps em 3 blocos). O corte tambem
+        // cobria divergencia adversarial, que essa medicao nao exercita.
+        // Se algum dia se quiser repor conservadorismo, o sitio certo e o piso
+        // (que e verificado) e nao a estimativa (que so serve para ordenar).
         // MIN-SPLIT IMPROVEMENT GATE. A multi-leg split must EARN its legs:
         // unless it beats the top-weight survivor's single-leg full-size quote
-        // by >= MIN_SPLIT_IMPROVEMENT_BPS, collapse to that single leg. Kills
+        // by >= MIN_SPLIT_IMPROVEMENT_PPM (ppm), collapse to that single leg. Kills
         // micro-splits whose marginal output gain is smaller than the real
         // gas cost of the extra legs. cands[0] is the top-weight survivor
         // (post FUNNEL CUT); one extra full-size quote in the view path only.
         if (legCount >= 2) {
+            // DOIS CANDIDATOS DE RECURSO, nao um. O `cands[0]` e o de maior
+            // PESO, ou seja o mais FUNDO — nunca o de melhor preco. Comparar o
+            // split so contra ele significa que uma perna unica melhor podia
+            // existir e nunca ser considerada.
+            //
+            // Mas `argmax(rates)` sozinho tambem nao serve, e a razao e subtil:
+            // as `rates` vem de uma sonda PEQUENA, portanto sao precos
+            // MARGINAIS, e um preco marginal favorece pools RASAS — otimo no
+            // primeiro token, pessimo no montante inteiro. A profundidade e
+            // precisamente o proxy de "aguenta o tamanho todo".
+            //
+            // As duas heuristicas medem coisas diferentes e nenhuma domina.
+            // Avaliam-se AS DUAS a tamanho real e fica a melhor: custa UMA
+            // cotacao extra no caminho de view, e nao pode perder para o
+            // comportamento anterior porque este e um dos dois candidatos.
+            // `n`, NAO `cands.length`. Os sobreviventes sao compactados IN
+            // PLACE (ver o bloco de compactacao acima) mas o array de memoria
+            // mantem o comprimento ORIGINAL: as posicoes >= n sao lixo de
+            // candidatos que a banda da mediana REJEITOU ou que o funil CORTOU.
+            // Percorrer `cands.length` ressuscitava-os como perna unica de
+            // recurso, anulando os dois filtros — apanhado por
+            // test_UmaPoolFundaNaoCapturaABanda, que existe exactamente para
+            // impedir que uma pool funda de preco mau entre na rota.
+            uint256 melhorTaxa;
+            for (uint256 i = 1; i < n; ) {
+                if (rates[i] > rates[melhorTaxa]) melhorTaxa = i;
+                unchecked { ++i; }
+            }
             Hop memory single = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
+            if (melhorTaxa != 0) {
+                Hop memory alt = _singleLeg(tIn, tOut, amountIn, cands[melhorTaxa], allowCut);
+                if (alt.legs.length != 0 && alt.expectedOut > single.expectedOut) single = alt;
+            }
             if (
                 single.legs.length != 0 && single.expectedOut > 0 &&
-                totalOut < BPC.mulDiv(single.expectedOut, BPC.BPS + MIN_SPLIT_IMPROVEMENT_BPS, BPC.BPS)
+                totalOut < BPC.mulDiv(
+                    single.expectedOut, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000
+                )
             ) {
                 return single;
             }
@@ -619,7 +918,7 @@ contract BlazePhoenixSolver {
     ///      from _buildHop so its sort locals do not deepen that stack frame.
     function _cutByWeight(
         PoolInfo[] memory cands, uint256[] memory psis, uint256[] memory bals,
-        uint256 budget, uint256 n
+        uint256[] memory rates, uint256 budget, uint256 n
     ) private pure returns (uint256, uint256) {
         for (uint256 ki; ki < budget; ) {
             uint256 bi = ki;
@@ -631,6 +930,10 @@ contract BlazePhoenixSolver {
                 (cands[ki], cands[bi]) = (cands[bi], cands[ki]);
                 (psis[ki], psis[bi])   = (psis[bi], psis[ki]);
                 (bals[ki], bals[bi])   = (bals[bi], bals[ki]);
+            // Em LOCKSTEP com os outros tres. O funil PERMUTA (nao compacta),
+            // logo esquecer o `rates` aqui desalinha-o tanto como esquece-lo na
+            // banda — e a edicao da banda sozinha nao chega: verificado.
+            (rates[ki], rates[bi]) = (rates[bi], rates[ki]);
             }
             unchecked { ++ki; }
         }
@@ -639,67 +942,162 @@ contract BlazePhoenixSolver {
         return (budget, sumPsi);
     }
 
-    /// @dev Unit family of a pool kind. Depth figures are only comparable when
-    ///      they share a unit: concentrated liquidity L (V3 / Algebra / V4),
-    ///      pair reserves (V2 / Solidly / Balancer), pool-quoted output
-    ///      (Curve stable / crypto).
-    function _famOf(uint8 kind) private pure returns (uint256) {
-        if (kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA
-            || kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE) return 0;
-        if (kind == BPC.KIND_STABLE || kind == BPC.KIND_CURVE_CRYPTO) return 2;
-        return 1;
+    /// @dev ORDEM CANONICA (Camada 2), do lado de quem PLANEIA. Particao ESTAVEL das pernas de
+    ///      um hop: hookless para a frente, ordem relativa PRESERVADA dentro de cada grupo.
+    ///
+    ///      PORQUE EXISTE. O Router exige hookless ANTES de hooked dentro de um hop e reverte
+    ///      RouterE(3) se nao for o caso — um hook ganha controlo de EVM durante o swap e pode
+    ///      tocar no pool de uma perna ainda por executar da MESMA rota. O Solver ordenava por
+    ///      PESO, portanto uma pool hooked mais funda ficava em primeiro e a rota que ele proprio
+    ///      construiu revertia na execucao. Auto-DoS na porta canonica.
+    ///
+    ///      PORQUE AQUI E NAO NO CRITERIO DE RANKING, que era onde parecia pertencer. O
+    ///      `_buildHop` esta cronicamente a um slot do limite de stack do via_ir — o proprio
+    ///      `_cutByWeight` ja tinha sido extraido por essa razao, e o compilador volta a inlina-lo
+    ///      la dentro, pelo que qualquer local acrescentado ao comparador conta para aquele frame
+    ///      e rebenta-o. Tentei tres formas antes desta e as tres rebentaram.
+    ///      A restricao material acabou por apontar ao sitio mais honesto: a ordem das pernas e
+    ///      uma propriedade da ROTA, nao do criterio de selecao de POOLS. Aqui opera-se sobre o
+    ///      hop ja construido, e le-se exatamente como a regra que o Router verifica.
+    ///
+    ///      A ESTABILIDADE NAO E ESTETICA: a ordem dentro de cada grupo veio do peso, e uma troca
+    ///      simples destrui-la-ia. E o que esta funcao pode mudar e so a ORDEM — o multiset
+    ///      {(pool, amountIn)} fica intacto, porque cada perna viaja inteira.
+    function _orderLegs(Hop memory hop) private pure {
+        Leg[] memory legs = hop.legs;
+        uint256 k = legs.length;
+        uint256 w;
+        for (uint256 i; i < k; ) {
+            if (legs[i].hooks == address(0)) {
+                if (i != w) {
+                    Leg memory tmp = legs[i];
+                    for (uint256 j = i; j > w; ) {
+                        legs[j] = legs[j - 1];
+                        unchecked { --j; }
+                    }
+                    legs[w] = tmp;
+                }
+                unchecked { ++w; }
+            }
+            unchecked { ++i; }
+        }
     }
 
-    /// @dev Allocation weights for the band survivors, normalised to
-    ///      [1..10000]. Two modes:
+
+    /// @dev A MEDIANA PONDERADA PELA PROFUNDIDADE dos rates. E a base da banda.
     ///
-    ///      CAPITAL — when the set spans multiple unit families AND every
-    ///      survivor holds a real tokenOut balance, weight by that balance:
-    ///      it is the only measure comparable across families and cannot be
-    ///      faked without depositing real capital (the anchor doctrine,
-    ///      extended from filtering to allocation). V4 reports balance 0
-    ///      (singleton accounting), which keeps any V4-containing set on the
-    ///      depth path below.
+    ///      O QUE SUBSTITUI, E PORQUE. A base era o rate da UNICA pool mais funda
+    ///      (`maxDepth`/`depthRate`). Em estatistica robusta isso e um estimador com PONTO DE
+    ///      RUTURA ZERO: basta UM sensor forjado — a pool mais funda — para capturar a base
+    ///      inteira. E o proprio codigo confessava a fraqueza, a poucas linhas daqui: "active-tick
+    ///      L is cheap to inflate with a one-spacing position... does NOT make it impossible...
+    ///      deferred".
+    ///      Pior, havia um FACTO ERRADO ESCRITO: o comentario do `MEDIAN_FILTER_BPS` justificava
+    ///      a seguranca com "para mover a mediana, um atacante tem de mover mais de metade das
+    ///      pools" — quando a base ja NAO era a mediana havia muito.
     ///
-    ///      FAMILY-DEPTH — otherwise, each pool's cached probe depth is
-    ///      normalised against the max depth of its own unit family. Within a
-    ///      family the units agree, so a thin pool of a rare kind can no
-    ///      longer claim max weight merely for being alone in its kind.
+    ///      O QUE ISTO REPOE: exatamente a propriedade que esse comentario alegava, e com os pesos
+    ///      que o fix T2 tornou nao-forjaveis. Para capturar a base o atacante deixa de precisar
+    ///      de out-depth UMA pool e passa a precisar de mais de METADE da massa de profundidade do
+    ///      conjunto inteiro. Ponto de rutura: 0 -> 50%.
+    ///
+    ///      PORQUE SOMAR MASSA E LEGITIMO: desde o `depthFromL` a profundidade e token-denominada
+    ///      em TODAS as familias (min(x0,x1) para concentrada, min(r0,r1) para par), logo a soma
+    ///      tem sentido. Era esta a premissa que faltava antes — e e a mesma que permitiu remover
+    ///      a normalizacao por familia dos pesos.
+    ///
+    ///      DEGENERA BEM: uma pool que sozinha detem >50% da massa devolve o seu proprio rate, que
+    ///      e o comportamento antigo — e correto, porque nesse caso ela E o mercado. Com pesos
+    ///      iguais, e a mediana simples.
+    function _depthWeightedMedian(uint256[] memory rates, uint256[] memory depths, uint256 n)
+        private pure returns (uint256)
+    {
+        uint256[] memory r = new uint256[](n);
+        uint256[] memory d = new uint256[](n);
+        uint256 m;
+        uint256 massa;
+        for (uint256 i; i < n; ) {
+            // Pools mortas (rate 0) nao votam: nao tem opiniao sobre o preco.
+            if (rates[i] > 0) {
+                r[m] = rates[i];
+                d[m] = depths[i];
+                massa += depths[i];
+                unchecked { ++m; }
+            }
+            unchecked { ++i; }
+        }
+        if (m == 0 || massa == 0) return 0;
+        // Insertion sort dos PARES por rate — n <= 8, custo desprezavel. Ordenar os pares e o que
+        // distingue isto de ordenar so os rates: a massa tem de viajar com o seu rate.
+        for (uint256 i = 1; i < m; ) {
+            uint256 kr = r[i];
+            uint256 kd = d[i];
+            uint256 j = i;
+            while (j > 0 && r[j - 1] > kr) {
+                r[j] = r[j - 1];
+                d[j] = d[j - 1];
+                unchecked { --j; }
+            }
+            r[j] = kr;
+            d[j] = kd;
+            unchecked { ++i; }
+        }
+        // Caminha-se ate METADE da massa. `(massa + 1) / 2` em vez de `acc * 2 >= massa` para nao
+        // haver hipotese de transbordo no dobro de uma soma de profundidades.
+        uint256 metade = (massa + 1) / 2;
+        uint256 acc;
+        for (uint256 i; i < m; ) {
+            acc += d[i];
+            if (acc >= metade) return r[i];
+            unchecked { ++i; }
+        }
+        return r[m - 1];
+    }
+
+    /// @dev Pesos de alocacao para os sobreviventes da banda, normalizados a [1..10000]:
+    ///      a profundidade MEDIDA de cada pool contra a MAIOR profundidade do conjunto.
+    ///
+    ///      DUAS COISAS FORAM REMOVIDAS DAQUI EM 2026-08-21, e as duas pela MESMA razao.
+    ///
+    ///      (1) O MODO CAPITAL. Quando o conjunto cruzava familias e todos tinham saldo, o peso
+    ///          passava a ser `balanceOf(tokenOut, pool)`. Isso era uma ANCORA lida do saldo cru
+    ///          — exatamente o que a doutrina do fix T2 proibe, escrita a poucas linhas daqui:
+    ///          "ancora na profundidade MEDIDA, NUNCA no balanceOf cru, porque uma doacao infla-o
+    ///          SEM mover a reserva nem o preco, e a doacao e recuperavel". O T2 foi aplicado a
+    ///          ancora da BANDA e nao a este peso, que decide a FATIA do split. Assinatura de
+    ///          defeito da casa: um fix aplicado a UM de dois canais que fazem a MESMA pergunta
+    ///          relativa ("qual destas pools merece mais?").
+    ///          (NOTA: o teto de capacidade tambem le `balanceOf` e NAO foi mudado — la a pergunta
+    ///          e FISICA, "consegue pagar isto?", e a doacao sobe genuinamente o que a pool paga.
+    ///          Ler a mesma grandeza nao implica fazer a mesma pergunta.)
+    ///
+    ///      (2) A NORMALIZACAO POR FAMILIA. Existia porque "depthWad so e comparavel dentro de uma
+    ///          familia de unidades". Essa premissa CAIU com o `depthFromL`: a conversao passou a
+    ///          dar profundidade TOKEN-denominada em todas as familias, e a propria guarda do CI
+    ///          diz textualmente que ela "tem de ser token-denominada PARA SER COMPARAVEL ENTRE
+    ///          FAMILIAS". O repositorio tinha as duas afirmacoes opostas escritas ao mesmo tempo.
+    ///          Com profundidades globalmente comparaveis, normalizar contra o maximo GLOBAL e
+    ///          estritamente mais correto — e resolve melhor o problema que a normalizacao por
+    ///          familia resolvia (uma pool fina de um kind raro nao ganha peso maximo por ser a
+    ///          unica do seu kind: agora compara-se com TODAS, nao so com as da sua familia).
+    ///
+    ///      O que sai com elas: `_famOf`, o array `maxByFam`, o predicado `st` empacotado e o
+    ///      ramo. O que fica e uma normalizacao, sem modos.
     function _weights(
         PoolInfo[] memory cands, uint256[] memory depth, uint256[] memory bals, uint256 n
     ) private pure returns (uint256[] memory psis, uint256 sumPsi) {
+        cands; bals;   // mantidos na assinatura: o chamador passa-os em lockstep com psis
         psis = new uint256[](n);
-        // Single scan: family maxima (for the depth path) AND the capital-mode
-        // predicate AND maxBal — the common single-family case costs exactly
-        // two passes over n, matching the historical two-loop cost (the gas
-        // bench holds newGas <= oldGas). The predicate packs into one word
-        // (bit0 = mixed families, bit1 = zero balance seen) so the scan
-        // carries one live slot instead of two booleans: this function is
-        // inlined into _buildHop by the via-IR pipeline, where every stack
-        // slot counts.
-        uint256[] memory maxByFam = new uint256[](3);
-        uint256 st;
-        uint256 maxBal;
-        uint256 fam0 = _famOf(cands[0].kind);
+        uint256 mx;
         for (uint256 i; i < n; ) {
-            uint256 f = _famOf(cands[i].kind);
-            if (f != fam0) st |= 1;
-            if (depth[i] > maxByFam[f]) maxByFam[f] = depth[i];
-            uint256 b = bals[i];
-            if (b == 0) st |= 2;
-            if (b > maxBal) maxBal = b;
+            if (depth[i] > mx) mx = depth[i];
             unchecked { ++i; }
         }
-        // st == 1  ⇔  mixed families AND every survivor funded → capital mode.
         for (uint256 i; i < n; ) {
-            uint256 w;
-            if (st == 1) {
-                w = BPC.mulDiv(bals[i], 10000, maxBal);
-            } else {
-                uint256 mx = maxByFam[_famOf(cands[i].kind)];
-                w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10000, mx);
-            }
-            if (w == 0) w = 1;
+            // `mx == 0` so acontece se NENHUM candidato reportou profundidade: entao todos ficam
+            // com peso 1 e o split e uniforme, que e a unica coisa honesta a fazer sem medicao.
+            uint256 w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10_000, mx);
+            if (w == 0) w = 1;   // profundidade nao-nula mas minuscula nao desaparece do split
             psis[i] = w;
             sumPsi += w;
             unchecked { ++i; }
@@ -719,7 +1117,7 @@ contract BlazePhoenixSolver {
         // pool's tick ladder at a collapsing marginal price. Aggressive but
         // possible (cap < quote <= holdings): full commit, promise capped.
         uint256 legIn = amountIn;
-        if (cand.kind == BPC.KIND_V3 || cand.kind == BPC.KIND_ALGEBRA) {
+        if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
             uint256 balOut = BPC.balanceOf(tOut, cand.pool);
             if (balOut > 0) {
                 uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);
@@ -738,7 +1136,7 @@ contract BlazePhoenixSolver {
             fee: cand.fee, tickSpacing: cand.tickSpacing,
             zeroForOne: cand.token0 == tIn, stable: cand.stable,
             amountIn: legIn, expectedOut: out_,
-            auxId: (cand.kind == BPC.KIND_STABLE || cand.kind == BPC.KIND_CURVE_CRYPTO || cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
+            auxId: BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)
                 ? bytes32(uint256(uint160(cand.token0 == tIn ? cand.token1 : cand.token0)))
                 : bytes32(0)
         });
@@ -753,9 +1151,16 @@ contract BlazePhoenixSolver {
         });
     }
 
-    function _quoteWithDepth(PoolInfo memory cand, address tIn, uint256 amt)
-        private view returns (uint256 out, uint256 depth)
-    {
+    /// @param dIn1 decimais de `tIn` +1, `dOt1` os do outro token +1 (0 = nao
+    ///        preenchido -> o Core le-os). HOISTING: todos os candidatos de um
+    ///        par tem os MESMOS dois tokens, so muda a orientacao, portanto
+    ///        estes dois valores calculam-se UMA VEZ por par em vez de uma vez
+    ///        por candidato. Medido: 2.339 gas por leitura repetida, e o
+    ///        EIP-2929 nao a torna gratis (o USDC e um proxy com delegatecall
+    ///        por dentro). Com 16 candidatos: +2,2% -> +0,7% do solve.
+    function _quoteWithDepth(
+        PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1
+    ) private view returns (uint256 out, uint256 depth) {
         bool zfo = cand.token0 == tIn;
         address qIn = tIn;
         address other = zfo ? cand.token1 : cand.token0;
@@ -780,8 +1185,15 @@ contract BlazePhoenixSolver {
             tokenIn:     qIn,
             tokenOther:  other,
             hooks:       cand.hooks,
-            v4Manager:   (cand.kind == BPC.KIND_V4 || cand.kind == BPC.KIND_V4_NATIVE)
-                ? hub.v4PoolManager() : address(0)
+            v4Manager:   BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)
+                ? hub.v4PoolManager() : address(0),
+            // SEM TERNARIO, e a razao importa. A primeira versao escreveu
+            // `zfo ? dIn1 : dIn1` — os dois ramos iguais, um no-op a fingir
+            // que houve uma decisao. Nao ha: `zfo` diz se o tIn e o token0 da
+            // POOL, mas o `tokenIn` do contexto e sempre o tIn do par. Logo
+            // decIn1 e sempre o do tIn e decOther1 sempre o do outro.
+            decIn1:      dIn1,
+            decOther1:   dOt1
         });
         (out, depth) = BPC.universalQuote(c, amt);
     }
@@ -789,9 +1201,14 @@ contract BlazePhoenixSolver {
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than
     ///      rebuilding an identical QuoteCtx and calling `universalQuote` a second time.
     ///
-    ///      This matters for BYTECODE, not just tidiness: `BPC.universalQuote` is an `internal`
-    ///      library function, so every call site gets its own INLINED copy of the whole
-    ///      multi-venue quote engine (V2, V3, Solidly, Curve, V4). Two call sites meant two
+    ///      NOTA DE CORRECAO: este paragrafo dizia que o `BPC.universalQuote` e `internal`. E
+    ///      `public` (ver Core) — logo cada sitio de chamada NAO inlina uma copia, faz
+    ///      DELEGATECALL a biblioteca ja implantada. O argumento de bytecode abaixo aplicava-se a
+    ///      um mundo anterior; hoje o motivo para nao duplicar o sitio de chamada e outro, e vale
+    ///      na mesma: dois sitios sao dois canais para divergir.
+    ///      This matters for BYTECODE, not just tidiness: se fosse `internal`, cada call site
+    ///      levava a sua propria copia INLINADA do
+    ///      multi-venue quote engine (V2, V3, Solidly, V4). Two call sites meant two
     ///      copies inside this contract. The Solver is the largest contract in the protocol and
     ///      the one closest to the EIP-170 ceiling, so a duplicated call site is a duplicated
     ///      quote engine. R5, "one implementation per published quantity" — deduplication is a
@@ -799,7 +1216,7 @@ contract BlazePhoenixSolver {
     function _quote(PoolInfo memory cand, address tIn, uint256 amt)
         private view returns (uint256 out)
     {
-        (out, ) = _quoteWithDepth(cand, tIn, amt);
+        (out, ) = _quoteWithDepth(cand, tIn, amt, 0, 0);   // caminho unico: nao vale hoisting
     }
 
     // =========================================================================
@@ -827,14 +1244,39 @@ contract BlazePhoenixSolver {
         uint256 dn = dis.length;
         PoolInfo[] memory merged = new PoolInfo[](rn + dn);
         uint256 n;
-        for (uint256 i; i < rn; ) { merged[n] = reg[i]; unchecked { ++n; ++i; } }
+        // ─── ADMISSIBILIDADE DE HOOKS ───
+        // O Router recusa na EXECUCAO qualquer perna cujo hook altere deltas (RouterE(9)), e o
+        // Solver nao sabia que essa regra existia: o `getActivePools` do Hub filtra por
+        // `isHookLive` mas NAO por isto. O resultado era uma auto-DoS na porta canonica — o
+        // `swapBestExactIn` montava in-frame uma rota que o proprio Router rejeitava, e o par
+        // ficava sem porta sem que ninguem soubesse porque.
+        //
+        // A REGRA DA CASA, EXPLICITA: a verificacao do Router NAO se apaga para os por de acordo.
+        // E ela que mantem o sistema fail-closed enquanto ISTO nao existir, e o desacordo entre
+        // os dois e o DIAGNOSTICO. Acrescenta-se conhecimento ao Solver; nao se retira ao Router.
+        //
+        // VIVE AQUI E NAO NO `getActivePools` porque isto e uma decisao de ROTEAMENTO. O
+        // `getActivePools` e um canal de LEITURA partilhado; filtrar la tirava a pool da vista de
+        // TODOS os consumidores, incluindo de quem so quer inspecionar o registo.
+        //
+        // E VIVE DENTRO DESTES DOIS LOOPS, e nao num passo proprio a seguir, por uma restricao
+        // material: sob via_ir esta funcao e inlinada no mesmo frame que o `_buildHop`, que esta
+        // cronicamente a um slot do limite — um unico contador novo rebentava-o. Aqui reutiliza-se
+        // o `n` que ja existe.
+        //
+        // CUSTO ZERO em chamadas: `hookAltersDeltas` le bits do proprio endereco do hook.
+        for (uint256 i; i < rn; ) {
+            if (!BPC.hookAltersDeltas(reg[i].hooks)) { merged[n] = reg[i]; unchecked { ++n; } }
+            unchecked { ++i; }
+        }
         for (uint256 i; i < dn; ) {
             bool dup;
             for (uint256 j; j < rn; ) { if (dis[i].pool == reg[j].pool) { dup = true; break; } unchecked { ++j; } }
-            if (!dup) { merged[n] = dis[i]; unchecked { ++n; } }
+            if (!dup && !BPC.hookAltersDeltas(dis[i].hooks)) { merged[n] = dis[i]; unchecked { ++n; } }
             unchecked { ++i; }
         }
         if (n == 0) return new PoolInfo[](0);
+
         PoolInfo[] memory active = new PoolInfo[](n);
         for (uint256 i; i < n; ) { active[i] = merged[i]; unchecked { ++i; } }
 
@@ -900,6 +1342,7 @@ contract BlazePhoenixSolver {
     // =========================================================================
 
     function _assembleRoute(Hop memory hop) private view returns (Route memory route) {
+        _orderLegs(hop);
         Hop[] memory hops = new Hop[](1);
         hops[0] = hop;
         uint256 legs = hop.legs.length;
@@ -907,19 +1350,28 @@ contract BlazePhoenixSolver {
         uint256 totalImpactBps;
         for (uint256 i; i < legs; ) {
             uint256 d;
-            if (hop.legs[i].kind == BPC.KIND_V2 ||
-                hop.legs[i].kind == BPC.KIND_SOLIDLY ||
-                hop.legs[i].kind == BPC.KIND_BALANCER_V2)
-            {
+            if (BPC.kindHas(hop.legs[i].kind, BPC.A_RESERVES)) {
                 (uint256 r0, uint256 r1) = BPC.getReserves(hop.legs[i].pool);
                 uint256 rIn = hop.legs[i].zeroForOne ? r0 : r1;
                 d = BPC.impactV2Bps(hop.legs[i].amountIn, rIn);
-            } else if (hop.legs[i].kind == BPC.KIND_V3 || hop.legs[i].kind == BPC.KIND_ALGEBRA) {
+            } else if (BPC.kindHas(hop.legs[i].kind, BPC.A_CONC_POOL)) {
                 uint128 liq  = BPC.getLiquidity(hop.legs[i].pool);
-                uint160 sp   = BPC.getSqrtPriceX96(hop.legs[i].pool);
+                // INV-20 no impacto: a fee EFECTIVA, nao a declarada. Para
+                // Algebra a regra R2 do Hub (Hub:511-512) obriga a fee do
+                // registo a ser o sentinela 0 — passa-lo cru ao impactV3Bps
+                // precificava a perna SEM fee nenhuma, subestimava o impacto e
+                // publicava um `singleOutFloor` mais APERTADO do que aquele que
+                // a execucao enfrenta. Como o Router so pode APERTAR o piso com
+                // o do plano (Router:1203), um fill honesto morria em RouterE(5).
+                // Os outros dois canais que precificam Algebra ja mediam
+                // (Core.universalQuote e Router._hopScaleImpactAndQuote): este
+                // era o irmao por corrigir.
+                // CUSTO ZERO EM STATICCALLS: v3StateAndDynFee ja faz o slot0()
+                // que o getSqrtPriceX96 fazia, e devolve a fee viva de borla.
+                (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(hop.legs[i].pool);
                 d = BPC.impactV3Bps(
                         hop.legs[i].amountIn, sp, liq,
-                        uint24(hop.legs[i].fee),
+                        BPC.effV3Fee(uint24(hop.legs[i].fee), dynFee, dyn),
                         hop.legs[i].zeroForOne
                     );
             } else {
@@ -955,6 +1407,7 @@ contract BlazePhoenixSolver {
         uint256 amountIn, uint256 finalOut
     ) private view returns (Route memory route) {
         tIn; tOut; amountIn;   // retained for signature clarity
+        for (uint256 i; i < hops.length; ) { _orderLegs(hops[i]); unchecked { ++i; } }
         uint256 totalImpactBps;
         uint256 totalLegs;
         for (uint256 h; h < hops.length; ) {
@@ -963,19 +1416,19 @@ contract BlazePhoenixSolver {
             for (uint256 i; i < legs; ) {
                 uint256 d;
                 Leg memory L = hops[h].legs[i];
-                if (L.kind == BPC.KIND_V2 ||
-                    L.kind == BPC.KIND_SOLIDLY ||
-                    L.kind == BPC.KIND_BALANCER_V2)
-                {
+                if (BPC.kindHas(L.kind, BPC.A_RESERVES)) {
                     (uint256 r0, uint256 r1) = BPC.getReserves(L.pool);
                     uint256 rIn = L.zeroForOne ? r0 : r1;
                     d = BPC.impactV2Bps(L.amountIn, rIn);
-                } else if (L.kind == BPC.KIND_V3 || L.kind == BPC.KIND_ALGEBRA) {
+                } else if (BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
                     uint128 liq2 = BPC.getLiquidity(L.pool);
-                    uint160 sp2  = BPC.getSqrtPriceX96(L.pool);
+                    // Ver a nota gemea em _assembleRoute: fee EFECTIVA, e o
+                    // v3StateAndDynFee substitui o getSqrtPriceX96 sem custar
+                    // um staticcall a mais.
+                    (uint160 sp2, uint24 dynFee2, bool dyn2) = BPC.v3StateAndDynFee(L.pool);
                     d = BPC.impactV3Bps(
                             L.amountIn, sp2, liq2,
-                            uint24(L.fee),
+                            BPC.effV3Fee(uint24(L.fee), dynFee2, dyn2),
                             L.zeroForOne
                         );
                 } else {
@@ -1000,26 +1453,29 @@ contract BlazePhoenixSolver {
             singleOutFloor:    floorOut,
             expectedImpactBps: totalImpactBps,
             confidenceWad:     0,
-            estGas:            _estGas(hops[0]) + _estGas(hops[1]),
+            // SOMA TODOS OS HOPS. Estava fixado em `hops[0] + hops[1]` — com
+            // uma rota de 3 hops omitia o terceiro em SILENCIO, e o estGas e o
+            // numero que a UI mostra ao utilizador antes de ele assinar.
+            estGas:            _estGasTotal(hops),
             hasSurplus:        finalOut > floorOut,
             isV4Bundle:        false
         });
+    }
+
+    function _estGasTotal(Hop[] memory hops) private pure returns (uint256 g) {
+        uint256 n = hops.length;
+        for (uint256 i; i < n; ) { g += _estGas(hops[i]); unchecked { ++i; } }
     }
 
     function _estGas(Hop memory hop) private pure returns (uint256 g) {
         g = 30_000;
         uint256 n = hop.legs.length;
         for (uint256 i; i < n; ) {
-            uint8 k = hop.legs[i].kind;
-            uint256 base = 90_000;
-            if (k == BPC.KIND_V3 || k == BPC.KIND_ALGEBRA) base = 110_000;
-            else if (k == BPC.KIND_STABLE || k == BPC.KIND_CURVE_CRYPTO) base = 140_000;
-            // Native V4 pays the same unlock plus the JIT unwrap/wrap
-            // (~35k estimated for WETH withdraw+deposit on warm slots;
-            // re-measure at the testnet rehearsal).
-            else if (k == BPC.KIND_V4) base = 180_000;
-            else if (k == BPC.KIND_V4_NATIVE) base = 215_000;
-            g += base;
+            // A escada vive na THETA_GAS (8 bits por kind, unidades de 5.000) e SO e lida
+            // aqui — por isso e uma palavra separada da THETA_ATTR, que o Router, o Hub e o
+            // Quoter carregam. O V4 nativo paga o mesmo unlock mais o unwrap/wrap JIT (~35k
+            // estimados para WETH withdraw+deposit em slots quentes; re-medir no ensaio).
+            g += BPC.kindGasBase(hop.legs[i].kind);
             unchecked { ++i; }
         }
     }

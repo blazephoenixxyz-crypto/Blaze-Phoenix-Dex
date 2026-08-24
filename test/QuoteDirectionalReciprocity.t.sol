@@ -25,8 +25,8 @@ contract QuoteDirectionalReciprocityTest is Test {
     function test_OutV3_SymmetricPool_BothDirectionsMatch() public {
         uint160 sp = uint160(BPC.Q96);
         uint256 dx = 1e18;
-        uint256 outFwd = BPC.outV3(dx, sp, L, FEE, true);
-        uint256 outBwd = BPC.outV3(dx, sp, L, FEE, false);
+        uint256 outFwd = BPC.outV3(dx, sp, L, FEE, true, 0);
+        uint256 outBwd = BPC.outV3(dx, sp, L, FEE, false, 0);
         assertGt(outFwd, 0, "forward quote must be non-zero");
         assertApproxEqRel(outFwd, outBwd, 1e12, "price 1: both directions must match (else zeroForOne bug)");
     }
@@ -35,8 +35,8 @@ contract QuoteDirectionalReciprocityTest is Test {
     /// moves) must recover the input minus ~two fees, at any skew. A wildly off
     /// return would mean the directional math is inconsistent.
     function _roundTrip(uint160 sp, uint256 dx) internal pure returns (uint256 back) {
-        uint256 out0 = BPC.outV3(dx, sp, L, FEE, true);    // token0 -> token1
-        back         = BPC.outV3(out0, sp, L, FEE, false); // token1 -> token0
+        uint256 out0 = BPC.outV3(dx, sp, L, FEE, true, 0);    // token0 -> token1
+        back         = BPC.outV3(out0, sp, L, FEE, false, 0); // token1 -> token0
     }
 
     function test_OutV3_RoundTrip_RecoversMinusFees_AcrossSkews() public {

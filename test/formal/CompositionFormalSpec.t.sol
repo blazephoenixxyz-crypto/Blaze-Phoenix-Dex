@@ -14,7 +14,7 @@ import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
 
 contract CompositionFormalSpec is Test {
     uint256 constant BPS = 10_000;
-    uint256 constant LEG_FLOOR_BPS = 8_000;   // espelha Router.LEG_FLOOR_BPS
+    uint256 constant LEG_FLOOR_BPS = BPC.LEG_FLOOR_BPS;   // espelha Router.LEG_FLOOR_BPS
 
     // ─── INVARIANTE A: unidades da profundidade (o bug de 2026-08-19) ───
     // depthWad tem de ser TOKEN-denominado em todos os ramos. Para V3/V4 isso é

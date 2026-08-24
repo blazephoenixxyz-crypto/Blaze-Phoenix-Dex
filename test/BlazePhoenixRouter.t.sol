@@ -67,6 +67,8 @@ contract BlazePhoenixRouterTest is Test {
     ///         the ON-CHAIN quote of the legs as actually executed.
     function test_FeeBase_IgnoresLiedAboutTotalOut() public {
         uint256 amountIn = 3_000e18;
+        // Saldo para DOIS swaps: o teste compara a rota mentirosa com a honesta.
+        deal(address(tokenIn), user, amountIn * 4);
 
         uint256 realQuote = BPC.outV2(amountIn, 10_000e18, 10_000e18, 30);
         assertGt(realQuote, 0);
@@ -79,21 +81,22 @@ contract BlazePhoenixRouterTest is Test {
 
         assertApproxEqRel(delivered, realQuote, 0.01e18);
 
-        uint256 feeCollected = tokenOut.balanceOf(treasury1) + tokenOut.balanceOf(treasury2);
-        uint256 totalReceived = delivered + feeCollected;
+        // A FEE MUDOU DE LADO (2026-08-21). Este teste defendia contra um `totalOut` mentido
+        // encolher a base da fee. Essa classe inteira desapareceu: a fee e 28 bps da ENTRADA,
+        // cobrada em tokenIn ANTES de a rota correr, portanto nada que o atacante escreva na
+        // Route lhe pode tocar. A defesa deixou de ser uma comparacao contra o que o bug teria
+        // cobrado e passou a ser uma IGUALDADE.
+        uint256 feeMentida = tokenIn.balanceOf(treasury1) + tokenIn.balanceOf(treasury2);
+        assertGt(feeMentida, 0, "uma fee real tem de ter sido cobrada");
+        assertEq(tokenOut.balanceOf(treasury1) + tokenOut.balanceOf(treasury2), 0,
+            "e nada e cobrado do lado da saida");
 
-        // What the OLD (buggy) code would have charged: fee on
-        // protocolFloorOut alone, since a totalOut of 1 clamped straight up
-        // to the floor and no higher.
-        uint256 floorBps = BPC.ironFloorBps(BPC.impactV2Bps(amountIn, 10_000e18), 1, 0);
-        uint256 oldStyleFeeBase = BPC.mulDiv(totalReceived, floorBps, BPC.BPS);
-        uint256 oldStyleFee = BPC.mulDiv(oldStyleFeeBase, 28, BPC.BPS);
+        // A PROVA, e e uma IGUALDADE em vez de uma comparacao contra o que o bug teria cobrado:
+        // a fee e exatamente 28 bps do que entrou. O `totalOut` mentido nao aparece em NENHUM
+        // termo deste calculo — nasce antes de a Route ser lida para o que quer que seja.
+        assertEq(feeMentida, (amountIn * 28) / 10_000,
+            "a fee e 28 bps da entrada, e a mentira no totalOut nao lhe toca");
 
-        assertGt(feeCollected, oldStyleFee,
-            "fixed fee must exceed what the totalOut-trusting bug would have charged");
-
-        uint256 expectedFee = BPC.mulDiv(realQuote, 28, BPC.BPS);
-        assertApproxEqRel(feeCollected, expectedFee, 0.02e18);
     }
 
     function test_Receive_RejectsPlainEthTransfer() public {
@@ -234,7 +237,7 @@ contract BlazePhoenixRouterTest is Test {
         tokenOut.mint(address(v3pool), 1_000_000e18);
 
         uint256 amountIn = 1_000e18;
-        uint256 expectedOut = BPC.outV3(amountIn, sqrtP, liq, 3000, zfo);
+        uint256 expectedOut = BPC.outV3(amountIn, sqrtP, liq, 3000, zfo, 0);
         assertGt(expectedOut, 0);
 
         Leg[] memory legs = new Leg[](1);

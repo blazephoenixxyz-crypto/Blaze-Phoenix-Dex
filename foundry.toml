@@ -90,7 +90,32 @@ invariants = ["contract", "reentrancy"]
 show_unproved = true
 
 [rpc_endpoints]
-base = "https://lb.drpc.live/base/${DRPC_KEY}"
+# A BASE E O UNICO ENDPOINT COM ENDERECO PROPRIO, E A RAZAO ESTA MEDIDA.
+#
+# Sintoma: forks da Base contra a dRPC estouravam com `operation timed out` aos
+# ~46s (o default do foundry), de forma ESTOCASTICA — o mesmo `setUp` passava
+# numa corrida e falhava na seguinte.
+#
+# Tres explicacoes que eu dei e que a medicao REFUTOU, ficam escritas para
+# ninguem as repetir:
+#   1. "e o volume do varrimento"  -> um teste de 4 casos falha igual.
+#   2. "e rate limit, falta throttle" -> com `--compute-units-per-second 25`
+#      ficou PIOR: os pedidos fazem fila e a fila conta para o mesmo teto de 45s.
+#   3. "e o bloco de arquivo"      -> `eth_getStorageAt` e `eth_getProof` no
+#      bloco fixado respondem em 0,45s e 0,84s por `curl` directo.
+# O endpoint serve depressa tudo o que o forge pede; o que falha e uma fraccao
+# dos pedidos nunca voltar. Nao ha knob do forge que cure perda de pedidos.
+#
+# Trocar de endpoint foi a UNICA coisa que mexeu no resultado — ver a nota de
+# sessao 133. O RPC oficial serve arquivo nos blocos que os testes fixam.
+# ENDPOINT FIXO, sem variavel de ambiente, e a razao e o CI.
+# As 28 guardas de skip dos testes de fork verificam `DRPC_KEY` — nao
+# `BASE_RPC`. Pondo o endpoint numa variavel nova, um runner com `DRPC_KEY`
+# definido (e sem `BASE_RPC`) entra nos testes e falha a resolver o fork, em vez
+# de os saltar. O CI ficava VERMELHO por configuracao, nao por defeito.
+# Este endpoint e publico e nao precisa de segredo, portanto a variavel nao
+# comprava nada e custava a coerencia das guardas.
+base = { endpoint = "https://mainnet.base.org", retries = 10, retry_backoff = 2000 }
 mainnet = "https://lb.drpc.live/ethereum/${DRPC_KEY}"
 optimism = "https://lb.drpc.live/optimism/${DRPC_KEY}"
 arbitrum = "https://lb.drpc.live/arbitrum/${DRPC_KEY}"

@@ -147,6 +147,11 @@ contract RouterFotSolidlyTest is Test {
     ///         output priced on the nominal amount. This proves the mock
     ///         would have caught the defect, so the passing test below is a
     ///         real regression gate, not a permissive-mock artefact.
+
+    /// @dev A fee do protocolo passou a ser cobrada na ENTRADA (2026-08-21): 28 bps do input
+    ///      comprometido, em tokenIn, antes de a rota comecar. Logo a rota preca sobre o LIQUIDO.
+    function _netIn(uint256 a) internal pure returns (uint256) { return a - (a * 28) / 10_000; }
+
     function test_Harness_KCheckRejectsNominalAskOnTaxedInput() public {
         uint256 nominalAsk = BPC.outSolidly(
             AMOUNT_IN, RESERVE, RESERVE, 30, false
@@ -175,9 +180,9 @@ contract RouterFotSolidlyTest is Test {
         uint256 attestedOut = BPC.outSolidly(AMOUNT_IN, RESERVE, RESERVE, 30, false);
 
         uint256 pulled = _afterTax(AMOUNT_IN);   // survives user → router
-        uint256 realIn = _afterTax(pulled);      // survives router → pool
+        uint256 realIn = _afterTax(_netIn(pulled));   // a fee sai do que o Router recebeu, antes dos hops      // survives router → pool
         uint256 expectedAsk = BPC.outSolidly(realIn, RESERVE, RESERVE, 30, false) - 1;
-        uint256 expectedNet = expectedAsk - BPC.mulDiv(expectedAsk, 28, BPC.BPS);
+        uint256 expectedNet = expectedAsk;   // a saida ja nao paga fee
 
         Route memory route = _buildSolidlyRoute(AMOUNT_IN, attestedOut);
         vm.prank(user);
@@ -196,10 +201,12 @@ contract RouterFotSolidlyTest is Test {
         pair.setHideGetAmountOut(true);
 
         uint256 attestedOut = BPC.outSolidly(AMOUNT_IN, RESERVE, RESERVE, 30, false);
-        uint256 realIn = _afterTax(_afterTax(AMOUNT_IN));
+        // A ordem importa: o imposto do token morde na entrega ao Router, a fee sai do que o
+        // Router REALMENTE recebeu, e o imposto morde outra vez na entrega a pool.
+        uint256 realIn = _afterTax(_netIn(_afterTax(AMOUNT_IN)));
         uint256 expectedAsk =
             (BPC.outSolidly(realIn, RESERVE, RESERVE, 30, false) * 9_800) / BPC.BPS;
-        uint256 expectedNet = expectedAsk - BPC.mulDiv(expectedAsk, 28, BPC.BPS);
+        uint256 expectedNet = expectedAsk;   // a saida ja nao paga fee
 
         Route memory route = _buildSolidlyRoute(AMOUNT_IN, attestedOut);
         vm.prank(user);
@@ -218,9 +225,10 @@ contract RouterFotSolidlyTest is Test {
     function test_HonestTokenIn_SolidlyUnchanged() public {
         fotToken.setFeeOnTransferBps(0);
 
-        uint256 quote = BPC.outSolidly(AMOUNT_IN, RESERVE, RESERVE, 30, false);
+        // Token honesto: a unica deducao e a fee do protocolo, cobrada na entrada.
+        uint256 quote = BPC.outSolidly(_netIn(AMOUNT_IN), RESERVE, RESERVE, 30, false);
         uint256 expectedAsk = quote - 1;
-        uint256 expectedNet = expectedAsk - BPC.mulDiv(expectedAsk, 28, BPC.BPS);
+        uint256 expectedNet = expectedAsk;   // a saida ja nao paga fee
 
         Route memory route = _buildSolidlyRoute(AMOUNT_IN, quote);
         vm.prank(user);

@@ -52,9 +52,13 @@ contract BlazePhoenixHubTest is Test {
             "the SAME slot must have its swap count incremented, not a new one created");
     }
 
-    function test_AddFactory_RejectsCurveWithoutMetaMode() public {
+    /// @notice Antes da excisao (2026-08-20) o gate de kind era CONDICIONAL ao mode: so rejeitava
+    ///         curve quando o mode nao era o meta. Hoje o kind 2 nao esta em KINDS_ROUTABLE e e
+    ///         rejeitado SEMPRE — o mode deixou de ser uma porta lateral. O caso com mode meta
+    ///         vive em test/CurveExcisionRegistration.t.sol, que foi o red-first deste fix.
+    function test_AddFactory_RejectsCurveAlways() public {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 5));
-        hub.addFactory(address(0x3333), BPC.KIND_STABLE, 0, bytes32(0), new uint24[](0), new int24[](0));
+        hub.addFactory(address(0x3333), 2 /* lapide */, 0, bytes32(0), new uint24[](0), new int24[](0));
     }
 
     function test_RenounceControl_LeavesCuratorPowersAvailable() public {
@@ -169,6 +173,11 @@ contract BlazePhoenixHubTest is Test {
     }
 
     function test_AddBridge_RevertsAboveMaxBridges() public {
+        // MAX_BRIDGES = 3. O limite acompanha os bracos desenrolados do Solver
+        // (`hub.bridge(0..2)`): as duas constantes sobem e descem JUNTAS, senao
+        // nasce a bridge fantasma (uma posicao sem braco) ou um Panic 0x32 (um
+        // braco sem posicao). Desceu para 2 a 2026-08-21 e voltou no mesmo dia:
+        // o custo de +760.125 gas que justificou o corte vive so na porta B.
         hub.addBridge(address(0x5555));
         hub.addBridge(address(0x6666));
         hub.addBridge(address(0x7777));

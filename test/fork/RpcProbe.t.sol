@@ -20,12 +20,18 @@ contract RpcProbeTest is Test {
     address constant BASE_WETH = 0x4200000000000000000000000000000000000006;
 
     function test_MainnetForkAndReadWETH() public {
+        // Sem DRPC_KEY nao ha fork: SALTAR, nao falhar (ver a nota nos outros ficheiros de fork).
+        // Aqui o fork e feito dentro do proprio teste, nao num setUp, logo a guarda vai em cada um.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("mainnet");
         assertGt(block.number, 18_000_000, "mainnet fork is not recent");
         assertGt(IERC20Supply(ETH_WETH).totalSupply(), 0, "mainnet WETH totalSupply is zero");
     }
 
     function test_BaseForkAndReadWETH() public {
+        // Sem DRPC_KEY nao ha fork: SALTAR, nao falhar (ver a nota nos outros ficheiros de fork).
+        // Aqui o fork e feito dentro do proprio teste, nao num setUp, logo a guarda vai em cada um.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
         vm.createSelectFork("base");
         assertGt(block.number, 10_000_000, "base fork is not recent");
         assertGt(IERC20Supply(BASE_WETH).totalSupply(), 0, "base WETH totalSupply is zero");
