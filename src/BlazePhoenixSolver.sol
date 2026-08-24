@@ -1302,7 +1302,23 @@ contract BlazePhoenixSolver {
         for (uint256 ki; ki < k; ) {
             uint256 bestI = ki;
             for (uint256 j = ki + 1; j < n; ) {
-                if (ps[j] > ps[bestI]) bestI = j;
+                // TIE-BREAK BY FEE, ASCENDING — measured, not cosmetic. In a
+                // COLD registry psi is 0 for every candidate (floored to 1
+                // above), the sort degenerates to DISCOVERY ORDER, and the
+                // top-K guillotine falls before anything is QUOTED: on OP the
+                // Velo CL spacing-100 pool (fee ~5 bps, the best single leg by
+                // output) sat past position 8 and the funnel never saw it —
+                // 20 bps on the table at 1k, 16 bps on Base at 100k (matrix,
+                // 2026-08-24). At equal fitness, admitting the CHEAPER venue
+                // to the quote round is strictly better than address order;
+                // the quotes in _buildHop still make every real decision. A
+                // warm registry is untouched: real psi differs and the
+                // tie-break never fires. (CL/Algebra rows carry the fee=0
+                // sentinel, which sorts them first at cold start — harmless:
+                // discovery only emits pools that EXIST, and the quote round
+                // judges them like everyone else.)
+                if (ps[j] > ps[bestI]
+                    || (ps[j] == ps[bestI] && active[j].fee < active[bestI].fee)) bestI = j;
                 unchecked { ++j; }
             }
             if (bestI != ki) {

@@ -77,17 +77,20 @@ abstract contract MatrixOps is TokenSweepBase {
         for (uint256 i; i < hits.length; ++i) {
             if (!hits[i].active || hits[i].pool == address(0)) continue;
             (uint256 o, ) = _uqDir(hits[i], tIn, amt);
-            // QUARENTENA DE MIRAGENS, com alarme. O universalQuote V3 NAO tem
-            // clamp de fronteira de tick (lacuna documentada no proprio Core:
-            // "extending to V3 is the same change, one read up") — num pool
-            // concentrado fino, o quote cru extrapola sem limite (MEDIDO no
-            // OP WETH->USDC: 1,35e17 "USDC" por 0,5 WETH, um overshoot de
-            // ~1e8x; o Solver, com o clamp de capacidade, entregou 1.234 USDC
-            // com 1 bps de fidelidade — o solver estava CERTO e o quote cru
-            // errado). Um candidato 4x acima da rota inteira do solver e
-            // fisicamente impossivel a este tamanho: e a lacuna, nao o
-            // mercado. Conta e grita; quando o clamp V3 chegar ao Core, este
-            // filtro deve deixar de disparar — se disparar, e regressao.
+            // QUARENTENA DE MIRAGENS — higiene PERMANENTE do aparelho, nao
+            // detector de fix pendente. A primeira versao deste comentario
+            // chamava "lacuna" ao clamp V3 em falta; o corpus REFUTOU-a: a
+            // nota medida do Core (branch V4 do universalQuote) explica que o
+            // clamp foi tirado da camada de RANKING de proposito — clampar so
+            // as familias concentradas poe o ranking a comparar convencoes
+            // diferentes (V2 rasa a bater V4 funda; a classe do depthBucket),
+            // e no ENA/USDC o modelo clampado subestimava 14,5%. O clamp vive
+            // na camada de PROMESSA (expectedOut dimensionado, netOut, iron
+            // floor) — e a fidelidade de 1 bps aqui medida prova-a a segurar.
+            // Um quote de ranking num pool concentrado fino extrapola alem da
+            // fronteira POR DESENHO (medido: 1,35e17 por 0,5 WETH no OP);
+            // este aparelho, que o usa como referencia de "melhor perna",
+            // tem de o pontear em quarentena — para sempre, nao ate um fix.
             if (o > pv.grossOut * 4) {
                 miragens++;
                 console2.log("  MIRAGEM (clamp V3 em falta) pool/out:", hits[i].pool, o);
@@ -218,6 +221,53 @@ contract IsoladaExecucaoCL is TokenSweepBase {
     }
 }
 
+contract IsoladaExecucaoV4Nativa is TokenSweepBase {
+    address constant USDC   = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+    address constant WETH   = 0x4200000000000000000000000000000000000006;
+    address constant V4_MGR = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
+
+    function _dollar() internal pure override returns (address) { return USDC; }
+    function _weth() internal pure override returns (address) { return WETH; }
+    function _n() internal pure override returns (uint256) { return 0; }
+    function _at(uint256) internal pure override returns (string memory, address) { return ("", address(0)); }
+    function _label() internal pure override returns (string memory) { return "V4 nativa isolada"; }
+
+    function setUp() public {
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
+        // Bloco RECENTE de proposito, nao o 49,8M da matriz: a medicao "nativa
+        // 3,76x mais funda" e de 2026-08-22; a 49,8M (~14 dias antes) a pool
+        // nativa ainda podia ser rasa e o assert testaria a vindima do bloco,
+        // nao a cablagem. Fixado a 50.390.000 (~cabeca de 2026-08-24).
+        vm.createSelectFork("base", 50_390_000);
+        _core(V4_MGR);
+        // SO a V4 (as tres pecas) — nenhuma outra venue para onde fugir.
+        _v4Wire(V4_MGR, WETH, USDC);
+    }
+
+    /// O gemeo que faltava: CL e V1 executaram; a NATIVA — a familia que a
+    /// sessao de hoje recuperou no deploy — nunca tinha sido executada pela
+    /// stack completa. E o teste pina a razao de ser da recuperacao: a pool
+    /// nativa e 3,76x mais funda que a wrapped nesta chain (nota 115), logo o
+    /// funil, escolhendo por profundidade, TEM de rotear a perna KIND_V4_NATIVE
+    /// (8) — se rotear so a wrapped (4), a cablagem nativa esta morta outra vez.
+    function test_V4Nativa_RoteiaEExecutaAcimaDoPiso() public {
+        (BlazePhoenixQuoter.Preview memory pv, , ) = quoter.previewPlan(USDC, WETH, 1_000e6);
+        assertGt(pv.grossOut, 0, "so-V4 tem de cotar o par ancora");
+        uint256 nativas;
+        for (uint256 h; h < pv.route.hops.length; ++h)
+            for (uint256 l; l < pv.route.hops[h].legs.length; ++l)
+                if (pv.route.hops[h].legs[l].kind == BPC.KIND_V4_NATIVE) nativas++;
+        assertGt(nativas, 0, "a pool nativa (3,76x mais funda) tem de ganhar a perna; wrapped-only = cablagem nativa morta");
+        deal(USDC, address(0xF1DE), 1_000e6);
+        vm.prank(address(0xF1DE));
+        IERC20M(USDC).approve(address(router), 1_000e6);
+        vm.prank(address(0xF1DE));
+        uint256 entregue = router.swapExactIn(pv.route, 1_000e6, 1, address(0xF1DE), block.timestamp + 60);
+        assertGe(entregue, pv.effectiveMinOut, "V4 nativa: entregou abaixo do minimo prometido");
+        assertGt(entregue, 0.0001 ether); assertLt(entregue, 10 ether);
+    }
+}
+
 contract IsoladaExecucaoSolidlyV1 is TokenSweepBase {
     address constant WETH  = 0x4200000000000000000000000000000000000006;
     address constant USDC  = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
@@ -278,6 +328,20 @@ contract IsoladaExecucaoSolidlyV1 is TokenSweepBase {
 
 // ═══ A MATRIZ POR CHAIN ═════════════════════════════════════════════════════
 contract FidelityMatrixBaseTest is BaseChainFixture, MatrixOps {
+    /// A fidelidade so tinha sido medida a 1 hop e a um tamanho. A escada de
+    /// tamanhos (1k/10k/100k) e o multi-hop (USDC->wstETH via WETH) sao onde o
+    /// impacto cresce e o piso e testado a serio — e onde uma infidelidade
+    /// composta por hops apareceria (a fee e por-hop desde 2026-08-21).
+    function test_Matriz_EscadaDeTamanhos() public {
+        if (address(hub) == address(0)) return;
+        _linha("USDC->WETH 10k", _dollar(), _weth(), 10_000e6, true);
+        _linha("USDC->WETH 100k", _dollar(), _weth(), 100_000e6, true);
+    }
+    function test_Matriz_MultiHop() public {
+        if (address(hub) == address(0)) return;
+        // wstETH da Base: par sem rota directa funda -> forca ponte via WETH.
+        _linha("USDC->wstETH", _dollar(), 0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452, 1_000e6, true);
+    }
     function test_Matriz() public {
         if (address(hub) == address(0)) return;
         _linha("USDC->WETH", _dollar(), _weth(), 1_000e6, true);
@@ -306,14 +370,11 @@ contract FidelityMatrixArbitrumTest is ArbitrumFixture, MatrixOps {
 }
 
 contract FidelityMatrixOptimismTest is OptimismFixture, MatrixOps {
-    /// ACHADO ABERTO 2026-08-24 (medido, nao corrigido): no USDC->WETH do OP o
-    /// funil do Solver escolhe a UniV3 0,30% (0xc1738D90..., a mais funda) e
-    /// deixa a Velo CL spacing-100 (0x478946Bc..., fee ~5 bps) fora — 20 bps
-    /// na mesa, porque o top-K ordena por PROFUNDIDADE e nao por output. So
-    /// ficou visivel HOJE, quando a familia CL passou a cotar (nota 136). A
-    /// correccao e na seleccao de candidatos do Solver e exige red-first
-    /// proprio; ao fechar, APAGAR este override para a tolerancia voltar a 10.
-    function _tolBps() internal pure override returns (uint256) { return 25; }
+    // O override _tolBps()=25 que aqui viveu (achado do funil frio: top-K por
+    // ordem de descoberta cortava a CL barata antes de a cotar) foi APAGADO a
+    // 2026-08-24 no proprio dia: o desempate por fee no _topKPools fechou-o.
+    // Tolerancia de volta aos 10 bps globais — se isto voltar a ficar
+    // vermelho, o funil regrediu.
     function test_Matriz() public {
         if (address(hub) == address(0)) return;
         _linha("USDC->WETH", _dollar(), _weth(), 1_000e6, true);
