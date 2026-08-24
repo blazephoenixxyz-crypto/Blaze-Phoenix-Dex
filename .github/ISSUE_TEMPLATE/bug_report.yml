@@ -1,0 +1,47 @@
+name: Bug report (non-security)
+description: Something behaves incorrectly, and it is not a vulnerability.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        **Stop if this is a security issue.** A public issue about an unfixed
+        vulnerability discloses it to everyone. Write to
+        contact@blazephoenix.xyz instead — see `SECURITY.md`.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The behaviour you observed, and the behaviour you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >-
+        A forge test, a cast call, or an exact sequence. If you can express it
+        as a test that fails on current `main`, that is the most useful form
+        this report can take.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: The commit hash you were on.
+    validations:
+      required: true
+  - type: input
+    id: chain
+    attributes:
+      label: Chain and RPC
+      description: Chain id, and whether this was a fork test, a local anvil, or a live network.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >-
+        Logs, traces, the pool addresses involved. Paste text rather than
+        screenshots where you can — it is searchable.
