@@ -9,7 +9,7 @@ pragma solidity 0.8.36;
 //     concordar: se divergirem, a cotacao mente sobre o que a execucao vai fazer — a forma exata
 //     das fugas de fee ja fechadas nesta base.
 //
-// (2) "qual e a fee VIVA desta pool concentrada?"     -> BPC.effV3Fee
+// (2) "qual e a fee VIVA desta pool concentrada?"     -> BPC.quoteV3Fee
 //     O Router tinha uma copia que DIVERGIA no caso que o Core documenta em voz alta
 //     ("0% is legal"): fazia `dynFee != 0 ? dynFee : 0xFFFFFF`, tratando um 0% MEDIDO COM
 //     SUCESSO como falha de medicao. Consequencia real: uma pool Algebra de fee genuinamente 0%
@@ -41,28 +41,46 @@ contract FeeProducersSingleTest is Test {
         assertEq(BPC.effV2Fee(declarada), declarada, "uma fee declarada nao pode ser substituida");
     }
 
-    // ─── (2) effV3Fee ────────────────────────────────────────────────────────
+    // ─── (2) quoteV3Fee — o produtor unico do caminho quote/impacto ──────────
+    //
+    // Era `effV3Fee` (pure). O Router mantinha um ternario proprio semanticamente
+    // identico, e a familia CL inteira quotava 0 porque o sentinel `fee=0` da
+    // Algebra era aplicado a pools cuja fee vive em `fee()` (nota 136 do cofre).
+    // O produtor unico resolve as TRES fontes por ordem de autoridade:
+    // config > globalState medido > fee() do pool > fail-closed.
+    // `SEM_FEE` nao tem codigo: o staticcall a fee() devolve 0 bytes e o
+    // produtor tem de tratar isso como imedivel.
+
+    address internal constant SEM_FEE = address(0xdeAD00000000000000000000000000000000dEAd);
 
     /// O NUCLEO. Um 0% MEDIDO e legal e tem de sair como 0 — nunca como o sentinela.
     /// Este e o caso exato em que a copia do Router divergia.
-    function test_ZeroPorcentoMedidoEhLegal() public pure {
-        assertEq(BPC.effV3Fee(0, 0, true), 0, "0% medido com sucesso e uma fee legal, nao uma falha");
+    function test_ZeroPorcentoMedidoEhLegal() public view {
+        assertEq(BPC.quoteV3Fee(SEM_FEE, 0, 0, true), 0, "0% medido com sucesso e uma fee legal, nao uma falha");
     }
 
-    /// A metade oposta: nao medido fecha. O mesmo zero, outro significado.
-    function test_NaoMedidoFechaFechado() public pure {
-        assertEq(BPC.effV3Fee(0, 0, false), 0xFFFFFF, "fee dinamica nao medida tem de fechar fechado");
-        assertTrue(BPC.effV3Fee(0, 0, false) >= 1_000_000, "o sentinela tem de matar a cotacao");
+    /// A metade oposta: nao medido (e sem fee() que responda) fecha.
+    function test_NaoMedidoFechaFechado() public view {
+        assertEq(BPC.quoteV3Fee(SEM_FEE, 0, 0, false), 0xFFFFFF, "fee dinamica nao medida tem de fechar fechado");
+        assertTrue(BPC.quoteV3Fee(SEM_FEE, 0, 0, false) >= 1_000_000, "o sentinela tem de matar a cotacao");
     }
 
-    function testFuzz_MedidaPassaIntacta(uint24 medida) public pure {
+    /// O CASO CL — a razao de o produtor ser view: config 0, pool nao-dinamica,
+    /// mas a fee vive no proprio pool. Antes disto: sentinela e quote 0 para a
+    /// familia inteira (Aero CL: 0 pares ganhos em 122 com 1.479 WETH no pool).
+    function test_FeeDoPoolResolveOCasoCL() public {
+        FeeOnlyPool pool = new FeeOnlyPool();
+        assertEq(BPC.quoteV3Fee(address(pool), 0, 0, false), 334, "config 0 + nao-dyn tem de ler fee() do pool");
+    }
+
+    function testFuzz_MedidaPassaIntacta(uint24 medida) public view {
         medida = uint24(bound(uint256(medida), 0, 999_999));
-        assertEq(BPC.effV3Fee(0, medida, true), medida, "a fee medida passa sem ser tocada");
+        assertEq(BPC.quoteV3Fee(SEM_FEE, 0, medida, true), medida, "a fee medida passa sem ser tocada");
     }
 
-    function testFuzz_ChaveEstaticaVenceTudo(uint24 cfg, uint24 medida, bool dyn) public pure {
+    function testFuzz_ChaveEstaticaVenceTudo(uint24 cfg, uint24 medida, bool dyn) public view {
         vm.assume(cfg != 0);
-        assertEq(BPC.effV3Fee(cfg, medida, dyn), cfg, "uma chave estatica nao-zero e a verdade");
+        assertEq(BPC.quoteV3Fee(SEM_FEE, cfg, medida, dyn), cfg, "uma chave estatica nao-zero e a verdade");
     }
 
     // ─── A CONSEQUENCIA OBSERVAVEL ───────────────────────────────────────────
@@ -71,15 +89,15 @@ contract FeeProducersSingleTest is Test {
     /// pelo produtor unico a pool cota; pelo sentinela cota ZERO e desaparece do routing.
     /// Sem esta assercao, os testes acima seriam aritmetica sobre uma funcao pura sem provar
     /// que a diferenca importa.
-    function test_OsDoisZerosDaoCotacoesOpostas() public pure {
+    function test_OsDoisZerosDaoCotacoesOpostas() public view {
         // Preco 1:1 (sqrtPriceX96 = 2^96). Um preco no extremo do dominio faria a curva
         // devolver zero por razao FISICA e o teste passaria por engano — a fee tem de ser a
         // unica variavel entre as duas cotacoes.
         uint160 sp  = uint160(1) << 96;
         uint128 liq = 1e18;
 
-        uint24 legal    = BPC.effV3Fee(0, 0, true);   // 0% medido
-        uint24 fechado  = BPC.effV3Fee(0, 0, false);  // nao medido
+        uint24 legal    = BPC.quoteV3Fee(SEM_FEE, 0, 0, true);   // 0% medido
+        uint24 fechado  = BPC.quoteV3Fee(SEM_FEE, 0, 0, false);  // nao medido
 
         uint256 comFeeLegal   = BPC.outV3(1e18, sp, liq, legal,   true, 0);
         uint256 comSentinela  = BPC.outV3(1e18, sp, liq, fechado, true, 0);
@@ -87,4 +105,9 @@ contract FeeProducersSingleTest is Test {
         assertGt(comFeeLegal, 0, "uma pool de 0% tem de continuar cotavel");
         assertEq(comSentinela, 0, "uma fee nao medida tem de matar a cotacao");
     }
+}
+
+/// Pool minima que so sabe a propria fee — o contrato exato do caso CL.
+contract FeeOnlyPool {
+    function fee() external pure returns (uint24) { return 334; }
 }
