@@ -1371,7 +1371,7 @@ contract BlazePhoenixSolver {
                 (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(hop.legs[i].pool);
                 d = BPC.impactV3Bps(
                         hop.legs[i].amountIn, sp, liq,
-                        BPC.effV3Fee(uint24(hop.legs[i].fee), dynFee, dyn),
+                        BPC.quoteV3Fee(hop.legs[i].pool, uint24(hop.legs[i].fee), dynFee, dyn),
                         hop.legs[i].zeroForOne
                     );
             } else {
@@ -1428,7 +1428,7 @@ contract BlazePhoenixSolver {
                     (uint160 sp2, uint24 dynFee2, bool dyn2) = BPC.v3StateAndDynFee(L.pool);
                     d = BPC.impactV3Bps(
                             L.amountIn, sp2, liq2,
-                            BPC.effV3Fee(uint24(L.fee), dynFee2, dyn2),
+                            BPC.quoteV3Fee(L.pool, uint24(L.fee), dynFee2, dyn2),
                             L.zeroForOne
                         );
                 } else {

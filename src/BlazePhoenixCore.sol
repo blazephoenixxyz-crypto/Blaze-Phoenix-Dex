@@ -517,6 +517,24 @@ library BlazePhoenixCore {
                 }
             }
         }
+        // Classic-Solidly fallback (Velodrome V1): the original Solidly
+        // factory speaks getPair(address,address,bool), not the V2/Aerodrome
+        // getPool. The identity gate accepted such a factory (allPairsLength
+        // answers) while discovery never reached a single pair — the census
+        // measured it at 0 candidates in 62 pair-hops before this existed
+        // (MEASURED on OP 2026-08-24: getPair(WETH,USDC,false) answers the
+        // live pair; getPool reverts). Same try-then-fallback discipline as
+        // the Algebra branch above; factories that answer getPool never pay it.
+        if (pool == address(0) && mode == 2) {
+            bytes memory cd3 = abi.encodeWithSelector(0x6801cc30, t0, t1, stable);
+            assembly ("memory-safe") {
+                let p := mload(cd3)
+                let ok3 := staticcall(GAS_CAP, factory, add(cd3, 32), p, 0x00, 0x20)
+                if and(ok3, eq(returndatasize(), 32)) {
+                    pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
+                }
+            }
+        }
     }
 
     /// @notice Canonical V4 pool id from a PoolKey.
@@ -937,6 +955,33 @@ library BlazePhoenixCore {
         if (cfgFee != 0) return cfgFee;   // static key is truth
         if (dyn) return measured;         // measured live dynamic fee (0% is legal)
         return 0xFFFFFF;                  // unmeasurable dynamic fee -> fail closed
+    }
+
+    /// @notice Effective V3-family fee for the QUOTE/IMPACT path — the view
+    ///         sibling of effV3Fee, and the fix for a family-wide zero.
+    /// @dev    THE CL FAMILY QUOTED 0 BY CONSTRUCTION. CL rows (Aerodrome
+    ///         Slipstream, Velodrome CL) register with an EMPTY fee list —
+    ///         their fee is keyed by tickSpacing — so discovery stamps the
+    ///         same `fee = 0` that Hub rule R2 reserves as the ALGEBRA
+    ///         dynamic-fee sentinel. A CL pool answers slot0() (dyn = false),
+    ///         so effV3Fee fail-closed at 0xFFFFFF and outV3 quoted 0: the
+    ///         2nd-deepest factory on Base (1,479 WETH in USDC/WETH sp=100 at
+    ///         measurement, 2026-08-24) never won a single pair-hop in a
+    ///         122-pair census. The EXECUTION path always knew the remedy —
+    ///         Router:774 reads the pool's own fee() — this is the same
+    ///         remedy applied to the quote side. MEASURED: that pool's fee()
+    ///         is 334, DYNAMIC (not even the nominal 500 of its tier), so a
+    ///         static fee table would mis-price; reading the pool is the only
+    ///         correct source. A pool where fee() also fails still fail-closes
+    ///         exactly as before — this can only widen coverage, never weaken
+    ///         the INV-20 guarantee.
+    function quoteV3Fee(address pool, uint24 cfgFee, uint24 dynFee, bool dyn)
+        internal view returns (uint24)
+    {
+        if (cfgFee != 0) return cfgFee;   // static key is truth
+        if (dyn) return dynFee;           // Algebra: measured live fee
+        uint24 f = getV3Fee(pool);        // CL: the fee lives on the pool
+        return f != 0 ? f : 0xFFFFFF;     // still unmeasurable -> fail closed
     }
 
     function token0Of(address pool) internal view returns (address t) {
@@ -1360,7 +1405,7 @@ library BlazePhoenixCore {
             // `ticks()` getter drags 4 slots the quote does not use, against one
             // batchable `extsload`). V4 goes first because that is where the
             // error was measured; extending to V3 is the same change, one read up.
-            out      = outV3(amountIn, sp, liq, effV3Fee(c.fee, dynFee, isDyn), c.zeroForOne, 0);
+            out      = outV3(amountIn, sp, liq, quoteV3Fee(c.pool, c.fee, dynFee, isDyn), c.zeroForOne, 0);
             // depthWad must be TOKEN-DENOMINATED to be comparable across venue
             // families: the Solver's band anchor picks max(depths[]) across V2
             // (min(r0,r1), linear token units) and V3 candidates alike. Raw L is
