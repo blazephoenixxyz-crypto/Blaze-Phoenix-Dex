@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (do not use issues)
+    url: https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/blob/main/SECURITY.md
+    about: >-
+      Never file a suspected vulnerability in a public issue — that discloses an
+      unfixed system. Write to contact@blazephoenix.xyz. Confirmed reports are
+      credited and, once the pool is funded, paid.
+  - name: Integration questions and general discussion
+    url: https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/discussions
+    about: Ask about quoting, routing, entry points, or deployment.

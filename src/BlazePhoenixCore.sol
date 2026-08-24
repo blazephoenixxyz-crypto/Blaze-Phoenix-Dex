@@ -15,29 +15,29 @@
 //                Fingerprint is a private phrase held by the authors, and
 //                revealing it proves origin.
 //
-//  RESPONSABILIDADE UNICA
-//      Aritmetica e forma. O Core sabe COMO se calcula um preco, COMO se deriva
-//      um endereco e COMO se empacota um estado — e nao sabe mais nada. Nao tem
-//      storage, nao tem dono, nao tem pausa e nao guarda um unico wei.
+//  SINGLE RESPONSIBILITY
+//      Arithmetic and shape. The Core knows HOW a price is computed, HOW an
+//      address is derived and HOW a state is packed — and nothing more. It has
+//      no storage, no owner, no pause, and it never holds a single wei.
 //
-//  O QUE ESTE CONTRATO GARANTE
-//      C1  Puro por defeito. Toda a matematica e `pure`; o que le cadeia e `view`
-//          e diz-se `view` no nome ou na assinatura. Nao ha terceira categoria.
-//      C2  Uma primitiva, um produtor. Cada grandeza tem exatamente UMA funcao
-//          que a produz (`depthFromL` para profundidade, `ironFloorBps` para o
-//          piso, `universalQuote` para uma cotacao). Um segundo produtor e um
-//          irmao a espera de divergir, e a divergencia e a assinatura de defeito
-//          desta base de codigo — confirmada mais de dez vezes.
-//      C3  Fail-closed sem ramo de default. Um kind desconhecido devolve campo
-//          theta 0x0: nao le reservas, nao e concentrado, nao e verificavel.
-//          Nao ha `else` para alguem se esquecer de manter sincronizado.
+//  WHAT THIS CONTRACT GUARANTEES
+//      C1  Pure by default. All the math is `pure`; whatever reads chain is
+//          `view` and says `view` in its name or signature. No third category.
+//      C2  One primitive, one producer. Every quantity has exactly ONE function
+//          that produces it (`depthFromL` for depth, `ironFloorBps` for the
+//          floor, `universalQuote` for a quote). A second producer is a sibling
+//          waiting to diverge, and divergence is this codebase's defect
+//          signature — confirmed more than ten times.
+//      C3  Fail-closed with no default branch. An unknown kind returns theta
+//          field 0x0: reads no reserves, not concentrated, not verifiable.
+//          There is no `else` for anyone to forget to keep in sync.
 //
-//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
-//      Nao decide rotas (isso e o Solver), nao executa swaps (isso e o Router),
-//      nao guarda pools (isso e o Hub) e nao tem opiniao sobre quem o chama. As
-//      funcoes que movem valor sao primitivas de transferencia sem allowance —
-//      o Router NUNCA concede allowance a ninguem, e ha uma guarda estatica no
-//      CI que o mantem verdadeiro.
+//  WHAT THIS CONTRACT DELIBERATELY DOES NOT DO
+//      It does not decide routes (that is the Solver), does not execute swaps
+//      (the Router), does not store pools (the Hub) and holds no opinion about
+//      its caller. The value-moving functions are allowance-free transfer
+//      primitives — the Router NEVER grants an allowance to anyone, and a
+//      static guard in CI keeps that true.
 //
 //  Shared library for the BlazePhoenix protocol. Provides the arithmetic
 //  primitives, AMM quote math, pool-address derivation, packed pool-state
@@ -131,21 +131,21 @@ struct QuoteCtx {
     address tokenOther;
     address hooks;
     address v4Manager;   // V4 PoolManager (for extsload state reads); 0 if N/A
-    /// @dev Decimais dos dois tokens, CODIFICADOS COMO `decimais + 1`.
-    ///      0 = "nao preenchido" -> o `universalQuote` le-os ele proprio.
+    /// @dev Decimals of both tokens, ENCODED AS `decimals + 1`.
+    ///      0 = "not filled in" -> `universalQuote` reads them itself.
     ///
-    ///      PORQUE +1 E NAO O VALOR DIRECTO: memoria por omissao e zero, e
-    ///      existem tokens com GENUINAMENTE 0 decimais. Um sentinela `0 = nao
-    ///      preenchido` trataria esses como nao-preenchidos e, pior, um
-    ///      chamador que esquecesse os campos herdaria "0 decimais" em
-    ///      silencio — profundidade inflada por 1e18. Com +1 os dois casos
-    ///      sao distinguiveis e a correccao NUNCA depende do chamador.
+    ///      WHY +1 AND NOT THE RAW VALUE: default memory is zero, and there
+    ///      are tokens with GENUINELY 0 decimals. A `0 = not filled in`
+    ///      sentinel would treat those as unfilled and, worse, a caller that
+    ///      forgot the fields would silently inherit "0 decimals" — depth
+    ///      inflated by 1e18. With +1 the two cases are distinguishable and
+    ///      correctness NEVER depends on the caller.
     ///
-    ///      Existe para HOISTING: os candidatos de um par partilham os mesmos
-    ///      dois tokens, e ler `decimals()` por candidato custa 2.339 gas
-    ///      (medido; o EIP-2929 nao o torna gratis porque o USDC e um proxy
-    ///      com delegatecall por dentro). Ler uma vez por PAR baixa o custo de
-    ///      +2,2% para +0,7% do solve on-chain.
+    ///      It exists for HOISTING: the candidates of a pair share the same
+    ///      two tokens, and reading `decimals()` per candidate costs 2,339 gas
+    ///      (measured; EIP-2929 does not make it free because USDC is a proxy
+    ///      with a delegatecall inside). Reading once per PAIR drops the cost
+    ///      from +2.2% to +0.7% of the on-chain solve.
     uint8   decIn1;
     uint8   decOther1;
 }
@@ -172,18 +172,18 @@ library BlazePhoenixCore {
     uint8   internal constant KIND_SOLIDLY     = 5;
     uint8   internal constant KIND_ALGEBRA     = 6;
 
-    // LAPIDES — 2, 3 e 7. Nenhuma constante os nomeia: nao existe kind 2, 3 ou 7 neste sistema.
+    // TOMBSTONES — 2, 3 and 7. No constant names them: there is no kind 2, 3 or 7 in this system.
     //
-    // Os NUMEROS ficam queimados para sempre, e isso nao e cerimonia: `decodeKind` le o kind dos
-    // bits do Monoslot, logo atribuir o 2 a uma venue nova faria TODA a pool ja gravada sob o 2
-    // ser reinterpretada como essa venue. Uma lapide sem epitafio nao protege nada — a unica
-    // razao de o registo historico ficar escrito e impedir a reutilizacao: foram Curve stable
-    // (2), Balancer V2 (3) e Curve crypto (7), retiradas por decisao do dono em 2026-08-20.
+    // The NUMBERS stay burned forever, and that is not ceremony: `decodeKind` reads the kind from
+    // the Monoslot bits, so assigning 2 to a new venue would make EVERY pool already recorded
+    // under 2 be reinterpreted as that venue. A tombstone without an epitaph protects nothing —
+    // the only reason the historical record is written down is to prevent reuse: they were Curve
+    // stable (2), Balancer V2 (3) and Curve crypto (7), removed by the owner's call on 2026-08-20.
     //
-    // Falham fechadas em quatro sitios independentes, todos por CONSTRUCAO e nenhum por ramo:
-    // campo theta 0x0 (nenhum atributo, nenhuma consulta responde), fora de KINDS_ROUTABLE (o
-    // `addFactory` e o `recordSwap` do Hub recusam-nas), e o dispatch de execucao do Router cai
-    // no `else` e reverte RouterE(8) antes de tocar na pool.
+    // They fail closed in four independent places, all by CONSTRUCTION and none by branch: theta
+    // field 0x0 (no attribute, no query answers), outside KINDS_ROUTABLE (the Hub's `addFactory`
+    // and `recordSwap` refuse them), and the Router's execution dispatch falls into the `else`
+    // and reverts RouterE(8) before touching the pool.
     /// @notice A V4 pool one of whose currencies is NATIVE (address(0)).
     /// @dev    A separate kind rather than a runtime `currency == address(0)`
     ///         test, and the distinction is the whole point: native settlement
@@ -207,42 +207,42 @@ library BlazePhoenixCore {
     ///         route depends on no per-chain configuration at all.
     uint8   internal constant KIND_V4_NATIVE   = 8;
 
-    // ─── θ — a taxonomia como DADOS ────────────────────────────────────
+    // ─── θ — the taxonomy as DATA ──────────────────────────────────────
     //
-    // COMO LER ISTO, se e a primeira vez. Cada kind ocupa um campo de bits fixo dentro de UMA
-    // constante. Perguntar "este kind tem o atributo X?" passa a ser um shift e um AND, em vez de
-    // uma cadeia de `if (k == A || k == B || ...)` repetida em cada contrato.
+    // HOW TO READ THIS, if it is the first time. Each kind occupies a fixed bit field inside ONE
+    // constant. Asking "does this kind have attribute X?" becomes a shift and an AND, instead of
+    // a chain of `if (k == A || k == B || ...)` repeated in every contract.
     //
-    // PORQUE ISTO EXISTE. A assinatura de defeito desta base de codigo, confirmada mais de dez
-    // vezes, e "um fix aplicado a UM de dois canais simetricos". Cada sitio que enumera kinds a
-    // mao e um desses canais: quando um kind novo entra (o KIND_V4_NATIVE nao trouxe UMA LINHA de
-    // matematica de pricing nova e mesmo assim obrigou a tocar nos cinco contratos), quem se
-    // esquecer de um dos sitios cria a divergencia. Um conjunto expresso como bits nao tem irmao
-    // para divergir: a diversidade passa a ser uma COORDENADA, nao um RAMO.
+    // WHY THIS EXISTS. This codebase's defect signature, confirmed more than ten times, is "a fix
+    // applied to ONE of two symmetric channels". Every place that enumerates kinds by hand is one
+    // of those channels: when a new kind arrives (KIND_V4_NATIVE brought not ONE LINE of new
+    // pricing math and still forced changes in all five contracts), whoever forgets one of the
+    // places creates the divergence. A set expressed as bits has no sibling to diverge from:
+    // diversity becomes a COORDINATE, not a BRANCH.
     //
-    // O QUE NAO COLAPSA, e porque nao. So os testes de PERTENCA a um conjunto entram aqui
-    // ("este kind le reservas?", "este kind expoe token0/token1?"). Os testes de IDENTIDADE
-    // (`k == KIND_V4_NATIVE`, quando a pergunta e mesmo sobre AQUELE kind e nao sobre uma classe)
-    // ficam como estao — forca-los para a tabela trocava clareza por nada. E os motores de
-    // LIQUIDACAO tambem nao colapsam: `CALLBACK`, `EXCHANGE` e `UNLOCK` sao ABIs do mundo
-    // exterior, formas que nao nos pertencem. O criterio, para cada ramo que sobra: consegues
-    // nomear a realidade externa que o obriga? Se sim, e honesto e fica.
+    // WHAT DOES NOT COLLAPSE, and why. Only MEMBERSHIP tests belong here ("does this kind read
+    // reserves?", "does this kind expose token0/token1?"). IDENTITY tests
+    // (`k == KIND_V4_NATIVE`, when the question really is about THAT kind and not about a class)
+    // stay as they are — forcing them into the table would trade clarity for nothing. And the
+    // SETTLEMENT engines do not collapse either: `CALLBACK`, `EXCHANGE` and `UNLOCK` are ABIs of
+    // the outside world, shapes that are not ours. The criterion, for each remaining branch: can
+    // you name the external reality that forces it? If yes, it is honest and it stays.
     //
-    // DUAS PALAVRAS, NAO UMA. A versao de palavra unica (16 bits por kind, 144 uteis) tinha a
-    // aritmetica certa mas gastava bits onde o EIP-170 doi: metade dos atributos nao era lida por
-    // nenhuma linha de producao, e eram esses que empurravam o campo para 16 bits — 18 bytes de
-    // literal, PUSH18, 19 B emitidos em CADA sitio, inclusive nos contratos que nunca leem a
-    // escada de gas. Separadas, o Router/Hub/Quoter carregam 6 B e a escada vive num sitio so.
+    // TWO WORDS, NOT ONE. The single-word version (16 bits per kind, 144 useful) had the right
+    // arithmetic but spent bits where EIP-170 hurts: half the attributes were read by no
+    // production line, and those were the ones pushing the field to 16 bits — an 18-byte literal,
+    // PUSH18, 19 B emitted at EVERY site, including in contracts that never read the gas ladder.
+    // Split apart, Router/Hub/Quoter carry 6 B and the ladder lives in one place only.
     //
-    // FAIL-CLOSED DE GRACA. Um kind sem bits (as lapides 2, 3 e 7) tem campo 0x0: nao le
-    // reservas, nao e concentrado, nao e verificavel por par. Nenhum ramo de default para
-    // alguem esquecer. Ver a nota das lapides acima quanto a por que os numeros nao voltam.
+    // FAIL-CLOSED FOR FREE. A kind with no bits (tombstones 2, 3 and 7) has field 0x0: it reads
+    // no reserves, is not concentrated, is not pair-verifiable. No default branch for anyone to
+    // forget. See the tombstone note above for why the numbers never come back.
 
-    /// @dev Atributos por kind, 4 bits cada. Kind `k` ocupa [4k+3 : 4k].
-    ///      bit 0  A_RESERVES  — profundidade e impacto vem de getReserves(); min(r0,r1) e a profundidade
-    ///      bit 1  A_CONC_POOL — sqrtPriceX96 e L lidos NO ENDERECO DA POOL
-    ///      bit 2  A_CONC_SING — estado por extsload no singleton; `pool` nao e um par; tokenOut viaja em auxId
-    ///      bit 3  A_PAIR_VER  — token0()/token1() existem, logo a prova de autenticidade do Hub aplica-se
+    /// @dev Attributes per kind, 4 bits each. Kind `k` occupies [4k+3 : 4k].
+    ///      bit 0  A_RESERVES  — depth and impact come from getReserves(); min(r0,r1) is the depth
+    ///      bit 1  A_CONC_POOL — sqrtPriceX96 and L read AT THE POOL ADDRESS
+    ///      bit 2  A_CONC_SING — state via extsload on the singleton; `pool` is not a pair; tokenOut travels in auxId
+    ///      bit 3  A_PAIR_VER  — token0()/token1() exist, so the Hub's authenticity proof applies
     uint256 internal constant THETA_ATTR = 0x040A9400A9;
 
     uint8 internal constant A_RESERVES  = 0x1;
@@ -250,29 +250,29 @@ library BlazePhoenixCore {
     uint8 internal constant A_CONC_SING = 0x4;
     uint8 internal constant A_PAIR_VER  = 0x8;
 
-    /// @dev Escada de gas por kind, 8 bits cada, em unidades de 5.000. Lida SO pelo Solver, que
-    ///      tem folga larga — por isso vive separada da THETA_ATTR, que todos carregam.
-    ///      Um campo a zero devolve o default historico de 90.000, preservando o comportamento
-    ///      exacto de hoje para um kind desconhecido.
+    /// @dev Gas ladder per kind, 8 bits each, in units of 5,000. Read ONLY by the Solver, which
+    ///      has wide headroom — hence it lives apart from THETA_ATTR, which everyone carries.
+    ///      A zero field returns the historical default of 90,000, preserving today's exact
+    ///      behaviour for an unknown kind.
     uint256 internal constant THETA_GAS = 0x2B0016122400001612;
 
-    /// @notice Os 4 bits de atributo de um kind. Um kind acima de 8 devolve 0 — fail-closed.
+    /// @notice The 4 attribute bits of a kind. A kind above 8 returns 0 — fail-closed.
     function thetaOf(uint8 kind) internal pure returns (uint8) {
         return uint8((THETA_ATTR >> (uint256(kind) << 2)) & 0xF);
     }
 
-    /// @notice `kind` tem TODOS os atributos de `mask`? Substitui as cadeias de `k == A || k == B`.
+    /// @notice Does `kind` have ALL the attributes in `mask`? Replaces the `k == A || k == B` chains.
     function kindHas(uint8 kind, uint8 mask) internal pure returns (bool) {
         return (thetaOf(kind) & mask) == mask;
     }
 
-    /// @notice `kind` tem ALGUM dos atributos de `mask`? Para as perguntas do tipo "e concentrado?",
-    ///         que hoje se escrevem `k == V3 || k == ALGEBRA || k == V4 || k == V4_NATIVE`.
+    /// @notice Does `kind` have ANY of the attributes in `mask`? For questions like "is it concentrated?",
+    ///         written today as `k == V3 || k == ALGEBRA || k == V4 || k == V4_NATIVE`.
     function kindHasAny(uint8 kind, uint8 mask) internal pure returns (bool) {
         return (thetaOf(kind) & mask) != 0;
     }
 
-    /// @notice Estimativa de gas base por perna, por kind. Zero => o default historico de 90.000.
+    /// @notice Base gas estimate per leg, per kind. Zero => the historical default of 90,000.
     function kindGasBase(uint8 kind) internal pure returns (uint256) {
         uint256 g8 = (THETA_GAS >> (uint256(kind) << 3)) & 0xFF;
         return g8 == 0 ? 90_000 : g8 * 5_000;
@@ -283,32 +283,32 @@ library BlazePhoenixCore {
     // loosens toward the 80% hard cap as impact, leg count and volatility rise.
     // Base and hard cap are separate so the floor is impact-adaptive while
     // never permitting a result worse than 80% of the quote. Raised from the
-    // original 75% floor per the sealed 2026-08-03 design decision (see vault
-    // note "010 - Invariantes, Mediana 4% & Padrões Estocásticos").
+    // original 75% floor per the sealed 2026-08-03 design decision (see the
+    // internal notes on invariants, the 4% median and stochastic patterns).
     uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_000; // 20% absolute hard cap (floor ≥ 80%)
     uint16  internal constant FLOOR_BASE_BPS          = 9_600; // start at 96% floor for clean swaps
     uint16  internal constant FLOOR_PER_LEG_BPS       = 200;   // each extra leg loosens 2%
     uint16  internal constant FLOOR_IMPACT_FACTOR     = 1;     // 1 BPS floor drop per BPS impact
-    // O piso POR PERNA vivia sozinho no Router enquanto os seus tres irmaos viviam aqui. Vem
-    // para o pe deles: um teto local por pool, o mesmo numero que a composicao agregada usa.
-    uint16  internal constant LEG_FLOOR_BPS           = 8_000; // cada perna entrega >= 80% do bound
+    // The PER-LEG floor lived alone in the Router while its three siblings lived here. It moves
+    // next to them: a local per-pool cap, the same number the aggregate composition uses.
+    uint16  internal constant LEG_FLOOR_BPS           = 8_000; // each leg delivers >= 80% of the bound
 
-    // ─── Fee do protocolo — PRODUTOR UNICO ─────────────────────────────────────────────────
-    // Estava declarada DUAS vezes, uma no Router e outra no Quoter, com o mesmo valor. O
-    // comentario que a acompanhava no Router explicava — corretamente — porque uma segunda
-    // constante e perigosa ("would silently drift into a lie the moment this one changed") e
-    // recusava criar a TREASURY2_SHARE por essa razao. A regra estava escrita no sitio exato
-    // onde estava a ser violada: a propria constante a que o comentario se agarrava tinha uma
-    // gemea. E essa gemea ja tinha custado a este protocolo o Quoter a mentir sobre a fee
-    // durante duas geracoes.
+    // ─── Protocol fee — SINGLE PRODUCER ────────────────────────────────────────────────────
+    // It was declared TWICE, once in the Router and once in the Quoter, with the same value. The
+    // comment that accompanied it in the Router explained — correctly — why a second constant is
+    // dangerous ("would silently drift into a lie the moment this one changed") and refused to
+    // create TREASURY2_SHARE for that very reason. The rule was written in the exact place where
+    // it was being violated: the very constant the comment clung to had a twin. And that twin
+    // had already cost this protocol a Quoter that lied about the fee for two whole
+    // generations.
     //
-    // Vive aqui por uma razao MECANICA, nao estetica: uma `internal constant` de um CONTRATO
-    // nao e legivel de fora, e era por isso que quatro testes — incluindo um de seguranca sobre
-    // cobertura de fee — a re-declaravam como o literal 28. Isso deixava a suite red-first
-    // contra alteracoes de CODIGO e CEGA a alteracoes de CONSTANTE: mudar a fee para 30 deixava
-    // quatro testes a afirmar 28 sobre uma copia, e a prova formal a provar o piso antigo.
-    // Numa LIBRARY a constante e legivel por quem a importa, e o aparelho de medida passa a
-    // estar aparafusado ao objeto que mede — o corolario (c) do I-measure aplicado a suite.
+    // It lives here for a MECHANICAL reason, not an aesthetic one: a CONTRACT's `internal
+    // constant` is not readable from outside, which is why four tests — including a security one
+    // about fee coverage — re-declared it as the literal 28. That left the suite red-first
+    // against CODE changes and BLIND to CONSTANT changes: moving the fee to 30 left four tests
+    // asserting 28 against a copy, and the formal proof proving the old floor. In a LIBRARY the
+    // constant is readable by whoever imports it, and the measuring apparatus ends up bolted to
+    // the object it measures — corollary (c) of the I-measure, applied to the suite.
     uint16  internal constant PROTOCOL_FEE_BPS        = 28;    // 0.28%
 
     // ─── V3 sqrt-price bounds ──────────────────────────────────────────
@@ -580,19 +580,19 @@ library BlazePhoenixCore {
         require(ok, "BPC:transferFrom");
     }
 
-    /// @dev ORFAS DESDE 2026-08-20, E FICAM. Serviam o `_execCurveAmt` do Router;
-    ///      com o Curve e o Balancer excisados nao ha um unico call site em `src/`.
+    /// @dev ORPHANED SINCE 2026-08-20, AND THEY STAY. They served the Router's
+    ///      `_execCurveAmt`; with Curve and Balancer excised there is not a
+    ///      single call site left in `src/`.
     ///
-    ///      MEDIDO a 2026-08-21, e por isso nao se apagam: sao `internal` numa
-    ///      LIBRARY, logo o compilador so as emite se forem chamadas. Build do
-    ///      Core COM elas: 6.519 bytes. SEM elas: 6.519 bytes. **Delta zero** —
-    ///      ja nao estao no bytecode deployado.
+    ///      MEASURED 2026-08-21, which is why they are not deleted: they are
+    ///      `internal` in a LIBRARY, so the compiler only emits them if called.
+    ///      Core build WITH them: 6,519 bytes. WITHOUT them: 6,519 bytes.
+    ///      **Zero delta** — they are already out of the deployed bytecode.
     ///
-    ///      Apagar custaria dois ficheiros de teste e um harness para poupar
-    ///      NADA, e perder-se-ia logica de aprovacao USDT-safe testada, para o
-    ///      dia em que um venue dessa familia voltar. "Codigo morto" numa
-    ///      library internal nao e divida de BYTECODE, e divida de LEITURA — e
-    ///      esta nota paga-a.
+    ///      Deleting would cost two test files and a harness to save NOTHING,
+    ///      and would lose tested USDT-safe approval logic, for the day a venue
+    ///      of that family returns. "Dead code" in an internal library is not
+    ///      BYTECODE debt, it is READING debt — and this note pays it.
     function safeApprove(address token, address spender, uint256 amt) internal {
         bool ok;
         assembly ("memory-safe") {
@@ -673,15 +673,15 @@ library BlazePhoenixCore {
 
     /// @notice Read an ERC-20's decimals(), defaulting to 18 if absent.
     ///         Used by the stable solver to normalise reserves to 1e18.
-    /// @notice Decimais de um token, com 18 como omissao segura. INTERNAL porque
-    ///         o caminho de REGISTO (Router e Hub) tambem precisa dela: o bucket
-    ///         que vai para o Monoslot nasce la, e um bucket cego a decimais
-    ///         colapsa o sinal de profundidade dos pares de 6/8 casas — ver
-    ///         `shortSide18` e test/DepthBucketDecimals.t.sol.
+    /// @notice A token's decimals, with 18 as the safe default. INTERNAL because
+    ///         the REGISTRATION path (Router and Hub) needs it too: the bucket
+    ///         that goes into the Monoslot is born there, and a decimals-blind
+    ///         bucket collapses the depth signal of 6/8-decimal pairs — see
+    ///         `shortSide18` and test/DepthBucketDecimals.t.sol.
     function decimalsOf(address token) internal view returns (uint8) { return _decimalsOf(token); }
 
-    /// @dev Decimais a partir do ctx, com leitura de recurso. A correccao nao
-    ///      depende de o chamador ter preenchido: se nao preencheu, le-se.
+    /// @dev Decimals from the ctx, with a fallback read. Correctness does not
+    ///      depend on the caller having filled them in: if not, we read them.
     function _decIn(QuoteCtx memory c) private view returns (uint8) {
         return c.decIn1 != 0 ? c.decIn1 - 1 : _decimalsOf(c.tokenIn);
     }
@@ -697,19 +697,19 @@ library BlazePhoenixCore {
             if staticcall(GAS_CAP, token, m, 4, m, 32) {
                 if eq(returndatasize(), 32) {
                     let v := mload(m)
-                    // SETENTA E OITO, nao 256. O `to18` faz `10 ** (dec - 18)`
-                    // em aritmetica CHECKED: com `dec >= 96` isso transborda
-                    // uint256 e da Panic 0x11 — o que viola o contrato escrito
-                    // deste ficheiro ("SATURA em vez de reverter") e abre um
-                    // vector de griefing real: um token com `decimals() = 200`
-                    // faz o swap EXECUTAR todas as pernas e so depois reverter
-                    // no `_recordHits` do Router, que corre FORA do try/catch.
-                    // O gas do utilizador e queimado por inteiro.
-                    // Tambem mata o `decimalsOf(tIn) + 1` do Solver, que
-                    // transborda o uint8 com `decimals() == 255`.
-                    // 10^77 e o maior valor que cabe em uint256, logo 77 e o
-                    // maior expoente utilizavel; acima disso cai-se no default
-                    // de 18 (fail-open, coerente com o resto da funcao).
+                    // SEVENTY-EIGHT, not 256. `to18` does `10 ** (dec - 18)`
+                    // in CHECKED arithmetic: with `dec >= 96` that overflows
+                    // uint256 and gives Panic 0x11 — which violates the
+                    // contract written in this file ("SATURATES instead of
+                    // reverting") and opens a real griefing vector: a token
+                    // with `decimals() = 200` makes the swap EXECUTE every leg
+                    // and only then revert in the Router's `_recordHits`, which
+                    // runs OUTSIDE the try/catch. The user's gas burns in full.
+                    // It also kills the Solver's `decimalsOf(tIn) + 1`, which
+                    // overflows the uint8 with `decimals() == 255`.
+                    // 10^77 is the largest value that fits in uint256, so 77 is
+                    // the largest usable exponent; above that we fall back to
+                    // the default of 18 (fail-open, coherent with the rest).
                     if lt(v, 78) { d := v }
                 }
             }
@@ -743,32 +743,32 @@ library BlazePhoenixCore {
     }
 
     /// @notice V3 slot0 → sqrtPriceX96.
-    /// @dev L -> profundidade TOKEN-DENOMINADA. A UNICA copia.
-    ///      `depthWad` tem de ser comparavel entre familias de venue: o V2 reporta min(r0,r1),
-    ///      unidades lineares de token. L esta em escala-RAIZ, logo entrega-lo cru faz uma pool
-    ///      concentrada ancorar acima de uma V2 igualmente funda por ~sqrt(preco) — vies
-    ///      sistematico em qualquer par cujo preco esteja longe de 1, nao caso limite.
-    ///      Converte L nas reservas virtuais que representa ao preco corrente e toma o lado curto:
+    /// @dev L -> TOKEN-DENOMINATED depth. THE ONLY copy.
+    ///      `depthWad` has to be comparable across venue families: V2 reports min(r0,r1),
+    ///      linear token units. L is on a SQRT scale, so handing it over raw makes a
+    ///      concentrated pool out-anchor an equally deep V2 by ~sqrt(price) — a systematic
+    ///      bias in any pair whose price is far from 1, not an edge case.
+    ///      Convert L into the virtual reserves it represents at the current price, short side:
     ///          x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
-    ///      mulDiv carrega o intermedio de 512 bits (L*sp transborda uint256).
+    ///      mulDiv carries the 512-bit intermediate (L*sp overflows uint256).
     ///
-    ///      PORQUE E UMA PRIMITIVA E NAO TRES COPIAS: esta conversao existia inline em TRES
-    ///      sitios (universalQuote V3, universalQuote V4, Hub.claimV4) e faltava por completo num
-    ///      QUARTO (Router._recordHits), que corre em todos os swaps executados. Copias irmas que
-    ///      divergem sao a assinatura de defeito desta base de codigo — o mulDiv de 512 bits e a
-    ///      fee viva do Algebra foram a mesma coisa. Uma copia nao pode divergir de si propria.
-    ///      `sp == 0` (leitura falhada) devolve L cru, preservando o comportamento anterior.
-    /// @dev SEM PRECO NAO HA PROFUNDIDADE. Esta funcao devolvia `liq` cru quando o preco nao era
-    ///      legivel — ou seja, devolvia um numero NOUTRAS UNIDADES, que e exatamente o bug que ela
-    ///      existe para eliminar. L esta em escala-RAIZ; entregue cru faz uma pool concentrada
-    ///      ancorar acima de uma pool de par igualmente funda por um fator de raiz-de-preco.
-    ///      Regra: a AUSENCIA de medicao nao e um valor. O retorno correto e zero.
-    ///      Os consumidores tratam-no em seguranca: o `_weights` do Solver normaliza contra o
-    ///      maximo da familia e da peso minimo a um zero (`if (w == 0) w = 1`), sem divisao por
-    ///      zero. Falha SUAVE — a pool perde prioridade, nao envenena a comparacao.
-    /// @notice Normaliza uma quantidade token-denominada para 18 casas decimais.
-    /// @dev SATURA em vez de reverter: uma profundidade absurda tem de degradar
-    ///      para "muito funda", nunca fazer a cotacao inteira falhar.
+    ///      WHY A PRIMITIVE AND NOT THREE COPIES: this conversion existed inline in THREE
+    ///      places (universalQuote V3, universalQuote V4, Hub.claimV4) and was missing entirely
+    ///      in a FOURTH (Router._recordHits), which runs on every executed swap. Sibling copies
+    ///      that diverge are this codebase's defect signature — the 512-bit mulDiv and the live
+    ///      Algebra fee were the same thing. A copy cannot diverge from itself.
+    ///      `sp == 0` (failed read) returns raw L, preserving the previous behaviour.
+    /// @dev NO PRICE, NO DEPTH. This function used to return raw `liq` when the price was not
+    ///      readable — that is, it returned a number IN OTHER UNITS, which is exactly the bug it
+    ///      exists to eliminate. L is on a SQRT scale; delivered raw it makes a concentrated pool
+    ///      out-anchor an equally deep pair pool by a factor of sqrt-of-price.
+    ///      Rule: the ABSENCE of a measurement is not a value. The correct return is zero.
+    ///      Consumers handle it safely: the Solver's `_weights` normalises against the family
+    ///      maximum and gives a zero the minimum weight (`if (w == 0) w = 1`), with no division
+    ///      by zero. It fails SOFT — the pool loses priority, it does not poison the comparison.
+    /// @notice Normalise a token-denominated quantity to 18 decimals.
+    /// @dev SATURATES instead of reverting: an absurd depth must degrade to
+    ///      "very deep", never make the whole quote fail.
     function to18(uint256 v, uint8 dec) internal pure returns (uint256) {
         if (v == 0 || dec == 18) return v;
         if (dec > 18) return v / (10 ** (uint256(dec) - 18));
@@ -779,39 +779,39 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice O lado CURTO de um par, ja em 18 casas — a profundidade comparavel.
+    /// @notice The SHORT side of a pair, already in 18 decimals — comparable depth.
     ///
-    /// @dev PORQUE ISTO EXISTE, e nao um `min` cru como antes.
+    /// @dev WHY THIS EXISTS, instead of the raw `min` it used to be.
     ///
-    ///      A versao anterior fazia `min(a0, a1)` sobre unidades CRUAS. Isso tem
-    ///      dois defeitos, e o segundo e o grave:
+    ///      The previous version did `min(a0, a1)` over RAW units. That has two
+    ///      defects, and the second one is the serious one:
     ///
-    ///      1. O MINIMO fica decidido pelos DECIMAIS, nao pela profundidade. Num
-    ///         par USDC(6)/WETH(18) o lado do USDC tem 1e12 vezes menos unidades
-    ///         para o mesmo valor, portanto ganha o `min` quase sempre — mesmo
-    ///         quando e economicamente o lado FUNDO.
+    ///      1. The MINIMUM is decided by the DECIMALS, not by the depth. In a
+    ///         USDC(6)/WETH(18) pair the USDC side has 1e12 times fewer units
+    ///         for the same value, so it wins the `min` almost always — even
+    ///         when it is economically the DEEP side.
     ///
-    ///      2. O `depthBucket` corta em 1e15 unidades cruas. Traduzido:
-    ///           18 casas (WETH): sai do bucket 0 com ~3 dolares
-    ///            6 casas (USDC): so sai do bucket 0 com MIL MILHOES de dolares
-    ///            8 casas (WBTC): so sai do bucket 0 com 650 MIL MILHOES
-    ///         Logo TODAS as pools de qualquer par com 6 ou 8 casas caiam no
-    ///         bucket 0, e `bucketWeight(0) = 1` para todas. A pool de 1.400
-    ///         milhoes e a pool de 100 dolares ficavam com o MESMO peso.
+    ///      2. `depthBucket` cuts at 1e15 raw units. Translated:
+    ///           18 decimals (WETH): leaves bucket 0 at ~3 dollars
+    ///            6 decimals (USDC): only leaves bucket 0 at ONE BILLION dollars
+    ///            8 decimals (WBTC): only leaves bucket 0 at 650 BILLION
+    ///         So EVERY pool of any 6- or 8-decimal pair fell into bucket 0,
+    ///         and `bucketWeight(0) = 1` for all of them. The 1.4-billion pool
+    ///         and the 100-dollar pool carried the SAME weight.
     ///
-    ///      O dano nao e inverter rankings entre pares — `_canInsert` so compara
-    ///      candidatos do MESMO par, e ai o enviesamento cancela-se. O dano e que
-    ///      o sinal de profundidade COLAPSA num unico bucket dentro desses pares,
-    ///      e `psi = vitality x bucketWeight x bonus` degenera em `vitality x 1`.
-    ///      E a defesa por profundidade e exactamente o que o comentario do
-    ///      `Hub:_canInsert` diz ter sido acrescentado para impedir: "an attacker
+    ///      The damage is not inverted rankings across pairs — `_canInsert` only
+    ///      compares candidates of the SAME pair, and there the bias cancels. The
+    ///      damage is that the depth signal COLLAPSES into a single bucket inside
+    ///      those pairs, and `psi = vitality x bucketWeight x bonus` degenerates
+    ///      into `vitality x 1`. And the depth defence is exactly what the
+    ///      `Hub:_canInsert` comment says it was added to prevent: "an attacker
     ///      can no longer keep a deep pool out merely by sending dust through 16
-    ///      shallow slots to hold their vitality at 1". Com tudo no bucket 0 essa
-    ///      defesa ficava INERTE.
+    ///      shallow slots to hold their vitality at 1". With everything in bucket
+    ///      0 that defence was INERT.
     ///
-    ///      Medido em fork da Base, bloco 49.800.000: a pool USDC/WETH de ~1.430
-    ///      milhoes de dolares saiu com bucket 0 e psi 1; a WETH/LINK, 3.481 vezes
-    ///      mais rasa, saiu com bucket 5 e psi 42. Red-first em
+    ///      Measured on a Base fork, block 49,800,000: the ~1.43-billion-dollar
+    ///      USDC/WETH pool came out with bucket 0 and psi 1; WETH/LINK, 3,481
+    ///      times shallower, came out with bucket 5 and psi 42. Red-first in
     ///      test/DepthBucketDecimals.t.sol.
     function shortSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1)
         internal pure returns (uint256)
@@ -821,8 +821,8 @@ library BlazePhoenixCore {
         return n0 < n1 ? n0 : n1;
     }
 
-    /// @notice `depthFromL` com normalizacao de decimais — a versao a usar.
-    /// @param d0 decimais do token0 da pool, d1 os do token1.
+    /// @notice `depthFromL` with decimal normalisation — the version to use.
+    /// @param d0 decimals of the pool's token0, d1 those of token1.
     function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)
         internal pure returns (uint256)
     {
@@ -913,20 +913,20 @@ library BlazePhoenixCore {
     ///         sentinel >= 1e6 — outV3's own guard then quotes 0 — rather than
     ///         quoting a fee-free number that execution will not honour. Same
     ///         fail-closed shape effV4Fee uses for a non-zero protocolFee.
-    /// @notice A fee que uma pool V2 cobra quando o par nao a declara.
-    /// @dev    PRODUTOR UNICO de um numero que estava escrito a mao em TRES sitios: o caminho da
-    ///         COTACAO do Router, o caminho da EXECUCAO do Router, e o `universalQuote` aqui.
-    ///         Os dois primeiros sao o par que TEM de concordar — se divergirem, a cotacao mente
-    ///         sobre o que a execucao vai fazer, que e a forma exata das fugas de fee ja fechadas
-    ///         nesta base. Tres copias de um literal e a assinatura de defeito da casa a espera
-    ///         de acontecer, nao um estilo.
+    /// @notice The fee a V2 pool charges when the pair does not declare it.
+    /// @dev    SINGLE PRODUCER of a number that was hand-written in THREE places: the Router's
+    ///         QUOTE path, the Router's EXECUTION path, and `universalQuote` here. The first two
+    ///         are the pair that MUST agree — if they diverge, the quote lies about what the
+    ///         execution will do, which is the exact shape of the fee leaks already closed in
+    ///         this codebase. Three copies of a literal are this codebase's defect signature
+    ///         waiting to happen, not a style.
     ///
-    ///         30 bps e o default historico do Uniswap V2 e dos forks que nao expoem a fee. Nao
-    ///         e um palpite conservador: uma fee ASSUMIDA ABAIXO da real faz a cotacao prometer
-    ///         mais do que a pool entrega, e e a execucao que descobre a diferenca.
+    ///         30 bps is the historical default of Uniswap V2 and of the forks that do not expose
+    ///         the fee. It is not a conservative guess: a fee ASSUMED BELOW the real one makes
+    ///         the quote promise more than the pool delivers, and execution finds the difference.
     ///
-    ///         `internal` de proposito: inlinada, zero custo de travessia, e o ganho aqui e de
-    ///         CORRECAO e nao de gas — tres sitios que nao podem divergir passam a nao poder.
+    ///         `internal` on purpose: inlined, zero traversal cost, and the gain here is one of
+    ///         CORRECTNESS and not of gas — three places that cannot diverge now cannot.
     function effV2Fee(uint24 declared) internal pure returns (uint24) {
         return declared == 0 ? 30 : declared;
     }
@@ -982,14 +982,14 @@ library BlazePhoenixCore {
     ///             amtOut0 = L · Q96 · (sqrtNew − sqrtP) / (sqrtP · sqrtNew)
     ///
     ///         Fee is applied to the input as the canonical (1 − fee/1e6) ratio.
-    /// @param sqrtLimit Fronteira de preco onde a swap e TRUNCADA, ou 0 para
-    ///        nao truncar. Ver `sqrtBoundary`: entre ticks inicializados o `L`
-    ///        nao muda, portanto truncar na fronteira do intervalo corrente da
-    ///        EXACTO para o que la cabe e ESTRITAMENTE ABAIXO para o resto —
-    ///        nunca acima, seja qual for a distribuicao de liquidez a frente.
-    ///        E a unica direccao de erro aceitavel: sobrestimar promete o que
-    ///        nao se entrega, e o piso de ferro nao protege porque e derivado
-    ///        desta mesma cotacao.
+    /// @param sqrtLimit Price boundary where the swap is TRUNCATED, or 0 for no
+    ///        truncation. See `sqrtBoundary`: between initialized ticks `L` does
+    ///        not change, so truncating at the current range's boundary gives
+    ///        EXACT for what fits inside it and STRICTLY BELOW for the rest —
+    ///        never above, whatever the liquidity distribution ahead. That is
+    ///        the only acceptable direction of error: over-estimating promises
+    ///        what is not delivered, and the iron floor does not protect because
+    ///        it is derived from this very quote.
     function outV3(
         uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee, bool zeroForOne,
         uint160 sqrtLimit
@@ -1008,8 +1008,8 @@ library BlazePhoenixCore {
             uint256 product = mulDiv(amtAfterFee, P, Q96);
             uint256 sqrtNew = mulDiv(L, P, L + product);
             if (sqrtNew >= P || sqrtNew == 0) return 0;
-            // zeroForOne: o preco DESCE. Truncar significa nao o deixar cair
-            // abaixo da fronteira.
+            // zeroForOne: the price FALLS. Truncating means not letting it drop
+            // below the boundary.
             if (sqrtLimit != 0 && sqrtNew < sqrtLimit) sqrtNew = sqrtLimit;
             outAmt = mulDiv(L, P - sqrtNew, Q96);
         } else {
@@ -1022,7 +1022,7 @@ library BlazePhoenixCore {
             uint256 dSqrt = mulDiv(amtAfterFee, Q96, L);
             uint256 sqrtNew = P + dSqrt;
             if (sqrtNew <= P) return 0;
-            // oneForZero: o preco SOBE. A fronteira e um tecto.
+            // oneForZero: the price RISES. The boundary is a ceiling.
             if (sqrtLimit != 0 && sqrtNew > sqrtLimit) sqrtNew = sqrtLimit;
             uint256 a = mulDiv(L, sqrtNew - P, sqrtNew);
             outAmt = mulDiv(a, Q96, P);
@@ -1030,53 +1030,53 @@ library BlazePhoenixCore {
     }
 
 
-    /// @notice Fronteira de `sqrtPrice` do intervalo de ticks corrente, na
-    ///         direccao da swap. Devolve 0 (sem limite) quando `spacing` e 0.
+    /// @notice `sqrtPrice` boundary of the current tick range, in the direction
+    ///         of the swap. Returns 0 (no limit) when `spacing` is 0.
     ///
-    /// @dev PORQUE ISTO E UM LIMITE VALIDO. Uma posicao de liquidez so pode
-    ///      comecar e acabar em multiplos do `tickSpacing`, logo os ticks
-    ///      INICIALIZADOS sao exactamente esses multiplos. Entre dois deles o
-    ///      `L` activo nao muda — que e precisamente a hipotese que o `outV3`
-    ///      assume e que deixa de valer ao cruzar. Truncar aqui torna a
-    ///      hipotese verdadeira por construcao.
+    /// @dev WHY THIS IS A VALID LIMIT. A liquidity position can only start and
+    ///      end at multiples of `tickSpacing`, so the INITIALIZED ticks are
+    ///      exactly those multiples. Between two of them the active `L` does not
+    ///      change — which is precisely the hypothesis `outV3` assumes and that
+    ///      stops holding on a crossing. Truncating here makes the hypothesis
+    ///      true by construction.
     ///
-    /// @dev A APROXIMACAO, e a direccao dela. A fronteira a `d` ticks esta a um
-    ///      racio de `1,0001^(d/2)` em sqrtPrice. Exponenciar custaria uma
-    ///      TickMath inteira (~300-500 B e um loop); em vez disso usa-se
-    ///      `1 + d/20000`. Como `e^x >= 1 + x`, o racio verdadeiro e SEMPRE
-    ///      maior que este, portanto a fronteira calculada fica mais PERTO que
-    ///      a real: clampa-se cedo de mais, nunca tarde de mais. Para
-    ///      `spacing = 200` a diferenca e 0,005%.
+    /// @dev THE APPROXIMATION, and its direction. The boundary `d` ticks away is
+    ///      at a ratio of `1.0001^(d/2)` in sqrtPrice. Exponentiating would cost
+    ///      a whole TickMath (~300-500 B and a loop); instead we use
+    ///      `1 + d/20000`. Since `e^x >= 1 + x`, the true ratio is ALWAYS larger
+    ///      than this one, so the computed boundary lands CLOSER than the real
+    ///      one: we clamp too early, never too late. For `spacing = 200` the
+    ///      difference is 0.005%.
     ///
-    ///      Se algum dia o custo em rotas perdidas justificar exactidao, a
-    ///      substituicao e local: so esta funcao muda.
+    ///      If one day the cost in lost routes justifies exactness, the
+    ///      replacement is local: only this function changes.
     function sqrtBoundary(uint160 sqrtP, int24 tick, int24 spacing, bool zeroForOne)
         internal pure returns (uint160)
     {
         if (spacing <= 0 || sqrtP == 0) return 0;
         int256 sp_ = int256(spacing);
-        // Distancia em ticks ate a fronteira, na direccao da swap. O `%` do
-        // Solidity trunca para zero, logo um tick negativo precisa de correccao
-        // para que `r` seja sempre a posicao DENTRO do intervalo (0 <= r < S).
+        // Distance in ticks to the boundary, in the swap's direction. Solidity's
+        // `%` truncates toward zero, so a negative tick needs a correction so
+        // that `r` is always the position INSIDE the range (0 <= r < S).
         int256 r = int256(tick) % sp_;
         if (r < 0) r += sp_;
         uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r);
-        // Ja estamos EM cima da fronteira: o intervalo inteiro esta a frente.
+        // We are already ON the boundary: the whole range lies ahead.
         if (d == 0) d = uint256(sp_);
         uint256 P = uint256(sqrtP);
-        // AS DUAS DIRECCOES NAO SAO SIMETRICAS, e assumi-lo era um defeito.
-        // A fronteira a `d` ticks esta em `P * r` a subir e `P / r` a descer,
-        // com `r = 1,0001^(d/2)`. Logo o deslocamento relativo e `r - 1` para
-        // cima mas `1 - 1/r = (r-1)/r` para baixo — MENOR. Usar o mesmo delta
-        // nos dois lados deixava o preco cair alem da fronteira real: clampava
-        // TARDE e sobrestimava, que e exactamente o que este clamp existe para
-        // impedir.
+        // THE TWO DIRECTIONS ARE NOT SYMMETRIC, and assuming so was a defect.
+        // The boundary `d` ticks away sits at `P * r` going up and `P / r` going
+        // down, with `r = 1.0001^(d/2)`. So the relative displacement is `r - 1`
+        // upward but `1 - 1/r = (r-1)/r` downward — SMALLER. Using the same
+        // delta on both sides let the price fall past the real boundary: it
+        // clamped LATE and over-estimated, which is exactly what this clamp
+        // exists to prevent.
         //
-        // 20_001 e nao 20_000: com 20_000 a aproximacao linear excede o valor
-        // verdadeiro em `d = 1` (por ~1e-9, que a esta escala sao ~1e20 wei, nao
-        // um wei). Verificado por varrimento de d = 1 a 1000 nas duas
-        // direccoes: zero violacoes, e o conservadorismo extra fica abaixo de
-        // 0,5% nos spacings canonicos (1, 10, 60, 200).
+        // 20_001 and not 20_000: with 20_000 the linear approximation exceeds
+        // the true value at `d = 1` (by ~1e-9, which at this scale is ~1e20 wei,
+        // not one wei). Verified by sweeping d = 1 to 1000 in both directions:
+        // zero violations, and the extra conservatism stays below 0.5% at the
+        // canonical spacings (1, 10, 60, 200).
         if (zeroForOne) {
             uint256 dn = (P * d) / (20_001 + d);
             return dn >= P ? uint160(1) : uint160(P - dn);
@@ -1115,30 +1115,30 @@ library BlazePhoenixCore {
         return _solidlyStable(ain, rIn, rOut, fee, 0, 0);
     }
 
-    /// @notice A substituicao WETH -> address(0) de uma chave V4 nativa. UNICO produtor.
+    /// @notice The WETH -> address(0) substitution of a native V4 key. SINGLE producer.
     ///
-    /// @dev    PORQUE EXISTE. A mesma derivacao vivia escrita a mao em DOIS sitios do Router — o
-    ///         braco de cotacao e o de execucao — e o comentario de um deles JURAVA que "cannot
-    ///         diverge" sem mecanismo nenhum que o garantisse. E exatamente a situacao que deu
-    ///         origem ao `depthFromL`, cujo comentario diz o mesmo por outras palavras: uma copia
-    ///         nao pode divergir de si propria, mas duas copias podem divergir uma da outra.
-    ///         E aqui a divergencia seria silenciosa e grave: os dois lados derivariam poolIds
-    ///         DIFERENTES, e a promessa de que "cotar e executar leem a mesma pool" cairia.
+    /// @dev    WHY IT EXISTS. The same derivation lived hand-written in TWO places of the Router
+    ///         — the quote arm and the execution arm — and the comment on one of them SWORE it
+    ///         "cannot diverge" with no mechanism whatsoever guaranteeing it. It is exactly the
+    ///         situation that gave rise to `depthFromL`, whose comment says the same in other
+    ///         words: a copy cannot diverge from itself, but two copies can diverge from each
+    ///         other. And here the divergence would be silent and severe: the two sides would
+    ///         derive DIFFERENT poolIds, and "quote and execute read the same pool" would fall.
     ///
-    ///         PORQUE NAO DEVOLVE UM `ok`. A versao obvia devolve `(a, b, bool ok)` e deixa o
-    ///         veredicto no chamador. Mas em Solidity `(a, b, ) = f(...)` compila SEM AVISO —
-    ///         logo um sitio futuro pode ignorar o `ok`, e se o valor devolvido em caso de falha
-    ///         for utilizavel, segue com `tokenIn == WETH` e constroi a chave do pool ERC20 em vez
-    ///         da nativa: le uma pool DIFERENTE e devolve um numero perfeitamente valido do sitio
-    ///         errado, sem sintoma. E o corolario (c) do Axioma Meta-Supremo a morder.
+    ///         WHY IT DOES NOT RETURN AN `ok`. The obvious version returns `(a, b, bool ok)` and
+    ///         leaves the verdict to the caller. But in Solidity `(a, b, ) = f(...)` compiles with
+    ///         NO WARNING — so a future site can ignore the `ok`, and if the failure value is
+    ///         usable, it proceeds with `tokenIn == WETH` and builds the ERC20 pool key instead
+    ///         of the native one: it reads a DIFFERENT pool and returns a perfectly valid number
+    ///         from the wrong place, with no symptom. Corollary (c) of the Meta-Supreme Axiom.
     ///
-    ///         A ALTERNATIVA E MELHOR QUE O `ok`: o valor de falha e `(0, 0)`, que e
-    ///         AUTO-IDENTIFICAVEL (num sucesso exatamente UM dos dois e zero, nunca os dois) e
-    ///         IMPOSSIVEL como chave V4 — o V4 exige `currency0 < currency1`, logo nao existe
-    ///         nem pode vir a existir uma pool (0,0). Quem esquecer a verificacao obtem uma chave
-    ///         que nao resolve: `sp == 0` do lado da cotacao (quote zero) e um `unlock` que
-    ///         reverte do lado da execucao. Nao ha `ok` para esquecer, porque nao ha `ok`.
-    ///         Falha fechada por CONSTRUCAO, e nao por disciplina de quem chama.
+    ///         THE ALTERNATIVE IS BETTER THAN THE `ok`: the failure value is `(0, 0)`, which is
+    ///         SELF-IDENTIFYING (on success exactly ONE of the two is zero, never both) and
+    ///         IMPOSSIBLE as a V4 key — V4 requires `currency0 < currency1`, so a (0,0) pool does
+    ///         not exist and cannot come to exist. Whoever forgets the check gets a key that does
+    ///         not resolve: `sp == 0` on the quote side (zero quote) and an `unlock` that reverts
+    ///         on the execution side. There is no `ok` to forget, because there is no `ok`.
+    ///         Fail-closed by CONSTRUCTION, and not by the caller's discipline.
     function nativeMapVerified(address tokenIn, address tokenOther, address weth)
         internal pure returns (address, address)
     {
@@ -1148,31 +1148,31 @@ library BlazePhoenixCore {
         return (address(0), address(0));
     }
 
-    /// @notice A CURVA Solidly com os decimais corretos — o UNICO produtor desta grandeza.
+    /// @notice The Solidly CURVE with the right decimals — the ONLY producer of this quantity.
     ///
-    ///         PORQUE EXISTE. A mesma pergunta ("quanto devolve esta pool?") era respondida em
-    ///         TRES sitios com TRES politicas: aqui (decimais SIM), no cotador do Router
-    ///         (decimais NAO) e no executor do Router (decimais NAO). No caminho primario os
-    ///         tres fazem a mesma chamada ao mesmo pool e concordam por construcao; a
-    ///         divergencia vivia toda no fallback. Assinatura de defeito da casa com N=3.
+    ///         WHY IT EXISTS. The same question ("how much does this pool return?") was answered
+    ///         in THREE places with THREE policies: here (decimals YES), in the Router's quoter
+    ///         (decimals NO) and in the Router's executor (decimals NO). On the primary path all
+    ///         three make the same call to the same pool and agree by construction; the
+    ///         divergence lived entirely in the fallback. This codebase's defect signature, N=3.
     ///
-    ///         PORQUE OS DECIMAIS. O invariante stable k = x3y + xy3 e homogeneo de grau 4, logo
-    ///         com reservas na MESMA escala o resultado e invariante a escala — e por isso a via
-    ///         de decimais iguais passa (0,0) e nao normaliza nada. Com 18/6 as reservas cruas
-    ///         estao a 12 ordens de grandeza uma da outra e a curva devolve lixo. O par real
-    ///         normaliza internamente porque SABE os seus decimais; quem lhe pede tem de saber
-    ///         tambem.
+    ///         WHY THE DECIMALS. The stable invariant k = x3y + xy3 is homogeneous of degree 4,
+    ///         so with reserves at the SAME scale the result is scale-invariant — which is why
+    ///         the equal-decimals path passes (0,0) and normalises nothing. With 18/6 the raw
+    ///         reserves are 12 orders of magnitude apart and the curve returns garbage. The real
+    ///         pair normalises internally because it KNOWS its decimals; whoever asks it has to
+    ///         know them too.
     ///
-    ///         DERIVA O PAR DA POOL, NAO DO CHAMADOR. O outro token le-se do proprio pool em vez
-    ///         de vir por argumento — de proposito. Uma primitiva de produtor unico que aceite a
-    ///         coordenada de quem a chama volta a ter a forma que permite a divergencia: bastava
-    ///         um dos tres sitios passar o token errado. So corre no fallback, logo o custo das
-    ///         duas staticcalls e pago na via rara.
+    ///         IT DERIVES THE PAIR FROM THE POOL, NOT FROM THE CALLER. The other token is read
+    ///         from the pool itself rather than passed in — deliberately. A single-producer
+    ///         primitive that accepts its caller's coordinate goes back to the shape that allows
+    ///         divergence: one of the three places passing the wrong token would suffice. It only
+    ///         runs in the fallback, so the two staticcalls are paid on the rare path.
     ///
-    ///         O QUE ESTA PRIMITIVA NAO FAZ: o haircut. Ver `universalQuote` e `_execSolidlyAmt`
-    ///         — e margem de um PEDIDO, nao propriedade da curva, e nao viaja para os canais de
-    ///         cotacao. Politica unica significa uma unica CURVA, nao um unico conjunto de
-    ///         ajustes.
+    ///         WHAT THIS PRIMITIVE DOES NOT DO: the haircut. See `universalQuote` and
+    ///         `_execSolidlyAmt` — that is the margin of a REQUEST, not a property of the curve,
+    ///         and it does not travel into the quote channels. A single policy means a single
+    ///         CURVE, not a single set of adjustments.
     function solidlyCurveOut(
         address pool, uint256 ain, uint256 rIn, uint256 rOut,
         bool stable, uint256 cfgFee, address tokenIn
@@ -1252,7 +1252,7 @@ library BlazePhoenixCore {
         // 512-bit intermediates (mulDiv) so the Solidly cubic invariant does not
         // revert on large stable reserves: the raw products x*y, x*x, y*y and
         // a*b overflow around x ~ 1.5e28, turning a quote into a checked-
-        // arithmetic revert (a quote DoS on deep stable pools). See vault 093 M1.
+        // arithmetic revert (a quote DoS on deep stable pools). See the corpus, M1.
         uint256 a = mulDiv(x, y, WAD);
         uint256 b = mulDiv(x, x, WAD) + mulDiv(y, y, WAD);
         return mulDiv(a, b, WAD);
@@ -1317,22 +1317,22 @@ library BlazePhoenixCore {
     /// @notice AMM quote for a pool of any supported kind.
     /// @return out          amount out for `amountIn` tokens of `ctx.tokenIn`
     /// @return depthWad     pool depth in WAD-equivalent units
-    /// @dev    O dispatcher de cotacao do Solver e do Quoter.
+    /// @dev    The quote dispatcher for the Solver and the Quoter.
     ///
-    ///         NAO E O UNICO. Esta linha dizia "kind branching lives here only" e era FALSA: o
-    ///         Router tem um dispatcher de cotacao proprio (`_hopScaleImpactAndQuote`) e o Quoter
-    ///         outro (`previewPlanExact`). Ambos sao DELIBERADOS — o do Router existe por gas e
-    ///         profundidade de stack, o do Quoter porque o exact-pass e outra pergunta — e ambos
-    ///         estao registados no Seam Register. O que estava errado era a prosa, nao o desenho.
-    ///         Criterio 7: um facto errado escrito e pior do que nenhum, porque enviesa quem o le
-    ///         a nao ir procurar os irmaos.
+    ///         IT IS NOT THE ONLY ONE. This line used to say "kind branching lives here only" and
+    ///         it was FALSE: the Router has its own quote dispatcher (`_hopScaleImpactAndQuote`)
+    ///         and the Quoter another (`previewPlanExact`). Both are DELIBERATE — the Router's
+    ///         exists for gas and stack depth, the Quoter's because the exact-pass is a different
+    ///         question — and both are recorded in the Seam Register. What was wrong was the
+    ///         prose, not the design. Criterion 7: a wrong fact written down is worse than none,
+    ///         because it biases the reader against going to look for the siblings.
     function universalQuote(QuoteCtx memory c, uint256 amountIn)
         public view returns (uint256 out, uint256 depthWad)
     {
         if (amountIn == 0) return (0, 0);
         uint8 k = c.kind;
-        // A lapide 3 saiu deste braco (passagem de codigo morto do EIP-170): a
-        // venue que la vivia nao expunha getReserves(), pelo que este ramo sempre
+        // Tombstone 3 left this branch (an EIP-170 dead-code pass): the venue
+        // that lived there did not expose getReserves(), so this branch always
         // read (0,0) and quoted 0 — the kind never produced a routable quote.
         // Falling through to the default (0,0) return is byte-for-byte the
         // same observable result.
@@ -1355,11 +1355,11 @@ library BlazePhoenixCore {
             // extra read, byte-identical quote and gas).
             (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
             uint128 liq = getLiquidity(c.pool);
-            // SEM clamp de fronteira, por enquanto: o `v3StateAndDynFee` ainda
-            // nao devolve o tick, e o custo por travessia em V3 e ~2x o da V4
-            // (o getter `ticks()` arrasta 4 slots que a cotacao nao usa, contra
-            // um `extsload` batchavel). A V4 vai primeiro porque foi la que o
-            // erro se mediu; estender a V3 e a mesma mudanca, uma leitura acima.
+            // NO boundary clamp, for now: `v3StateAndDynFee` does not yet return
+            // the tick, and the per-crossing cost in V3 is ~2x that of V4 (the
+            // `ticks()` getter drags 4 slots the quote does not use, against one
+            // batchable `extsload`). V4 goes first because that is where the
+            // error was measured; extending to V3 is the same change, one read up.
             out      = outV3(amountIn, sp, liq, effV3Fee(c.fee, dynFee, isDyn), c.zeroForOne, 0);
             // depthWad must be TOKEN-DENOMINATED to be comparable across venue
             // families: the Solver's band anchor picks max(depths[]) across V2
@@ -1419,38 +1419,38 @@ library BlazePhoenixCore {
             // to a revert or a within-slack shortfall — never a bad fill.
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
-            // O `tick` fica por ler AQUI de proposito: o clamp de fronteira
-            // pertence a camada da PROMESSA e nao ao RANKING (ver a nota longa
-            // no `outV3`). Descarta-se com um buraco em vez de um nome, para
-            // nao deixar um aviso 2072 do solc a mascarar avisos reais.
+            // The `tick` is left unread HERE on purpose: the boundary clamp
+            // belongs to the PROMISE layer and not to RANKING (see the long note
+            // on `outV3`). It is discarded with a hole rather than a name, so as
+            // not to leave a solc 2072 warning masking real warnings.
             (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
                 v4SqrtAndLiq(c.v4Manager, pid);
             if (sp == 0 || liq == 0) return (0, 0);
-            // SEM CLAMP DE FRONTEIRA AQUI, e a razao e uma licao medida.
+            // NO BOUNDARY CLAMP HERE, and the reason is a measured lesson.
             //
-            // `universalQuote` serve DUAS perguntas diferentes: "qual pool
-            // entrega mais?" (ranking) e "quanto posso garantir?" (promessa).
-            // O clamp da fronteira de tick (`sqrtBoundary` + o parametro
-            // `sqrtLimit` do `outV3`) responde a SEGUNDA — e um limite inferior
-            // honesto. Aplica-lo aqui responde a primeira com a ferramenta
-            // errada.
+            // `universalQuote` serves TWO different questions: "which pool
+            // delivers more?" (ranking) and "how much can I guarantee?"
+            // (promise). The tick-boundary clamp (`sqrtBoundary` plus the
+            // `sqrtLimit` parameter of `outV3`) answers the SECOND — it is an
+            // honest lower bound. Applying it here answers the first with the
+            // wrong tool.
             //
-            // O dano e assimetrico e foi observado: a V2 nao tem estrutura de
-            // ticks, logo nao e clampavel; clampar so as familias concentradas
-            // faz o ranking comparar grandezas com convencoes diferentes, e uma
-            // V2 rasa passa a ganhar a uma V4 funda em qualquer trade que saia
-            // do intervalo corrente. Com `spacing = 60` isso e ~0,6% de preco —
-            // rotina. E a MESMA classe do defeito do `depthBucket` (comparar sem
-            // normalizar), que ja custou uma sessao.
+            // The damage is asymmetric and it was observed: V2 has no tick
+            // structure, so it is not clampable; clamping only the concentrated
+            // families makes the ranking compare quantities under different
+            // conventions, and a shallow V2 starts beating a deep V4 on any
+            // trade that leaves the current range. With `spacing = 60` that is
+            // ~0.6% of price — routine. It is the SAME class as the `depthBucket`
+            // defect (comparing without normalising), which already cost a session.
             //
-            // E a medicao diz que o clamp subestimaria: na pool ENA/USDC a
-            // 1.000 USDC a saida REAL foi 14,5% acima do modelo — havia mesmo
-            // mais liquidez para la da fronteira.
+            // And the measurement says the clamp would under-estimate: on the
+            // ENA/USDC pool at 1,000 USDC the REAL output was 14.5% above the
+            // model — there really was more liquidity beyond the boundary.
             //
-            // O sitio certo e a camada da PROMESSA: o `expectedOut` da perna ja
-            // dimensionada, o `netOut` do Preview e o `ironFloor`. Ai um limite
-            // inferior e exactamente o que se quer, e nao ha comparacao
-            // cross-familia para enviesar.
+            // The right place is the PROMISE layer: the `expectedOut` of the
+            // already-sized leg, the Preview's `netOut` and the `ironFloor`.
+            // There a lower bound is exactly what is wanted, and there is no
+            // cross-family comparison to bias.
             out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF), c.zeroForOne, 0);
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
@@ -1469,11 +1469,11 @@ library BlazePhoenixCore {
     ///         StateView on a mainnet fork: base = keccak256(abi.encode(poolId,
     ///         6)); slot0 (offset 0) packs sqrtPriceX96 in its low 160 bits;
     ///         liquidity is at offset +3 (low 128 bits).
-    /// @dev O `tick` devolvido vem de GRACA: vive na mesma palavra do slot0
-    ///      que ja se le para o `sqrtPriceX96`, bits [160,184). E ele que
-    ///      permite ao `sqrtBoundary` saber a que distancia esta a fronteira
-    ///      do intervalo — sem ele o unico limite seguro seria "distancia
-    ///      zero", que daria saida nula.
+    /// @dev The returned `tick` comes for FREE: it lives in the same slot0 word
+    ///      already read for `sqrtPriceX96`, bits [160,184). It is what lets
+    ///      `sqrtBoundary` know how far away the range boundary is — without it
+    ///      the only safe limit would be "zero distance", which would give a
+    ///      null output.
     function v4SqrtAndLiq(address manager, bytes32 poolId)
         public view
         returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee, int24 tick)
@@ -1796,26 +1796,26 @@ library BlazePhoenixCore {
         return (bits & deltaFlags) != 0;
     }
 
-    /// @notice Impacto em BPS a partir de uma saida JA COMPUTADA — a primitiva.
-    /// @dev    O PADRAO QUE ISTO MATA: "o impacto re-deriva a cotacao". Uma funcao de impacto
-    ///         que embute a curva obriga quem a chama a pagar a curva DUAS vezes, porque quem
-    ///         quer impacto ja tem a cotacao na mao. Era o caso no Router: uma linha chamava
-    ///         `impactV3Bps(legAmt, sp, lq, live, zfo)` — que corre o `outV3` por dentro — e a
-    ///         linha SEGUINTE chamava `outV3` com argumentos BYTE-IDENTICOS. Uma execucao
-    ///         inteira da curva e um delegatecall a mais, em TODAS as pernas concentradas, nas
-    ///         QUATRO portas de swap.
+    /// @notice Impact in BPS from an ALREADY COMPUTED output — the primitive.
+    /// @dev    THE PATTERN THIS KILLS: "impact re-derives the quote". An impact function that
+    ///         embeds the curve forces its caller to pay the curve TWICE, because whoever wants
+    ///         impact already has the quote in hand. That was the case in the Router: one line
+    ///         called `impactV3Bps(legAmt, sp, lq, live, zfo)` — which runs `outV3` inside — and
+    ///         the NEXT line called `outV3` with BYTE-IDENTICAL arguments. A whole extra run of
+    ///         the curve and one extra delegatecall, on EVERY concentrated leg, across all FOUR
+    ///         swap entry points.
     ///
-    ///         A cura nao e duplicar a matematica do racio: e extrai-la para aqui e fazer o
-    ///         `impactV3Bps` construir-se sobre ela. Continua a haver UM produtor do racio; o
-    ///         que deixa de existir e a obrigacao de recomputar a curva para lhe chegar.
+    ///         The cure is not to duplicate the ratio maths: it is to extract it here and make
+    ///         `impactV3Bps` build on top of it. There is still ONE producer of the ratio; what
+    ///         stops existing is the obligation to recompute the curve to reach it.
     ///
-    ///         Fica `public` (delegatecall) e nao `internal` de proposito: `internal` seria
-    ///         inlinada em cada chamador e a aritmetica de racio (4 mulDiv) pagava-se em BYTES
-    ///         no Router, que e o contrato com menos folga depois do Hub. O ganho aqui e nao
-    ///         correr a CURVA duas vezes — nao e poupar a travessia.
+    ///         It stays `public` (delegatecall) and not `internal` on purpose: `internal` would
+    ///         be inlined into every caller and the ratio arithmetic (4 mulDiv) would be paid in
+    ///         BYTES in the Router, the contract with the least headroom after the Hub. The gain
+    ///         here is not running the CURVE twice — it is not about saving the traversal.
     ///
-    ///         `out == 0` devolve BPS (o maximo, conservador), exatamente como antes: uma pool
-    ///         que nao cota trata-se como impacto total, nunca como impacto nulo.
+    ///         `out == 0` returns BPS (the maximum, conservative), exactly as before: a pool that
+    ///         does not quote is treated as total impact, never as zero impact.
     function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)
         public pure returns (uint256)
     {
@@ -1835,9 +1835,9 @@ library BlazePhoenixCore {
         return BPS - ratioBps;
     }
 
-    /// @notice Impacto em BPS a partir dos INPUTS — para quem ainda nao tem a saida.
-    /// @dev    Delega no `impactV3FromOut` para que exista uma unica implementacao do racio.
-    ///         Quem JA tem o `out` deve chamar directamente a primitiva e nao esta.
+    /// @notice Impact in BPS from the INPUTS — for callers that do not have the output yet.
+    /// @dev    Delegates to `impactV3FromOut` so a single implementation of the ratio exists.
+    ///         Whoever ALREADY has `out` should call the primitive directly, not this one.
     function impactV3Bps(
         uint256 amountIn, uint160 sqrtP, uint128 liq, uint24 feePpm, bool zeroForOne
     ) public pure returns (uint256) {

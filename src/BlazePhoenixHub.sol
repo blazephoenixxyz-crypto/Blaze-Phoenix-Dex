@@ -7,42 +7,42 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
-//  RESPONSABILIDADE UNICA
-//      Saber que pools existem e quanto valem. O Hub e a memoria do protocolo —
-//      e memoria e a superficie mais perigosa que ha, porque tudo o que la entrar
-//      errado sai errado a toda a gente, para sempre.
+//  SINGLE RESPONSIBILITY
+//      Know which pools exist and what they are worth. The Hub is the protocol's
+//      memory — and memory is the most dangerous surface there is, because
+//      anything that enters it wrong comes out wrong for everyone, forever.
 //
-//  O QUE ESTE CONTRATO GARANTE
-//      H1  NADA ENTRA SEM PROVA. Todo o argumento de registo e calldata do
-//          chamador — pool, kind e profundidade. Um kind cujo `pool` e um par tem
-//          de PROVAR que negoceia mesmo aquele par (token0/token1) antes de ser
-//          gravado; um V4 tem de recomputar o seu proprio poolId. Sem isto,
-//          registava-se um contrato escrito pelo atacante, sob um par escolhido
-//          por ele, a uma profundidade escolhida por ele, sem segurar nada.
-//      H2  AS DUAS PORTAS FECHAM — CADA UMA COM A SUA MASCARA. Ha dois caminhos de
-//          escrita, `addFactory` e `recordSwap`, e ambos filtram kinds. Um fix
-//          aplicado a uma so das duas e a assinatura de defeito da casa; ja
-//          aconteceu aqui e esta corrigido. Mas a correcao NAO e as duas usarem a
-//          mesma constante: fecharam-se com `KINDS_ROUTABLE` e `KINDS_EXECUTABLE`,
-//          que hoje diferem num bit (o V4_NATIVE, que nenhuma factory regista e o
-//          Router executa). Usar a mesma constante nao e fazer a mesma pergunta —
-//          a primeira tentativa deste fecho partilhou a mascara e matou em silencio
-//          todo o registo de pools nativas. E ha uma TERCEIRA porta, a `seedPool`
-//          do operador, que deliberadamente nao filtra kind: e a unica cujo
-//          chamador ja e de confianca, e fecha a jusante (theta 0x0 cota zero).
-//      H3  A DEFESA E LOCAL. `$.router` e trocavel, logo o unico produtor de
-//          kinds nao e imutavel: o Hub nao delega a sua propria admissao a um
-//          endereco que pode deixar de ser o que era no dia do deploy.
-//      H4  RECUSAR NUNCA REVERTE UM SWAP. O swap do utilizador ja executou; uma
-//          decisao de registo nao pode fazer falhar o que ja liquidou. Falha-se
-//          a fechar sobre o REGISTO, a abrir sobre o UTILIZADOR.
+//  WHAT THIS CONTRACT GUARANTEES
+//      H1  NOTHING ENTERS WITHOUT PROOF. Every registration argument is the
+//          caller's calldata — pool, kind and depth. A kind whose `pool` is a
+//          pair must PROVE it really trades that pair (token0/token1) before
+//          being written; a V4 must recompute its own poolId. Without this, one
+//          would register a contract written by the attacker, under a pair
+//          chosen by them, at a depth chosen by them, holding neither of the
+//          two tokens.
+//      H2  BOTH DOORS CLOSE — EACH WITH ITS OWN MASK. Two write paths exist,
+//          `addFactory` and `recordSwap`, and both filter kinds. A fix applied to
+//          only one of them is this codebase's defect signature; it happened here
+//          and is fixed. But the correction is NOT that both use the same
+//          constant: they close with `KINDS_ROUTABLE` and `KINDS_EXECUTABLE`,
+//          which today differ by one bit (V4_NATIVE, which no factory registers
+//          and the Router executes). Using the same constant is not asking the
+//          same question — the first attempt shared the mask and silently killed
+//          all native-pool registration. And there is a THIRD door, the operator's
+//          `seedPool`, which deliberately does not filter kind: it is the only one
+//          whose caller is trusted, and it closes downstream (theta quotes 0x0 as 0).
+//      H3  THE DEFENCE IS LOCAL. `$.router` is swappable, so the single producer
+//          of kinds is not immutable: the Hub does not delegate its own admission
+//          to an address that may stop being what it was on deploy day.
+//      H4  REFUSING NEVER REVERTS A SWAP. The user's swap has already executed; a
+//          registration decision cannot fail what already settled. We fail closed
+//          on the REGISTRY, and fail open on the USER.
 //
-//  O QUE ESTE CONTRATO NAO FAZ, DELIBERADAMENTE
-//      Nao e fonte de preco — a vitalidade e a profundidade sao pistas de
-//      DESCOBERTA, nunca entradas de matematica de cotacao. Nao decide rotas. E
-//      nao tem lista branca de venues: a admissao e por prova, nao por confianca.
+//  WHAT THIS CONTRACT DELIBERATELY DOES NOT DO
+//      It is not a price source — vitality and depth are DISCOVERY hints, never
+//      inputs to quote mathematics. It does not decide routes. And it has no
+//      venue allow-list: admission is by proof, not by trust.
 //
-//  The Hub is the on-chain pool registry. Each pool's state is encoded in a
 //  single packed 256-bit slot (vitality, depth bucket, kind, timestamps,
 //  bridge bit), so reading its fitness score costs one SLOAD. Storage is
 //  three mappings:
@@ -72,10 +72,10 @@ import {
     PoolInfo
 } from "./BlazePhoenixCore.sol";
 
-/// @dev O Router e o PRODUTOR UNICO do "qual e o WETH canonico desta chain".
-///      O Hub pergunta-lhe em vez de guardar uma segunda copia — uma constante
-///      duplicada aqui podia divergir da que o Router usa para validar o
-///      unwrap, e a divergencia seria explorada pelo lado do wrap.
+/// @dev The Router is the SINGLE PRODUCER of "which WETH is canonical on this chain".
+///      The Hub asks it instead of keeping a second copy — a constant duplicated
+///      here could diverge from the one the Router uses to validate the unwrap,
+///      and the divergence would be exploited from the wrap side.
 interface IRouterWeth { function weth() external view returns (address); }
 
 contract BlazePhoenixHub {
@@ -85,145 +85,145 @@ contract BlazePhoenixHub {
     // ─── Pool-fitness constants ────────────────────────────────────────
 
     uint8   internal constant MAX_SLOTS              = 16;
-    /// 3 BRIDGES. Desceu para 2 a 2026-08-21 e VOLTOU a 3 no mesmo dia, porque
-    /// a medicao que justificou o corte estava a olhar para a porta errada.
+    /// 3 BRIDGES. It dropped to 2 on 2026-08-21 and went BACK to 3 the same day,
+    /// because the measurement that justified the cut was looking at the wrong door.
     ///
-    /// O QUE SE MEDIU: a 3a bridge custa +760.125 gas por solve a frio (+32,5%).
-    /// O QUE ESCAPOU: esse custo esta INTEIRAMENTE no SOLVE, e o solve so corre
-    /// on-chain na porta B (`swapBestExactIn`). Nas outras tres portas a rota
-    /// vem resolvida de fora, por `eth_call` — de graca.
+    /// WHAT WAS MEASURED: the 3rd bridge costs +760,125 gas per cold solve (+32.5%).
+    /// WHAT WAS MISSED: that cost sits ENTIRELY in the SOLVE, and the solve only
+    /// runs on-chain at entry point B (`swapBestExactIn`). At the other three doors
+    /// the route arrives already solved from outside, via `eth_call` — for free.
     ///
-    /// E o `_rank` escolhe UMA rota entre os candidatos: mais bridges avaliadas
-    /// nao tornam a rota executada maior. Medido: a calldata de `swapExactIn`
-    /// depende da TOPOLOGIA (1.028 bytes a 1 hop/1 leg, +544 por hop, +320 por
-    /// leg), nunca de quantas bridges o Solver considerou.
+    /// And `_rank` picks ONE route among the candidates: more bridges evaluated do
+    /// not make the executed route bigger. Measured: `swapExactIn` calldata depends
+    /// on the TOPOLOGY (1,028 bytes at 1 hop/1 leg, +544 per hop, +320 per leg),
+    /// never on how many bridges the Solver considered.
     ///
-    /// Logo, na porta A — a que as quatro chains do deploy devem usar — a 3a
-    /// bridge custa ZERO on-chain e so acrescenta uma topologia candidata.
-    /// Cortar era optimizar a porta que ninguem paga: o mesmo erro que o
-    /// SSTORE2 (-48.772 gas medidos, valor esperado ~0).
+    /// So at entry point A — the one the four deploy chains should use — the 3rd
+    /// bridge costs ZERO on-chain and only adds one candidate topology. Cutting it
+    /// was optimizing the door nobody pays for: the same mistake as SSTORE2
+    /// (-48,772 gas measured, expected value ~0).
     uint8   internal constant MAX_BRIDGES            = 3;
-    /// @dev Por quantas bridges o Solver REALMENTE roteia. NAO e o MAX_BRIDGES, e a diferenca
-    ///      entre os dois era uma assimetria silenciosa: o Solver expande as bridges DESENROLADO
-    ///      a mao (`b0`, `b1` em Solver:203-215) e `_rank` tem tres lugares — directo + duas.
-    ///      A terceira bridge nunca podia ser um hop.
+    /// @dev How many bridges the Solver ACTUALLY routes through. NOT the same as MAX_BRIDGES,
+    ///      and the difference between the two was a silent asymmetry: the Solver expands the
+    ///      bridges HAND-UNROLLED (`b0`, `b1` in Solver:203-215) and `_rank` has three seats —
+    ///      direct + two. The third bridge could never be a hop.
     ///
-    ///      E MESMO ASSIM TINHA PODERES. O `isBridge[t]` abre a porta permissionless do
-    ///      `claimV4` ("um dos lados tem de ser uma bridge de confianca") e poe a flag `bridged`
-    ///      no Monoslot, que vale +25% de fitness no `psi` (Core). Num registo CAPADO com despejo
-    ///      por fitness, isso significa que uma terceira bridge enchia o registo de pools bem
-    ///      classificadas e INALCANCAVEIS, a despejar as que o router consegue usar. O bonus era
-    ///      pago sobre liquidez que o router nao toca.
+    ///      AND IT STILL HAD POWERS. `isBridge[t]` opens the permissionless `claimV4` door
+    ///      ("one of the sides must be a trusted bridge") and sets the `bridged` flag in the
+    ///      Monoslot, worth +25% fitness in `psi` (Core). In a CAPPED registry with
+    ///      fitness-ranked eviction, that means a third bridge filled the registry with
+    ///      well-ranked, UNREACHABLE pools, evicting the ones the router can use. The bonus
+    ///      was paid on liquidity the router never touches.
     ///
-    ///      SAO DUAS PERGUNTAS — "este token e uma ancora de confianca?" (`isBridge`) e "pode um
-    ///      hop passar por aqui?" (`_isRoutableBridge`) — e HOJE TEM A MESMA RESPOSTA, porque o
-    ///      Solver expande TODAS as bridges configuradas e deixa o `_rank` decidir pelo
-    ///      `totalOut` medido. Ficam duas perguntas com dois nomes na mesma: a igualdade e um
-    ///      FACTO, nao uma definicao, e e o `test_NenhumaBridgeConfiguradaEFantasma` que a pina.
-    ///      No dia em que alguem subir o MAX_BRIDGES sem acrescentar um bracco ao Solver, e o
-    ///      teste que explica a divergencia em vez de ela voltar a acontecer em silencio.
+    ///      THESE ARE TWO QUESTIONS — "is this token a trusted anchor?" (`isBridge`) and "can
+    ///      a hop pass through here?" (`_isRoutableBridge`) — and TODAY THEY HAVE THE SAME
+    ///      ANSWER, because the Solver expands EVERY configured bridge and lets `_rank` decide
+    ///      by measured `totalOut`. Two questions with two names remain: the equality is a
+    ///      FACT, not a definition, and `test_NenhumaBridgeConfiguradaEFantasma` is what pins it.
+    ///      The day someone raises MAX_BRIDGES without adding an arm to the Solver, that test
+    ///      explains the divergence instead of it happening silently all over again.
     ///
-    ///      PORQUE NAO SE ESCOLHEM "AS MELHORES 2": porque isso seria um SEGUNDO produtor do
-    ///      juizo "qual rota e melhor", ao lado do `_rank` — que ja o produz, e produz melhor.
-    ///      Profundidade registada e um proxy; `totalOut` e a saida construida e medida. Um
-    ///      pre-filtro por proxy so podia descartar a rota que o produtor verdadeiro escolheria.
+    ///      WHY NOT PICK "THE BEST 2": because that would be a SECOND producer of the judgment
+    ///      "which route is better", alongside `_rank` — which already produces it, and better.
+    ///      Registered depth is a proxy; `totalOut` is the built and measured output. A proxy
+    ///      pre-filter could only discard the route the true producer would have chosen.
     ///
-    ///      PINADO por `test_RoutableBridgesMatchSolverExpansion`: se alguem acrescentar um `b2`
-    ///      ao Solver sem mexer aqui, ou mexer aqui sem mexer la, o teste explica a divergencia
-    ///      em vez de a deixar em silencio.
+    ///      PINNED by `test_RoutableBridgesMatchSolverExpansion`: if someone adds a `b2` to the
+    ///      Solver without touching this, or touches this without touching that, the test
+    ///      explains the divergence instead of leaving it silent.
     uint8   internal constant MAX_BRIDGE_ROUTES      = MAX_BRIDGES;
     uint8   internal constant MAX_FACTORIES          = 16;
     uint16  internal constant EVICTION_IMPROVE_BPS   = 1_000;
 
     // ─── addFactory coherence-guard constants ────────────────────────────
-    // Enumeracao de kinds: PRODUTOR UNICO no Core (`BPC.KIND_*`). Este ficheiro tinha aqui uma
-    // copia local que se anunciava como "espelha o Core" — e o espelho estava INCOMPLETO: parava
-    // no ALGEBRA e nao tinha nome nenhum para o KIND_V4_NATIVE (8). Uma mascara escrita com os
-    // nomes disponiveis nao conseguia sequer EXPRIMIR o bit 8, e foi por essa porta que a
-    // regressao entrou (ver KINDS_EXECUTABLE abaixo). Os numeros 2, 3 e 7 sao LAPIDES e nao sao
-    // nomeados nem aqui nem la — ver a nota das lapides no Core quanto a por que nao voltam.
+    // Kind enumeration: SINGLE PRODUCER in the Core (`BPC.KIND_*`). This file used to keep a
+    // local copy here that advertised itself as "mirrors the Core" — and the mirror was
+    // INCOMPLETE: it stopped at ALGEBRA and had no name at all for KIND_V4_NATIVE (8). A mask
+    // written with the available names could not even EXPRESS bit 8, and that is the door the
+    // regression came through (see KINDS_EXECUTABLE below). The numbers 2, 3 and 7 are TOMBSTONES
+    // and are named neither here nor there — see the Core's tombstone note on why they never return.
     //
-    // PORQUE ESTE COLAPSO E LEGITIMO E O DO PREDICADO NAO E: um numero de kind e uma PRIMITIVA
-    // (um produtor de um valor). Primitivas querem produtor unico — duplica-las cria irmaos que
-    // divergem, como este divergiu. Um PREDICADO DE ACEITACAO quer o oposto: manter dois juizes
-    // que hoje concordam e o que permite detetar o dia em que deixarem de concordar. Ver a nota
-    // do KINDS_PAIR_PROOF logo abaixo, onde duas mascaras coincidentes ficam DELIBERADAMENTE
-    // separadas — e onde um mutante do harness ja se escondeu uma vez.
+    // WHY THIS COLLAPSE IS LEGITIMATE AND THE PREDICATE ONE IS NOT: a kind number is a PRIMITIVE
+    // (a producer of a value). Primitives want a single producer — duplicating them creates
+    // siblings that diverge, as this one diverged. An ACCEPTANCE PREDICATE wants the opposite:
+    // keeping two judges that agree today is what lets us detect the day they stop agreeing. See
+    // the KINDS_PAIR_PROOF note just below, where two coincident masks are kept DELIBERATELY
+    // separate — and where a harness mutant once hid.
 
-    /// @notice Os kinds que uma factory pode registar — o conjunto, como uma palavra de bits.
-    /// @dev    Bit `k` ligado = kind `k` admissivel. Bits desligados sao LAPIDES, nao lacunas:
+    /// @notice The kinds a factory may register — the set, as a bit word.
+    /// @dev    Bit `k` set = kind `k` admissible. Cleared bits are TOMBSTONES, not gaps:
     ///
-    ///           bits 2, 3 e 7 (as LAPIDES)      — venues retiradas por decisao do dono em
-    ///                                             2026-08-20: quase nenhuma L2 as tinha e
-    ///                                             custavam bytecode em cinco contratos. Com elas
-    ///                                             saiu o unico `approve` do Router (onde vivia o
-    ///                                             HUNT-001), o unico produtor de profundidade
-    ///                                             atestado pelo caller, e o unico buraco
-    ///                                             deliberado na prova de autenticidade daqui.
-    ///                                             O numero fica queimado; ver o Core.
-    ///           bit 8 (V4_NATIVE)               — nao se registaram por factory: derivam-se do
-    ///                                             singleton. Nunca tiveram bit e nao passam a ter.
+    ///           bits 2, 3, 7 (the TOMBSTONES)   — venues withdrawn by the owner's decision on
+    ///                                             2026-08-20: almost no L2 carried them and
+    ///                                             they cost bytecode in five contracts. With
+    ///                                             them went the Router's only `approve` (where
+    ///                                             HUNT-001 lived), the only caller-attested
+    ///                                             depth producer, and the only deliberate hole
+    ///                                             in the authenticity proof here.
+    ///                                             The number stays burned; see the Core.
+    ///           bit 8 (V4_NATIVE)               — never registered by factory: they derive from
+    ///                                             the singleton. Never had a bit, never will.
     ///
-    ///         OS NUMEROS NUNCA SE REUTILIZAM. `decodeKind` le o kind dos bits do Monoslot: dar o
-    ///         2 a uma venue nova reinterpretaria pools ja gravadas como sendo dessa venue. Uma
-    ///         venue nova leva um numero novo e liga o bit dele — uma linha de dados, zero ramos.
+    ///         THE NUMBERS ARE NEVER REUSED. `decodeKind` reads the kind from the Monoslot bits:
+    ///         giving 2 to a new venue would reinterpret already-written pools as that venue. A
+    ///         new venue takes a new number and sets its bit — one data line, zero branches.
     uint256 internal constant KINDS_ROUTABLE =
           (uint256(1) << BPC.KIND_V2)      // 0 — constant-product
-        | (uint256(1) << BPC.KIND_V3)      // 1 — concentrada
+        | (uint256(1) << BPC.KIND_V3)      // 1 — concentrated
         | (uint256(1) << BPC.KIND_V4)      // 4 — singleton, via MODE_V4_DERIVE
-        | (uint256(1) << BPC.KIND_SOLIDLY) // 5 — pares stable/volatile
-        | (uint256(1) << BPC.KIND_ALGEBRA);// 6 — concentrada com fee dinamica
+        | (uint256(1) << BPC.KIND_SOLIDLY) // 5 — stable/volatile pairs
+        | (uint256(1) << BPC.KIND_ALGEBRA);// 6 — concentrated, dynamic fee
 
-    /// @notice Os kinds que o Router SABE EXECUTAR — o conjunto legitimo na porta do `recordSwap`,
-    ///         que corre depois de a perna ja ter executado.
-    /// @dev    NAO E O `KINDS_ROUTABLE`, E ESSA DISTINCAO E O PONTO DESTA CONSTANTE.
+    /// @notice The kinds the Router KNOWS HOW TO EXECUTE — the legitimate set at the
+    ///         `recordSwap` door, which runs after the leg has already executed.
+    /// @dev    IT IS NOT `KINDS_ROUTABLE`, AND THAT DISTINCTION IS THE POINT OF THIS CONSTANT.
     ///
-    ///         `KINDS_ROUTABLE` responde a "que kinds pode uma FACTORY registar?". O bit 8 esta
-    ///         desligado la por uma razao que so vale para AQUELA pergunta: as pools V4 nativas
-    ///         nao vem de factory nenhuma, derivam-se do singleton. Esta constante responde a
-    ///         "que kinds pode o Router ter acabado de executar?" — e o V4_NATIVE e um deles: o
-    ///         Router deriva o poolId nativo antes de chamar este `recordSwap` com esse kind.
+    ///         `KINDS_ROUTABLE` answers "which kinds may a FACTORY register?". Bit 8 is clear
+    ///         there for a reason that holds only for THAT question: native V4 pools come from
+    ///         no factory at all, they derive from the singleton. This constant answers "which
+    ///         kinds can the Router have just executed?" — and V4_NATIVE is one of them: the
+    ///         Router derives the native poolId before calling this `recordSwap` with that kind.
     ///
-    ///         USAR A MESMA CONSTANTE NAO E FAZER A MESMA PERGUNTA. As duas mascaras partilham
-    ///         cinco dos seis bits; partilhar bits nao e partilhar semantica. Reutilizar aqui a
-    ///         mascara da factory deixava cair TODOS os swaps V4 nativos em silencio — o ramo
-    ///         nativo do insert ficava inalcancavel, e as pools nativas ja registadas deixavam de
-    ///         ser refrescadas ate envelhecerem para fora do registo. Medido, e pinado por
+    ///         USING THE SAME CONSTANT IS NOT ASKING THE SAME QUESTION. The two masks share
+    ///         five of the six bits; sharing bits is not sharing semantics. Reusing the
+    ///         factory mask here dropped ALL native V4 swaps silently — the native insert
+    ///         branch became unreachable, and already-registered native pools stopped being
+    ///         refreshed until they aged out of the registry. Measured, and pinned by
     ///         `test_RecordSwapRefreshesNativeV4Pool`.
     ///
-    ///         Escrita por extenso, e NAO derivada de `KINDS_ROUTABLE | (1 << KIND_V4_NATIVE)`:
-    ///         deriva-la reamarrava as duas perguntas uma a outra e devolvia o defeito pela porta
-    ///         do lado, disfarcado de elegancia.
+    ///         Written out in full, and NOT derived from `KINDS_ROUTABLE | (1 << KIND_V4_NATIVE)`:
+    ///         deriving it would retie the two questions to each other and hand the defect back
+    ///         through the side door, disguised as elegance.
     uint256 internal constant KINDS_EXECUTABLE =
           (uint256(1) << BPC.KIND_V2)        // 0 — constant-product
-        | (uint256(1) << BPC.KIND_V3)        // 1 — concentrada
+        | (uint256(1) << BPC.KIND_V3)        // 1 — concentrated
         | (uint256(1) << BPC.KIND_V4)        // 4 — singleton
-        | (uint256(1) << BPC.KIND_SOLIDLY)   // 5 — pares stable/volatile
-        | (uint256(1) << BPC.KIND_ALGEBRA)   // 6 — concentrada com fee dinamica
-        | (uint256(1) << BPC.KIND_V4_NATIVE);// 8 — singleton, perna em ETH nativo
+        | (uint256(1) << BPC.KIND_SOLIDLY)   // 5 — stable/volatile pairs
+        | (uint256(1) << BPC.KIND_ALGEBRA)   // 6 — concentrated, dynamic fee
+        | (uint256(1) << BPC.KIND_V4_NATIVE);// 8 — singleton, native-ETH leg
 
-    /// @notice Os modes de descoberta validos, pelo mesmo criterio.
-    /// @dev    0-3 chamam a factory (getPair/getPool); 4-7 derivam por CREATE2; 9 e o derive do V4.
-    ///         O bit 8 esta desligado: era o meta-registry de uma venue retirada e saiu com ela.
-    ///         Sem esta mascara ficaria aceite para QUALQUER kind, porque o unico
-    ///         limite anterior era `mode > MODE_V4_DERIVE` e o 8 cabia la dentro — um mode que so
-    ///         fazia sentido para uma venue removida continuaria aberto a todas as outras.
-    /// @dev Kinds cujo campo `pool` e um par que expoe token0()/token1() — logo a prova de
-    ///      autenticidade do `recordSwap` aplica-se-lhes. Era o literal 0x6b, que tinha o bit 3
-    ///      ligado por uma venue ja retirada.
+    /// @notice The valid discovery modes, by the same criterion.
+    /// @dev    0-3 call the factory (getPair/getPool); 4-7 derive by CREATE2; 9 is the V4 derive.
+    ///         Bit 8 is clear: it was the meta-registry of a withdrawn venue and left with it.
+    ///         Without this mask it would stay accepted for ANY kind, because the only previous
+    ///         bound was `mode > MODE_V4_DERIVE` and 8 fitted inside it — a mode that only made
+    ///         sense for a removed venue would remain open to every other one.
+    /// @dev Kinds whose `pool` field is a pair exposing token0()/token1() — so `recordSwap`'s
+    ///      authenticity proof applies to them. It used to be the literal 0x6b, which had bit 3
+    ///      set for an already-withdrawn venue.
     ///
-    ///      NAO E A MESMA PERGUNTA QUE O A_PAIR_VER DA THETA, e por isso vive aqui e nao la: o
-    ///      A_PAIR_VER descreve a FORMA do estado ("existe token0()?"); isto e um predicado de
-    ///      ACEITACAO ("que kinds tem de PROVAR o par antes de entrar no registo?"). Que hoje
-    ///      coincidam e um facto medido, nao uma definicao — e o teste pina a igualdade por
-    ///      construcao para que, no dia em que divergirem, seja a divergencia a ser explicada
-    ///      e nao o silencio. Colapsar os dois porque os bits batem certo trocava uma
-    ///      verificacao por uma coincidencia.
+    ///      IT IS NOT THE SAME QUESTION AS THETA'S A_PAIR_VER, and that is why it lives here and
+    ///      not there: A_PAIR_VER describes the SHAPE of the state ("does token0() exist?"); this
+    ///      is an ACCEPTANCE predicate ("which kinds must PROVE the pair before entering the
+    ///      registry?"). That they coincide today is a measured fact, not a definition — and the
+    ///      test pins the equality by construction so that, the day they diverge, it is the
+    ///      divergence that gets explained and not the silence. Collapsing the two because the
+    ///      bits line up would trade a check for a coincidence.
     uint256 internal constant KINDS_PAIR_PROOF =
           (uint256(1) << BPC.KIND_V2) | (uint256(1) << BPC.KIND_V3)
         | (uint256(1) << BPC.KIND_SOLIDLY) | (uint256(1) << BPC.KIND_ALGEBRA);
 
-    uint256 internal constant MODES_VALID = 0x2FF; // bits 0-7 e 9; bit 8 e lapide
+    uint256 internal constant MODES_VALID = 0x2FF; // bits 0-7 and 9; bit 8 is a tombstone
     // MODE enumeration: 0-3 are factory-call (getPair/getPool variants);
     // 4-7 are CREATE2 salt families (V2 salt, V3 salt, EIP-1167 clone, V3-CL).
     uint8   internal constant MODE_CREATE2_V2        = 4;
@@ -342,14 +342,14 @@ contract BlazePhoenixHub {
     event Bridge_(address indexed token, bool added);
     event V4Add(uint256 indexed idx, address c0, address c1, uint24 fee);
     /// @dev ids: 0 admin · 1 router · 2 solver · 3 quoter · 4 operator · 5 v4PoolManager.
-    ///      O 5 nao e um "papel" no sentido de permissao — e o SINGLETON contra o qual correm os
-    ///      extsload que constituem a prova de autenticidade do claimV4. Entra aqui em vez de num
-    ///      evento proprio porque E um endereco de protocolo e cabe na forma sem custo. O que nao
-    ///      podia continuar era mudar em silencio: o Axioma Meta-Supremo pressupoe o APARELHO de
-    ///      medicao fixo, e um instrumento mutavel e inobservavel devolve um numero perfeitamente
-    ///      valido do sitio errado, sem sintoma nenhum.
+    ///      5 is not a "role" in the permission sense — it is the SINGLETON against which the
+    ///      extsloads that constitute claimV4's authenticity proof run. It goes here instead of
+    ///      in its own event because it IS a protocol address and fits the shape at no cost.
+    ///      What could not continue was changing silently: the Meta-Supreme Axiom presupposes a
+    ///      fixed measurement APPARATUS, and a mutable, unobservable instrument returns a
+    ///      perfectly valid number from the wrong place, with no symptom at all.
     event RoleSet(uint8 role, address who);
-    /// @notice O interruptor de emergencia mudou.
+    /// @notice The emergency switch changed.
     event PausedSet(bool paused);
     event ControlRenounced();
 
@@ -451,7 +451,7 @@ contract BlazePhoenixHub {
         return $.hookAllowed[h] && h.codehash == $.hookCodehash[h];
     }
 
-    // ─── Bridges (MAX_BRIDGES configuraveis, MAX_BRIDGE_ROUTES roteaveis) ───────────────────────────────────────────────
+    // ─── Bridges (MAX_BRIDGES configurable, MAX_BRIDGE_ROUTES routable) ─────────────────────────────────────────────────
 
     function addBridge(address t) external onlyAdmin {
         _ne0(t);
@@ -477,10 +477,10 @@ contract BlazePhoenixHub {
         emit Bridge_(t, false);
     }
 
-    /// @dev "Pode um hop passar por este token?" — distinto de `isBridge`, que responde "e uma
-    ///      ancora de confianca?". So as primeiras MAX_BRIDGE_ROUTES posicoes sao roteaveis,
-    ///      porque so essas o Solver expande. O early-out no `isBridge` mantem o caso comum (nem
-    ///      um nem outro token e bridge) exatamente ao custo de hoje: um SLOAD.
+    /// @dev "Can a hop pass through this token?" — distinct from `isBridge`, which answers "is it
+    ///      a trusted anchor?". Only the first MAX_BRIDGE_ROUTES positions are routable, because
+    ///      only those does the Solver expand. The early-out on `isBridge` keeps the common case
+    ///      (neither token is a bridge) at exactly today's cost: one SLOAD.
     function _isRoutableBridge(HubStore storage $, address t) private view returns (bool) {
         if (!$.isBridge[t]) return false;
         for (uint8 i; i < MAX_BRIDGE_ROUTES; ) {
@@ -501,9 +501,9 @@ contract BlazePhoenixHub {
     ///         fees) before storing. A mis-configured adapter would otherwise
     ///         derive wrong pool addresses silently, so every structurally
     ///         impossible combination reverts with HubE(5). Rules:
-    ///           * kind pertence a KINDS_ROUTABLE                 [invalidKind]
-    ///           * mode pertence a MODES_VALID: 0-3 factory-call,
-    ///             4-7 CREATE2, 9 V4 derive-scan (o 8 e lapide)     [invalidMode]
+    ///           * kind belongs to KINDS_ROUTABLE                 [invalidKind]
+    ///           * mode belongs to MODES_VALID: 0-3 factory-call,
+    ///             4-7 CREATE2, 9 V4 derive-scan (8 is a tombstone) [invalidMode]
     ///           * CREATE2 modes (mode >= 4) require initHash != 0, except
     ///             modes 8 and 9 which derive nothing via CREATE2         [R1]
     ///           * mode 4 (V2 salt)  is only valid for kind V2
@@ -520,33 +520,33 @@ contract BlazePhoenixHub {
     ) external onlyAdmin returns (uint8) {
         _ne0(factory);
 
-        // 1) kind / mode domain — DOIS conjuntos, expressos como DADOS.
+        // 1) kind / mode domain — TWO sets, expressed as DATA.
         //
-        // COMO LER ISTO, se e a primeira vez. Cada bit da constante e um kind: o bit numero `k`
-        // ligado significa "o kind k e admissivel". A verificacao `(MASK >> kind) & 1` pergunta
-        // "o bit deste kind esta ligado?" — uma so operacao, em vez de uma cadeia de `if`s que
-        // nomeiam cada kind a mao.
+        // HOW TO READ THIS, if it is your first time. Each bit of the constant is a kind: bit
+        // number `k` set means "kind k is admissible". The check `(MASK >> kind) & 1` asks "is
+        // this kind's bit set?" — a single operation, instead of a chain of `if`s naming every
+        // kind by hand.
         //
-        // PORQUE ASSIM. Este contrato tem um meta-padrao de defeito bem documentado: um fix
-        // aplicado a UM de dois canais simetricos, e o irmao esquecido. Aconteceu 10+ vezes. Uma
-        // cadeia de `if`s e exatamente isso a acontecer: cada sitio que enumera kinds a mao e um
-        // sitio que pode ficar dessincronizado dos outros. Um conjunto expresso como uma palavra
-        // de bits nao tem irmao para divergir — a diversidade passa a ser uma COORDENADA (um bit)
-        // e nao um RAMO.
+        // WHY LIKE THIS. This contract has a well-documented defect meta-pattern: a fix applied
+        // to ONE of two symmetric channels, and the sibling forgotten. It happened 10+ times. A
+        // chain of `if`s is exactly that happening: every site that enumerates kinds by hand is
+        // a site that can drift out of sync with the others. A set expressed as a bit word has
+        // no sibling to diverge from — the diversity becomes a COORDINATE (one bit) and not a
+        // BRANCH.
         //
-        // NAO E PADRAO NOVO: o Hub ja o usa em `_register` (a mascara das kinds "pair-shaped", as
-        // que expoem token0()/token1()). Isto so lhe da um nome e um irmao, em vez de o deixar
-        // como literal magico solto no meio do codigo.
+        // NOT A NEW PATTERN: the Hub already uses it in `_register` (the mask of "pair-shaped"
+        // kinds, the ones exposing token0()/token1()). This only gives it a name and a sibling,
+        // instead of leaving it as a magic literal loose in the middle of the code.
         //
-        // FAIL-CLOSED DE GRACA. Um kind fora do conjunto tem bit 0 e reverte. Um kind acima de
-        // 255 nao existe (o tipo e uint8) e um shift alto devolve 0 — reverte na mesma. Nao ha
-        // ramo de "default" para alguem esquecer.
+        // FAIL-CLOSED FOR FREE. A kind outside the set has bit 0 and reverts. A kind above 255
+        // does not exist (the type is uint8) and a high shift returns 0 — it reverts anyway.
+        // There is no "default" branch for anyone to forget.
         if (((KINDS_ROUTABLE >> kind) & 1) == 0) revert HubE(5); // invalidKind
         if (((MODES_VALID    >> mode) & 1) == 0) revert HubE(5); // invalidMode
 
-        // 2) CREATE2 modes require a non-zero init-code hash (R1). Os modes altos que
-        //    NAO derivam por CREATE2 estao isentos; desses so o 9 sobrevive — o 8 e
-        //    lapide e o MODES_VALID recusa-o antes de chegar aqui.
+        // 2) CREATE2 modes require a non-zero init-code hash (R1). The high modes that
+        //    do NOT derive by CREATE2 are exempt; of those only 9 survives — 8 is a
+        //    tombstone and MODES_VALID refuses it before it ever gets here.
         if (
             mode >= MODE_CREATE2_V2
                 && mode != MODE_V4_DERIVE && initHash == bytes32(0)
@@ -596,24 +596,24 @@ contract BlazePhoenixHub {
         HubStore storage $ = _store();
         if (hooks != address(0) && !$.hookAllowed[hooks]) revert HubE(8);
 
-        // ─── POOL DE ETH NATIVO ───────────────────────────────────────────
-        // No V4 o ETH nativo E `address(0)` como currency, e ordena SEMPRE
-        // primeiro. Era recusado aqui pelo `_ne0(c0)`, e por isso a familia
-        // inteira ficava inalcancavel: o Router SABE executa-la (KIND_V4_NATIVE,
-        // `nativeMapVerified`, a costura JIT de unwrap/wrap no unlockCallback),
-        // mas nenhuma porta de descoberta a deixava entrar no registo — e sem
-        // registo o Solver nunca a propoe. Galo e ovo.
+        // ─── POOL OF NATIVE ETH ───────────────────────────────────────────
+        // In V4 native ETH IS `address(0)` as a currency, and it ALWAYS sorts
+        // first. It was rejected here by `_ne0(c0)`, so the whole family was
+        // unreachable: the Router KNOWS how to execute it (KIND_V4_NATIVE,
+        // `nativeMapVerified`, the JIT unwrap/wrap stitching in unlockCallback),
+        // but no discovery door let it into the registry — and with no registry
+        // entry the Solver never proposes it. Chicken and egg.
         //
-        // A CHAVE DA POOL usa as currencies REAIS (nativo = address(0)); o
-        // REGISTO fala WETH, para que o Solver a encontre ao rotear WETH->c1.
-        // E a mesma divisao que o Router ja faz: "a rota fala WETH, a execucao
-        // fala nativo".
+        // THE POOL KEY uses the REAL currencies (native = address(0)); the
+        // REGISTRY speaks WETH, so the Solver finds it when routing WETH->c1.
+        // It is the same split the Router already makes: "the route speaks
+        // WETH, the execution speaks native".
         bool nat = c0 == address(0);
         address w;
         if (nat) {
             w = IRouterWeth($.router).weth();
-            // Fail-closed: sem WETH cablado nao ha traducao possivel, e uma
-            // pool WETH/WETH nao existe.
+            // Fail-closed: with no WETH wired there is no possible translation,
+            // and a WETH/WETH pool does not exist.
             if (w == address(0) || c1 == w) revert HubE(3);
         } else {
             _ne0(c0);
@@ -637,8 +637,8 @@ contract BlazePhoenixHub {
         $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
         _register(key, poolAddr, nat ? BPC.KIND_V4_NATIVE : BPC.KIND_V4,
                   fee, hooks, r0, r1, true);
-        // Se o WETH nao ficou em token0 pela ordenacao, marca a inversao para
-        // que o `_readPoolInfo` a desfaca ao reportar.
+        // If sorting did not leave WETH in token0, mark the inversion so that
+        // `_readPoolInfo` undoes it when reporting.
         if (nat && r0 != w) $.slot[key] = _markNativeSwapped($.slot[key], true);
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
@@ -677,9 +677,9 @@ contract BlazePhoenixHub {
         _ne0(c0); _ne0(c1);                 // native currency (address(0)) rejected
         if (c0 == c1) revert HubE(4);
         HubStore storage $ = _store();
-        // Anchor gate: one side must be a ROUTABLE bridge. Nao basta ser uma ancora de
-        // confianca — esta porta e permissionless, e admitir um par que o router nunca
-        // consegue atravessar so serve para gastar um lugar no registo capado.
+        // Anchor gate: one side must be a ROUTABLE bridge. Being a trusted anchor is
+        // not enough — this door is permissionless, and admitting a pair the router
+        // can never cross only burns a seat in the capped registry.
         if (!_isRoutableBridge($, c0) && !_isRoutableBridge($, c1)) revert HubE(9);
         (address s0, address s1) = BPC.sortTokens(c0, c1);
         // HOOKLESS ONLY — the poolId is derived with hooks == address(0).
@@ -709,15 +709,15 @@ contract BlazePhoenixHub {
         // NOT "unforgeable". Vitality floors at 1 and decays to 0 in ~9 days, so an
         // emptied squatter self-weights down (INV-16) and the pool it evicted
         // re-registers on its next routed swap.
-        // UNIDADES: L é escala-raiz; profundidade aqui tem de ser token-denominada,
-        // como min(r0,r1) do V2 — senão um pool num tier de preço extremo entra com
-        // profundidade inflada por ~sqrt(preço), passa a margem de 25% do _canInsert
-        // e despeja um pool legítimo mais fundo. Mesma conversão de universalQuote
-        // (Core): reservas virtuais ao preço atual, lado curto. sp != 0 garantido acima.
+        // UNITS: L is root-scale; depth here must be token-denominated, like V2's
+        // min(r0,r1) — otherwise a pool at an extreme price tier enters with depth
+        // inflated by ~sqrt(price), clears _canInsert's 25% margin and evicts a
+        // legitimate, deeper pool. Same conversion as universalQuote (Core):
+        // virtual reserves at the current price, short side. sp != 0 granted above.
         uint256 depthTok;
         {
-            // Normalizado: o _canInsert compara buckets, e um bucket cego a
-            // decimais faz a pool funda e a de po projectarem o mesmo psi.
+            // Normalized: _canInsert compares buckets, and a bucket blind to
+            // decimals makes the deep pool and the dust pool project the same psi.
             depthTok = BPC.depthFromL18(liq, sp, BPC.decimalsOf(s0), BPC.decimalsOf(s1));
         }
         if (!_canInsert($.pairKeys[s0][s1], depthTok)) return key;
@@ -749,10 +749,10 @@ contract BlazePhoenixHub {
             uint256 fc = fac.fees.length == 0 ? 1 : fac.fees.length;
             uint256 sc = fac.spacings.length == 0 ? 1 : fac.spacings.length;
             uint256 mul = (fac.mode == 2 || fac.mode == 6) ? 2 : 1;
-            // O ramo do mode 8 saiu com a excisao; uma factory com esse mode so pode
-            // existir num Hub legado e `_scanFactory` para nela sem produzir hits, logo nao
-            // contribui para o teto. A contabilidade tem de espelhar o loop de scan: `_probe`
-            // escreve em `hits[k]` sem bounds-check proprio.
+            // The mode-8 branch left with the excision; a factory with that mode can only
+            // exist in a legacy Hub and `_scanFactory` stops on it without producing hits,
+            // so it does not contribute to the ceiling. The accounting must mirror the scan
+            // loop: `_probe` writes into `hits[k]` with no bounds check of its own.
             if (fac.mode == MODE_V4_DERIVE) { maxOut += V4_CAP; }
             else { maxOut += fc * sc * mul; }
             unchecked { ++i; }
@@ -770,17 +770,17 @@ contract BlazePhoenixHub {
     function _scanFactory(
         Factory storage fac, address t0, address t1, PoolInfo[] memory hits, uint256 k
     ) private view returns (uint256) {
-        // GUARDA GENERALIZADA. Era um teste de IDENTIDADE contra a constante do mode 8, contra
-        // uma lapide. Agora e o teste de PERTENCA contra a MESMA mascara que o
-        // `addFactory` usa para admitir. Aqui o morfismo aplica-se de facto — os dois sitios
-        // fazem literalmente a mesma pergunta ("este mode e admissivel?") — e passa a cobrir
-        // qualquer mode que venha a ser retirado no futuro, sem ninguem ter de voltar aqui.
+        // GENERALIZED GUARD. It used to be an IDENTITY test against the mode-8 constant, against
+        // a tombstone. It is now a MEMBERSHIP test against the SAME mask that
+        // `addFactory` uses to admit. Here the morphism really does apply — the two sites
+        // literally ask the same question ("is this mode admissible?") — and it now covers
+        // any mode withdrawn in the future, without anyone having to come back here.
         //
-        // PORQUE PARAR IMPORTA: uma factory de mode inadmissivel so pode existir num Hub legado
-        // (o `addFactory` de hoje recusa-a). Se cair no `_probe` generico, o `deriveAddress`
-        // calcula `sub = mode - 4` e cai no catch-all de salt do V3CL, derivando enderecos
-        // fantasma a cada scan. Parar torna-a PROVAVELMENTE inerte em vez de
-        // acidentalmente inerte.
+        // WHY STOPPING MATTERS: a factory with an inadmissible mode can only exist in a legacy
+        // Hub (today's `addFactory` refuses it). If it falls into the generic `_probe`,
+        // `deriveAddress` computes `sub = mode - 4` and lands in the V3CL salt catch-all,
+        // deriving phantom addresses on every scan. Stopping makes it PROVABLY inert
+        // instead of accidentally inert.
         if (((MODES_VALID >> fac.mode) & 1) == 0) return k;
         if (fac.mode == MODE_V4_DERIVE)  return _scanV4(fac, t0, t1, hits, k);
         uint24[] storage fees = fac.fees;
@@ -847,12 +847,12 @@ contract BlazePhoenixHub {
     //        are left to claimV4/learning instead of being paid on every scan
     //  Early-stop at V4_CAP emitted pools.
     //
-    //  ETH NATIVO: o par (ETH, X) tem DUAS chaves de pool no V4 — nativa
-    //  (currency0 = address(0)) e wrapped (currency0 = WETH). Sao pools
-    //  DISTINTAS, com poolId e liquidez distintos, e a nativa e sistematicamente
-    //  a funda: MEDIDO 292x na Robinhood (USDG/ETH 100/1) e 3,76x na Base
-    //  (USDC/ETH 500/10). Derivar so a wrapped nunca da erro — da uma cotacao
-    //  pior, em silencio. Emitem-se AS DUAS e o funil escolhe por profundidade.
+    //  NATIVE ETH: the (ETH, X) pair has TWO pool keys in V4 — native
+    //  (currency0 = address(0)) and wrapped (currency0 = WETH). They are
+    //  DISTINCT pools, with distinct poolIds and liquidity, and the native one is
+    //  systematically the deeper: MEASURED 292x on Robinhood (USDG/ETH 100/1) and
+    //  3.76x on Base (USDC/ETH 500/10). Deriving only the wrapped never errors —
+    //  it quotes worse, silently. BOTH are emitted and the funnel picks by depth.
     //  A hooked pool cannot be emitted: its HOOKLESS poolId does not exist in
     //  the PoolManager, so it fails the live proof by construction.
     //
@@ -867,41 +867,41 @@ contract BlazePhoenixHub {
         address mgr = $.v4PoolManager;
         if (mgr == address(0)) return k;     // unconfigured manager: fail closed
         uint256 kf = k;
-        // (0) ETH NATIVO PRIMEIRO. Sondado antes da wrapped por causa do
-        //     `V4_CAP` (8): um par com muitas pools wrapped esgotaria as
-        //     ranhuras antes de a nativa ser sequer construida. A ordem e a
-        //     politica.
+        // (0) NATIVE ETH FIRST. Probed before the wrapped one because of
+        //     `V4_CAP` (8): a pair with many wrapped pools would exhaust the
+        //     slots before the native one was even built. The order IS the
+        //     policy.
         //
-        //     NAO ha parametro novo nas funcoes de sondagem, e a razao e
-        //     MEDIDA: a primeira versao disto passava um `address w` por
-        //     `_probeV4Batch` e `_admitV4`, e custou 1.227 bytes — o optimizador
-        //     deixa de inlinar e replica corpos inteiros. Aqui passa-se o par
-        //     nativo DIRECTAMENTE como (address(0), other): o zero ja ordena
-        //     primeiro, portanto o `computeV4PoolId` recebe-o na posicao certa
-        //     sem um unico ternario. So a forma do PoolInfo emitido precisa de
-        //     correccao, e essa cabe num ciclo aqui.
+        //     There is NO new parameter on the probing functions, and the
+        //     reason is MEASURED: the first version of this passed an
+        //     `address w` through `_probeV4Batch` and `_admitV4`, and cost
+        //     1,227 bytes — the optimizer stops inlining and replicates whole
+        //     bodies. Here the native pair is passed DIRECTLY as (address(0),
+        //     other): zero already sorts first, so `computeV4PoolId` gets it in
+        //     the right position without a single ternary. Only the shape of the
+        //     emitted PoolInfo needs fixing, and that fits in one loop here.
         address rt = $.router;
         address w = rt == address(0) ? address(0) : IRouterWeth(rt).weth();
         if (w != address(0) && (t0 == w || t1 == w)) {
             address other = t0 == w ? t1 : t0;
             uint256 ini = uint256(uint128(kf));
-            // Canonicos E extras, tal como a passada wrapped. Cortar os extras
-            // aqui poupava 33 bytes de Hub (medido, nao estimado) e abria um
-            // buraco de cobertura em escaloes exoticos — o dono escolheu a
-            // cobertura. A grelha de cold-start fica de fora: ela so entra
-            // quando NADA foi encontrado, e a passada nativa corre primeiro.
+            // Canonicals AND extras, just like the wrapped pass. Cutting the
+            // extras here saved 33 bytes of Hub (measured, not estimated) and
+            // opened a coverage hole in exotic tiers — the owner chose coverage.
+            // The cold-start grid stays out: it only enters when NOTHING was
+            // found, and the native pass runs first.
             kf = _probeV4Batch(mgr, address(0), other, _v4CanonicalTiers(), hits, kf);
             kf = _probeV4Batch(mgr, address(0), other, _v4ExtraTiers(fac), hits, kf);
-            // O `_admitV4` emitiu-as como KIND_V4 com token0 = address(0).
-            // Reescreve para a forma WETH-canonica: o CONTRATO DE ORIENTACAO
-            // exige token0 = lado wrapped-native, porque o Solver deriva
-            // `zeroForOne = (token0 == tokenIn)` e mapeia a currency nativa por
-            // ORIENTACAO. Sem isto a pool ficaria invisivel para metade do
-            // espaco de tokens — o mesmo defeito do bit 6 do Monoslot.
+            // `_admitV4` emitted them as KIND_V4 with token0 = address(0).
+            // Rewrite to the WETH-canonical form: the ORIENTATION CONTRACT
+            // requires token0 = the wrapped-native side, because the Solver
+            // derives `zeroForOne = (token0 == tokenIn)` and maps the native
+            // currency by ORIENTATION. Without this the pool would be invisible
+            // to half the token space — the same defect as Monoslot bit 6.
             for (uint256 z = ini; z < uint256(uint128(kf)); ) {
-                // `token1` NAO se reescreve: o `_admitV4` ja o gravou como
-                // `other` (foi o t1 que lhe passamos). So `kind` e `token0`
-                // e que mentem.
+                // `token1` is NOT rewritten: `_admitV4` already stored it as
+                // `other` (it was the t1 we passed in). Only `kind` and `token0`
+                // are lying.
                 hits[z].kind   = BPC.KIND_V4_NATIVE;
                 hits[z].token0 = w;
                 unchecked { ++z; }
@@ -1171,11 +1171,11 @@ contract BlazePhoenixHub {
         p.active      = true;
         p.kind        = BPC.decodeKind(s);
         p.fee         = BPC.decodeFee(s);
-        // Restaura o contrato de orientacao para pools V4-NATIVAS: token0 tem
-        // de ser o lado wrapped-native, que e o que o Solver e o Quoter
-        // pressupoem ao derivar a chave por `zeroForOne`. O indice continua
-        // ordenado por endereco (as buscas dependem disso); so a ORIENTACAO
-        // REPORTADA e corrigida, e o bit ja veio no slot que esta funcao recebe.
+        // Restore the orientation contract for V4-NATIVE pools: token0 must be
+        // the wrapped-native side, which is what the Solver and the Quoter
+        // assume when deriving the key by `zeroForOne`. The index stays sorted
+        // by address (lookups depend on it); only the REPORTED ORIENTATION is
+        // corrected, and the bit already came in the slot this function receives.
         bool _swap = p.kind == BPC.KIND_V4_NATIVE && _nativeSwapped(s);
         p.token0      = _swap ? t1 : t0;
         p.token1      = _swap ? t0 : t1;
@@ -1241,10 +1241,10 @@ contract BlazePhoenixHub {
 
     function getPsi(bytes32 key) external view returns (uint256) { return _psi(key); }
 
-    /// @dev NAO ERAM DUAS CADEIAS IGUAIS — ERAM DOIS CORPOS IGUAIS. Esta funcao e o
-    ///      `_psiOfSlot` diferiam apenas em como obtinham o slot; tudo o resto era copia literal,
-    ///      incluindo a cadeia de quatro kinds. Colapsar a cadeia e deixar as duas funcoes
-    ///      curava o sintoma e mantinha o irmao. Agora ha UM corpo.
+    /// @dev THEY WERE NOT TWO IDENTICAL CHAINS — THEY WERE TWO IDENTICAL BODIES. This function
+    ///      and `_psiOfSlot` differed only in how they fetched the slot; all the rest was a
+    ///      literal copy, including the four-kind chain. Collapsing the chain and leaving the
+    ///      two functions cured the symptom and kept the sibling. Now there is ONE body.
     function _psi(bytes32 key) private view returns (uint256) {
         return _psiOfSlot(_store().slot[key]);
     }
@@ -1274,25 +1274,25 @@ contract BlazePhoenixHub {
         return (slot >> 7) & 1 == 1;
     }
 
-    /// @dev BIT 6 do Monoslot (dentro do span reservado [7:1]): "o lado
-    ///      wrapped-native e o token1, nao o token0".
+    /// @dev BIT 6 of the Monoslot (inside the reserved [7:1] span): "the
+    ///      wrapped-native side is token1, not token0".
     ///
-    ///      PORQUE EXISTE. O Solver e o Quoter derivam qual lado de uma pool
-    ///      V4-NATIVA e o `address(0)` a partir de `zeroForOne`, e os seus
-    ///      comentarios invocam um "contrato de orientacao: token0 e o lado
-    ///      wrapped-native". Esse contrato NAO EXISTIA: o `_register` indexa
-    ///      por `sortTokens`, ou seja por ENDERECO. Quando o outro token
-    ///      ordena abaixo do WETH, `token0` deixa de ser o WETH, `zeroForOne`
-    ///      inverte-se, e as duas derivacoes (Router por `nativeMapVerified`,
-    ///      Quoter por orientacao) produzem poolIds DIFERENTES — a pool nativa
-    ///      fica invisivel para metade do espaco de tokens. Fail-closed, mas
-    ///      silenciosamente inalcancavel. Ver test/V4NativeOrientation.t.sol.
+    ///      WHY IT EXISTS. The Solver and the Quoter derive which side of a
+    ///      V4-NATIVE pool is `address(0)` from `zeroForOne`, and their
+    ///      comments invoke an "orientation contract: token0 is the
+    ///      wrapped-native side". That contract DID NOT EXIST: `_register`
+    ///      indexes by `sortTokens`, that is, by ADDRESS. When the other token
+    ///      sorts below WETH, `token0` stops being WETH, `zeroForOne` flips,
+    ///      and the two derivations (Router by `nativeMapVerified`, Quoter by
+    ///      orientation) produce DIFFERENT poolIds — the native pool becomes
+    ///      invisible to half the token space. Fail-closed, but silently
+    ///      unreachable. See test/V4NativeOrientation.t.sol.
     ///
-    ///      O caso que passava (USDC na Base, 0x8335... > WETH 0x4200...) era
-    ///      o unico testado — por isso a prosa parecia verdadeira.
+    ///      The case that passed (USDC on Base, 0x8335... > WETH 0x4200...) was
+    ///      the only one tested — which is why the prose looked true.
     ///
-    ///      A flag torna o contrato REAL sem custo de leitura: o slot ja esta
-    ///      carregado no `_readPoolInfo`, ler um bit e gratis.
+    ///      The flag makes the contract REAL at no read cost: the slot is
+    ///      already loaded in `_readPoolInfo`, and reading a bit is free.
     function _markNativeSwapped(uint256 slot, bool b) private pure returns (uint256) {
         return b ? (slot | (uint256(1) << 6)) : (slot & ~(uint256(1) << 6));
     }
@@ -1329,24 +1329,24 @@ contract BlazePhoenixHub {
         address tA, address tB, uint256 amtIn, uint256 amtOut, uint256 depthWad
     ) external onlyRouter whenLive {
         if (pool == address(0) || amtIn == 0) return;
-        // CANAL IRMAO. O `addFactory` fecha os kinds que nao aceita; esta e a SEGUNDA porta de
-        // registo do Hub e nao tinha fecho nenhum — a assinatura de defeito da casa ("um fix
-        // aplicado a UM de dois canais simetricos") dentro da propria excisao.
+        // SIBLING CHANNEL. `addFactory` closes the kinds it does not accept; this is the Hub's
+        // SECOND registration door and it had no closure at all — this codebase's defect
+        // signature ("a fix applied to ONE of two symmetric channels") inside the excision itself.
         //
-        // MAS CADA PORTA FECHA COM A SUA MASCARA. A primeira versao deste fecho reutilizou o
-        // `KINDS_ROUTABLE` da factory, e isso trocou a pergunta: aqui nao se pergunta "que kinds
-        // se registam por factory?" mas "que kinds pode o Router ter acabado de executar?". O
-        // V4_NATIVE responde nao a primeira e SIM a segunda, e ficava de fora — ver
-        // KINDS_EXECUTABLE.
+        // BUT EACH DOOR CLOSES WITH ITS OWN MASK. The first version of this closure reused the
+        // factory's `KINDS_ROUTABLE`, and that swapped the question: here we do not ask "which
+        // kinds get registered by a factory?" but "which kinds can the Router have just
+        // executed?". V4_NATIVE answers no to the first and YES to the second, and was left out
+        // — see KINDS_EXECUTABLE.
         //
-        // NAO e redundante com o `else { revert RouterE(8); }` do dispatch do Router: `$.router`
-        // e trocavel (setRoles), logo o unico produtor destes kinds NAO e imutavel. Um Router
-        // futuro que ganhe um braco novo sem que o Hub saiba escreveria no registo um kind que o
-        // resto do sistema nao sabe ler. Esta e a defesa LOCAL, a que nao depende de outro
-        // endereco continuar a ser o que era no dia do deploy.
+        // NOT redundant with the `else { revert RouterE(8); }` in the Router's dispatch:
+        // `$.router` is swappable (setRoles), so the single producer of these kinds is NOT
+        // immutable. A future Router that gains a new arm without the Hub knowing would write a
+        // kind into the registry that the rest of the system cannot read. This is the LOCAL
+        // defence, the one that does not depend on another address staying what it was at deploy.
         //
-        // Salta o registo, NAO reverte: o swap do utilizador ja executou e nao pode falhar por
-        // uma decisao de registo — a mesma disciplina do caso !okTs do V4 mais abaixo.
+        // Skips registration, does NOT revert: the user's swap has already executed and cannot
+        // fail over a registry decision — the same discipline as the V4 !okTs case further down.
         if (((KINDS_EXECUTABLE >> kind) & 1) == 0) return;
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         bytes32 key = keyOf(pool, t0, t1);
@@ -1438,52 +1438,52 @@ contract BlazePhoenixHub {
             // native-side pairs), costing a 20k SSTORE on a user's swap.
             _writeV4Code(ncp, ncp, fee, nTs);
         }
-        // ─── REG-02 + REG-01: OS DATA DO PROPONENTE SAO COORDENADAS, NAO FACTOS ───
-        // Esta linha gravava no registo a `fee` e os `hooks` VINDOS DO CALLDATA do
-        // Router, na mesma transaccao em que a profundidade era MEDIDA. O CI ja
-        // tem a guarda "Depth producer guard (profundidade nunca vem de calldata)"
-        // com a razao escrita — "se um produtor grava um numero que o chamador
-        // escolheu, o chamador passa a decidir o ranking do registo". A `fee` e os
-        // `hooks` eram o canal irmao dessa guarda, por fechar.
+        // ─── REG-02 + REG-01: THE PROPOSER'S DATA ARE COORDINATES, NOT FACTS ───
+        // This line wrote into the registry the `fee` and the `hooks` COMING FROM the
+        // Router's CALLDATA, in the same transaction in which depth was MEASURED. CI
+        // already carries the guard "Depth producer guard (depth never comes from
+        // calldata)" with the reason written down — "if a producer writes a number
+        // the caller chose, the caller gets to decide the registry ranking". The
+        // `fee` and the `hooks` were that guard's sibling channel, still to be closed.
         //
-        // O QUE ISTO PERMITIA (medido em test/RegistryFeeFromCalldata.t.sol):
-        // vigiar a mempool, correr a frente do primeiro swap numa pool honesta
-        // ainda nao registada com um swap de po declarando `leg.fee = 9000`, e a
-        // pool ficava cotada com 90% de fee (effV2Fee esta em BPS) ate ao despejo.
-        // O `tickSlot` preserva os bits da fee, e o `recordSwap` auto-guarda em
-        // `slot != 0`: nem um swap honesto posterior corrigia.
+        // WHAT THIS ALLOWED (measured in test/RegistryFeeFromCalldata.t.sol):
+        // watch the mempool, front-run the first swap on an honest pool not yet
+        // registered with a dust swap declaring `leg.fee = 9000`, and the pool
+        // was quoted at a 90% fee (effV2Fee is in BPS) until eviction.
+        // `tickSlot` preserves the fee bits, and `recordSwap` self-guards on
+        // `slot != 0`: not even a later honest swap corrected it.
         //
-        // A FEE, por origem da verdade:
-        //   V4 / V4-nativo -> a do calldata, porque esta AUTENTICADA e nao
-        //     confiada: entra no `computeV4PoolId`, e o `_recoverV4Ts` acima ja
-        //     devolveu sem registar se o pid derivado nao bateu com a pool.
-        //   Algebra (`dyn`) -> 0, o sentinela que manda o leitor MEDIR ao vivo
-        //     (`effV3Fee`). E a regra R2 (L511-512), que so existia na porta
-        //     `addFactory` — esta porta nunca a teve.
-        //   V3 estatica -> `getV3Fee(pool)`, medida.
-        //   V2 / Solidly -> `fee()` nao existe, logo 0, e `effV2Fee(0) = 30`: o
-        //     produtor unico da casa responde, em vez do chamador.
-        // O `dyn` do `v3StateAndDynFee` discrimina pela FORMA (slot0 falha e
-        // globalState responde), nao por uma lista de venues.
+        // THE FEE, by source of truth:
+        //   V4 / native V4 -> the calldata one, because it is AUTHENTICATED and not
+        //     trusted: it feeds `computeV4PoolId`, and `_recoverV4Ts` above has
+        //     already returned without registering if the derived pid missed the pool.
+        //   Algebra (`dyn`) -> 0, the sentinel that tells the reader to MEASURE live
+        //     (`effV3Fee`). That is rule R2 (L511-512), which only existed at the
+        //     `addFactory` door — this door never had it.
+        //   Static V3 -> `getV3Fee(pool)`, measured.
+        //   V2 / Solidly -> `fee()` does not exist, so 0, and `effV2Fee(0) = 30`: the
+        //     house's single producer answers, instead of the caller.
+        // The `dyn` of `v3StateAndDynFee` discriminates by SHAPE (slot0 fails and
+        // globalState answers), not by a list of venues.
         //
-        // PORQUE NAO DISCRIMINAR PELO `kind`, que ja esta aqui de graca: porque
-        // o `kind` TAMBEM vem do calldata. Esta porta so verifica que ele esta
-        // no KINDS_EXECUTABLE — nunca que a pool E daquele tipo. Um
-        // `kind = KIND_ALGEBRA` declarado numa pool V3 real com `fee = 3000`
-        // executa limpo, gravaria o sentinela 0, e a partir dai o
-        // `effV3Fee(0, 0, dyn=false)` devolve 0xFFFFFF fail-closed: a pool ficava
-        // permanentemente incotavel. Trocar um campo de calldata por outro campo
-        // de calldata nao fecha nada — so a leitura da FORMA da pool nao confia
-        // em ninguem. Custa ~190 B do Hub, medidos: e o preco de nao ter
-        // reintroduzido o defeito ao fecha-lo.
+        // WHY NOT DISCRIMINATE BY `kind`, which is already here for free: because
+        // `kind` ALSO comes from the calldata. This door only checks that it is
+        // in KINDS_EXECUTABLE — never that the pool IS of that type. A
+        // `kind = KIND_ALGEBRA` declared on a real V3 pool with `fee = 3000`
+        // executes cleanly, would write the 0 sentinel, and from then on
+        // `effV3Fee(0, 0, dyn=false)` returns 0xFFFFFF fail-closed: the pool became
+        // permanently unquotable. Swapping one calldata field for another calldata
+        // field closes nothing — only reading the pool's SHAPE trusts
+        // nobody. It costs ~190 B of Hub, measured: the price of not having
+        // reintroduced the defect while closing it.
         //
-        // OS HOOKS: address(0) sempre, e e provavel e nao conservador. Todo o
-        // caminho que chega aqui vindo do `recordSwap` ou provou que a pool NAO
-        // tem hook (os ramos V4 derivam o poolId hookless e fazem `return` se
-        // falharem — tao explicito que a `V4Entry` fixa `hooks: address(0)` a
-        // mao) ou pertence a um kind sem hooks. Gravar o `hooks` do calldata
-        // deixava envenenar `hooksOf[key]`: um endereco nao allow-listado
-        // fazia a pool LEGITIMA cair do filtro de `getActivePools` (L1156,
+        // THE HOOKS: address(0) always, and that is provable, not conservative. Every
+        // path reaching here from `recordSwap` has either proven the pool has NO
+        // hook (the V4 branches derive the hookless poolId and `return` if they
+        // fail — so explicit that `V4Entry` pins `hooks: address(0)` by
+        // hand) or belongs to a hookless kind. Writing the calldata `hooks`
+        // allowed poisoning `hooksOf[key]`: a non-allow-listed address made
+        // the LEGITIMATE pool drop out of the `getActivePools` filter (L1156,
         // `pi.hooks == address(0) || isHookLive(pi.hooks)`).
         uint24 feeReg = fee;
         if (kind != BPC.KIND_V4 && kind != BPC.KIND_V4_NATIVE) {
@@ -1500,13 +1500,13 @@ contract BlazePhoenixHub {
     ///      wall-clock time. The field is otherwise write-once at registration and
     ///      is read by nothing on-chain except the Solver's discovery-freshness
     ///      gate — so repurposing it as "last activity time" is behaviour-neutral
-    ///      for fitness/eviction. NAO e o `lastBlk` que alimenta esse juizo, apesar de esta
-    ///      linha ja o ter afirmado: o `vitality` e o `_decayedSwapCount` do Core leem
-    ///      `decodeLastUpdateTs`, e o `decodeLastBlk` nao tem UM UNICO chamador em src/ — os
-    ///      seus unicos leitores sao tres assercoes de teste sobre a propria codificacao. O
-    ///      `lastBlk` e escrito em cada tick e nunca lido; esta registado como tal no censo de
-    ///      bits mortos do Monoslot, e a decisao de o podar ou de o reservar para a vitalidade
-    ///      estatistica e do dono.
+    ///      for fitness/eviction. It is NOT `lastBlk` that feeds that judgment, despite this
+    ///      line once having asserted it: the Core's `vitality` and `_decayedSwapCount` read
+    ///      `decodeLastUpdateTs`, and `decodeLastBlk` has NOT ONE caller in src/ — its only
+    ///      readers are three test assertions about the encoding itself. `lastBlk` is written
+    ///      on every tick and never read; it is recorded as such in the Monoslot's dead-bit
+    ///      census, and the decision to prune it or reserve it for statistical vitality
+    ///      belongs to the owner.
     function _stampTs(uint256 s) private view returns (uint256) {
         return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);
     }
@@ -1536,10 +1536,10 @@ contract BlazePhoenixHub {
     }
 
     /// @notice Fitness of a slot using its packed bridge bit and kind-derived conc.
-    /// @dev O UNICO produtor de psi neste contrato. A pergunta "esta pool e de liquidez
-    ///      concentrada?" e um teste de PERTENCA a uma classe de FORMA de estado (na pool ou no
-    ///      singleton, tanto faz para o peso) — colapsa na theta sem violar a regra dos
-    ///      predicados de aceitacao, porque psi e um peso de LEITURA e nao decide admissao.
+    /// @dev The ONLY producer of psi in this contract. The question "is this pool concentrated
+    ///      liquidity?" is a MEMBERSHIP test against a state-SHAPE class (in the pool or in the
+    ///      singleton, immaterial to the weight) — it collapses into theta without violating the
+    ///      acceptance-predicate rule, because psi is a READ weight and does not decide admission.
     function _psiOfSlot(uint256 s) private view returns (uint256) {
         if (s == 0) return 0;
         bool conc = BPC.kindHasAny(BPC.decodeKind(s), BPC.A_CONC_POOL | BPC.A_CONC_SING);
@@ -1586,9 +1586,9 @@ contract BlazePhoenixHub {
                 ks.push(key);
             }
         }
-        // ROTEAVEL, nao apenas ancora: a flag vale +25% de fitness no `psi`, e o fitness decide
-        // despejos num registo capado. Pagar o bonus a uma pool que o router nao alcanca era
-        // despejar liquidez util em favor de liquidez inalcancavel.
+        // ROUTABLE, not merely an anchor: the flag is worth +25% fitness in `psi`, and fitness
+        // decides evictions in a capped registry. Paying the bonus to a pool the router cannot
+        // reach meant evicting useful liquidity in favour of unreachable liquidity.
         bool bridged = _isRoutableBridge($, t0) || _isRoutableBridge($, t1);
         uint256 s = BPC.encodeSlot(
             true, fee, kind, trusted ? 0 : 2, 0,

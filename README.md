@@ -195,6 +195,7 @@ certora/                Certora Prover specifications and harnesses
                         security.yml (slither · aderyn · solhint)
                         formal-explore.yml · docs.yml · graph.yml
 .github/scripts/        the shared-quantity register check
+CONTRIBUTING.md         how work lands here — red before green, and the house conventions
 SECURITY.md             disclosure policy, bounty terms, severity rubric
 SECURITY_HALL_OF_FAME.md  the researchers who reported confirmed findings
 SHARED_QUANTITIES.md    the shared-quantity register

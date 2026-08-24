@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # forge-std and any other vendored dependency arrive as git submodules.
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+
+  # The CI actions themselves are a supply chain: a compromised action reads
+  # every secret the job can see, including the RPC key the fork tests use.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"

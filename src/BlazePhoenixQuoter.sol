@@ -7,66 +7,69 @@
 //               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //
-//  RESPONSABILIDADE UNICA
-//      Dizer a uma pessoa o que ela vai receber, antes de decidir. Nada mais.
+//  SINGLE RESPONSIBILITY
+//      Tell a person what they will receive, before they decide. Nothing else.
 //
-//  A FRONTEIRA QUE DEFINE ESTE CONTRATO
-//      O QUE O QUOTER DEVOLVE NAO E UMA ROTA SUBMETIVEL. E um PREVIEW: valor
-//      esperado, slippage, caminho, para quem vai trocar poder olhar antes de
-//      assinar. A rota que executa e calculada on-chain no momento da execucao.
+//  THE BOUNDARY THAT DEFINES THIS CONTRACT
+//      WHAT THE QUOTER RETURNS IS NOT A SUBMITTABLE ROUTE. It is a PREVIEW:
+//      expected value, slippage, path — so whoever is about to swap can look
+//      before signing. The route that executes is computed on-chain at
+//      execution time.
 //
-//      Isto e uma decisao de desenho, nao uma limitacao. Se a saida de um view
-//      pudesse ser submetida como plano, o preview passava a ser uma superficie
-//      de ataque: bastava fazer o Quoter dizer o numero certo uma vez e usa-lo
-//      quando o estado ja fosse outro. Separando os dois, um Quoter comprometido
-//      engana a interface — e nao consegue mover um unico wei, porque o Router
-//      volta a medir tudo o que qualquer plano lhe afirme.
+//      That is a design decision, not a limitation. If the output of a view
+//      could be submitted as a plan, the preview would become an attack
+//      surface: make the Quoter say the right number once, then use it when
+//      state has already moved. Keeping the two apart means a compromised
+//      Quoter fools the interface — and cannot move a single wei, because the
+//      Router re-measures everything any plan asserts to it.
 //
-//  O QUE ESTE CONTRATO GARANTE
-//      Q1  Nunca sobrestima de proposito. Onde a medicao exata existe, usa-se a
-//          medicao; onde so ha aproximacao, aproxima-se PARA BAIXO.
-//      Q2  So `view`. Nao escreve, nao gasta, nao autoriza.
-//      Q3  Uma rota que contenha uma pool marcada por abuso de hook, ou um hook
-//          em denylist, nao e cotavel — devolve zero em vez de um numero bonito.
+//  WHAT THIS CONTRACT GUARANTEES
+//      Q1  Never overestimates on purpose. Where an exact measurement exists,
+//          it is used; where only an approximation exists, it rounds DOWN.
+//      Q2  `view` only. It does not write, does not spend, does not approve.
+//      Q3  A route containing a pool flagged for hook misuse, or a denylisted
+//          hook, is unquotable — it returns zero rather than a pretty number.
 //
 //  The Quoter is the read-only mirror of the Router. For a route it returns:
 //
-//      netOut = grossOut · (1 − fee) · (1 − safety(n))      [uma so fee desde 22/08]
+//      netOut = grossOut · (1 − fee) · (1 − safety(n))   [one single fee since 2026-08-22]
 //
 //  Where:
 //
 //    grossOut   — Solver's output (already net of pool fees).
-//    fee        — Protocol fee, 28 BPS. E O EXPOENTE H QUE MUDOU EM 2026-08-21: a fee deixou de
-//                 ser cobrada uma vez sobre a saida cotada e passa a ser cobrada em CADA HOP,
-//                 sobre a ENTRADA desse hop e no TOKEN desse hop. Uma rota de H hops paga H
-//                 vezes, composto — e por isso o expoente.
-//                 A razao esta escrita no Router (`_chargeHopFee`): uma rota e um caminho com
-//                 duas pontas e ambas sao coordenadas escritas pelo chamador, logo qualquer fee
-//                 ancorada numa PONTA e evadida estendendo a rota para la dessa ponta com um
-//                 token sem valor. Foi MEDIDO nas duas direccoes: ancorada na saida, 996 tokens
-//                 moveram-se com fee ZERO; ancorada na entrada, o atacante prefixava com um token
-//                 que cunhou e recebia MAIS que o utilizador honesto.
+//    fee        — Protocol fee, 28 BPS. THE EXPONENT H IS WHAT CHANGED ON 2026-08-21: the fee
+//                 stopped being charged once on the quoted output and is now charged on EVERY
+//                 HOP, on that hop's INPUT and in that hop's TOKEN. An H-hop route pays H times,
+//                 compounded — hence the exponent.
+//                 The reason is written in the Router (`_chargeHopFee`): a route is a path with
+//                 two ends, and both are coordinates written by the caller, so any fee anchored
+//                 to one END is evaded by extending the route past that end with a worthless
+//                 token. It was MEASURED in both directions: anchored on the output, 996 tokens
+//                 moved with ZERO fee; anchored on the input, the attacker prefixed a token they
+//                 had minted themselves and received MORE than an honest user.
 //    safety(n)  — Dynamic buffer: 0 BPS at ≤2 legs, +1 BPS per extra leg,
 //                 capped at 10 BPS. Accounts for inter-leg drift.
 //    A route is unquotable (returns zero) if it contains a pool flagged for
 //    hook misuse or a denylisted hook.
 //
-//  O QUE `protocolFee` SIGNIFICA AGORA, e a mudanca importa para quem le o preview: a fee real e
-//  cobrada em VARIOS tokens (um por hop), portanto nao existe um unico numero em tokenOut que
-//  seja "a fee". O campo reporta o EFEITO da fee sobre a saida — quanto menos o utilizador recebe
-//  por causa dela, expresso em tokenOut. E a grandeza util para quem vai trocar, e e honesta
-//  desde que se saiba o que e. As tesourarias recebem outra coisa (os tokens de entrada de cada
-//  hop), e o evento `Fee` do Router e que diz o que foi cobrado e em que token.
+//  WHAT `protocolFee` MEANS NOW, and the change matters to whoever reads the preview: the real
+//  fee is charged in SEVERAL tokens (one per hop), so there is no single number in tokenOut that
+//  is "the fee". The field reports the EFFECT of the fee on the output — how much less the user
+//  receives because of it, expressed in tokenOut. That is the useful quantity for whoever is
+//  about to swap, and it is honest as long as you know what it is. The treasuries receive
+//  something else (each hop's input tokens), and it is the Router's `Fee` event that says what
+//  was charged and in which token.
 //
-//  E A ISENCAO DO EXCEDENTE MORREU com a mudanca: era uma promessa do lado da saida ("tudo acima
-//  da quote e teu, sem fee") e nao tem analogo do lado da entrada. Decisao do dono, 2026-08-21.
+//  AND THE SURPLUS EXEMPTION DIED with the change: it was an output-side promise ("everything
+//  above the quote is yours, fee-free") and it has no input-side analogue. Owner's decision,
+//  2026-08-21.
 //
-//  NOTA sobre paridade: este preview parte do `route.totalOut` atestado pelo Solver, tomado pelo
-//  valor de face — apropriado aqui, porque o `previewPlan` obtem a `route` de uma chamada VIVA ao
-//  Solver no mesmo contexto de view. O Router NAO estende essa confianca ao seu caminho de
-//  execucao. A diferenca com a execucao real e deriva normal de cotacao-para-liquidacao (pode
-//  passar um bloco ou mais), exatamente como a saida prevista difere da realizada. Nao e uma
-//  discrepancia a eliminar: a protecao do utilizador e o userMinOut e os pisos do Router, nao
+//  NOTE on parity: this preview starts from the `route.totalOut` attested by the Solver, taken at
+//  face value — appropriate here, because `previewPlan` obtains the `route` from a LIVE call to
+//  the Solver in the same view context. The Router does NOT extend that trust to its execution
+//  path. The difference from real execution is ordinary quote-to-settlement drift (a block or
+//  more may pass), exactly as predicted output differs from realised output. It is not a
+//  discrepancy to eliminate: the user's protection is userMinOut and the Router's floors, not the
 //  preview's fee line.
 // =============================================================================
 pragma solidity 0.8.36;
@@ -137,8 +140,8 @@ contract BlazePhoenixQuoter {
         uint256 estGas;
         uint256 hops;
         uint256 legs;
-        uint8   topology;          // 0 = directo, 1 = uma ponte, 2 = duas pontes
-        //                            (= hops - 1; era SEMPRE 0 ate 2026-08-22)
+        uint8   topology;          // 0 = direct, 1 = one bridge, 2 = two bridges
+        //                            (= hops - 1; was ALWAYS 0 until 2026-08-22)
         address bridgeUsed;
         bool    canExecute;
     }
@@ -206,22 +209,24 @@ contract BlazePhoenixQuoter {
     {
         pv.route       = route;
         pv.grossOut    = route.totalOut;
-        // A FEE E UMA SO, DESDE 2026-08-22. Este laco compunha `(1-fee)^H` porque
-        // o Router cobrava em CADA hop: uma rota de 2 hops perdia ~56 bps e uma
-        // de 3 perderia ~84, quando a constante diz 28. Com as topologias de tres
-        // hops o H so ia crescer.
+        // THE FEE IS A SINGLE ONE, SINCE 2026-08-22. This loop used to compound
+        // `(1-fee)^H` because the Router charged on EVERY hop: a 2-hop route lost
+        // ~56 bps and a 3-hop one would lose ~84, when the constant says 28. With
+        // three-hop topologies H was only going to grow.
         //
-        // O Router passou a cobrar UMA vez, na primeira moeda de ponte que segura
-        // (input do hop 1, ou a saida quando um swap directo ja termina numa
-        // ponte). O efeito sobre a saida deixa de compor: e um desconto unico.
+        // The Router now charges ONCE, on the first bridge currency it holds
+        // (hop 1's input, or the output when a direct swap already ends in a
+        // bridge). The effect on the output stops compounding: it is a single
+        // discount.
         //
-        // ESTE E O CANAL IRMAO do `_chargeHopFee`. Se um deles mudar sem o outro,
-        // a cotacao volta a mentir sobre o que a execucao faz — a assinatura de
-        // defeito desta base, registada com N=3 na nota 122.
+        // THIS IS THE SIBLING CHANNEL of `_chargeHopFee`. If one changes without
+        // the other, the quote starts lying about what execution does again — the
+        // defect signature of this codebase, recorded with N=3 in the corpus.
         uint256 afterFee = route.totalOut;
         afterFee -= BPC.mulDiv(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-        // O EFEITO da fee sobre a saida, em tokenOut. Nao e o que as tesourarias
-        // recebem — elas recebem UM token de PONTE (WETH/USDC). Ver o cabecalho.
+        // The EFFECT of the fee on the output, in tokenOut. It is not what the
+        // treasuries receive — they receive ONE BRIDGE token (WETH/USDC). See the
+        // file header.
         pv.protocolFee = route.totalOut > afterFee ? route.totalOut - afterFee : 0;
 
         uint256 legs;
@@ -254,25 +259,25 @@ contract BlazePhoenixQuoter {
         (pv.topology, pv.bridgeUsed) = _classify(route);
     }
 
-    /// @dev CLASSIFICADOR REAL desde 2026-08-22. Estava morto: devolvia sempre
-    ///      `(0, address(0))` e justificava-se com "the Solver collapses bridge
-    ///      routes into a single hop". **Isso e falso** — o `_planViaBridge`
-    ///      devolve `new Hop[](2)` desde sempre, e agora ha tambem rotas de tres
-    ///      hops. Consequencia: `pv.topology` era SEMPRE 0 e `pv.bridgeUsed`
-    ///      SEMPRE zero, portanto qualquer leitor (a UI, um varrimento de
-    ///      metricas) que os usasse lia uma constante e nao uma medicao.
+    /// @dev A REAL CLASSIFIER since 2026-08-22. It used to be dead: it always
+    ///      returned `(0, address(0))` and justified itself with "the Solver
+    ///      collapses bridge routes into a single hop". **That is false** —
+    ///      `_planViaBridge` has always returned `new Hop[](2)`, and there are
+    ///      now three-hop routes as well. Consequence: `pv.topology` was ALWAYS 0
+    ///      and `pv.bridgeUsed` ALWAYS zero, so any reader (the UI, a metrics
+    ///      sweep) using them was reading a constant, not a measurement.
     ///
-    ///      A topologia deriva-se do NUMERO DE HOPS, que e a definicao: um hop e
-    ///      directo, dois passam por uma ponte, tres por duas. E a ponte usada e
-    ///      o `tokenOut` do hop 0 — o primeiro token intermedio que a rota toca,
-    ///      que e tambem onde a fee e cobrada.
+    ///      Topology derives from the NUMBER OF HOPS, which is the definition:
+    ///      one hop is direct, two go through a bridge, three through two. And
+    ///      the bridge used is hop 0's `tokenOut` — the first intermediate token
+    ///      the route touches, which is also where the fee is charged.
     function _classify(Route memory route)
         private pure returns (uint8 topology, address bridgeUsed)
     {
         uint256 n = route.hops.length;
         if (n == 0 || route.hops[0].legs.length == 0) return (0, address(0));
         if (n == 1) return (0, address(0));                 // directo
-        // 1 = via uma ponte (2 hops), 2 = via duas pontes (3 hops), ...
+        // 1 = via one bridge (2 hops), 2 = via two bridges (3 hops), ...
         return (uint8(n - 1), route.hops[0].tokenOut);
     }
 
@@ -459,13 +464,14 @@ contract BlazePhoenixQuoter {
                     if (legOut == 0)
                         legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
                 } else {
-                    // SOLIDLY e hoje o UNICO kind VIVO a aterrar aqui — os outros
-                    // dois que ca caiam eram lapides. A escala linear e uma
-                    // APROXIMACAO num sitio onde a medicao exacta existe
-                    // (solidlyGetAmountOut). ARMADILHA, antes de alguem a corrigir:
-                    // o `qc.kind` acima esta FIXADO em KIND_V2, portanto encaminhar
-                    // este ramo por universalQuote sem tocar nessa linha passaria a
-                    // cotar Solidly pelo braco constant-product — pior que hoje.
+                    // SOLIDLY is today the ONLY LIVE kind landing here — the other
+                    // two that used to fall through were tombstones. The linear
+                    // scaling is an APPROXIMATION in a place where the exact
+                    // measurement exists (solidlyGetAmountOut). TRAP, before anyone
+                    // fixes it: `qc.kind` above is PINNED to KIND_V2, so routing
+                    // this branch through universalQuote without touching that line
+                    // would start quoting Solidly on the constant-product arm —
+                    // worse than today.
                     legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
                 }
                 route.hops[h].legs[l].amountIn    = legIn;
