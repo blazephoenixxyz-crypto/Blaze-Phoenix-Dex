@@ -372,7 +372,7 @@ contract TokenSweepArbitrumTest is TokenSweepBase {
 
     function setUp() public {
         if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
-        vm.createSelectFork("arbitrum");
+        vm.createSelectFork("arbitrum", 498_000_000); // fixado 2026-08-24: mesma razao e mesmo bloco do FactoryCensus
         _core(0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32);
         hub.addBridge(WETH); hub.addBridge(USDC); hub.addBridge(WSTETH);
         uint24[] memory af = new uint24[](1); af[0] = 0;
@@ -414,7 +414,7 @@ contract TokenSweepOptimismTest is TokenSweepBase {
 
     function setUp() public {
         if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
-        vm.createSelectFork("optimism");
+        vm.createSelectFork("optimism", 156_000_000); // fixado 2026-08-24: mesma razao e mesmo bloco do FactoryCensus
         // O PoolManager da Optimism EXISTE (0x9a13F98C..., verificado no
         // test/fork/MultichainProbe.t.sol). Passar address(0) aqui desligava o
         // V4 inteiro e fazia o varrimento reportar "V4 = 0 pernas" como se

@@ -106,7 +106,7 @@ contract ReproSolidlyV1DialectOP is Test {
 
     function setUp() public {
         if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
-        vm.createSelectFork("optimism");
+        vm.createSelectFork("optimism", 156_000_000); // fixado 2026-08-24: reproducibilidade do repro
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         // So a V1: se a descoberta nao fala o dialecto dela, hits = 0 e o
