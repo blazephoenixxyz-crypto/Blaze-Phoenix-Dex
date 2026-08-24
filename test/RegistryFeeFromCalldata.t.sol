@@ -8,7 +8,7 @@ pragma solidity 0.8.36;
 //  O ARTEFACTO PARTILHADO e o campo `fee` do Monoslot (`decodeFee`). Dois
 //  consumidores, duas perguntas:
 //    - Router-exec  : "que fee vai esta pool cobrar?"  -> MEDE (Router:736,
-//                     `effV3Fee(getV3Fee(leg.pool), 0, false)`) e deita fora.
+//                     `quoteV3Fee(leg.pool, 0, dynFee, dyn)`) e deita fora.
 //    - Solver/Quoter: "que fee devo assumir?"          -> LE o registo
 //                     (Hub:1173, `p.fee = decodeFee(s)`).
 //

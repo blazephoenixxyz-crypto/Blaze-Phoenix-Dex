@@ -161,6 +161,17 @@ library BlazePhoenixCore {
     uint256 internal constant Q96        = 0x1000000000000000000000000;
     uint256 internal constant GAS_CAP    = 100_000;
 
+    /// @notice Impact charged to a leg the impact model does not cover
+    ///         (stable curves, V4 paths), in bps.
+    /// @dev    SINGLE PRODUCER of a literal that was hand-written SIX times
+    ///         (Router x4, Solver x2). Same defect signature effV2Fee's doc
+    ///         already names for the V2 `30`: the sites feed avgImpact ->
+    ///         ironFloorBps -> protocolFloorOut, so raising one copy and not
+    ///         the others makes the Solver's floor and the Router's disagree
+    ///         about the same route. A library constant inlines at compile
+    ///         time — zero bytes, zero gas, one knob.
+    uint256 internal constant DEFAULT_IMPACT_BPS = 50;
+
     // Protocol domain separator.
     bytes32 internal constant DOMAIN     = 0x5a4c8fb3318679ccd8afce8752c8d272b447abeff6f412a8fc800087b3f9eead;
 
@@ -496,25 +507,36 @@ library BlazePhoenixCore {
             // Aerodrome Slipstream.getPool(address,address,int24) -> 0x28af8d0b
             cd = abi.encodeWithSelector(0x28af8d0b, t0, t1, tickSpacing);
         }
-        bool ok;
+        pool = _askPool(factory, cd);
+        // Dialect fallbacks — same try-then-fallback discipline for both
+        // call families, and factories that answer the canonical selector
+        // never pay them:
+        //   mode 1, Algebra (Camelot V3): dynamic-fee factories expose
+        //   poolByPair(address,address), not getPool(.,.,fee).
+        if (pool == address(0) && mode == 1) {
+            pool = _askPool(factory, abi.encodeWithSelector(0xd9a641e1, t0, t1));
+        }
+        //   mode 2, classic Solidly (Velodrome V1): getPair(address,address,
+        //   bool), not the V2/Aerodrome getPool. The identity gate accepted
+        //   such a factory (allPairsLength answers) while discovery never
+        //   reached a single pair — 0 candidates in 62 pair-hops in the
+        //   census (MEASURED on OP 2026-08-24: getPair(WETH,USDC,false)
+        //   answers the live pair; getPool reverts).
+        if (pool == address(0) && mode == 2) {
+            pool = _askPool(factory, abi.encodeWithSelector(0x6801cc30, t0, t1, stable));
+        }
+    }
+
+    /// @dev THE ONLY staticcall body for "ask a factory for its pool" — the
+    ///      canonical ask and both dialect fallbacks route through it. Was
+    ///      three inline assembly copies of the same shape; on the tightest
+    ///      contract of the protocol (the Hub inlines this library), three
+    ///      copies were also three times the bytes.
+    function _askPool(address factory, bytes memory cd) private view returns (address pool) {
         assembly ("memory-safe") {
-            let p := mload(cd)
-            ok := staticcall(GAS_CAP, factory, add(cd, 32), p, 0x00, 0x20)
+            let ok := staticcall(GAS_CAP, factory, add(cd, 32), mload(cd), 0x00, 0x20)
             if and(ok, eq(returndatasize(), 32)) {
                 pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
-            }
-        }
-        // Algebra fallback (Camelot V3): dynamic-fee factories expose
-        // poolByPair(address,address) not getPool(.,.,fee). CALL-based, no
-        // initCodeHash. Same try-then-fallback discipline as every derived address.
-        if (pool == address(0) && mode == 1) {
-            bytes memory cd2 = abi.encodeWithSelector(0xd9a641e1, t0, t1);
-            assembly ("memory-safe") {
-                let p := mload(cd2)
-                let ok2 := staticcall(GAS_CAP, factory, add(cd2, 32), p, 0x00, 0x20)
-                if and(ok2, eq(returndatasize(), 32)) {
-                    pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
-                }
             }
         }
     }
@@ -644,7 +666,15 @@ library BlazePhoenixCore {
             mstore(m, 0x70a0823100000000000000000000000000000000000000000000000000000000)
             mstore(add(m, 4), and(who, 0xffffffffffffffffffffffffffffffffffffffff))
             if staticcall(gas(), token, m, 36, m, 32) {
-                if eq(returndatasize(), 32) { b := mload(m) }
+                // `>= 32`, NOT `== 32` — aligned with this file's own stated
+                // returndata policy (see getReserves): a non-conformant ERC-20
+                // that returns MORE than one word still has a balance in word
+                // 0, and this reader feeds the measured floor. `eq` silently
+                // read such tokens as balance 0. (`gas()` vs GAS_CAP here is a
+                // separate, still-open question: this call sits on the
+                // EXECUTION path, and capping it changes swap behavior for
+                // gas-hungry tokens — that change needs its own red test.)
+                if iszero(lt(returndatasize(), 32)) { b := mload(m) }
             }
         }
     }
@@ -838,23 +868,11 @@ library BlazePhoenixCore {
         return x0 < x1 ? x0 : x1;
     }
 
-    function getSqrtPriceX96(address pool) internal view returns (uint160 sp) {
-        assembly ("memory-safe") {
-            let m := mload(0x40)
-            // Uniswap V3 slot0() (0x3850c7bd): sqrtPriceX96 is word 0
-            mstore(m, 0x3850c7bd00000000000000000000000000000000000000000000000000000000)
-            if staticcall(GAS_CAP, pool, m, 4, m, 64) {
-                if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
-            }
-            // Algebra (Camelot) fallback: globalState() (0xe76c01e4), price word 0
-            if iszero(sp) {
-                mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000)
-                if staticcall(GAS_CAP, pool, m, 4, m, 64) {
-                    if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
-                }
-            }
-        }
-    }
+    // getSqrtPriceX96 lived here — the degraded twin of v3StateAndDynFee (same
+    // slot0 + globalState reads, DIFFERENT returndata guards, so the register
+    // and the quote could disagree about the same pool). Guards were split in
+    // the survivor and the last caller (Router._recordHits) migrated; a copy
+    // cannot diverge from itself.
 
     /// @notice Concentrated-liquidity state read that also MEASURES a dynamic
     ///         fee — the Algebra counterpart of INV-20's effV4Fee.
@@ -889,12 +907,22 @@ library BlazePhoenixCore {
             // Algebra fallback globalState() (0xe76c01e4):
             //   word 0 = price, word 1 = tick, word 2 = fee (uint16 on both
             //   Algebra V1 and Integral; the wider mask is harmless).
+            //
+            // SPLIT GUARDS, and the reason is a measured divergence: the
+            // sibling reader (getSqrtPriceX96) accepts the price at >= 32
+            // bytes while this one demanded the full 96 — so a pool whose
+            // globalState returns 32-64 bytes PRICED in one reader and read
+            // as dead in the other, and the quote and the depth register
+            // disagreed about the same pool. Price needs word 0 only; the
+            // fee claim needs word 2, so `dyn` is only asserted with the
+            // full payload — a partial answer falls through to the
+            // fail-closed fee path exactly as before.
             if iszero(sp) {
                 mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000)
                 let ok2 := staticcall(GAS_CAP, pool, m, 4, m, 96)
                 if ok2 {
+                    if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
                     if iszero(lt(returndatasize(), 96)) {
-                        sp  := mload(m)
                         f   := and(mload(add(m, 0x40)), 0xffffff)
                         dyn := 1
                     }
@@ -931,12 +959,36 @@ library BlazePhoenixCore {
         return declared == 0 ? 30 : declared;
     }
 
-    function effV3Fee(uint24 cfgFee, uint24 measured, bool dyn)
-        internal pure returns (uint24)
+    // effV3Fee (pure) lived here; quoteV3Fee below absorbed it. The Router's
+    // hand-built ternary over it was proved identical branch-by-branch and
+    // migrated — one producer remains for "the effective concentrated fee".
+
+    /// @notice Effective V3-family fee for the QUOTE/IMPACT path — the
+    ///         measured sibling of effV4Fee (INV-20), and the fix for a
+    ///         family-wide zero.
+    /// @dev    THE CL FAMILY QUOTED 0 BY CONSTRUCTION. CL rows (Aerodrome
+    ///         Slipstream, Velodrome CL) register with an EMPTY fee list —
+    ///         their fee is keyed by tickSpacing — so discovery stamps the
+    ///         same `fee = 0` that Hub rule R2 reserves as the ALGEBRA
+    ///         dynamic-fee sentinel. A CL pool answers slot0() (dyn = false),
+    ///         so effV3Fee fail-closed at 0xFFFFFF and outV3 quoted 0: the
+    ///         2nd-deepest factory on Base (1,479 WETH in USDC/WETH sp=100 at
+    ///         measurement, 2026-08-24) never won a single pair-hop in a
+    ///         122-pair census. The EXECUTION path always knew the remedy —
+    ///         Router:774 reads the pool's own fee() — this is the same
+    ///         remedy applied to the quote side. MEASURED: that pool's fee()
+    ///         is 334, DYNAMIC (not even the nominal 500 of its tier), so a
+    ///         static fee table would mis-price; reading the pool is the only
+    ///         correct source. A pool where fee() also fails still fail-closes
+    ///         exactly as before — this can only widen coverage, never weaken
+    ///         the INV-20 guarantee.
+    function quoteV3Fee(address pool, uint24 cfgFee, uint24 dynFee, bool dyn)
+        internal view returns (uint24)
     {
         if (cfgFee != 0) return cfgFee;   // static key is truth
-        if (dyn) return measured;         // measured live dynamic fee (0% is legal)
-        return 0xFFFFFF;                  // unmeasurable dynamic fee -> fail closed
+        if (dyn) return dynFee;           // Algebra: measured live fee
+        uint24 f = getV3Fee(pool);        // CL: the fee lives on the pool
+        return f != 0 ? f : 0xFFFFFF;     // still unmeasurable -> fail closed
     }
 
     function token0Of(address pool) internal view returns (address t) {
@@ -1360,7 +1412,7 @@ library BlazePhoenixCore {
             // `ticks()` getter drags 4 slots the quote does not use, against one
             // batchable `extsload`). V4 goes first because that is where the
             // error was measured; extending to V3 is the same change, one read up.
-            out      = outV3(amountIn, sp, liq, effV3Fee(c.fee, dynFee, isDyn), c.zeroForOne, 0);
+            out      = outV3(amountIn, sp, liq, quoteV3Fee(c.pool, c.fee, dynFee, isDyn), c.zeroForOne, 0);
             // depthWad must be TOKEN-DENOMINATED to be comparable across venue
             // families: the Solver's band anchor picks max(depths[]) across V2
             // (min(r0,r1), linear token units) and V3 candidates alike. Raw L is
@@ -1388,7 +1440,13 @@ library BlazePhoenixCore {
             // bytecode that enforces K at execution produced the number, so
             // nothing is left behind in the pool and quote == execution.
             out = solidlyGetAmountOut(c.pool, amountIn, c.tokenIn);
-            if (out == 0) {
+            // `<= 1`, NOT `== 0`: the Router's quote channel aligned this
+            // trigger with the executor (`_execSolidlyAmt` treats <= 1 as "no
+            // answer") for the stated reason that a pool returning exactly 1
+            // made two symmetric channels take DIFFERENT branches. This copy —
+            // the Quoter's door — was the THIRD channel of the same fact and
+            // kept the old trigger; the fix had reached 2 of 3.
+            if (out <= 1) {
                 // FALLBACK (forks without getAmountOut only): replicate the
                 // curve with the live fee, then under-ask by 200 bps so the
                 // pool's K rounding — which we cannot observe — always has

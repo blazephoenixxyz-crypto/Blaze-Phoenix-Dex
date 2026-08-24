@@ -1302,7 +1302,23 @@ contract BlazePhoenixSolver {
         for (uint256 ki; ki < k; ) {
             uint256 bestI = ki;
             for (uint256 j = ki + 1; j < n; ) {
-                if (ps[j] > ps[bestI]) bestI = j;
+                // TIE-BREAK BY FEE, ASCENDING — measured, not cosmetic. In a
+                // COLD registry psi is 0 for every candidate (floored to 1
+                // above), the sort degenerates to DISCOVERY ORDER, and the
+                // top-K guillotine falls before anything is QUOTED: on OP the
+                // Velo CL spacing-100 pool (fee ~5 bps, the best single leg by
+                // output) sat past position 8 and the funnel never saw it —
+                // 20 bps on the table at 1k, 16 bps on Base at 100k (matrix,
+                // 2026-08-24). At equal fitness, admitting the CHEAPER venue
+                // to the quote round is strictly better than address order;
+                // the quotes in _buildHop still make every real decision. A
+                // warm registry is untouched: real psi differs and the
+                // tie-break never fires. (CL/Algebra rows carry the fee=0
+                // sentinel, which sorts them first at cold start — harmless:
+                // discovery only emits pools that EXIST, and the quote round
+                // judges them like everyone else.)
+                if (ps[j] > ps[bestI]
+                    || (ps[j] == ps[bestI] && active[j].fee < active[bestI].fee)) bestI = j;
                 unchecked { ++j; }
             }
             if (bestI != ki) {
@@ -1341,6 +1357,38 @@ contract BlazePhoenixSolver {
     //  FLOOR APPLICATION — assemble Route with the output floor
     // =========================================================================
 
+    /// @dev THE ONLY copy of "one leg's impact in bps" — extracted from twin
+    ///      blocks in `_assembleRoute` and `_assembleRouteMulti` whose only
+    ///      difference was local variable names. Twins are this codebase's
+    ///      defect signature: the INV-20 fee fix below had to be applied to
+    ///      BOTH, and the second one's comment already pointed at the first.
+    ///
+    ///      INV-20 on impact: the EFFECTIVE fee, not the declared one. For
+    ///      Algebra the Hub's rule R2 forces the registry fee to the 0
+    ///      sentinel — passing it raw to impactV3Bps priced the leg with NO
+    ///      fee, understated the impact and published a `singleOutFloor`
+    ///      TIGHTER than the one execution faces; an honest fill died in
+    ///      RouterE(5). `quoteV3Fee` also resolves the CL case (fee lives on
+    ///      the pool). ZERO COST IN STATICCALLS for V3/Algebra:
+    ///      v3StateAndDynFee does the slot0() the price already required.
+    function _legImpactBps(Leg memory L) private view returns (uint256 d) {
+        if (BPC.kindHas(L.kind, BPC.A_RESERVES)) {
+            (uint256 r0, uint256 r1) = BPC.getReserves(L.pool);
+            uint256 rIn = L.zeroForOne ? r0 : r1;
+            d = BPC.impactV2Bps(L.amountIn, rIn);
+        } else if (BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
+            uint128 liq = BPC.getLiquidity(L.pool);
+            (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(L.pool);
+            d = BPC.impactV3Bps(
+                    L.amountIn, sp, liq,
+                    BPC.quoteV3Fee(L.pool, uint24(L.fee), dynFee, dyn),
+                    L.zeroForOne
+                );
+        } else {
+            d = BPC.DEFAULT_IMPACT_BPS; // stable / V4 paths: the model does not cover them
+        }
+    }
+
     function _assembleRoute(Hop memory hop) private view returns (Route memory route) {
         _orderLegs(hop);
         Hop[] memory hops = new Hop[](1);
@@ -1349,35 +1397,7 @@ contract BlazePhoenixSolver {
 
         uint256 totalImpactBps;
         for (uint256 i; i < legs; ) {
-            uint256 d;
-            if (BPC.kindHas(hop.legs[i].kind, BPC.A_RESERVES)) {
-                (uint256 r0, uint256 r1) = BPC.getReserves(hop.legs[i].pool);
-                uint256 rIn = hop.legs[i].zeroForOne ? r0 : r1;
-                d = BPC.impactV2Bps(hop.legs[i].amountIn, rIn);
-            } else if (BPC.kindHas(hop.legs[i].kind, BPC.A_CONC_POOL)) {
-                uint128 liq  = BPC.getLiquidity(hop.legs[i].pool);
-                // INV-20 on impact: the EFFECTIVE fee, not the declared one. For
-                // Algebra the Hub's rule R2 (Hub:511-512) forces the registry
-                // fee to be the sentinel 0 — passing it raw to impactV3Bps
-                // priced the leg with NO fee at all, understated the impact and
-                // published a `singleOutFloor` TIGHTER than the one that
-                // execution faces. Since the Router can only TIGHTEN the floor
-                // with the plan's (Router:1203), an honest fill died in RouterE(5).
-                // The other two channels that price Algebra already measured
-                // (Core.universalQuote and Router._hopScaleImpactAndQuote): this
-                // was the sibling still to be fixed.
-                // ZERO COST IN STATICCALLS: v3StateAndDynFee already does the slot0()
-                // that getSqrtPriceX96 did, and returns the live fee for free.
-                (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(hop.legs[i].pool);
-                d = BPC.impactV3Bps(
-                        hop.legs[i].amountIn, sp, liq,
-                        BPC.effV3Fee(uint24(hop.legs[i].fee), dynFee, dyn),
-                        hop.legs[i].zeroForOne
-                    );
-            } else {
-                d = 50; // conservative default for stable / V4 paths
-            }
-            totalImpactBps += d;
+            totalImpactBps += _legImpactBps(hop.legs[i]);
             unchecked { ++i; }
         }
         if (legs > 0) totalImpactBps = totalImpactBps / legs;
@@ -1414,27 +1434,7 @@ contract BlazePhoenixSolver {
             uint256 legs = hops[h].legs.length;
             uint256 hopImpact;
             for (uint256 i; i < legs; ) {
-                uint256 d;
-                Leg memory L = hops[h].legs[i];
-                if (BPC.kindHas(L.kind, BPC.A_RESERVES)) {
-                    (uint256 r0, uint256 r1) = BPC.getReserves(L.pool);
-                    uint256 rIn = L.zeroForOne ? r0 : r1;
-                    d = BPC.impactV2Bps(L.amountIn, rIn);
-                } else if (BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
-                    uint128 liq2 = BPC.getLiquidity(L.pool);
-                    // See the twin note in _assembleRoute: EFFECTIVE fee, and
-                    // v3StateAndDynFee replaces getSqrtPriceX96 without costing
-                    // one extra staticcall.
-                    (uint160 sp2, uint24 dynFee2, bool dyn2) = BPC.v3StateAndDynFee(L.pool);
-                    d = BPC.impactV3Bps(
-                            L.amountIn, sp2, liq2,
-                            BPC.effV3Fee(uint24(L.fee), dynFee2, dyn2),
-                            L.zeroForOne
-                        );
-                } else {
-                    d = 50;
-                }
-                hopImpact += d;
+                hopImpact += _legImpactBps(hops[h].legs[i]);
                 unchecked { ++i; }
             }
             if (legs > 0) hopImpact = hopImpact / legs;

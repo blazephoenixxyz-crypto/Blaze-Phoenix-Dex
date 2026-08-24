@@ -710,7 +710,7 @@ contract BlazePhoenixRouter {
                         uint256 q_ = _solidlyLegQuote(leg, hop.tokenIn, legAmt, rIn, rOut);
                         legQuotes[l] = q_; quoteAcc += q_;
                     }
-                } else { impactAcc += 50; }
+                } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
                 // Real concentrated-liquidity impact, matching the Solver's
                 // plan-time computation (Core.impactV3Bps). A dead read
@@ -764,14 +764,14 @@ contract BlazePhoenixRouter {
                     // The distinction the copy lost: `v3StateAndDynFee`'s `dyn` is a READ-SUCCESS
                     // flag. With `dyn == true` the read worked, so `dynFee == 0` means a 0% fee and
                     // not an error. `getV3Fee`, by contrast, returns 0 both for "failed" and for
-                    // "really is zero", which is why THAT branch still closes — it passes `sf` as
-                    // cfgFee, and a zero cfgFee falls into fail-closed.
+                    // "really is zero", which is why the non-dyn path still fails closed: a 0
+                    // read is unmeasurable inside `quoteV3Fee` and returns the killing sentinel.
                     //
                     // `leg.fee` enters neither branch: the protocol's fee base never comes from
-                    // calldata (see the A1/C1b/T1 note above).
-                    uint24 live = dyn
-                        ? BPC.effV3Fee(0, dynFee, true)
-                        : BPC.effV3Fee(BPC.getV3Fee(leg.pool), 0, false);
+                    // calldata (see the A1/C1b/T1 note above) — hence the literal 0 as cfgFee.
+                    // Same producer as the quote/impact channels now (was a hand-built ternary
+                    // over effV3Fee, semantically identical, proved branch-by-branch).
+                    uint24 live = BPC.quoteV3Fee(leg.pool, 0, dynFee, dyn);
                     // THE CURVE RUNS ONCE. These two lines used to be in the reverse order and
                     // `impactV3Bps` ran `outV3` inside itself with BYTE-IDENTICAL arguments to the
                     // next line's — the whole curve is one delegatecall too many, per concentrated
@@ -781,13 +781,13 @@ contract BlazePhoenixRouter {
                     uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne, 0);
                     impactAcc += BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne);
                     legQuotes[l] = q_; quoteAcc += q_;
-                } else { impactAcc += 50; }
+                } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
                 legQuotes[l] = q_; quoteAcc += q_;
-                impactAcc += 50;
-            } else { impactAcc += 50; }
+                impactAcc += BPC.DEFAULT_IMPACT_BPS;
+            } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
             unchecked { ++l; }
         }
     }
@@ -1856,8 +1856,13 @@ contract BlazePhoenixRouter {
                     // V3/Algebra: raw L is in root-scale and is not comparable with the min(r0,r1)
                     // that V2 reports. One extra slot0 read on the registry path (which already
                     // runs inside try/catch and off the swap's critical path).
+                    // v3StateAndDynFee is the ONE slot0 reader now — its twin
+                    // (getSqrtPriceX96) accepted a 32-byte globalState here while
+                    // the quote path demanded 96, so the register and the quote
+                    // could disagree about the same pool being alive.
+                    (uint160 spReg, , ) = BPC.v3StateAndDynFee(leg.pool);
                     depth = BPC.depthFromL18(
-                        BPC.getLiquidity(leg.pool), BPC.getSqrtPriceX96(leg.pool),
+                        BPC.getLiquidity(leg.pool), spReg,
                         BPC.decimalsOf(t0), BPC.decimalsOf(t1));
                 }
                 try hub.recordSwap(

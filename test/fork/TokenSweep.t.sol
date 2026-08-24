@@ -6,7 +6,7 @@ import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
-import {BlazePhoenixCore as BPC, Route, Leg} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Leg, PoolInfo, QuoteCtx} from "../../src/BlazePhoenixCore.sol";
 import {Top100ArbitrumTokens} from "./Top100ArbitrumTokens.sol";
 import {Top100OptimismTokens} from "./Top100OptimismTokens.sol";
 import {Top100BaseTokens} from "./Top100BaseTokens.sol";
@@ -95,6 +95,7 @@ abstract contract TokenSweepBase is Test {
 
     // ─── o que cada chain fornece ───
     function _dollar() internal view virtual returns (address);
+    function _weth() internal view virtual returns (address);
     function _n() internal view virtual returns (uint256);
     function _at(uint256 i) internal view virtual returns (string memory, address);
     function _label() internal pure virtual returns (string memory);
@@ -204,10 +205,61 @@ abstract contract TokenSweepBase is Test {
         // encontra rota, o problema e a cablagem e nao a iliquidez.
         assertGt(achou * 5, (n - de), "cobertura abaixo de 1/5 dos tokens mais liquidos: cablagem suspeita");
     }
+
+    // ─── PORTAO DE ANTI-VACUIDADE POR FAMILIA ───────────────────────────
+    //
+    // A invariante, UMA implicacao e sem analise de casos por familia:
+    //
+    //     para todo o candidato activo da descoberta:
+    //         depthWad > 0  =>  quota != 0 em pelo menos uma direccao      ^gate
+    //
+    // "Um pool que reporta profundidade tem de dar preco." O depthWad e
+    // calculado das reservas/liquidez, INDEPENDENTE do caminho da fee — por
+    // isso uma familia amordacada por um sentinel de fee (profundidade
+    // enorme, quote 0) viola a implicacao, enquanto um pool vazio (depth 0)
+    // esta isento e um pool de po passa (quote minusculo mas != 0).
+    //
+    // EXISTE porque a familia CL inteira quotou 0 durante semanas com
+    // tem-pool alto e NENHUM teste disparou: o varrimento agrega por kind e
+    // o zero de uma familia desaparece dentro do agregado. Este portao teria
+    // ficado vermelho no dia em que o sentinel nasceu. Duas direccoes porque
+    // um V3 com o preco encostado a um extremo quota 0 numa direccao
+    // legitimamente — so as DUAS a zero com profundidade e que e mordaca.
+    function test_FamiliaAntiVacuidade_ParAncora() public view {
+        if (address(hub) == address(0)) return;   // sem DRPC_KEY nao ha fork
+        address d = _dollar(); address w = _weth();
+        (address t0, address t1) = d < w ? (d, w) : (w, d);
+        uint256 a0 = t0 == d ? 1_000e6 : 1 ether;
+        uint256 a1 = t1 == d ? 1_000e6 : 1 ether;
+        PoolInfo[] memory hits = hub.discoverFor(t0, t1);
+        uint256 violacoes;
+        for (uint256 i; i < hits.length; ++i) {
+            PoolInfo memory h = hits[i];
+            if (!h.active || h.pool == address(0)) continue;
+            (uint256 out01, uint256 d01) = BPC.universalQuote(_gateCtx(h, true),  a0);
+            (uint256 out10, uint256 d10) = BPC.universalQuote(_gateCtx(h, false), a1);
+            uint256 depth = d01 > d10 ? d01 : d10;
+            if (depth > 0 && out01 == 0 && out10 == 0) {
+                violacoes++;
+                console2.log("AMORDACADA pool/kind/fee:", h.pool, h.kind, h.fee);
+            }
+        }
+        assertEq(violacoes, 0, "familia com profundidade que quota 0 nas DUAS direccoes: sentinel/dialecto novo?");
+    }
+
+    function _gateCtx(PoolInfo memory h, bool z) internal view returns (QuoteCtx memory c) {
+        c.kind = h.kind; c.pool = h.pool; c.zeroForOne = z; c.fee = h.fee;
+        c.tickSpacing = h.tickSpacing; c.stable = h.stable;
+        c.tokenIn = z ? h.token0 : h.token1; c.tokenOther = z ? h.token1 : h.token0;
+        c.hooks = h.hooks; c.v4Manager = hub.v4PoolManager();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-contract TokenSweepBaseChainTest is TokenSweepBase {
+/// FIXTURE: a cablagem da chain, separada dos testes para poder ser HERDADA
+/// por outros aparelhos (FidelityMatrix) sem criar a 4a copia de cablagem —
+/// a deriva probe-vs-sweep-vs-deploy foi o defeito central da nota 135.
+abstract contract BaseChainFixture is TokenSweepBase {
     address constant USDC   = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address constant WETH   = 0x4200000000000000000000000000000000000006;
     address constant WSTETH = 0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452;
@@ -229,12 +281,16 @@ contract TokenSweepBaseChainTest is TokenSweepBase {
     }
 
     function _dollar() internal pure override returns (address) { return USDC; }
+    function _weth() internal pure override returns (address) { return WETH; }
     function _label() internal pure override returns (string memory) { return " BASE 8453 - varrimento"; }
     function _n() internal pure override returns (uint256) { return 100; }
     function _at(uint256 i) internal pure override returns (string memory, address) {
         Top100BaseTokens.Entry[100] memory e = Top100BaseTokens.all();
         return (e[i].symbol, e[i].token);
     }
+}
+
+contract TokenSweepBaseChainTest is BaseChainFixture {
     /// @notice CENSO DE FALHAS — porque e que o `previewPlan` nao devolve rota.
     ///
     /// O `_sweep` conta os falhados mas o `catch` dele nao distingue causas: um
@@ -315,14 +371,14 @@ contract TokenSweepBaseChainTest is TokenSweepBase {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-contract TokenSweepArbitrumTest is TokenSweepBase {
+abstract contract ArbitrumFixture is TokenSweepBase {
     address constant USDC   = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address constant WETH   = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
     address constant WSTETH = 0x5979D7b546E38E414F7E9822514be443A4800529;
 
     function setUp() public {
         if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
-        vm.createSelectFork("arbitrum");
+        vm.createSelectFork("arbitrum", 498_000_000); // fixado 2026-08-24: mesma razao e mesmo bloco do FactoryCensus
         _core(0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32);
         hub.addBridge(WETH); hub.addBridge(USDC); hub.addBridge(WSTETH);
         uint24[] memory af = new uint24[](1); af[0] = 0;
@@ -344,26 +400,30 @@ contract TokenSweepArbitrumTest is TokenSweepBase {
     }
 
     function _dollar() internal pure override returns (address) { return USDC; }
+    function _weth() internal pure override returns (address) { return WETH; }
     function _label() internal pure override returns (string memory) { return " ARBITRUM 42161 - varrimento"; }
     function _n() internal pure override returns (uint256) { return 59; }
     function _at(uint256 i) internal pure override returns (string memory, address) {
         Top100ArbitrumTokens.Entry[59] memory e = Top100ArbitrumTokens.all();
         return (e[i].symbol, e[i].token);
     }
+}
+
+contract TokenSweepArbitrumTest is ArbitrumFixture {
     /// Dois lotes: ver a nota em `_sweep(amountIn, de, ate)`.
     function test_Sweep_Lote1() public { _sweep(1_000e6,  0, 30); }
     function test_Sweep_Lote2() public { _sweep(1_000e6, 30, 59); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-contract TokenSweepOptimismTest is TokenSweepBase {
+abstract contract OptimismFixture is TokenSweepBase {
     address constant USDC   = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
     address constant WETH   = 0x4200000000000000000000000000000000000006;
     address constant WSTETH = 0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb;
 
     function setUp() public {
         if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
-        vm.createSelectFork("optimism");
+        vm.createSelectFork("optimism", 156_000_000); // fixado 2026-08-24: mesma razao e mesmo bloco do FactoryCensus
         // O PoolManager da Optimism EXISTE (0x9a13F98C..., verificado no
         // test/fork/MultichainProbe.t.sol). Passar address(0) aqui desligava o
         // V4 inteiro e fazia o varrimento reportar "V4 = 0 pernas" como se
@@ -381,6 +441,7 @@ contract TokenSweepOptimismTest is TokenSweepBase {
     }
 
     function _dollar() internal pure override returns (address) { return USDC; }
+    function _weth() internal pure override returns (address) { return WETH; }
     function _label() internal pure override returns (string memory) { return " OPTIMISM 10 - varrimento"; }
     function _n() internal pure override returns (uint256) { return 41; }
     function _at(uint256 i) internal pure override returns (string memory, address) {
@@ -388,6 +449,9 @@ contract TokenSweepOptimismTest is TokenSweepBase {
         return (e[i].symbol, e[i].token);
     }
     /// Dois lotes: ver a nota em `_sweep(amountIn, de, ate)`.
+}
+
+contract TokenSweepOptimismTest is OptimismFixture {
     function test_Sweep_Lote1() public { _sweep(1_000e6,  0, 21); }
     function test_Sweep_Lote2() public { _sweep(1_000e6, 21, 41); }
 }
