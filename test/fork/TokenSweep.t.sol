@@ -247,7 +247,7 @@ abstract contract TokenSweepBase is Test {
         assertEq(violacoes, 0, "familia com profundidade que quota 0 nas DUAS direccoes: sentinel/dialecto novo?");
     }
 
-    function _gateCtx(PoolInfo memory h, bool z) private view returns (QuoteCtx memory c) {
+    function _gateCtx(PoolInfo memory h, bool z) internal view returns (QuoteCtx memory c) {
         c.kind = h.kind; c.pool = h.pool; c.zeroForOne = z; c.fee = h.fee;
         c.tickSpacing = h.tickSpacing; c.stable = h.stable;
         c.tokenIn = z ? h.token0 : h.token1; c.tokenOther = z ? h.token1 : h.token0;
@@ -256,7 +256,10 @@ abstract contract TokenSweepBase is Test {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-contract TokenSweepBaseChainTest is TokenSweepBase {
+/// FIXTURE: a cablagem da chain, separada dos testes para poder ser HERDADA
+/// por outros aparelhos (FidelityMatrix) sem criar a 4a copia de cablagem —
+/// a deriva probe-vs-sweep-vs-deploy foi o defeito central da nota 135.
+abstract contract BaseChainFixture is TokenSweepBase {
     address constant USDC   = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address constant WETH   = 0x4200000000000000000000000000000000000006;
     address constant WSTETH = 0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452;
@@ -285,6 +288,9 @@ contract TokenSweepBaseChainTest is TokenSweepBase {
         Top100BaseTokens.Entry[100] memory e = Top100BaseTokens.all();
         return (e[i].symbol, e[i].token);
     }
+}
+
+contract TokenSweepBaseChainTest is BaseChainFixture {
     /// @notice CENSO DE FALHAS — porque e que o `previewPlan` nao devolve rota.
     ///
     /// O `_sweep` conta os falhados mas o `catch` dele nao distingue causas: um
@@ -365,7 +371,7 @@ contract TokenSweepBaseChainTest is TokenSweepBase {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-contract TokenSweepArbitrumTest is TokenSweepBase {
+abstract contract ArbitrumFixture is TokenSweepBase {
     address constant USDC   = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address constant WETH   = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
     address constant WSTETH = 0x5979D7b546E38E414F7E9822514be443A4800529;
@@ -401,13 +407,16 @@ contract TokenSweepArbitrumTest is TokenSweepBase {
         Top100ArbitrumTokens.Entry[59] memory e = Top100ArbitrumTokens.all();
         return (e[i].symbol, e[i].token);
     }
+}
+
+contract TokenSweepArbitrumTest is ArbitrumFixture {
     /// Dois lotes: ver a nota em `_sweep(amountIn, de, ate)`.
     function test_Sweep_Lote1() public { _sweep(1_000e6,  0, 30); }
     function test_Sweep_Lote2() public { _sweep(1_000e6, 30, 59); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-contract TokenSweepOptimismTest is TokenSweepBase {
+abstract contract OptimismFixture is TokenSweepBase {
     address constant USDC   = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
     address constant WETH   = 0x4200000000000000000000000000000000000006;
     address constant WSTETH = 0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb;
@@ -440,6 +449,9 @@ contract TokenSweepOptimismTest is TokenSweepBase {
         return (e[i].symbol, e[i].token);
     }
     /// Dois lotes: ver a nota em `_sweep(amountIn, de, ate)`.
+}
+
+contract TokenSweepOptimismTest is OptimismFixture {
     function test_Sweep_Lote1() public { _sweep(1_000e6,  0, 21); }
     function test_Sweep_Lote2() public { _sweep(1_000e6, 21, 41); }
 }
