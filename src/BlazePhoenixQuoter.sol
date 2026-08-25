@@ -111,6 +111,30 @@ contract BlazePhoenixQuoter {
     uint16  internal constant BASE_SAFETY_BPS   = 0;
     uint16  internal constant PER_LEG_SAFETY    = 1;
     uint16  internal constant SAFETY_CAP_BPS    = 10;
+    /// @notice Extra buffer, per leg, for a leg whose fee was ASSUMED rather
+    ///         than asked of the pool.
+    /// @dev    `safety(n)` counted LEGS and ignored HOW each one was priced. A
+    ///         Solidly leg asks the pool (`getAmountOut`), a V4 leg reads state
+    ///         (`extsload`), a V3 leg reads `fee()` — model error ~0. A V2 leg
+    ///         cannot: MEASURED 2026-08-25 on Base, the USDC/WETH pairs of all
+    ///         four wired V2 venues (UniV2, PancakeV2, SushiV2, BaseSwap)
+    ///         answer NONE of `swapFee()` / `fee()` / `feeRate()`. There is
+    ///         nobody to ask, so the 30 bps default is unavoidable — and its
+    ///         uncertainty is real and belongs in the published number.
+    ///
+    ///         WHY 5, AND WHAT IT DOES NOT COVER. Only ONE direction hurts:
+    ///         assuming 30 where the pool charges LESS (Pancake's 25)
+    ///         under-quotes and is harmless; assuming 30 where it charges MORE
+    ///         over-quotes, and execution then delivers under `effectiveMinOut`
+    ///         and reverts. The wired venues publish 25-30, so 5 bps covers the
+    ///         realistic spread with margin while staying the same order as
+    ///         PER_LEG_SAFETY. It deliberately does NOT cover the worst case
+    ///         the V2 fee ceiling still admits (100 - 30 = 70 bps): a buffer
+    ///         sized for the worst case IS a floor, and the floor already
+    ///         exists (iron floor + the execution revert). This buffer exists
+    ///         so `netOut` stops being silent about an assumed leg, not to
+    ///         re-underwrite it.
+    uint16  internal constant ASSUMED_FEE_SAFETY = 5;
     uint16  internal constant MAX_BATCH         = 32;
 
     ISolverQ public immutable solver;
@@ -230,21 +254,43 @@ contract BlazePhoenixQuoter {
         pv.protocolFee = route.totalOut > afterFee ? route.totalOut - afterFee : 0;
 
         uint256 legs;
+        // Legs priced on an ASSUMED fee. THE SIGNAL IS ASKED OF THE PRODUCER,
+        // never re-derived: `effV2Fee(fee) != fee` means "the single producer
+        // substituted", which is exactly the definition of an assumption — a
+        // declared 0 (no fee known) and a declared 9_900 (above the ceiling)
+        // are the same epistemic state and must be charged the same. Writing
+        // `fee == 0 || fee > CEILING` here instead would be a second copy of
+        // the producer's rule, which is the defect this codebase is named for
+        // and which cost two fixes today alone (CoreV2QuoteParity, _gateCtx).
+        // ONLY KIND_V2: Solidly is A_RESERVES too but asks the pool via
+        // `getAmountOut`, so its zero fee is not a sentinel and charging it
+        // would penalise the most exact family we have.
+        uint256 assumedFeeLegs;
         for (uint256 h; h < route.hops.length; ) {
-            legs += route.hops[h].legs.length;
+            Leg[] memory ls = route.hops[h].legs;
+            legs += ls.length;
+            for (uint256 i; i < ls.length; ) {
+                if (ls[i].kind == BPC.KIND_V2 && BPC.effV2Fee(ls[i].fee) != ls[i].fee) {
+                    unchecked { ++assumedFeeLegs; }
+                }
+                unchecked { ++i; }
+            }
             unchecked { ++h; }
         }
         pv.hops = route.hops.length;
         pv.legs = legs;
 
-        // safety(n): 0 at legs ≤ 2; +1 BPS per leg above 2; cap 10
+        // safety(n): 0 at legs ≤ 2; +1 BPS per leg above 2; +ASSUMED_FEE_SAFETY
+        // per leg priced on an assumed fee; cap 10. The composition-risk term
+        // (leg count) and the model-error term (assumed fees) are independent
+        // sources of the same uncertainty and add, under one shared cap — a
+        // buffer without a ceiling stops being a buffer and becomes a floor.
         uint16 sBps;
-        if (legs > 2) {
-            unchecked {
-                uint256 calc = BASE_SAFETY_BPS + (legs - 2) * PER_LEG_SAFETY;
-                if (calc > SAFETY_CAP_BPS) calc = SAFETY_CAP_BPS;
-                sBps = uint16(calc);
-            }
+        unchecked {
+            uint256 calc = legs > 2 ? BASE_SAFETY_BPS + (legs - 2) * PER_LEG_SAFETY : 0;
+            calc += assumedFeeLegs * ASSUMED_FEE_SAFETY;
+            if (calc > SAFETY_CAP_BPS) calc = SAFETY_CAP_BPS;
+            sBps = uint16(calc);
         }
         pv.safetyBuffer = BPC.mulDiv(afterFee, sBps, BPC.BPS);
         pv.netOut       = afterFee > pv.safetyBuffer ? afterFee - pv.safetyBuffer : 0;

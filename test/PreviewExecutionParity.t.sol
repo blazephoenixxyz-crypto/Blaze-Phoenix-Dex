@@ -93,12 +93,24 @@ contract PreviewExecutionParityTest is Test {
         emit log_named_decimal_uint("previsto ", pv.netOut, 18);
         emit log_named_decimal_uint("entregue ", entregue, 18);
         // 10 bps de margem, e o numero e escolhido por MEDICAO e nao por conforto: a diferenca
-        // real e ~8,4e-9 relativa (arredondamento puro), e o buffer de seguranca e 0 ate 2 pernas.
+        // real e ~8,4e-9 relativa (arredondamento puro).
         // Uma fee esquecida vale 28 bps — QUASE TRES VEZES esta margem, logo cai cá fora.
         // A primeira versao usava 0,5% e o guarda de mutacao mostrou porque estava errada: 0,5%
         // e MAIOR que os 28 bps que o mutante apagava, portanto o teste passava mutado. Uma
         // tolerancia maior que o defeito que se quer apanhar e um teste decorativo com outro nome.
-        assertApproxEqRel(entregue, pv.netOut, 0.001e18, "o preview de um hop nao bate com a entrega");
+        //
+        // COMPARA-SE CONTRA `netOut + safetyBuffer`, E NAO CONTRA `netOut`. Sao duas grandezas
+        // diferentes e este teste so mede uma: `netOut + safetyBuffer` e o `afterFee`, isto e, a
+        // PREVISAO DO MODELO DE FEE — que e o que tem de bater com a entrega. O `safetyBuffer` e
+        // uma subtraccao DELIBERADA por cima (margem de erro publicada), nao um erro de modelo.
+        // Este teste assumia "o buffer e 0 ate 2 pernas" e ficou vermelho quando o buffer passou
+        // a cobrar tambem a incerteza da fee ASSUMIDA de uma perna V2. Alargar a tolerancia para
+        // 11 bps teria sido a correccao errada — erodia a margem contra o proprio defeito de 28
+        // bps que o teste existe para apanhar. Separar as grandezas mantem a tolerancia APERTADA
+        // e mede o que interessa; a direccao do buffer e afirmada logo a seguir.
+        assertApproxEqRel(entregue, pv.netOut + pv.safetyBuffer, 0.001e18,
+            "o modelo de fee do preview de um hop nao bate com a entrega");
+        assertLe(pv.netOut, entregue, "o preview NUNCA pode prometer mais do que a execucao entrega");
     }
 
     /// DOIS HOPS — e e este que apanha o modelo de fee errado. Com a fee cobrada por hop, uma rota
@@ -116,7 +128,11 @@ contract PreviewExecutionParityTest is Test {
 
         emit log_named_decimal_uint("previsto ", pv.netOut, 18);
         emit log_named_decimal_uint("entregue ", entregue, 18);
-        assertApproxEqRel(entregue, pv.netOut, 0.001e18, "o preview de dois hops nao bate com a entrega");
+        // Ver a nota do teste de um hop: a paridade e do MODELO DE FEE (`netOut + safetyBuffer`),
+        // e a direccao do buffer e afirmada a parte.
+        assertApproxEqRel(entregue, pv.netOut + pv.safetyBuffer, 0.001e18,
+            "o modelo de fee do preview de dois hops nao bate com a entrega");
+        assertLe(pv.netOut, entregue, "o preview NUNCA pode prometer mais do que a execucao entrega");
     }
 
     /// @notice A FEE DEIXOU DE COMPOR — 2026-08-22, decisao do dono.
