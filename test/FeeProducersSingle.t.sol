@@ -37,8 +37,17 @@ contract FeeProducersSingleTest is Test {
     }
 
     function testFuzz_V2FeeDeclaradaVenceSempre(uint24 declarada) public pure {
-        vm.assume(declarada != 0);
-        assertEq(BPC.effV2Fee(declarada), declarada, "uma fee declarada nao pode ser substituida");
+        vm.assume(declarada != 0 && declarada <= 100);   // <= o tecto V2_FEE_CEILING_BPS
+        assertEq(BPC.effV2Fee(declarada), declarada, "uma fee V2 PLAUSIVEL (<= 1%) nao pode ser substituida");
+    }
+
+    /// O TECTO — a espec escrita do defeito F2 (revisao 2026-08-25). Uma fee de
+    /// calldata acima de 1% e adversarial (um par V2 real nunca cobra tanto, e
+    /// nao ha `fee()` para a desmentir): cai no default da casa, e por isso o
+    /// piso do protocolo deixa de ser deflacionavel. Medido: 9_900 -> 30.
+    function testFuzz_FeeV2AdversarialCaiNoDefault(uint24 declarada) public pure {
+        vm.assume(declarada > 100);
+        assertEq(BPC.effV2Fee(declarada), 30, "fee V2 > 1% e adversarial: tem de cair no default de 30 bps");
     }
 
     // ─── (2) quoteV3Fee — o produtor unico do caminho quote/impacto ──────────

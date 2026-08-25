@@ -109,8 +109,12 @@ jobs:
         #    Router, e o universalQuote. Os dois primeiros sao o par que TEM de concordar — se
         #    divergirem, a cotacao mente sobre o que a execucao vai fazer, que e a forma exata das
         #    fugas de fee ja fechadas nesta base.
+        #    DESDE 2026-08-25 o produtor tambem poe um TECTO (V2_FEE_CEILING_BPS = 100): um par V2
+        #    nao tem `fee()` para desmentir a calldata, e uma fee declarada de 99% deflacionava o
+        #    quote para ~1% e com ele o protocolFloorOut. Como AMBOS os lados do par-que-tem-de-
+        #    concordar chamam este produtor, o tecto mantem-nos byte-a-byte iguais.
         #
-        # 2. "qual e a fee VIVA desta pool concentrada?" -> BPC.effV3Fee. O Router tinha uma copia
+        # 2. "qual e a fee VIVA desta pool concentrada?" -> BPC.quoteV3Fee. O Router tinha uma copia
         #    que divergia no caso que o Core documenta em voz alta ("0% is legal"): fazia
         #    `dynFee != 0 ? dynFee : 0xFFFFFF`, tratando um 0% MEDIDO COM SUCESSO como falha. Uma
         #    pool Algebra de fee 0% era cotada a zero e caia fora do routing. O
@@ -121,13 +125,13 @@ jobs:
         # So o segundo pode fechar sobre um zero.
         run: |
           if grep -rnE '==[[:space:]]*0[[:space:]]*\?[[:space:]]*30([^0-9]|$)' src/ \
-             | grep -vE 'return declared == 0 \? 30 : declared' | grep -vE ':\s*(///|//|\*)'; then
+             | grep -vE 'declared == 0 \|\| declared > V2_FEE_CEILING_BPS' | grep -vE ':\s*(///|//|\*)'; then
             echo "::error::Default de fee V2 escrito a mao. Usa BPC.effV2Fee — tres copias de um literal e a assinatura de defeito da casa."
             exit 1
           fi
           if grep -rnE '\?[^;]*:[[:space:]]*0xFFFFFF' src/ \
              | grep -vE 'src/BlazePhoenixCore\.sol' | grep -vE ':\s*(///|//|\*)'; then
-            echo "::error::Juizo de fee viva fora do Core. Usa BPC.effV3Fee — a copia divergia sobre se um 0% medido e legal."
+            echo "::error::Juizo de fee viva fora do Core. Usa BPC.quoteV3Fee — a copia divergia sobre se um 0% medido e legal."
             exit 1
           fi
 

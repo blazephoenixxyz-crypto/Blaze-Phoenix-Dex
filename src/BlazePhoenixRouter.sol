@@ -748,7 +748,7 @@ contract BlazePhoenixRouter {
                     // the ternary, which is the obvious correction, makes it unconditional and adds
                     // a staticcall to EVERY Algebra leg, where today it is not called at all — it
                     // regressed gas on the very family this block was written for.
-                    // THE LIVE-FEE JUDGEMENT HAS ONE PRODUCER, AND IT IS THE CORE'S `effV3Fee`.
+                    // THE LIVE-FEE JUDGEMENT HAS ONE PRODUCER, AND IT IS THE CORE'S `quoteV3Fee`.
                     // What was here was a hand-written copy, and it DIVERGED in the case the Core
                     // documents out loud: `if (dyn) return measured;  // 0% is legal`. The copy did
                     // `dynFee != 0 ? dynFee : 0xFFFFFF`, that is, it treated a SUCCESSFULLY MEASURED

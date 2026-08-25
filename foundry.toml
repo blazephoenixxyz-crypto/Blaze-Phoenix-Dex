@@ -118,7 +118,29 @@ show_unproved = true
 base = { endpoint = "https://mainnet.base.org", retries = 10, retry_backoff = 2000 }
 mainnet = "https://lb.drpc.live/ethereum/${DRPC_KEY}"
 optimism = "https://lb.drpc.live/optimism/${DRPC_KEY}"
-arbitrum = "https://lb.drpc.live/arbitrum/${DRPC_KEY}"
+# ARBITRUM — ARQUIVO NAO FIAVEL NO POOL DA dRPC. Os testes de fork FIXADOS
+# (FactoryCensus, TokenSweep) morrem intermitentemente com
+# "missing trie node <hash> ... state is not available", gas: 0, antes de
+# qualquer assert. DIAGNOSTICO MEDIDO 2026-08-25, e cada hipotese refutada fica
+# escrita para ninguem a repetir:
+#   1. "a chave expirou"        -> era VERDADE, mas nao era ISTO: a chave antiga
+#      respondia "Your key is deactivated"; com a chave nova o erro MUDOU de
+#      volta para o trie node. Dois problemas sobrepostos, nao um.
+#   2. "o bloco envelheceu fora da retencao" -> REFUTADO: `eth_getCode` no
+#      MESMO contrato e no MESMO bloco fixado responde 5/5 por `curl`.
+#   3. "e aquele bloco em concreto" -> REFUTADO: repinar para 498.008.832 deu
+#      um trie hash DIFERENTE e a mesma falha.
+#   O que resta, e bate com o padrao ja documentado para a Base acima: uma
+#   FRACCAO dos backends do pool nao tem o estado de arquivo. Um `curl` (1
+#   pedido) quase nunca lhes calha; o forge (centenas por teste) calha sempre.
+#   Nao ha knob do forge para "o backend que me calhou nao tem o estado" — os
+#   retries abaixo ajudam mas nao curam.
+#   OP e RH no MESMO pool passam 3/3, portanto e especifico do arquivo do ARB.
+#   PROXIMO PASSO quando isto voltar a bloquear: endpoint de arquivo proprio
+#   para o ARB (o publico arb1.arbitrum.io NAO serve — retencao so a partir de
+#   ~475,8M, medido). Ate la os testes de fork do ARB correm no CI (que tem
+#   outro pool) e localmente sao flaky por INFRA, nunca por codigo.
+arbitrum = { endpoint = "https://lb.drpc.live/arbitrum/${DRPC_KEY}", retries = 10, retry_backoff = 2000 }
 robinhood = "https://lb.drpc.live/robinhood/${DRPC_KEY}"
 # Unichain (chainId 130) — verificada ao vivo 2026-08-19 via dRPC.
 unichain = "https://lb.drpc.live/unichain/${DRPC_KEY}"

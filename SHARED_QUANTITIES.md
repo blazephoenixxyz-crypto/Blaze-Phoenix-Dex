@@ -50,7 +50,7 @@ green test in front of it.
 |---|---|---|---|---|
 | `LEG_FLOOR_BPS` | "How much may a single leg legitimately lose?" | `Core` (definition), `Router` ×8 | `PINNED` | `test/formal/CompositionFormalSpec.t.sol` — names it, and proves the collapse at `L = 1` |
 | `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1 | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant** |
-| `effV2Fee` / `effV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
+| `effV2Fee` / `quoteV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
 | `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2, `Router` ×2 — same function, **different aggregations** | `OPEN` | none — finding **FLOOR-01** |
 
 **`PROTOCOL_FEE_BPS` — the escapes.** The pin compares realised delivery against predicted `netOut`

@@ -251,6 +251,26 @@ abstract contract TokenSweepBase is Test {
         c.kind = h.kind; c.pool = h.pool; c.zeroForOne = z; c.fee = h.fee;
         c.tickSpacing = h.tickSpacing; c.stable = h.stable;
         c.tokenIn = z ? h.token0 : h.token1; c.tokenOther = z ? h.token1 : h.token0;
+        // ESPELHA O SOLVER (`_quoteWithDepth`), e a razao e um portao que se
+        // calava. A descoberta emite as pools V4 NATIVAS na forma
+        // WETH-canonica (token0 = lado wrapped — o contrato de orientacao do
+        // Hub), mas a currency0 REAL e address(0). Sem esta substituicao o
+        // `sortTokens` do universalQuote deriva o poolId da pool WRAPPED —
+        // outra pool — e o portao le um slot morto: depth 0, e a implicacao
+        // `depth > 0 => quote != 0` fica VACUAMENTE verdadeira para a familia
+        // nativa inteira. Ou seja: a familia mais funda desta chain (3,76x a
+        // wrapped) estava fora da vigilancia sem nunca ficar vermelha.
+        // OS OUTROS TRES CANAIS JA FAZIAM ISTO — Solver:1167, Quoter._simV4 e
+        // Router._execV4 (via nativeMapVerified); o portao era o unico que
+        // reconstruia o contexto em vez de reutilizar a normalizacao. Um teste
+        // que re-deriva o que um produtor ja calcula e um teste que pode ficar
+        // vazio sem falhar: a doutrina do produtor unico vale para o aparelho
+        // de medida tambem.
+        // `z` basta e nao e preciso o endereco do WETH: sob esta orientacao
+        // z <=> tokenIn == token0 <=> o input e a currency0 nativa.
+        if (h.kind == BPC.KIND_V4_NATIVE) {
+            if (z) c.tokenIn = address(0); else c.tokenOther = address(0);
+        }
         c.hooks = h.hooks; c.v4Manager = hub.v4PoolManager();
     }
 }

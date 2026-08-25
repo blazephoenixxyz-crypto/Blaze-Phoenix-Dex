@@ -953,10 +953,23 @@ library BlazePhoenixCore {
     ///         the fee. It is not a conservative guess: a fee ASSUMED BELOW the real one makes
     ///         the quote promise more than the pool delivers, and execution finds the difference.
     ///
+    ///         AND A CEILING, because a V2 pair has no `fee()` to read (unlike V3's quoteV3Fee):
+    ///         the number can only come from calldata, and calldata is the adversary's. An
+    ///         over-declared fee (measured: 9_900 = 99%) deflated the in-frame quote to ~1% and,
+    ///         through `protocolFloorOut = mulDiv(finalHopQuote, floorBps, BPS)`, collapsed the
+    ///         protocol floor with it — the SAME T1/INV-20 class the concentrated arm closed by
+    ///         refusing to take the fee from calldata. There the fix is "read the pool"; here no
+    ///         pool answers, so the fix is a ceiling: anything above a plausible V2 fee (100 bps
+    ///         = 1%, well past every real deployment) falls back to the house default. Both sides
+    ///         of "the pair that MUST agree" call this, so clamping HERE keeps quote and
+    ///         execution byte-identical — a ceiling in only one would make them disagree and
+    ///         trip the floor on honest routes. Units are BPS (outV2 does BPS - fee), not ppm.
+    ///
     ///         `internal` on purpose: inlined, zero traversal cost, and the gain here is one of
     ///         CORRECTNESS and not of gas — three places that cannot diverge now cannot.
+    uint24 internal constant V2_FEE_CEILING_BPS = 100;
     function effV2Fee(uint24 declared) internal pure returns (uint24) {
-        return declared == 0 ? 30 : declared;
+        return (declared == 0 || declared > V2_FEE_CEILING_BPS) ? 30 : declared;
     }
 
     // effV3Fee (pure) lived here; quoteV3Fee below absorbed it. The Router's
@@ -1401,7 +1414,7 @@ library BlazePhoenixCore {
         if (k == KIND_V3 || k == KIND_ALGEBRA) {
             // One read yields the price AND, for a dynamic-fee (Algebra) pool,
             // the live fee — measured, never the Hub's 0 sentinel. See
-            // v3StateAndDynFee / effV3Fee: the INV-20 "measure, don't take the
+            // v3StateAndDynFee / quoteV3Fee: the INV-20 "measure, don't take the
             // nominal" rule, applied to the OTHER dynamic-fee family in this
             // same dispatcher. Static V3 keys are untouched (cfgFee wins, no
             // extra read, byte-identical quote and gas).
