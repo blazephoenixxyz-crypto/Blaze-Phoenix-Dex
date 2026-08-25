@@ -40,7 +40,7 @@ jobs:
         run: slither . --fail-high
       - name: Upload Slither reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: slither-reports
           path: |
@@ -69,7 +69,7 @@ jobs:
           tail -c 40000 aderyn-report.md || true
       - name: Upload Aderyn report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aderyn-report
           path: aderyn-report.md
@@ -91,7 +91,7 @@ jobs:
           cat solhint-report.txt || true
       - name: Upload Solhint report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: solhint-report
           path: solhint-report.txt
