@@ -43,6 +43,17 @@ contract CoreV2QuoteParityTest is Test {
     ///         fee > BPS would underflow-revert and zero reserves would
     ///         divide by zero — those regions are pinned by the deterministic
     ///         edge cases below, against outV2 itself.
+    ///
+    ///         THE EXPECTATION MIRRORS effV2Fee, IT DOES NOT RE-DERIVE IT.
+    ///         This test used to hard-code `fee == 0 ? 30 : fee` — a second
+    ///         copy of the very number the Core exists to produce once, and it
+    ///         went red the day the producer grew a CEILING (finding F2,
+    ///         2026-08-25: a V2 pair has no `fee()` to contradict calldata, so
+    ///         a declared 99% deflated the quote to ~1% and collapsed
+    ///         `protocolFloorOut` with it). A parity pin that re-derives the
+    ///         thing it is pinning tests its own copy. It now CALLS the
+    ///         producer, so the pin follows the doctrine instead of freezing
+    ///         one version of it.
     function testFuzz_V2BranchMatchesLiteralFormula(
         uint112 r0, uint112 r1, uint96 ain, uint24 fee, bool zfo
     ) public {
@@ -55,7 +66,7 @@ contract CoreV2QuoteParityTest is Test {
 
         uint256 rIn  = zfo ? r0 : r1;
         uint256 rOut = zfo ? r1 : r0;
-        uint256 f    = fee == 0 ? 30 : fee;   // the ONE fee default, Core-only now
+        uint256 f    = BPC.effV2Fee(fee);     // the ONE producer — default AND ceiling
         uint256 amtFee = uint256(ain) * (BPC.BPS - f);
         uint256 expected = ain == 0 ? 0 : (amtFee * rOut) / (rIn * BPC.BPS + amtFee);
 
@@ -71,13 +82,22 @@ contract CoreV2QuoteParityTest is Test {
         // fee == 0 -> the 30 bps default lives in the dispatcher alone.
         (uint256 outDefault, ) = BPC.universalQuote(_ctx(0, true), 1e18);
         assertEq(outDefault, BPC.outV2(1e18, 1e24, 2e24, 30), "fee=0 must default to 30 bps");
-        // fee == 9999: heaviest legal fee still quotes.
-        (uint256 outMax, ) = BPC.universalQuote(_ctx(9999, true), 1e18);
-        assertEq(outMax, BPC.outV2(1e18, 1e24, 2e24, 9999));
-        assertGt(outMax, 0);
-        // fee >= BPS (100%): unquotable -> fail-soft 0.
+        // fee == 100 (1%): the heaviest PLAUSIBLE V2 fee passes through intact.
+        (uint256 outCeil, ) = BPC.universalQuote(_ctx(100, true), 1e18);
+        assertEq(outCeil, BPC.outV2(1e18, 1e24, 2e24, 100), "1% is plausible and must pass intact");
+        assertGt(outCeil, 0);
+        // fee == 9999: ADVERSARIAL. Was "heaviest legal fee still quotes" — and
+        // that was the defect (F2): quoting it is what let calldata deflate the
+        // protocol floor. It now falls back to the house default, so the quote
+        // is IDENTICAL to the honest one and there is nothing to deflate.
+        (uint256 outAdversarial, ) = BPC.universalQuote(_ctx(9999, true), 1e18);
+        assertEq(outAdversarial, outDefault, "F2: an over-declared fee must quote as the 30 bps default");
+        // fee >= BPS (100%): also above the ceiling, so it defaults like any
+        // other over-declaration. The outV2 fail-soft at fee >= 1e6 stays as the
+        // last line of defence for a fee that reaches it by another path.
         (uint256 outBad, ) = BPC.universalQuote(_ctx(10_000, true), 1e18);
-        assertEq(outBad, 0, "fee >= 100% must fail-soft to 0");
+        assertEq(outBad, outDefault, "a fee at/above 100% is over-declared: defaults, never quotes 0");
+        assertEq(BPC.outV2(1e18, 1e24, 2e24, 1_000_000), 0, "outV2 still fail-softs a >=100% fee to 0");
         // Zero input -> 0 (dispatcher early-return).
         (uint256 outZeroIn, ) = BPC.universalQuote(_ctx(30, true), 0);
         assertEq(outZeroIn, 0);

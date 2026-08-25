@@ -1458,7 +1458,7 @@ contract BlazePhoenixHub {
         //     trusted: it feeds `computeV4PoolId`, and `_recoverV4Ts` above has
         //     already returned without registering if the derived pid missed the pool.
         //   Algebra (`dyn`) -> 0, the sentinel that tells the reader to MEASURE live
-        //     (`effV3Fee`). That is rule R2 (L511-512), which only existed at the
+        //     (`quoteV3Fee`). That is rule R2 (L511-512), which only existed at the
         //     `addFactory` door — this door never had it.
         //   Static V3 -> `getV3Fee(pool)`, measured.
         //   V2 / Solidly -> `fee()` does not exist, so 0, and `effV2Fee(0) = 30`: the
@@ -1471,7 +1471,7 @@ contract BlazePhoenixHub {
         // in KINDS_EXECUTABLE — never that the pool IS of that type. A
         // `kind = KIND_ALGEBRA` declared on a real V3 pool with `fee = 3000`
         // executes cleanly, would write the 0 sentinel, and from then on
-        // `effV3Fee(0, 0, dyn=false)` returns 0xFFFFFF fail-closed: the pool became
+        // `quoteV3Fee(pool, 0, 0, dyn=false)` returns 0xFFFFFF fail-closed: the pool became
         // permanently unquotable. Swapping one calldata field for another calldata
         // field closes nothing — only reading the pool's SHAPE trusts
         // nobody. It costs ~190 B of Hub, measured: the price of not having
