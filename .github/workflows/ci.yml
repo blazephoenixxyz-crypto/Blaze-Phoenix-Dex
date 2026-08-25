@@ -326,7 +326,7 @@ jobs:
             done
           } | tee release-hashes.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-hashes
           path: release-hashes.txt
