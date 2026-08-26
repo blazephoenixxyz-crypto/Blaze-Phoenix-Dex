@@ -73,10 +73,12 @@ jobs:
           # success without an analyser: it failed, `|| true` swallowed it, and
           # the missing binary was never noticed.
           VER=$(curl -fsSL https://api.github.com/repos/Cyfrin/aderyn/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
-          curl -fsSL "https://github.com/Cyfrin/aderyn/releases/download/${VER}/aderyn-x86_64-unknown-linux-gnu.tar.xz" -o /tmp/aderyn.tar.xz
-          tar -xJf /tmp/aderyn.tar.xz -C /tmp
-          install -m755 "$(find /tmp -maxdepth 3 -name aderyn -type f | head -1)" /usr/local/bin/aderyn
-          aderyn --version   # fails the job if the binary is not really there
+          curl -fsSL "https://github.com/Cyfrin/aderyn/releases/download/${VER}/aderyn-x86_64-unknown-linux-gnu.tar.xz" -o "$RUNNER_TEMP/aderyn.tar.xz"
+          mkdir -p "$HOME/bin" "$RUNNER_TEMP/aderyn"
+          tar -xJf "$RUNNER_TEMP/aderyn.tar.xz" -C "$RUNNER_TEMP/aderyn"
+          install -m755 "$(find "$RUNNER_TEMP/aderyn" -maxdepth 3 -name aderyn -type f | head -1)" "$HOME/bin/aderyn"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/aderyn" --version   # fails the job if the binary is not really there
 
       - name: Aderyn — full report
         run: |
@@ -126,10 +128,15 @@ jobs:
           # a silent miss cannot pass for a successful install.
           for arch in x64 amd64; do
             URL="https://github.com/gitleaks/gitleaks/releases/download/${VER}/gitleaks_${VER#v}_linux_${arch}.tar.gz"
-            if curl -fsSL "$URL" -o /tmp/gitleaks.tgz; then break; fi
+            if curl -fsSL "$URL" -o "$RUNNER_TEMP/gitleaks.tgz"; then break; fi
           done
-          tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
-          gitleaks version
+          # $HOME/bin, never /usr/local/bin: the runner's default user cannot
+          # write there without sudo, and curl fails with exit 23 rather than
+          # anything that names the cause.
+          mkdir -p "$HOME/bin"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$HOME/bin" gitleaks
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/gitleaks" version
 
       - name: Scan the whole history
         run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose --exit-code 1
