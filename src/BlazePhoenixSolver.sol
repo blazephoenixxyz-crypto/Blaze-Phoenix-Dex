@@ -187,6 +187,26 @@ contract BlazePhoenixSolver {
     ///         capped — cutting capital there forced partial fills on pools
     ///         that execute fine (measured: a 43bps full fill halved).
     uint16  internal constant MAX_CONC_DRAIN_BPS   = 3_000; // 30% of real holdings
+    /// @notice ABSOLUTE ceiling on a route's MEASURED price impact. Above it the
+    ///         Solver returns no route at all.
+    /// @dev    The Iron-Law floor promises to retain 80% of a reference — but the
+    ///         reference is the route's own quote, so a quote that has already
+    ///         collapsed floors itself and the promise says nothing (I3: the bound
+    ///         comes from the pool's curvature, NEVER from beta*quote). A pool with
+    ///         a fair spot price and a dust-sized book prices a large order
+    ///         truthfully, at ~99.9% impact, and every relative guard downstream
+    ///         agrees with it. This is the one bound that is NOT relative to the
+    ///         quote: past it, the route destroys more value than any floor can
+    ///         return, and no honest fill operates there (a full-reserve order on
+    ///         a healthy constant-product pair measures ~5,000 bps and stays).
+    ///         HONEST LIMIT, stated where it is enforced: `_legImpactBps` measures
+    ///         impact for the reserve and concentrated families and returns
+    ///         `DEFAULT_IMPACT_BPS` for the V4 and stable arms, so this ceiling
+    ///         binds exactly where impact is measured and is inert where it is
+    ///         nominal. A guard keyed on a nominal number cannot fire; naming that
+    ///         beats pretending the cover is uniform.
+    uint16  internal constant MAX_ROUTE_IMPACT_BPS = 9_000; // 90% measured impact
+
 
     /// @notice Band filter for the split allocation. After quoting each candidate, the market
     ///         baseline is computed and pools whose rate departs from it by more than
@@ -1402,6 +1422,11 @@ contract BlazePhoenixSolver {
         }
         if (legs > 0) totalImpactBps = totalImpactBps / legs;
 
+        // The absolute impact ceiling: refuse rather than surface a route whose
+        // own measurement says it destroys the order. Returning an empty route is
+        // the Solver's existing "no path" answer — fail-closed, no new revert.
+        if (totalImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
+
         uint256 floorBps = BPC.ironFloorBps(totalImpactBps, legs, 0);
         uint256 floorOut = BPC.mulDiv(hop.expectedOut, floorBps, BPC.BPS);
 
@@ -1442,6 +1467,8 @@ contract BlazePhoenixSolver {
             totalLegs += legs;
             unchecked { ++h; }
         }
+
+        if (totalImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
         uint256 floorBps = BPC.ironFloorBps(totalImpactBps, totalLegs, 0);
         uint256 floorOut = BPC.mulDiv(finalOut, floorBps, BPC.BPS);
