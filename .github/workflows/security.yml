@@ -68,22 +68,22 @@ jobs:
       - name: Install Aderyn (verified)
         run: |
           set -euo pipefail
-          # Install from the release archive directly. The `cyfrinup` bootstrap
-          # is a moving target and was the reason this job spent weeks reporting
-          # success without an analyser: it failed, `|| true` swallowed it, and
-          # the missing binary was never noticed.
           VER=$(curl -fsSL https://api.github.com/repos/Cyfrin/aderyn/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
-          curl -fsSL "https://github.com/Cyfrin/aderyn/releases/download/${VER}/aderyn-x86_64-unknown-linux-gnu.tar.xz" -o "$RUNNER_TEMP/aderyn.tar.xz"
-          mkdir -p "$HOME/bin" "$RUNNER_TEMP/aderyn"
-          tar -xJf "$RUNNER_TEMP/aderyn.tar.xz" -C "$RUNNER_TEMP/aderyn"
-          install -m755 "$(find "$RUNNER_TEMP/aderyn" -maxdepth 3 -name aderyn -type f | head -1)" "$HOME/bin/aderyn"
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          "$HOME/bin/aderyn" --version   # fails the job if the binary is not really there
+          # Download and unpack inside the workspace, which the runner user owns
+          # outright. /usr/local/bin needs sudo and $RUNNER_TEMP proved unreliable
+          # here — both failed as `curl: (23)`, a message that names the symptom
+          # and hides the cause.
+          curl -fsSL "https://github.com/Cyfrin/aderyn/releases/download/${VER}/aderyn-x86_64-unknown-linux-gnu.tar.xz" -o ./aderyn.tar.xz
+          mkdir -p ./.aderyn && tar -xJf ./aderyn.tar.xz -C ./.aderyn
+          BIN=$(find ./.aderyn -maxdepth 3 -name aderyn -type f | head -1)
+          cp "$BIN" ./aderyn-bin
+          chmod +x ./aderyn-bin
+          ./aderyn-bin --version   # fails the job if the binary is not really there
 
       - name: Aderyn — full report
         run: |
           set -euo pipefail
-          aderyn . -o aderyn-report.md
+          ./aderyn-bin . -o aderyn-report.md
           echo "----- Aderyn summary -----"
           grep -E '^##|High|Medium|Low' aderyn-report.md | head -c 20000 || true
 
@@ -119,31 +119,19 @@ jobs:
           # noticed. We have already had to rotate one RPC key.
           fetch-depth: 0
 
-      - name: Install gitleaks
-        run: |
-          set -euo pipefail
-          VER=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
-          # Asset naming is x64 on some releases and amd64 on others; try both
-          # rather than pin a guess. `set -e` plus the version check below means
-          # a silent miss cannot pass for a successful install.
-          for arch in x64 amd64; do
-            URL="https://github.com/gitleaks/gitleaks/releases/download/${VER}/gitleaks_${VER#v}_linux_${arch}.tar.gz"
-            if curl -fsSL "$URL" -o "$RUNNER_TEMP/gitleaks.tgz"; then break; fi
-          done
-          # $HOME/bin, never /usr/local/bin: the runner's default user cannot
-          # write there without sudo, and curl fails with exit 23 rather than
-          # anything that names the cause.
-          mkdir -p "$HOME/bin"
-          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$HOME/bin" gitleaks
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          "$HOME/bin/gitleaks" version
-
-      - name: Scan the whole history
-        run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose --exit-code 1
-
-      - name: Scan the working tree (uncommitted, catches it earlier)
-        if: always()
-        run: gitleaks detect --source . --no-git --config .gitleaks.toml --redact --exit-code 1
+      # The official action rather than a hand-rolled install: two attempts at
+      # fetching the binary ourselves died on `curl: (23)` writing to paths the
+      # runner user cannot own, and an installer that fails in a way nobody
+      # reads is how the neighbouring job spent weeks reporting success without
+      # running. The action owns its own binary and its exit code is the gate.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # Calibrated in .gitleaks.toml against this repository's real history:
+          # stock rules flagged 7 public contract addresses, a 64-hex rule
+          # flagged 155 hashes, and the shipped configuration finds 0 while
+          # still failing on a planted token. See that file for the reasoning.
 
   solhint:
     name: Solhint (linter, report)
