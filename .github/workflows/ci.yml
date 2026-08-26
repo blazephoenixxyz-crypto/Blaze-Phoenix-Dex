@@ -332,7 +332,7 @@ jobs:
           path: release-hashes.txt
 
   formal:
-    name: formal verification (Halmos symbolic)
+    name: formal verification (Halmos + hevm, two engines)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -368,6 +368,28 @@ jobs:
         # this proof was never reaching the runner at all. We believed we had two
         # hard gates and were running one.
         run: halmos --contract EffV4FeeFormalSpec -v
+
+      # SECOND ENGINE ON THE SAME PROOFS. hevm and Halmos both execute existing
+      # Foundry specs symbolically — neither needs a separate specification
+      # language — so on these very contracts they are interchangeable, and the
+      # second engine costs one step rather than a second body of work. The
+      # point is not redundancy: they are different implementations (Haskell vs
+      # Python, different solver strategies and revert semantics), so agreement
+      # is evidence and disagreement is a question worth answering. Published
+      # comparisons put hevm ahead on problems solved per unit time; anything it
+      # proves where Halmos times out is a proof we did not previously have.
+      - name: Install hevm
+        run: |
+          curl -sSL -o /usr/local/bin/hevm \
+            https://github.com/ethereum/hevm/releases/latest/download/hevm-x86_64-linux
+          chmod +x /usr/local/bin/hevm
+          hevm version
+
+      - name: Symbolic PROOF (second engine) — Core math hard gate
+        run: forge build && hevm test --match-contract CoreFormalGateSpec
+
+      - name: Symbolic PROOF (second engine) — INV-20 effV4Fee fail-closed
+        run: hevm test --match-contract EffV4FeeFormalSpec
 
       # The report-only 512-bit-mulDiv checks used to run here and no longer do.
       # They cannot decide — each TIMEOUTs by design — so their expected

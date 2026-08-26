@@ -58,7 +58,7 @@ ledger of findings and credits lives in
 
 ## Bounty programme
 
-**40,000,000 BZPX is allocated to security research** — 4% of a fixed
+**50,000,000 BZPX is allocated to security research** — 5% of a fixed
 1,000,000,000 supply, carved out of the token allocation for this and nothing
 else. The pool is shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking);
@@ -81,10 +81,10 @@ eyes rather than discover the terms after doing the work:
 
 | Severity | Award |
 |---|---|
-| Critical — direct theft or permanent freezing of user funds | 2,000,000 – 6,000,000 BZPX |
-| High — theft under specific conditions, or protocol insolvency | 500,000 – 2,000,000 BZPX |
-| Medium — griefing, temporary denial of service, value leakage | 100,000 – 500,000 BZPX |
-| Low — demonstrated impact below the above | up to 100,000 BZPX |
+| Critical — direct theft or permanent freezing of user funds | 2,500,000 – 7,500,000 BZPX |
+| High — theft under specific conditions, or protocol insolvency | 625,000 – 2,500,000 BZPX |
+| Medium — griefing, temporary denial of service, value leakage | 125,000 – 625,000 BZPX |
+| Low — demonstrated impact below the above | up to 125,000 BZPX |
 
 A report must be previously unknown to us and must demonstrate impact, not merely
 describe a theoretical concern. Duplicates are settled by timestamp of the first
