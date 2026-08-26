@@ -1,0 +1,59 @@
+# Secret-scanning configuration.
+#
+# WHY THIS FILE EXISTS. The stock ruleset flags any 40-character hex string as a
+# generic API key. In a Solidity repository that is every contract address ever
+# written down — WETH, USDC, factories, treasuries — and the first run against
+# this history produced seven findings, all of them public addresses in test
+# fixtures. A scanner that cries wolf on the most common literal in the codebase
+# gets muted within a week, and a muted scanner is worse than none: it reports
+# green while nobody reads it.
+#
+# THE CALIBRATION, AND WHY IT IS SAFE. An Ethereum ADDRESS is 40 hex characters
+# and is public by construction — it is derived from a public key and appears in
+# every explorer. An Ethereum PRIVATE KEY is 64. So allow-listing exactly 40 hex
+# characters silences the false positives without touching what would actually
+# matter: every vendor-shaped key (RPC provider tokens, GitHub PATs, AWS, Stripe
+# and the rest of the default ruleset) still fires.
+#
+# WHAT WE TRIED AND DROPPED, so nobody re-adds it: a custom rule matching 64 hex
+# characters, on the reasoning that a private key is 64 and an address is 40.
+# It took the finding count from 7 to 155. In Solidity, 64 hex is a HASH — every
+# init-code hash, every poolId, every bytes32 constant — and shape cannot tell a
+# hash from a key. The default ruleset already catches private keys where they
+# appear in the contexts that make them keys (env assignments, provider URLs,
+# vendor prefixes); a shape-only rule just manufactures noise, and noise is how
+# a gate gets muted.
+#
+# This repository is PUBLIC, and its history is permanent. A key that touches any
+# commit is compromised the moment it is pushed, not when someone notices — we
+# have already had to rotate one RPC key for exactly that reason. The gate scans
+# full history AND the working tree, so a mistake is caught before the push when
+# possible and immediately after when not.
+
+title = "BlazePhoenix secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+  description = "Public on-chain addresses and their test fixtures"
+  # Match against the whole LINE, not just the captured fragment: the console
+  # log below is only recognisable as harmless in context.
+  regexTarget = "line"
+  # Exactly 40 hex characters: an address, never a key. The bounds matter —
+  # a longer run of hex is NOT matched here and still fires.
+  regexes = [
+    '''\b0x[a-fA-F0-9]{40}\b''',
+    # Console output that talks ABOUT keys. `console2.log("... V4 key found ...")`
+    # trips the generic-api-key rule on the words, not on any secret: a V4 pool
+    # key is a public (fee, tickSpacing) pair. Scoped to the log call so it
+    # cannot hide an assignment.
+    '''console2?\.log\([^)]*key found[^)]*\)''',
+  ]
+  paths = [
+    # Foundry's own build output and dependencies: not our secrets to leak.
+    '''^out/''',
+    '''^cache/''',
+    '''^lib/''',
+    '''^broadcast/''',
+  ]

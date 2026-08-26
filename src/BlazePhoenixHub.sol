@@ -306,6 +306,8 @@ contract BlazePhoenixHub {
         // hooks allow-list + codehash pin (Layer 3: auto-pause on code change)
         mapping(address => bool) hookAllowed;
         mapping(address => bytes32) hookCodehash;
+        // The same pin, for the factory-call modes (0-3): see _scanFactory.
+        mapping(address => bytes32) factoryCodehash;
         // status
         bool paused;
         bool initialized;
@@ -445,6 +447,20 @@ contract BlazePhoenixHub {
     ///         changes is auto-paused (not routable) with its pools' registry
     ///         state preserved (read-only) — it resumes only if re-admitted. A
     ///         hookless pool (h == 0) is always live.
+    /// @dev    WHAT THIS PIN DOES NOT COVER, stated where the guarantee is made
+    ///         (reported externally 2026-08-26). The pin binds RUNTIME CODE, so
+    ///         it catches a redeploy at the same address and any direct mutation
+    ///         — and it does NOT catch a DELEGATE PROXY, whose implementation can
+    ///         be swapped while its own runtime stays byte-identical. Nor can it:
+    ///         the EVM gives a contract no way to read another contract's storage,
+    ///         so the EIP-1967 implementation slot cannot be pinned on-chain. The
+    ///         allow-list is therefore load-bearing exactly here — admitting an
+    ///         upgradeable hook is a human judgement this pin cannot replace, and
+    ///         the honest reading of `isHookLive` is "still allow-listed, and not
+    ///         mutated in a way the chain lets us see". The layers that do not
+    ///         depend on it stand regardless: the immutable address bits reject
+    ///         the delta-altering class before any token moves, and the floors are
+    ///         re-derived from measured output at execution.
     function isHookLive(address h) public view returns (bool) {
         if (h == address(0)) return true;
         HubStore storage $ = _store();
@@ -580,6 +596,7 @@ contract BlazePhoenixHub {
             factory: factory, kind: kind, mode: mode,
             initHash: initHash, fees: fees, spacings: spacings
         }));
+        $.factoryCodehash[factory] = factory.codehash;
         emit Factory_(factory, kind, mode);
         return uint8($.factories.length - 1);
     }
@@ -782,6 +799,18 @@ contract BlazePhoenixHub {
         // deriving phantom addresses on every scan. Stopping makes it PROVABLY inert
         // instead of accidentally inert.
         if (((MODES_VALID >> fac.mode) & 1) == 0) return k;
+        // THE APPARATUS MUST BE FIXED, TOO (the third corollary of I-measure).
+        // Modes 0-3 ASK the factory where a pool lives; modes 4-7 DERIVE it, and a
+        // derivation is a theorem the factory cannot influence. So only the asking
+        // modes depend on the factory's future behaviour — and an upgradeable proxy
+        // can change what it answers without its own runtime code ever changing.
+        // Hooks already carry this pin (`isHookLive`); factories did not, and there
+        // is no removeFactory, so after renunciation a mutated factory would steer
+        // discovery with no remaining control-plane response.
+        // Fail CLOSED, never revert: a stale dependency stops producing candidates,
+        // and every other factory keeps serving the pair (a new revert here would
+        // let one dependency brick discovery outright).
+        if (fac.mode < 4 && fac.factory.codehash != _store().factoryCodehash[fac.factory]) return k;
         if (fac.mode == MODE_V4_DERIVE)  return _scanV4(fac, t0, t1, hits, k);
         uint24[] storage fees = fac.fees;
         int24[]  storage sps  = fac.spacings;

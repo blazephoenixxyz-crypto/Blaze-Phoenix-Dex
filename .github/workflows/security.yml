@@ -48,7 +48,7 @@ jobs:
             slither-report.md
 
   aderyn:
-    name: Aderyn (static analyzer, report)
+    name: Aderyn (static analyzer, GATE on high)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -57,22 +57,114 @@ jobs:
           submodules: recursive
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-      - name: Install Aderyn
+      # THIS JOB REPORTED SUCCESS FOR WEEKS WITHOUT ANALYSING A LINE.
+      # The old install piped Cyfrin's script into bash with `|| true`, then
+      # invoked `~/.cyfrin/bin/aderyn` — a path that did not exist — with every
+      # command trailing `|| true`. The log said `command not found`, the step
+      # exited 0, and the badge went green. That is the exact failure this
+      # project names a NOMINAL GATE: a check that blocks only what the platform
+      # forces it to block. Install from the release binary, verify the binary
+      # answers before trusting it, and let a real finding fail the build.
+      - name: Install Aderyn (verified)
         run: |
-          curl -L https://raw.githubusercontent.com/Cyfrin/up/main/install | bash || true
-          echo "$HOME/.cyfrin/bin" >> "$GITHUB_PATH"
-      - name: Run Aderyn
+          set -euo pipefail
+          # No API call. An anonymous request to api.github.com is rate-limited
+          # on shared runners; when it is throttled the version comes back empty,
+          # the URL degrades to .../download//aderyn-... and curl reports (23) —
+          # a message about writing output that says nothing about the real cause.
+          # The `releases/latest/download/` path redirects to the current release
+          # with no API involved.
+          # Unpack inside the workspace, which the runner user owns outright:
+          # /usr/local/bin needs sudo and $RUNNER_TEMP was no better.
+          curl -fsSL --retry 3 --retry-delay 2 \
+            "https://github.com/Cyfrin/aderyn/releases/latest/download/aderyn-x86_64-unknown-linux-gnu.tar.xz" \
+            -o ./aderyn.tar.xz
+          test -s ./aderyn.tar.xz   # a zero-byte download is a failed download
+          mkdir -p ./.aderyn && tar -xJf ./aderyn.tar.xz -C ./.aderyn
+          BIN=$(find ./.aderyn -maxdepth 3 -name aderyn -type f | head -1)
+          cp "$BIN" ./aderyn-bin
+          chmod +x ./aderyn-bin
+          ./aderyn-bin --version   # fails the job if the binary is not really there
+
+      - name: Aderyn — full report
         run: |
-          ~/.cyfrin/bin/cyfrinup || true
-          ~/.cyfrin/bin/aderyn . -o aderyn-report.md || aderyn . -o aderyn-report.md || true
+          set -euo pipefail
+          ./aderyn-bin . -o aderyn-report.md
           echo "----- Aderyn summary -----"
-          tail -c 40000 aderyn-report.md || true
+          grep -E '^##|High|Medium|Low' aderyn-report.md | head -c 20000 || true
+
+      - name: Aderyn — GATE on NEW high severity
+        run: |
+          set -euo pipefail
+          # BASELINE, NOT A MUTE. Aderyn's three current high findings were read
+          # and judged individually; all three are false positives against this code,
+          # and each is listed here with the reason so the next reader does not
+          # have to re-derive it:
+          #
+          #   "Contract locks Ether without a withdraw function"
+          #     The Router's receive() accepts value only from the single address
+          #     held in a transient slot for that instant (WETH during the JIT
+          #     unwrap, the V4 PoolManager during a native take) and reverts for
+          #     everyone else, so ether cannot come to rest here to be locked.
+          #
+          #   "Incorrect use of caret operator"
+          #     `(3 * d) ^ 2` in the Core is the canonical 512-bit mulDiv seed —
+          #     a modular-inverse seed where XOR is the intended operator, not a
+          #     mistyped exponent. Slither flags the same line and already
+          #     carries a disable comment beside it.
+          #
+          #   "Reentrancy: State change after external call"
+          #     The external call is to our own Router (an admin-set, trusted
+          #     address) to read its WETH, not to an arbitrary counterparty.
+          #
+          # Anything NOT on this list fails the build. A finding that is muted
+          # wholesale is a gate that cannot fire; a finding that is named and
+          # reasoned about is a decision on the record.
+          KNOWN="Contract locks Ether without a withdraw function|Incorrect use of caret operator|Reentrancy: State change after external call"
+          NEW=$(sed -n '/^# High Issues/,/^# [A-Z]/p' aderyn-report.md \
+                | grep -E '^## H-[0-9]+:' \
+                | sed -E 's/^## H-[0-9]+: *//' \
+                | grep -vE "^($KNOWN)$" || true)
+          if [ -n "$NEW" ]; then
+            echo "::error::Aderyn reported high-severity findings outside the reviewed baseline:"
+            echo "$NEW"
+            exit 1
+          fi
+          echo "no high-severity findings outside the reviewed baseline"
+
       - name: Upload Aderyn report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: aderyn-report
           path: aderyn-report.md
+
+  secrets:
+    name: Secret scan (gitleaks, GATE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret committed and later removed is still a
+          # secret, and this repository is PUBLIC — a key that touches any
+          # commit is compromised the moment it is pushed, not when it is
+          # noticed. We have already had to rotate one RPC key.
+          fetch-depth: 0
+
+      # The official action rather than a hand-rolled install: two attempts at
+      # fetching the binary ourselves died on `curl: (23)` writing to paths the
+      # runner user cannot own, and an installer that fails in a way nobody
+      # reads is how the neighbouring job spent weeks reporting success without
+      # running. The action owns its own binary and its exit code is the gate.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # Calibrated in .gitleaks.toml against this repository's real history:
+          # stock rules flagged 7 public contract addresses, a 64-hex rule
+          # flagged 155 hashes, and the shipped configuration finds 0 while
+          # still failing on a planted token. See that file for the reasoning.
 
   solhint:
     name: Solhint (linter, report)

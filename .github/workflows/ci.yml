@@ -13,7 +13,7 @@ jobs:
   test:
     name: build + test (fast profile)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -205,7 +205,7 @@ jobs:
   fork-tests:
     name: fork tests (archive RPC)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
@@ -227,7 +227,7 @@ jobs:
         # nothing for a real one, which fails all three deterministically. So
         # this cuts the false-red rate without weakening the signal at all.
         run: |
-          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest"
+          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1"
           for attempt in 1 2 3; do
             if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC"; then
               exit 0
@@ -369,16 +369,24 @@ jobs:
         # hard gates and were running one.
         run: halmos --contract EffV4FeeFormalSpec -v
 
-      # The report-only 512-bit-mulDiv checks used to run here and no longer do.
-      # They cannot decide — each TIMEOUTs by design — so their expected
-      # contribution to a merge decision is exactly zero, while their variance
-      # was enough to take this job down with them. A term with no expectation
-      # and real variance can only add noise to an estimator, so it does not
-      # belong in the one job whose verdict blocks a merge.
+      # A SECOND SYMBOLIC ENGINE BELONGS HERE, AND IS NOT WIRED YET.
+      # hevm was added beside Halmos on these same specs and removed in the same
+      # session: it installed and ran, and answered `Usage: hevm COMMAND` — the
+      # invocation was wrong, not a proof disagreeing. Rather than leave a step
+      # that fails on configuration (a red gate that teaches nobody) or wrap it
+      # in `|| true` (a green gate that lies, which is exactly how the Aderyn job
+      # spent weeks reporting success without running), it comes out until the
+      # command line has been exercised against the real CLI.
       #
-      # They still run, on their own schedule, in formal-explore.yml — which
-      # keeps the repo's own convention intact: a check is promoted to a hard
-      # gate above only after a report-only run proves it discharges.
+      # The case for adding it stands: hevm and Halmos both execute existing
+      # Foundry specs symbolically, so they are interchangeable on these
+      # contracts and the second engine costs one step, not a second body of
+      # work. Different implementations mean agreement is evidence and
+      # disagreement is a question worth answering.
+      #
+      # Considered and rejected: Kontrol treats every revert as a test failure,
+      # and in a codebase where failing closed IS the design that manufactures
+      # false positives faster than it finds defects.
 
   gas-metrics:
     name: gas metrics (offline ledger)

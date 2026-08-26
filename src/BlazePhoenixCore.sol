@@ -1297,7 +1297,19 @@ library BlazePhoenixCore {
     function readDynamicFee(address pool, bool stable, uint256 cfgFee)
         public view returns (uint256 fee)
     {
-        fee = cfgFee;
+        // CEILING ON THE DECLARED FALLBACK — the sibling of `effV2Fee`.
+        // `cfgFee` is `leg.fee`, i.e. CALLDATA, at all three call sites of
+        // `solidlyCurveOut` (Router quote, Router execution, Core.universalQuote).
+        // A Solidly-shaped pair that exposes neither `getAmountOut` nor a working
+        // `factory()`/`getFee` leaves this declaration as the ONLY fee source, and
+        // an over-declared value (9_900 = 99%) collapses the leg's on-chain quote
+        // to ~1% of the truth. When that leg is the final hop it drags
+        // `finalHopQuote` — and therefore `protocolFloorOut`, the figure this
+        // protocol advertises as unforgeable by calldata — down with it.
+        // The V2 arm closed exactly this in `effV2Fee` (V2_FEE_CEILING_BPS); the
+        // Solidly arm reached the same primitive through here and was missed.
+        // House rule B8: a defect found once is a pattern to hunt everywhere.
+        fee = (cfgFee == 0 || cfgFee > V2_FEE_CEILING_BPS) ? 30 : cfgFee;
         (bool ok, bytes memory ret) = pool.staticcall(
             abi.encodeWithSignature("factory()")
         );
