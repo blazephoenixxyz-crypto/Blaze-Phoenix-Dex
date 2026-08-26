@@ -48,7 +48,7 @@ jobs:
             slither-report.md
 
   aderyn:
-    name: Aderyn (static analyzer, report)
+    name: Aderyn (static analyzer, GATE on high)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -57,22 +57,75 @@ jobs:
           submodules: recursive
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-      - name: Install Aderyn
+      # THIS JOB REPORTED SUCCESS FOR WEEKS WITHOUT ANALYSING A LINE.
+      # The old install piped Cyfrin's script into bash with `|| true`, then
+      # invoked `~/.cyfrin/bin/aderyn` — a path that did not exist — with every
+      # command trailing `|| true`. The log said `command not found`, the step
+      # exited 0, and the badge went green. That is the exact failure this
+      # project names a NOMINAL GATE: a check that blocks only what the platform
+      # forces it to block. Install from the release binary, verify the binary
+      # answers before trusting it, and let a real finding fail the build.
+      - name: Install Aderyn (verified)
         run: |
-          curl -L https://raw.githubusercontent.com/Cyfrin/up/main/install | bash || true
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/Cyfrin/up/main/install | bash
           echo "$HOME/.cyfrin/bin" >> "$GITHUB_PATH"
-      - name: Run Aderyn
+          export PATH="$HOME/.cyfrin/bin:$PATH"
+          cyfrinup
+          aderyn --version   # fails the job if the binary is not really there
+
+      - name: Aderyn — full report
         run: |
-          ~/.cyfrin/bin/cyfrinup || true
-          ~/.cyfrin/bin/aderyn . -o aderyn-report.md || aderyn . -o aderyn-report.md || true
+          set -euo pipefail
+          aderyn . -o aderyn-report.md
           echo "----- Aderyn summary -----"
-          tail -c 40000 aderyn-report.md || true
+          grep -E '^##|High|Medium|Low' aderyn-report.md | head -c 20000 || true
+
+      - name: Aderyn — GATE on high severity
+        run: |
+          set -euo pipefail
+          # Aderyn groups findings under a "# High Issues" heading. Absence of
+          # the heading is the pass condition; presence fails the build and the
+          # report artifact carries the detail.
+          if grep -qiE '^#+ +high issues' aderyn-report.md; then
+            echo "::error::Aderyn reported high-severity findings — see the aderyn-report artifact"
+            exit 1
+          fi
+          echo "no high-severity findings"
+
       - name: Upload Aderyn report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: aderyn-report
           path: aderyn-report.md
+
+  secrets:
+    name: Secret scan (gitleaks, GATE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret committed and later removed is still a
+          # secret, and this repository is PUBLIC — a key that touches any
+          # commit is compromised the moment it is pushed, not when it is
+          # noticed. We have already had to rotate one RPC key.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VER=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${VER}/gitleaks_${VER#v}_linux_x64.tar.gz" | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan the whole history
+        run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose --exit-code 1
+
+      - name: Scan the working tree (uncommitted, catches it earlier)
+        if: always()
+        run: gitleaks detect --source . --no-git --config .gitleaks.toml --redact --exit-code 1
 
   solhint:
     name: Solhint (linter, report)
