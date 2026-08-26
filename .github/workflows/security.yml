@@ -68,10 +68,14 @@ jobs:
       - name: Install Aderyn (verified)
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/Cyfrin/up/main/install | bash
-          echo "$HOME/.cyfrin/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.cyfrin/bin:$PATH"
-          cyfrinup
+          # Install from the release archive directly. The `cyfrinup` bootstrap
+          # is a moving target and was the reason this job spent weeks reporting
+          # success without an analyser: it failed, `|| true` swallowed it, and
+          # the missing binary was never noticed.
+          VER=$(curl -fsSL https://api.github.com/repos/Cyfrin/aderyn/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
+          curl -fsSL "https://github.com/Cyfrin/aderyn/releases/download/${VER}/aderyn-x86_64-unknown-linux-gnu.tar.xz" -o /tmp/aderyn.tar.xz
+          tar -xJf /tmp/aderyn.tar.xz -C /tmp
+          install -m755 "$(find /tmp -maxdepth 3 -name aderyn -type f | head -1)" /usr/local/bin/aderyn
           aderyn --version   # fails the job if the binary is not really there
 
       - name: Aderyn — full report
@@ -117,7 +121,14 @@ jobs:
         run: |
           set -euo pipefail
           VER=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${VER}/gitleaks_${VER#v}_linux_x64.tar.gz" | tar -xz -C /usr/local/bin gitleaks
+          # Asset naming is x64 on some releases and amd64 on others; try both
+          # rather than pin a guess. `set -e` plus the version check below means
+          # a silent miss cannot pass for a successful install.
+          for arch in x64 amd64; do
+            URL="https://github.com/gitleaks/gitleaks/releases/download/${VER}/gitleaks_${VER#v}_linux_${arch}.tar.gz"
+            if curl -fsSL "$URL" -o /tmp/gitleaks.tgz; then break; fi
+          done
+          tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
           gitleaks version
 
       - name: Scan the whole history
