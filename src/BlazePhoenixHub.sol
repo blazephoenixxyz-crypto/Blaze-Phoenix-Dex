@@ -447,6 +447,20 @@ contract BlazePhoenixHub {
     ///         changes is auto-paused (not routable) with its pools' registry
     ///         state preserved (read-only) — it resumes only if re-admitted. A
     ///         hookless pool (h == 0) is always live.
+    /// @dev    WHAT THIS PIN DOES NOT COVER, stated where the guarantee is made
+    ///         (reported externally 2026-08-26). The pin binds RUNTIME CODE, so
+    ///         it catches a redeploy at the same address and any direct mutation
+    ///         — and it does NOT catch a DELEGATE PROXY, whose implementation can
+    ///         be swapped while its own runtime stays byte-identical. Nor can it:
+    ///         the EVM gives a contract no way to read another contract's storage,
+    ///         so the EIP-1967 implementation slot cannot be pinned on-chain. The
+    ///         allow-list is therefore load-bearing exactly here — admitting an
+    ///         upgradeable hook is a human judgement this pin cannot replace, and
+    ///         the honest reading of `isHookLive` is "still allow-listed, and not
+    ///         mutated in a way the chain lets us see". The layers that do not
+    ///         depend on it stand regardless: the immutable address bits reject
+    ///         the delta-altering class before any token moves, and the floors are
+    ///         re-derived from measured output at execution.
     function isHookLive(address h) public view returns (bool) {
         if (h == address(0)) return true;
         HubStore storage $ = _store();
