@@ -13,7 +13,7 @@ jobs:
   test:
     name: build + test (fast profile)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -205,7 +205,7 @@ jobs:
   fork-tests:
     name: fork tests (archive RPC)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
@@ -227,7 +227,7 @@ jobs:
         # nothing for a real one, which fails all three deterministically. So
         # this cuts the false-red rate without weakening the signal at all.
         run: |
-          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest"
+          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1"
           for attempt in 1 2 3; do
             if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC"; then
               exit 0
