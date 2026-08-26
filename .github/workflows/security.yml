@@ -68,12 +68,18 @@ jobs:
       - name: Install Aderyn (verified)
         run: |
           set -euo pipefail
-          VER=$(curl -fsSL https://api.github.com/repos/Cyfrin/aderyn/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
-          # Download and unpack inside the workspace, which the runner user owns
-          # outright. /usr/local/bin needs sudo and $RUNNER_TEMP proved unreliable
-          # here — both failed as `curl: (23)`, a message that names the symptom
-          # and hides the cause.
-          curl -fsSL "https://github.com/Cyfrin/aderyn/releases/download/${VER}/aderyn-x86_64-unknown-linux-gnu.tar.xz" -o ./aderyn.tar.xz
+          # No API call. An anonymous request to api.github.com is rate-limited
+          # on shared runners; when it is throttled the version comes back empty,
+          # the URL degrades to .../download//aderyn-... and curl reports (23) —
+          # a message about writing output that says nothing about the real cause.
+          # The `releases/latest/download/` path redirects to the current release
+          # with no API involved.
+          # Unpack inside the workspace, which the runner user owns outright:
+          # /usr/local/bin needs sudo and $RUNNER_TEMP was no better.
+          curl -fsSL --retry 3 --retry-delay 2 \
+            "https://github.com/Cyfrin/aderyn/releases/latest/download/aderyn-x86_64-unknown-linux-gnu.tar.xz" \
+            -o ./aderyn.tar.xz
+          test -s ./aderyn.tar.xz   # a zero-byte download is a failed download
           mkdir -p ./.aderyn && tar -xJf ./aderyn.tar.xz -C ./.aderyn
           BIN=$(find ./.aderyn -maxdepth 3 -name aderyn -type f | head -1)
           cp "$BIN" ./aderyn-bin
