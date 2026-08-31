@@ -8,7 +8,8 @@ and, with your consent, you are thanked here.
 
 We keep the technical details in the verified source and our private records, not
 on this page. This is only our gratitude and a list of names: every researcher
-below reported a real issue that we reproduced against this repo's own code.
+below read the source, thought adversarially, and told us privately and in good
+faith what they found.
 
 > Private disclosure: **security@blazephoenix.xyz** / blazephoenixxyz@proton.me.
 > Non-critical reports may be filed as a GitHub issue. Responsible disclosure is
@@ -31,6 +32,10 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **llen**
 - **destinyae**
 - **superagent**
+- **Mohd Huzaifa**
+- **Raditya**
+- **bai bo**
+- **Josh W**
 - **Anonymous**
 
 ---
