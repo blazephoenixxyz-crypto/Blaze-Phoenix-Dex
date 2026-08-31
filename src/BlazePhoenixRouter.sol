@@ -950,6 +950,12 @@ contract BlazePhoenixRouter {
         // the same value, and between the two the whole route runs (hooks included).
         bool feeOnOut = route.hops.length == 1 && hub.isBridgeToken(tokenOut);
 
+        // Bit i is set when the i-th leg of the route actually executed. Beyond
+        // 255 legs the shift yields 0, so the bit stays clear and the leg is not
+        // credited — the fail-CLOSED direction, and unreachable anyway with
+        // MAX_LEGS_PER_HOP at 5.
+        uint256 executedMask;
+        uint256 legIdx;
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
@@ -1113,6 +1119,13 @@ contract BlazePhoenixRouter {
                     uint256 remaining = BPC.balanceOf(legIn, address(this));
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
+                // A leg with a zero scaled input never reaches the pool:
+                // `_execScaled` returns (0,0) before any transfer or swap. Record
+                // WHICH legs actually ran, so the registry credits execution and
+                // not calldata. The index runs across the whole route and both
+                // loops walk the same calldata in the same order.
+                if (scaledAmt != 0) executedMask |= (uint256(1) << legIdx);
+                unchecked { ++legIdx; }
                 (uint256 legGot, uint256 legAtt) = _execScaled(
                     leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
                 );
@@ -1304,7 +1317,7 @@ contract BlazePhoenixRouter {
         if (delivered < userMinOut) revert RouterE(5);
 
         amountOut = delivered;
-        _recordHits(route);
+        _recordHits(route, executedMask);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
         // This function's docstring already explains why `payer` exists as a parameter: in
         // `swapBestExactIn` this is reached by an external SELF-CALL, and on that path the
@@ -1805,11 +1818,27 @@ contract BlazePhoenixRouter {
     //  HUB FEEDBACK
     // =========================================================================
 
-    function _recordHits(Route calldata route) private {
+    /// @param executedMask bit i set iff the i-th leg of the route reached its
+    ///        pool. This walk used to credit EVERY leg declared in calldata,
+    ///        with no check that any of them ran. Hop scaling can round a leg's
+    ///        input to zero, `_execScaled` then skips the pool call entirely,
+    ///        and the Hub still bumped the swap counter, refreshed the
+    ///        timestamp and rewrote the depth bucket for a pool that never
+    ///        moved a token. Those fields feed psi, and psi decides which pools
+    ///        the Solver may quote — so two ordinary swaps carrying one-wei
+    ///        phantom declarations could fabricate fitness and push a fair pool
+    ///        out of the funnel. `Hub.recordSwap` only ever guarded `amtIn == 0`
+    ///        on the RAW calldata amount, which a one-wei declaration passes.
+    ///        Reported by Thomas.
+    function _recordHits(Route calldata route, uint256 executedMask) private {
         address v4mgr;
+        uint256 legIdx;
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             for (uint256 l; l < hop.legs.length; ) {
+                bool ran = executedMask & (uint256(1) << legIdx) != 0;
+                unchecked { ++legIdx; }
+                if (!ran) { unchecked { ++l; } continue; }
                 Leg calldata leg = hop.legs[l];
                 // t0/t1 are always derivable from the hop's own tokenIn/
                 // tokenOut via zeroForOne — every leg in a hop trades the

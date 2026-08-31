@@ -962,11 +962,24 @@ contract BlazePhoenixHub {
         uint256 cB = $.v4CodeOf[t1];
         if (cA != 0) kf = _admitV4(mgr, t0, t1, cA, hits, kf);
         if (cB != 0 && cB != cA) kf = _admitV4(mgr, t0, t1, cB, hits, kf);
+        // A LEARNED CODE IS A HINT, AND A HINT MAY NOT SUPPRESS A SEARCH.
+        // Stage (a) above and the probes below shared ONE counter, so a hit from
+        // the learned code counted as if this pair's own tiers had been probed.
+        // `v4CodeOf` is writable by anyone through the permissionless `claimV4`,
+        // so planting a dust pool at any valid tier set the code, produced a
+        // hit here, and switched off (e) — the ONLY probe that reaches
+        // non-canonical tiers. A legitimate deep pool at such a tier then
+        // vanished from discovery entirely, and the honest path never restored
+        // it. Reported by Mohd Huzaifa, who also supplied the shape of this fix.
+        uint256 kfBeforeOwnProbes = kf >> 128;
         // (c) canonical tiers, then (d) paired extras — one batch each
         kf = _probeV4Batch(mgr, t0, t1, _v4CanonicalTiers(), hits, kf);
         kf = _probeV4Batch(mgr, t0, t1, _v4ExtraTiers(fac), hits, kf);
-        // (e) generator cold-start — only when nothing was found above
-        if (kf >> 128 == 0) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf);
+        // (e) generator cold-start — only when THIS PAIR's own tiers found
+        // nothing. Gating on the total again would let a learned code speak for
+        // a search that never ran. Costs nothing in the honest case: the grid
+        // still runs exactly when it is genuinely needed.
+        if (kf >> 128 == kfBeforeOwnProbes) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf);
         return uint256(uint128(kf));
     }
 
