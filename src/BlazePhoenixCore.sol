@@ -661,11 +661,32 @@ library BlazePhoenixCore {
     ///      the same defensive pattern already used by safeTransfer /
     ///      safeTransferFrom in this file.
     function balanceOf(address token, address who) internal view returns (uint256 b) {
+        // A FAILED READ IS NOT A MEASUREMENT. This used to leave `b` at 0 when
+        // the staticcall failed, and returned a bare uint256, so no caller could
+        // tell "the balance is zero" from "the read did not happen". Every
+        // measured delta in the Router is `after - before` on top of this, and
+        // the two directions are not symmetric: a failed AFTER read underflows
+        // and reverts, but a failed BEFORE read turns the delta into an
+        // ABSOLUTE BALANCE. The worst consumer is the user's own slippage
+        // guard, where `delivered` would become the recipient's whole holding
+        // and satisfy userMinOut with coins they already owned — and userMinOut
+        // is the backstop that bounds several other findings.
+        //
+        // Any token whose balanceOf can revert reaches this: paused,
+        // mid-upgrade, hostile, or simply non-`view` (a balanceOf that writes
+        // state fails EVERY staticcall, so every delta would read zero).
+        bool ok;
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0x70a0823100000000000000000000000000000000000000000000000000000000)
             mstore(add(m, 4), and(who, 0xffffffffffffffffffffffffffffffffffffffff))
-            if staticcall(gas(), token, m, 36, m, 32) {
+            // `ok` tracks whether the CALL HAPPENED, not whether it answered. A
+            // staticcall to a codeless address SUCCEEDS with empty returndata,
+            // and reading that as a zero balance is deliberate and already
+            // tested. What must not be silent is a token that actively
+            // REFUSES: that is a failed read, not a zero balance.
+            ok := staticcall(gas(), token, m, 36, m, 32)
+            if ok {
                 // `>= 32`, NOT `== 32` — aligned with this file's own stated
                 // returndata policy (see getReserves): a non-conformant ERC-20
                 // that returns MORE than one word still has a balance in word
@@ -677,6 +698,7 @@ library BlazePhoenixCore {
                 if iszero(lt(returndatasize(), 32)) { b := mload(m) }
             }
         }
+        require(ok, "BPC:balanceOf");
     }
 
     // =========================================================================
