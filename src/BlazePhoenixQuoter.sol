@@ -296,7 +296,10 @@ contract BlazePhoenixQuoter {
             if (calc > SAFETY_CAP_BPS) calc = SAFETY_CAP_BPS;
             sBps = uint16(calc);
         }
-        pv.safetyBuffer = BPC.mulDiv(afterFee, sBps, BPC.BPS);
+        // R-C: the buffer is SUBTRACTED from the published netOut, so rounding it
+        // up understates netOut — a preview must never promise more than
+        // execution delivers.
+        pv.safetyBuffer = BPC.mulDivUp(afterFee, sBps, BPC.BPS);
         pv.netOut       = afterFee > pv.safetyBuffer ? afterFee - pv.safetyBuffer : 0;
 
         // Output floor

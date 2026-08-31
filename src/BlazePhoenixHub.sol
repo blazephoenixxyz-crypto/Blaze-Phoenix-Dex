@@ -1582,7 +1582,12 @@ contract BlazePhoenixHub {
         // bucket it will occupy. No bridge/conc bonus assumed (conservative).
         uint256 newcomerPsi = BPC.bucketWeight(BPC.depthBucket(newDepth));
         // Require a strict 25% margin so admission is decisive, not a knife-edge.
-        return newcomerPsi > worstPsi + (worstPsi / 4);
+        // R-C: integer division made the "strict 25% margin" VANISH exactly where
+        // it was needed. For worstPsi <= 3, worstPsi/4 is 0 and the test collapses
+        // to `newcomerPsi > worstPsi` — no margin at all, in the dust-vitality
+        // regime the hysteresis exists to damp. Rounding up keeps a real margin
+        // at every psi.
+        return newcomerPsi > worstPsi + BPC.mulDivUp(worstPsi, 2_500, BPC.BPS);
     }
 
     /// @notice Fitness of a slot using its packed bridge bit and kind-derived conc.

@@ -30,19 +30,24 @@ pragma solidity 0.8.36;
 //  Layer 1, the protocol floor and userMinOut) and a hostile pair that quotes
 //  one wei and delivers nothing. Only the per-leg guard is left to catch it.
 //
-//  RESULT OF TRYING TO REACH IT: the defect is NOT reachable, and this file
-//  is the evidence. For the collapsed threshold to matter you need bound == 1
-//  AND got == 0 in the same leg — but the only delivery below 80% of 1 is 0,
-//  and the V2/Solidly executor already refuses to ask a pool for zero output
-//  (`if (outAmt == 0) revert RouterE(8);`) BEFORE the pool is even called.
-//  A stricter guard upstream dominates the degenerate window.
+//  RESULT OF TRYING TO REACH IT: not reachable today, and this file is the
+//  evidence. For the collapsed threshold to matter you need bound == 1 AND
+//  got == 0 in the same leg — but the only delivery below 80% of 1 is 0, and
+//  the V2/Solidly executor already refuses to ask a pool for zero output
+//  (`if (outAmt == 0) revert RouterE(8);`) BEFORE the pool is even called. A
+//  stricter guard upstream dominates the degenerate window.
 //
-//  So `src/` is deliberately NOT changed for this. Rounding the threshold up
-//  would be churn on a contract under EIP-170 pressure, to close a door that
-//  another guard already holds shut. What is kept is this test, which pins
-//  the guard that actually does the work — if someone ever relaxes the
-//  zero-output refusal, this goes red and the collapsed threshold becomes
-//  live.
+//  The threshold was rounded up anyway (rule R-C: no protective threshold may
+//  be computed by a division that rounds down). The first reason not to —
+//  byte cost on a contract at the EIP-170 wall — stopped applying once the
+//  optimiser runs could be lowered, and unreachability is a property of
+//  today's call graph, not a guarantee. A guard whose threshold can be zero is
+//  a guard that switches itself off; relying on a second guard to cover it
+//  makes the first one decorative.
+//
+//  Two things are pinned below: the arithmetic that made the collapse
+//  possible, and the executor refusal that is doing the real work. If someone
+//  relaxes that refusal, the second test goes red.
 //
 //  forge test --match-contract LegFloorThresholdRoundsToZero -vv
 // =============================================================================
@@ -146,6 +151,22 @@ contract LegFloorThresholdRoundsToZeroTest is Test {
             "rounding up demands one wei, so the guard fires");
         // The window is exactly bound == 1; from two upward the floor works.
         assertEq(BPC.mulDiv(2, LEG_FLOOR_BPS, BPS), 1);
+    }
+
+    /// R-C applies to the Hub's admission hysteresis too, and there the
+    /// collapse was NOT merely theoretical: `worstPsi + worstPsi/4` is the
+    /// documented "strict 25% margin", and integer division erases it entirely
+    /// for worstPsi <= 3 — precisely the dust-vitality regime the hysteresis
+    /// exists to damp. This pins the arithmetic so the margin cannot silently
+    /// vanish again.
+    function test_Arithmetic_AdmissionMarginSurvivesSmallPsi() public pure {
+        for (uint256 psi = 1; psi <= 3; ++psi) {
+            assertEq(psi / 4, 0, "the old expression gave no margin at all here");
+            assertGe(BPC.mulDivUp(psi, 2_500, BPS), 1, "a non-zero psi must demand a non-zero margin");
+        }
+        // And it still means 25% where 25% is representable.
+        assertEq(BPC.mulDivUp(100, 2_500, BPS), 25);
+        assertEq(BPC.mulDivUp(4, 2_500, BPS), 1);
     }
 
     // ─── the guard that actually holds the line ─────────────────────────────

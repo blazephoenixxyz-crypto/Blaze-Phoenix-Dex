@@ -1222,7 +1222,9 @@ contract BlazePhoenixRouter {
         // all three. If the final-hop quote is unavailable (finalHopQuote == 0)
         // the protocol floor is inert for this swap and userMinOut, which the
         // entrypoints force to be non-zero, remains the backstop.
-        uint256 protocolFloorOut = BPC.mulDiv(finalHopQuote, floorBps, BPC.BPS);
+        // R-C: round the protective floor UP. Rounding it down hands the
+        // executor a free wei on every swap and, at tiny quotes, a free floor.
+        uint256 protocolFloorOut = BPC.mulDivUp(finalHopQuote, floorBps, BPC.BPS);
         uint256 effMin = userMinOut;
         // Fee-on-transfer (MEASURED during execution, unforgeable by a crafted
         // Route): the quote-derived singleOutFloor assumed no transfer fee and
@@ -1254,7 +1256,9 @@ contract BlazePhoenixRouter {
         } else {
             assembly { tstore(sF, 0) }
             if (fotSeen > BPC.BPS) fotSeen = BPC.BPS; // belt; writers clamp
-            protocolFloorOut = BPC.mulDiv(protocolFloorOut, fotSeen, BPC.BPS);
+            // R-C: this SHRINKS the floor by the measured tax, so rounding up
+            // shrinks it LESS — the conservative direction.
+            protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.BPS);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
         if (amountOut < effMin) revert RouterE(5);
@@ -1478,7 +1482,13 @@ contract BlazePhoenixRouter {
             }
 
             attested = bound;
-            if (bound != 0 && got < BPC.mulDiv(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
+            // R-C: a protective threshold never rounds DOWN. floor(1 * 0.8) is 0,
+            // and `got < 0` cannot fire, so a one-wei bound demanded zero delivery.
+            // The executor's own zero-output refusal dominates that window today,
+            // so this is defence in depth rather than a live hole — but a guard
+            // whose threshold can be zero is a guard that switches itself off, and
+            // reachability is not something to rely on staying closed.
+            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
         }
     }
 
