@@ -176,6 +176,37 @@ contract FeeCannotRoundToZeroTest is Test {
         assertGt(got, 0, "a dust swap must still execute, not revert");
     }
 
+    // ─── the boundary the round-up itself creates ────────────────────────────
+
+    /// An adversarial review predicted that rounding up creates a NEW refusal:
+    /// solving ceil(a * 28 / 10_000) >= a has exactly one solution, a == 1, so
+    /// a one-wei base now owes its whole self as fee and trips
+    /// `if (feeH >= amountIn) revert RouterE(8)`.
+    ///
+    /// The arithmetic is correct, and measured here. What it does NOT cost is
+    /// value: before the change a one-wei input took the `feeH == 0` early
+    /// return, reached the pool, priced to zero output and reverted there
+    /// instead. One wei reverted before and reverts now — the round-up changed
+    /// the REASON, not the outcome. That is the whole price of the fix, and it
+    /// is stated here rather than left to be discovered.
+    function test_Boundary_OneWeiRevertsAtTheFeeGuardAndCostsNothing() public {
+        // The arithmetic the review was right about.
+        assertGe(BPC.mulDivUp(1, PROTOCOL_FEE_BPS, BPS), 1, "one wei owes a whole wei of fee");
+        assertLt(BPC.mulDivUp(2, PROTOCOL_FEE_BPS, BPS), 2, "two wei does not");
+
+        // After the change: refused by the fee guard.
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
+        router.swapExactIn(_route(1), 1, 1, user, block.timestamp + 1);
+
+        // And it was already unusable regardless: two wei still prices to zero
+        // output at this pool, so the refusal band is not something the fee
+        // rounding invented.
+        vm.prank(user);
+        vm.expectRevert(bytes("MockV3Pool: zero out"));
+        router.swapExactIn(_route(2), 2, 1, user, block.timestamp + 1);
+    }
+
     // ─── control: the ordinary path may move by at most the rounding ─────────
 
     function test_Control_NormalSwapFeeUnchangedBeyondRounding() public {
