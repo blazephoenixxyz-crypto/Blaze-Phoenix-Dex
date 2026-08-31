@@ -1415,9 +1415,28 @@ contract BlazePhoenixSolver {
         hops[0] = hop;
         uint256 legs = hop.legs.length;
 
+        // R-B: TWO CONSUMERS, TWO REDUCTIONS. One number used to serve both the
+        // ceiling and the floor, and they want opposite things.
+        //
+        // The CEILING asks "does any leg destroy the order?" — a question about
+        // the WORST leg. Averaging answered a different question and hid the
+        // destroyer: one leg at 9_500 bps beside a single cheap leg averages to
+        // under the 9_000 ceiling and passes. The name said "absolute"; the
+        // `/legs` divisor made it dilutable by adding legs.
+        //
+        // The FLOOR keeps the MEAN, deliberately. ironFloorBps SUBTRACTS impact,
+        // so a bigger number means a LOWER floor: feeding it the max would let a
+        // single dust leg collapse the floor to its hard clamp, which is the
+        // padding attack made trivial rather than closed. (The mean is not right
+        // either — it is unweighted by leg size, which is its own finding — but
+        // it is strictly less permissive than the max, so it stays until the
+        // size-weighted replacement is decided.)
         uint256 totalImpactBps;
+        uint256 maxLegImpactBps;
         for (uint256 i; i < legs; ) {
-            totalImpactBps += _legImpactBps(hop.legs[i]);
+            uint256 li = _legImpactBps(hop.legs[i]);
+            totalImpactBps += li;
+            if (li > maxLegImpactBps) maxLegImpactBps = li;
             unchecked { ++i; }
         }
         if (legs > 0) totalImpactBps = totalImpactBps / legs;
@@ -1425,7 +1444,7 @@ contract BlazePhoenixSolver {
         // The absolute impact ceiling: refuse rather than surface a route whose
         // own measurement says it destroys the order. Returning an empty route is
         // the Solver's existing "no path" answer — fail-closed, no new revert.
-        if (totalImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
+        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
         uint256 floorBps = BPC.ironFloorBps(totalImpactBps, legs, 0);
         uint256 floorOut = BPC.mulDiv(hop.expectedOut, floorBps, BPC.BPS);
@@ -1453,13 +1472,19 @@ contract BlazePhoenixSolver {
     ) private view returns (Route memory route) {
         tIn; tOut; amountIn;   // retained for signature clarity
         for (uint256 i; i < hops.length; ) { _orderLegs(hops[i]); unchecked { ++i; } }
+        // R-B, multi-hop twin: same split as the single-hop site. The ceiling
+        // gates on the worst LEG anywhere in the route; the floor keeps the
+        // per-hop mean summed across hops.
         uint256 totalImpactBps;
         uint256 totalLegs;
+        uint256 maxLegImpactBps;
         for (uint256 h; h < hops.length; ) {
             uint256 legs = hops[h].legs.length;
             uint256 hopImpact;
             for (uint256 i; i < legs; ) {
-                hopImpact += _legImpactBps(hops[h].legs[i]);
+                uint256 li = _legImpactBps(hops[h].legs[i]);
+                hopImpact += li;
+                if (li > maxLegImpactBps) maxLegImpactBps = li;
                 unchecked { ++i; }
             }
             if (legs > 0) hopImpact = hopImpact / legs;
@@ -1468,7 +1493,9 @@ contract BlazePhoenixSolver {
             unchecked { ++h; }
         }
 
-        if (totalImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
+        // A destroyer leg is refused wherever it sits, and the compounded
+        // per-hop figure still gates too — whichever binds first.
+        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || totalImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
         uint256 floorBps = BPC.ironFloorBps(totalImpactBps, totalLegs, 0);
         uint256 floorOut = BPC.mulDiv(finalOut, floorBps, BPC.BPS);
