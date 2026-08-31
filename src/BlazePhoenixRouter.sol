@@ -597,7 +597,15 @@ contract BlazePhoenixRouter {
             uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
             baseH = bal > foreignBase ? bal - foreignBase : 0;
         }
-        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // ROUND UP, NEVER DOWN. With floor division mulDiv(b, 28, 10_000) is 0
+        // for every b <= 357, and the early return below then waved the swap
+        // through fee-free: a delivered swap that paid the protocol nothing.
+        // The threshold is in WEI, so its real size is set by the token's
+        // decimals (3.58 tokens at 2 decimals, 358 at 0) — refusing those
+        // trades was the wrong cure. Rounding up makes a zero fee unreachable
+        // for any non-zero base instead, so nothing legitimate is refused.
+        // The guard below now means only "there is no base to charge".
+        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         if (feeH == 0) return amountIn;
         _payFee(hop.tokenIn, feeH);
         // Only hop 0 spends the `amountIn` travelling in the frame; the later ones read the
@@ -1267,7 +1275,10 @@ contract BlazePhoenixRouter {
         // `userMinOut` is compared against what they ACTUALLY receive.
         uint256 net = amountOut;
         if (feeOnOut) {
-            uint256 fOut = BPC.mulDiv(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            // Same round-up as the input-side anchor: the two producers of
+            // this fee must round the same way or preview and execution
+            // diverge again.
+            uint256 fOut = BPC.mulDivUp(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
             if (fOut != 0) {
                 if (fOut >= amountOut) revert RouterE(8);
                 _payFee(tokenOut, fOut);

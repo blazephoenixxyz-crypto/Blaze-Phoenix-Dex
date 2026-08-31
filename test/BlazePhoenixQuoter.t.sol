@@ -115,8 +115,19 @@ contract BlazePhoenixQuoterTest is Test {
         assertEq(pv.route.hops[0].legs[0].pool, address(pool));
         assertFalse(hasFallback);
 
-        uint256 expectedFee = BPC.mulDiv(expectedOut, PROTOCOL_FEE_BPS, BPC.BPS);
+        // The fee rounds UP at all three producer sites (Quoter here, and both
+        // Router anchors) so that it can never round THROUGH zero on a dust
+        // base — with floor division mulDiv(b, 28, 10_000) is 0 for every
+        // b <= 357 wei and the swap proceeded fee-free.
+        //
+        // Pin the DIRECTION, not merely the helper: asserting only
+        // `== mulDivUp(...)` would still pass if someone swapped every site
+        // back to floor together. The two bounds below fail in that case.
+        uint256 floorFee = BPC.mulDiv(expectedOut, PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 expectedFee = BPC.mulDivUp(expectedOut, PROTOCOL_FEE_BPS, BPC.BPS);
         assertEq(pv.protocolFee, expectedFee);
+        assertGe(pv.protocolFee, floorFee, "the fee must never fall below nominal");
+        assertLe(pv.protocolFee - floorFee, 1, "the round-up may add at most one wei");
         assertEq(pv.netOut, expectedOut - expectedFee, "legs<=2 -> zero safety buffer");
         assertTrue(pv.canExecute);
     }

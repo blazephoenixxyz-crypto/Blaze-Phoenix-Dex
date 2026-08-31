@@ -247,7 +247,11 @@ contract BlazePhoenixQuoter {
         // the other, the quote starts lying about what execution does again — the
         // defect signature of this codebase, recorded with N=3 in the corpus.
         uint256 afterFee = route.totalOut;
-        afterFee -= BPC.mulDiv(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // Round the fee UP here too, matching both Router sites. Rounding the
+        // deduction up makes the preview understate netOut by at most 1 wei,
+        // which is the safe direction: a preview must never promise more than
+        // execution delivers.
+        afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         // The EFFECT of the fee on the output, in tokenOut. It is not what the
         // treasuries receive — they receive ONE BRIDGE token (WETH/USDC). See the
         // file header.
