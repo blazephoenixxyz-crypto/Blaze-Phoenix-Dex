@@ -469,9 +469,30 @@ contract BlazePhoenixHub {
 
     // ─── Bridges (MAX_BRIDGES configurable, MAX_BRIDGE_ROUTES routable) ─────────────────────────────────────────────────
 
+    /// @dev IDEMPOTENT BY CONSTRUCTION. Two producers answer "is this a
+    ///      bridge?" — `bridge(i)` reads the array, `isBridgeToken(t)` reads
+    ///      the mapping — and `isBridge` is a plain bool with no refcount. A
+    ///      second seat for the same token therefore split them: after
+    ///      `addBridge(x); addBridge(x); removeBridge(0)`, compaction kept `x`
+    ///      in the array while the unconditional mapping clear said it was not
+    ///      a bridge. The Solver kept routing through `x` off the array; the
+    ///      Router's fee anchor read the mapping, found no bridge, and dropped
+    ///      into the per-hop exhaustion regime while the Quoter still previewed
+    ///      a single charge.
+    ///
+    ///      Worse, the repair is asymmetric: `addBridge` is `onlyAdmin` but
+    ///      `removeBridge` is `onlyControl`, so a desync planted with the table
+    ///      full (`bridgeCount_ == MAX_BRIDGES`) is PERMANENT after
+    ///      `renounceControl()` — the remove is dead and the re-add reverts
+    ///      HubE(7).
+    ///
+    ///      A duplicate add is a no-op rather than a revert: the end state the
+    ///      caller asked for already holds, and reverting would make an
+    ///      idempotent administrative call fail on a retry.
     function addBridge(address t) external onlyAdmin {
         _ne0(t);
         HubStore storage $ = _store();
+        if ($.isBridge[t]) return;
         if ($.bridgeCount_ >= MAX_BRIDGES) revert HubE(7);
         $.bridges[$.bridgeCount_] = t;
         $.isBridge[t] = true;
