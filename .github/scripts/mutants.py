@@ -165,6 +165,151 @@ M = [
       old="    function bucketWeight(uint8 b) internal pure returns (uint256) {\n        return uint256(1) << b;",
       new="    function bucketWeight(uint8 b) internal pure returns (uint256) {\n        return uint256(1) + b; // MUTANTE",
       teste="test_AdmissionMargin_IsNotRedundantWithQuantisation"),
+ # ── pontos cegos apanhados a auditar a propria guarda (2026-09-01) ─────────
+ # Os 27 cobriam a leg fantasma, o grid V4, o kind derivado, o desync das
+ # bridges e o balanceOf. NAO cobriam os fixes de ARITMETICA da mesma vaga: o
+ # sentido do arredondamento da fee, o sentinela da curva estavel, os dois
+ # clamps do preview e a ponderacao do impacto. Um teste que corrige um bug
+ # sem mutante a apontar-lhe nao esta provado a apanhar a regressao que existe
+ # para impedir.
+ dict(nome="fee: o arredondamento volta a ser para BAIXO (a fee que desaparece no po)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
+      new="        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
+      teste="test_DustSwap_PaysAProtocolFee"),
+ dict(nome="solidly: o sentinela volta a vigiar as reservas em vez do resultado",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (!_solKFits(X + A, Y)) return 0;",
+      new="        // MUTANTE",
+      teste="test_ReservesInsideTheWindow_MustNotRevert"),
+ dict(nome="quoter: a leg Solidly volta a re-escalar em vez de medir na pool",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                    (legOut, ) = BPC.universalQuote(sc, legIn);",
+      new="                    legOut = BPC.mulDiv(leg.expectedOut, legIn, base); // MUTANTE",
+      teste="test_RED_SolidlyLeg_UpscaledQuoteExceedsPoolTruth"),
+ dict(nome="quoter: o clamp do fallback concentrado extrapola outra vez pela tangente",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                    // may keep the plan's own claim, never exceed it.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(\n                            leg.expectedOut, legIn > base ? base : legIn, base);",
+      new="                    // may keep the plan's own claim, never exceed it.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base); // MUTANTE",
+      teste="test_RED_ConcFallback_NeverScalesAbovePlan"),
+ dict(nome="quoter: o clamp do fallback V4 extrapola outra vez pela tangente",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                    // plan's point upward along the tangent.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(\n                            leg.expectedOut, legIn > base ? base : legIn, base);",
+      new="                    // plan's point upward along the tangent.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base); // MUTANTE",
+      teste="test_RED_V4Fallback_NeverScalesAbovePlan"),
+ dict(nome="impacto: o termo deixa de ser ponderado pelo tamanho da leg (o po volta a votar)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);",
+      new="        return imp; // MUTANTE",
+      teste="test_DustPadding_MustNotCollapseTheFloor"),
+ dict(nome="callback: a porta de autenticacao v3 aceita quem nao e a pool esperada",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (msg.sender != expected || expected == address(0)) revert RouterE(6);",
+      new="        if (expected == address(0)) revert RouterE(6); // MUTANTE",
+      teste="test_ImpostorCallingTheCallbackMidSwapIsNeverPaid"),
+ dict(nome="callback: o unlockCallback V4 aceita quem nao e o PoolManager",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (msg.sender != mgr) revert RouterE(6);",
+      new="        mgr; // MUTANTE",
+      teste="test_UnlockCallback_RevertsWhenNotV4Manager"),
+ dict(nome="renounce: o Router volta a poder ossificar pausado (estado terminal)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
+      new="        controlRenounced = true; // MUTANTE",
+      teste="test_Composition_PauseThenRenounce_IsRefused"),
+ dict(nome="renounce: o Hub volta a poder ossificar pausado (registo surdo p/ sempre)",
+      f="src/BlazePhoenixHub.sol",
+      old="        if (_store().paused) revert HubE(2);\n        _store().controlRenounced = true;",
+      new="        _store().controlRenounced = true; // MUTANTE",
+      teste="test_Composition_HubPauseThenRenounce_IsRefused"),
+ # ── operadores ausentes: relacional, &&/||, codigo de erro (2026-09-01) ───
+ # A auditoria da PROPRIA lista encontrou a distribuicao coxa: ~14 mutantes de
+ # delecao e ZERO de substituicao relacional, ZERO de troca de conector logico,
+ # ZERO de troca de codigo de erro — ironico, porque o cabecalho deste ficheiro
+ # nomeia "revert com o codigo certo da verificacao errada" como a assinatura
+ # da casa. Tambem sem vigia: os guardas de entrada (deadline, minOut==0), o
+ # whenLive das portas, e a APLICACAO do piso final (os mutantes existentes
+ # vigiavam como o piso e CONSTRUIDO, nenhum vigiava a comparacao que o aplica).
+ # Cada entrada abaixo foi verificada a matar o seu teste no box a 2026-09-01.
+ dict(nome="piso aplicado: < vira <= na comparacao final delivered/userMinOut",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (delivered < userMinOut) revert RouterE(5);",
+      new="        if (delivered <= userMinOut) revert RouterE(5); // MUTANTE",
+      teste="test_MinOut_Boundary_ExactNetDelivers"),
+ dict(nome="piso aplicado: um wei de folga na comparacao final",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (delivered < userMinOut) revert RouterE(5);",
+      new="        if (delivered + 1 < userMinOut) revert RouterE(5); // MUTANTE",
+      teste="test_MinOut_DeliveredShortfallIsRefused"),
+ dict(nome="deadline: > vira >= na porta classica (a fronteira do prazo)",
+      f="src/BlazePhoenixRouter.sol",
+      old="""        if (block.timestamp > deadline) revert RouterE(4);
+        if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
+        address tokenIn  = route.hops[0].tokenIn;""",
+      new="""        if (block.timestamp >= deadline) revert RouterE(4); // MUTANTE
+        if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
+        address tokenIn  = route.hops[0].tokenIn;""",
+      teste="test_Deadline_ExpiredRefusedAndBoundaryHolds"),
+ dict(nome="fee-no-output: >= vira > (a fee que consome o output inteiro passa)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (fOut >= amountOut) revert RouterE(8);",
+      new="                if (fOut > amountOut) revert RouterE(8); // MUTANTE",
+      teste="test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused"),
+ dict(nome="orcamento por hop: a folga atestada dobra (limite estrito vira frouxo)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (hopGot + slack < hopAttested) revert RouterE(5);",
+      new="                if (hopGot + slack + slack < hopAttested) revert RouterE(5); // MUTANTE",
+      teste="test_TwoBleedingLegs_RevertOnHopBudget"),
+ dict(nome="entrada: && vira || no guarda de minOut zero (a condicao inverte o alcance)",
+      f="src/BlazePhoenixRouter.sol",
+      old="""        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
+        return _swap(route, amountIn, userMinOut, recipient, deadline);""",
+      new="""        if (amountIn > 0 || userMinOut == 0) revert RouterE(10); // MUTANTE
+        return _swap(route, amountIn, userMinOut, recipient, deadline);""",
+      teste="test_INV6_zeroAmountIsNotTreatedAsAZeroMinOutSwap"),
+ dict(nome="callback v3: || vira && na autenticacao (impostor com expected vivo passa)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (msg.sender != expected || expected == address(0)) revert RouterE(6);",
+      new="        if (msg.sender != expected && expected == address(0)) revert RouterE(6); // MUTANTE",
+      teste="test_ImpostorCallingTheCallbackMidSwapIsNeverPaid"),
+ dict(nome="onlyControl: || vira && (um estranho passa enquanto nao houver renounce)",
+      f="src/BlazePhoenixRouter.sol",
+      old="    modifier onlyControl() { if (msg.sender != admin || controlRenounced) revert RouterE(1); _; }",
+      new="    modifier onlyControl() { if (msg.sender != admin && controlRenounced) revert RouterE(1); _; } // MUTANTE",
+      teste="test_Control_EveryControlDoorRefusesAStranger"),
+ dict(nome="codigo de erro: fee-consome-output troca 8 por 5 (o selector e a unica testemunha)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (fOut >= amountOut) revert RouterE(8);",
+      new="                if (fOut >= amountOut) revert RouterE(5); // MUTANTE",
+      teste="test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused"),
+ dict(nome="codigo de erro: minOut zero troca 10 por 3",
+      f="src/BlazePhoenixRouter.sol",
+      old="""        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
+        return _swap(route, amountIn, userMinOut, recipient, deadline);""",
+      new="""        if (amountIn > 0 && userMinOut == 0) revert RouterE(3); // MUTANTE
+        return _swap(route, amountIn, userMinOut, recipient, deadline);""",
+      teste="test_INV6_swapExactIn_rejectsZeroMinOut"),
+ dict(nome="whenLive: o modificador cai da porta classica (pausado deixa de travar)",
+      f="src/BlazePhoenixRouter.sol",
+      old="""    function swapExactIn(
+        Route calldata route, uint256 amountIn, uint256 userMinOut,
+        address recipient, uint256 deadline
+    ) external whenLive nrEntrant returns (uint256) {""",
+      new="""    function swapExactIn(
+        Route calldata route, uint256 amountIn, uint256 userMinOut,
+        address recipient, uint256 deadline
+    ) external nrEntrant returns (uint256) { // MUTANTE""",
+      teste="test_SetPaused_BlocksSwaps"),
+ dict(nome="fee-no-output: mulDivUp vira mulDiv (a fee de 1 wei desaparece no po)",
+      f="src/BlazePhoenixRouter.sol",
+      old="            uint256 fOut = BPC.mulDivUp(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
+      new="            uint256 fOut = BPC.mulDiv(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
+      teste="test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused"),
+ dict(nome="constante: MAX_LEGS_PER_HOP empurrada de 5 para 4 (a fronteira, nao a remocao)",
+      f="src/BlazePhoenixRouter.sol",
+      old="    uint8   internal constant MAX_LEGS_PER_HOP  = 5;",
+      new="    uint8   internal constant MAX_LEGS_PER_HOP  = 4; // MUTANTE",
+      teste="test_G8_FiveLegs_BoundaryPasses"),
 ]
 
 def run(t):
