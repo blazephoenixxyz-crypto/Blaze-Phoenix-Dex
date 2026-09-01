@@ -660,6 +660,34 @@ contract BlazePhoenixRouter {
     ///      already paid and the measurement served as nobody's floor. It is what feeds the
     ///      coverage gate in `_execScaled`. Length = the hop's leg count; zero means "no
     ///      measurement", and the gate fails OPEN in that case.
+    /// @dev A leg's impact, weighted by its SHARE of the hop.
+    ///
+    ///      Impact is a RATIO — amountIn/(reserveIn+amountIn) — so it is blind to
+    ///      how much value a leg actually carries. A one-wei leg against a
+    ///      dust-reserve pool scores near 100%. The route's floor then averaged
+    ///      those ratios UNWEIGHTED, and `ironFloorBps` SUBTRACTS impact, so
+    ///      padding a route with such legs walked the floor down from 96% toward
+    ///      its 80% clamp while the real trade sat in one honest deep leg. The
+    ///      caller writes the Route, so that lever was theirs.
+    ///
+    ///      Weighting by `leg.amountIn / scaleDen` (the leg's share of the hop's
+    ///      declared input) is self-consistent: the same field decides how much
+    ///      the leg actually spends, so a caller cannot buy weight without
+    ///      routing the value. The `* legs` normalisation makes equal-sized legs
+    ///      reproduce the previous unweighted sum EXACTLY — the shares are then
+    ///      1/legs each — so honest routes do not move, and the division by
+    ///      `totalLegs` downstream is left untouched.
+    ///
+    ///      The clamp mirrors `ironFloorBps`, which caps impact at BPS anyway;
+    ///      doing it here keeps `imp * legs` small enough that only `mulDiv`'s
+    ///      512-bit intermediate has to carry the amount.
+    function _wImp(uint256 imp, uint256 legAmountIn, uint256 legs, uint256 scaleDen)
+        private pure returns (uint256)
+    {
+        if (imp > BPC.BPS) imp = BPC.BPS;
+        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);
+    }
+
     function _hopScaleImpactAndQuote(
         Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase,
         uint256[] memory legQuotes
@@ -709,7 +737,7 @@ contract BlazePhoenixRouter {
                 uint256 rIn  = leg.zeroForOne ? ir0 : ir1;
                 uint256 rOut = leg.zeroForOne ? ir1 : ir0;
                 if (rIn != 0) {
-                    impactAcc += BPC.impactV2Bps(legAmt, rIn);
+                    impactAcc += _wImp(BPC.impactV2Bps(legAmt, rIn), leg.amountIn, legs, scaleDen);
                     if (leg.kind == BPC.KIND_V2) {
                         uint24 v2fee = BPC.effV2Fee(leg.fee);
                         uint256 q_ = BPC.outV2(legAmt, rIn, rOut, v2fee);
@@ -718,7 +746,7 @@ contract BlazePhoenixRouter {
                         uint256 q_ = _solidlyLegQuote(leg, hop.tokenIn, legAmt, rIn, rOut);
                         legQuotes[l] = q_; quoteAcc += q_;
                     }
-                } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
+                } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
                 // Real concentrated-liquidity impact, matching the Solver's
                 // plan-time computation (Core.impactV3Bps). A dead read
@@ -787,15 +815,15 @@ contract BlazePhoenixRouter {
                     // already obtained gives the SAME value: `impactV3Bps` does nothing else (see
                     // the `impactV3FromOut` note in the Core).
                     uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne, 0);
-                    impactAcc += BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne);
+                    impactAcc += _wImp(BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne), leg.amountIn, legs, scaleDen);
                     legQuotes[l] = q_; quoteAcc += q_;
-                } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
+                } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
                 legQuotes[l] = q_; quoteAcc += q_;
-                impactAcc += BPC.DEFAULT_IMPACT_BPS;
-            } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
+                impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen);
+            } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             unchecked { ++l; }
         }
     }
