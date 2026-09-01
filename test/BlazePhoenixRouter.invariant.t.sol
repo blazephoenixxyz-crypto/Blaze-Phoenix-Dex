@@ -33,6 +33,13 @@ contract RouterHandler is Test {
     uint256 public successCount;
     bool    public ghost_feeBoundViolated;
     bool    public ghost_deliveredBelowMinOut;
+    bool    public ghost_feeEscaped;
+    bool    public ghost_feeChargedTwice;
+    // Non-vacuity counter for the fee guards THEMSELVES: how many runs
+    // observed a non-zero fee. Without it, the three ghosts above read false
+    // both when the code is correct and when the fee was never measured at
+    // all, and those two states are indistinguishable from the green.
+    uint256 public feeObservedCount;
 
     constructor(
         BlazePhoenixRouter _router, MockERC20[] memory _tokens, MockV2Pair[] memory _pairs,
@@ -82,8 +89,19 @@ contract RouterHandler is Test {
             hasSurplus: false, isV4Bundle: false
         });
 
-        uint256 t1BalBefore = MockERC20(tOut).balanceOf(treasury1);
-        uint256 t2BalBefore = MockERC20(tOut).balanceOf(treasury2);
+        // MEASURE BOTH SIDES. The protocol fee is charged on tokenIn or on
+        // tokenOut depending on the route shape, and this handler builds the
+        // shape that charges on tokenIn. Reading only one side makes the fee
+        // delta identically zero, which silently turns every fee assertion
+        // below into a tautology. This is the same failure the comment above
+        // records for the treasury ADDRESSES, one axis over: reading the wrong
+        // object rather than the wrong account. Reading both sides keeps the
+        // guards correct under either charging regime and survives changes to
+        // which one a given route takes.
+        uint256 inT1Before  = MockERC20(tIn).balanceOf(treasury1);
+        uint256 inT2Before  = MockERC20(tIn).balanceOf(treasury2);
+        uint256 outT1Before = MockERC20(tOut).balanceOf(treasury1);
+        uint256 outT2Before = MockERC20(tOut).balanceOf(treasury2);
 
         // BP-04: userMinOut == 0 now reverts RouterE(10) at the entry point —
         // fuzz a REAL bound in [1, quoted] instead. Two distinct guards can
@@ -105,14 +123,37 @@ contract RouterHandler is Test {
             // reverts when delivered < userMinOut) — it records a violation
             // only if a refactor ever removes that check.
             if (delivered < minOut) ghost_deliveredBelowMinOut = true;
-            uint256 feeDelta = (MockERC20(tOut).balanceOf(treasury1) - t1BalBefore)
-                              + (MockERC20(tOut).balanceOf(treasury2) - t2BalBefore);
-            // fee must never exceed PROTOCOL_FEE_BPS (28/10000) of the gross
-            // (delivered + fee), i.e. feeDelta*10000 <= gross*28. A couple of
-            // wei of mulDiv rounding slack is tolerated, nothing more.
-            if (feeDelta * BPC.BPS > (delivered + feeDelta) * 28 + 2) {
-                ghost_feeBoundViolated = true;
-            }
+            uint256 feeIn  = (MockERC20(tIn).balanceOf(treasury1)  - inT1Before)
+                           + (MockERC20(tIn).balanceOf(treasury2)  - inT2Before);
+            uint256 feeOut = (MockERC20(tOut).balanceOf(treasury1) - outT1Before)
+                           + (MockERC20(tOut).balanceOf(treasury2) - outT2Before);
+
+            // (a) CEILING, asserted EXACTLY rather than with a slack term.
+            //     The charge rounds UP, so a scaled comparison against
+            //     base*28 needs up to BPS-1 of tolerance — a hand-picked
+            //     slack is either too tight (false positive) or so wide it
+            //     stops bounding anything. Comparing against the same
+            //     mulDivUp the Router itself uses removes the guesswork:
+            //     `amountIn` bounds the input side, (delivered + feeOut) the
+            //     output side, and a real overcharge of even one wei fails.
+            if (feeIn  > BPC.mulDivUp(amountIn, 28, BPC.BPS))             ghost_feeBoundViolated = true;
+            if (feeOut > BPC.mulDivUp(delivered + feeOut, 28, BPC.BPS))   ghost_feeBoundViolated = true;
+
+            // (b) FLOOR — the missing half, and the reason this exists. A
+            //     ceiling alone is satisfied by a fee of ZERO, so it cannot
+            //     distinguish "charged correctly" from "charged nothing". A
+            //     swap that delivered value must have paid something: with
+            //     round-half-up, a base of at least 1 forces a fee of at
+            //     least 1. Any future escape surfaces here.
+            if (delivered > 0 && feeIn + feeOut == 0) ghost_feeEscaped = true;
+
+            // (c) EXACTLY ONE SIDE. The fee is charged once, on one side —
+            //     never on both. A double charge is a silent overcharge that
+            //     neither ceiling above catches, because each one passes on
+            //     its own.
+            if (feeIn > 0 && feeOut > 0) ghost_feeChargedTwice = true;
+
+            if (feeIn + feeOut > 0) feeObservedCount++;
         } catch {
             // Expected: floors, starved pools, or rounding-to-zero legs all
             // revert cleanly. Nothing to record — the invariants below
@@ -183,7 +224,25 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
     ///         recorded across the whole random call sequence.
     function invariant_FeeNeverExceedsProtocolMax() public view {
         assertFalse(handler.ghost_feeBoundViolated(),
-            "a swap collected more than PROTOCOL_FEE_BPS of its own gross output");
+            "a swap collected more than PROTOCOL_FEE_BPS of the base it was charged on");
+    }
+
+    /// @notice THE MISSING HALF. The ceiling above is satisfied by a fee of
+    ///         zero, so on its own it cannot tell a correct charge from no
+    ///         charge at all. Round-half-up makes a zero fee unreachable for
+    ///         any non-zero base; this asserts that property over randomised
+    ///         routes rather than a single hand-pinned case.
+    function invariant_FeeNeverEscapes() public view {
+        assertFalse(handler.ghost_feeEscaped(),
+            "a swap delivered value and paid zero protocol fee on both sides");
+    }
+
+    /// @notice One fee, one side. Charging on input AND output would be an
+    ///         overcharge that neither ceiling catches in isolation, because
+    ///         each one passes on its own.
+    function invariant_FeeIsChargedOnExactlyOneSide() public view {
+        assertFalse(handler.ghost_feeChargedTwice(),
+            "a single swap paid a protocol fee on BOTH tokenIn and tokenOut");
     }
 
     /// @notice REGRESSION SENTINEL, not coverage: the Router's final check
@@ -209,6 +268,13 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
         if (handler.callCount() >= 10) {
             assertGt(handler.successCount(), 0,
                 "vacuous invariant run: zero swaps settled (entry-guard regression?)");
+            // NON-VACUITY FOR THE FEE GUARDS. A settled swap must leave a
+            // trace in the treasuries. If this counter is zero, the guards
+            // above are reading the wrong object and nothing can be concluded
+            // from their green — the same class of defect this suite already
+            // records once, for the treasury addresses.
+            assertGt(handler.feeObservedCount(), 0,
+                "vacuous fee guards: swaps settled but no protocol fee was ever observed");
         }
     }
 }
