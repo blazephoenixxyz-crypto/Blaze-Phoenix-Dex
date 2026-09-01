@@ -661,11 +661,32 @@ library BlazePhoenixCore {
     ///      the same defensive pattern already used by safeTransfer /
     ///      safeTransferFrom in this file.
     function balanceOf(address token, address who) internal view returns (uint256 b) {
+        // A FAILED READ IS NOT A MEASUREMENT. This used to leave `b` at 0 when
+        // the staticcall failed, and returned a bare uint256, so no caller could
+        // tell "the balance is zero" from "the read did not happen". Every
+        // measured delta in the Router is `after - before` on top of this, and
+        // the two directions are not symmetric: a failed AFTER read underflows
+        // and reverts, but a failed BEFORE read turns the delta into an
+        // ABSOLUTE BALANCE. The worst consumer is the user's own slippage
+        // guard, where `delivered` would become the recipient's whole holding
+        // and satisfy userMinOut with coins they already owned — and userMinOut
+        // is the backstop that bounds several other findings.
+        //
+        // Any token whose balanceOf can revert reaches this: paused,
+        // mid-upgrade, hostile, or simply non-`view` (a balanceOf that writes
+        // state fails EVERY staticcall, so every delta would read zero).
+        bool ok;
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0x70a0823100000000000000000000000000000000000000000000000000000000)
             mstore(add(m, 4), and(who, 0xffffffffffffffffffffffffffffffffffffffff))
-            if staticcall(gas(), token, m, 36, m, 32) {
+            // `ok` tracks whether the CALL HAPPENED, not whether it answered. A
+            // staticcall to a codeless address SUCCEEDS with empty returndata,
+            // and reading that as a zero balance is deliberate and already
+            // tested. What must not be silent is a token that actively
+            // REFUSES: that is a failed read, not a zero balance.
+            ok := staticcall(gas(), token, m, 36, m, 32)
+            if ok {
                 // `>= 32`, NOT `== 32` — aligned with this file's own stated
                 // returndata policy (see getReserves): a non-conformant ERC-20
                 // that returns MORE than one word still has a balance in word
@@ -677,6 +698,7 @@ library BlazePhoenixCore {
                 if iszero(lt(returndatasize(), 32)) { b := mload(m) }
             }
         }
+        require(ok, "BPC:balanceOf");
     }
 
     // =========================================================================
@@ -1278,10 +1300,36 @@ library BlazePhoenixCore {
         uint256 sOut = (dOut == 0) ? 1 : 10 ** (18 - dOut);
         uint256 X = rIn  * sIn;
         uint256 Y = rOut * sOut;
-        // Guard the cubic terms against uint256 overflow on absurd reserves.
+        // GUARD THE TERM THAT ACTUALLY OVERFLOWS, not the reserves.
+        //
+        // 3.4e38 was calibrated for the RAW products: x*y, x*x and y*y leave
+        // uint256 around x ~ 1.5e28, and M1 fixed that by routing them through
+        // 512-bit mulDiv. That closed the intermediates and left the RESULT,
+        // which must still fit in a uint256:
+        //
+        //     _solK(x,y) = x*y*(x^2 + y^2) / 1e54
+        //
+        // Balanced (x = y = Z) that is 2*Z^4/1e54, which exceeds uint256 above
+        // Z ~ 4.9e32 — roughly SIX ORDERS OF MAGNITUDE below the sentinel. So
+        // every pool in (4.9e32, 3.4e38] was ADMITTED here and then reverted
+        // inside mulDiv's own require: the checked-arithmetic quote DoS this
+        // guard exists to prevent, and which its own comment claimed fixed.
+        // The revert is caught by nothing on the way out — solidlyCurveOut,
+        // universalQuote and the Solver's scan all propagate it — so one such
+        // pair takes its whole pair's quoting with it.
+        //
+        // The sentinel watched the RESERVES; what fails is the RESULT of the
+        // computation over them. Same wrong-referent shape as the rest of this
+        // series, inside the guard written to prevent it.
+        //
+        // The bound below is the real one, checked in the term's own units
+        // rather than approximated by a reserve cap: refuse when the cubic
+        // cannot be represented. Doctrine is unchanged — an unusable pool
+        // returns 0 so the floors absorb it, and never reverts.
         if (X > 3.4e38 || Y > 3.4e38) return 0;
         uint256 A = (ain * sIn * (BPS - fee)) / BPS;
         if (X + A > 3.4e38) return 0;
+        if (!_solKFits(X + A, Y)) return 0;
         uint256 K = _solK(X, Y);
         uint256 y = _solY(X + A, K, Y);   // seed at opposite reserve
         if (y >= Y) return 0;
@@ -1323,6 +1371,25 @@ library BlazePhoenixCore {
             uint256 f = abi.decode(ret, (uint256));
             if (f > 0 && f < BPS) fee = f;
         }
+    }
+
+    /// @dev Can `_solK(x, y)` be represented at all? The solver evaluates the
+    ///      invariant at the POST-TRADE input reserve, so the caller passes
+    ///      `X + A`, the largest x the cubic will ever see for this quote.
+    ///
+    ///      Checked in the same shape `_solK` computes, so the test cannot
+    ///      drift from the thing it guards: a = xy/WAD and b = (x^2+y^2)/WAD
+    ///      each already fit (mulDiv carries 512-bit intermediates); what can
+    ///      fail is the final a*b/WAD. It fits exactly when a <= uintmax*WAD/b,
+    ///      which is checked without ever forming a*b.
+    function _solKFits(uint256 x, uint256 y) private pure returns (bool) {
+        if (x == 0 || y == 0) return true;      // _solK is 0; nothing to overflow
+        uint256 a = mulDiv(x, y, WAD);
+        uint256 b = mulDiv(x, x, WAD) + mulDiv(y, y, WAD);
+        if (a == 0 || b == 0) return true;
+        // a * b / WAD <= uintmax  <=>  a <= uintmax / b * WAD, in integer terms
+        // with the division done first so the product is never formed.
+        return a <= mulDiv(type(uint256).max, WAD, b);
     }
 
     function _solK(uint256 x, uint256 y) private pure returns (uint256) {

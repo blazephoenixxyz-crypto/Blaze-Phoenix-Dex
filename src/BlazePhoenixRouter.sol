@@ -254,7 +254,9 @@ contract BlazePhoenixRouter {
     // 13 = FoT token on a V3-only route (route-where-natural), 14 = rescue
     // not queued or still inside the 48h timelock
 
-    modifier onlyAdmin() { if (msg.sender != admin) revert RouterE(1); _; }
+    // Every privileged door in this contract is gated by onlyControl, so all
+    // administrative power ends permanently at renounceControl(). Keep it that
+    // way: a door added under any weaker modifier would outlive renunciation.
     // Control powers (treasuries, permit2, pause, admin transfer) are disabled
     // forever once renounceControl() is called.
     modifier onlyControl() { if (msg.sender != admin || controlRenounced) revert RouterE(1); _; }
@@ -293,7 +295,21 @@ contract BlazePhoenixRouter {
     ///         Permit2 address, the pause flag and admin transfer are frozen at
     ///         their current values forever. The Router keeps executing swaps
     ///         under that fixed configuration. Irreversible.
-    function renounceControl() external onlyControl { controlRenounced = true; emit Cfg(0, address(0)); }
+    function renounceControl() external onlyControl {
+        // REFUSED WHILE PAUSED, and the reason is that the resulting state is
+        // one nobody wants and nobody can leave. `whenLive` gates all four
+        // doors, and every thaw path is `onlyControl` — which this call is
+        // about to kill. Paused-then-renounced is therefore terminal: no swap
+        // ever settles again and no key can undo it.
+        // There is no legitimate use for it either. Ossifying a LIVE protocol
+        // leaves users able to trade through it forever, which is the point.
+        // Pausing during an incident is worth doing precisely because control
+        // is retained to migrate; renouncing at that moment discards the
+        // capability the pause was bought to use.
+        if (paused) revert RouterE(2);
+        controlRenounced = true;
+        emit Cfg(0, address(0));
+    }
 
     // ─── Rescue (48h timelock) ────────────────────────────────────────
     // The Router holds no user funds at rest (every swap settles or reverts in
@@ -597,7 +613,15 @@ contract BlazePhoenixRouter {
             uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
             baseH = bal > foreignBase ? bal - foreignBase : 0;
         }
-        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // ROUND UP, NEVER DOWN. With floor division mulDiv(b, 28, 10_000) is 0
+        // for every b <= 357, and the early return below then waved the swap
+        // through fee-free: a delivered swap that paid the protocol nothing.
+        // The threshold is in WEI, so its real size is set by the token's
+        // decimals (3.58 tokens at 2 decimals, 358 at 0) — refusing those
+        // trades was the wrong cure. Rounding up makes a zero fee unreachable
+        // for any non-zero base instead, so nothing legitimate is refused.
+        // The guard below now means only "there is no base to charge".
+        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         if (feeH == 0) return amountIn;
         _payFee(hop.tokenIn, feeH);
         // Only hop 0 spends the `amountIn` travelling in the frame; the later ones read the
@@ -652,6 +676,34 @@ contract BlazePhoenixRouter {
     ///      already paid and the measurement served as nobody's floor. It is what feeds the
     ///      coverage gate in `_execScaled`. Length = the hop's leg count; zero means "no
     ///      measurement", and the gate fails OPEN in that case.
+    /// @dev A leg's impact, weighted by its SHARE of the hop.
+    ///
+    ///      Impact is a RATIO — amountIn/(reserveIn+amountIn) — so it is blind to
+    ///      how much value a leg actually carries. A one-wei leg against a
+    ///      dust-reserve pool scores near 100%. The route's floor then averaged
+    ///      those ratios UNWEIGHTED, and `ironFloorBps` SUBTRACTS impact, so
+    ///      padding a route with such legs walked the floor down from 96% toward
+    ///      its 80% clamp while the real trade sat in one honest deep leg. The
+    ///      caller writes the Route, so that lever was theirs.
+    ///
+    ///      Weighting by `leg.amountIn / scaleDen` (the leg's share of the hop's
+    ///      declared input) is self-consistent: the same field decides how much
+    ///      the leg actually spends, so a caller cannot buy weight without
+    ///      routing the value. The `* legs` normalisation makes equal-sized legs
+    ///      reproduce the previous unweighted sum EXACTLY — the shares are then
+    ///      1/legs each — so honest routes do not move, and the division by
+    ///      `totalLegs` downstream is left untouched.
+    ///
+    ///      The clamp mirrors `ironFloorBps`, which caps impact at BPS anyway;
+    ///      doing it here keeps `imp * legs` small enough that only `mulDiv`'s
+    ///      512-bit intermediate has to carry the amount.
+    function _wImp(uint256 imp, uint256 legAmountIn, uint256 legs, uint256 scaleDen)
+        private pure returns (uint256)
+    {
+        if (imp > BPC.BPS) imp = BPC.BPS;
+        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);
+    }
+
     function _hopScaleImpactAndQuote(
         Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase,
         uint256[] memory legQuotes
@@ -701,7 +753,7 @@ contract BlazePhoenixRouter {
                 uint256 rIn  = leg.zeroForOne ? ir0 : ir1;
                 uint256 rOut = leg.zeroForOne ? ir1 : ir0;
                 if (rIn != 0) {
-                    impactAcc += BPC.impactV2Bps(legAmt, rIn);
+                    impactAcc += _wImp(BPC.impactV2Bps(legAmt, rIn), leg.amountIn, legs, scaleDen);
                     if (leg.kind == BPC.KIND_V2) {
                         uint24 v2fee = BPC.effV2Fee(leg.fee);
                         uint256 q_ = BPC.outV2(legAmt, rIn, rOut, v2fee);
@@ -710,7 +762,7 @@ contract BlazePhoenixRouter {
                         uint256 q_ = _solidlyLegQuote(leg, hop.tokenIn, legAmt, rIn, rOut);
                         legQuotes[l] = q_; quoteAcc += q_;
                     }
-                } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
+                } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
                 // Real concentrated-liquidity impact, matching the Solver's
                 // plan-time computation (Core.impactV3Bps). A dead read
@@ -779,15 +831,15 @@ contract BlazePhoenixRouter {
                     // already obtained gives the SAME value: `impactV3Bps` does nothing else (see
                     // the `impactV3FromOut` note in the Core).
                     uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne, 0);
-                    impactAcc += BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne);
+                    impactAcc += _wImp(BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne), leg.amountIn, legs, scaleDen);
                     legQuotes[l] = q_; quoteAcc += q_;
-                } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
+                } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
                 legQuotes[l] = q_; quoteAcc += q_;
-                impactAcc += BPC.DEFAULT_IMPACT_BPS;
-            } else { impactAcc += BPC.DEFAULT_IMPACT_BPS; }
+                impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen);
+            } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             unchecked { ++l; }
         }
     }
@@ -942,6 +994,12 @@ contract BlazePhoenixRouter {
         // the same value, and between the two the whole route runs (hooks included).
         bool feeOnOut = route.hops.length == 1 && hub.isBridgeToken(tokenOut);
 
+        // Bit i is set when the i-th leg of the route actually executed. Beyond
+        // 255 legs the shift yields 0, so the bit stays clear and the leg is not
+        // credited — the fail-CLOSED direction, and unreachable anyway with
+        // MAX_LEGS_PER_HOP at 5.
+        uint256 executedMask;
+        uint256 legIdx;
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
@@ -1105,6 +1163,13 @@ contract BlazePhoenixRouter {
                     uint256 remaining = BPC.balanceOf(legIn, address(this));
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
+                // A leg with a zero scaled input never reaches the pool:
+                // `_execScaled` returns (0,0) before any transfer or swap. Record
+                // WHICH legs actually ran, so the registry credits execution and
+                // not calldata. The index runs across the whole route and both
+                // loops walk the same calldata in the same order.
+                if (scaledAmt != 0) executedMask |= (uint256(1) << legIdx);
+                unchecked { ++legIdx; }
                 (uint256 legGot, uint256 legAtt) = _execScaled(
                     leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
                 );
@@ -1214,7 +1279,9 @@ contract BlazePhoenixRouter {
         // all three. If the final-hop quote is unavailable (finalHopQuote == 0)
         // the protocol floor is inert for this swap and userMinOut, which the
         // entrypoints force to be non-zero, remains the backstop.
-        uint256 protocolFloorOut = BPC.mulDiv(finalHopQuote, floorBps, BPC.BPS);
+        // R-C: round the protective floor UP. Rounding it down hands the
+        // executor a free wei on every swap and, at tiny quotes, a free floor.
+        uint256 protocolFloorOut = BPC.mulDivUp(finalHopQuote, floorBps, BPC.BPS);
         uint256 effMin = userMinOut;
         // Fee-on-transfer (MEASURED during execution, unforgeable by a crafted
         // Route): the quote-derived singleOutFloor assumed no transfer fee and
@@ -1246,7 +1313,9 @@ contract BlazePhoenixRouter {
         } else {
             assembly { tstore(sF, 0) }
             if (fotSeen > BPC.BPS) fotSeen = BPC.BPS; // belt; writers clamp
-            protocolFloorOut = BPC.mulDiv(protocolFloorOut, fotSeen, BPC.BPS);
+            // R-C: this SHRINKS the floor by the measured tax, so rounding up
+            // shrinks it LESS — the conservative direction.
+            protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.BPS);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
         if (amountOut < effMin) revert RouterE(5);
@@ -1267,7 +1336,10 @@ contract BlazePhoenixRouter {
         // `userMinOut` is compared against what they ACTUALLY receive.
         uint256 net = amountOut;
         if (feeOnOut) {
-            uint256 fOut = BPC.mulDiv(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            // Same round-up as the input-side anchor: the two producers of
+            // this fee must round the same way or preview and execution
+            // diverge again.
+            uint256 fOut = BPC.mulDivUp(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
             if (fOut != 0) {
                 if (fOut >= amountOut) revert RouterE(8);
                 _payFee(tokenOut, fOut);
@@ -1289,7 +1361,7 @@ contract BlazePhoenixRouter {
         if (delivered < userMinOut) revert RouterE(5);
 
         amountOut = delivered;
-        _recordHits(route);
+        _recordHits(route, executedMask);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
         // This function's docstring already explains why `payer` exists as a parameter: in
         // `swapBestExactIn` this is reached by an external SELF-CALL, and on that path the
@@ -1467,7 +1539,13 @@ contract BlazePhoenixRouter {
             }
 
             attested = bound;
-            if (bound != 0 && got < BPC.mulDiv(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
+            // R-C: a protective threshold never rounds DOWN. floor(1 * 0.8) is 0,
+            // and `got < 0` cannot fire, so a one-wei bound demanded zero delivery.
+            // The executor's own zero-output refusal dominates that window today,
+            // so this is defence in depth rather than a live hole — but a guard
+            // whose threshold can be zero is a guard that switches itself off, and
+            // reachability is not something to rely on staying closed.
+            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);
         }
     }
 
@@ -1784,11 +1862,27 @@ contract BlazePhoenixRouter {
     //  HUB FEEDBACK
     // =========================================================================
 
-    function _recordHits(Route calldata route) private {
+    /// @param executedMask bit i set iff the i-th leg of the route reached its
+    ///        pool. This walk used to credit EVERY leg declared in calldata,
+    ///        with no check that any of them ran. Hop scaling can round a leg's
+    ///        input to zero, `_execScaled` then skips the pool call entirely,
+    ///        and the Hub still bumped the swap counter, refreshed the
+    ///        timestamp and rewrote the depth bucket for a pool that never
+    ///        moved a token. Those fields feed psi, and psi decides which pools
+    ///        the Solver may quote — so two ordinary swaps carrying one-wei
+    ///        phantom declarations could fabricate fitness and push a fair pool
+    ///        out of the funnel. `Hub.recordSwap` only ever guarded `amtIn == 0`
+    ///        on the RAW calldata amount, which a one-wei declaration passes.
+    ///        Reported by Thomas.
+    function _recordHits(Route calldata route, uint256 executedMask) private {
         address v4mgr;
+        uint256 legIdx;
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             for (uint256 l; l < hop.legs.length; ) {
+                bool ran = executedMask & (uint256(1) << legIdx) != 0;
+                unchecked { ++legIdx; }
+                if (!ran) { unchecked { ++l; } continue; }
                 Leg calldata leg = hop.legs[l];
                 // t0/t1 are always derivable from the hop's own tokenIn/
                 // tokenOut via zeroForOne — every leg in a hop trades the

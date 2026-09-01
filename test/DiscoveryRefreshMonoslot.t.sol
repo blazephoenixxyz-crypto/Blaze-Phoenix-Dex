@@ -94,6 +94,15 @@ contract MockPair {
     constructor(address a, address b) { (token0, token1) = a < b ? (a, b) : (b, a); }
     /// a fee VIVE no pool — e o que a porta fria mede (getV3Fee), por desenho
     function fee() external pure returns (uint24) { return 500; }
+    /// E A FORMA TAMBEM VIVE NO POOL. Estes testes registam com KIND_V3, e o
+    /// registo passou a REFUTAR o kind declarado contra a forma medida: um pool
+    /// V3 real responde sempre slot0(), e um que nao responde nao e V3. Sem
+    /// isto o mock afirmava uma familia que nao sabia demonstrar, e a porta
+    /// recusava-o — correctamente. O preco (1.0) e irrelevante para o que estes
+    /// testes medem (vitalidade, baldes, despejo); so precisa de nao ser zero.
+    function slot0() external pure returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
+        return (79228162514264337593543950336, int24(0), 0, 0, 0, 0, true);
+    }
 }
 
 contract MockPairImpostor {

@@ -332,7 +332,12 @@ contract BlazePhoenixHub {
 
     function _store() private pure returns (HubStore storage $) {
         bytes32 s = HUB_SLOT;
-        assembly { $.slot := s }
+        // memory-safe: assigns a STORAGE pointer and never touches memory at
+        // all. Un-annotated, this and the two array-length writes below
+        // suppressed the compiler's memoryguard, which in turn blocked viaIR
+        // stack optimisation — and that is what made `forge coverage`
+        // unmeasurable on this repo ("stack too deep" in _canInsert).
+        assembly ("memory-safe") { $.slot := s }
     }
 
     // ─── Events ────────────────────────────────────────────────────────
@@ -400,6 +405,16 @@ contract BlazePhoenixHub {
     ///         pools are validated at quote and execution and bounded by the
     ///         output floor and the caller's userMinOut). Irreversible.
     function renounceControl() external onlyAdmin {
+        // REFUSED WHILE PAUSED — the Router's twin of this guard carries the
+        // full argument. Here the terminal state is quieter and still not one
+        // to reach by accident: `recordSwap` is the only `whenLive` surface,
+        // and `setPaused` is `onlyControl`, so paused-then-renounced leaves a
+        // registry that can never learn again. Swaps keep settling (the
+        // Router swallows the refusal), discovery keeps probing factories —
+        // what dies is ranking, vitality and eviction, permanently and
+        // silently. Fixing one of two symmetric channels is this codebase's
+        // documented defect signature; this is the second channel.
+        if (_store().paused) revert HubE(2);
         _store().controlRenounced = true;
         emit ControlRenounced();
     }
@@ -429,6 +444,26 @@ contract BlazePhoenixHub {
         _store().operator[who] = ok; emit RoleSet(4, who);
     }
     function setPaused(bool b) external onlyControl { _store().paused = b; emit PausedSet(b); }
+    /// @notice THIS ADDRESS IS THE SINGLE LEVER THE V4 HOOK SIEVE RESTS ON, and
+    ///         it is worth knowing exactly why before touching it.
+    ///         Every executed V4 swap sieves `key.hooks` before calling
+    ///         `unlock`, but the swap itself runs inside the callback, where the
+    ///         key arrives decoded from data the manager echoed back. The sieve
+    ///         therefore binds the executed swap only because the canonical
+    ///         PoolManager returns unlock data verbatim and calls back only its
+    ///         unlock caller. Point this at something that does not, and the
+    ///         sieve stops describing what executes.
+    ///         The residual is bounded — the Router prices every leg off its own
+    ///         measured balance delta, so a dishonest manager collapses the
+    ///         output and the caller's own bound refuses the swap (exercised by
+    ///         the HostileV4Manager campaign) — but bounded is not absent.
+    ///         NOT pinned by codehash, and deliberately so: factories are pinned
+    ///         because their code can change under an address admitted in good
+    ///         faith, whereas a manager set here was chosen deliberately, and a
+    ///         pin would only record that the chosen contract stayed itself.
+    ///         Pins also cannot see a delegate proxy — the same limitation
+    ///         written down for hooks above. This is an admission decision, and
+    ///         it belongs to human review rather than to a guard.
     function setV4Manager(address m) external onlyControl { _store().v4PoolManager = m; emit RoleSet(5, m); }
 
     // ─── Curator (permanent: grows the registry only) ──────────────────
@@ -469,9 +504,30 @@ contract BlazePhoenixHub {
 
     // ─── Bridges (MAX_BRIDGES configurable, MAX_BRIDGE_ROUTES routable) ─────────────────────────────────────────────────
 
+    /// @dev IDEMPOTENT BY CONSTRUCTION. Two producers answer "is this a
+    ///      bridge?" — `bridge(i)` reads the array, `isBridgeToken(t)` reads
+    ///      the mapping — and `isBridge` is a plain bool with no refcount. A
+    ///      second seat for the same token therefore split them: after
+    ///      `addBridge(x); addBridge(x); removeBridge(0)`, compaction kept `x`
+    ///      in the array while the unconditional mapping clear said it was not
+    ///      a bridge. The Solver kept routing through `x` off the array; the
+    ///      Router's fee anchor read the mapping, found no bridge, and dropped
+    ///      into the per-hop exhaustion regime while the Quoter still previewed
+    ///      a single charge.
+    ///
+    ///      Worse, the repair is asymmetric: `addBridge` is `onlyAdmin` but
+    ///      `removeBridge` is `onlyControl`, so a desync planted with the table
+    ///      full (`bridgeCount_ == MAX_BRIDGES`) is PERMANENT after
+    ///      `renounceControl()` — the remove is dead and the re-add reverts
+    ///      HubE(7).
+    ///
+    ///      A duplicate add is a no-op rather than a revert: the end state the
+    ///      caller asked for already holds, and reverting would make an
+    ///      idempotent administrative call fail on a retry.
     function addBridge(address t) external onlyAdmin {
         _ne0(t);
         HubStore storage $ = _store();
+        if ($.isBridge[t]) return;
         if ($.bridgeCount_ >= MAX_BRIDGES) revert HubE(7);
         $.bridges[$.bridgeCount_] = t;
         $.isBridge[t] = true;
@@ -781,7 +837,10 @@ contract BlazePhoenixHub {
             k = _scanFactory(fac, t0, t1, hits, k);
             unchecked { ++i; }
         }
-        assembly { mstore(hits, k) }
+        // memory-safe: writes the LENGTH word of an array this function
+        // allocated and holds a reference to, shrinking it in place. Within
+        // the Solidity-allocated region, so the annotation is accurate.
+        assembly ("memory-safe") { mstore(hits, k) }
     }
 
     function _scanFactory(
@@ -841,6 +900,10 @@ contract BlazePhoenixHub {
     ) private view returns (uint256) {
         // CREATE2 modes (≥4) require an init-code hash. Factory-call modes
         // (<4) work without one — the staticcall does the lookup.
+        // Defence in depth. Admission already requires a non-zero init-code
+        // hash for every CREATE2 mode, so this is a second, fail-closed check
+        // rather than the primary one: one comparison in a view function,
+        // zero user gas, and the derivation stays closed if admission changes.
         if (fac.mode >= 4 && fac.initHash == bytes32(0)) return k;
         address p = BPC.deriveAddress(fac.factory, t0, t1, fee, stable, sp, fac.mode, fac.initHash);
         if (p != address(0) && BPC.hasCode(p)) {
@@ -941,11 +1004,24 @@ contract BlazePhoenixHub {
         uint256 cB = $.v4CodeOf[t1];
         if (cA != 0) kf = _admitV4(mgr, t0, t1, cA, hits, kf);
         if (cB != 0 && cB != cA) kf = _admitV4(mgr, t0, t1, cB, hits, kf);
+        // A LEARNED CODE IS A HINT, AND A HINT MAY NOT SUPPRESS A SEARCH.
+        // Stage (a) above and the probes below shared ONE counter, so a hit from
+        // the learned code counted as if this pair's own tiers had been probed.
+        // `v4CodeOf` is writable by anyone through the permissionless `claimV4`,
+        // so planting a dust pool at any valid tier set the code, produced a
+        // hit here, and switched off (e) — the ONLY probe that reaches
+        // non-canonical tiers. A legitimate deep pool at such a tier then
+        // vanished from discovery entirely, and the honest path never restored
+        // it. Reported by Mohd Huzaifa, who also supplied the shape of this fix.
+        uint256 kfBeforeOwnProbes = kf >> 128;
         // (c) canonical tiers, then (d) paired extras — one batch each
         kf = _probeV4Batch(mgr, t0, t1, _v4CanonicalTiers(), hits, kf);
         kf = _probeV4Batch(mgr, t0, t1, _v4ExtraTiers(fac), hits, kf);
-        // (e) generator cold-start — only when nothing was found above
-        if (kf >> 128 == 0) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf);
+        // (e) generator cold-start — only when THIS PAIR's own tiers found
+        // nothing. Gating on the total again would let a learned code speak for
+        // a search that never ran. Costs nothing in the honest case: the grid
+        // still runs exactly when it is genuinely needed.
+        if (kf >> 128 == kfBeforeOwnProbes) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf);
         return uint256(uint128(kf));
     }
 
@@ -1190,7 +1266,8 @@ contract BlazePhoenixHub {
             }
             unchecked { ++i; }
         }
-        assembly { mstore(out, w) }
+        // memory-safe: same in-place length shrink as `hits` above.
+        assembly ("memory-safe") { mstore(out, w) }
     }
 
     function _readPoolInfo(bytes32 key, address t0, address t1, uint256 s)
@@ -1514,9 +1591,35 @@ contract BlazePhoenixHub {
         // allowed poisoning `hooksOf[key]`: a non-allow-listed address made
         // the LEGITIMATE pool drop out of the `getActivePools` filter (L1156,
         // `pi.hooks == address(0) || isHookLive(pi.hooks)`).
+        // DERIVE, DON'T DECLARE — the last of this door's three trusted fields.
+        // `fee` is already refuted by measurement below and `hooks` is forced to
+        // zero, but `kind` came through raw from calldata. That was the wrong
+        // field to leave unverified: `kind` is the very `if` that decides
+        // whether `fee` gets measured at all, so the one unrefuted input
+        // governed the refutation of the others. And `_register` skips a slot
+        // that is already set, so no honest swap ever corrected a kind planted
+        // by whoever front-ran the first swap on an unregistered pool — the
+        // Solver then reads that kind as the pool's shape, permanently.
+        //
+        // The refuter is the same probe the fee already uses: `sp != 0` means
+        // the pool ANSWERED as concentrated (slot0 or globalState), and
+        // `dynShape` says which family answered.
         uint24 feeReg = fee;
         if (kind != BPC.KIND_V4 && kind != BPC.KIND_V4_NATIVE) {
-            (, , bool dynShape) = BPC.v3StateAndDynFee(pool);
+            (uint160 sp, , bool dynShape) = BPC.v3StateAndDynFee(pool);
+            bool declaredConc = kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA;
+            bool isConc = sp != 0;
+            // A declaration that contradicts the shape is refused outright
+            // rather than corrected: a V2 pair cannot answer slot0, and a
+            // concentrated pool has no reserves to read. Registering either on
+            // the caller's word would point the Solver at the wrong reader.
+            // Fail closed on the REGISTRY, which is this Hub's stated doctrine.
+            if (declaredConc != isConc) return;
+            // Within the concentrated families the shape decides, not calldata:
+            // Algebra prices with a dynamic fee it reports itself, V3 with a
+            // static tier, so persisting the wrong one poisons every later
+            // quote for this pool.
+            if (isConc) kind = dynShape ? BPC.KIND_ALGEBRA : BPC.KIND_V3;
             feeReg = dynShape ? 0 : BPC.getV3Fee(pool);
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false);
@@ -1560,7 +1663,29 @@ contract BlazePhoenixHub {
         // Newcomer's projected fitness: vitality starts at 1, weighted by the depth
         // bucket it will occupy. No bridge/conc bonus assumed (conservative).
         uint256 newcomerPsi = BPC.bucketWeight(BPC.depthBucket(newDepth));
-        // Require a strict 25% margin so admission is decisive, not a knife-edge.
+        // RESTORED TO THE ORIGINAL, deliberately, after two wrong attempts.
+        //
+        // The margin's effective strength is NOT what the "25%" says, because
+        // `newcomerPsi` is `bucketWeight(...)` = a POWER OF TWO while `worstPsi`
+        // is continuous. The real margin is set by where worstPsi falls between
+        // two powers of two: from ~100% (worstPsi just above one) down to ~3%
+        // (worstPsi = 31, smallest admissible newcomer 32). The constant does
+        // not describe the behaviour at any single point.
+        //
+        // Two changes were tried in one session and both were wrong:
+        //   * rounding UP always yields a margin >= 1, but at worstPsi in
+        //     {1,3,6,25,51,102} it demands a full extra depth decade from the
+        //     newcomer — measured by adversarial review as a regression in the
+        //     dust-squat regime this guard exists to defend;
+        //   * DELETING it on the theory that quantisation already guarantees
+        //     >25% — refuted by its own pinning test: at worstPsi = 7 the
+        //     smallest admissible newcomer is 8, only 14% better.
+        //
+        // So the arithmetic stays as it shipped. The genuine defect is that a
+        // PERCENTAGE margin cannot express itself uniformly against a quantised
+        // newcomer; expressing it in bucket space would, and that changes
+        // admission policy — an owner decision, not a rounding tweak. Recorded
+        // in the assumptions ledger rather than papered over here.
         return newcomerPsi > worstPsi + (worstPsi / 4);
     }
 
