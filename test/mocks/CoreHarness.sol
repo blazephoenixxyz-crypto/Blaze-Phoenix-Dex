@@ -23,4 +23,13 @@ contract CoreHarness {
     function balanceOf(address token, address who) external view returns (uint256) {
         return BPC.balanceOf(token, who);
     }
+
+    /// The stable-curve solver, exposed so a test can observe whether an
+    /// admitted pool QUOTES or REVERTS. `outSolidlyStable` is internal, and an
+    /// inlined revert is invisible to vm.expectRevert.
+    function outSolidlyStable(
+        uint256 ain, uint256 rIn, uint256 rOut, uint256 fee, uint8 dIn, uint8 dOut
+    ) external pure returns (uint256) {
+        return BPC.outSolidlyStable(ain, rIn, rOut, fee, dIn, dOut);
+    }
 }
