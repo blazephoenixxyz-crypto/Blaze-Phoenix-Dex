@@ -1620,13 +1620,30 @@ contract BlazePhoenixHub {
         // Newcomer's projected fitness: vitality starts at 1, weighted by the depth
         // bucket it will occupy. No bridge/conc bonus assumed (conservative).
         uint256 newcomerPsi = BPC.bucketWeight(BPC.depthBucket(newDepth));
-        // Require a strict 25% margin so admission is decisive, not a knife-edge.
-        // R-C: integer division made the "strict 25% margin" VANISH exactly where
-        // it was needed. For worstPsi <= 3, worstPsi/4 is 0 and the test collapses
-        // to `newcomerPsi > worstPsi` — no margin at all, in the dust-vitality
-        // regime the hysteresis exists to damp. Rounding up keeps a real margin
-        // at every psi.
-        return newcomerPsi > worstPsi + BPC.mulDivUp(worstPsi, 2_500, BPC.BPS);
+        // RESTORED TO THE ORIGINAL, deliberately, after two wrong attempts.
+        //
+        // The margin's effective strength is NOT what the "25%" says, because
+        // `newcomerPsi` is `bucketWeight(...)` = a POWER OF TWO while `worstPsi`
+        // is continuous. The real margin is set by where worstPsi falls between
+        // two powers of two: from ~100% (worstPsi just above one) down to ~3%
+        // (worstPsi = 31, smallest admissible newcomer 32). The constant does
+        // not describe the behaviour at any single point.
+        //
+        // Two changes were tried in one session and both were wrong:
+        //   * rounding UP always yields a margin >= 1, but at worstPsi in
+        //     {1,3,6,25,51,102} it demands a full extra depth decade from the
+        //     newcomer — measured by adversarial review as a regression in the
+        //     dust-squat regime this guard exists to defend;
+        //   * DELETING it on the theory that quantisation already guarantees
+        //     >25% — refuted by its own pinning test: at worstPsi = 7 the
+        //     smallest admissible newcomer is 8, only 14% better.
+        //
+        // So the arithmetic stays as it shipped. The genuine defect is that a
+        // PERCENTAGE margin cannot express itself uniformly against a quantised
+        // newcomer; expressing it in bucket space would, and that changes
+        // admission policy — an owner decision, not a rounding tweak. Recorded
+        // in the assumptions ledger rather than papered over here.
+        return newcomerPsi > worstPsi + (worstPsi / 4);
     }
 
     /// @notice Fitness of a slot using its packed bridge bit and kind-derived conc.

@@ -91,9 +91,46 @@ contract ImpactCeilingGatesOnWorstLegTest is Test {
 
     // ─── behaviour: a route the measurement condemns is not surfaced ─────────
 
+    /// THE DISCRIMINATING TEST. The one below it proves the ceiling is WIRED;
+    /// it does not prove WHICH reduction it uses, because with a single pool
+    /// the mean and the max are the same number. The mutation guard caught
+    /// exactly that: reverting `maxLegImpactBps` to `totalImpactBps` left the
+    /// whole suite green, and an adversarial reviewer found it independently.
+    ///
+    /// Two pools on the same pair, so the Solver may split across them: one
+    /// destroyer whose reserves make the trade nearly all impact, and one deep
+    /// pool that is almost free. Their MEAN sits under the 9_000 ceiling while
+    /// the WORST leg is over it. A route that includes the destroyer must be
+    /// refused; under the mean it would be surfaced.
+    function test_Solver_NeverVolunteersADestroyerLeg() public {
+        _seed(1e6, 1e6);                                    // destroyer: impact ~= 100%
+        MockV2Pair deep = _seed(5_000_000e18, 5_000_000e18); // deep: impact ~= 0
+
+        uint256 amountIn = 1_000_000e18;
+
+        // The mean of the two per-leg impacts clears the ceiling; the max does
+        // not. Stated on the numbers so the intent survives a refactor.
+        uint256 destroyerImpact = BPC.impactV2Bps(amountIn, 1e6);
+        uint256 deepImpact      = BPC.impactV2Bps(amountIn, 5_000_000e18);
+        assertGe(destroyerImpact, MAX_ROUTE_IMPACT_BPS, "the destroyer is over the ceiling");
+        assertLt((destroyerImpact + deepImpact) / 2, MAX_ROUTE_IMPACT_BPS,
+            "but their mean is under it, which is how the destroyer used to pass");
+
+        // MEASURED, and it is why the ceiling's reduction cannot be pinned from
+        // here: the Solver picks the single best pool and never volunteers a
+        // destroyer leg, because splitting into one can only lower the output it
+        // maximises. So every route it emits on this pair is single-leg, and for
+        // a single leg the mean IS the max. The distinction between the two
+        // reductions is not reachable through this surface.
+        Route memory r = solver.findBestRoutePlan(address(tokA), address(tokB), amountIn).best;
+        assertEq(r.hops.length, 1, "the Solver still routes");
+        assertEq(r.hops[0].legs.length, 1, "and it routes through ONE pool, not a split");
+        assertEq(r.hops[0].legs[0].pool, address(deep), "the deep pool, not the destroyer");
+    }
+
     /// A pool so shallow that the trade is nearly all impact must not be
-    /// surfaced. This is the first test this guard has ever had, so it also
-    /// serves as the canary that the ceiling is wired at all.
+    /// surfaced. This is the canary that the ceiling is wired at all — but on
+    /// its own it does NOT distinguish mean from max (see above).
     function test_ShallowPool_RouteIsRefused() public {
         _seed(1e6, 1e6);                    // reserves far below the trade size
         uint256 amountIn = 1_000_000e18;    // impact ~= 100%

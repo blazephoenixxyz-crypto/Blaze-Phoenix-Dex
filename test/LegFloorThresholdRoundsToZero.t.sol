@@ -153,20 +153,44 @@ contract LegFloorThresholdRoundsToZeroTest is Test {
         assertEq(BPC.mulDiv(2, LEG_FLOOR_BPS, BPS), 1);
     }
 
-    /// R-C applies to the Hub's admission hysteresis too, and there the
-    /// collapse was NOT merely theoretical: `worstPsi + worstPsi/4` is the
-    /// documented "strict 25% margin", and integer division erases it entirely
-    /// for worstPsi <= 3 — precisely the dust-vitality regime the hysteresis
-    /// exists to damp. This pins the arithmetic so the margin cannot silently
-    /// vanish again.
-    function test_Arithmetic_AdmissionMarginSurvivesSmallPsi() public pure {
-        for (uint256 psi = 1; psi <= 3; ++psi) {
-            assertEq(psi / 4, 0, "the old expression gave no margin at all here");
-            assertGe(BPC.mulDivUp(psi, 2_500, BPS), 1, "a non-zero psi must demand a non-zero margin");
+    /// THE MARGIN IS NOT REDUNDANT, and this test is why the claim that it was
+    /// never reached production.
+    ///
+    /// `_canInsert` compares `newcomerPsi = bucketWeight(depthBucket(d))` — a
+    /// POWER OF TWO — against the incumbent's continuous psi. The tempting
+    /// conclusion is that quantisation alone guarantees a decisive gap, so the
+    /// documented 25% margin can be deleted. It does not: the gap depends
+    /// entirely on where worstPsi sits between two powers of two.
+    ///
+    /// This test was written to PIN that deletion and instead refuted it, which
+    /// is the only reason the arithmetic still stands as it shipped.
+    function test_AdmissionMargin_IsNotRedundantWithQuantisation() public pure {
+        // The doubling is real.
+        for (uint8 b; b < 15; ++b) {
+            assertEq(BPC.bucketWeight(b + 1), 2 * BPC.bucketWeight(b),
+                "each bucket is worth exactly twice the one below it");
         }
-        // And it still means 25% where 25% is representable.
-        assertEq(BPC.mulDivUp(100, 2_500, BPS), 25);
-        assertEq(BPC.mulDivUp(4, 2_500, BPS), 1);
+
+        // But the margin it produces is NOT uniform. Just above a power of two
+        // the next admissible newcomer is ~100% better; just below one it is a
+        // few percent better. The constant describes neither.
+        uint256 best = _gapBps(4);    // worstPsi just at a power of two
+        uint256 worstCase = _gapBps(31);
+        assertEq(best, 10_000, "at worstPsi=4 the smallest admissible newcomer is 100% better");
+        assertLt(worstCase, 2_500,
+            "at worstPsi=31 it is under 4% better, far below the documented 25% margin");
+
+        // Therefore deleting the margin would leave a near-knife-edge exactly
+        // where the incumbent psi is largest. Recorded so nobody retries it.
+        assertLt(_gapBps(7), 2_500, "worstPsi=7 admits an 8, only 14% better");
+        assertLt(_gapBps(15), 2_500, "worstPsi=15 admits a 16, under 7% better");
+    }
+
+    /// Improvement, in bps, of the smallest admissible newcomer over `worst`.
+    function _gapBps(uint256 worst) private pure returns (uint256) {
+        uint256 admitted = 1;
+        while (admitted <= worst) admitted <<= 1;
+        return ((admitted - worst) * BPS) / worst;
     }
 
     // ─── the guard that actually holds the line ─────────────────────────────
