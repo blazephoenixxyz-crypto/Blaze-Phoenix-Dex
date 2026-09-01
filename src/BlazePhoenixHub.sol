@@ -1548,9 +1548,35 @@ contract BlazePhoenixHub {
         // allowed poisoning `hooksOf[key]`: a non-allow-listed address made
         // the LEGITIMATE pool drop out of the `getActivePools` filter (L1156,
         // `pi.hooks == address(0) || isHookLive(pi.hooks)`).
+        // DERIVE, DON'T DECLARE — the last of this door's three trusted fields.
+        // `fee` is already refuted by measurement below and `hooks` is forced to
+        // zero, but `kind` came through raw from calldata. That was the wrong
+        // field to leave unverified: `kind` is the very `if` that decides
+        // whether `fee` gets measured at all, so the one unrefuted input
+        // governed the refutation of the others. And `_register` skips a slot
+        // that is already set, so no honest swap ever corrected a kind planted
+        // by whoever front-ran the first swap on an unregistered pool — the
+        // Solver then reads that kind as the pool's shape, permanently.
+        //
+        // The refuter is the same probe the fee already uses: `sp != 0` means
+        // the pool ANSWERED as concentrated (slot0 or globalState), and
+        // `dynShape` says which family answered.
         uint24 feeReg = fee;
         if (kind != BPC.KIND_V4 && kind != BPC.KIND_V4_NATIVE) {
-            (, , bool dynShape) = BPC.v3StateAndDynFee(pool);
+            (uint160 sp, , bool dynShape) = BPC.v3StateAndDynFee(pool);
+            bool declaredConc = kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA;
+            bool isConc = sp != 0;
+            // A declaration that contradicts the shape is refused outright
+            // rather than corrected: a V2 pair cannot answer slot0, and a
+            // concentrated pool has no reserves to read. Registering either on
+            // the caller's word would point the Solver at the wrong reader.
+            // Fail closed on the REGISTRY, which is this Hub's stated doctrine.
+            if (declaredConc != isConc) return;
+            // Within the concentrated families the shape decides, not calldata:
+            // Algebra prices with a dynamic fee it reports itself, V3 with a
+            // static tier, so persisting the wrong one poisons every later
+            // quote for this pool.
+            if (isConc) kind = dynShape ? BPC.KIND_ALGEBRA : BPC.KIND_V3;
             feeReg = dynShape ? 0 : BPC.getV3Fee(pool);
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false);
