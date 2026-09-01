@@ -254,7 +254,9 @@ contract BlazePhoenixRouter {
     // 13 = FoT token on a V3-only route (route-where-natural), 14 = rescue
     // not queued or still inside the 48h timelock
 
-    modifier onlyAdmin() { if (msg.sender != admin) revert RouterE(1); _; }
+    // Every privileged door in this contract is gated by onlyControl, so all
+    // administrative power ends permanently at renounceControl(). Keep it that
+    // way: a door added under any weaker modifier would outlive renunciation.
     // Control powers (treasuries, permit2, pause, admin transfer) are disabled
     // forever once renounceControl() is called.
     modifier onlyControl() { if (msg.sender != admin || controlRenounced) revert RouterE(1); _; }
@@ -293,7 +295,21 @@ contract BlazePhoenixRouter {
     ///         Permit2 address, the pause flag and admin transfer are frozen at
     ///         their current values forever. The Router keeps executing swaps
     ///         under that fixed configuration. Irreversible.
-    function renounceControl() external onlyControl { controlRenounced = true; emit Cfg(0, address(0)); }
+    function renounceControl() external onlyControl {
+        // REFUSED WHILE PAUSED, and the reason is that the resulting state is
+        // one nobody wants and nobody can leave. `whenLive` gates all four
+        // doors, and every thaw path is `onlyControl` — which this call is
+        // about to kill. Paused-then-renounced is therefore terminal: no swap
+        // ever settles again and no key can undo it.
+        // There is no legitimate use for it either. Ossifying a LIVE protocol
+        // leaves users able to trade through it forever, which is the point.
+        // Pausing during an incident is worth doing precisely because control
+        // is retained to migrate; renouncing at that moment discards the
+        // capability the pause was bought to use.
+        if (paused) revert RouterE(2);
+        controlRenounced = true;
+        emit Cfg(0, address(0));
+    }
 
     // ─── Rescue (48h timelock) ────────────────────────────────────────
     // The Router holds no user funds at rest (every swap settles or reverts in

@@ -493,8 +493,15 @@ contract BlazePhoenixQuoter {
                 uint256 legOut;
                 if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
                     legOut = _simConc(leg.pool, leg.zeroForOne, legIn);
+                    // FALLBACK DIRECTION (Q1): the pool refused the dry-run, so
+                    // the only known point is the plan's (amountIn, expectedOut).
+                    // AMM output is concave: the linear rescale is the chord
+                    // BELOW that point (understates — safe) and the tangent
+                    // ABOVE it (overstates). Cap the ratio at 1: a refused leg
+                    // may keep the plan's own claim, never exceed it.
                     if (legOut == 0)
-                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
+                        legOut = BPC.mulDiv(
+                            leg.expectedOut, legIn > base ? base : legIn, base);
                 } else if (leg.kind == BPC.KIND_V2) {
                     // DEDUP BP-14/P4: price via the ONE Core dispatcher — the
                     // same deployed library bytecode the Solver links — not a
@@ -514,18 +521,41 @@ contract BlazePhoenixQuoter {
                     (legOut, ) = BPC.universalQuote(qc, legIn);
                 } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                     legOut = _simV4(leg, route.hops[h].tokenIn, legIn);
+                    // Same clamp as the A_CONC_POOL fallback above: the
+                    // singleton could not price the leg (no manager, hook
+                    // fail-closed, oversize amount), so never extrapolate the
+                    // plan's point upward along the tangent.
                     if (legOut == 0)
-                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
+                        legOut = BPC.mulDiv(
+                            leg.expectedOut, legIn > base ? base : legIn, base);
                 } else {
-                    // SOLIDLY is today the ONLY LIVE kind landing here — the other
-                    // two that used to fall through were tombstones. The linear
-                    // scaling is an APPROXIMATION in a place where the exact
-                    // measurement exists (solidlyGetAmountOut). TRAP, before anyone
-                    // fixes it: `qc.kind` above is PINNED to KIND_V2, so routing
-                    // this branch through universalQuote without touching that line
-                    // would start quoting Solidly on the constant-product arm —
-                    // worse than today.
-                    legOut = BPC.mulDiv(leg.expectedOut, legIn, base);
+                    // SOLIDLY — priced via the ONE Core dispatcher, exactly like
+                    // the V2 branch above (DEDUP BP-14/P4). universalQuote's
+                    // KIND_SOLIDLY arm asks the pool itself first
+                    // (solidlyGetAmountOut: the pair's own bytecode, so quote ==
+                    // execution by construction); a fork without the selector
+                    // falls to the replicated curve at the live fee with a
+                    // 200 bps under-ask; a pool that answers nothing quotes 0.
+                    // Every arm lands AT or BELOW execution truth. The previous
+                    // linear rescale walked the TANGENT of a concave curve and
+                    // OVERSTATED whenever carry outgrew the plan (reported at up
+                    // to ~907 bps on a thin pool) — pinned RED-first by
+                    // test/QuoterOverQuote.t.sol. Tombstone kinds also land here
+                    // and now quote 0 (universalQuote's fail-closed default)
+                    // instead of a rescaled ghost. NOTE: a FRESH ctx — the `qc`
+                    // above is PINNED to KIND_V2, and reusing it would price
+                    // Solidly on the constant-product arm. tokenIn is REQUIRED
+                    // (getAmountOut is direction-keyed on it); tokenOther only
+                    // feeds the depth read, which is discarded here.
+                    QuoteCtx memory sc;
+                    sc.kind       = BPC.KIND_SOLIDLY;
+                    sc.pool       = leg.pool;
+                    sc.zeroForOne = leg.zeroForOne;
+                    sc.fee        = leg.fee;
+                    sc.stable     = leg.stable;
+                    sc.tokenIn    = route.hops[h].tokenIn;
+                    sc.tokenOther = route.hops[h].tokenOut;
+                    (legOut, ) = BPC.universalQuote(sc, legIn);
                 }
                 route.hops[h].legs[l].amountIn    = legIn;
                 route.hops[h].legs[l].expectedOut = legOut;

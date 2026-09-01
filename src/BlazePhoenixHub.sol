@@ -405,6 +405,16 @@ contract BlazePhoenixHub {
     ///         pools are validated at quote and execution and bounded by the
     ///         output floor and the caller's userMinOut). Irreversible.
     function renounceControl() external onlyAdmin {
+        // REFUSED WHILE PAUSED — the Router's twin of this guard carries the
+        // full argument. Here the terminal state is quieter and still not one
+        // to reach by accident: `recordSwap` is the only `whenLive` surface,
+        // and `setPaused` is `onlyControl`, so paused-then-renounced leaves a
+        // registry that can never learn again. Swaps keep settling (the
+        // Router swallows the refusal), discovery keeps probing factories —
+        // what dies is ranking, vitality and eviction, permanently and
+        // silently. Fixing one of two symmetric channels is this codebase's
+        // documented defect signature; this is the second channel.
+        if (_store().paused) revert HubE(2);
         _store().controlRenounced = true;
         emit ControlRenounced();
     }
@@ -434,6 +444,26 @@ contract BlazePhoenixHub {
         _store().operator[who] = ok; emit RoleSet(4, who);
     }
     function setPaused(bool b) external onlyControl { _store().paused = b; emit PausedSet(b); }
+    /// @notice THIS ADDRESS IS THE SINGLE LEVER THE V4 HOOK SIEVE RESTS ON, and
+    ///         it is worth knowing exactly why before touching it.
+    ///         Every executed V4 swap sieves `key.hooks` before calling
+    ///         `unlock`, but the swap itself runs inside the callback, where the
+    ///         key arrives decoded from data the manager echoed back. The sieve
+    ///         therefore binds the executed swap only because the canonical
+    ///         PoolManager returns unlock data verbatim and calls back only its
+    ///         unlock caller. Point this at something that does not, and the
+    ///         sieve stops describing what executes.
+    ///         The residual is bounded — the Router prices every leg off its own
+    ///         measured balance delta, so a dishonest manager collapses the
+    ///         output and the caller's own bound refuses the swap (exercised by
+    ///         the HostileV4Manager campaign) — but bounded is not absent.
+    ///         NOT pinned by codehash, and deliberately so: factories are pinned
+    ///         because their code can change under an address admitted in good
+    ///         faith, whereas a manager set here was chosen deliberately, and a
+    ///         pin would only record that the chosen contract stayed itself.
+    ///         Pins also cannot see a delegate proxy — the same limitation
+    ///         written down for hooks above. This is an admission decision, and
+    ///         it belongs to human review rather than to a guard.
     function setV4Manager(address m) external onlyControl { _store().v4PoolManager = m; emit RoleSet(5, m); }
 
     // ─── Curator (permanent: grows the registry only) ──────────────────
@@ -870,6 +900,10 @@ contract BlazePhoenixHub {
     ) private view returns (uint256) {
         // CREATE2 modes (≥4) require an init-code hash. Factory-call modes
         // (<4) work without one — the staticcall does the lookup.
+        // Defence in depth. Admission already requires a non-zero init-code
+        // hash for every CREATE2 mode, so this is a second, fail-closed check
+        // rather than the primary one: one comparison in a view function,
+        // zero user gas, and the derivation stays closed if admission changes.
         if (fac.mode >= 4 && fac.initHash == bytes32(0)) return k;
         address p = BPC.deriveAddress(fac.factory, t0, t1, fee, stable, sp, fac.mode, fac.initHash);
         if (p != address(0) && BPC.hasCode(p)) {
