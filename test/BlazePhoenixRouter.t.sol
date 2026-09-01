@@ -337,5 +337,16 @@ contract BlazePhoenixRouterTest is Test {
         assertTrue(evil.lastReentryAttempted(), "the token's transferFrom must have attempted the nested call");
         assertTrue(evil.lastReentryReverted(),
             "nrEntrant must block the nested swapExactIn call made mid-transferFrom");
+        // AND IT MUST BE THE LOCK THAT REFUSED. A nested call made mid-pull
+        // reverts for several reasons that have nothing to do with reentrancy,
+        // so asserting only that it reverted leaves the lock unwatched: a
+        // Router that never arms the lock passes the assertion above. Pin the
+        // exact code.
+        bytes memory ret = evil.lastReentryReturndata();
+        assertEq(ret.length, 36, "nested revert must carry RouterE(uint16)");
+        assertEq(bytes4(ret), BlazePhoenixRouter.RouterE.selector, "must be a RouterE");
+        uint256 code;
+        assembly { code := mload(add(ret, 36)) }
+        assertEq(code, 7, "the refusal must be the reentrancy lock, RouterE(7)");
     }
 }

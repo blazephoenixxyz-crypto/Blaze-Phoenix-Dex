@@ -22,6 +22,9 @@ contract MaliciousReentrantERC20 {
     bool    public attacking;
     bool    public lastReentryReverted;
     bool    public lastReentryAttempted;
+    /// Raw revert bytes of the nested call, so a test can assert WHICH guard
+    /// refused rather than merely that a refusal happened.
+    bytes   public lastReentryReturndata;
 
     function mint(address to, uint256 amt) external { balanceOf[to] += amt; }
 
@@ -49,8 +52,15 @@ contract MaliciousReentrantERC20 {
         if (attacking) {
             attacking = false; // one-shot: avoid runaway recursion
             lastReentryAttempted = true;
-            (bool ok, ) = attackTarget.call(attackCalldata);
+            // CAPTURE THE REASON, not just the fact. Discarding the returndata
+            // here made every reentrancy assertion in the tree a claim that
+            // SOMETHING reverted, never that the LOCK reverted -- and a nested
+            // call mid-transferFrom reverts for several unrelated reasons. The
+            // mutation guard proved it: a Router whose lock is never armed
+            // still failed the nested call, and the test stayed green.
+            (bool ok, bytes memory ret) = attackTarget.call(attackCalldata);
             lastReentryReverted = !ok;
+            lastReentryReturndata = ret;
         }
         return _transfer(from, to, amt);
     }

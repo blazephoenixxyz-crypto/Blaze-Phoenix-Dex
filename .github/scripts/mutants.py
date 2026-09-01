@@ -310,6 +310,109 @@ M = [
       old="    uint8   internal constant MAX_LEGS_PER_HOP  = 5;",
       new="    uint8   internal constant MAX_LEGS_PER_HOP  = 4; // MUTANTE",
       teste="test_G8_FiveLegs_BoundaryPasses"),
+ # ── as duas fronteiras exatas antes REJEITADAS (2026-09-01) ────────────────
+ # Os dois flips < -> <= abaixo tinham ficado FORA da lista por falta de teste
+ # que pousasse na igualdade (os testes do orcamento viviam a 82%/85%; o do
+ # minOut controlava delivered, nao amountOut). Provado que NAO sao
+ # equivalentes: a fronteira e alcancavel para QUALQUER quote G — no caso do
+ # orcamento com hopAttested = S = 10*floor(2G/9) + (2G mod 9) (a funcao
+ # S - floor(S/10) percorre todos os inteiros), no caso do piso com
+ # singleOutFloor = amountOut (identidade de calldata). A chave de exatidao em
+ # ambos: amountIn = soma(leg.amountIn) + fee pre-paga -> scaleNum == scaleDen
+ # -> os mulDiv de escala sao identidades. Kill verificado no box 2026-09-01:
+ # cada teste PASSA limpo e FALHA RouterE(5) com o seu mutante, com o vizinho
+ # verde (atribuicao de sitio limpa nos dois sentidos).
+ dict(nome="orcamento por hop: < vira <= (a fronteira exata, nao a folga dobrada)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (hopGot + slack < hopAttested) revert RouterE(5);",
+      new="                if (hopGot + slack <= hopAttested) revert RouterE(5); // MUTANTE",
+      teste="test_HopBudget_ExactBoundaryDelivers"),
+ dict(nome="piso agregado: < vira <= na comparacao amountOut/effMin",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (amountOut < effMin) revert RouterE(5);",
+      new="        if (amountOut <= effMin) revert RouterE(5); // MUTANTE",
+      teste="test_AggregateFloor_ExactBoundaryDelivers"),
+ # ── as doze guardas que nunca tinham disparado (2026-09-01) ────────────────
+ # Um inventario classificou 29 sitios de recusa como conduzidos de um so lado.
+ # Doze eram ALCANCAVEIS e tinham testemunha derivada; o test/GuardsNeverFired
+ # faz cada uma disparar com o codigo EXATO. Metade partilha o codigo de erro
+ # com uma guarda vizinha, e por isso um expectRevert nu passaria na errada.
+ dict(nome="hook: o pin de codehash na EXECUCAO (Layer 3) deixa de pausar",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (!hub.isHookLive(leg.hooks)) revert RouterE(9);",
+      new="            // MUTANTE",
+      teste="test_W1_FireB_MutatedHookCode_Reverts9"),
+ dict(nome="deadline: a verificacao das portas pre-pulled cai",
+      f="src/BlazePhoenixRouter.sol",
+      old="        address recipient, uint256 deadline, address payer\n    ) private returns (uint256) {\n        if (block.timestamp > deadline) revert RouterE(4);",
+      new="        address recipient, uint256 deadline, address payer\n    ) private returns (uint256) {\n        deadline; // MUTANTE",
+      teste="test_W2_Permit2Door_DeadlinePassed_Reverts4"),
+ dict(nome="solver hostil: o fail-closed antes do pull cai",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (plan.best.hops.length == 0 || plan.best.hops[0].tokenIn != tokenIn) revert RouterE(3); // fail-closed",
+      new="        // MUTANTE",
+      teste="test_W3_FireB_TokenInMismatchPlan_Reverts3_BeforeAnyPull"),
+ dict(nome="V4: o portao auxId==0 cai (o vizinho com o mesmo codigo 8 nao o cobre)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        address tokenOther = address(uint160(uint256(leg.auxId)));\n        if (tokenOther == address(0)) revert RouterE(8);",
+      new="        address tokenOther = address(uint160(uint256(leg.auxId)));\n        // MUTANTE",
+      teste="test_W4_Fire_V4LegAuxIdZero_Reverts8"),
+ dict(nome="mulDiv: a require da reducao 512->256 cai",
+      f="src/BlazePhoenixCore.sol",
+      old='            require(d > prod1, "BPC:mulDiv");',
+      new="            // MUTANTE",
+      teste="test_W5_Fire_MulDivResultOverflows_Reverts"),
+ dict(nome="claimV4: c0==c1 cai na porta permissionless",
+      f="src/BlazePhoenixHub.sol",
+      old="        _ne0(c0); _ne0(c1);                 // native currency (address(0)) rejected\n        if (c0 == c1) revert HubE(4);",
+      new="        _ne0(c0); _ne0(c1);                 // native currency (address(0)) rejected\n        // MUTANTE",
+      teste="test_W6_Fire_ClaimV4EqualCurrencies_Reverts4"),
+ dict(nome="addFactory: o emparelhamento fees/spacings do modo 9 cai",
+      f="src/BlazePhoenixHub.sol",
+      old="            if (fees.length != spacings.length) revert HubE(5);",
+      new="            // MUTANTE",
+      teste="test_W7_Fire_Mode9UnpairedFees_Reverts5"),
+ dict(nome="porta nativa: a recusa de rota vazia cai (vira Panic 0x32)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (route.hops.length == 0) revert RouterE(3);\n        if (route.hops[0].tokenIn != w) revert RouterE(3);   // route must start in WETH",
+      new="        if (route.hops[0].tokenIn != w) revert RouterE(3);   // route must start in WETH // MUTANTE",
+      teste="test_W8_Fire_NativeDoorEmptyRoute_Reverts3"),
+ dict(nome="rescue: o destino zero passa a poder ser posto em fila",
+      f="src/BlazePhoenixRouter.sol",
+      old="    function queueRescue(address token, address to) external onlyControl {\n        if (to == address(0)) revert RouterE(3);",
+      new="    function queueRescue(address token, address to) external onlyControl {\n        // MUTANTE",
+      teste="test_W9_Fire_QueueRescueZeroTo_Reverts3"),
+ dict(nome="addV4: c0==c1 cai na porta do operador",
+      f="src/BlazePhoenixHub.sol",
+      old="        _ne0(c1);\n        if (c0 == c1) revert HubE(4);",
+      new="        _ne0(c1);\n        // MUTANTE",
+      teste="test_W10_Fire_AddV4EqualCurrencies_Reverts4"),
+ dict(nome="construtor do Router: os tres bracos zero deixam de recusar",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (hub_ == address(0) || solver_ == address(0) || admin_ == address(0)) revert RouterE(3);",
+      new="        // MUTANTE",
+      teste="test_W11_FireA_CtorZeroHub_Reverts3"),
+ dict(nome="construtor do Solver: o hub zero deixa de recusar",
+      f="src/BlazePhoenixSolver.sol",
+      old='        require(hub_ != address(0), "Solver:hub0");',
+      new="        // MUTANTE",
+      teste="test_W12_Fire_SolverCtorZeroHub_Reverts"),
+ # ── o cadeado de reentrancia, que nao tinha vigia nenhuma ──────────────────
+ # O `invariant_reentrancyBlocked` contava como cobertura e era uma TAUTOLOGIA:
+ # o sentinela so virava se uma chamada aninhada REGRESSASSE, e a carga dele era
+ # uma rota vazia — que reverte RouterE(3) com cadeado e sem cadeado. Estava
+ # preso ao valor seguro em todas as versoes possiveis do contrato. Duas
+ # maneiras distintas de o cadeado falhar, dois vectores, dois testes.
+ dict(nome="reentrancia: a verificacao do cadeado deixa de recusar (regiao V4 bloqueada)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (v != 0) revert RouterE(7);",
+      new="        v; // MUTANTE",
+      teste="test_NestedReentryDuringV4Settle_BlockedByExactLockCode"),
+ dict(nome="reentrancia: o cadeado nunca chega a ser armado (a puxada de tokens)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        assembly { tstore(s, 1) }",
+      new="        // MUTANTE",
+      teste="test_ReentrancyGuard_BlocksNestedSwapExactInDuringTokenPull"),
 ]
 
 def run(t):
