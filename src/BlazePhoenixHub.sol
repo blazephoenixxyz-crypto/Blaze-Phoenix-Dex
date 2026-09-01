@@ -332,7 +332,12 @@ contract BlazePhoenixHub {
 
     function _store() private pure returns (HubStore storage $) {
         bytes32 s = HUB_SLOT;
-        assembly { $.slot := s }
+        // memory-safe: assigns a STORAGE pointer and never touches memory at
+        // all. Un-annotated, this and the two array-length writes below
+        // suppressed the compiler's memoryguard, which in turn blocked viaIR
+        // stack optimisation — and that is what made `forge coverage`
+        // unmeasurable on this repo ("stack too deep" in _canInsert).
+        assembly ("memory-safe") { $.slot := s }
     }
 
     // ─── Events ────────────────────────────────────────────────────────
@@ -802,7 +807,10 @@ contract BlazePhoenixHub {
             k = _scanFactory(fac, t0, t1, hits, k);
             unchecked { ++i; }
         }
-        assembly { mstore(hits, k) }
+        // memory-safe: writes the LENGTH word of an array this function
+        // allocated and holds a reference to, shrinking it in place. Within
+        // the Solidity-allocated region, so the annotation is accurate.
+        assembly ("memory-safe") { mstore(hits, k) }
     }
 
     function _scanFactory(
@@ -1224,7 +1232,8 @@ contract BlazePhoenixHub {
             }
             unchecked { ++i; }
         }
-        assembly { mstore(out, w) }
+        // memory-safe: same in-place length shrink as `hits` above.
+        assembly ("memory-safe") { mstore(out, w) }
     }
 
     function _readPoolInfo(bytes32 key, address t0, address t1, uint256 s)
