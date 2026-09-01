@@ -100,11 +100,25 @@ contract ImpactWeightedByLegSizeTest is Test {
         tokA.approve(address(router), type(uint256).max);
     }
 
+    /// @param rA reserve of tokA, @param rB reserve of tokB — named by TOKEN,
+    ///        not by slot, because the pair sorts its tokens by address and
+    ///        `setReserves` is positional.
+    ///
+    /// This helper used to pass (rA, rB) straight through, which silently
+    /// assumed tokA sorts first. It does on one machine and not on another:
+    /// a different compiler version shifts the test-derived addresses, tokB
+    /// becomes token0, and "1 wei on the INPUT side" quietly becomes 1 wei on
+    /// the OUTPUT side — outV2 then floors to zero and the leg reverts
+    /// RouterE(8) before any floor is reached. That is exactly the fragility
+    /// foundry.toml's own comment warns about ("Router bytecode changes shift
+    /// the test-derived addresses"), and it took running the suite on a second
+    /// machine to see it. Order by the pair's own view instead of assuming.
     function _pool(uint112 rA, uint112 rB) internal returns (MockV2Pair p) {
         p = new MockV2Pair(address(tokA), address(tokB));
         tokA.mint(address(p), rA);
         tokB.mint(address(p), rB);
-        p.setReserves(rA, rB);
+        bool aIsToken0 = p.token0() == address(tokA);
+        p.setReserves(aIsToken0 ? rA : rB, aIsToken0 ? rB : rA);
         hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(tokA), address(tokB));
     }
 
