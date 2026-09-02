@@ -490,7 +490,16 @@ contract BlazePhoenixRouter {
         // deadline + empty-route re-checked inside _swapPrePulled — not here
         // (dedupe law: same tx, same state, never pay twice — in bytecode too).
         RoutePlan memory plan = ISolverR(solver).findBestRoutePlan(tokenIn, tokenOut, amountIn);
-        if (plan.best.hops.length == 0 || plan.best.hops[0].tokenIn != tokenIn) revert RouterE(3); // fail-closed
+        // Both ends of the plan are checked (review 2026-09-02): the input end
+        // guarded the pull; the OUTPUT end guards what the recipient receives
+        // and the units `userMinOut` is compared in. The Solver is immutable
+        // and this is the one door where the route is not the caller's, so
+        // the belt is cheap and the sibling asymmetry was the only reason it
+        // was missing.
+        if (
+            plan.best.hops.length == 0 || plan.best.hops[0].tokenIn != tokenIn
+                || plan.best.hops[plan.best.hops.length - 1].tokenOut != tokenOut
+        ) revert RouterE(3); // fail-closed
         uint256 balBefore = BPC.balanceOf(tokenIn, address(this));
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
         uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
@@ -581,11 +590,27 @@ contract BlazePhoenixRouter {
     ///      PROVEN NEGATIVE RESULT: with no external price, NO single anchor is immune. And an
     ///      external price is out by the owner's decision (zero oracles).
     ///
-    ///      WHY THIS IS IMMUNE, by exhaustion and not by patch: the attacker can fabricate
-    ///      worthless tokens and can append hops, but CANNOT stop the route from crossing the REAL
-    ///      liquidity pool they want to use — and on that hop they pay the full rate, in that hop's
-    ///      real token. The dust hops start COSTING them (junk rate to the treasury, plus gas)
-    ///      instead of saving them. The incentive inverts.
+    ///      WHY THIS WAS CALLED IMMUNE, by exhaustion: the attacker can fabricate worthless
+    ///      tokens and can append hops, but CANNOT stop the route from crossing the REAL liquidity
+    ///      pool they want to use — and on that hop they pay the full rate, in that hop's real
+    ///      token. The dust hops start COSTING them (junk rate to the treasury, plus gas) instead
+    ///      of saving them. The incentive inverts.
+    ///
+    ///      THE RESIDUAL THAT SENTENCE MISSED (review 2026-09-02, measured in
+    ///      test/FeeAnchorValueInjectingPrefix.t.sol): the exhaustion above only considered prefixes
+    ///      WITHOUT value. The anchor is "the first hop whose INPUT is a bridge coin" (see the fee
+    ///      block in `_execute`). A hop-0 that spends 2 wei of WETH through a pair the attacker
+    ///      wrote — one that pays out USDC the attacker funded it with — IS that hop: the fee is
+    ///      charged on 2 wei, and the real pool on hop 1 is crossed with the attacker's own USDC
+    ///      fee-free. No user is harmed; the treasury loses the rate on that trade. The cost to the
+    ///      evader is one contract and one extra hop of gas per trade, against the alternative they
+    ///      already have of calling the pool directly and paying nothing — so the leak is bounded
+    ///      by the value of the Router's own guarantees to them. There is no anchor immune to it
+    ///      without a price (the negative result above stands); the only immune rule is
+    ///      charge-on-every-hop, which the owner rejected on 2026-08-22 for doubling the honest
+    ///      two-hop cost. The rate rule is therefore the owner's decision; until it changes, the
+    ///      leak is an ACCEPTED, MEASURED residual, and the test that measures it must flip the day
+    ///      the rule does.
     ///
     ///      AND IT IS THE SAME MOVE THETA MADE ON THE KINDS: what was an attribute of an END chosen
     ///      by the caller becomes an invariant of TRANSIT, traversed by the execution. The fee stops
@@ -831,7 +856,18 @@ contract BlazePhoenixRouter {
                     // already obtained gives the SAME value: `impactV3Bps` does nothing else (see
                     // the `impactV3FromOut` note in the Core).
                     uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne, 0);
-                    impactAcc += _wImp(BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne), leg.amountIn, legs, scaleDen);
+                    // DIRECTION OF A FALLBACK, JUDGED PER CONSUMER (review
+                    // 2026-09-02). `impactV3FromOut(0, ..)` answers BPS, which is
+                    // the conservative answer for the Solver's RANKING and the
+                    // permissive one for this FLOOR: `ironFloorBps` SUBTRACTS
+                    // impact, so a leg that is unquotable (fee sentinel, dust vs
+                    // price) but still executes collapsed the whole route's
+                    // floor to the 80% clamp. The two sibling arms below charge
+                    // DEFAULT_IMPACT_BPS in the same situation; this one now does
+                    // too. Three arms, one direction.
+                    impactAcc += _wImp(
+                        q_ == 0 ? BPC.DEFAULT_IMPACT_BPS : BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne),
+                        leg.amountIn, legs, scaleDen);
                     legQuotes[l] = q_; quoteAcc += q_;
                 } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
@@ -1201,6 +1237,23 @@ contract BlazePhoenixRouter {
                 uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);
                 if (hopGot + slack < hopAttested) revert RouterE(5);
             }
+            // ─── NM-002 (external report, BoyD; review 2026-09-02) ───
+            // When the LAST hop could not be quoted in-frame (finalHopQuote == 0:
+            // a liquidity gap at the current tick, a fee sentinel, a dynamic-fee
+            // V4 key under a protocol fee) the protocol floor below was inert —
+            // `mulDivUp(0, floorBps, BPS)` — and the block that computes it
+            // said so in writing: absence read as permission, the second axis.
+            // A JIT liquidity gap on a thin concentrated pool is attacker-
+            // triggerable and turned the advertised ~96% floor into the 80%
+            // per-leg floor for that swap. Floor on the hop's ATTESTED quote
+            // instead: it is already coverage-gated against the measurement
+            // where one exists and FoT-repriced, the caller can only push it UP
+            // (R3), and nobody else can touch it. NEVER revert here: two of the
+            // zero-quote paths are legitimately executable pools (a 0-fee CL
+            // pool, a dynamic-fee V4 pool once a protocol fee is on). On these
+            // swaps `ExecutionProof.quoted` therefore carries the attested
+            // figure, not a measured one.
+            if (h + 1 == route.hops.length && finalHopQuote == 0) finalHopQuote = hopAttested;
             unchecked { ++h; }
         }
 

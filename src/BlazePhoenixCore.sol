@@ -448,7 +448,7 @@ library BlazePhoenixCore {
         bool isAlgebra = (sub == 1 && fee == 0);
         if      (sub == 0) salt = keccak256(abi.encodePacked(t0, t1));
         else if (sub == 1) salt = isAlgebra
-                                    ? keccak256(abi.encode(t0, t1))
+                                    ? algebraSalt(t0, t1)
                                     : keccak256(abi.encode(t0, t1, fee));
         else if (sub == 2) salt = keccak256(abi.encodePacked(t0, t1, stable));
         else               salt = keccak256(abi.encode(t0, t1, tickSpacing));
@@ -462,28 +462,96 @@ library BlazePhoenixCore {
         // back to the factory itself — so a non-Algebra V3 in this slot still
         // derives correctly, and a wrong slot is later discarded by the Hub's
         // hasCode guard.
+        // T19: this live ask is the one derive input a factory could still
+        // steer after admission (an EIP-1967 proxy changes its answer with
+        // its codehash intact). The Hub therefore never reaches this branch
+        // for Algebra rows: it attests the answer once at addFactory and
+        // derives through `create2Address(attested, algebraSalt(..), ih)`.
+        // This entry stays for callers that hold no attestation.
         address origin = factory;
         if (isAlgebra) {
-            address dep = _resolvePoolDeployer(factory);
+            address dep = resolvePoolDeployer(factory);
             if (dep != address(0)) origin = dep;
         }
+        pool = create2Address(origin, salt, initCodeHash);
+    }
 
-        pool = address(uint160(uint256(keccak256(abi.encodePacked(
-            hex"ff", origin, salt, initCodeHash
-        )))));
+    /// @dev THE producer of the CREATE2 address formula in this codebase —
+    ///      `deriveAddress` above and the Hub's attested Algebra derive (T19)
+    ///      both call it, so the preimage is spelled out exactly once.
+    ///      Consensus layout, 0x55 bytes: ff ++ origin ++ salt ++ initCodeHash.
+    ///      Assembly rather than abi.encodePacked: via-ir instantiates an
+    ///      encoder per tuple shape, and this is linked into two contracts.
+    ///      memory-safe: memory at and beyond the free pointer, used only
+    ///      within the block (the same idiom as resolvePoolDeployer). Write
+    ///      order matters: origin's word zero-pads [m+0x15..m+0x21), so the
+    ///      salt is written after it. `shl(96, ..)` cleans the deployer's high
+    ///      bits; the two hashes are full words. (Named `deployer`, not
+    ///      `origin`: `origin` is a Yul builtin and cannot be read in assembly.)
+    function create2Address(address deployer, bytes32 salt, bytes32 initCodeHash)
+        internal pure returns (address p)
+    {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(add(m, 0x01), shl(96, deployer))
+            mstore(add(m, 0x15), salt)
+            mstore(add(m, 0x35), initCodeHash)
+            mstore8(m, 0xff)
+            p := and(keccak256(m, 0x55), 0xffffffffffffffffffffffffffffffffffffffff)
+        }
+    }
+
+    /// @dev The Algebra (Camelot V3) salt: keccak(abi.encode(t0, t1)) — two
+    ///      left-padded words, NO fee component (fees are dynamic). Single
+    ///      producer, shared with the Hub's attested derive. Requires t0 < t1.
+    ///      Scratch space only. Addresses are masked before the store: inline
+    ///      assembly makes no promise about the bits above a narrow type.
+    function algebraSalt(address t0, address t1) internal pure returns (bytes32 s) {
+        assembly ("memory-safe") {
+            mstore(0x00, and(t0, 0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(0x20, and(t1, 0xffffffffffffffffffffffffffffffffffffffff))
+            s := keccak256(0x00, 0x40)
+        }
     }
 
     /// @dev Staticcall factory.poolDeployer() (selector 0x3119049a). Returns
     ///      the deployer address on success, or address(0) if the selector is
     ///      absent / reverts, signalling the caller to fall back to `factory`.
-    function _resolvePoolDeployer(address factory) private view returns (address dep) {
+    ///      Internal (T19): the Hub attests this answer at addFactory time
+    ///      with the SAME instrument the derive used to consult live, so the
+    ///      pin and the resolution cannot drift apart.
+    function resolvePoolDeployer(address factory) internal view returns (address dep) {
         assembly ("memory-safe") {
             let p := mload(0x40)
             mstore(p, 0x3119049a00000000000000000000000000000000000000000000000000000000)
             let ok := staticcall(GAS_CAP, factory, p, 0x04, 0x00, 0x20)
-            if and(ok, eq(returndatasize(), 32)) {
+            // `>= 32`, this file's stated returndata policy (see getReserves):
+            // a factory whose poolDeployer() answers with extra words is still
+            // an answer, and `== 32` pinned it to zero at admission — the
+            // attested origin fell back to the factory and every Algebra pool
+            // of that factory went dark (review 2026-09-02, Law III sibling).
+            if and(ok, iszero(lt(returndatasize(), 32))) {
                 dep := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
             }
+        }
+    }
+
+    /// @notice Does the pool answer `stable()` (0x22be3de1)? A Solidly /
+    ///         Velodrome / Aerodrome pair does; a Uniswap-V2 pair does not.
+    ///         This is the pair-shaped family's SHAPE probe, the sibling of
+    ///         `v3StateAndDynFee` for the concentrated family: it lets the Hub
+    ///         derive V2-vs-Solidly from the pool instead of persisting the
+    ///         calldata's word (review 2026-09-02). A hostile pool can answer
+    ///         either way; both misclassifications fall to the conservative
+    ///         path (the Solidly quote asks the pool and falls back to a
+    ///         haircut curve; the V2 quote is bounded by the pool's own K).
+    ///         `>= 32`, per this file's returndata policy (see getReserves).
+    function isSolidlyShaped(address pool) internal view returns (bool yes) {
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            mstore(p, 0x22be3de100000000000000000000000000000000000000000000000000000000)
+            let ok := staticcall(GAS_CAP, pool, p, 0x04, 0x00, 0x20)
+            yes := and(ok, iszero(lt(returndatasize(), 32)))
         }
     }
 
@@ -1786,6 +1854,11 @@ library BlazePhoenixCore {
     function decodeSwapCount(uint256 s) internal pure returns (uint32)  { return uint32(s >> 160); }
     function decodeLastBlk(uint256 s)   internal pure returns (uint32)  { return uint32(s >> 224); }
     function decodeLastUpdateTs(uint256 s) internal pure returns (uint32) { return uint32(s >> 64); }
+    /// @dev Risk tier, bits [47:40]: 0 = CURATED (seedPool by an operator),
+    ///      2 = permissionless (recordSwap, claimV4). Written once by
+    ///      Hub._register (`trusted ? 0 : 2`); read by the Solver's
+    ///      discovery-freshness gate, which only lets curated rows vouch.
+    function decodeTier(uint256 s)      internal pure returns (uint8)   { return uint8(s >> 40); }
     function decodeBucket(uint256 s)    internal pure returns (uint8)   { return uint8((s >> 60) & 0xF); }
 
     function setBucket(uint256 s, uint8 b) internal pure returns (uint256) {

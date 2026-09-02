@@ -66,7 +66,11 @@ SRC = os.path.join(REPO, "src")
 # and a red one on the next -- but worse, a mutant judged "killed" might merely have
 # drawn a different walk. A red is only attributable to the mutation when everything
 # else, the seed included, is held fixed.
-SUITE_CMD = 'test --no-match-path "test/fork/*" --fuzz-seed 0x6270646578'
+# THE SAME seed as foundry.toml's [fuzz] seed, deliberately: with two instruments
+# on two seeds, a red or green in one was not transferable to the other without
+# re-running (an INERT verdict was a statement about one walk, CI's green about
+# another). One seed, one walk, one reading (review 2026-09-02).
+SUITE_CMD = 'test --no-match-path "test/fork/*" --fuzz-seed 0xb1a2ef00'
 
 # Return-decisions that ARE authentication even though they revert nothing:
 # a false return here silently admits/refuses. Curated, like mutants.py's M.

@@ -1,0 +1,128 @@
+{
+  "_comment": "Assumption A10: what is on chain. Source of the addresses: the public SDK (blazephoenix.xyz, sdk/src/constants.ts) on 2026-09-02. `codehash` empty = not pinned yet; the first run prints the live value. `builtFrom` is the commit the deployed bytecode was built from, when known.",
+  "mainnet": {
+    "builtFrom": "",
+    "contracts": [
+      {
+        "name": "BlazePhoenixHub",
+        "addr": "0xc4FA9a5720fe3294D3AA9fc427E2a760591E57ae",
+        "codehash": "0xbd2859b43e9b2b14f8dff93bf813c91603352988aee7b5384a47cae3a879a709"
+      },
+      {
+        "name": "BlazePhoenixSolver",
+        "addr": "0xc124d91258db0C14bf13b826CF64E16bfEA8a73e",
+        "codehash": "0x4a5f5f44db6ebf36fe8ac5c3979ba9e2ed07e18e0cff66d783147efc199b798c"
+      },
+      {
+        "name": "BlazePhoenixRouter",
+        "addr": "0xE1aE5f49013920CF71De8CED4043e14C4d63416b",
+        "codehash": "0xb6200a71740ca586d1804607bd4fb18f87cea7a3fc5751149cc7045e04c01ba8"
+      },
+      {
+        "name": "BlazePhoenixQuoter",
+        "addr": "0x4a20AA0912388ff7A9221Ab6BFC224cc20Baa0c3",
+        "codehash": "0x1f4ed21d01bf221e709f43f8dfc59010ea5646bbe40df19ff0fe373588e4aa6f"
+      }
+    ]
+  },
+  "base": {
+    "builtFrom": "",
+    "contracts": [
+      {
+        "name": "BlazePhoenixHub",
+        "addr": "0x428554DEe93A1B8B5Bc6Fd19adDAfe55106fc04C",
+        "codehash": "0xbd2859b43e9b2b14f8dff93bf813c91603352988aee7b5384a47cae3a879a709"
+      },
+      {
+        "name": "BlazePhoenixSolver",
+        "addr": "0xB1902990260975dD4C89ad74B1f317bc100CB830",
+        "codehash": "0xc173a0f2ff83c1543a50dcbfa1d4bcdd720b9ce63b897aa9e29f85f7266477d8"
+      },
+      {
+        "name": "BlazePhoenixRouter",
+        "addr": "0x2a779f9Be49aac57495A8B6467Cc325a8a47Eb9f",
+        "codehash": "0x0e27f3bf65b3205426a66dc83be63da2f237b1d2871b1d9e925089d0c6274b5a"
+      },
+      {
+        "name": "BlazePhoenixQuoter",
+        "addr": "0x4cEF0615614B212895F45Aa1D4833B16666E18d3",
+        "codehash": "0x4460c56806aed93e33c7708e2b688b498df08505b96a937c6aa3b5dfbd3cb1ea"
+      }
+    ]
+  },
+  "optimism": {
+    "builtFrom": "",
+    "contracts": [
+      {
+        "name": "BlazePhoenixHub",
+        "addr": "0x23113e72165a034265Ab8Bf2277CCB7a85Cb7483",
+        "codehash": "0xbd2859b43e9b2b14f8dff93bf813c91603352988aee7b5384a47cae3a879a709"
+      },
+      {
+        "name": "BlazePhoenixSolver",
+        "addr": "0x0c0d96B237FABa8FE5e8aE77754Ef29109D2B33f",
+        "codehash": "0xee35d003f69025bcd9b7cb8f1acafccaba3fb76d81e0e7a69afd225e81a98f51"
+      },
+      {
+        "name": "BlazePhoenixRouter",
+        "addr": "0x7262e7483ab6f0db7b8f90eC3a9de3B02Ab36F6A",
+        "codehash": "0x28cd7e5d22ac01dc2b2a69414227412cccddeea8eb54bee79fb98ebf7e4c92aa"
+      },
+      {
+        "name": "BlazePhoenixQuoter",
+        "addr": "0xfB18EF6f62A0278A273Af4b7A46b454F9E482dc2",
+        "codehash": "0xdb0ed3f4236747d427390050de99b09cd2dd5f53c6dd4f0222ba3a02fa3e2684"
+      }
+    ]
+  },
+  "arbitrum": {
+    "builtFrom": "",
+    "contracts": [
+      {
+        "name": "BlazePhoenixHub",
+        "addr": "0x23113e72165a034265Ab8Bf2277CCB7a85Cb7483",
+        "codehash": "0xbd2859b43e9b2b14f8dff93bf813c91603352988aee7b5384a47cae3a879a709"
+      },
+      {
+        "name": "BlazePhoenixSolver",
+        "addr": "0x0c0d96B237FABa8FE5e8aE77754Ef29109D2B33f",
+        "codehash": "0xee35d003f69025bcd9b7cb8f1acafccaba3fb76d81e0e7a69afd225e81a98f51"
+      },
+      {
+        "name": "BlazePhoenixRouter",
+        "addr": "0x7262e7483ab6f0db7b8f90eC3a9de3B02Ab36F6A",
+        "codehash": "0x28cd7e5d22ac01dc2b2a69414227412cccddeea8eb54bee79fb98ebf7e4c92aa"
+      },
+      {
+        "name": "BlazePhoenixQuoter",
+        "addr": "0xfB18EF6f62A0278A273Af4b7A46b454F9E482dc2",
+        "codehash": "0xdb0ed3f4236747d427390050de99b09cd2dd5f53c6dd4f0222ba3a02fa3e2684"
+      }
+    ]
+  },
+  "robinhood": {
+    "builtFrom": "",
+    "contracts": [
+      {
+        "name": "BlazePhoenixHub",
+        "addr": "0x23113e72165a034265Ab8Bf2277CCB7a85Cb7483",
+        "codehash": "0x6de5e23b86cc9c7f3c14d7aa86411bc1aa0561b2d73926930c5549731dd195cd"
+      },
+      {
+        "name": "BlazePhoenixSolver",
+        "addr": "0x0c0d96B237FABa8FE5e8aE77754Ef29109D2B33f",
+        "codehash": "0xa9d74f7c830c07bae38c17b35919e03c5a45028ce62e54143d582f7a4ba5973d"
+      },
+      {
+        "name": "BlazePhoenixRouter",
+        "addr": "0x7262e7483ab6f0db7b8f90eC3a9de3B02Ab36F6A",
+        "codehash": "0x850b98626fa683411731a78c8aa785200da5686abb4c2eac66ee80851d836e42"
+      },
+      {
+        "name": "BlazePhoenixQuoter",
+        "addr": "0xE1aE5f49013920CF71De8CED4043e14C4d63416b",
+        "codehash": "0xdb0ed3f4236747d427390050de99b09cd2dd5f53c6dd4f0222ba3a02fa3e2684"
+      }
+    ]
+  }
+}

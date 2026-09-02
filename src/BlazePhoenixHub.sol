@@ -328,6 +328,15 @@ contract BlazePhoenixHub {
         // permissionlessly grown by claimV4, so scanning it in _readPoolInfo made
         // every V4 quote pay O(#entries) on the per-solve getActivePools path.
         mapping(bytes32 => uint256) v4EntryOf;
+        // T19: the Algebra CREATE2 origin ATTESTED at admission — the
+        // factory's poolDeployer() answer, frozen by addFactory for mode-5
+        // rows. Algebra-salt probes (mode 5, fee 0) derive from THIS value;
+        // the factory is never re-asked at scan time. The codehash pin
+        // cannot stand in for it: an EIP-1967 proxy factory swaps its
+        // answer with its runtime code (and codehash) intact.
+        // address(0) = the factory itself is the origin (the answer was
+        // zero/absent at admission — Core's own fallback, frozen).
+        mapping(address => address) factoryDeployer;
     }
 
     function _store() private pure returns (HubStore storage $) {
@@ -470,6 +479,13 @@ contract BlazePhoenixHub {
 
     function allowHook(address h, bool ok) external onlyAdmin {
         HubStore storage $ = _store();
+        // Curator power = GROW only, as renounceControl promises. De-listing
+        // is a removal: it auto-pauses every pool routed through the hook, a
+        // pause-shaped power over the hooked V4 subset. It dies with control,
+        // exactly like setPaused and removeBridge — after renunciation there
+        // is no control-plane response left, in either direction. Listing
+        // (and re-listing, which re-pins the codehash) keeps working.
+        if (!ok && $.controlRenounced) revert HubE(1);
         $.hookAllowed[h] = ok;
         // Pin the code at admission (Layer 3). A later code change (proxy
         // upgrade, selfdestruct+redeploy) makes isHookLive() false → the hook is
@@ -653,6 +669,14 @@ contract BlazePhoenixHub {
             initHash: initHash, fees: fees, spacings: spacings
         }));
         $.factoryCodehash[factory] = factory.codehash;
+        // T19 sibling pin: freeze the Algebra CREATE2 origin at admission.
+        // Only mode-5 rows can enter the Algebra derive (sub == 1 && fee == 0,
+        // Core:448) — pin them all, kind V3 included: a V3 row admitted with
+        // a 0 fee reaches the same live-resolve path. Re-admission
+        // re-attests, mirroring the codehash pin above.
+        if (mode == MODE_CREATE2_V3) {
+            $.factoryDeployer[factory] = BPC.resolvePoolDeployer(factory);
+        }
         emit Factory_(factory, kind, mode);
         return uint8($.factories.length - 1);
     }
@@ -860,7 +884,10 @@ contract BlazePhoenixHub {
         if (((MODES_VALID >> fac.mode) & 1) == 0) return k;
         // THE APPARATUS MUST BE FIXED, TOO (the third corollary of I-measure).
         // Modes 0-3 ASK the factory where a pool lives; modes 4-7 DERIVE it, and a
-        // derivation is a theorem the factory cannot influence. So only the asking
+        // derivation is a theorem the factory cannot influence. (One derive input
+        // used to escape the theorem: the Algebra origin, resolved LIVE from
+        // poolDeployer(). T19 closed it — `_probe` now derives mode-5 fee-0
+        // probes from the origin attested at admission, `factoryDeployer`.) So only the asking
         // modes depend on the factory's future behaviour — and an upgradeable proxy
         // can change what it answers without its own runtime code ever changing.
         // Hooks already carry this pin (`isHookLive`); factories did not, and there
@@ -905,7 +932,29 @@ contract BlazePhoenixHub {
         // rather than the primary one: one comparison in a view function,
         // zero user gas, and the derivation stays closed if admission changes.
         if (fac.mode >= 4 && fac.initHash == bytes32(0)) return k;
-        address p = BPC.deriveAddress(fac.factory, t0, t1, fee, stable, sp, fac.mode, fac.initHash);
+        address p;
+        if (fac.mode == MODE_CREATE2_V3 && fee == 0) {
+            // T19 — same predicate as Core's `isAlgebra` (sub == 1 && fee == 0,
+            // Core:448). The Algebra CREATE2 origin is the factory's
+            // poolDeployer() answer, which BPC.deriveAddress resolves with a
+            // LIVE staticcall — the one derive input a factory could still
+            // influence after admission (an EIP-1967 proxy changes its answer
+            // with its codehash intact, so the L872 pin is blind to it; a
+            // compare-then-derive check would still leave two live asks for a
+            // gas-introspecting liar to split). Derive from the origin
+            // ATTESTED at admission instead: zero live input. A factory whose
+            // answer has since diverged keeps serving the attested derivation
+            // and cannot steer a new one (fail closed, never revert). t0 < t1
+            // already (discoverFor sorts, Core re-sorts to the same order).
+            address orig = _store().factoryDeployer[fac.factory];
+            if (orig == address(0)) orig = fac.factory;
+            // The salt and the ff-formula are NOT restated here: both come
+            // from the Core producers `deriveAddress` itself uses, so the
+            // attested derive and the live one cannot drift apart.
+            p = BPC.create2Address(orig, BPC.algebraSalt(t0, t1), fac.initHash);
+        } else {
+            p = BPC.deriveAddress(fac.factory, t0, t1, fee, stable, sp, fac.mode, fac.initHash);
+        }
         if (p != address(0) && BPC.hasCode(p)) {
             // Dedup: the same pool address can be derived for several
             // (fee, spacing) combinations. Listing it multiple times saturates
@@ -1620,7 +1669,25 @@ contract BlazePhoenixHub {
             // static tier, so persisting the wrong one poisons every later
             // quote for this pool.
             if (isConc) kind = dynShape ? BPC.KIND_ALGEBRA : BPC.KIND_V3;
-            feeReg = dynShape ? 0 : BPC.getV3Fee(pool);
+            // The pair-shaped family gets the same treatment (review
+            // 2026-09-02): a Solidly pair answers stable(), a Uniswap-V2 pair
+            // does not. Declared V2 on a Solidly pool priced it with V2 math
+            // at 30 bps — a volatile pool with a higher fee then reverted
+            // every honest swap in its own K check while the Solver kept
+            // ranking it first (its V2 quote is higher than the truth); a
+            // stable pool was priced on the wrong curve; declared Solidly on
+            // a V2 pair paid the fallback haircut forever. The shape decides;
+            // the calldata only proposes. Written as its own statement, not
+            // an `else`, so the concentrated line above keeps its mutant.
+            if (!isConc) kind = BPC.isSolidlyShaped(pool) ? BPC.KIND_SOLIDLY : BPC.KIND_V2;
+            // The registry fee of a PAIR-shaped row is 0 (review 2026-09-02):
+            // `getV3Fee` reads the V3 `fee()` getter, whose unit is a V3
+            // convention; a pair whose `fee()` answers in another unit
+            // (per-mille, ppm) poisoned its own row, and `effV2Fee` read the
+            // number as bps. 0 means "the house's single producer answers":
+            // effV2Fee(0) = 30 bps for V2, and Solidly's fee is measured live
+            // by readDynamicFee regardless. A V3 getter is read on V3 shapes.
+            feeReg = isConc ? (dynShape ? 0 : BPC.getV3Fee(pool)) : 0;
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false);
         // initial tick + stamp wall-clock activity time

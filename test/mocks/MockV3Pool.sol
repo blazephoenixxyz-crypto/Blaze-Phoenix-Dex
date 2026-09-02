@@ -30,6 +30,14 @@ contract MockV3Pool {
     ///         demand more than maxAmt" guard.
     bool public overDemand;
 
+    /// @notice When non-zero, swap() fills with THIS liquidity while the
+    ///         `liquidity()` getter keeps reporting the state value: a
+    ///         liquidity GAP at the current tick (the quoter reads 0) that
+    ///         execution still fills by crossing into the next initialised
+    ///         tick. Used to drive the "last hop cannot be quoted in-frame"
+    ///         state (NM-002) on a pool that nonetheless delivers.
+    uint128 public swapLiquidity;
+
     constructor(address _token0, address _token1, uint24 _fee) {
         (token0, token1) = _token0 < _token1 ? (_token0, _token1) : (_token1, _token0);
         fee = _fee;
@@ -41,6 +49,7 @@ contract MockV3Pool {
     }
 
     function setOverDemand(bool b) external { overDemand = b; }
+    function setSwapLiquidity(uint128 l) external { swapLiquidity = l; }
 
     /// @dev Only the first word (sqrtPriceX96) is read by BlazePhoenixCore's
     ///      raw-assembly getSqrtPriceX96 — matches the real slot0() layout.
@@ -57,7 +66,8 @@ contract MockV3Pool {
     ) external returns (int256 amount0, int256 amount1) {
         require(amountSpecified > 0, "MockV3Pool: exact-out unsupported");
         uint256 amtIn = uint256(amountSpecified);
-        uint256 amtOut = BPC.outV3(amtIn, sqrtPriceX96, liquidity, fee, zeroForOne, 0);
+        uint128 execL = swapLiquidity != 0 ? swapLiquidity : liquidity;
+        uint256 amtOut = BPC.outV3(amtIn, sqrtPriceX96, execL, fee, zeroForOne, 0);
         require(amtOut > 0, "MockV3Pool: zero out");
 
         address tokenIn  = zeroForOne ? token0 : token1;
