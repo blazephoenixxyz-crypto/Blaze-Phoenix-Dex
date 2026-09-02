@@ -134,6 +134,13 @@ contract BlazePhoenixRouter {
     ///      changed.
     uint16  internal constant TREASURY1_SHARE   = 3_000;
     uint8   internal constant MAX_LEGS_PER_HOP  = 5;
+    /// @dev The hop count had no producer at all (review 2026-09-02): legs were
+    ///      bounded per hop and per route, hops were not. Three consequences,
+    ///      none of them theft — `executedMask` silently stops crediting past
+    ///      leg 255, the exhaustion-regime fee compounds once per hop with no
+    ///      ceiling, and `bridgeBase` is sized by the caller. Three is the
+    ///      deepest topology the Solver builds (`_planViaTwoBridges`).
+    uint8   internal constant MAX_HOPS          = 3;
 
     /// @notice Per-leg output floor, in BPS of the leg's pro-rata attested
     ///         quote. Bounds the damage any single manipulated / sandwiched
@@ -942,6 +949,7 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, address tokenIn, address payer
     ) private returns (uint256 amountOut) {
+        if (route.hops.length > MAX_HOPS) revert RouterE(3);
         address tokenOut = route.hops[route.hops.length - 1].tokenOut;
         // Input-token balance at entry (the input is already in the Router).
         // Every unit pulled for this swap MUST be consumed by the legs; the
@@ -1032,10 +1040,19 @@ contract BlazePhoenixRouter {
 
         // Bit i is set when the i-th leg of the route actually executed. Beyond
         // 255 legs the shift yields 0, so the bit stays clear and the leg is not
-        // credited — the fail-CLOSED direction, and unreachable anyway with
-        // MAX_LEGS_PER_HOP at 5.
+        // credited — the fail-CLOSED direction, and unreachable by construction:
+        // MAX_HOPS x MAX_LEGS_PER_HOP = 15 legs (a per-route bound, not the
+        // per-hop constant standing in for one).
         uint256 executedMask;
         uint256 legIdx;
+        // LAYER 2 IS ROUTE-WIDE (review 2026-09-02). This flag used to be born
+        // inside the hop loop, so the rule "no hookless leg after a hooked one"
+        // closed the intra-hop vector and left the cross-hop one open — while
+        // its own justification names "the pool of a leg of this same route
+        // that has not executed yet", which every leg of a later hop is. Hoisted
+        // here, a hooked leg may only sit in the LAST hop; the Solver builds
+        // nothing else (`_assembleRouteMulti`).
+        bool sawHooked;
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
@@ -1137,7 +1154,7 @@ contract BlazePhoenixRouter {
             // the planner is bypassable by whoever assembles the route by hand.
             // It is not a list nor an admission: every route is re-expressible in
             // the canonical order — an encoding rule, like token ordering.
-            bool sawHooked;
+            // `sawHooked` lives OUTSIDE the hop loop: see its declaration.
             for (uint256 l; l < legs; ) {
                 Leg calldata leg = hop.legs[l];
                 if (leg.hooks == address(0)) {

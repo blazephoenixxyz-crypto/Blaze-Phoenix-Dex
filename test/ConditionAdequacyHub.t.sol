@@ -732,146 +732,49 @@ contract ConditionAdequacyHubTest is Test {
     }
 
     // =========================================================================
-    //  Hub:1285 — _readPoolInfo: `_nativeSwapped(s)`
-    //  Every registered native pool has a V4Entry that overrides orientation.
-    //  seedPool with KIND_V4_NATIVE builds the entry-less pool where the bit
-    //  is the ONLY orientation producer.
+    //  Hub — seedPool with a V4 kind (review 2026-09-02)
+    //  The two `_readPoolInfo` fallback walks over `v4Entries` are gone, and so
+    //  is the entry-less V4 row that reached them: seedPool now recovers the
+    //  tickSpacing and writes the O(1) index, or refuses. These pin the door.
     // =========================================================================
 
-    /// Neutralised (forced true), _swap flips for this entry-less native pool
-    /// and the reported orientation inverts.
-    function test_L1285_EntrylessNativeSeed_ReportsSortedOrientation() public {
+    function _wrappedPool(uint24 fee, int24 ts) private pure returns (address) {
+        return _trunc(BPC.computeV4PoolId(tokenA, tokenB, fee, ts, address(0)));
+    }
+
+    /// The native kind has no wrapped side here to recover from: addV4 is its door.
+    function test_SeedPool_NativeV4_IsRefused() public {
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 4));
         hub.seedPool(address(0xFA11), BPC.KIND_V4_NATIVE, 500, address(0), tokenA, tokenB);
-        PoolInfo[] memory ps = hub.getActivePools(tokenA, tokenB);
-        assertEq(ps.length, 1, "seeded native pool is listed (hookless)");
-        assertEq(ps[0].token0, tokenA, "bit 6 clear: token0 stays the sorted t0");
-        assertEq(ps[0].token1, tokenB, "and token1 the sorted t1");
     }
 
-    // =========================================================================
-    //  Hub:1319 — _readPoolInfo wrapped-entry fallback conjuncts
-    //  Reachable ONLY for a V4 pool with no v4EntryOf: seedPool(KIND_V4).
-    //  Each test plants one entry wrong in exactly the tested coordinate with
-    //  ts 777; this arm has NO pid re-check, so a widened match lands directly
-    //  in the reported tickSpacing.
-    // =========================================================================
+    /// A V4 pool whose id no tier reproduces cannot be given an entry: refused,
+    /// never listed without one.
+    function test_SeedPool_V4_UnrecoverableTier_IsRefused() public {
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 4));
+        hub.seedPool(address(0xFA11), BPC.KIND_V4, 500, address(0), tokenA, tokenB);
+        assertEq(hub.getActivePools(tokenA, tokenB).length, 0, "nothing was listed");
+    }
 
-    function _seedWrappedV4() private returns (address pool) {
-        pool = address(0xFA11);
+    /// A canonical tier (500/10) is recovered and the entry written: the row
+    /// reads its tickSpacing through the O(1) index.
+    function test_SeedPool_V4_CanonicalTier_WritesTheIndex() public {
+        address pool = _wrappedPool(500, 10);
+        uint256 n = hub.v4EntryCount();
         hub.seedPool(pool, BPC.KIND_V4, 500, address(0), tokenA, tokenB);
-    }
-
-    function _seededInfo(address pool) private view returns (PoolInfo memory pi) {
-        (bool found, PoolInfo memory p) = _find(hub.getActivePools(tokenA, tokenB), pool);
-        assertTrue(found, "the seeded pool must be listed");
-        pi = p;
-    }
-
-    /// `e.currency0 == t0` neutralised: the (tokenLow, tokenB) entry matches
-    /// and its ts 777 replaces the honest 0.
-    function test_L1319_WrappedFallback_RequiresCurrency0() public {
-        hub.addV4(tokenLow, tokenB, 500, 777, address(0));
-        address pool = _seedWrappedV4();
-        assertEq(_seededInfo(pool).tickSpacing, int24(0),
-            "no entry of THIS pair exists: tickSpacing must stay unresolved");
-    }
-
-    /// `e.currency1 == t1` neutralised: the (tokenA, tokenC) entry matches.
-    function test_L1319_WrappedFallback_RequiresCurrency1() public {
-        hub.addV4(tokenA, tokenC, 500, 777, address(0));
-        address pool = _seedWrappedV4();
-        assertEq(_seededInfo(pool).tickSpacing, int24(0),
-            "no entry of THIS pair exists: tickSpacing must stay unresolved");
-    }
-
-    /// `e.fee == p.fee` neutralised: the same-pair fee-3000 entry matches a
-    /// fee-500 pool.
-    function test_L1319_WrappedFallback_RequiresFee() public {
-        hub.addV4(tokenA, tokenB, 3000, 777, address(0));
-        address pool = _seedWrappedV4();
-        assertEq(_seededInfo(pool).tickSpacing, int24(0),
-            "an entry at another fee must not resolve this pool's tickSpacing");
-    }
-
-    /// `e.hooks == p.hooks` neutralised: the hooked same-pair entry matches a
-    /// hookless pool.
-    function test_L1319_WrappedFallback_RequiresHooks() public {
-        hub.allowHook(HOOK, true);
-        hub.addV4(tokenA, tokenB, 500, 777, HOOK);
-        address pool = _seedWrappedV4();
-        assertEq(_seededInfo(pool).tickSpacing, int24(0),
-            "a hooked entry must not resolve a hookless pool's tickSpacing");
-    }
-
-    // =========================================================================
-    //  Hub:1323 — _readPoolInfo native-entry fallback conjuncts
-    //  Same unreachable-until-now arm, native flavour: seedPool(KIND_V4_NATIVE)
-    //  at an address chosen as the native-pid truncation, so the arm's pid
-    //  re-check (L1334) passes whenever a widened entry match is tried.
-    // =========================================================================
-
-    function _seedNativeAt(address counterpart) private returns (address pool) {
-        pool = _trunc(_nativePid(counterpart, 500, 777));
-        hub.seedPool(pool, BPC.KIND_V4_NATIVE, 500, address(0), tokenA, tokenB);
-    }
-
-    /// `e.currency0 == address(0)` neutralised: a WRAPPED (tokenLow, tokenB)
-    /// entry is tried, its (currency1=tokenB, ts=777) passes the pid check
-    /// against this pool, and ts 777 replaces the honest 0.
-    function test_L1323_NativeFallback_RequiresNativeCurrency0() public {
-        hub.addV4(tokenLow, tokenB, 500, 777, address(0));
-        address pool = _seedNativeAt(tokenB);
+        assertEq(hub.v4EntryCount(), n + 1, "one entry written for the seeded row");
         (bool found, PoolInfo memory pi) = _find(hub.getActivePools(tokenA, tokenB), pool);
-        assertTrue(found, "seeded native pool listed");
-        assertEq(pi.tickSpacing, int24(0),
-            "a wrapped entry must not resolve an entry-less NATIVE pool");
+        assertTrue(found, "the seeded pool is listed");
+        assertEq(pi.tickSpacing, int24(10), "tickSpacing resolved through the index");
     }
 
-    /// `e.fee == p.fee` neutralised: a native entry at fee 3000 is tried under
-    /// the pool's fee 500 and passes the pid check (the check uses p.fee).
-    function test_L1323_NativeFallback_RequiresFee() public {
-        hub.addV4(address(0), tokenB, 3000, 777, address(0));
-        address pool = _seedNativeAt(tokenB);
-        (bool found, PoolInfo memory pi) = _find(hub.getActivePools(tokenA, tokenB), pool);
-        assertTrue(found, "seeded native pool listed");
-        assertEq(pi.tickSpacing, int24(0),
-            "a native entry at another fee must not resolve this pool");
-    }
-
-    /// `e.hooks == p.hooks` neutralised: a HOOKED native entry is tried; the
-    /// pid check runs with p.hooks (0) and passes.
-    function test_L1323_NativeFallback_RequiresHooks() public {
-        hub.allowHook(HOOK, true);
-        hub.addV4(address(0), tokenB, 500, 777, HOOK);
-        address pool = _seedNativeAt(tokenB);
-        (bool found, PoolInfo memory pi) = _find(hub.getActivePools(tokenA, tokenB), pool);
-        assertTrue(found, "seeded native pool listed");
-        assertEq(pi.tickSpacing, int24(0),
-            "a hooked native entry must not resolve a hookless pool");
-    }
-
-    /// `e.currency1 == t0` neutralised (forced false): the honest match via
-    /// the t0 arm — counterpart == sorted t0 — stops matching and the
-    /// recovered ts 777 collapses to 0. This is the positive kill.
-    function test_L1323_NativeFallback_MatchesCounterpartAsToken0() public {
-        hub.addV4(address(0), tokenA, 500, 777, address(0));
-        address pool = _seedNativeAt(tokenA);
-        (bool found, PoolInfo memory pi) = _find(hub.getActivePools(tokenA, tokenB), pool);
-        assertTrue(found, "seeded native pool listed");
-        assertEq(pi.tickSpacing, int24(777),
-            "the t0-side counterpart entry must resolve the tickSpacing");
-        assertEq(pi.token1, tokenA, "orientation: counterpart reported as token1");
-    }
-
-    /// `e.currency1 == t1` neutralised (forced false): symmetric positive kill
-    /// through the t1 arm.
-    function test_L1323_NativeFallback_MatchesCounterpartAsToken1() public {
-        hub.addV4(address(0), tokenB, 500, 777, address(0));
-        address pool = _seedNativeAt(tokenB);
-        (bool found, PoolInfo memory pi) = _find(hub.getActivePools(tokenA, tokenB), pool);
-        assertTrue(found, "seeded native pool listed");
-        assertEq(pi.tickSpacing, int24(777),
-            "the t1-side counterpart entry must resolve the tickSpacing");
+    /// Seeding a pool addV4 already listed reuses its entry: no second copy.
+    function test_SeedPool_V4_ExistingEntry_IsReused() public {
+        hub.addV4(tokenA, tokenB, 500, 10, address(0));
+        address pool = _wrappedPool(500, 10);
+        uint256 n = hub.v4EntryCount();
+        hub.seedPool(pool, BPC.KIND_V4, 500, address(0), tokenA, tokenB);
+        assertEq(hub.v4EntryCount(), n, "the existing entry is reused, not duplicated");
     }
 
     // =========================================================================

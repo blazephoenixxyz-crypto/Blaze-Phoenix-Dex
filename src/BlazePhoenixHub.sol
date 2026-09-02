@@ -486,6 +486,14 @@ contract BlazePhoenixHub {
         // is no control-plane response left, in either direction. Listing
         // (and re-listing, which re-pins the codehash) keeps working.
         if (!ok && $.controlRenounced) revert HubE(1);
+        // The one lever renunciation keeps is ADMISSION, and it must not double
+        // as the cancel button of the Layer-3 auto-pause (review 2026-09-02):
+        // a hook admitted honestly, mutated later and therefore paused by its
+        // pin could be re-armed at its NEW code by the surviving `ok == true`
+        // arm, while the arm that makes the pause permanent is dead. After
+        // renunciation a listed hook whose runtime moved stays paused for ever;
+        // listing a new hook, or re-listing an unchanged one, still works.
+        if (ok && $.controlRenounced && $.hookAllowed[h] && $.hookCodehash[h] != h.codehash) revert HubE(1);
         $.hookAllowed[h] = ok;
         // Pin the code at admission (Layer 3). A later code change (proxy
         // upgrade, selfdestruct+redeploy) makes isHookLive() false → the hook is
@@ -1216,7 +1224,7 @@ contract BlazePhoenixHub {
     ///      keccak — the learned code already describes the pool) and refresh
     ///      the non-bridge side(s). Fail-open: unrecoverable means no update.
     function _noteV4Code(address pool, address t0, address t1, uint24 fee) private {
-        (int24 ts, bool ok) = _recoverV4Ts(pool, t0, t1, fee);
+        (int24 ts, bool ok) = _recoverV4Ts(keyOf(pool, t0, t1), pool, t0, t1, fee);
         if (ok) _writeV4Code(t0, t1, fee, ts);
     }
 
@@ -1233,7 +1241,7 @@ contract BlazePhoenixHub {
     ///        5. the registered V4Entry — the backstop that always resolves a
     ///           pool admitted via claimV4/addV4
     ///      A hooked pool never matches (hookless derivation) => (0, false).
-    function _recoverV4Ts(address pool, address t0, address t1, uint24 fee)
+    function _recoverV4Ts(bytes32 key, address pool, address t0, address t1, uint24 fee)
         private view returns (int24 ts, bool ok)
     {
         HubStore storage $ = _store();
@@ -1280,18 +1288,19 @@ contract BlazePhoenixHub {
             }
             unchecked { ++fi; }
         }
-        // 5) the registered V4Entry backstop
-        uint256 vn = $.v4Entries.length;
-        for (uint256 vi; vi < vn; ) {
-            V4Entry storage e = $.v4Entries[vi];
-            if (
-                e.currency0 == t0 && e.currency1 == t1 && e.fee == fee
-                    && e.hooks == address(0)
-            ) {
-                ts = e.tickSpacing;
-                if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
-            }
-            unchecked { ++vi; }
+        // 5) the registered V4Entry backstop — by the O(1) index, never by a
+        //    walk. This step used to scan the whole `v4Entries` array, which
+        //    `claimV4` grows without permission (one fresh token per pool),
+        //    and it sits on recordSwap's hot path through `_noteV4Code`: a
+        //    routed V4 swap whose tier misses steps 1-4 paid for every foreign
+        //    entry ever inserted, inside the Router's try/catch, until the
+        //    1/64 remainder could no longer finish the user's swap (review
+        //    2026-09-02). `v4EntryOf` survives eviction, so a pool that comes
+        //    back after being evicted still resolves here.
+        uint256 ep = $.v4EntryOf[key];
+        if (ep != 0) {
+            ts = $.v4Entries[ep - 1].tickSpacing;
+            if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
         }
         return (0, false);
     }
@@ -1366,36 +1375,13 @@ contract BlazePhoenixHub {
                 }
                 return p;
             }
-            uint256 vn = $.v4Entries.length;
-            for (uint256 vi; vi < vn; ) {
-                V4Entry storage e = $.v4Entries[vi];
-                if (p.kind == BPC.KIND_V4) {
-                    if (e.currency0 == t0 && e.currency1 == t1 && e.fee == p.fee && e.hooks == p.hooks) {
-                        p.tickSpacing = e.tickSpacing;
-                        break;
-                    }
-                } else if (e.currency0 == address(0) && e.fee == p.fee && e.hooks == p.hooks
-                    && (e.currency1 == t0 || e.currency1 == t1)) {
-                    // Native entry (currency0 = address(0), currency1 = the
-                    // ERC20 counterpart). Verify by the unforgeable truncated-
-                    // poolId match — a same-fee native entry of another pair
-                    // can then never mis-resolve this one — and ORIENT the
-                    // WETH-canonical pair: token0 = the wrapped-native side,
-                    // token1 = the counterpart. This orientation is the
-                    // contract the Solver's zeroForOne / auxId / quote-ctx
-                    // construction relies on (token0 == tIn ⇔ input is the
-                    // pool's currency0).
-                    if (address(uint160(uint256(BPC.computeV4PoolId(
-                            address(0), e.currency1, p.fee, e.tickSpacing, p.hooks
-                        )))) == p.pool) {
-                        p.tickSpacing = e.tickSpacing;
-                        p.token0 = e.currency1 == t0 ? t1 : t0;
-                        p.token1 = e.currency1;
-                        break;
-                    }
-                }
-                unchecked { ++vi; }
-            }
+            // A V4 row with no V4Entry behind it is unreachable since
+            // 2026-09-02: every door that registers a V4 kind writes
+            // `v4EntryOf` (addV4, claimV4, recordSwap, and now seedPool, which
+            // recovers the tickSpacing or refuses). The linear walk that lived
+            // here as a "pre-fix keys" backstop let a permissionlessly grown
+            // array set the price of reading ONE pool, on the Solver's
+            // per-hop path — and `swapBestExactIn` solves on chain.
         }
     }
 
@@ -1556,7 +1542,7 @@ contract BlazePhoenixHub {
             // entirely: an entry-less V4 registration would be dead weight
             // that marks the pair "known" and starves rediscovery. The swap
             // itself is unaffected either way (fail closed, fail open).
-            (int24 v4Ts, bool okTs) = _recoverV4Ts(pool, t0, t1, fee);
+            (int24 v4Ts, bool okTs) = _recoverV4Ts(key, pool, t0, t1, fee);
             if (!okTs) return;
             $.v4Entries.push(V4Entry({
                 currency0: t0, currency1: t1, fee: fee,
@@ -1582,8 +1568,8 @@ contract BlazePhoenixHub {
             // stores the REAL pool currencies; _readPoolInfo re-orients the
             // pair to WETH-canonical form for the Solver from it.
             address ncp = t1;
-            (int24 nTs, bool okN) = _recoverV4Ts(pool, address(0), t1, fee);
-            if (!okN) { ncp = t0; (nTs, okN) = _recoverV4Ts(pool, address(0), t0, fee); }
+            (int24 nTs, bool okN) = _recoverV4Ts(key, pool, address(0), t1, fee);
+            if (!okN) { ncp = t0; (nTs, okN) = _recoverV4Ts(key, pool, address(0), t0, fee); }
             if (!okN) return;
             $.v4Entries.push(V4Entry({
                 currency0: address(0), currency1: ncp, fee: fee,
@@ -1850,6 +1836,24 @@ contract BlazePhoenixHub {
         _ne0(pool); _ne0(tA); _ne0(tB);
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         key = keyOf(pool, t0, t1);
+        if (BPC.kindHas(kind, BPC.A_CONC_SING)) {
+            // A V4 row must carry its V4Entry, or every registry read of it
+            // falls into the array walk this door used to leave behind (review
+            // 2026-09-02). Recover the tickSpacing exactly as recordSwap does
+            // and write the O(1) index; a tier nothing can recover is refused,
+            // and so is the native kind, whose wrapped side only addV4 knows.
+            if (kind != BPC.KIND_V4) revert HubE(4);
+            HubStore storage $ = _store();
+            if ($.v4EntryOf[key] == 0) {
+                (int24 ts, bool ok) = _recoverV4Ts(key, pool, t0, t1, fee);
+                if (!ok) revert HubE(4);
+                $.v4Entries.push(V4Entry({
+                    currency0: t0, currency1: t1, fee: fee,
+                    tickSpacing: ts, hooks: hooks
+                }));
+                $.v4EntryOf[key] = $.v4Entries.length;
+            }
+        }
         _register(key, pool, kind, fee, hooks, t0, t1, true);
     }
 }
