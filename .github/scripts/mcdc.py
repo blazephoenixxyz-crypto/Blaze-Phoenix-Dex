@@ -60,7 +60,13 @@ import json, os, re, subprocess, sys, time, urllib.parse
 U = "https://bp-ci.a-s-myros-gtar.workers.dev"
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(REPO, "src")
-SUITE_CMD = 'test --no-match-path "test/fork/*"'
+# THE SEED IS PINNED, AND IT HAS TO BE. The invariant campaigns walk randomly, and
+# one of them carries an anti-vacuity sentinel that fails when the walk never reaches
+# the V4 settle path. With a free seed the same tree gives a green baseline on one run
+# and a red one on the next -- but worse, a mutant judged "killed" might merely have
+# drawn a different walk. A red is only attributable to the mutation when everything
+# else, the seed included, is held fixed.
+SUITE_CMD = 'test --no-match-path "test/fork/*" --fuzz-seed 0x6270646578'
 
 # Return-decisions that ARE authentication even though they revert nothing:
 # a false return here silently admits/refuses. Curated, like mutants.py's M.
@@ -398,6 +404,16 @@ def main():
                 elif code == 0:
                     inert.append((d, lf, summary))
                     print(f"    {tag}  INERTE — {summary}", flush=True)
+                elif not fails:
+                    # A RED THAT PROVES NOTHING. A non-zero exit is not evidence that a
+                    # test disagreed with the mutation: a compiler error phrased
+                    # differently, a timeout, an OOM or a dead box all exit non-zero and
+                    # would otherwise be counted as "this sub-condition is watched". We
+                    # already refuse a green that cannot name its passing count; the
+                    # mirror rule is that a red must name the test that went red.
+                    unverified.append((d, lf, f"VERMELHA SEM TESTE NOMEADO (exit={code})"))
+                    print(f"    {tag}  VERMELHA SEM TESTE NOMEADO (exit={code}) — "
+                          f"nao verificada", flush=True)
                 else:
                     exercised.append((d, lf, summary, fails))
                     print(f"    {tag}  exercida — {len(fails)}+ testes vermelhos "
