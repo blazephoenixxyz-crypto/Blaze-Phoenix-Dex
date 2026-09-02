@@ -22,7 +22,7 @@ pragma solidity 0.8.36;
 //
 // forge test --match-contract RouterAdversarialV4FromV1 -vv
 
-import {Test} from "forge-std/Test.sol";
+import {Test, console2} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
@@ -108,6 +108,24 @@ contract V4Adversary {
     uint256 public mintedB;
     uint256 public settled;
 
+    // Campaign-shape diagnostics (all view-only surface — none of these become fuzz targets).
+    // NOTE Foundry semantics: state resets to the post-setUp snapshot for each of the
+    // [invariant].runs runs, and afterInvariant sees only the LAST run — so these counters
+    // (and `settled` above) describe the final depth-length window, not all runs summed.
+    uint256 public calls;
+    uint256 public feasibleUpper;   // draws with 1 <= minOut <= amt (necessary for settle)
+    uint256 public honestFeasible;  // hookless && !useOv && 1 <= minOut <= amt
+    uint256 public otherRevert;     // non-RouterE revert payloads (over-take underflows etc.)
+    uint256[16] public eCode;       // RouterE(code) histogram, code < 16
+
+    function _routerECode(bytes memory err) internal pure returns (bool isE, uint256 code) {
+        if (err.length != 36) return (false, 0);
+        bytes4 sel; assembly { sel := mload(add(err, 32)) }
+        if (sel != BlazePhoenixRouter.RouterE.selector) return (false, 0);
+        assembly { code := mload(add(err, 36)) }
+        return (true, code);
+    }
+
     constructor(BlazePhoenixRouter _r, MockERC20Adv _a, MockERC20Adv _b, HostileV4Manager _m, address _v) {
         router = _r; A = _a; B = _b; mgr = _m; victim = _v;
     }
@@ -146,9 +164,43 @@ contract V4Adversary {
         Hop[] memory hops = new Hop[](1);
         hops[0] = Hop({tokenIn: address(A), tokenOut: address(B), amountIn: amt, expectedOut: 0, legs: legs});
         Route memory r; r.hops = hops;
-        uint256 minOut = _bound(recSeed, 0, 1e30);
+        // minOut draw — THE SHAPE OF THIS DISTRIBUTION IS LOAD-BEARING (afterInvariant's
+        // anti-vacuity sentinel depends on it). Settling requires 1 <= minOut <= delivered:
+        // the Router refuses minOut==0 outright (RouterE 10, BP-04) and delivers ~amt minus
+        // the protocol shave — and the OTHER fuzzed axes already gate the settle path down to
+        // ~1/6 of calls (ANY non-zero hook dies at RouterE(9) because nothing is isHookLive
+        // here: 2/3 of hookSeeds; armed delta overrides mostly die at RouterE(8): ~1/2 of the
+        // rest). A single uniform draw over [0,1e30] has no intrinsic mass in [1, amt]; every
+        // settle it ever produced came from Foundry's fuzz DICTIONARY (small literals and
+        // constants harvested from the WHOLE compiled project) happening to supply small
+        // recSeeds. Adding unrelated test files (50f5bc2) shifted that dictionary and the
+        // campaign settled 0 of 2500 calls on most seeds (measured 2026-09-02; only the
+        // pinned CI seed still passed). Two regimes make settling structural instead:
+        //   * 7/8 anchored to [1, amt]: feasible BY CONSTRUCTION for every amt and every
+        //     recSeed shape (the modulo maps any draw inside), while draws in the
+        //     (net-of-fee, amt] sliver still probe the tight RouterE(5) boundary;
+        //   * 1/8 the original wild [0, 1e30]: keeps deep slippage refusals and the
+        //     minOut==0 RouterE(10) guard in the campaign.
+        // Net effect ~12-15% of calls settle regardless of dictionary composition, ~85%
+        // still revert (hooks, delta overrides, over-take, boundary) — both regimes stay
+        // exercised. Do NOT "simplify" back to one uniform range (the campaign goes vacuous
+        // again) and do NOT pin minOut to 0 or 1 (that kills the refusal-side search).
+        uint256 minOut = recSeed % 8 != 7
+            ? _bound(recSeed >> 3, 1, amt)
+            : _bound(recSeed, 0, 1e30);
+        unchecked {
+            ++calls;
+            if (minOut != 0 && minOut <= amt) {
+                ++feasibleUpper;
+                if (hook == address(0) && !useOv) ++honestFeasible;
+            }
+        }
         try router.swapExactIn(r, amt, minOut, address(this), block.timestamp + 1)
-            returns (uint256) { unchecked { ++settled; } } catch {}
+            returns (uint256) { unchecked { ++settled; } }
+        catch (bytes memory err) {
+            (bool isE, uint256 c) = _routerECode(err);
+            unchecked { if (isE && c < 16) ++eCode[c]; else ++otherRevert; }
+        }
     }
 }
 
@@ -208,6 +260,17 @@ contract RouterAdversarialV4FromV1Test is Test {
     ///      afterInvariant (runs once at the end), not an invariant_ function (also evaluated at
     ///      step zero, where the counter is trivially 0).
     function afterInvariant() public view {
+        // Campaign-shape log (final window only — see the counter note in V4Adversary): makes
+        // the settle/refuse ratio visible at -vv so vacuity DRIFT is seen before it goes red.
+        console2.log("V4 campaign final window: calls   ", adv.calls());
+        console2.log("V4 campaign final window: settled ", adv.settled());
+        console2.log("V4 campaign final window: feasible", adv.feasibleUpper());
+        console2.log("V4 campaign final window: honest+f", adv.honestFeasible());
+        console2.log("V4 campaign final window: otherRev", adv.otherRevert());
+        for (uint256 i = 0; i < 16; ++i) {
+            uint256 n = adv.eCode(i);
+            if (n != 0) { console2.log("V4 campaign final window: RouterE", i, "x", n); }
+        }
         assertGt(adv.settled(), 0, "no V4 swap ever settled across the whole campaign - vacuous pass");
     }
 }
