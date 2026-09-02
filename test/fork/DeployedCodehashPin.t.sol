@@ -37,9 +37,9 @@ contract DeployedCodehashPinTest is Test {
         string memory root = string.concat(".", alias_);
         if (!vm.keyExistsJson(json, root)) return 0;
         vm.createSelectFork(alias_);
-        uint256 n = vm.parseJsonStringArray(json, string.concat(root, ".contracts[*].name")).length;
-        for (uint256 i; i < n; ++i) {
+        for (uint256 i; i < 16; ++i) {
             string memory p = string.concat(root, ".contracts[", vm.toString(i), "]");
+            if (!vm.keyExistsJson(json, p)) break;
             string memory name = vm.parseJsonString(json, string.concat(p, ".name"));
             address addr = vm.parseJsonAddress(json, string.concat(p, ".addr"));
             bytes32 live = addr.codehash;
@@ -64,6 +64,8 @@ contract DeployedCodehashPinTest is Test {
             + _chain(json, "arbitrum") + _chain(json, "robinhood");
         // Until the first hashes are pinned this measures nothing and says so
         // (a skip, never a pass): the printed live values are what to pin.
-        if (checked == 0) { console2.log("A10: no hash pinned yet on any chain; pin the values printed above"); vm.skip(true); }
+        // Nothing pinned = nothing measured = RED (not a skip: a skip drops the
+        // logs above, and a lane must never look green over an empty table).
+        assertGt(checked, 0, "A10: no hash pinned yet on any chain; pin the values printed above");
     }
 }
