@@ -150,6 +150,26 @@ jobs:
             exit 1
           fi
 
+      - name: Producer copy guard (one producer per registry answer)
+        # SHARED_QUANTITIES.md rows collapsed to SINGLE on 2026-09-02, each with the copy
+        # that used to disagree with the producer:
+        #   * "is this pair anchored on a routable bridge?" -> Hub._pairBridged, read live.
+        #     The copy was a bit frozen into the Monoslot at registration (_isBridged /
+        #     _markBridged): removeBridge cleared the mapping and never walked the pools.
+        #   * "is this a stable-curve pool?" -> the pool's own stable(), persisted in
+        #     Monoslot bit 5 by Core.solidlyStable at registration. The copy was the
+        #     literal `p.stable = false` in _readPoolInfo, a constant standing in for a
+        #     field the slot did not have.
+        run: |
+          if grep -nE '_isBridged|_markBridged' src/BlazePhoenixHub.sol | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::The bridge answer is read live by Hub._pairBridged. A frozen copy of it in the Monoslot is the BRIDGE-01 defect."
+            exit 1
+          fi
+          if grep -nE 'p\.stable[[:space:]]*=[[:space:]]*false' src/BlazePhoenixHub.sol | grep -vE ':\s*(///|//|\*)'; then
+            echo "::error::The registry's stable flag comes from Monoslot bit 5 (the pool's own stable() at registration). A constant here is the SLOT-01 defect."
+            exit 1
+          fi
+
       - name: Router grants no allowance (guarda de propriedade, nao de bug)
         # O HUNT-001 (achado #1 da caca overnight) vivia em _execCurveAmt, que e o UNICO sitio de
         # todo o Router/Hub/Solver que concede uma allowance — Router:1241 (forceApprove) e

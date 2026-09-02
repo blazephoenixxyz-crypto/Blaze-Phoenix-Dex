@@ -486,6 +486,14 @@ contract BlazePhoenixHub {
         // is no control-plane response left, in either direction. Listing
         // (and re-listing, which re-pins the codehash) keeps working.
         if (!ok && $.controlRenounced) revert HubE(1);
+        // The one lever renunciation keeps is ADMISSION, and it must not double
+        // as the cancel button of the Layer-3 auto-pause (review 2026-09-02):
+        // a hook admitted honestly, mutated later and therefore paused by its
+        // pin could be re-armed at its NEW code by the surviving `ok == true`
+        // arm, while the arm that makes the pause permanent is dead. After
+        // renunciation a listed hook whose runtime moved stays paused for ever;
+        // listing a new hook, or re-listing an unchanged one, still works.
+        if (ok && $.controlRenounced && $.hookAllowed[h] && $.hookCodehash[h] != h.codehash) revert HubE(1);
         $.hookAllowed[h] = ok;
         // Pin the code at admission (Layer 3). A later code change (proxy
         // upgrade, selfdestruct+redeploy) makes isHookLive() false → the hook is
@@ -581,6 +589,11 @@ contract BlazePhoenixHub {
     function bridge(uint8 i) external view returns (address) { return _store().bridges[i]; }
     function bridgeCount() external view returns (uint8) { return _store().bridgeCount_; }
     function isBridgeToken(address t) external view returns (bool) { return _store().isBridge[t]; }
+    /// @notice "Can a hop pass through this token?" — the live producer the
+    ///         bridge term of psi reads (see `_pairBridged`), exposed so that a
+    ///         test or a client asks the question itself instead of inferring
+    ///         it from a stored copy.
+    function isRoutableBridge(address t) external view returns (bool) { return _isRoutableBridge(_store(), t); }
 
     // ─── Factory registry ──────────────────────────────────────────────
 
@@ -817,7 +830,7 @@ contract BlazePhoenixHub {
             // decimals makes the deep pool and the dust pool project the same psi.
             depthTok = BPC.depthFromL18(liq, sp, BPC.decimalsOf(s0), BPC.decimalsOf(s1));
         }
-        if (!_canInsert($.pairKeys[s0][s1], depthTok)) return key;
+        if (!_canInsert($.pairKeys[s0][s1], depthTok, _pairBridged($, s0, s1))) return key;
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
             tickSpacing: tickSpacing, hooks: address(0)
@@ -1211,7 +1224,7 @@ contract BlazePhoenixHub {
     ///      keccak — the learned code already describes the pool) and refresh
     ///      the non-bridge side(s). Fail-open: unrecoverable means no update.
     function _noteV4Code(address pool, address t0, address t1, uint24 fee) private {
-        (int24 ts, bool ok) = _recoverV4Ts(pool, t0, t1, fee);
+        (int24 ts, bool ok) = _recoverV4Ts(keyOf(pool, t0, t1), pool, t0, t1, fee);
         if (ok) _writeV4Code(t0, t1, fee, ts);
     }
 
@@ -1228,7 +1241,7 @@ contract BlazePhoenixHub {
     ///        5. the registered V4Entry — the backstop that always resolves a
     ///           pool admitted via claimV4/addV4
     ///      A hooked pool never matches (hookless derivation) => (0, false).
-    function _recoverV4Ts(address pool, address t0, address t1, uint24 fee)
+    function _recoverV4Ts(bytes32 key, address pool, address t0, address t1, uint24 fee)
         private view returns (int24 ts, bool ok)
     {
         HubStore storage $ = _store();
@@ -1275,18 +1288,19 @@ contract BlazePhoenixHub {
             }
             unchecked { ++fi; }
         }
-        // 5) the registered V4Entry backstop
-        uint256 vn = $.v4Entries.length;
-        for (uint256 vi; vi < vn; ) {
-            V4Entry storage e = $.v4Entries[vi];
-            if (
-                e.currency0 == t0 && e.currency1 == t1 && e.fee == fee
-                    && e.hooks == address(0)
-            ) {
-                ts = e.tickSpacing;
-                if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
-            }
-            unchecked { ++vi; }
+        // 5) the registered V4Entry backstop — by the O(1) index, never by a
+        //    walk. This step used to scan the whole `v4Entries` array, which
+        //    `claimV4` grows without permission (one fresh token per pool),
+        //    and it sits on recordSwap's hot path through `_noteV4Code`: a
+        //    routed V4 swap whose tier misses steps 1-4 paid for every foreign
+        //    entry ever inserted, inside the Router's try/catch, until the
+        //    1/64 remainder could no longer finish the user's swap (review
+        //    2026-09-02). `v4EntryOf` survives eviction, so a pool that comes
+        //    back after being evicted still resolves here.
+        uint256 ep = $.v4EntryOf[key];
+        if (ep != 0) {
+            ts = $.v4Entries[ep - 1].tickSpacing;
+            if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
         }
         return (0, false);
     }
@@ -1336,7 +1350,7 @@ contract BlazePhoenixHub {
         p.token1      = _swap ? t0 : t1;
         p.pool        = $.poolOf[key];
         p.hooks       = $.hooksOf[key];
-        p.stable      = false;
+        p.stable      = _isStable(s);
         // tickSpacing is not packed in the pool slot. V3-style kinds derive
         // pools from the fee (0 is fine), but V4 needs the real tickSpacing —
         // it is part of the poolId the quote recomputes — so recover it from
@@ -1361,47 +1375,22 @@ contract BlazePhoenixHub {
                 }
                 return p;
             }
-            uint256 vn = $.v4Entries.length;
-            for (uint256 vi; vi < vn; ) {
-                V4Entry storage e = $.v4Entries[vi];
-                if (p.kind == BPC.KIND_V4) {
-                    if (e.currency0 == t0 && e.currency1 == t1 && e.fee == p.fee && e.hooks == p.hooks) {
-                        p.tickSpacing = e.tickSpacing;
-                        break;
-                    }
-                } else if (e.currency0 == address(0) && e.fee == p.fee && e.hooks == p.hooks
-                    && (e.currency1 == t0 || e.currency1 == t1)) {
-                    // Native entry (currency0 = address(0), currency1 = the
-                    // ERC20 counterpart). Verify by the unforgeable truncated-
-                    // poolId match — a same-fee native entry of another pair
-                    // can then never mis-resolve this one — and ORIENT the
-                    // WETH-canonical pair: token0 = the wrapped-native side,
-                    // token1 = the counterpart. This orientation is the
-                    // contract the Solver's zeroForOne / auxId / quote-ctx
-                    // construction relies on (token0 == tIn ⇔ input is the
-                    // pool's currency0).
-                    if (address(uint160(uint256(BPC.computeV4PoolId(
-                            address(0), e.currency1, p.fee, e.tickSpacing, p.hooks
-                        )))) == p.pool) {
-                        p.tickSpacing = e.tickSpacing;
-                        p.token0 = e.currency1 == t0 ? t1 : t0;
-                        p.token1 = e.currency1;
-                        break;
-                    }
-                }
-                unchecked { ++vi; }
-            }
+            // A V4 row with no V4Entry behind it is unreachable since
+            // 2026-09-02: every door that registers a V4 kind writes
+            // `v4EntryOf` (addV4, claimV4, recordSwap, and now seedPool, which
+            // recovers the tickSpacing or refuses). The linear walk that lived
+            // here as a "pre-fix keys" backstop let a permissionlessly grown
+            // array set the price of reading ONE pool, on the Solver's
+            // per-hop path — and `swapBestExactIn` solves on chain.
         }
     }
 
-    function getPsi(bytes32 key) external view returns (uint256) { return _psi(key); }
-
-    /// @dev THEY WERE NOT TWO IDENTICAL CHAINS — THEY WERE TWO IDENTICAL BODIES. This function
-    ///      and `_psiOfSlot` differed only in how they fetched the slot; all the rest was a
-    ///      literal copy, including the four-kind chain. Collapsing the chain and leaving the
-    ///      two functions cured the symptom and kept the sibling. Now there is ONE body.
-    function _psi(bytes32 key) private view returns (uint256) {
-        return _psiOfSlot(_store().slot[key]);
+    /// @notice Fitness of one registered pool. Takes the PAIR, not the key: the
+    ///         bridge term of psi is read live from the pair's tokens (see
+    ///         `_pairBridged`), and a key cannot be inverted into its tokens.
+    function getPsi(address pool, address tA, address tB) external view returns (uint256) {
+        HubStore storage $ = _store();
+        return _psiOfSlot($.slot[keyOf(pool, tA, tB)], _pairBridged($, tA, tB));
     }
 
     /// @notice Batch fitness read: one external call for a whole candidate set
@@ -1415,18 +1404,11 @@ contract BlazePhoenixHub {
         uint256 n = pools.length;
         if (tAs.length != n || tBs.length != n) revert HubE(4);
         ps = new uint256[](n);
+        HubStore storage $ = _store();
         for (uint256 i; i < n; ) {
-            ps[i] = _psi(keyOf(pools[i], tAs[i], tBs[i]));
+            ps[i] = _psiOfSlot($.slot[keyOf(pools[i], tAs[i], tBs[i])], _pairBridged($, tAs[i], tBs[i]));
             unchecked { ++i; }
         }
-    }
-
-    /// @notice True when either side of the pair is a registered bridge token.
-    ///         Packed at slot bit 7 (within the [7:1] reserved span) at the
-    ///         moment of registration, so reading it is part of the same SLOAD
-    ///         that fetches the rest of the pool state.
-    function _isBridged(uint256 slot) private pure returns (bool) {
-        return (slot >> 7) & 1 == 1;
     }
 
     /// @dev BIT 6 of the Monoslot (inside the reserved [7:1] span): "the
@@ -1455,8 +1437,15 @@ contract BlazePhoenixHub {
         return ((slot >> 6) & 1) == 1;
     }
 
-    function _markBridged(uint256 slot, bool b) private pure returns (uint256) {
-        return b ? (slot | (uint256(1) << 7)) : (slot & ~(uint256(1) << 7));
+    /// @dev BIT 5 of the Monoslot (inside the reserved [7:1] span): "this
+    ///      Solidly pair runs the stable curve" — the pool's own `stable()`,
+    ///      measured once at the registration door (SLOT-01). Bit 7, which
+    ///      froze the bridge answer, is free since 2026-09-02 (see `_pairBridged`).
+    function _markStable(uint256 slot, bool b) private pure returns (uint256) {
+        return b ? (slot | (uint256(1) << 5)) : (slot & ~(uint256(1) << 5));
+    }
+    function _isStable(uint256 slot) private pure returns (bool) {
+        return ((slot >> 5) & 1) == 1;
     }
 
     function getSlot(bytes32 key) external view returns (uint256) { return _store().slot[key]; }
@@ -1520,7 +1509,7 @@ contract BlazePhoenixHub {
             return;
         }
         // unknown — attempt insert
-        if (!_canInsert($.pairKeys[t0][t1], depthWad)) return;
+        if (!_canInsert($.pairKeys[t0][t1], depthWad, _pairBridged($, t0, t1))) return;
         // Pair-shaped kinds: PROVE the pool really trades (t0, t1) before it
         // enters the registry. Every argument here is caller-controlled
         // calldata carried in the Router's Route — pool, kind AND depth — so
@@ -1553,7 +1542,7 @@ contract BlazePhoenixHub {
             // entirely: an entry-less V4 registration would be dead weight
             // that marks the pair "known" and starves rediscovery. The swap
             // itself is unaffected either way (fail closed, fail open).
-            (int24 v4Ts, bool okTs) = _recoverV4Ts(pool, t0, t1, fee);
+            (int24 v4Ts, bool okTs) = _recoverV4Ts(key, pool, t0, t1, fee);
             if (!okTs) return;
             $.v4Entries.push(V4Entry({
                 currency0: t0, currency1: t1, fee: fee,
@@ -1579,8 +1568,8 @@ contract BlazePhoenixHub {
             // stores the REAL pool currencies; _readPoolInfo re-orients the
             // pair to WETH-canonical form for the Solver from it.
             address ncp = t1;
-            (int24 nTs, bool okN) = _recoverV4Ts(pool, address(0), t1, fee);
-            if (!okN) { ncp = t0; (nTs, okN) = _recoverV4Ts(pool, address(0), t0, fee); }
+            (int24 nTs, bool okN) = _recoverV4Ts(key, pool, address(0), t1, fee);
+            if (!okN) { ncp = t0; (nTs, okN) = _recoverV4Ts(key, pool, address(0), t0, fee); }
             if (!okN) return;
             $.v4Entries.push(V4Entry({
                 currency0: address(0), currency1: ncp, fee: fee,
@@ -1710,7 +1699,7 @@ contract BlazePhoenixHub {
         return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);
     }
 
-    function _canInsert(bytes32[] storage ks, uint256 newDepth) private view returns (bool) {
+    function _canInsert(bytes32[] storage ks, uint256 newDepth, bool bridged) private view returns (bool) {
         if (ks.length < MAX_SLOTS) return true;
         // ─── Insertion ranking ───
         // Rank incumbents by full fitness (vitality × depth-bucket weight × bonuses),
@@ -1723,7 +1712,7 @@ contract BlazePhoenixHub {
         HubStore storage $ = _store();
         uint256 worstPsi = type(uint256).max;
         for (uint256 i; i < ks.length; ) {
-            uint256 p = _psiOfSlot($.slot[ks[i]]);
+            uint256 p = _psiOfSlot($.slot[ks[i]], bridged);
             if (p < worstPsi) worstPsi = p;
             unchecked { ++i; }
         }
@@ -1761,10 +1750,25 @@ contract BlazePhoenixHub {
     ///      liquidity?" is a MEMBERSHIP test against a state-SHAPE class (in the pool or in the
     ///      singleton, immaterial to the weight) — it collapses into theta without violating the
     ///      acceptance-predicate rule, because psi is a READ weight and does not decide admission.
-    function _psiOfSlot(uint256 s) private view returns (uint256) {
+    function _psiOfSlot(uint256 s, bool bridged) private view returns (uint256) {
         if (s == 0) return 0;
         bool conc = BPC.kindHasAny(BPC.decodeKind(s), BPC.A_CONC_POOL | BPC.A_CONC_SING);
-        return BPC.psi(s, uint32(block.timestamp), _isBridged(s), conc);
+        return BPC.psi(s, uint32(block.timestamp), bridged, conc);
+    }
+
+    /// @dev THE ONLY producer of "is this pair anchored on a routable bridge?"
+    ///      (BRIDGE-01). Until 2026-09-02 the answer was a bit frozen into the
+    ///      Monoslot at registration while `removeBridge` and `addBridge` moved
+    ///      the truth underneath it: the +25% bonus outlived a removed bridge
+    ///      and never reached a pool registered before the bridge was added.
+    ///      Read live, it is the same predicate the bridge expansion uses, and
+    ///      it is UNIFORM across a pair — every ranking psi feeds (admission,
+    ///      eviction, the funnel's top-K) compares rows of ONE pair, so the
+    ///      bonus can no longer reorder anything. That is the intended
+    ///      behaviour, not a loss. Cost: one SLOAD per side in the common case
+    ///      (the `isBridge` early-out), on view paths and the cold registry path.
+    function _pairBridged(HubStore storage $, address t0, address t1) private view returns (bool) {
+        return _isRoutableBridge($, t0) || _isRoutableBridge($, t1);
     }
 
     function _register(
@@ -1789,8 +1793,9 @@ contract BlazePhoenixHub {
                 // chose to make room for).
                 uint256 worstIdx;
                 uint256 worst = type(uint256).max;
+                bool bridged = _pairBridged($, t0, t1);
                 for (uint256 i; i < ks.length; ) {
-                    uint256 v = _psiOfSlot($.slot[ks[i]]);
+                    uint256 v = _psiOfSlot($.slot[ks[i]], bridged);
                     if (v < worst) { worst = v; worstIdx = i; }
                     unchecked { ++i; }
                 }
@@ -1807,16 +1812,17 @@ contract BlazePhoenixHub {
                 ks.push(key);
             }
         }
-        // ROUTABLE, not merely an anchor: the flag is worth +25% fitness in `psi`, and fitness
-        // decides evictions in a capped registry. Paying the bonus to a pool the router cannot
-        // reach meant evicting useful liquidity in favour of unreachable liquidity.
-        bool bridged = _isRoutableBridge($, t0) || _isRoutableBridge($, t1);
         uint256 s = BPC.encodeSlot(
             true, fee, kind, trusted ? 0 : 2, 0,
             uint32(block.timestamp), 0, 0, 0,
             uint32(block.number), uint32(block.number)
         );
-        $.slot[key]    = _markBridged(s, bridged);
+        // The bridge term of psi is no longer frozen here (BRIDGE-01, see
+        // `_pairBridged`). What IS measured at this door and persisted is the
+        // pool's own curve (SLOT-01): a Solidly-shaped pair answers `stable()`,
+        // and bit 5 carries that answer to every registry reader.
+        if (kind == BPC.KIND_SOLIDLY && BPC.solidlyStable(pool)) s = _markStable(s, true);
+        $.slot[key]    = s;
         $.poolOf[key]  = pool;
         if (hooks != address(0)) $.hooksOf[key] = hooks;
         emit Registered(key, pool, kind);
@@ -1830,6 +1836,24 @@ contract BlazePhoenixHub {
         _ne0(pool); _ne0(tA); _ne0(tB);
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         key = keyOf(pool, t0, t1);
+        if (BPC.kindHas(kind, BPC.A_CONC_SING)) {
+            // A V4 row must carry its V4Entry, or every registry read of it
+            // falls into the array walk this door used to leave behind (review
+            // 2026-09-02). Recover the tickSpacing exactly as recordSwap does
+            // and write the O(1) index; a tier nothing can recover is refused,
+            // and so is the native kind, whose wrapped side only addV4 knows.
+            if (kind != BPC.KIND_V4) revert HubE(4);
+            HubStore storage $ = _store();
+            if ($.v4EntryOf[key] == 0) {
+                (int24 ts, bool ok) = _recoverV4Ts(key, pool, t0, t1, fee);
+                if (!ok) revert HubE(4);
+                $.v4Entries.push(V4Entry({
+                    currency0: t0, currency1: t1, fee: fee,
+                    tickSpacing: ts, hooks: hooks
+                }));
+                $.v4EntryOf[key] = $.v4Entries.length;
+            }
+        }
         _register(key, pool, kind, fee, hooks, t0, t1, true);
     }
 }

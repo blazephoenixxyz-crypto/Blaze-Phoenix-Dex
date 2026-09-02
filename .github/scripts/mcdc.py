@@ -58,6 +58,11 @@ attempted neutralisation ended UNVERIFIED.
 import json, os, re, subprocess, sys, time, urllib.parse
 
 U = "https://bp-ci.a-s-myros-gtar.workers.dev"
+# The box is gated by a shared secret (X-CI-Token). It is read from a file
+# outside the repository, never from the tree; without it every route answers 401.
+_TOKEN_FILE = os.environ.get("CI_TOKEN_FILE", os.path.expanduser("~/.cfci-token"))
+_TOKEN = open(_TOKEN_FILE).read().strip() if os.path.exists(_TOKEN_FILE) else ""
+AUTH = ["-H", f"X-CI-Token: {_TOKEN}"]
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(REPO, "src")
 # THE SEED IS PINNED, AND IT HAS TO BE. The invariant campaigns walk randomly, and
@@ -300,7 +305,7 @@ def put(rel, text):
     for _ in range(3):
         r = subprocess.run(
             ["curl", "-s", "-m", "180", "-X", "POST", f"{U}/put?path={rel}",
-             "--data-binary", "@-", "-H", "Content-Type: text/plain"],
+             "--data-binary", "@-", "-H", "Content-Type: text/plain"] + AUTH,
             input=text, capture_output=True, text=True)
         if '"ok":true' in r.stdout: return True
         time.sleep(5)
@@ -308,7 +313,7 @@ def put(rel, text):
 
 def run_suite():
     q = urllib.parse.quote(SUITE_CMD)
-    r = subprocess.run(["curl", "-s", "-m", "480", f"{U}/run?cmd={q}"],
+    r = subprocess.run(["curl", "-s", "-m", "480", f"{U}/run?cmd={q}"] + AUTH,
                        capture_output=True, text=True)
     try:
         d = json.loads(r.stdout)

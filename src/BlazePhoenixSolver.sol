@@ -60,7 +60,7 @@ import {
 interface IHubR {
     function getActivePools(address tA, address tB) external view returns (PoolInfo[] memory);
     function discoverFor(address tA, address tB) external view returns (PoolInfo[] memory);
-    function getPsi(bytes32 key) external view returns (uint256);
+    function getPsi(address pool, address tA, address tB) external view returns (uint256);
     function psisOf(address[] calldata pools, address[] calldata tAs, address[] calldata tBs)
         external view returns (uint256[] memory);
     function getSlot(bytes32 key) external view returns (uint256);
@@ -613,6 +613,23 @@ contract BlazePhoenixSolver {
                 balsOut[i] = BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? 0
                     : BPC.balanceOf(tOut, cands[i].pool);
+                // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01). For pair-shaped
+                // kinds the depth above is the pool's own `getReserves`, and a
+                // synthetic pair declares any number: against three funded honest
+                // pools of 400k each, a pair holding ONE token of each side and
+                // declaring 3e30 took the whole route at half the fair price
+                // (test/FrozenAtWriteProbes.t.sol). Cap the declared depth by what
+                // the pool physically holds of tokenOut. On an honest pair the cap
+                // is inert — reserves never exceed balances (sync copies balances
+                // into reserves; a donation only raises the balance) — and a
+                // donation cannot lift it above the reserves, so this is NOT the
+                // anchor T2 removed: it can only shrink a claim, never grow one.
+                // `balsOut` is the quantity already read for the capacity ceiling,
+                // so the cap costs no extra call.
+                if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES)) {
+                    uint256 physical = BPC.to18(balsOut[i], dOt1_ - 1);
+                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;
+                }
             }
             unchecked { ++i; }
         }
@@ -1494,35 +1511,68 @@ contract BlazePhoenixSolver {
     ) private view returns (Route memory route) {
         tIn; tOut; amountIn;   // retained for signature clarity
         for (uint256 i; i < hops.length; ) { _orderLegs(hops[i]); unchecked { ++i; } }
+        // LAYER 2 IS ROUTE-WIDE (review 2026-09-02). The Router refuses a
+        // hookless leg after a hooked one anywhere in the route, not only
+        // within a hop: a hook in hop 0 runs third-party code while every leg
+        // of the later hops is still unmeasured, which is the exact state the
+        // ordering rule exists to make unreachable. So a hooked leg may only
+        // sit in the LAST hop. A topology that puts one earlier is not
+        // re-ordered here (hops must chain); it is simply not offered, and
+        // `_rank` picks another.
+        for (uint256 h; h + 1 < hops.length; ) {
+            Leg[] memory hl = hops[h].legs;
+            for (uint256 i; i < hl.length; ) {
+                if (hl[i].hooks != address(0)) return route;
+                unchecked { ++i; }
+            }
+            unchecked { ++h; }
+        }
         // R-B, multi-hop twin: same split as the single-hop site. The ceiling
-        // gates on the worst LEG anywhere in the route; the floor keeps the
-        // per-hop mean summed across hops.
-        uint256 totalImpactBps;
+        // gates on the worst LEG anywhere in the route.
+        //
+        // TWO FIGURES, DELIBERATELY (review 2026-09-02, the pass after PR #25):
+        //  * the GATE keeps the per-hop mean summed across hops — a deliberate
+        //    over-estimate that refuses a compounding route early;
+        //  * the FLOOR is the Router's own number: each leg's impact weighted
+        //    by its share of the hop (`_wImp`), accumulated over the whole
+        //    route and divided by the route's TOTAL leg count (`_execute`).
+        //    PR #25 gave the single-hop twin exactly that arithmetic and left
+        //    a comment here saying this arm "can only be looser than the
+        //    Router's, never tighter". False whenever a hop concentrates its
+        //    input in its high-impact leg: 97% of a hop at 100 bps beside
+        //    three dust legs at 0 is 25 per hop unweighted (50 for the
+        //    route) and 97 for the Router — the attestation was TIGHTER, and
+        //    an honest fill died on RouterE(5) against the plan the protocol
+        //    itself published. Pinned end-to-end by
+        //    test/FloorParitySolverRouter.t.sol (two hops, both split).
+        uint256 gateImpactBps;
+        uint256 weightedAcc;
         uint256 totalLegs;
         uint256 maxLegImpactBps;
         for (uint256 h; h < hops.length; ) {
             uint256 legs = hops[h].legs.length;
+            uint256 hopIn = hops[h].amountIn;
             uint256 hopImpact;
             for (uint256 i; i < legs; ) {
                 uint256 li = _legImpactBps(hops[h].legs[i]);
                 hopImpact += li;
+                weightedAcc += hopIn == 0 ? li : BPC.mulDiv(li * legs, hops[h].legs[i].amountIn, hopIn);
                 if (li > maxLegImpactBps) maxLegImpactBps = li;
                 unchecked { ++i; }
             }
             if (legs > 0) hopImpact = hopImpact / legs;
-            totalImpactBps += hopImpact;  // linear sum: safe over-estimate
+            gateImpactBps += hopImpact;  // linear sum: safe over-estimate, for the gate only
             totalLegs += legs;
             unchecked { ++h; }
         }
 
         // A destroyer leg is refused wherever it sits, and the compounded
         // per-hop figure still gates too — whichever binds first.
-        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || totalImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
+        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
+        uint256 totalImpactBps = totalLegs > 0 ? weightedAcc / totalLegs : 0;
         uint256 floorBps = BPC.ironFloorBps(totalImpactBps, totalLegs, 0);
-        // R-C: rounds UP like the single-hop twin. (The per-hop SUM above stays
-        // a deliberate over-estimate of impact, so this attestation can only be
-        // looser than the Router's, never tighter.)
+        // R-C: rounds UP like the single-hop twin and like the Router.
         uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);
 
         route = Route({

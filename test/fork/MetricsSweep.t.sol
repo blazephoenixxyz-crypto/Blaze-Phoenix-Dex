@@ -296,7 +296,7 @@ abstract contract MetricsSweepBase is Test {
                 console2.log("      lastUpdateTs  :", BPC.decodeLastUpdateTs(s));
                 console2.log("      lastBlk       :", BPC.decodeLastBlk(s));
                 console2.log("      depthBucket   :", BPC.decodeBucket(s));
-                console2.log("      psi (fitness) :", hub.getPsi(key));
+                console2.log("      psi (fitness) :", hub.getPsi(pi.pool, pi.token0, pi.token1));
                 assertEq(BPC.decodeKind(s), pi.kind, "kind do slot != kind do PoolInfo");
             }
         }

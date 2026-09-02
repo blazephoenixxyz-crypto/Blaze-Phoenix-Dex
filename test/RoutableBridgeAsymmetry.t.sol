@@ -46,9 +46,6 @@ contract RoutableBridgeAsymmetryTest is Test {
     address constant B2    = address(0xB002); // a que era fantasma
     address constant OTHER = address(0x7777);
 
-    /// Posicao da flag `bridged` no Monoslot — ver `_markBridged` no Hub.
-    uint256 constant BRIDGED_BIT = 7;
-
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0xBEEF));
@@ -68,8 +65,12 @@ contract RoutableBridgeAsymmetryTest is Test {
         hub.addBridge(address(0xB003));
     }
 
-    function _bridged(bytes32 key) internal view returns (bool) {
-        return ((hub.getSlot(key) >> BRIDGED_BIT) & 1) == 1;
+    /// The live producer, asked directly. Until 2026-09-02 this file read a
+    /// copy of the answer frozen into Monoslot bit 7 at registration — the
+    /// BRIDGE-01 defect — and its negative control passed for the wrong
+    /// reason once the bit was gone. The Hub now exposes the question itself.
+    function _routable(address t) internal view returns (bool) {
+        return hub.isRoutableBridge(t);
     }
 
     /// O NUCLEO. TODAS as bridges configuradas tem de ganhar a flag — porque todas sao
@@ -79,22 +80,23 @@ contract RoutableBridgeAsymmetryTest is Test {
     /// Fica vermelho se alguem subir o MAX_BRIDGES sem acrescentar o bracco correspondente ao
     /// Solver e ao `_rank` — que e exatamente como o defeito nasceu.
     function test_NenhumaBridgeConfiguradaEFantasma() public {
-        bytes32 k0 = hub.seedPool(address(0xA001), BPC.KIND_V2, 30, address(0), B0, OTHER);
-        bytes32 k1 = hub.seedPool(address(0xA002), BPC.KIND_V2, 30, address(0), B1, OTHER);
-        bytes32 k2 = hub.seedPool(address(0xA003), BPC.KIND_V2, 30, address(0), B2, OTHER);
+        hub.seedPool(address(0xA001), BPC.KIND_V2, 30, address(0), B0, OTHER);
+        hub.seedPool(address(0xA002), BPC.KIND_V2, 30, address(0), B1, OTHER);
+        hub.seedPool(address(0xA003), BPC.KIND_V2, 30, address(0), B2, OTHER);
 
-        assertTrue(_bridged(k0), "bridge(0) tem de ser roteavel");
-        assertTrue(_bridged(k1), "bridge(1) tem de ser roteavel");
-        assertTrue(_bridged(k2),
-            "bridge(2) tem de ser roteavel: o Solver expande-a e o _rank julga-a pelo totalOut");
+        assertTrue(_routable(B0), "bridge(0) must be routable");
+        assertTrue(_routable(B1), "bridge(1) must be routable");
+        assertTrue(_routable(B2),
+            "bridge(2) must be routable: the Solver expands it and _rank judges it by totalOut");
     }
 
     /// O CONTROLO NEGATIVO, e sem ele este ficheiro nao valia nada: um token que NAO e bridge
     /// nenhuma nao pode ganhar a flag. Sem isto, um `_isRoutableBridge` que devolvesse `true` a
     /// toda a gente ficava verde no teste acima.
     function test_ControloUmTokenQueNaoEBridgeNaoGanhaFlag() public {
-        bytes32 k = hub.seedPool(address(0xA004), BPC.KIND_V2, 30, address(0), OTHER, address(0x8888));
-        assertFalse(_bridged(k), "um par sem nenhuma bridge nao pode levar o bonus de fitness");
+        hub.seedPool(address(0xA004), BPC.KIND_V2, 30, address(0), OTHER, address(0x8888));
+        assertFalse(_routable(OTHER) || _routable(address(0x8888)),
+            "a pair with no bridge on either side must not earn the fitness bonus");
     }
 
     /// A porta PERMISSIONLESS aceita QUALQUER bridge configurada como ancora.
@@ -126,8 +128,8 @@ contract RoutableBridgeAsymmetryTest is Test {
     /// divergirem seja um dia em que alguem tem de explicar a divergencia.
     function test_TodasAsConfiguraveisSaoRoteaveis() public {
         assertEq(hub.bridgeCount(), 3, "o setUp configurou o maximo");
-        bytes32 k = hub.seedPool(address(0xA005), BPC.KIND_V2, 30, address(0), B2, OTHER);
-        assertTrue(hub.isBridgeToken(B2), "e uma ancora de confianca");
-        assertTrue(_bridged(k), "e TAMBEM roteavel - hoje as duas respostas coincidem");
+        hub.seedPool(address(0xA005), BPC.KIND_V2, 30, address(0), B2, OTHER);
+        assertTrue(hub.isBridgeToken(B2), "it is a trusted anchor");
+        assertTrue(_routable(B2), "and it is ALSO routable - today the two answers coincide");
     }
 }
