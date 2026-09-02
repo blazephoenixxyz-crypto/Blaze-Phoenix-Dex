@@ -1361,6 +1361,16 @@ contract BlazePhoenixSolver {
         uint256 fresh;
         for (uint256 i; i < rn; ) {
             uint256 s = hub.getSlot(hub.keyOf(reg[i].pool, reg[i].token0, reg[i].token1));
+            // Only CURATED rows (tier 0, seedPool by an operator) can vouch
+            // for coverage. A permissionless row (tier 2: recordSwap, claimV4)
+            // is written by whoever swapped first, so counting it let three
+            // self-registered dust pairs, kept fresh by three dust swaps an
+            // hour, switch discovery OFF for the pair and hide every honest
+            // venue that had never been registered — the registry then held
+            // only what the attacker wrote, and the band was theirs. The
+            // permissionless row stays a CANDIDATE (merged below); it no
+            // longer chooses the path (review 2026-09-02).
+            if (BPC.decodeTier(s) != 0) { unchecked { ++i; } continue; }
             uint256 last = uint256(BPC.decodeLastUpdateTs(s));
             if (last != 0 && block.timestamp - last <= DISCOVERY_TTL_SECONDS) {
                 unchecked { ++fresh; }

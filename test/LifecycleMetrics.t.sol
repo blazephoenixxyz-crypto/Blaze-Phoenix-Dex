@@ -166,19 +166,21 @@ contract LifecycleMetricsTest is Test {
         }
 
         console2.log("");
-        console2.log("=== PHASE 3: WARM solve (registo POVOADO -- ver a assercao abaixo) ===");
-        (uint256 gWarmSolve, uint256 legsWarm) = _solveGas();
-        console2.log("findBestRoutePlan WARM, gas:", gWarmSolve);
-        console2.log("  legs planned:", legsWarm);
-        if (gColdSolve > gWarmSolve) {
-            console2.log("  reduction vs COLD, gas saved:", gColdSolve - gWarmSolve);
-            console2.log("  reduction, percent:", ((gColdSolve - gWarmSolve) * 100) / gColdSolve);
-        } else {
-            console2.log("  NO reduction (registry did not reach fresh)");
-        }
+        console2.log("=== PHASE 3a: solve with a registry warmed by SWAPS (permissionless rows, tier 2) ===");
+        // Since the 2026-09-02 review, rows written by recordSwap do NOT vouch for
+        // coverage: three self-registered dust pairs, kept fresh by dust swaps,
+        // could otherwise switch discovery off for a pair and hide every honest
+        // venue never registered. So this solve still pays the sweep — that is
+        // the point, and the assertion below pins it.
+        (uint256 gSwapWarmSolve, ) = _solveGas();
+        console2.log("findBestRoutePlan after swaps (tier-2 rows), gas:", gSwapWarmSolve);
+
+        // (The CURATED shortcut is measured in test_Metrics_CuratedRegistry_ShortcutAndTtl,
+        // on its own registry: re-seeding these four keys here would overwrite the
+        // vitality history that phases 5 and 6 below measure.)
 
         console2.log("");
-        console2.log("=== PHASE 4: TTL lapses -> discovery runs again ===");
+        console2.log("=== PHASE 4: TTL lapses ===");
         t += TTL + 1;
         vm.warp(t);
         (uint256 gStaleSolve,) = _solveGas();
@@ -217,8 +219,35 @@ contract LifecycleMetricsTest is Test {
         assertEq(regCold, 0, "cold phase premise: the registry must genuinely start empty");
         assertGt(legsCold, 0, "cold phase must still route via discovery despite an empty registry");
         assertGt(swapGas[0], 0, "swaps must actually execute for these numbers to mean anything");
-        assertLt(gWarmSolve, gColdSolve, "a fresh registry must make the solve cheaper, not dearer");
-        assertGt(gStaleSolve, gWarmSolve, "once the TTL lapses the solve must pay for discovery again");
+        assertGt(gSwapWarmSolve, gColdSolve,
+            "permissionless (tier-2) rows must NOT buy the discovery shortcut: the swap-warmed solve still pays the sweep (plus the registry merge)");
         assertEq(vitDead, 0, "past the 32-step horizon every pool must score a true zero");
+    }
+
+    /// @notice The gas shortcut is bought by CURATION. Four operator-seeded rows
+    ///         (tier 0) make the solve skip the discovery sweep; once they go
+    ///         quiet past the TTL the solve pays for discovery again. This is
+    ///         the property the lifecycle test used to assert on swap-registered
+    ///         rows, before the 2026-09-02 review stopped permissionless rows
+    ///         from vouching (see SolverFreshnessGateTrustsOnlyCuratedRows).
+    function test_Metrics_CuratedRegistry_ShortcutAndTtl() public {
+        uint256 t = block.timestamp;
+        (uint256 gColdSolve, uint256 legsCold) = _solveGas();
+        assertGt(legsCold, 0, "cold solve routes via discovery");
+
+        for (uint256 i; i < N_POOLS; ++i) {
+            hub.seedPool(address(pools[i]), BPC.KIND_V2, 30, address(0), address(tokenIn), address(tokenOut));
+        }
+        (uint256 gWarmSolve, uint256 legsWarm) = _solveGas();
+        console2.log("findBestRoutePlan COLD, gas:", gColdSolve);
+        console2.log("findBestRoutePlan WARM (curated), gas:", gWarmSolve);
+        assertGt(legsWarm, 0, "curated solve still routes");
+        assertLt(gWarmSolve, gColdSolve, "a fresh CURATED registry makes the solve cheaper");
+
+        t += TTL + 1;
+        vm.warp(t);
+        (uint256 gStaleSolve,) = _solveGas();
+        console2.log("findBestRoutePlan after TTL, gas:", gStaleSolve);
+        assertGt(gStaleSolve, gWarmSolve, "once the TTL lapses the solve pays for discovery again");
     }
 }

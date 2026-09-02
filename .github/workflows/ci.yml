@@ -57,6 +57,21 @@ jobs:
             exit 1
           fi
 
+      - name: V4 hook-sieve census (assumption A4 - one unlock, behind the sieve)
+        # A4 of the assumption book: every executed V4 swap passes the hook-delta
+        # refusal (RouterE(9)) before the PoolManager is unlocked. The review of
+        # 2026-09-02 read it true - exactly ONE `unlock` call site in the Router,
+        # inside _execV4Amt, after the sieve - and found that NOTHING enforced it:
+        # a second call site could appear and route a V4 swap around the sieve
+        # in silence. This pins the count. The sieve itself is exercised by the
+        # RouterE(9) tests and its mutant lives in mutants.py.
+        run: |
+          N=$(grep -cE '\)\.unlock\(' src/BlazePhoenixRouter.sol)
+          if [ "$N" -ne 1 ]; then
+            echo "::error::A4: expected exactly one PoolManager.unlock call site in the Router, found $N. Every V4 execution path must pass the hook sieve before unlock."
+            exit 1
+          fi
+
       - name: Depth unit guard (L cru nunca vira depthWad)
         # `depthWad` tem de ser TOKEN-denominado para ser comparavel entre familias de venue:
         # o V2 reporta min(r0,r1), unidades lineares. L esta em escala-RAIZ, logo entrega-lo cru
@@ -227,10 +242,19 @@ jobs:
         # nothing for a real one, which fails all three deterministically. So
         # this cuts the false-red rate without weakening the signal at all.
         run: |
+          set -o pipefail
           SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1"
           for attempt in 1 2 3; do
-            if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC"; then
-              exit 0
+            if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC" 2>&1 | tee fork.log; then
+              # Exit code 0 is NOT a verdict here: every fork setUp `vm.skip`s
+              # when DRPC_KEY is empty, so a missing or rotated secret would
+              # turn this lane green with ZERO tests run. Only a positive
+              # count is green (the house rule: "0 failed" on nothing proves
+              # nothing; "N passed" does).
+              PASSED=$(grep -oE '[0-9]+ tests passed' fork.log | tail -n1 | grep -oE '^[0-9]+' || echo 0)
+              if [ "${PASSED:-0}" -gt 0 ]; then exit 0; fi
+              echo "::error::fork lane finished with ${PASSED:-0} tests passed — the secret is missing or every suite skipped; this is not green"
+              exit 1
             fi
             echo "::warning::fork attempt $attempt failed — retrying in 20s (dRPC timeouts are the usual cause)"
             sleep 20

@@ -42,6 +42,7 @@ import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 
 /// @dev Algebra-shaped pool: it does NOT answer slot0(), only globalState(),
 ///      which is exactly how the probe tells the two families apart.
@@ -131,6 +132,58 @@ contract KindIsDerivedNotDeclaredTest is Test {
             assertTrue(ps[i].pool != address(p),
                 "a concentrated pool declared KIND_V2 must not be registered on that lie");
         }
+    }
+
+    // ─── the pair-shaped family: Solidly vs V2 (review 2026-09-02) ───────────
+
+    /// The concentrated arm was refuted by shape; the pair-shaped arm still
+    /// persisted the calldata's word. A Solidly pair declared V2 is quoted
+    /// AND executed with V2 constant-product math at 30 bps: a volatile pool
+    /// with a higher fee reverts every honest swap in its own K check while
+    /// the Solver keeps ranking it first (its V2 quote is above the truth),
+    /// and a stable pool is priced on the wrong curve. The pool answers
+    /// stable(); a Uniswap-V2 pair does not. RED before the fix.
+    function test_SolidlyShapedPool_MustNotPersistAsV2() public {
+        MockSolidlyPair p = new MockSolidlyPair(address(tokA), address(tokB), false);
+        p.setReserves(1_000e18, 1_000e18);
+
+        hub.recordSwap(
+            address(p), BPC.KIND_V2, 30, address(0),
+            address(tokA), address(tokB), 1e18, 1e18, 1e21
+        );
+
+        assertEq(_kindOf(address(p), address(tokA), address(tokB)), BPC.KIND_SOLIDLY,
+            "a pair that answers stable() is Solidly, whatever the calldata said");
+    }
+
+    /// The mirror: a Uniswap-V2 pair declared Solidly paid the replicated-curve
+    /// haircut (200 bps) on every quote, forever. RED before the fix.
+    function test_V2Pair_MustNotPersistAsSolidly() public {
+        MockV2Pair p = new MockV2Pair(address(tokA), address(tokB));
+        p.setReserves(1_000e18, 1_000e18);
+
+        hub.recordSwap(
+            address(p), BPC.KIND_SOLIDLY, 30, address(0),
+            address(tokA), address(tokB), 1e18, 1e18, 1e21
+        );
+
+        assertEq(_kindOf(address(p), address(tokA), address(tokB)), BPC.KIND_V2,
+            "a pair without stable() is V2, whatever the calldata said");
+    }
+
+    /// Control: an honest Solidly declaration on a Solidly pair still persists
+    /// as Solidly (the probe agrees with the calldata).
+    function test_Control_HonestSolidlyRegisters() public {
+        MockSolidlyPair p = new MockSolidlyPair(address(tokA), address(tokB), true);
+        p.setReserves(1_000e18, 1_000e18);
+
+        hub.recordSwap(
+            address(p), BPC.KIND_SOLIDLY, 30, address(0),
+            address(tokA), address(tokB), 1e18, 1e18, 1e21
+        );
+
+        assertEq(_kindOf(address(p), address(tokA), address(tokB)), BPC.KIND_SOLIDLY,
+            "an honest Solidly declaration on a stable() pair must still register");
     }
 
     // ─── control: an honest declaration still registers ──────────────────────
