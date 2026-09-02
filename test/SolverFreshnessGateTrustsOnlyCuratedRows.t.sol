@@ -59,10 +59,16 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
         factory.setPair(address(tokenA), address(tokenB), address(honest));
     }
 
+    /// Funded to its declared reserves. Since 2026-09-02 the Solver caps a
+    /// pair's declared depth by what it physically holds (PROV-01), so a mock
+    /// with reserves and no tokens is a synthetic pair by definition — which
+    /// is not what this file is about.
     function _pair(uint112 rA, uint112 rB) private returns (MockV2Pair p) {
         p = new MockV2Pair(address(tokenA), address(tokenB));
         (uint112 r0, uint112 r1) = address(tokenA) < address(tokenB) ? (rA, rB) : (rB, rA);
         p.setReserves(r0, r1);
+        tokenA.mint(address(p), rA);
+        tokenB.mint(address(p), rB);
     }
 
     /// The attacker registers three self-written dust pairs through the

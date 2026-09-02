@@ -96,8 +96,11 @@ contract HardeningA4ClaimV4MarginTest is Test {
 
     /// @dev Fill all 16 slots of (bridgeTok, tokenB) with equal, shallow-depth
     ///      (1e18) V2 incumbents — the exact setup of the recordSwap margin
-    ///      tests. Must run BEFORE addBridge(bridgeTok) so the incumbents'
-    ///      packed bridge bit stays 0 and the margin arithmetic is identical.
+    ///      tests. The bridge term of psi is read live since 2026-09-02, so
+    ///      once addBridge(bridgeTok) runs every incumbent carries the +25%
+    ///      (psi 8 -> 10) and the newcomer's projection, which assumes no
+    ///      bonus, faces a proportionally higher bar: below-margin stays
+    ///      below, the 1000x claim still clears by a wide margin.
     function _fillPair() private returns (address[] memory pools) {
         pools = new address[](16);
         for (uint256 i; i < 16; ++i) {
@@ -133,10 +136,10 @@ contract HardeningA4ClaimV4MarginTest is Test {
         // psi reflects the bucket: at least the raw bucket weight (bonuses only
         // add), and clearly above the bucket-0 minimum of ~1.
         assertGe(
-            hub.getPsi(key), BPC.bucketWeight(BPC.depthBucket(uint256(DEEP_LIQ))),
+            hub.getPsi(poolAddr, bridgeTok, tokenB), BPC.bucketWeight(BPC.depthBucket(uint256(DEEP_LIQ))),
             "psi must carry the measured bucket weight"
         );
-        assertGt(hub.getPsi(key), 1, "psi must not be the bucket-0 minimum");
+        assertGt(hub.getPsi(poolAddr, bridgeTok, tokenB), 1, "psi must not be the bucket-0 minimum");
     }
 
     function test_ClaimV4_DeepClaimScoresAboveThinClaim() public {
@@ -155,8 +158,8 @@ contract HardeningA4ClaimV4MarginTest is Test {
         assertEq(hub.getPool(thinKey), thinAddr, "thin claim registers (empty pair)");
         assertEq(BPC.decodeBucket(hub.getSlot(thinKey)), 0, "thin liq measures into bucket 0");
 
-        uint256 psiDeep = hub.getPsi(deepKey);
-        uint256 psiThin = hub.getPsi(thinKey);
+        uint256 psiDeep = hub.getPsi(deepAddr, bridgeTok, tokenB);
+        uint256 psiThin = hub.getPsi(thinAddr, bridgeTok, tokenC);
         assertGe(psiThin, 1, "a registered pool never scores 0");
         assertGt(
             psiDeep, psiThin,
@@ -170,7 +173,8 @@ contract HardeningA4ClaimV4MarginTest is Test {
         address[] memory pools = _fillPair();
         hub.addBridge(bridgeTok); // anchor for the claim; incumbents already sealed
         // Measured liq == incumbents' depth (1e18): projected psi 8 fails the
-        // strict 25% margin over worst incumbent psi 8 (needs > 10).
+        // strict 25% margin over the worst incumbent (psi 10 with the live
+        // bridge bonus; the claim would need > 12).
         (, bytes32 key) = _plantV4Pool(bridgeTok, tokenB, FEE_THIN, TS_THIN, uint128(1e18));
 
         uint256 entriesBefore = hub.v4EntryCount();
@@ -222,6 +226,6 @@ contract HardeningA4ClaimV4MarginTest is Test {
             BPC.decodeBucket(hub.getSlot(key)), BPC.depthBucket(1e21),
             "evicting claim must persist its measured depth bucket"
         );
-        assertGt(hub.getPsi(key), 1, "admitted claimant must not score the bucket-0 minimum");
+        assertGt(hub.getPsi(claimAddr, bridgeTok, tokenB), 1, "admitted claimant must not score the bucket-0 minimum");
     }
 }

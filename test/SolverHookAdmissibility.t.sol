@@ -108,8 +108,8 @@ contract SolverHookAdmissibilityTest is Test {
                 address(tA), address(tB), 1e18, 1e18, 1_100_000e18);
         }
         assertGt(
-            hub.getPsi(hub.keyOf(pAddr, c0, c1)),
-            hub.getPsi(hub.keyOf(address(v2pair), c0, c1)),
+            hub.getPsi(pAddr, c0, c1),
+            hub.getPsi(address(v2pair), c0, c1),
             "pre-condicao do teste: a pool hooked TEM de ganhar o ranking"
         );
     }

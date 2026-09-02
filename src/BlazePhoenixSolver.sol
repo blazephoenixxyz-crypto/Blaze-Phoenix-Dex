@@ -60,7 +60,7 @@ import {
 interface IHubR {
     function getActivePools(address tA, address tB) external view returns (PoolInfo[] memory);
     function discoverFor(address tA, address tB) external view returns (PoolInfo[] memory);
-    function getPsi(bytes32 key) external view returns (uint256);
+    function getPsi(address pool, address tA, address tB) external view returns (uint256);
     function psisOf(address[] calldata pools, address[] calldata tAs, address[] calldata tBs)
         external view returns (uint256[] memory);
     function getSlot(bytes32 key) external view returns (uint256);
@@ -613,6 +613,23 @@ contract BlazePhoenixSolver {
                 balsOut[i] = BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? 0
                     : BPC.balanceOf(tOut, cands[i].pool);
+                // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01). For pair-shaped
+                // kinds the depth above is the pool's own `getReserves`, and a
+                // synthetic pair declares any number: against three funded honest
+                // pools of 400k each, a pair holding ONE token of each side and
+                // declaring 3e30 took the whole route at half the fair price
+                // (test/FrozenAtWriteProbes.t.sol). Cap the declared depth by what
+                // the pool physically holds of tokenOut. On an honest pair the cap
+                // is inert — reserves never exceed balances (sync copies balances
+                // into reserves; a donation only raises the balance) — and a
+                // donation cannot lift it above the reserves, so this is NOT the
+                // anchor T2 removed: it can only shrink a claim, never grow one.
+                // `balsOut` is the quantity already read for the capacity ceiling,
+                // so the cap costs no extra call.
+                if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES)) {
+                    uint256 physical = BPC.to18(balsOut[i], dOt1_ - 1);
+                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;
+                }
             }
             unchecked { ++i; }
         }

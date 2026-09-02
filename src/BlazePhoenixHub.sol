@@ -581,6 +581,11 @@ contract BlazePhoenixHub {
     function bridge(uint8 i) external view returns (address) { return _store().bridges[i]; }
     function bridgeCount() external view returns (uint8) { return _store().bridgeCount_; }
     function isBridgeToken(address t) external view returns (bool) { return _store().isBridge[t]; }
+    /// @notice "Can a hop pass through this token?" — the live producer the
+    ///         bridge term of psi reads (see `_pairBridged`), exposed so that a
+    ///         test or a client asks the question itself instead of inferring
+    ///         it from a stored copy.
+    function isRoutableBridge(address t) external view returns (bool) { return _isRoutableBridge(_store(), t); }
 
     // ─── Factory registry ──────────────────────────────────────────────
 
@@ -817,7 +822,7 @@ contract BlazePhoenixHub {
             // decimals makes the deep pool and the dust pool project the same psi.
             depthTok = BPC.depthFromL18(liq, sp, BPC.decimalsOf(s0), BPC.decimalsOf(s1));
         }
-        if (!_canInsert($.pairKeys[s0][s1], depthTok)) return key;
+        if (!_canInsert($.pairKeys[s0][s1], depthTok, _pairBridged($, s0, s1))) return key;
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
             tickSpacing: tickSpacing, hooks: address(0)
@@ -1336,7 +1341,7 @@ contract BlazePhoenixHub {
         p.token1      = _swap ? t0 : t1;
         p.pool        = $.poolOf[key];
         p.hooks       = $.hooksOf[key];
-        p.stable      = false;
+        p.stable      = _isStable(s);
         // tickSpacing is not packed in the pool slot. V3-style kinds derive
         // pools from the fee (0 is fine), but V4 needs the real tickSpacing —
         // it is part of the poolId the quote recomputes — so recover it from
@@ -1394,14 +1399,12 @@ contract BlazePhoenixHub {
         }
     }
 
-    function getPsi(bytes32 key) external view returns (uint256) { return _psi(key); }
-
-    /// @dev THEY WERE NOT TWO IDENTICAL CHAINS — THEY WERE TWO IDENTICAL BODIES. This function
-    ///      and `_psiOfSlot` differed only in how they fetched the slot; all the rest was a
-    ///      literal copy, including the four-kind chain. Collapsing the chain and leaving the
-    ///      two functions cured the symptom and kept the sibling. Now there is ONE body.
-    function _psi(bytes32 key) private view returns (uint256) {
-        return _psiOfSlot(_store().slot[key]);
+    /// @notice Fitness of one registered pool. Takes the PAIR, not the key: the
+    ///         bridge term of psi is read live from the pair's tokens (see
+    ///         `_pairBridged`), and a key cannot be inverted into its tokens.
+    function getPsi(address pool, address tA, address tB) external view returns (uint256) {
+        HubStore storage $ = _store();
+        return _psiOfSlot($.slot[keyOf(pool, tA, tB)], _pairBridged($, tA, tB));
     }
 
     /// @notice Batch fitness read: one external call for a whole candidate set
@@ -1415,18 +1418,11 @@ contract BlazePhoenixHub {
         uint256 n = pools.length;
         if (tAs.length != n || tBs.length != n) revert HubE(4);
         ps = new uint256[](n);
+        HubStore storage $ = _store();
         for (uint256 i; i < n; ) {
-            ps[i] = _psi(keyOf(pools[i], tAs[i], tBs[i]));
+            ps[i] = _psiOfSlot($.slot[keyOf(pools[i], tAs[i], tBs[i])], _pairBridged($, tAs[i], tBs[i]));
             unchecked { ++i; }
         }
-    }
-
-    /// @notice True when either side of the pair is a registered bridge token.
-    ///         Packed at slot bit 7 (within the [7:1] reserved span) at the
-    ///         moment of registration, so reading it is part of the same SLOAD
-    ///         that fetches the rest of the pool state.
-    function _isBridged(uint256 slot) private pure returns (bool) {
-        return (slot >> 7) & 1 == 1;
     }
 
     /// @dev BIT 6 of the Monoslot (inside the reserved [7:1] span): "the
@@ -1455,8 +1451,15 @@ contract BlazePhoenixHub {
         return ((slot >> 6) & 1) == 1;
     }
 
-    function _markBridged(uint256 slot, bool b) private pure returns (uint256) {
-        return b ? (slot | (uint256(1) << 7)) : (slot & ~(uint256(1) << 7));
+    /// @dev BIT 5 of the Monoslot (inside the reserved [7:1] span): "this
+    ///      Solidly pair runs the stable curve" — the pool's own `stable()`,
+    ///      measured once at the registration door (SLOT-01). Bit 7, which
+    ///      froze the bridge answer, is free since 2026-09-02 (see `_pairBridged`).
+    function _markStable(uint256 slot, bool b) private pure returns (uint256) {
+        return b ? (slot | (uint256(1) << 5)) : (slot & ~(uint256(1) << 5));
+    }
+    function _isStable(uint256 slot) private pure returns (bool) {
+        return ((slot >> 5) & 1) == 1;
     }
 
     function getSlot(bytes32 key) external view returns (uint256) { return _store().slot[key]; }
@@ -1520,7 +1523,7 @@ contract BlazePhoenixHub {
             return;
         }
         // unknown — attempt insert
-        if (!_canInsert($.pairKeys[t0][t1], depthWad)) return;
+        if (!_canInsert($.pairKeys[t0][t1], depthWad, _pairBridged($, t0, t1))) return;
         // Pair-shaped kinds: PROVE the pool really trades (t0, t1) before it
         // enters the registry. Every argument here is caller-controlled
         // calldata carried in the Router's Route — pool, kind AND depth — so
@@ -1710,7 +1713,7 @@ contract BlazePhoenixHub {
         return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);
     }
 
-    function _canInsert(bytes32[] storage ks, uint256 newDepth) private view returns (bool) {
+    function _canInsert(bytes32[] storage ks, uint256 newDepth, bool bridged) private view returns (bool) {
         if (ks.length < MAX_SLOTS) return true;
         // ─── Insertion ranking ───
         // Rank incumbents by full fitness (vitality × depth-bucket weight × bonuses),
@@ -1723,7 +1726,7 @@ contract BlazePhoenixHub {
         HubStore storage $ = _store();
         uint256 worstPsi = type(uint256).max;
         for (uint256 i; i < ks.length; ) {
-            uint256 p = _psiOfSlot($.slot[ks[i]]);
+            uint256 p = _psiOfSlot($.slot[ks[i]], bridged);
             if (p < worstPsi) worstPsi = p;
             unchecked { ++i; }
         }
@@ -1761,10 +1764,25 @@ contract BlazePhoenixHub {
     ///      liquidity?" is a MEMBERSHIP test against a state-SHAPE class (in the pool or in the
     ///      singleton, immaterial to the weight) — it collapses into theta without violating the
     ///      acceptance-predicate rule, because psi is a READ weight and does not decide admission.
-    function _psiOfSlot(uint256 s) private view returns (uint256) {
+    function _psiOfSlot(uint256 s, bool bridged) private view returns (uint256) {
         if (s == 0) return 0;
         bool conc = BPC.kindHasAny(BPC.decodeKind(s), BPC.A_CONC_POOL | BPC.A_CONC_SING);
-        return BPC.psi(s, uint32(block.timestamp), _isBridged(s), conc);
+        return BPC.psi(s, uint32(block.timestamp), bridged, conc);
+    }
+
+    /// @dev THE ONLY producer of "is this pair anchored on a routable bridge?"
+    ///      (BRIDGE-01). Until 2026-09-02 the answer was a bit frozen into the
+    ///      Monoslot at registration while `removeBridge` and `addBridge` moved
+    ///      the truth underneath it: the +25% bonus outlived a removed bridge
+    ///      and never reached a pool registered before the bridge was added.
+    ///      Read live, it is the same predicate the bridge expansion uses, and
+    ///      it is UNIFORM across a pair — every ranking psi feeds (admission,
+    ///      eviction, the funnel's top-K) compares rows of ONE pair, so the
+    ///      bonus can no longer reorder anything. That is the intended
+    ///      behaviour, not a loss. Cost: one SLOAD per side in the common case
+    ///      (the `isBridge` early-out), on view paths and the cold registry path.
+    function _pairBridged(HubStore storage $, address t0, address t1) private view returns (bool) {
+        return _isRoutableBridge($, t0) || _isRoutableBridge($, t1);
     }
 
     function _register(
@@ -1789,8 +1807,9 @@ contract BlazePhoenixHub {
                 // chose to make room for).
                 uint256 worstIdx;
                 uint256 worst = type(uint256).max;
+                bool bridged = _pairBridged($, t0, t1);
                 for (uint256 i; i < ks.length; ) {
-                    uint256 v = _psiOfSlot($.slot[ks[i]]);
+                    uint256 v = _psiOfSlot($.slot[ks[i]], bridged);
                     if (v < worst) { worst = v; worstIdx = i; }
                     unchecked { ++i; }
                 }
@@ -1807,16 +1826,17 @@ contract BlazePhoenixHub {
                 ks.push(key);
             }
         }
-        // ROUTABLE, not merely an anchor: the flag is worth +25% fitness in `psi`, and fitness
-        // decides evictions in a capped registry. Paying the bonus to a pool the router cannot
-        // reach meant evicting useful liquidity in favour of unreachable liquidity.
-        bool bridged = _isRoutableBridge($, t0) || _isRoutableBridge($, t1);
         uint256 s = BPC.encodeSlot(
             true, fee, kind, trusted ? 0 : 2, 0,
             uint32(block.timestamp), 0, 0, 0,
             uint32(block.number), uint32(block.number)
         );
-        $.slot[key]    = _markBridged(s, bridged);
+        // The bridge term of psi is no longer frozen here (BRIDGE-01, see
+        // `_pairBridged`). What IS measured at this door and persisted is the
+        // pool's own curve (SLOT-01): a Solidly-shaped pair answers `stable()`,
+        // and bit 5 carries that answer to every registry reader.
+        if (kind == BPC.KIND_SOLIDLY && BPC.solidlyStable(pool)) s = _markStable(s, true);
+        $.slot[key]    = s;
         $.poolOf[key]  = pool;
         if (hooks != address(0)) $.hooksOf[key] = hooks;
         emit Registered(key, pool, kind);

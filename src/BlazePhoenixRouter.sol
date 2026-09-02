@@ -2028,6 +2028,17 @@ contract BlazePhoenixRouter {
         private view returns (uint256)
     {
         (uint256 r0, uint256 r1) = BPC.getReserves(pool);
+        // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01): the registry's depth
+        // bucket ranks the funnel's top-K and decides evictions, and this was
+        // the pool's own word. Cap each declared reserve by the balance the
+        // pool physically holds — inert on an honest pair (reserves never
+        // exceed balances), binding on a synthetic one. The Solver applies
+        // the same cap to its live depth; this is the registry's copy of the
+        // rule, on the once-per-executed-leg path. Two staticcalls.
+        uint256 b0 = BPC.balanceOf(t0, pool);
+        uint256 b1 = BPC.balanceOf(t1, pool);
+        if (b0 < r0) r0 = b0;
+        if (b1 < r1) r1 = b1;
         return BPC.shortSide18(r0, BPC.decimalsOf(t0), r1, BPC.decimalsOf(t1));
     }
 }

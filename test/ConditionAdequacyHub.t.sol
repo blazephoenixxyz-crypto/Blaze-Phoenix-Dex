@@ -1034,19 +1034,27 @@ contract ConditionAdequacyHubTest is Test {
     }
 
     // =========================================================================
-    //  Hub:1746 — _register: `_isRoutableBridge($, t0)`
-    //  Every raw bit-7 assert in the tree has the bridge sorting as t1.
+    //  Hub — _pairBridged: `_isRoutableBridge($, t0) || _isRoutableBridge($, t1)`
+    //  Every bridge assert in the tree has the bridge sorting as t1; this one
+    //  exercises the t0 arm. Since 2026-09-02 the answer is read live and the
+    //  Monoslot carries no copy, so psi is the instrument: four ticks make
+    //  psi = 4 x 2^bucket and the +25% bridge term exact.
     // =========================================================================
 
-    /// Neutralised (forced false), a pool whose bridge sorts as t0 loses the
-    /// +25%-fitness bridged bit; the bit-7 read fails. The non-bridge control
-    /// guards against a stuck-high bit.
+    /// Neutralised (t0 arm forced false), a pool whose bridge sorts as t0
+    /// loses the +25% bridge term of psi. The no-bridge pair is the control.
     function test_L1746_BridgeSortingAsToken0_GetsBridgedBit() public {
         hub.addBridge(bridgeLo); // bridgeLo < tokenB: sorts as t0
-        bytes32 k = hub.seedPool(address(0xA001), BPC.KIND_V2, 30, address(0), bridgeLo, tokenB);
-        assertEq(_bit(hub.getSlot(k), 7), 1,
-            "a pair whose bridge sorts as token0 must carry the bridged bit");
-        bytes32 kNone = hub.seedPool(address(0xA002), BPC.KIND_V2, 30, address(0), tokenA, tokenB);
-        assertEq(_bit(hub.getSlot(kNone), 7), 0, "control: no bridge, no bit");
+        hub.seedPool(address(0xA001), BPC.KIND_V2, 30, address(0), bridgeLo, tokenB);
+        hub.seedPool(address(0xA002), BPC.KIND_V2, 30, address(0), tokenA, tokenB);
+        for (uint256 i; i < 4; ++i) {
+            hub.recordSwap(address(0xA001), BPC.KIND_V2, 30, address(0), bridgeLo, tokenB, 1, 1, 1e21);
+            hub.recordSwap(address(0xA002), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1, 1, 1e21);
+        }
+        uint256 withBridge = hub.getPsi(address(0xA001), bridgeLo, tokenB);
+        uint256 without    = hub.getPsi(address(0xA002), tokenA, tokenB);
+        assertGt(without, 1, "premise: the ticks lifted psi above the floor");
+        assertEq(withBridge * 4, without * 5,
+            "a pair whose bridge sorts as token0 must carry the +25% bridge term");
     }
 }

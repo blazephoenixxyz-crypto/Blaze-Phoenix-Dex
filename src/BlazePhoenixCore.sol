@@ -555,6 +555,24 @@ library BlazePhoenixCore {
         }
     }
 
+    /// @dev The pool's own `stable()` answer — read ONCE, at registration, and
+    ///      persisted in the Monoslot (bit 5) so that every registry reader gets
+    ///      the pool's word instead of a constant (SLOT-01: `_readPoolInfo`
+    ///      answered `false` unconditionally because the slot had no field).
+    ///      A pair that does not answer — a V2 shape, or a hostile pool — reads
+    ///      as volatile, which is the conservative curve: every Solidly quote
+    ///      channel asks the pool's `getAmountOut` first and only the
+    ///      replicated-curve fallback consults this flag. Same selector and
+    ///      returndata policy as `isSolidlyShaped`.
+    function solidlyStable(address pool) internal view returns (bool yes) {
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            mstore(p, 0x22be3de100000000000000000000000000000000000000000000000000000000)
+            let ok := staticcall(GAS_CAP, pool, p, 0x04, 0x00, 0x20)
+            yes := and(and(ok, iszero(lt(returndatasize(), 32))), iszero(iszero(mload(0x00))))
+        }
+    }
+
     /// @dev Factory staticcall dispatcher. Each AMM family exposes its lookup
     ///      under a different selector; we cover the four canonical shapes.
     function _factoryLookup(
@@ -1805,7 +1823,10 @@ library BlazePhoenixCore {
     //  costs one SLOAD. Slot layout:
     //
     //      bits  [  0:0  ] = active flag
-    //      bits  [  7:1  ] = reserved (bit 7 = bridge flag, set by Hub)
+    //      bits  [  7:1  ] = reserved — bit 5 = stable curve (Hub, from the pool's own
+    //                        stable() at registration), bit 6 = native side swapped (Hub).
+    //                        Bit 7 carried a bridge flag frozen at registration until
+    //                        2026-09-02; the bridge answer is now read live (BRIDGE-01).
     //      bits  [ 31:8  ] = fee tier (uint24)
     //      bits  [ 39:32 ] = pool kind (uint8)
     //      bits  [ 47:40 ] = risk tier (uint8)

@@ -42,7 +42,7 @@ contract HubBatchPsiTest is Test {
         for (uint256 i; i < 4; ++i) {
             assertEq(
                 batch[i],
-                hub.getPsi(hub.keyOf(pools[i], TA, TB)),
+                hub.getPsi(pools[i], TA, TB),
                 "batch element must equal the per-key read"
             );
         }

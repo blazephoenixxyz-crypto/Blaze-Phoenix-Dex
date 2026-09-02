@@ -220,8 +220,8 @@ contract DiscoveryRefreshTest is Test {
         vm.warp(block.timestamp + 3 * DECAY_STEP);
         _rec(address(a), KIND_V3, DEPTH_RASA);   // refresh 1: repoe do chao
         _rec(address(a), KIND_V3, DEPTH_RASA);   // refresh 2: sobe acima do chao
-        uint256 psiA = hub.getPsi(hub.keyOf(address(a), TA, TB));
-        uint256 psiB = hub.getPsi(hub.keyOf(address(b), TA, TB));
+        uint256 psiA = hub.getPsi(address(a), TA, TB);
+        uint256 psiB = hub.getPsi(address(b), TA, TB);
         assertGt(psiA, psiB, "dois refreshes tem de reordenar o psi apos o decay");
         assertGt(psiB, 0, "o CHAO: um pool vivo dentro do horizonte nunca cai a zero");
     }
