@@ -36,6 +36,7 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Raditya**
 - **bai bo**
 - **Josh W**
+- **Borutobro**
 - **Anonymous**
 
 ---
