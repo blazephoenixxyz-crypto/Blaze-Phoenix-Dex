@@ -509,6 +509,21 @@ M = [
       old="                || plan.best.hops[plan.best.hops.length - 1].tokenOut != tokenOut\n        ) revert RouterE(3); // fail-closed",
       new="        ) revert RouterE(3); // fail-closed // MUTANTE",
       teste="test_PlanEndingInAnotherToken_IsRefusedBeforeThePull"),
+ dict(nome="piso por perna: mulDivUp vira mulDiv na janela 3/2 (o limiar de 1 wei cai a zero)",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);",
+      new="            if (bound != 0 && got < BPC.mulDiv(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5); // MUTANTE",
+      teste="test_OneWeiBound_LegDeliveringNothingIsRefused"),
+ dict(nome="registo: a fee de um row par-shaped volta a vir do getter V3",
+      f="src/BlazePhoenixHub.sol",
+      old="            feeReg = isConc ? (dynShape ? 0 : BPC.getV3Fee(pool)) : 0;",
+      new="            feeReg = dynShape ? 0 : BPC.getV3Fee(pool); // MUTANTE",
+      teste="test_V2PairWithForeignFeeGetter_RowFeeIsZero"),
+ dict(nome="resolvePoolDeployer: a politica >= 32 volta a == 32 (resposta larga vira zero)",
+      f="src/BlazePhoenixCore.sol",
+      old="            if and(ok, iszero(lt(returndatasize(), 32))) {",
+      new="            if and(ok, eq(returndatasize(), 32)) { // MUTANTE",
+      teste="test_T19_WideAnswerFactory_IsAttestedFromTheFirstWord"),
 ]
 
 def run(t):

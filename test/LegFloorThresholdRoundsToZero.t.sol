@@ -230,4 +230,47 @@ contract LegFloorThresholdRoundsToZeroTest is Test {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
         router.swapExactIn(r, bulk + dust, 1, user, block.timestamp + 1);
     }
+
+    // ─── the window the header called unreachable IS reachable (review 2026-09-02) ───
+
+    /// With `amountIn: 3, expectedOut: 2` the hostile leg scales to 2 after the
+    /// fee (mulDiv(3, ~0.9972)), quotes exactly 1 wei (outV2(2, 1000e18, 1000e18,
+    /// 30) == 1), passes the executor's zero-output refusal, and its bound is
+    /// mulDiv(2, 2, 3) == 1. Delivering nothing then meets the per-leg floor at
+    /// mulDivUp(1, 8000, 10000) == 1 and is refused with RouterE(5). Under the
+    /// round-DOWN mutant the threshold is mulDiv(1, 8000, 10000) == 0, the
+    /// hostile leg passes, the honest leg carries the hop and aggregate floors,
+    /// and the swap SETTLES. This test is green today and exists for the mutant
+    /// in mutants.py that flips the direction at that line: the round-up is
+    /// load-bearing here, not decorative.
+    function test_OneWeiBound_LegDeliveringNothingIsRefused() public {
+        uint256 bulk = 10_000e18;
+        uint256 dust = 3;
+
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = Leg({
+            pool: address(honest), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+            tickSpacing: 0, zeroForOne: zfo, stable: false,
+            amountIn: bulk, expectedOut: 0, auxId: bytes32(0)
+        });
+        legs[1] = Leg({
+            pool: address(hostile), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+            tickSpacing: 0, zeroForOne: zfo, stable: false,
+            amountIn: dust, expectedOut: 2, auxId: bytes32(0)
+        });
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({
+            tokenIn: address(tokA), tokenOut: address(tokB),
+            amountIn: bulk + dust, expectedOut: 0, legs: legs
+        });
+        Route memory r = Route({
+            hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+            hasSurplus: false, isV4Bundle: false
+        });
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 5));
+        router.swapExactIn(r, bulk + dust, 1, user, block.timestamp + 1);
+    }
 }

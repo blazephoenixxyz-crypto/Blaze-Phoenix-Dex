@@ -1680,7 +1680,14 @@ contract BlazePhoenixHub {
             // the calldata only proposes. Written as its own statement, not
             // an `else`, so the concentrated line above keeps its mutant.
             if (!isConc) kind = BPC.isSolidlyShaped(pool) ? BPC.KIND_SOLIDLY : BPC.KIND_V2;
-            feeReg = dynShape ? 0 : BPC.getV3Fee(pool);
+            // The registry fee of a PAIR-shaped row is 0 (review 2026-09-02):
+            // `getV3Fee` reads the V3 `fee()` getter, whose unit is a V3
+            // convention; a pair whose `fee()` answers in another unit
+            // (per-mille, ppm) poisoned its own row, and `effV2Fee` read the
+            // number as bps. 0 means "the house's single producer answers":
+            // effV2Fee(0) = 30 bps for V2, and Solidly's fee is measured live
+            // by readDynamicFee regardless. A V3 getter is read on V3 shapes.
+            feeReg = isConc ? (dynShape ? 0 : BPC.getV3Fee(pool)) : 0;
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false);
         // initial tick + stamp wall-clock activity time

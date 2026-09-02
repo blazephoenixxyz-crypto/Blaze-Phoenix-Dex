@@ -41,6 +41,15 @@ contract SwappableDeployerFactory {
     function setPoolDeployer(address d) external { poolDeployer = d; }
 }
 
+/// @dev A factory whose poolDeployer() answers with TWO words. Still an answer:
+///      the first word is the deployer. The `== 32` returndata check read it
+///      as no answer (review 2026-09-02, Law III: this file's policy is >= 32).
+contract WideAnswerFactory {
+    address public dep;
+    constructor(address d) { dep = d; }
+    function poolDeployer() external view returns (address, uint256) { return (dep, 42); }
+}
+
 contract T19AlgebraDeployerPinTest is Test {
     BlazePhoenixHub hub;
     SwappableDeployerFactory fac;
@@ -199,6 +208,20 @@ contract T19AlgebraDeployerPinTest is Test {
         PoolInfo[] memory hits = hub.discoverFor(tokenA, tokenB);
         assertEq(hits.length, 1, "V3-kind, mode 5, fee 0: one candidate");
         assertEq(hits[0].pool, poolHonest, "V3-kind mode-5 row derives from the ATTESTED deployer too");
+    }
+
+    /// A factory answering poolDeployer() with extra return words is attested
+    /// from its first word, per the Core's `>= 32` returndata policy. RED
+    /// before the fix: the attestation read 0 and the pool went dark.
+    function test_T19_WideAnswerFactory_IsAttestedFromTheFirstWord() public {
+        WideAnswerFactory w = new WideAnswerFactory(DEP_ATTESTED);
+        hub.addFactory(address(w), BPC.KIND_ALGEBRA, MODE_CREATE2_V3, INIT_HASH, noFees, noSpacings);
+        address poolHonest = _algebraPool(DEP_ATTESTED);
+        vm.etch(poolHonest, hex"fe");
+
+        PoolInfo[] memory hits = hub.discoverFor(tokenA, tokenB);
+        assertEq(hits.length, 1, "a wide answer is still an answer");
+        assertEq(hits[0].pool, poolHonest, "attested from the first word of the answer");
     }
 
     /// Re-admission re-attests the CURRENT answer (the same semantics as the

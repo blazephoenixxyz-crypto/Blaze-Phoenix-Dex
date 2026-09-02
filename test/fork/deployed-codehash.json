@@ -1,0 +1,28 @@
+{
+  "_comment": "Assumption A10: what is on chain. Source of the addresses: the public SDK (blazephoenix.xyz, sdk/src/constants.ts) on 2026-09-02. `codehash` empty = not pinned yet; the first run prints the live value. `builtFrom` is the commit the deployed bytecode was built from, when known.",
+  "mainnet": { "builtFrom": "", "contracts": [
+    { "name": "BlazePhoenixHub",    "addr": "0xc4FA9a5720fe3294D3AA9fc427E2a760591E57ae", "codehash": "" },
+    { "name": "BlazePhoenixSolver", "addr": "0xc124d91258db0C14bf13b826CF64E16bfEA8a73e", "codehash": "" },
+    { "name": "BlazePhoenixRouter", "addr": "0xE1aE5f49013920CF71De8CED4043e14C4d63416b", "codehash": "" },
+    { "name": "BlazePhoenixQuoter", "addr": "0x4a20AA0912388ff7A9221Ab6BFC224cc20Baa0c3", "codehash": "" } ] },
+  "base": { "builtFrom": "", "contracts": [
+    { "name": "BlazePhoenixHub",    "addr": "0x428554DEe93A1B8B5Bc6Fd19adDAfe55106fc04C", "codehash": "" },
+    { "name": "BlazePhoenixSolver", "addr": "0xB1902990260975dD4C89ad74B1f317bc100CB830", "codehash": "" },
+    { "name": "BlazePhoenixRouter", "addr": "0x2a779f9Be49aac57495A8B6467Cc325a8a47Eb9f", "codehash": "" },
+    { "name": "BlazePhoenixQuoter", "addr": "0x4cEF0615614B212895F45Aa1D4833B16666E18d3", "codehash": "" } ] },
+  "optimism": { "builtFrom": "", "contracts": [
+    { "name": "BlazePhoenixHub",    "addr": "0x23113e72165a034265Ab8Bf2277CCB7a85Cb7483", "codehash": "" },
+    { "name": "BlazePhoenixSolver", "addr": "0x0c0d96B237FABa8FE5e8aE77754Ef29109D2B33f", "codehash": "" },
+    { "name": "BlazePhoenixRouter", "addr": "0x7262e7483ab6f0db7b8f90eC3a9de3B02Ab36F6A", "codehash": "" },
+    { "name": "BlazePhoenixQuoter", "addr": "0xfB18EF6f62A0278A273Af4b7A46b454F9E482dc2", "codehash": "" } ] },
+  "arbitrum": { "builtFrom": "", "contracts": [
+    { "name": "BlazePhoenixHub",    "addr": "0x23113e72165a034265Ab8Bf2277CCB7a85Cb7483", "codehash": "" },
+    { "name": "BlazePhoenixSolver", "addr": "0x0c0d96B237FABa8FE5e8aE77754Ef29109D2B33f", "codehash": "" },
+    { "name": "BlazePhoenixRouter", "addr": "0x7262e7483ab6f0db7b8f90eC3a9de3B02Ab36F6A", "codehash": "" },
+    { "name": "BlazePhoenixQuoter", "addr": "0xfB18EF6f62A0278A273Af4b7A46b454F9E482dc2", "codehash": "" } ] },
+  "robinhood": { "builtFrom": "", "contracts": [
+    { "name": "BlazePhoenixHub",    "addr": "0x23113e72165a034265Ab8Bf2277CCB7a85Cb7483", "codehash": "" },
+    { "name": "BlazePhoenixSolver", "addr": "0x0c0d96B237FABa8FE5e8aE77754Ef29109D2B33f", "codehash": "" },
+    { "name": "BlazePhoenixRouter", "addr": "0x7262e7483ab6f0db7b8f90eC3a9de3B02Ab36F6A", "codehash": "" },
+    { "name": "BlazePhoenixQuoter", "addr": "0xE1aE5f49013920CF71De8CED4043e14C4d63416b", "codehash": "" } ] }
+}

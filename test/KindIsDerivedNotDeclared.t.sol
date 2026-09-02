@@ -65,6 +65,12 @@ contract AlgebraShapedPool {
     }
 }
 
+/// @dev A V2 pair that also answers `fee()` — in per-mille, as some forks do.
+contract V2PairWithFeeGetter is MockV2Pair {
+    constructor(address a, address b) MockV2Pair(a, b) {}
+    function fee() external pure returns (uint24) { return 3; }
+}
+
 contract KindIsDerivedNotDeclaredTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
@@ -184,6 +190,26 @@ contract KindIsDerivedNotDeclaredTest is Test {
 
         assertEq(_kindOf(address(p), address(tokA), address(tokB)), BPC.KIND_SOLIDLY,
             "an honest Solidly declaration on a stable() pair must still register");
+    }
+
+    // ─── the registry fee of a pair-shaped row (review 2026-09-02) ───────────
+
+    /// A V2-shaped pair that happens to expose `fee()` in a non-bps unit (here
+    /// 3, per-mille) used to write 3 into its row, which `effV2Fee` then read as
+    /// 3 bps: the quote over-promised and execution reverted in the pair's own
+    /// K check. The registry fee of a pair-shaped row is 0 (the house's single
+    /// producer answers). RED before the fix: the row carried 3.
+    function test_V2PairWithForeignFeeGetter_RowFeeIsZero() public {
+        V2PairWithFeeGetter p = new V2PairWithFeeGetter(address(tokA), address(tokB));
+        p.setReserves(1_000e18, 1_000e18);
+
+        hub.recordSwap(
+            address(p), BPC.KIND_V2, 30, address(0),
+            address(tokA), address(tokB), 1e18, 1e18, 1e21
+        );
+
+        uint256 s = hub.getSlot(hub.keyOf(address(p), address(tokA), address(tokB)));
+        assertEq(BPC.decodeFee(s), 0, "a pair-shaped row carries fee 0, whatever its fee() getter says");
     }
 
     // ─── control: an honest declaration still registers ──────────────────────

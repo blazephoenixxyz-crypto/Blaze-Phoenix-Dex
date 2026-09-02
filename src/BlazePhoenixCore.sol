@@ -525,7 +525,12 @@ library BlazePhoenixCore {
             let p := mload(0x40)
             mstore(p, 0x3119049a00000000000000000000000000000000000000000000000000000000)
             let ok := staticcall(GAS_CAP, factory, p, 0x04, 0x00, 0x20)
-            if and(ok, eq(returndatasize(), 32)) {
+            // `>= 32`, this file's stated returndata policy (see getReserves):
+            // a factory whose poolDeployer() answers with extra words is still
+            // an answer, and `== 32` pinned it to zero at admission — the
+            // attested origin fell back to the factory and every Algebra pool
+            // of that factory went dark (review 2026-09-02, Law III sibling).
+            if and(ok, iszero(lt(returndatasize(), 32))) {
                 dep := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
             }
         }
