@@ -1443,9 +1443,19 @@ contract BlazePhoenixSolver {
         // size-weighted replacement is decided.)
         uint256 totalImpactBps;
         uint256 maxLegImpactBps;
+        uint256 hopIn;
+        for (uint256 i; i < legs; ) { hopIn += hop.legs[i].amountIn; unchecked { ++i; } }
         for (uint256 i; i < legs; ) {
             uint256 li = _legImpactBps(hop.legs[i]);
-            totalImpactBps += li;
+            // WEIGHTED BY THE LEG'S SHARE OF THE HOP, with the Router's own
+            // arithmetic (`_wImp`: mulDiv(imp * legs, legAmt, sum) and then
+            // `/ legs` below), so the floor this route ATTESTS and the floor
+            // the Router ENFORCES are the same number on the same block
+            // (6th bounty wave, and review F6/F8, 2026-09-02). Unweighted, a
+            // dust leg voted like a whole one and the two producers drifted:
+            // a looser attestation was harmless, a tighter one refused
+            // honest fills.
+            totalImpactBps += hopIn == 0 ? li : BPC.mulDiv(li * legs, hop.legs[i].amountIn, hopIn);
             if (li > maxLegImpactBps) maxLegImpactBps = li;
             unchecked { ++i; }
         }
@@ -1457,7 +1467,9 @@ contract BlazePhoenixSolver {
         if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
         uint256 floorBps = BPC.ironFloorBps(totalImpactBps, legs, 0);
-        uint256 floorOut = BPC.mulDiv(hop.expectedOut, floorBps, BPC.BPS);
+        // R-C: a protective threshold rounds UP, as the Router's does — the
+        // other half of the same-number parity above.
+        uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,
@@ -1508,7 +1520,10 @@ contract BlazePhoenixSolver {
         if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || totalImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
         uint256 floorBps = BPC.ironFloorBps(totalImpactBps, totalLegs, 0);
-        uint256 floorOut = BPC.mulDiv(finalOut, floorBps, BPC.BPS);
+        // R-C: rounds UP like the single-hop twin. (The per-hop SUM above stays
+        // a deliberate over-estimate of impact, so this attestation can only be
+        // looser than the Router's, never tighter.)
+        uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,

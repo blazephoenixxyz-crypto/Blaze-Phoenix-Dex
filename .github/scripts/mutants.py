@@ -524,6 +524,17 @@ M = [
       old="            if and(ok, iszero(lt(returndatasize(), 32))) {",
       new="            if and(ok, eq(returndatasize(), 32)) { // MUTANTE",
       teste="test_T19_WideAnswerFactory_IsAttestedFromTheFirstWord"),
+ # ── 6th bounty wave (mohaseenkatika), 2026-09-02: one floor, two producers ────
+ dict(nome="solver floor: the attested floor rounds DOWN again (1 wei under the Router's)",
+      f="src/BlazePhoenixSolver.sol",
+      old="        uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);",
+      new="        uint256 floorOut = BPC.mulDiv(hop.expectedOut, floorBps, BPC.BPS); // MUTANTE",
+      teste="test_Parity_SingleLegRoute_AttestedFloorEqualsEnforcedFloor"),
+ dict(nome="solver floor: the hop impact is the UNWEIGHTED mean again (dust votes like a whole leg)",
+      f="src/BlazePhoenixSolver.sol",
+      old="            totalImpactBps += hopIn == 0 ? li : BPC.mulDiv(li * legs, hop.legs[i].amountIn, hopIn);",
+      new="            totalImpactBps += li; // MUTANTE",
+      teste="test_Parity_SplitRoute_AttestedFloorEqualsEnforcedFloor"),
 ]
 
 def run(t):
