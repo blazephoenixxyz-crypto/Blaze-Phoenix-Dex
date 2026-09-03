@@ -639,6 +639,24 @@ M = [
       old="        if (kind == BPC.KIND_SOLIDLY && BPC.solidlyStable(pool)) s = _markStable(s, true);",
       new="        if (BPC.solidlyStable(pool)) s = _markStable(s, true); // MUTANT",
       teste="test_probe_stableField_nonSolidlyKindNeverCarriesTheBit"),
+ # ── MC/DC inerts that change an OUTPUT (campaign of 2026-09-03, see test/McdcInertsClosed.t.sol) ──
+ dict(nome="solidly overflow sentinel: the Y arm drops, so an absurd out-reserve reaches mulDiv and panics",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (X > 3.4e38 || Y > 3.4e38) return 0;",
+      new="        if (X > 3.4e38) return 0; // MUTANT",
+      teste="test_absurdOutReserve_returnsZeroNotPanic"),
+ dict(nome="V4 learned codes: the bridge exclusion drops on t0, so a bridge learns a code",
+      f="src/BlazePhoenixHub.sol",
+      old="        if (!$.isBridge[t0] && $.v4CodeOf[t0] != c) $.v4CodeOf[t0] = c;",
+      new="        if ($.v4CodeOf[t0] != c) $.v4CodeOf[t0] = c; // MUTANT",
+      teste="test_bridgeSide_neverLearnsACode_counterpartDoes"),
+ # Router:1003 `bt != tokenOut` deliberately has NO entry: the campaign found the
+ # arm inert and reading confirmed why - line 1078 prices a hop whose input is
+ # tokenOut against `toutStart`, never against bridgeBase, so the arm skips a
+ # read nobody consumes. The property (holds-nothing on the A -> C -> B -> C
+ # topology) is pinned by test_strandedTokenOut_isNotScaledIntoAnIntermediateHop
+ # and carried by the `toutStart` branch of 1078, which is the line a mutant
+ # should target if that branch ever gains one.
 ]
 
 def run(t):

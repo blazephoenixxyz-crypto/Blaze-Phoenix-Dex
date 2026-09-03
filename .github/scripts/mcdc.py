@@ -312,8 +312,17 @@ def put(rel, text):
     return False
 
 def run_suite():
-    q = urllib.parse.quote(SUITE_CMD)
-    r = subprocess.run(["curl", "-s", "-m", "480", f"{U}/run?cmd={q}"] + AUTH,
+    # `rm -rf cache/invariant` FIRST, every time. Foundry persists an invariant
+    # campaign's failing call sequence and REPLAYS it on every later run instead
+    # of running the campaign ("Warning: Replayed invariant failure from
+    # persisted file"). A neutralisation that breaks one campaign therefore
+    # poisons every verdict after it: the replay exits 1 with no `[FAIL]` line
+    # naming a test, so each later sub-condition scores "VERMELHA SEM TESTE
+    # NOMEADO" whatever it does. That is exactly what the 2026-09-03 campaign
+    # did from [184/231] on. The cache is not part of the tree; clearing it is
+    # free and makes every run a real run.
+    q = urllib.parse.quote(f"rm -rf cache/invariant && forge {SUITE_CMD}")
+    r = subprocess.run(["curl", "-s", "-m", "480", f"{U}/sh?cmd={q}"] + AUTH,
                        capture_output=True, text=True)
     try:
         d = json.loads(r.stdout)
@@ -324,6 +333,19 @@ def run_suite():
 def summarise(out):
     m = re.search(r"Ran \d+ test suites[^\n]*", out)
     fails = re.findall(r"\[FAIL[^\]]*\] (\S+)", out)
+    # A neutralisation that removes a zero-guard on a division PANICS, and when
+    # that panic lands inside a test contract's setUp(), forge reports
+    # `Setup failed:` for the whole contract and prints NO `[FAIL]` line. The
+    # 2026-09-03 campaign scored eleven such reds as "VERMELHA SEM TESTE
+    # NOMEADO" - honest, but wrong in the other direction: a setUp that dies is
+    # a test that disagreed with the mutation. Attribute it to the suite whose
+    # header precedes it, so the verdict names what went red.
+    suite = None
+    for line in out.split("\n"):
+        h = re.match(r"Ran \d+ tests? for (\S+)", line)
+        if h: suite = h.group(1); continue
+        if line.startswith("Setup failed") and suite:
+            fails.append(f"setUp:{suite}")
     t = re.search(r"(\d+) total tests", out)
     return (m.group(0) if m else "no summary"), sorted(set(fails))[:5], int(t.group(1)) if t else -1
 
