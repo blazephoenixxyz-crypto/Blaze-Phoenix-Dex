@@ -213,6 +213,20 @@ jobs:
         # separately with an RPC secret. This keeps the fast run hermetic.
         run: forge test -vvv --no-match-path "test/fork/**"
 
+      - name: Mutant target check (a guard nobody watches any more)
+        # Runs BEFORE the mutation guard, needs no compiler, and takes a second.
+        # It answers one question: does every mutant still point at a line that
+        # exists, exactly once?
+        #
+        # WHY IT IS SEPARATE. On 2026-09-03 a rename inside _assembleRouteMulti
+        # (totalImpactBps -> gateImpactBps) orphaned two pre-existing mutants and
+        # nothing noticed, because the session that made the rename ran only the
+        # SUBSET of mutants it had just added. A subset run cannot see a lost
+        # target in an entry it does not run. The full guard below does catch it,
+        # but it costs a compile per mutant and it is the last thing to run; this
+        # check is the one to run locally after ANY edit to src/.
+        run: python3 .github/scripts/check_targets.py
+
       - name: Mutation guard (os guardas tem de ter testes que os apanhem)
         # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
         # com testes mortos: a suite passava na mesma com o fix REMOVIDO. O caso mais recente
