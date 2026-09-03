@@ -48,9 +48,9 @@ number for that reason.
 
 | Apparatus | Size, measured at `6334df6` |
 |---|---|
-| **Test suite** | **1,122** `test*` / `invariant_*` / `check_*` declarations across **184** `.t.sol` files — unit, fuzz, and stateful invariants |
+| **Test suite** | **1,126** `test*` / `invariant_*` / `check_*` declarations across **185** `.t.sol` files — unit, fuzz, and stateful invariants |
 | **Fork suites** | **23**, against live chain liquidity, in a separate job |
-| **Mutation guard** | **155** mutants, each paired with the named test that must catch it |
+| **Mutation guard** | **158** mutants, each paired with the named test that must catch it |
 | **Static guards** | **8 red-first greps** that fail the build if a known defect shape reappears |
 
 These are declaration counts at a named revision, not a pass count. A pass count belongs to a run,
@@ -203,8 +203,8 @@ not name what it pins.
 
 ```
 src/                    the five contracts — Router, Solver, Hub, Core, Quoter
-test/                   116 suites: unit, fuzz, stateful invariants, regressions
-  fork/                 19 suites against live chain liquidity
+test/                   185 suites: unit, fuzz, stateful invariants, regressions
+  fork/                 23 suites against live chain liquidity
   formal/               formal specifications and composition proofs
   hunt/                 regressions for findings from adversarial review
   mocks/                venue mocks: V2 pair, V3 pool, Solidly pair, Permit2, ERC-20
