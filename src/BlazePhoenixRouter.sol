@@ -998,6 +998,16 @@ contract BlazePhoenixRouter {
         // the bridge sweep otherwise handed a crafted route the Router's
         // dust/mis-sent balance of any caller-named intermediate token).
         uint256[] memory bridgeBase = new uint256[](route.hops.length);
+        // WHAT EACH HOP ACTUALLY SPENT, as a ratio of what it declared (VOL_01).
+        // `_recordHits` runs after the loop and only ever saw `leg.amountIn` - the figure the
+        // CALLER wrote - so the volume the registry published was the caller's declaration and
+        // not the flow. It overstated every honest swap by the protocol fee alone, because the
+        // fee comes out of hop 0's input before the leg executes, and by the capacity clamp
+        // wherever that cut a leg. One word per hop is enough: `scaleNum/scaleDen` IS
+        // measured-over-declared, uniform across the legs of a hop, so the ratio reconstructs
+        // each leg's real spend exactly. Storing the ratio rather than the two terms keeps this
+        // to a single array in a frame the via-ir stack limit already constrains.
+        uint256[] memory hopScale = new uint256[](route.hops.length);
         for (uint256 bh; bh + 1 < route.hops.length; ) {
             address bt = route.hops[bh].tokenOut;
             if (bt != tokenIn && bt != tokenOut) bridgeBase[bh] = BPC.balanceOf(bt, address(this));
@@ -1115,6 +1125,11 @@ contract BlazePhoenixRouter {
             uint256[] memory legQuotes = new uint256[](hop.legs.length);
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
                 _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase, legQuotes);
+            // Zero denominator means the hop declared nothing and nothing was spent; the
+            // ratio is left at zero and `_recordHits` publishes zero for it, which is the
+            // measurement. It is NOT skipped: a hop that spent nothing must report nothing,
+            // not report its declaration.
+            hopScale[h] = scaleDen == 0 ? 0 : BPC.mulDiv(scaleNum, 1e18, scaleDen);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past
@@ -1431,7 +1446,7 @@ contract BlazePhoenixRouter {
         if (delivered < userMinOut) revert RouterE(5);
 
         amountOut = delivered;
-        _recordHits(route, executedMask);
+        _recordHits(route, executedMask, hopScale);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
         // This function's docstring already explains why `payer` exists as a parameter: in
         // `swapBestExactIn` this is reached by an external SELF-CALL, and on that path the
@@ -1944,7 +1959,8 @@ contract BlazePhoenixRouter {
     ///        out of the funnel. `Hub.recordSwap` only ever guarded `amtIn == 0`
     ///        on the RAW calldata amount, which a one-wei declaration passes.
     ///        Reported by Thomas.
-    function _recordHits(Route calldata route, uint256 executedMask) private {
+    function _recordHits(Route calldata route, uint256 executedMask,
+                         uint256[] memory hopScale) private {
         address v4mgr;
         uint256 legIdx;
         for (uint256 h; h < route.hops.length; ) {
@@ -2029,9 +2045,17 @@ contract BlazePhoenixRouter {
                         BPC.getLiquidity(leg.pool), spReg,
                         BPC.decimalsOf(t0), BPC.decimalsOf(t1));
                 }
+                // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
+                // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend
+                // after the protocol fee and after any capacity clamp. The quote is scaled by
+                // the same ratio so the pair stays dimensionally consistent: the input is a
+                // measurement, and the output is that measurement priced by the plan.
+                uint256 sc  = hopScale[h];
+                uint256 inM = BPC.mulDiv(leg.amountIn,    sc, 1e18);
+                uint256 outM = BPC.mulDiv(leg.expectedOut, sc, 1e18);
                 try hub.recordSwap(
                     leg.pool, leg.kind, leg.fee, leg.hooks,
-                    t0, t1, leg.amountIn, leg.expectedOut, depth
+                    t0, t1, inM, outM, depth
                 ) {} catch {}
                 unchecked { ++l; }
             }

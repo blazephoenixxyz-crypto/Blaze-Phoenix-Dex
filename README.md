@@ -42,6 +42,71 @@ platform blocks on, and everything else a workflow prints is advice:
 Aderyn, Solhint, the secret scan, and the fork suites. A red run on any of them is a defect to fix,
 not a gate that stopped anything.
 
+---
+
+## Seven numbers this repository computes about itself
+
+Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
+question in the room. These answer two harder ones — *does the evidence still point at the code?*
+and *how much of the threat space enters the evidence chain at all?* — and they are recomputed on
+every commit, from a clean checkout, compiling nothing.
+
+| | Measured at this revision |
+|---|---|
+| Classes of published exploit answered by a **named guard** | 17 / 21 considered |
+| Quantities computed in **two places** that a test ties together | 6 / 7 |
+| Control actions whose **refusal** is exercised | 31 / 31 |
+| Control actions whose **post-renunciation** behaviour is exercised | 29 / 31 |
+| Refusal codes driven by an **exact** assertion, not a bare revert | 25 / 25 |
+| Refusal sites that **share a code** with another site | 90 / 99 |
+| Mutants still pointing at exactly one line of real code | 158 / 158 |
+
+Every one is printed beside its denominator, because every one of them improves by shrinking what
+it is measured against, and the denominator is the only defence a reader has. The document states,
+for each, precisely how it would be gamed.
+
+**The line worth reading twice is the sixth.** 90 of 99 refusals answer with an error code that
+another refusal also uses — so an assertion about those bytes cannot say *which* guard refused.
+Fire one, disable its neighbour by mutation, and both still look correct. That number is published
+because it is true, not because it is flattering.
+
+### What none of these establish
+
+- **No probability of correctness.** The literature on validating ultra-high dependability is
+  explicit that testing cannot produce one. Nothing here should be read as one.
+- **Mutation adequacy is adequacy against *this* register.** It is hand-curated. A saturated
+  score is a floor, not a ceiling.
+- **Threat coverage is a floor on what has been *considered*.** No single taxonomy covers the
+  losses this domain sustains. Classes nobody has named are outside the denominator by
+  construction — which is the residual this apparatus shrinks and cannot eliminate.
+
+Method, definitions, and the failures that produced each instrument:
+**[docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md)**.
+
+Why we report it this way, and the one number that bounds all the others:
+**[Publish the Denominator](docs/assurance/PUBLISH-THE-DENOMINATOR.md)** — on what test counts
+cannot tell you, two axes no coverage criterion indexes, and the fact that seven of the nine
+instruments above were wrong on their first run.
+
+---
+
+## The people who found what we missed
+
+Eighteen researchers have read this source, thought adversarially, and told us privately what
+they found. Several corrected us on our own severity ratings and were right. One found a defect
+in the *instrument* we use to judge defects, which is worth more than a finding in the code,
+because the instrument is what tells you whether the code is sound.
+
+[NetGakarot](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · auditor_1b3f2c ·
+siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo ·
+Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Anonymous
+
+Every confirmed finding becomes a named property, a regression test that fails against the
+pre-fix code, and a mutant that the test must kill. Nothing is closed by argument alone.
+
+Full list and disclosure policy: **[SECURITY_HALL_OF_FAME.md](SECURITY_HALL_OF_FAME.md)** ·
+**[SECURITY.md](SECURITY.md)**
+
 Note the profile split: the suite is gated under `fast` and the size guard under `release`. A number
 measured on one profile is not evidence about the other, and this file names the profile beside every
 number for that reason.
@@ -52,6 +117,11 @@ number for that reason.
 | **Fork suites** | **23**, against live chain liquidity, in a separate job |
 | **Mutation guard** | **158** mutants, each paired with the named test that must catch it |
 | **Static guards** | **8 red-first greps** that fail the build if a known defect shape reappears |
+| **Assurance metrics** | **5** recomputed per commit: threat-class coverage, two-producer consistency, control-action arms, assertion locality, mutation-target integrity — see [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
+
+Every claim in the assurance registers names a guard by SYMBOL and a test by NAME, and the build
+fails when either stops existing — a claim that cannot be checked is not evidence. What those
+metrics do **not** establish is stated as carefully as what they do, in the same document.
 
 These are declaration counts at a named revision, not a pass count. A pass count belongs to a run,
 and the badge at the top of this file is the only honest place for one.

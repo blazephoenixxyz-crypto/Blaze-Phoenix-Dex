@@ -1,0 +1,51 @@
+{
+  "$comment": [
+    "Quantities that more than one component computes. Each row names the two producers and",
+    "the test that asserts they agree. A quantity with two producers and no agreement test is",
+    "a defect waiting for one of them to change alone; this project has met that failure three",
+    "times, and every one of them was a guard applied to one of two symmetric channels.",
+    "",
+    "Checked mechanically by .github/scripts/assurance/relational_pairs.py: producers are named",
+    "by SYMBOL and must still exist in src/; a named test must still exist in test/.",
+    "",
+    "A row with status 'open' is a pair we have not yet tied together. Publishing the count",
+    "rather than hiding it is the point: a register that only lists solved rows measures",
+    "nothing."
+  ],
+  "pairs": [
+    { "quantity": "output floor",
+      "producer_a": "ironFloorBps", "producer_b": "protocolFloorOut",
+      "status": "tied", "test": "test_Parity_SplitRoute_AttestedFloorEqualsEnforcedFloor",
+      "note": "The floor the planner attests must equal the floor the executor enforces, for split and multi-hop shapes alike." },
+
+    { "quantity": "protocol fee, anchored regime",
+      "producer_a": "_pack", "producer_b": "_chargeHopFee",
+      "status": "tied", "test": "test_DoisHops_PreviewBateComAEntrega",
+      "note": "Previewed net output against realised delivery when a route input is a registered bridge." },
+
+    { "quantity": "protocol fee, exhaustion regime",
+      "producer_a": "_pack", "producer_b": "_chargeHopFee",
+      "status": "tied", "test": "test_INV_F2_PreviewPredictsDeliveryWithNoBridge",
+      "note": "The same parity where no route input is a bridge and the fee is charged per hop. This row was open until the preview was taught the regime." },
+
+    { "quantity": "leg budget",
+      "producer_a": "MAX_LEGS_PER_HOP", "producer_b": "MAX_LEGS",
+      "status": "tied", "test": "test_Seam2_LegBudget_ExecutorCapCoversPlannerBudget",
+      "note": "What the planner is allowed to compose must be executable; an executor cap below the planner budget turns a valid plan into a revert." },
+
+    { "quantity": "stable-curve quote",
+      "producer_a": "universalQuote", "producer_b": "swapExactIn",
+      "status": "tied", "test": "test_Seam1_SolidlyHaircut_CoreQuoteEqualsRouterDelivery",
+      "note": "The library's quote for the stable curve against what the executor delivers through the venue." },
+
+    { "quantity": "pool depth",
+      "producer_a": "depthFromL18", "producer_b": "recordSwap",
+      "status": "tied", "test": "test_Parity_Reserves",
+      "note": "Depth as the library computes it against depth as the registry stores it, per venue family." },
+
+    { "quantity": "per-pool traded volume",
+      "producer_a": "recordSwap", "producer_b": "balanceOf",
+      "status": "tied", "test": "test_INV_F4_VolumeInEqualsTheMeasuredPoolDelta",
+      "note": "The registry is handed what the hop was able to spend, not what the route declared. The ratio of measured to declared is uniform across the legs of a hop, so one word per hop reconstructs each leg's real spend exactly - which is what let this be tied without widening a call frame already at the via-ir stack limit." }
+  ]
+}
