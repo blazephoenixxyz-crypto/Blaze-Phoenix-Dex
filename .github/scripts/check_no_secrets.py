@@ -65,8 +65,15 @@ KEYISH_EXT = (".py", ".sh", ".bash", ".yml", ".yaml", ".toml", ".ini", ".cfg", "
 MAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
 
 TEXT_EXT = (".sol", ".py", ".sh", ".bash", ".yml", ".yaml", ".toml", ".ini", ".cfg",
-            ".md", ".txt", ".json", ".js", ".ts", ".tsx", ".env", ".gitignore",
-            ".gitattributes", ".editorconfig")
+            ".md", ".txt", ".json", ".js", ".ts", ".tsx", ".env",
+            # the two files named after CERTORAKEY. Neither extension was listed, so the one
+            # secret this scanner is most specifically about was never in the scanned set.
+            ".conf", ".spec")
+
+# Dotfiles cannot be matched by extension: os.path.splitext(".gitignore") returns ("", "") on the
+# basename, so these three sat in TEXT_EXT and were never selected, and the "no dot in basename"
+# fallback below misses them too because the leading dot IS a dot. Matched by name instead.
+TEXT_NAMES = (".gitignore", ".gitattributes", ".editorconfig")
 
 # ── declared exemptions ─────────────────────────────────────────────────────
 # (path suffix, exact substring that may appear, why). All three are required:
@@ -107,7 +114,8 @@ def tracked_files():
             continue
         if rel.startswith(("lib/", "out/", "cache/")):
             continue
-        if os.path.splitext(rel)[1] in TEXT_EXT or "." not in os.path.basename(rel):
+        base = os.path.basename(rel)
+        if os.path.splitext(rel)[1] in TEXT_EXT or base in TEXT_NAMES or "." not in base:
             yield rel
 
 
