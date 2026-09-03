@@ -134,6 +134,46 @@ contract FrozenAtWriteProbes is Test {
             "BRIDGE-01 (mirror): a pool registered before addBridge never earns the bonus");
     }
 
+    /// THE OTHER ARM OF THE DISJUNCTION. `_pairBridged` is
+    /// `_isRoutableBridge(t0) || _isRoutableBridge(t1)`, and every bridge test in
+    /// this tree put the bridge on ONE side: the MC/DC campaign of 2026-09-03
+    /// neutralised the second arm and the whole suite stayed green.
+    ///
+    /// THE FRAME THAT MATTERS, and that a first attempt at this test got wrong:
+    /// the two arms are POSITIONAL IN THE CALLER'S ARGUMENTS, not in address
+    /// order. `getPsi(pool, tA, tB)` hands `_pairBridged` exactly the pair it was
+    /// given, while `keyOf` sorts internally — so which arm answers is decided by
+    /// the ORDER THE CALLER PASSES, and a test that sorts the tokens itself pins
+    /// whichever arm the addresses happened to land on. That version passed under
+    /// the mutation and was decorative.
+    ///
+    /// Here the bridge is the SECOND argument, so only the second arm can answer.
+    function test_probe_bridgedBit_secondArgumentArmGrantsTheBonus() public {
+        MockV2Pair p = _v2(400_000e18, 400_000e18);
+        uint256 without = hub.getPsi(address(p), address(tA), address(tB));
+        assertGt(without, 1, "premise: the ticks lifted psi above the bucket-0 floor");
+
+        hub.addBridge(address(tB));
+        assertTrue(hub.isRoutableBridge(address(tB)), "premise: the second-position token is the bridge");
+
+        uint256 withBridge = hub.getPsi(address(p), address(tA), address(tB));
+        assertEq(withBridge * 4, without * 5,
+            "the second arm alone must grant the +25% bridge term");
+    }
+
+    /// The sibling, bridge in the FIRST argument, so the file pins BOTH arms
+    /// rather than trading one blind spot for the other.
+    function test_probe_bridgedBit_firstArgumentArmGrantsTheBonus() public {
+        MockV2Pair p = _v2(400_000e18, 400_000e18);
+        uint256 without = hub.getPsi(address(p), address(tA), address(tB));
+        assertGt(without, 1, "premise: the ticks lifted psi above the bucket-0 floor");
+
+        hub.addBridge(address(tA));
+        uint256 withBridge = hub.getPsi(address(p), address(tA), address(tB));
+        assertEq(withBridge * 4, without * 5,
+            "the first arm alone must grant the +25% bridge term");
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //  2. `stable` — register row SLOT-01
     // ═══════════════════════════════════════════════════════════════════════
@@ -156,6 +196,51 @@ contract FrozenAtWriteProbes is Test {
             if (rows[i].pool != address(sp)) continue;
             seen = true;
             assertTrue(rows[i].stable, "SLOT-01: the registry reports a stable pool as volatile");
+        }
+        assertTrue(seen, "pre-condition: the seeded row is listed");
+    }
+
+    /// THE NEGATIVE HALF, which shipped missing. Every Solidly pool in this tree
+    /// was built `stable = true`, so a registry that marked EVERYTHING stable was
+    /// indistinguishable from the correct one: the MC/DC campaign of 2026-09-03
+    /// forced `BPC.solidlyStable(pool)` true and the whole suite stayed green.
+    /// Mutant 96 does not reach it either - it mutates the WRITE, which the
+    /// positive probe catches. Nothing asserted a `false` anywhere.
+    function test_probe_stableField_volatilePoolReadsBackVolatile() public {
+        MockSolidlyPair vol = new MockSolidlyPair(address(tA), address(tB), false);
+        vol.setReserves(1_000_000e18, 1_000_000e18);
+        assertFalse(vol.stable(), "premise: the pool itself says volatile");
+        hub.seedPool(address(vol), BPC.KIND_SOLIDLY, 0, address(0), address(tA), address(tB));
+
+        PoolInfo[] memory rows = hub.getActivePools(address(tA), address(tB));
+        bool seen;
+        for (uint256 i; i < rows.length; i++) {
+            if (rows[i].pool != address(vol)) continue;
+            seen = true;
+            assertFalse(rows[i].stable,
+                "SLOT-01 negative half: the registry reports a volatile pool as stable");
+        }
+        assertTrue(seen, "pre-condition: the seeded row is listed");
+    }
+
+    /// The `kind` arm of the same condition, also inert on 2026-09-03. Only a
+    /// Solidly row may carry the stable bit: a pool that answers `stable()` but
+    /// was admitted under another kind is priced by that kind's curve, and a
+    /// stable bit on it would send the fallback down the wrong one.
+    function test_probe_stableField_nonSolidlyKindNeverCarriesTheBit() public {
+        MockSolidlyPair impostor = new MockSolidlyPair(address(tA), address(tB), true);
+        impostor.setReserves(1_000_000e18, 1_000_000e18);
+        assertTrue(impostor.stable(), "premise: this pool DOES answer stable() true");
+        // Declared V2, so the stable bit must not be written whatever the pool says.
+        hub.seedPool(address(impostor), BPC.KIND_V2, 30, address(0), address(tA), address(tB));
+
+        PoolInfo[] memory rows = hub.getActivePools(address(tA), address(tB));
+        bool seen;
+        for (uint256 i; i < rows.length; i++) {
+            if (rows[i].pool != address(impostor)) continue;
+            seen = true;
+            assertFalse(rows[i].stable,
+                "only a Solidly row may carry the stable bit");
         }
         assertTrue(seen, "pre-condition: the seeded row is listed");
     }

@@ -614,6 +614,31 @@ M = [
       old="            uint256 hopGot;",
       new="            uint256 hopGot; sawHooked = false; // MUTANT",
       teste="test_HookedLegInHop0_BeforeHookless_Reverts"),
+ # ── the NEGATIVE halves the MC/DC campaign of 2026-09-03 found missing ──
+ # Each of these three sub-conditions was neutralised and the whole suite stayed
+ # green, because every fix above was tested only in the direction that makes it
+ # fire. Mutation had not found them: the mutants were written from the same
+ # one-sided intuition as the tests.
+ dict(nome="BRIDGE-01: the second arm of the bridge disjunction stops answering",
+      f="src/BlazePhoenixHub.sol",
+      old="        return _isRoutableBridge($, t0) || _isRoutableBridge($, t1);",
+      new="        return _isRoutableBridge($, t0); // MUTANT",
+      teste="test_probe_bridgedBit_secondArgumentArmGrantsTheBonus"),
+ dict(nome="BRIDGE-01: the first arm of the bridge disjunction stops answering",
+      f="src/BlazePhoenixHub.sol",
+      old="        return _isRoutableBridge($, t0) || _isRoutableBridge($, t1);",
+      new="        return _isRoutableBridge($, t1); // MUTANT",
+      teste="test_probe_bridgedBit_firstArgumentArmGrantsTheBonus"),
+ dict(nome="SLOT-01: every registered pool is marked stable (the read forced true)",
+      f="src/BlazePhoenixHub.sol",
+      old="        p.stable      = _isStable(s);",
+      new="        p.stable      = true; // MUTANT",
+      teste="test_probe_stableField_volatilePoolReadsBackVolatile"),
+ dict(nome="SLOT-01: the kind arm drops, so any shape that answers stable() carries the bit",
+      f="src/BlazePhoenixHub.sol",
+      old="        if (kind == BPC.KIND_SOLIDLY && BPC.solidlyStable(pool)) s = _markStable(s, true);",
+      new="        if (BPC.solidlyStable(pool)) s = _markStable(s, true); // MUTANT",
+      teste="test_probe_stableField_nonSolidlyKindNeverCarriesTheBit"),
 ]
 
 def run(t):
