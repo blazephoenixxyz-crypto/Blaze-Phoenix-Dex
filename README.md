@@ -58,8 +58,10 @@ and the badge at the top of this file is the only honest place for one.
 
 A funded public bounty (40M BZPX, shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking))
-has triaged **21 external reports — every confirmed finding fixed with
-regression tests, zero Critical**. Details: [`SECURITY.md`](./SECURITY.md).
+has credited **17 researchers** — every confirmed finding fixed with regression
+tests, zero Critical. The roster is [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md),
+so that count is checkable in this repository without taking our word for it.
+Details: [`SECURITY.md`](./SECURITY.md).
 
 ## Why it is different
 

@@ -44,13 +44,17 @@ analysis; a report that defeats one of these is especially welcome.
 An independent external audit has not happened yet; it is planned before
 launch. What runs on every push, today, in public CI: a ~290-test forge suite
 (unit, fuzz, stateful invariants) plus ~40 fork tests against live chain
-liquidity; Certora Prover (INV-20 fail-closed) and Halmos symbolic proofs;
-Slither (fail on high), Aderyn and Solhint static gates; an EIP-170 size guard;
-an offline gas ledger.
+liquidity; Halmos symbolic proofs, Slither (fail on high), an EIP-170 size
+guard and the offline gas ledger — those five, plus the suite, are what branch
+protection on `main` actually requires. The Certora Prover (INV-20 fail-closed),
+Aderyn, Solhint, the secret scan and the fork suites run but do **not** block a
+merge; read the enforcing list from the branch protection API, not from this
+file.
 
-Track record so far, across this repo and the staking sibling: **21 external
-reports triaged (8 public + 13 private), every confirmed finding fixed with
-regression tests, zero Critical** — no direct theft or permanent freeze of user
+Track record so far, across this repo and the staking sibling: **17 researchers
+credited** in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) — a count
+you can check against that file rather than against this sentence — with every
+confirmed finding fixed with regression tests, and **zero Critical** — no direct theft or permanent freeze of user
 funds has ever been demonstrated. Internal adversarial audits are red-first:
 a finding becomes a failing CI test before any fix is written. The public
 ledger of findings and credits lives in
