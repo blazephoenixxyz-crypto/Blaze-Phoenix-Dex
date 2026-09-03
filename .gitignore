@@ -47,3 +47,8 @@ test/fork/Bench*.t.sol
 
 # python bytecode from the CI scripts
 __pycache__/
+
+# Assurance artefacts. The METRICS are published; the per-row detail is not committed.
+# A table that lists which surfaces are least exercised is a reading list for us and a
+# starting point for someone else, so the aggregate goes in the log and the rows stay local.
+assurance-*.json

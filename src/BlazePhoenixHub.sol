@@ -707,8 +707,25 @@ contract BlazePhoenixHub {
             // and stays paused for ever — re-adding it at its NEW code is
             // refused. A live admin may still re-attest on purpose; a factory
             // whose code did not move may be re-listed without ceremony.
-            if ($.controlRenounced && $.factoryCodehash[factory] != factory.codehash) revert HubE(1);
             Factory storage f = $.factories[row];
+            // TWO THINGS THE CODEHASH PIN CANNOT SEE, and the second was added 2026-09-04 (S3).
+            //
+            // The first is the runtime moving: that is what the pin is for.
+            //
+            // The second is the MODE moving from a DERIVE family (4-7) to an ASK family (0-3).
+            // Hub:937-947 explains why the pin is applied only to the asking modes: a derive row
+            // answers a theorem the factory cannot influence, so its code is irrelevant. That
+            // reasoning is sound in one direction only. Converting a live derive row into an ask
+            // row after renunciation hands discovery the factory's own answer for every pair,
+            // with total freedom over it - strictly more than a moved derivation origin gives,
+            // because that one is still bound to create2(origin, salt, initHash). The codehash
+            // guard is satisfied by the UNCHANGED code, and the threat this codebase has written
+            // down twice is exactly a proxy whose answer moves while its runtime does not.
+            //
+            // Tightening is still allowed: 0-3 -> 4-7 narrows what the factory can say.
+            if ($.controlRenounced
+                && ($.factoryCodehash[factory] != factory.codehash || (f.mode > 3 && mode < 4)))
+                revert HubE(1);
             f.kind = kind; f.mode = mode; f.initHash = initHash;
             f.fees = fees; f.spacings = spacings;
         }

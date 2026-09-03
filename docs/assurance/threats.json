@@ -1,0 +1,135 @@
+{
+  "$comment": [
+    "Threat-class catalogue. Each entry names a class of exploit observed in the public",
+    "record and states, for this system, either the guard that refuses it or the reason it",
+    "is out of scope. Every claim here is CHECKED MECHANICALLY by",
+    ".github/scripts/assurance/threat_coverage.py: a guard symbol that no longer exists in",
+    "src/, or a test that no longer exists in test/, fails the build. A claim that cannot be",
+    "checked is not evidence.",
+    "",
+    "Guards are named by SYMBOL, never by line number. Line numbers are valid only against a",
+    "pinned revision and a stale anchor is a false claim.",
+    "",
+    "Taxonomy sources: DASP Top 10; the SWC registry (frozen since 2020, retained for",
+    "cross-reference only); the exploit classes catalogued in the peer-reviewed systematisations",
+    "of DeFi incidents. Coverage of any single taxonomy is necessarily partial: the published",
+    "evaluations of automated detectors against real incidents report that most real losses fall",
+    "outside what one taxonomy enumerates. This file is therefore a floor on what we have",
+    "considered, not a ceiling on what exists."
+  ],
+  "classes": [
+    { "id": "DASP-1", "class": "Reentrancy",
+      "status": "blocked",
+      "guard": "nrEntrant",
+      "note": "Every value-moving entry point is guarded; the callback surface authenticates its caller." },
+
+    { "id": "DASP-2", "class": "Access control",
+      "status": "blocked",
+      "guard": "onlyAdmin",
+      "note": "Four distinct roles; the control plane can be renounced permanently and what survives renunciation is enumerated and tested." },
+
+    { "id": "DASP-3", "class": "Arithmetic over/underflow",
+      "status": "blocked",
+      "guard": "MAX_SQRT_PRICE_MINUS_ONE",
+      "note": "Solidity 0.8 checked arithmetic throughout; every `unchecked` block carries a written bound argument, and the representability of the hard curves is tested at the boundary." },
+
+    { "id": "DASP-5", "class": "Denial of service by unbounded iteration",
+      "status": "blocked",
+      "guard": "MAX_HOPS",
+      "note": "Route shape is bounded in every dimension: hops, legs per hop, legs per route, candidates, registry seats." },
+
+    { "id": "DASP-7", "class": "Transaction-order dependence / sandwiching",
+      "status": "blocked",
+      "guard": "FLOOR_HARD_MAX_LOSS_BPS",
+      "note": "An output floor is enforced by the executor independently of the caller's own minimum, and the caller's minimum may only tighten it." },
+
+    { "id": "SWC-107", "class": "Cross-function reentrancy through an external venue",
+      "status": "blocked",
+      "guard": "nrEntrant" },
+
+    { "id": "SOK-ORACLE", "class": "Price-oracle manipulation",
+      "status": "blocked",
+      "guard": "ironFloorBps",
+      "note": "There is no external price feed to manipulate: the reference quote is produced on chain, in the same frame as execution, from the venues actually traded. The floor is derived from that quote." },
+
+    { "id": "SOK-FEE-BASE", "class": "Caller-supplied quantity substituted for a measured one",
+      "status": "blocked",
+      "guard": "resolvePoolDeployer",
+      "test": "test_FeeBase_IgnoresLiedAboutTotalOut",
+      "note": "Declared route figures are treated as coordinates to measure at, never as values to act on. The fee base is re-derived from the on-chain quote of the legs as executed." },
+
+    { "id": "SOK-FOT", "class": "Fee-on-transfer and rebasing tokens",
+      "status": "blocked",
+      "guard": "balanceOf",
+      "note": "Every amount that matters is a measured balance delta, never an assumed transfer amount." },
+
+    { "id": "SOK-VENUE-ADMISSION", "class": "Hostile venue admitted to the registry",
+      "status": "blocked",
+      "guard": "factoryDeployer",
+      "test": "test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer",
+      "note": "Venue admission is curator-only, one row per address, and the derivation origin is attested at admission and frozen once control is renounced." },
+
+    { "id": "SOK-PROXY-VENUE", "class": "Admitted venue whose logic moves behind a proxy",
+      "status": "blocked",
+      "guard": "factoryCodehash",
+      "note": "Re-admission after renunciation is refused when the runtime moved. Where a proxy can move its ANSWER without moving its code, the answer is pinned instead of the code." },
+
+    { "id": "SOK-MODE-FLIP", "class": "Venue row converted from a derived origin to an asked one after ossification",
+      "status": "blocked",
+      "guard": "controlRenounced",
+      "test": "test_C4_S3_DeriveRowMustNotBecomeAnAskRowAfterRenounce",
+      "note": "A derived origin is a theorem the venue cannot influence; an asked one is whatever it answers. The codehash pin does not see the difference, because it is satisfied by code that never moved. The transition is refused once control is renounced; tightening in the other direction stays allowed." },
+
+    { "id": "SOK-VOLUME", "class": "Published metric that reports the caller's declaration rather than the measured flow",
+      "status": "blocked",
+      "guard": "hopScale",
+      "test": "test_INV_F4_VolumeInEqualsTheMeasuredPoolDelta",
+      "note": "The registry is handed the amount the hop was able to spend, derived from the measured-over-declared ratio, rather than the figure written in the route." },
+
+    { "id": "SOK-QUOTE-EXEC", "class": "Preview that does not predict execution",
+      "status": "blocked",
+      "guard": "previewRoute",
+      "test": "test_INV_F2_PreviewPredictsDeliveryWithNoBridge",
+      "note": "Parity between the published quote and the realised delivery is asserted in both fee regimes." },
+
+    { "id": "SOK-V4-DERIVE", "class": "Deterministic pool derivation steered to an attacker address",
+      "status": "blocked",
+      "guard": "create2Address" },
+
+    { "id": "SOK-HOOK", "class": "Malicious hook on a hooked venue",
+      "status": "blocked",
+      "guard": "hookAllowed",
+      "note": "Hooks are admitted explicitly; delta-taking hook permissions are refused at several independent surfaces, and those permissions are encoded in immutable address bits rather than in mutable state." },
+
+    { "id": "SOK-GRIEF-SEATS", "class": "Registry exhaustion by repeated admission",
+      "status": "blocked",
+      "guard": "MAX_FACTORIES",
+      "note": "One row per address; repeated admission of one venue updates its row instead of consuming a seat." },
+
+    { "id": "SOK-ARBITRARY-CALL", "class": "Arbitrary external call or transfer-from sink",
+      "status": "blocked",
+      "guard": "onlyRouter",
+      "note": "The executor never takes a caller-supplied call target. Venue interaction is dispatched from a closed set of shapes selected by a registry-held kind." },
+
+    { "id": "SOK-SIG-REPLAY", "class": "Signature replay on delegated approval",
+      "status": "blocked",
+      "guard": "MAX_BATCH",
+      "note": "Delegated approval is handled by the canonical permit contract; the system holds no signature scheme of its own." },
+
+    { "id": "SOK-GOV", "class": "Governance capture",
+      "status": "out-of-scope",
+      "rationale": "There is no governance: no token vote, no timelock, no upgradeable proxy. The only privileged powers are venue admission and pausing, and both can be renounced permanently. Nothing can move user funds." },
+
+    { "id": "SOK-UPGRADE", "class": "Malicious upgrade",
+      "status": "out-of-scope",
+      "rationale": "The contracts are immutable and non-upgradeable. There is no proxy and no implementation slot." },
+
+    { "id": "SOK-BRIDGE-EXT", "class": "Compromise of an external bridge or venue",
+      "status": "out-of-scope",
+      "rationale": "Third-party venues are composed, not controlled. Their failure is bounded here by the enforced output floor and by the caller's own minimum, but their internal security cannot be asserted by this system and is not claimed." },
+
+    { "id": "SOK-KEY", "class": "Compromise of a user's private key",
+      "status": "out-of-scope",
+      "rationale": "Outside the trust boundary. Recorded because the published incident data attribute a large share of total losses to key compromise, and a threat catalogue that silently omits the largest class would overstate its own coverage." }
+  ]
+}

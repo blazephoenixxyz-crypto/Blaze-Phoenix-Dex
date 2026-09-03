@@ -1,0 +1,59 @@
+name: assurance metrics
+
+# One job, on purpose. Every check here is static - it reads the sources, the tests and the
+# mutation register, and compiles nothing - so the whole set runs in seconds and there is no
+# reason to spread it over several runs.
+#
+# The heavy evidence (full suite, fork tests, the mutation guard itself, size limits) is
+# produced by the build and test workflows. This one answers a different question: not "does
+# it pass?" but "does the evidence still point at the code, and how much of the threat space
+# enters the evidence chain at all?".
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Fails the build when a claim no longer holds: a guard symbol that left src/, a test
+      # that left test/, a mutant whose target line is gone, or a threat class marked both
+      # guarded and out of scope. A stale claim is a false claim.
+      - name: assurance metrics
+        run: python3 .github/scripts/assurance/metrics.py .
+
+      # The summary only. The per-row tables stay out of the log for the same reason they stay
+      # out of the tree: they name which surfaces are least exercised.
+      - name: summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          p = "assurance-metrics.json"
+          if not os.path.exists(p):
+              print("metrics did not run"); raise SystemExit
+          d = json.load(open(p))
+          t, r = d.get("threat coverage", {}), d.get("relational", {})
+          c, l = d.get("control actions", {}), d.get("assertion locality", {})
+          print("| metric | value |")
+          print("|---|---|")
+          print(f"| threat classes answered by a named guard | {t.get('blocked')}/{t.get('considered')} |")
+          print(f"| two-producer quantities tied by a test | {r.get('tied')}/{r.get('pairs')} |")
+          print(f"| control actions, refusal arm exercised | {c.get('refusal')}/{c.get('actions')} |")
+          print(f"| control actions, lifecycle arm exercised | {c.get('lifecycle')}/{c.get('actions')} |")
+          print(f"| mutant/test pairs asserting at the change | {l.get('local')}/{l.get('mutants')} |")
+          print(f"| mutation targets intact | {'yes' if d.get('mutation targets',{}).get('ok') else 'NO'} |")
+          PY

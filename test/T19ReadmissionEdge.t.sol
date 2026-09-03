@@ -672,4 +672,51 @@ contract T19ReadmissionEdgeTest is Test {
             "S1: a zero attestation must freeze after renounceControl like any other");
     }
 
+    // =========================================================================
+    //  S3 - THE MODE ITSELF, after renunciation. A wider aperture than T19.
+    //  RED at 6334df6; green under the derive-to-ask guard.
+    // =========================================================================
+
+    /// CLAIM: after `renounceControl()` a live row may not be converted from a DERIVE family
+    /// (modes 4-7) to an ASK family (modes 0-3).
+    ///
+    /// WHY THIS IS WORSE THAN THE PIN IT SITS NEXT TO. A moved derivation origin still binds
+    /// the result to `create2(origin, salt, initHash)` - the attacker must find an origin whose
+    /// derivation lands somewhere useful. An ASK row has no such binding: `Hub:951` applies the
+    /// codehash pin only to `fac.mode < 4`, and it is satisfied by code that never moved, so a
+    /// proxy is asked, live, for the pool address of every pair and may answer anything.
+    ///
+    /// The docstring at Hub:937-947 is right that a derive row answers "a theorem the factory
+    /// cannot influence". What it does not say is that the row's mode is mutable by the one
+    /// lever that outlives the control plane, so the theorem can be revoked after nobody is
+    /// left to object.
+    ///
+    /// NOT VACUOUS: renunciation is shown to have happened (the pause lever is dead); the
+    /// factory's codehash is asserted UNCHANGED across the attempt, so the existing guard is
+    /// passed rather than dodged; and the control immediately after shows that a re-listing
+    /// which does NOT change family is still accepted, so the refusal is attributable to the
+    /// mode transition and not to renunciation in general.
+    function test_C4_S3_DeriveRowMustNotBecomeAnAskRowAfterRenounce() public {
+        _admitAlgebra();
+        hub.renounceControl();
+        vm.expectRevert();
+        hub.setPaused(true);
+
+        bytes32 chBefore = address(fac).codehash;
+        fac.setPoolDeployer(DEP_SWAPPED);
+        assertEq(address(fac).codehash, chBefore,
+            "premise: only the ANSWER moved - the codehash guard at Hub:710 is passed, not dodged");
+
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(1)));
+        hub.addFactory(
+            address(fac), BPC.KIND_ALGEBRA, 0, INIT_HASH, noFees, noSpacings
+        );
+
+        // CONTROL: the same call that does not change family is still accepted, so the refusal
+        // above is attributable to the transition and not to the world being ossified.
+        hub.addFactory(
+            address(fac), BPC.KIND_ALGEBRA, MODE_CREATE2_V3, INIT_HASH, noFees, noSpacings
+        );
+    }
+
 }
