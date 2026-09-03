@@ -203,7 +203,7 @@ contract BlazePhoenixQuoter {
     /// @notice Preview an already-built Route (e.g. one returned previously
     ///         and persisted off-chain) without re-running the Solver.
     function previewRoute(Route memory route, uint256 userMinOut)
-        external pure returns (Preview memory)
+        external view returns (Preview memory)
     {
         return _pack(route, userMinOut);
     }
@@ -229,7 +229,7 @@ contract BlazePhoenixQuoter {
     // =========================================================================
 
     function _pack(Route memory route, uint256 userMinOut)
-        private pure returns (Preview memory pv)
+        private view returns (Preview memory pv)
     {
         pv.route       = route;
         pv.grossOut    = route.totalOut;
@@ -247,11 +247,46 @@ contract BlazePhoenixQuoter {
         // the other, the quote starts lying about what execution does again — the
         // defect signature of this codebase, recorded with N=3 in the corpus.
         uint256 afterFee = route.totalOut;
-        // Round the fee UP here too, matching both Router sites. Rounding the
-        // deduction up makes the preview understate netOut by at most 1 wei,
-        // which is the safe direction: a preview must never promise more than
-        // execution delivers.
-        afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // HOW MANY TIMES THE ROUTER WILL CHARGE (review 2026-09-04, FEE_01).
+        // Everything above is true of the ANCHORED regime ONLY. `Router:1032-1036`
+        // looks for the first hop whose input is a registered bridge; when there is
+        // none, `feeHop` stays at `type(uint256).max` and the predicate at
+        // `Router:1111` is TRUE FOR EVERY HOP. That is deliberate -- `Router:1021-1027`
+        // calls it immunity by exhaustion, the only rule with no index at which to
+        // insert a dust prefix -- and the sibling channel was never told. A preview
+        // that always deducted once answered 28 bps while execution took ~56, which is
+        // exactly the failure the comment above predicts for this pair of channels.
+        //
+        // THE SIGNAL IS ASKED OF THE PRODUCER, never re-derived: the same
+        // `hub.isBridgeToken` the Router asks, in the same scan order. Iterating
+        // `hub.bridge(i)` here instead would read the ARRAY while the Router reads the
+        // MAPPING -- the desync reported by bai bo in the 4th wave and closed by making
+        // `addBridge` idempotent. One question, one producer.
+        // A single hop is charged ONCE under either regime: when its output is a bridge the
+        // fee comes off the output (`Router:1408`), and the `!feeOnOut` guard at `Router:1111`
+        // stops the input arm from doubling it. So the registry is only consulted when the
+        // answer can actually differ - at two hops or more. That is not an optimisation
+        // dressed up as a rule: asking a question whose answer cannot change the result is
+        // how a `view` creeps into a path that had no business leaving its own frame, and
+        // `test/QuoterAssumedFeeMargin.t.sol` depends on exactly that (it drives single-hop
+        // routes against a Quoter built with a hub address that has no code).
+        uint256 charges = 1;
+        if (route.hops.length > 1) {
+            bool anchored;
+            for (uint256 fi; fi < route.hops.length; ) {
+                if (hub.isBridgeToken(route.hops[fi].tokenIn)) { anchored = true; break; }
+                unchecked { ++fi; }
+            }
+            if (!anchored) charges = route.hops.length;
+        }
+        for (uint256 c; c < charges; ) {
+            // Round the fee UP here too, matching both Router sites. Rounding the
+            // deduction up makes the preview understate netOut by at most 1 wei,
+            // which is the safe direction: a preview must never promise more than
+            // execution delivers.
+            afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            unchecked { ++c; }
+        }
         // The EFFECT of the fee on the output, in tokenOut. It is not what the
         // treasuries receive — they receive ONE BRIDGE token (WETH/USDC). See the
         // file header.
@@ -587,8 +622,19 @@ contract BlazePhoenixQuoter {
         // output of every route, so a dry-run total returned as "execution-
         // grade" over-promised by exactly the fee, and a minOut derived from it
         // with a buffer under 28 bps died in RouterE(5) every time. One
-        // deduction, rounded UP, the same arithmetic as `_pack` and both Router
-        // sites — so the preview never promises a wei more than delivery.
+        // deduction, rounded UP — so the preview never promises a wei more than
+        // delivery.
+        //
+        // ONE DEDUCTION IS CORRECT HERE FOR A REASON THIS LINE DOES NOT STATE, so it is
+        // stated now (review 2026-09-04, FEE_01). `_pack` no longer deducts unconditionally:
+        // it asks whether the route touches a bridge, because `Router:1111` charges EVERY hop
+        // when none does. This entry point takes no Route — only (tIn, tOut, amountIn) — so the
+        // route is the Solver's, and the Solver composes multi-hop only through registered
+        // bridges. The exhaustion regime is therefore unreachable from here.
+        //
+        // That is safety by CONSTRUCTION OF THE INPUT, not by this function's own logic. The
+        // day the Solver composes a bridgeless multi-hop route, this line is wrong and nothing
+        // here will say so. If that day comes, this must borrow `_pack`'s scan.
         exactOut = gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 

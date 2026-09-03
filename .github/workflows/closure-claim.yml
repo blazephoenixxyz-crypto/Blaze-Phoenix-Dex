@@ -1,0 +1,58 @@
+# Closure-claim verification — DELIBERATELY NOT A REQUIRED CHECK.
+#
+# The Security Closure matrix cites guards and tests by `path:line` and by function name. Code
+# moves; a `path:line` that has moved is a false claim with a citation attached. This job answers
+# one question: is the evidence in that artefact still anchored to the code it was read from?
+#
+# Owner decision, 2026-09-03: a stale row fails **the closure claim, never the build.** Merges stay
+# free. What is gated is the right to publish or cite a closure number while any cited row is
+# anchored to code that has moved. A stale anchor is a documentation defect, not a code defect, and
+# blocking merges on bookkeeping trains people to route around the gate — which is how a gate
+# becomes nominal.
+#
+# Therefore this workflow is `workflow_dispatch` only: it is the publication step, not the merge
+# button. Do NOT add it to the branch-protection required-checks list, and do not move it into
+# ci.yml.
+
+name: closure claim (publication only, never a gate)
+
+on:
+  workflow_dispatch:
+    inputs:
+      matrix_path:
+        description: 'Path to the closure matrix carrying the anchored_at column'
+        required: true
+        default: 'closure/CLOSURE-MATRIX.md'
+
+jobs:
+  anchors:
+    name: closure claim (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # anchors are compared against arbitrary past revisions
+
+      - name: Anchor freshness
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/stale_anchors.py \
+            --repo . \
+            --matrix "${{ inputs.matrix_path }}" \
+            --out anchor-freshness.md \
+            --json anchor-freshness.json \
+            --gate
+        # exit 1 = at least one cited row is anchored to code that moved, or names a test that no
+        #          longer exists in git. The closure number may not be published until it is 0.
+        # exit 2 = the matrix itself is absent. That is a refusal to answer, not an answer: a job
+        #          that passes when its subject is missing is the exact defect this tool exists to
+        #          find.
+
+      - name: Upload verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closure-claim-verdict
+          path: |
+            anchor-freshness.md
+            anchor-freshness.json

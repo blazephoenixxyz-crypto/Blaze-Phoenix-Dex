@@ -56,6 +56,28 @@ pragma solidity 0.8.36;
 //    test_C4_ReAdmit_UnderANonMode5Row_LeavesThePinIntact          GREEN today
 //    test_C4_ReAdmit_UnchangedAnswer_AfterRenounce_IsAccepted      GREEN today
 //    test_C4_DiscoveryNeverRevertsAfterAnyReAdmission              GREEN today
+//    test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer     RED today
+//
+//  THE ROW THE FIX OF 2026-09-03 DID NOT COVER (added 2026-09-03, second
+//  pass). The freeze the comment at Hub:720-726 promises is written as two
+//  arms, and only the second one is gated:
+//
+//      if (pinned == address(0))                           $.factoryDeployer[factory] = live;
+//      else if (!$.controlRenounced && live != address(0)) $.factoryDeployer[factory] = live;
+//
+//  Every test above enters through `_admitAlgebra()`, so `pinned != 0` in all
+//  five and none of them ever reaches the first arm. A row that was admitted
+//  under a NON-mode-5 configuration never executed the block at all, so its
+//  pin is still zero - and `addFactory` is `onlyAdmin`, which outlives
+//  `renounceControl()`, while the codehash guard at Hub:710 is satisfied by a
+//  factory that moved its answer in STORAGE (asserted, not assumed, at :239).
+//  Three transactions - admit F at mode 4, renounce, re-admit F at mode 5 -
+//  therefore take the UNGATED arm and write a live, factory-chosen attestation
+//  after ossification, which is the exact thing the comment says cannot happen.
+//
+//  The new test asserts the PIN ITSELF, before and after the third call, read
+//  out of ERC-7201 storage - not a revert string, and not a constant a correct
+//  implementation would also produce.
 //
 //  Two further GREEN tests were drafted and then REMOVED by the recheck of
 //  2026-09-03 as duplicates of test/T19AlgebraDeployerPin.t.sol; the banner
@@ -148,6 +170,39 @@ contract T19ReadmissionEdgeTest is Test {
         return address(uint160(uint256(keccak256(abi.encodePacked(
             hex"ff", origin, keccak256(abi.encodePacked(tokenA, tokenB)), INIT_HASH
         )))));
+    }
+
+    // ─── reading the T19 attestation itself ──────────────────────────────
+    //
+    // `$.factoryDeployer` (Hub:339) lives inside the ERC-7201 struct and has no
+    // getter, so the pin is read straight out of storage. The namespace is
+    // RE-DERIVED here from the ERC-7201 formula over the same literal string
+    // rather than imported, in the same spirit as `_algebraPool`: the object
+    // under test is never its own oracle.
+    //
+    // The field index is COUNTED from the struct declaration (Hub:283-340) —
+    // admin, router, solver, quoter (two addresses never share a slot), then
+    // operator, slot, poolOf, hooksOf, pairKeys, the three-word `bridges` fixed
+    // array, bridgeCount_, isBridge, factories, v4Entries, v4PoolManager,
+    // hookAllowed, hookCodehash, factoryCodehash, the packed bool word,
+    // v4CodeOf, v4EntryOf — which puts `factoryDeployer` twenty-fourth, at
+    // offset 23.
+    //
+    // That count is a CLAIM about the layout, so it is never trusted: the test
+    // below asserts this reader against a factory whose attestation is known by
+    // construction before it asserts anything about the defect. If the struct
+    // ever gains a field above this one, the premise fails loudly instead of the
+    // test silently reading a zero and passing for the wrong reason.
+    bytes32 constant HUB_SLOT
+        = keccak256(abi.encode(uint256(keccak256("blazephoenix.hub.v1")) - 1))
+        & ~bytes32(uint256(0xff));
+    uint256 constant FACTORY_DEPLOYER_FIELD = 23;
+
+    function _pinOf(address factory) private view returns (address) {
+        return address(uint160(uint256(vm.load(
+            address(hub),
+            keccak256(abi.encode(factory, uint256(HUB_SLOT) + FACTORY_DEPLOYER_FIELD))
+        ))));
     }
 
     function _admitAlgebra() private {
@@ -308,6 +363,116 @@ contract T19ReadmissionEdgeTest is Test {
     }
 
     // =========================================================================
+    //  C4-P1, NEGATIVE ARM #3 - the FIRST pin, taken after renunciation.
+    //  RED at 6334df6. The arm the fix of 2026-09-03 left ungated.
+    // =========================================================================
+
+    /// CLAIM: after `renounceControl()` no factory-supplied answer may become
+    /// an attested CREATE2 origin - not for a row that already has one (arm #1
+    /// above), and not for a row that has none. Hub:720-726 states the property
+    /// without the qualifier: "after renunciation the attested origin is FROZEN:
+    /// the live answer may not move it". A slot that has never been written is
+    /// as much part of "the attested origin" as one that has, because Hub:1001
+    /// reads the same mapping either way and Hub:339 documents zero as a
+    /// MEANING ("the factory itself is the origin"), not as an absence.
+    ///
+    /// THE ORDERING, three transactions, none of which needs a malicious admin:
+    ///   1. F is admitted under a configuration that never enters the T19 block
+    ///      (any mode other than 5). `factoryDeployer[F]` is therefore never
+    ///      written and stays zero.
+    ///   2. `renounceControl()`. Every control-plane response is now dead:
+    ///      there is no setPaused, no removeFactory, no de-listing, for ever.
+    ///   3. F is re-admitted at mode 5 - the ordinary curator gesture the
+    ///      docstring at Hub:411-418 promises to keep alive, and which
+    ///      `..._UnchangedAnswer_AfterRenounce_IsAccepted` below REQUIRES to
+    ///      keep working. `pinned == 0`, so the UNGATED first arm runs and
+    ///      writes whatever the factory answers at that moment.
+    ///
+    /// RED at 6334df6: the pin moves from address(0) to DEP_SWAPPED - a value
+    /// chosen by the factory, written after ossification, unrepairable.
+    ///
+    /// NOT VACUOUS, and each premise is asserted rather than assumed:
+    ///   * the storage reader is proved against a control factory attested
+    ///     while control was still live, so a zero read can never be mistaken
+    ///     for a right answer;
+    ///   * the pin is read as zero immediately before the third call, so the
+    ///     delta is attributable to that call alone;
+    ///   * `setPaused` is shown to be dead, so renunciation really happened;
+    ///   * the factory's codehash is shown to be unchanged across the answer
+    ///     swap, so the guard at Hub:710 is passed rather than dodged;
+    ///   * a pool is etched at the steered derivation before the call, so its
+    ///     appearance in discovery is a behavioural change and not an artefact
+    ///     of `hasCode`.
+    ///
+    /// The assertion is a BEFORE/AFTER delta on the specific slot, never on a
+    /// revert string and never on a constant: `pinBefore` is read out of the
+    /// Hub, not written down here.
+    ///
+    /// try/catch: a fix that REFUSES the third call and a fix that accepts it
+    /// while leaving the pin at zero (Hub:1001 then derives from the factory
+    /// itself, which is the documented meaning of a zero pin) both satisfy it.
+    function test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer() public {
+        // Premise A: the storage reader really addresses $.factoryDeployer. A
+        // second factory, admitted at mode 5 while control is LIVE, whose
+        // answer is a value nothing else in this test ever writes.
+        ReAdmitDeployerFactory control = new ReAdmitDeployerFactory(DEP_HEALTHY);
+        hub.addFactory(
+            address(control), BPC.KIND_ALGEBRA, MODE_CREATE2_V3, INIT_HASH, noFees, noSpacings
+        );
+        assertEq(_pinOf(address(control)), DEP_HEALTHY,
+            "premise: the ERC-7201 offset really addresses $.factoryDeployer");
+        assertEq(_pinOf(address(fac)), address(0),
+            "premise: an unadmitted factory reads as never attested");
+
+        // TX 1 - F is admitted under a mode that never enters the T19 block.
+        hub.addFactory(
+            address(fac), BPC.KIND_V2, MODE_CREATE2_V2, INIT_HASH, noFees, noSpacings
+        );
+        assertEq(hub.factoryCount(), 2, "premise: F holds a row of its own");
+        address pinBefore = _pinOf(address(fac));
+        assertEq(pinBefore, address(0),
+            "premise: a non-mode-5 admission leaves the T19 attestation unwritten");
+
+        // TX 2 - ossification. Proved by a dead control-plane door, not assumed.
+        hub.renounceControl();
+        (bool controlAlive, ) = address(hub).call(
+            abi.encodeWithSignature("setPaused(bool)", true)
+        );
+        assertFalse(controlAlive, "premise: control is really renounced");
+
+        // The factory moves its answer in STORAGE. Its runtime - and therefore
+        // its codehash - is untouched, which is precisely what Hub:710 checks.
+        bytes32 chBefore = address(fac).codehash;
+        fac.setPoolDeployer(DEP_SWAPPED);
+        assertEq(address(fac).codehash, chBefore,
+            "premise: the codehash guard at Hub:710 sees nothing here");
+
+        // Fixtures BEFORE the call under test: a pool exists at the steered
+        // derivation, and is not being served yet.
+        address poolSteered = _algebraPool(DEP_SWAPPED);
+        vm.etch(poolSteered, hex"fe");
+        _assertNeverServes(poolSteered, "premise: the steered pool is not a candidate yet");
+
+        // TX 3 - the call under test.
+        try hub.addFactory(
+            address(fac), BPC.KIND_ALGEBRA, MODE_CREATE2_V3, INIT_HASH, noFees, noSpacings
+        ) returns (uint8) {
+            // accepted
+        } catch {
+            // refused
+        }
+
+        assertEq(hub.factoryCount(), 2,
+            "premise: the third call refreshed F's row, it did not push a new one");
+        assertEq(_pinOf(address(fac)), pinBefore,
+            "a factory-chosen CREATE2 origin was attested for the FIRST time AFTER renounceControl: the ungated arm at Hub:729 wrote the live answer into a pin that had never been set");
+        _assertNeverServes(poolSteered,
+            "the steered derivation must never become a candidate");
+        assertEq(_pinOf(address(control)), DEP_HEALTHY,
+            "no other factory's attestation may move");
+    }
+
+    // =========================================================================
     //  CONTROLS the fix must not break.
     // =========================================================================
 
@@ -455,4 +620,56 @@ contract T19ReadmissionEdgeTest is Test {
         assertTrue(_serves(poolHealthy),
             "a dead resolver on ONE factory must not stop another factory's pool being discovered");
     }
+    // =========================================================================
+    //  S1 - THE CHEAPER ORDERING. A mode-5 row whose FIRST attestation was ZERO
+    //  never freezes, and reaching it needs no mode change at all.
+    //  RED at 6334df6; green under the `row == n` gate.
+    // =========================================================================
+
+    /// CLAIM: the same freeze, reached without ever changing a row's mode. `Hub:729` writes
+    /// `live` even when the resolver answers NOTHING, and `Hub:339` documents zero as a
+    /// MEANING - "the factory itself is the origin" - not as an absence. So a row admitted
+    /// while its resolver was silent carries a zero pin FOR EVER, and the `pinned == 0` arm
+    /// stays open on it. Every plain V3-family factory with no `poolDeployer()` selector is
+    /// in exactly this state, which makes this the COMMON case and not the exotic one.
+    ///
+    /// THE ORDERING - and note that no argument ever changes:
+    ///   1. the factory does not answer (`setAnswers(false)`) and is admitted at mode 5;
+    ///      `resolvePoolDeployer` returns zero, and zero is what the pin records.
+    ///   2. `renounceControl()`.
+    ///   3. the factory starts answering, with an origin of its own choosing, and the row is
+    ///      re-listed with IDENTICAL arguments - the very gesture that
+    ///      `test_C4_ReAdmit_UnchangedAnswer_AfterRenounce_IsAccepted` requires to keep working.
+    ///
+    /// WHY IT MATTERS FOR THE SHAPE OF THE FIX: this ordering needs no mode transition, so a
+    /// gate keyed on the mode change would leave it wide open. It is the reason the gate is
+    /// `row == n` ("is this row new to THIS call") and not `pinned == 0` ("has this row ever
+    /// been attested") - the slot cannot tell the two apart, and the loop variable can.
+    /// Sibling S1 of the surface sweep of 2026-09-03; P(real) was assessed at 0.97 there and
+    /// this test settles it either way.
+    function test_C4_S1_ZeroFirstAttestation_FreezesLikeAnyOther() public {
+        fac.setAnswers(false);
+        _admitAlgebra();
+        assertEq(_pinOf(address(fac)), address(0),
+            "premise: a silent resolver records a ZERO pin - indistinguishable from never-pinned");
+
+        hub.renounceControl();
+        vm.expectRevert();
+        hub.setPaused(true);
+
+        bytes32 chBefore = address(fac).codehash;
+        fac.setAnswers(true);
+        fac.setPoolDeployer(DEP_SWAPPED);
+        assertEq(address(fac).codehash, chBefore,
+            "premise: the codehash guard at Hub:710 sees nothing - only the ANSWER moved");
+        vm.etch(_algebraPool(DEP_SWAPPED), hex"fe");
+
+        hub.addFactory(
+            address(fac), BPC.KIND_ALGEBRA, MODE_CREATE2_V3, INIT_HASH, noFees, noSpacings
+        );
+
+        assertEq(_pinOf(address(fac)), address(0),
+            "S1: a zero attestation must freeze after renounceControl like any other");
+    }
+
 }

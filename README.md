@@ -4,11 +4,10 @@
 
 **An on-chain DeFi router and aggregator that prices every route on measured reality — not on what a pool claims.**
 
-[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/actions)
+[![CI](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/actions/workflows/ci.yml)
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue)](./LICENSE)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.36-363636)](https://soliditylang.org)
 [![Foundry](https://img.shields.io/badge/Foundry-via__ir-yellow)](https://book.getfoundry.sh)
-[![Tests](https://img.shields.io/badge/tests-540%20green-brightgreen)](#reproducing-every-gate)
 [![EVM](https://img.shields.io/badge/EVM-universal-8A2BE2)](#supported-venues)
 [![Formal](https://img.shields.io/badge/formal-Certora%20%2B%20Halmos-orange)](#security)
 [![Stage](https://img.shields.io/badge/stage-pre--launch%20preview-yellow)](#status)
@@ -27,23 +26,42 @@ stage, not a signal about the code. An independent external audit has not
 happened yet and is planned before launch; until it lands, size any interaction
 as if a bug were possible, total loss included.
 
-What already runs on every push, publicly and reproducibly:
+What branch protection on `main` **actually requires**. This list is read from the enforcing
+surface (`gh api repos/.../branches/main/protection`), not from this file — a gate is what the
+platform blocks on, and everything else a workflow prints is advice:
 
-| Gate | What it is |
+| Required check | What it enforces |
 |---|---|
-| **Test suite** | **540 tests green** across **116 test files** — unit, fuzz, and stateful invariants |
-| **Fork tests** | **19 suites** against live chain liquidity, in a separate CI job |
-| **Formal** | **Certora Prover** (INV-20 fail-closed fee) and **Halmos** symbolic proofs, both hard gates |
-| **Static analysis** | **Slither** (fail on high), **Aderyn**, **Solhint** |
+| `build + test (fast profile)` | the suite, under `FOUNDRY_PROFILE=fast` |
+| `EIP-170 size guard (release profile)` | contract size with margin, under `FOUNDRY_PROFILE=release` |
+| `formal verification (Halmos symbolic)` | the Halmos symbolic properties |
+| `Slither (static detectors, fail on high)` | static detectors, failing on high |
+| `gas metrics (offline ledger)` | the gas ledger |
+
+**Advisory — these run, and do not block a merge:** the Certora Prover (INV-20 fail-closed fee),
+Aderyn, Solhint, the secret scan, and the fork suites. A red run on any of them is a defect to fix,
+not a gate that stopped anything.
+
+Note the profile split: the suite is gated under `fast` and the size guard under `release`. A number
+measured on one profile is not evidence about the other, and this file names the profile beside every
+number for that reason.
+
+| Apparatus | Size, measured at `6334df6` |
+|---|---|
+| **Test suite** | **1,126** `test*` / `invariant_*` / `check_*` declarations across **185** `.t.sol` files — unit, fuzz, and stateful invariants |
+| **Fork suites** | **23**, against live chain liquidity, in a separate job |
+| **Mutation guard** | **158** mutants, each paired with the named test that must catch it |
 | **Static guards** | **8 red-first greps** that fail the build if a known defect shape reappears |
-| **Mutation guard** | a versioned mutant list, each paired with the named test that must catch it |
-| **Size guard** | EIP-170 enforced with margin under `FOUNDRY_PROFILE=release` |
-| **Gas ledger** | an offline harness, reporting-only, never a gate |
+
+These are declaration counts at a named revision, not a pass count. A pass count belongs to a run,
+and the badge at the top of this file is the only honest place for one.
 
 A funded public bounty (40M BZPX, shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking))
-has triaged **21 external reports — every confirmed finding fixed with
-regression tests, zero Critical**. Details: [`SECURITY.md`](./SECURITY.md).
+has credited **17 researchers** — every confirmed finding fixed with regression
+tests, zero Critical. The roster is [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md),
+so that count is checkable in this repository without taking our word for it.
+Details: [`SECURITY.md`](./SECURITY.md).
 
 ## Why it is different
 
@@ -185,8 +203,8 @@ not name what it pins.
 
 ```
 src/                    the five contracts — Router, Solver, Hub, Core, Quoter
-test/                   116 suites: unit, fuzz, stateful invariants, regressions
-  fork/                 19 suites against live chain liquidity
+test/                   185 suites: unit, fuzz, stateful invariants, regressions
+  fork/                 23 suites against live chain liquidity
   formal/               formal specifications and composition proofs
   hunt/                 regressions for findings from adversarial review
   mocks/                venue mocks: V2 pair, V3 pool, Solidly pair, Permit2, ERC-20
