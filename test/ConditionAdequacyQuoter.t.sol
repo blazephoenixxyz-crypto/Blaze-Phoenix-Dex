@@ -194,7 +194,18 @@ contract ConditionAdequacyQuoterTest is Test {
             "hop 0 must record the caller's spend, never the plan's over-commitment");
         assertEq(back.hops[0].legs[0].amountIn, CALL_AMT,
             "the leg must be rescaled down to the caller's order");
-        assertEq(exactOut, atCallAmt,
+        assertEq(back.totalOut, atCallAmt,
             "the dry run must price the caller's amount, not the plan's");
+        assertEq(exactOut, _netOfFee(atCallAmt),
+            "and the scalar is that figure less the protocol fee (FEE-02)");
+    }
+
+    /// Since 2026-09-03 (register escape FEE-02) `previewPlanExact` returns the
+    /// NET output: the dry-run total less the protocol fee, deducted once and
+    /// rounded up exactly as `_pack` and the Router do. The route keeps the
+    /// pool-math attestation in `totalOut`. Written from the constants so the
+    /// expectation never comes from the code under test.
+    function _netOfFee(uint256 gross) internal pure returns (uint256) {
+        return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 }

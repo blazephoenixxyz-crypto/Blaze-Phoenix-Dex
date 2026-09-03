@@ -287,7 +287,15 @@ contract QuoterExactRefusalBranchesTest is Test {
 
     function _exact(Route memory r, uint256 amt) internal returns (uint256 exactOut) {
         solverMock.setBest(r);
-        (, exactOut) = quoter.previewPlanExact(address(tokA), address(tokB), amt);
+        (Route memory back, uint256 net) = quoter.previewPlanExact(address(tokA), address(tokB), amt);
+        // Since 2026-09-03 (register escape FEE-02) the scalar is NET of the
+        // protocol fee while the route keeps the pool-math attestation. These
+        // branch tests read the pool's own number from the route, and pin the
+        // scalar's relation to it on EVERY call, so no branch can drift from
+        // the deduction.
+        exactOut = back.totalOut;
+        assertEq(net, exactOut - BPC.mulDivUp(exactOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS),
+            "the exact scalar must be the route's attested total less the protocol fee");
     }
 
     function _v4Leg(uint256 amt) internal view returns (Leg memory l) {

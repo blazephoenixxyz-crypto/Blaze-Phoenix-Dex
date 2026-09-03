@@ -44,3 +44,6 @@ test/fork/Bench*.t.sol
 
 # baseline local de tamanhos (imago sz) — nunca versionado
 .bp/
+
+# python bytecode from the CI scripts
+__pycache__/

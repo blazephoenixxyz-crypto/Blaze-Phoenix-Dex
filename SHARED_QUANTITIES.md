@@ -49,7 +49,7 @@ green test in front of it.
 | Quantity | The question it answers | Producers / consumers | Status | Pin |
 |---|---|---|---|---|
 | `LEG_FLOOR_BPS` | "How much may a single leg legitimately lose?" | `Core` (definition), `Router` ×8 | `PINNED` | `test/formal/CompositionFormalSpec.t.sol` — names it, and proves the collapse at `L = 1` |
-| `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1 | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant** |
+| `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1, `Quoter.previewPlanExact` ×1 (since 2026-09-03) | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant**. `test/QuoterExactNetOut.t.sol` pins the exact pass: `exactOut` equals the view preview's after-fee figure to the wei, is a floor the Router honours, and its deduction is `_pack`'s (once, rounded up); mutants 154-155 |
 | `effV2Fee` / `quoteV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
 | `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) |
 
@@ -61,9 +61,13 @@ fee regime). Two regimes escape it:
 - **FEE-01** — in the *exhaustion* regime (multi-hop route with no bridge token in any hop input) the
   Router charges on **every** hop while the Quoter models a single deduction. Measured: 2.80e18 in
   `tA` **and** 2.78e18 in `tB` against the 28 bps promised — ~56 bps on an honest route.
-- **FEE-02** — `Quoter.previewPlanExact` contains no `PROTOCOL_FEE_BPS` term at all, yet its own
-  docstring calls the result *execution-grade*. `PROTOCOL_FEE_BPS` appears exactly **once** in the
-  whole of `BlazePhoenixQuoter.sol`.
+- **FEE-02** — **closed 2026-09-03.** `Quoter.previewPlanExact` contained no `PROTOCOL_FEE_BPS` term at
+  all, yet its own docstring called the result *execution-grade* and the Router's docstring told
+  integrators to derive `userMinOut` from it: delivery was exactly the fee below it on every route,
+  so a buffer under 28 bps was refused by the floor guard. Reported with a PoC in the eighth
+  disclosure round. Fixed by one deduction on the returned scalar (the `route` keeps its gross
+  pool-math attestation, which is what the Router compares against); pinned by
+  `test/QuoterExactNetOut.t.sol` and mutants 154-155.
 
 **`ironFloorBps` — the divergence.** `Solver._assembleRouteMulti` averages impact **per hop** and
 then **sums the hops**; `Router._execute` sums every leg and divides by the **global** leg count.
@@ -97,6 +101,8 @@ hop count.
 | Layer 2 scope (hookless before hooked) | "Over what span may no hookless leg follow a hooked one?" | `Router._execute` (the `sawHooked` flag) and `Solver._assembleRouteMulti` (refuses a hooked leg outside the last hop) | `PINNED` (widened 2026-09-02) | `test/CrossHopHookOrdering.t.sol` — a hooked leg in hop 0 before a hookless hop 1 is refused; a hook in the last hop still routes; mutant 104. The flag was declared inside the hop loop, so the rule closed the intra-hop vector and left the cross-hop one open while its own justification named the route |
 | `Volume(key, amtIn, amtOut)` | "How much really went through this pool?" | emitted by `Hub.recordSwap` from the amounts the Router passes, which are `leg.amountIn` / `leg.expectedOut` — **calldata**, not measurements | `OPEN` | finding **VOL-01** (review 2026-09-02, red probe kept out of the tree): a leg declaring 1e30 executes at its real size and reports 1e30. Not an execution defect (nothing on-chain reads the amounts); a metrological one. The fix is carrying the measured per-leg (in, out) from `_execute` to `_recordHits`, in a frame via-IR already refuses to grow — decided later, not by accident |
 | `v4EntryOf` (V4 row → V4Entry) | "Where is this V4 row's tickSpacing?" | written by every V4 door (`addV4`, `claimV4`, `recordSwap`, and since 2026-09-02 `seedPool`); read by `_readPoolInfo` and by `_recoverV4Ts` step 5 | `SINGLE` (fixed 2026-09-02) | `test/V4EntryScanUnbounded.t.sol` — reading one pool, and registering one, costs the same with 0 and 200 foreign entries; mutants 101-102. The two linear walks over `v4Entries` (a permissionlessly grown array) are gone |
+| `factoryDeployer` (the attested Algebra origin) | "Which CREATE2 origin do this factory's mode-5 fee-0 probes derive from?" | written by `Hub.addFactory` from `Core.resolvePoolDeployer` at admission — and again at every re-admission, through a door that survives `renounceControl`; read by the mode-5 fee-0 derive in discovery | `PINNED` (fixed 2026-09-03) | After renunciation the attested origin is frozen, a dead resolver never demotes it to zero, and a non-mode-5 refresh of the row leaves it untouched; a live admin may still re-attest on purpose. Pins: `test/T19ReadmissionEdge.t.sol`, `test/T19AlgebraDeployerPin.t.sol`; mutants 67, 133, 143, 144. Was cluster **C4** of the 2026-09-03 closure pass: a pin against *time*, re-openable by the one lever renunciation keeps |
+| `factories[]` row ↔ `factoryCodehash` / `factoryDeployer` (keyed by address) | "Is this factory already admitted, and which row is it?" | the array holds the rows, the mappings are keyed by address; `addFactory` pushed one row per call, so a single address could own several rows (and, with no `removeFactory`, exhaust the sixteen seats for ever) while its mappings held one value | `SINGLE` (fixed 2026-09-03) | `addFactory` scans the seats and refreshes a known address in place — after renunciation only if its code did not move, the twin of the `allowHook` guard. Pins: `test/RenouncedFactoryRearm.t.sol` (one row per address, one address cannot exhaust the table, a mutated factory cannot be re-armed after renunciation, a new factory is still admitted, a live admin may re-attest); mutants 140-142. Was cluster **C3** |
 
 ### Transient state
 

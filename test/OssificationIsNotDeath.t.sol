@@ -277,7 +277,7 @@ contract OssificationIsNotDeathTest is Test {
     ///         is the one SwapBestExactInHardening pins.
     function test_Ossified_SwapBestExactIn_SettlesIdenticallyAfterRenounce() public {
         uint256 amountIn = 100e18;
-        (, uint256 exactOut) =
+        (Route memory rt, uint256 exactOut) =
             quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
         assertGt(exactOut, 0, "preview must quote the seeded pool");
 
@@ -305,7 +305,14 @@ contract OssificationIsNotDeathTest is Test {
         assertGt(tokenA.balanceOf(treasury1) + tokenA.balanceOf(treasury2), 0,
             "a real fee was charged");
 
-        assertLe(dAfter, exactOut, "delivered above the pool-math ceiling");
+        // The route carries the pool-math ceiling; `exactOut` is that figure
+        // less the protocol fee (FEE-02, 2026-09-03) and is a FLOOR, not an
+        // equality: the Router charges the fee on each hop's INPUT, and a
+        // concave curve pays slightly more for a slightly smaller input than
+        // a proportional cut of the full-size output would. Both sides are
+        // asserted so neither direction can drift unnoticed.
+        assertLe(dAfter, rt.totalOut, "delivered above the pool-math ceiling");
+        assertGe(dAfter, exactOut, "delivered below the exact preview: exactOut is the floor");
         assertGe(dAfter, BPC.mulDiv(exactOut, 9_900, BPC.BPS),
             "delivered fell >1% below the exact preview");
     }
@@ -333,11 +340,22 @@ contract OssificationIsNotDeathTest is Test {
         assertEq(hits.length, 0, "no factories wired: empty census, not a revert");
 
         uint256 amountIn = 1_000e18;
-        (, uint256 exactOut) =
+        (Route memory rt, uint256 exactOut) =
             quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
-        assertEq(exactOut, BPC.outV2(amountIn, R, R, 30),
-            "preview == V2 formula after full renounce");
+        assertEq(rt.totalOut, BPC.outV2(amountIn, R, R, 30),
+            "route total == V2 formula after full renounce");
+        assertEq(exactOut, _netOfFee(BPC.outV2(amountIn, R, R, 30)),
+            "preview == V2 formula less the protocol fee, after full renounce");
     }
+    /// Since 2026-09-03 (register escape FEE-02) `previewPlanExact` returns the
+    /// NET output: the dry-run total less the protocol fee, deducted once and
+    /// rounded up exactly as `_pack` and the Router do. The route keeps the
+    /// pool-math attestation in `totalOut`. Written from the constants so the
+    /// expectation never comes from the code under test.
+    function _netOfFee(uint256 gross) internal pure returns (uint256) {
+        return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    }
+
 
     /// @notice After full renounce the registry keeps LEARNING: a routed swap
     ///         still ticks the seeded pool's slot, and a never-seen pool still

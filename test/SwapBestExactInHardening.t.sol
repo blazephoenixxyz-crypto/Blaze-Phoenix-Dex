@@ -200,7 +200,7 @@ contract SwapBestExactInHardeningTest is Test {
         // execution plan over identical state).
         uint256 amountIn = bound(uint256(amtSeed), 1e15, 100_000e18);
 
-        (, uint256 exactOut) =
+        (Route memory rt, uint256 exactOut) =
             quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
         assertGt(exactOut, 0, "preview must quote a live pool");
 
@@ -209,12 +209,15 @@ contract SwapBestExactInHardeningTest is Test {
         uint256 delivered = router.swapBestExactIn(
             address(tokenA), address(tokenB), amountIn, 1, user, block.timestamp + 1);
 
-        // The dry-run is raw pool math; execution charges PROTOCOL_FEE_BPS
-        // (28 bps) on the way out. Parity band: delivered can never exceed
-        // the pool-math ceiling, and can never fall more than 1% below it
-        // (28 bps fee + rounding headroom). A break on either side is a
-        // real quote!=execution regression, not tolerance noise.
-        assertLe(delivered, exactOut, "delivered above the pool-math ceiling");
+        // The route's totalOut is raw pool math; execution charges
+        // PROTOCOL_FEE_BPS (28 bps) on the way out, and since 2026-09-03
+        // (FEE-02) exactOut is that ceiling less the fee — the floor the
+        // Router honours. Parity band: delivered can never exceed the
+        // pool-math ceiling, never fall below the exact preview, and never
+        // fall more than 1% below the ceiling (fee + rounding headroom). A
+        // break on any side is a real quote!=execution regression.
+        assertLe(delivered, rt.totalOut, "delivered above the pool-math ceiling");
+        assertGe(delivered, exactOut, "delivered below the exact preview: exactOut is the floor");
         assertGe(
             delivered,
             BPC.mulDiv(exactOut, 9_900, BPC.BPS),
@@ -231,15 +234,28 @@ contract SwapBestExactInHardeningTest is Test {
     ///         cleanly (fuzz shrinkage not required to reproduce).
     function test_Parity_PreviewExactVsDelivered_Pinned() public {
         uint256 amountIn = 1_000e18;
-        (, uint256 exactOut) =
+        (Route memory rt, uint256 exactOut) =
             quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
-        assertEq(exactOut, BPC.outV2(amountIn, R_A, R_B, 30), "preview == V2 formula");
+        assertEq(rt.totalOut, BPC.outV2(amountIn, R_A, R_B, 30), "route total == V2 formula");
+        assertEq(exactOut, _netOfFee(BPC.outV2(amountIn, R_A, R_B, 30)),
+            "preview == V2 formula less the protocol fee");
 
         vm.prank(user);
         uint256 delivered = router.swapBestExactIn(
             address(tokenA), address(tokenB), amountIn, 1, user, block.timestamp + 1);
 
-        assertLe(delivered, exactOut);
-        assertGe(delivered, BPC.mulDiv(exactOut, 9_900, BPC.BPS));
+        assertLe(delivered, rt.totalOut);
+        assertGe(delivered, exactOut);
+        assertGe(delivered, BPC.mulDiv(rt.totalOut, 9_900, BPC.BPS));
     }
+
+    /// Since 2026-09-03 (register escape FEE-02) `previewPlanExact` returns the
+    /// NET output: the dry-run total less the protocol fee, deducted once and
+    /// rounded up exactly as `_pack` and the Router do. The route keeps the
+    /// pool-math attestation in `totalOut`. Written from the constants so the
+    /// expectation never comes from the code under test.
+    function _netOfFee(uint256 gross) internal pure returns (uint256) {
+        return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    }
+
 }

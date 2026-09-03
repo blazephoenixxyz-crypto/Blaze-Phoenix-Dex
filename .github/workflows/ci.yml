@@ -19,6 +19,16 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Secret and private-address guard (public is not a state you can take back)
+        # Runs before every other gate, needs no compiler, and takes a second.
+        # A credential, a private runner address or a personal mail domain in the
+        # tree cannot be undone by a later commit: it stays in the history and in
+        # every clone. Address and token for the verification runner are operator
+        # configuration read from the environment (see .github/scripts/mcdc.py);
+        # anything genuinely publishable is declared in that script's ALLOW list
+        # with a written reason.
+        run: python3 .github/scripts/check_no_secrets.py
+
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 

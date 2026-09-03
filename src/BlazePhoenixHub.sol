@@ -395,8 +395,11 @@ contract BlazePhoenixHub {
 
     function initialize(address admin_, address v4Manager_) external {
         HubStore storage $ = _store();
-        // Only the deployer can initialize, and only once.
-        if ($.initialized || msg.sender != $.admin) revert HubE(1);
+        // Only the deployer can initialize, and only once — and never after
+        // renunciation (review 2026-09-03, cluster C5): `renounceControl`
+        // declares setV4Manager and setOperator dead for ever, and this door
+        // used to set the V4 manager and mint an operator seat regardless.
+        if ($.initialized || msg.sender != $.admin || $.controlRenounced) revert HubE(1);
         _ne0(admin_);
         $.initialized = true;
         $.admin = admin_;
@@ -676,22 +679,58 @@ contract BlazePhoenixHub {
         }
 
         HubStore storage $ = _store();
-        if ($.factories.length >= MAX_FACTORIES) revert HubE(4);
-        $.factories.push(Factory({
-            factory: factory, kind: kind, mode: mode,
-            initHash: initHash, fees: fees, spacings: spacings
-        }));
+        // A KNOWN FACTORY IS REFRESHED IN PLACE, NEVER GIVEN A SECOND ROW — the
+        // idempotency `addBridge` already has (`if ($.isBridge[t]) return;`),
+        // which this door lacked (review 2026-09-03, cluster C3). Without it a
+        // repeated add of ONE address pushed one row per call and could fill
+        // the sixteen seats with a single factory, and since there is no
+        // removeFactory that exhaustion was permanent — the exact grow-only
+        // power `renounceControl` promises to keep. Sixteen seats, admin-only,
+        // cold path: the scan is the cheapest correct structure.
+        uint256 n = $.factories.length;
+        uint256 row = n;
+        for (uint256 i; i < n; ) {
+            if ($.factories[i].factory == factory) { row = i; break; }
+            unchecked { ++i; }
+        }
+        if (row == n) {
+            if (n >= MAX_FACTORIES) revert HubE(4);
+            $.factories.push(Factory({
+                factory: factory, kind: kind, mode: mode,
+                initHash: initHash, fees: fees, spacings: spacings
+            }));
+        } else {
+            // THE TWIN OF THE HOOK GUARD (allowHook, Hub:496). After renunciation
+            // the surviving curator lever is admission, and it must not double as
+            // the cancel button of the Layer-3 auto-skip at Hub:912: a factory
+            // admitted honestly, whose runtime then moved, is paused by its pin
+            // and stays paused for ever — re-adding it at its NEW code is
+            // refused. A live admin may still re-attest on purpose; a factory
+            // whose code did not move may be re-listed without ceremony.
+            if ($.controlRenounced && $.factoryCodehash[factory] != factory.codehash) revert HubE(1);
+            Factory storage f = $.factories[row];
+            f.kind = kind; f.mode = mode; f.initHash = initHash;
+            f.fees = fees; f.spacings = spacings;
+        }
         $.factoryCodehash[factory] = factory.codehash;
         // T19 sibling pin: freeze the Algebra CREATE2 origin at admission.
         // Only mode-5 rows can enter the Algebra derive (sub == 1 && fee == 0,
         // Core:448) — pin them all, kind V3 included: a V3 row admitted with
-        // a 0 fee reaches the same live-resolve path. Re-admission
-        // re-attests, mirroring the codehash pin above.
+        // a 0 fee reaches the same live-resolve path.
+        //
+        // RE-ADMISSION (review 2026-09-03, cluster C4): a live admin re-attests
+        // on purpose, mirroring the codehash pin above — but a dead resolver
+        // never demotes a good attestation to zero, and after renunciation the
+        // attested origin is FROZEN: the live answer may not move it, or the
+        // one surviving lever would re-open T19 for an already-admitted row.
         if (mode == MODE_CREATE2_V3) {
-            $.factoryDeployer[factory] = BPC.resolvePoolDeployer(factory);
+            address live = BPC.resolvePoolDeployer(factory);
+            address pinned = $.factoryDeployer[factory];
+            if (pinned == address(0)) $.factoryDeployer[factory] = live;
+            else if (!$.controlRenounced && live != address(0)) $.factoryDeployer[factory] = live;
         }
         emit Factory_(factory, kind, mode);
-        return uint8($.factories.length - 1);
+        return uint8(row);
     }
 
     function factoryCount() external view returns (uint256) { return _store().factories.length; }

@@ -57,12 +57,47 @@ attempted neutralisation ended UNVERIFIED.
 """
 import json, os, re, subprocess, sys, time, urllib.parse
 
-U = "https://bp-ci.a-s-myros-gtar.workers.dev"
-# The box is gated by a shared secret (X-CI-Token). It is read from a file
-# outside the repository, never from the tree; without it every route answers 401.
-_TOKEN_FILE = os.environ.get("CI_TOKEN_FILE", os.path.expanduser("~/.cfci-token"))
-_TOKEN = open(_TOKEN_FILE).read().strip() if os.path.exists(_TOKEN_FILE) else ""
-AUTH = ["-H", f"X-CI-Token: {_TOKEN}"]
+# ─── the verification runner: OPERATOR CONFIGURATION, never source ──────────
+# This script drives a remote runner because the runner has no python. Its
+# address, its shared secret and its forge path are configuration of a private
+# machine, and a public repository is the wrong place for all three: an address
+# published here is an endpoint strangers can probe, and a secret written into
+# a tree is a secret that has already leaked. Nothing below defaults to a real
+# host, a real token or a real home directory, the secret is never printed,
+# never logged and never placed in a URL (it travels as a header), and
+# `--list` — the static census — needs none of it.
+#
+#   MCDC_RUNNER_URL         base URL of the runner            (required to run)
+#   MCDC_RUNNER_TOKEN       the shared secret                 (or the file below)
+#   MCDC_RUNNER_TOKEN_FILE  path to a file holding the secret, outside the tree
+#   MCDC_RUNNER_FORGE       forge path on the runner          (default: forge)
+#
+# `.github/scripts/check_no_secrets.py` fails the build if any of these ever
+# acquires a literal value in the tree again.
+U = os.environ.get("MCDC_RUNNER_URL", "").rstrip("/")
+
+def _token():
+    t = os.environ.get("MCDC_RUNNER_TOKEN", "")
+    if t: return t.strip()
+    f = os.environ.get("MCDC_RUNNER_TOKEN_FILE", "")
+    if f and os.path.exists(f):
+        return open(f, encoding="utf-8").read().strip()
+    return ""
+
+def require_runner():
+    """Refuse to start a remote pass half-configured. A missing token is not a
+    404 to debug later: every gated route answers 401 and every verdict in the
+    campaign would read as UNVERIFIED, which is the one outcome this instrument
+    must never manufacture."""
+    missing = []
+    if not U: missing.append("MCDC_RUNNER_URL")
+    if not _token(): missing.append("MCDC_RUNNER_TOKEN (or MCDC_RUNNER_TOKEN_FILE)")
+    if missing:
+        sys.exit("mcdc: the verification runner is not configured — set "
+                 + ", ".join(missing)
+                 + ". `--list` runs the static census with no runner at all.")
+
+AUTH = ["-H", "X-CI-Token: " + _token()]
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(REPO, "src")
 # THE SEED IS PINNED, AND IT HAS TO BE. The invariant campaigns walk randomly, and
@@ -321,7 +356,12 @@ def run_suite():
     # NOMEADO" whatever it does. That is exactly what the 2026-09-03 campaign
     # did from [184/231] on. The cache is not part of the tree; clearing it is
     # free and makes every run a real run.
-    q = urllib.parse.quote(f"rm -rf cache/invariant && forge {SUITE_CMD}")
+    # MCDC_RUNNER_FORGE exists for one reason: the runner's shell route prefixes
+    # `PATH=... <cmd>`, and an environment prefix binds to ONE command - the `rm` -
+    # so a bare `forge` after the `&&` runs with the original PATH and exits 127.
+    # Give it the absolute path on that machine and the second command resolves.
+    forge = os.environ.get("MCDC_RUNNER_FORGE", "forge")
+    q = urllib.parse.quote(f"rm -rf cache/invariant && {forge} {SUITE_CMD}")
     r = subprocess.run(["curl", "-s", "-m", "480", f"{U}/sh?cmd={q}"] + AUTH,
                        capture_output=True, text=True)
     try:
@@ -372,6 +412,10 @@ def main():
             print(f"  {d['file']}:{d['line']:<5} N={len(d['leaves'])} "
                   f"[{d['klass']:<11}] {d['fn']:<28} {d['cond'][:90]}")
         return
+
+    # Every path below judges sub-conditions on the runner, so the configuration
+    # is checked once, here, before a single mutation is built.
+    require_runner()
 
     if mode == "guards":
         sel = [d for d in flat if d["klass"] == "guard"]
