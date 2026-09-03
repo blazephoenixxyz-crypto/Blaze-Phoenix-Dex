@@ -726,8 +726,35 @@ contract BlazePhoenixHub {
         if (mode == MODE_CREATE2_V3) {
             address live = BPC.resolvePoolDeployer(factory);
             address pinned = $.factoryDeployer[factory];
-            if (pinned == address(0)) $.factoryDeployer[factory] = live;
-            else if (!$.controlRenounced && live != address(0)) $.factoryDeployer[factory] = live;
+            // A ZERO PIN IS NOT AN ABSENCE (review 2026-09-03, second pass).
+            // Hub:339 gives zero a MEANING - "the factory itself is the origin"
+            // - and this block writes `live` even when the resolver answers
+            // zero, so a row that is already live can carry a zero pin for
+            // ever: every plain V3-family factory without a `poolDeployer()`
+            // selector does. Gating the first write on `pinned == 0` alone
+            // would therefore leave the freeze open for exactly those rows,
+            // and close it for a fresh listing that is entitled to attest.
+            // The discriminator the slot cannot carry is `row == n`
+            // (Hub:690-696): "this address was admitted for the FIRST time by
+            // THIS call". A fresh listing may still attest - the grow-only
+            // power Hub:411-418 keeps, pinned by RenouncedFactoryRearm.t.sol
+            // - but an already-admitted row may not take a first pin after
+            // ossification.
+            // ONE WRITE SITE, NOT TWO. The nested form of the first attempt measured
+            // +767 B on the CI box against an 881 B EIP-170 margin -- the fixcost note had
+            // ESTIMATED +30 B [10,70]. Eleven times the top of the band, and the same lesson
+            // note 144 already records: an estimate about via-ir codegen is a model, and
+            // `--sizes` is the measurement. Folding both arms into a single predicate and a
+            // single SSTORE keeps the semantics identical and stops via-ir from emitting the
+            // store sequence twice.
+            // First arm: a FRESH listing may still attest - the grow-only power Hub:411-418
+            // keeps - but an already-admitted row may not take a first pin after ossification.
+            // Second arm: an existing attestation never follows the live answer once control
+            // is gone, and a dead resolver never demotes a good one to zero.
+            bool mayPin = pinned == address(0)
+                ? (row == n || !$.controlRenounced)
+                : (!$.controlRenounced && live != address(0));
+            if (mayPin) $.factoryDeployer[factory] = live;
         }
         emit Factory_(factory, kind, mode);
         return uint8(row);
