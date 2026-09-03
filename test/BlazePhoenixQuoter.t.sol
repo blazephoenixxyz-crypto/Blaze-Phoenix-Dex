@@ -259,9 +259,11 @@ contract BlazePhoenixQuoterTest is Test {
         _seedV2(address(tokenA), address(tokenB), 100_000e18, 160_000e18);
         uint256 amountIn = 1_000e18;
 
-        (, uint256 exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
+        (Route memory rt, uint256 exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
 
-        assertEq(exactOut, BPC.outV2(amountIn, 100_000e18, 160_000e18, 30));
+        assertEq(rt.totalOut, BPC.outV2(amountIn, 100_000e18, 160_000e18, 30), "the route total is the V2 formula");
+        assertEq(exactOut, _netOfFee(BPC.outV2(amountIn, 100_000e18, 160_000e18, 30)),
+            "exactOut is the V2 formula less the protocol fee");
     }
 
     function test_PreviewPlanExact_V3Leg_DryRunMatchesPoolMath() public {
@@ -276,15 +278,25 @@ contract BlazePhoenixQuoterTest is Test {
         hub.seedPool(address(pool), BPC.KIND_V3, 3000, address(0), address(tokenA), address(tokenB));
 
         uint256 amountIn = 2_000e18;
-        (, uint256 exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
+        (Route memory rt, uint256 exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
 
         uint256 expected = BPC.outV3(amountIn, sqrtP, liq, 3000, zfo, 0);
-        assertEq(exactOut, expected, "dry-run must match the pool's own swap math exactly");
+        assertEq(rt.totalOut, expected, "dry-run must match the pool's own swap math exactly");
+        assertEq(exactOut, _netOfFee(expected), "and the scalar is that figure less the protocol fee");
     }
 
     function test_PreviewPlanExact_RevertsWhenNoRouteExists() public {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, 5));
         quoter.previewPlanExact(address(tokenA), address(tokenB), 1_000e18);
+    }
+
+    /// Since 2026-09-03 (register escape FEE-02) `previewPlanExact` returns the
+    /// NET output: the dry-run total less the protocol fee, deducted once and
+    /// rounded up exactly as `_pack` and the Router do. The route keeps the
+    /// pool-math attestation in `totalOut`. Written from the constants so the
+    /// expectation never comes from the code under test.
+    function _netOfFee(uint256 gross) internal pure returns (uint256) {
+        return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 
     // =========================================================================

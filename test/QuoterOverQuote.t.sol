@@ -263,8 +263,19 @@ contract QuoterOverQuoteTest is Test {
 
         // Coherence: hop figure and total publish the same number.
         assertEq(r.hops[1].expectedOut, quoted, "single-leg hop must publish the leg figure");
-        assertEq(exactOut, quoted, "exactOut must be the final hop's output");
+        assertEq(r.totalOut, quoted, "the route total must be the final hop's output");
+        assertEq(exactOut, _netOfFee(quoted), "exactOut must be the final hop's output less the protocol fee");
     }
+
+    /// Since 2026-09-03 (register escape FEE-02) `previewPlanExact` returns the
+    /// NET output: the dry-run total less the protocol fee, deducted once and
+    /// rounded up exactly as `_pack` and the Router do. The route keeps the
+    /// pool-math attestation in `totalOut`. Written from the constants so the
+    /// expectation never comes from the code under test.
+    function _netOfFee(uint256 gross) internal pure returns (uint256) {
+        return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    }
+
 
     /// A fork WITHOUT getAmountOut (the mock hides it). The conservative
     /// answer for a preview is the replicated curve rounded DOWN — never the

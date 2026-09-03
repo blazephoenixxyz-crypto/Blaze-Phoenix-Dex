@@ -457,9 +457,14 @@ contract BlazePhoenixQuoter {
     /// @notice Truth-corrected plan: explore with the Solver (view formulas),
     ///         then re-price the chosen route by dry-running every
     ///         concentrated leg on the pool itself, propagating exact
-    ///         amounts across hops. totalOut/singleOutFloor become
-    ///         execution-grade; the floor ratio chosen by the Solver is
-    ///         preserved and applied to the exact total. Additive & opt-in:
+    ///         amounts across hops. `exactOut` is the execution-grade NET
+    ///         output: the dry-run total less the protocol fee, deducted once
+    ///         and rounded up exactly as `_pack` and the Router do, so it is
+    ///         the floor the Router honours in this block — derive userMinOut
+    ///         from it. The returned `route` keeps the pool-math attestation
+    ///         (totalOut/singleOut gross) that the Router compares against;
+    ///         the floor ratio chosen by the Solver is preserved and applied
+    ///         to the exact total. Additive & opt-in:
     ///         no existing path is modified. Call via eth_call (non-view by
     ///         necessity, like the official quoters; reverts make it
     ///         state-free).
@@ -565,13 +570,26 @@ contract BlazePhoenixQuoter {
             route.hops[h].expectedOut = hopOut;
             carry = hopOut;
         }
-        exactOut = carry;
+        // The route keeps the POOL-MATH attestation: totalOut/singleOut are
+        // what the Router compares realised leg output against, and the fee is
+        // the Router's own deduction on the way out — exactly as `_pack` reads
+        // `route.totalOut` gross and derives `netOut` from it.
+        uint256 gross = carry;
         uint256 floorExact = route.totalOut == 0
-            ? 0 : BPC.mulDiv(route.singleOutFloor, exactOut, route.totalOut);
-        route.totalOut       = exactOut;
-        route.singleOut      = exactOut;
+            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, route.totalOut);
+        route.totalOut       = gross;
+        route.singleOut      = gross;
         route.singleOutFloor = floorExact;
-        route.hasSurplus     = exactOut > floorExact;
+        route.hasSurplus     = gross > floorExact;
+        // FEE-02 (register row PROTOCOL_FEE_BPS; PoC in the eighth disclosure
+        // round, closed 2026-09-03). The scalar an integrator turns into
+        // `userMinOut` must be NET: the Router charges PROTOCOL_FEE_BPS on the
+        // output of every route, so a dry-run total returned as "execution-
+        // grade" over-promised by exactly the fee, and a minOut derived from it
+        // with a buffer under 28 bps died in RouterE(5) every time. One
+        // deduction, rounded UP, the same arithmetic as `_pack` and both Router
+        // sites — so the preview never promises a wei more than delivery.
+        exactOut = gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 
     function bridgeAt(uint8 i) external view returns (address) { return hub.bridge(i); }
