@@ -38,6 +38,7 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 | constant_multiplicity.py | which declared constants the artefact never pushes — folded away, or dead |
 | mutant_visibility.py | whether a mutant changes the shipped bytecode at all, separating "the test missed it" from "there was nothing to miss" |
 | bytecode_coverage.py | what fraction of shipped runtime BYTES the suite executes (UPPER bound) |
+| field_confirmation.py | which caller declarations execution confirms, and which it merely believes (23 fields: 5 steering, 13 confirmed, 5 declared) |
 | projection_distance.py | how far each refusal observes from the object that decides (86 at 0, 11 at 1, 2 unbounded) |
 | pc_coverage.py | how much of the emitted INSTRUCTION stream is proven to execute (LOWER bound, 85.9%) |
 | metrics.py | runs them all, prints one table, fails the build on a broken claim |
