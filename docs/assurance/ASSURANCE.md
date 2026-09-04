@@ -221,8 +221,8 @@ Measured over the five shipped runtime objects, 93,787 instructions:
 | | share |
 |---|---|
 | carrying a positive recorded hit count | 68.1% |
-| **proven executed** (seed + forced successors) | **85.9%** |
-| no execution evidence | 14.1% |
+| **proven executed** (seed + forced successors) | **88.3%** |
+| no execution evidence | 11.7% |
 
 The complement is not dead code. It is code that no evidence in this repository reaches, which is
 a different and weaker statement, and the honest one.
@@ -233,6 +233,18 @@ Coverage builds with `--ir-minimum`, so these instructions are a **different bin
 release artefact** — same sources, different optimiser, roughly twice the size; the bridge to the
 shipped object is by source item, not by byte, and this figure is read beside `profile_parity.py`,
 not instead of it.
+
+**Corrected 2026-09-04, and the correction is the more useful half.** The first figure published
+here, 85.9%, rested on resolving `PUSH <const>; JUMP` targets at file offset 0. Four of the five
+artefacts come back as **creation code**, with the runtime appended after the constructor's
+`CODECOPY; RETURN` and a one-byte `INVALID` pad, and jump targets inside that runtime are relative
+to ITS start. At base 0 only 10–20% of targets landed on a real `JUMPDEST`; at the true base,
+97–100% do. The old computation therefore dropped almost every real edge and followed a handful of
+spurious ones — and a spurious edge marks an instruction as CERTAINLY EXECUTED when it may never
+have run, which is not a loose bound but no bound at all. The instrument now derives the base two
+independent ways (the `CODECOPY` source operand, and the byte after the `INVALID` pad), picks
+whichever resolves more targets, and prints that rate so a bad base is visible instead of silent.
+The corrected figure is **88.3%** — higher than the unsound one, which is luck, not vindication.
 
 **What the report hands back is one deployed instance, not the artefact.** A second probe
 settles it. `test/PcCoverageImmutableProbe.t.sol` deploys one contract twice with different values

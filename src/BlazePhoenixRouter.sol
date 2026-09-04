@@ -1125,11 +1125,13 @@ contract BlazePhoenixRouter {
             uint256[] memory legQuotes = new uint256[](hop.legs.length);
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
                 _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase, legQuotes);
-            // Zero denominator means the hop declared nothing and nothing was spent; the
-            // ratio is left at zero and `_recordHits` publishes zero for it, which is the
-            // measurement. It is NOT skipped: a hop that spent nothing must report nothing,
-            // not report its declaration.
-            hopScale[h] = scaleDen == 0 ? 0 : BPC.mulDiv(scaleNum, 1e18, scaleDen);
+            // `scaleDen` cannot be zero: `_hopScaleImpactAndQuote` assigns it unconditionally,
+            // in a plain scope block with no early return above it, as
+            // `quotedIn == 0 ? 1 : quotedIn`. The guard that used to stand here tested for a
+            // state its own producer forbids, and the comment beneath it described that state as
+            // if it happened - a branch the compiler kept (measured live at 25,798 executions,
+            // its zero arm never once taken) and a sentence in the source that was not true.
+            hopScale[h] = BPC.mulDiv(scaleNum, 1e18, scaleDen);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past

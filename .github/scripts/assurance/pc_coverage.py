@@ -105,9 +105,54 @@ def parse(path):
     return rows
 
 
+def runtime_base(rows):
+    """Where the RUNTIME object starts inside the listing, and how sure we are.
+
+    `forge coverage --report bytecode` does not always hand back a bare runtime object: four of
+    the five artefacts in this repository come back as CREATION code, with the runtime appended
+    after the constructor's `CODECOPY; RETURN` and a one-byte `INVALID` pad. Jump targets inside
+    that runtime are relative to ITS start, not to file PC 0 - so resolving `PUSH <const>; JUMP`
+    at base 0 drops almost every real edge and follows a handful of spurious ones that happen to
+    land on a JUMPDEST. A spurious edge marks an instruction as CERTAINLY EXECUTED when it may
+    never have run, which turns the lower bound below into no bound at all.
+
+    The base is derived, then CHECKED: whichever candidate makes more `PUSH; JUMP` targets land
+    on a real JUMPDEST wins, and the winning rate is reported so a bad guess is visible rather
+    than silent. On this repository the difference is not subtle - about 10% of targets resolve
+    at base 0 against 99.9% at the true base."""
+    by_pc = {r["pc"]: i for i, r in enumerate(rows)}
+    targets = [rows[i - 1]["imm"] for i in range(1, len(rows))
+               if rows[i]["op"] == "JUMP" and rows[i - 1]["op"].startswith("PUSH")
+               and rows[i - 1]["imm"] is not None]
+    if not targets:
+        return 0, 1.0
+    def rate(b):
+        ok = sum(1 for t in targets
+                 if (t + b) in by_pc and rows[by_pc[t + b]]["op"] == "JUMPDEST")
+        return ok / len(targets)
+    cand = [0]
+    # Two independent readings of the same boundary, both checked against the rate below.
+    # (a) the constructor's `CODECOPY` is fed the runtime's offset two instructions earlier:
+    #     `PUSH2 <len>; PUSH2 <base>; DUP3; CODECOPY`.
+    for i, r in enumerate(rows):
+        if r["op"] == "CODECOPY" and i >= 3 and rows[i - 3]["imm"] is not None:
+            cand.append(rows[i - 3]["imm"])
+        if r["op"] == "CODECOPY" and i >= 2 and rows[i - 2]["imm"] is not None:
+            cand.append(rows[i - 2]["imm"])
+    # (b) solc pads one INVALID byte between the constructor and the runtime object.
+    ret = next((i for i, r in enumerate(rows) if r["op"] == "RETURN"), None)
+    if ret is not None:
+        inv = next((j for j in range(ret + 1, len(rows)) if rows[j]["op"] == "INVALID"), None)
+        if inv is not None and inv + 1 < len(rows):
+            cand.append(rows[inv + 1]["pc"])
+    best = max(cand, key=rate)
+    return best, rate(best)
+
+
 def close(rows):
     """Everything the seed forces. Returns (seed, closure)."""
     by_pc = {r["pc"]: i for i, r in enumerate(rows)}
+    base, _ = runtime_base(rows)
     seed = {i for i, r in enumerate(rows) if r["hits"] is not None}
     marked, work = set(seed), list(seed)
     while work:
@@ -117,7 +162,7 @@ def close(rows):
             nxt.append(i + 1)
         if rows[i]["op"] == "JUMP" and i and rows[i - 1]["op"].startswith("PUSH") \
                 and rows[i - 1]["imm"] is not None:
-            t = by_pc.get(rows[i - 1]["imm"])
+            t = by_pc.get(rows[i - 1]["imm"] + base)
             if t is not None and rows[t]["op"] == "JUMPDEST":
                 nxt.append(t)
         for j in nxt:
