@@ -259,7 +259,12 @@ jobs:
         # reads a green tick here as a proof — the gate is the hermetic run
         # above plus the Halmos specs. If one of these ever starts discharging
         # deterministically, promote it into the gate and drop the `|| true`.
-        run: forge test --match-path "test/*Invariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
+        # The glob was "test/*Invariant*", which is case-sensitive: it matched 13 of 33
+        # invariants and MISSED the two that matter most - BlazePhoenixRouter.invariant.t.sol
+        # (the fee campaign) and FullStackLoop.invariant.t.sol - both spelled with a lower-case
+        # i. 20 of 33 were never run deeper than 50x50 anywhere. Dropping the first letter
+        # matches both spellings.
+        run: forge test --match-path "test/*nvariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
 
   fork-tests:
     name: fork tests (archive RPC)
@@ -287,7 +292,7 @@ jobs:
         # this cuts the false-red rate without weakening the signal at all.
         run: |
           set -o pipefail
-          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1"
+          SPEC="RpcProbeTest|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|DeployedCodehashPinTest|DeployedParityTest|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1"
           for attempt in 1 2 3; do
             if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC" 2>&1 | tee fork.log; then
               # Exit code 0 is NOT a verdict here: every fork setUp `vm.skip`s

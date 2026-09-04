@@ -285,7 +285,7 @@ abstract contract BaseChainFixture is TokenSweepBase {
     address constant WSTETH = 0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("base", 49_800_000);
         _core(0x498581fF718922c3f8e6A244956aF099B2652b2b);
         hub.addBridge(WETH); hub.addBridge(USDC); hub.addBridge(WSTETH);
@@ -397,7 +397,7 @@ abstract contract ArbitrumFixture is TokenSweepBase {
     address constant WSTETH = 0x5979D7b546E38E414F7E9822514be443A4800529;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("arbitrum", 498_000_000); // fixado 2026-08-24: mesma razao e mesmo bloco do FactoryCensus
         _core(0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32);
         hub.addBridge(WETH); hub.addBridge(USDC); hub.addBridge(WSTETH);
@@ -442,7 +442,7 @@ abstract contract OptimismFixture is TokenSweepBase {
     address constant WSTETH = 0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("optimism", 156_000_000); // fixado 2026-08-24: mesma razao e mesmo bloco do FactoryCensus
         // O PoolManager da Optimism EXISTE (0x9a13F98C..., verificado no
         // test/fork/MultichainProbe.t.sol). Passar address(0) aqui desligava o

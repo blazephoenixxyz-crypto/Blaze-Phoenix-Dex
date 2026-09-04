@@ -957,8 +957,8 @@ M = [
  # mask, so padding with zero-amount legs shaves FLOOR_PER_LEG_BPS each.
  dict(nome="FLOOR-02: the leg shave counts DECLARED legs instead of executed ones",
       f="src/BlazePhoenixRouter.sol",
-      old="        for (uint256 m = executedMask; m != 0; ) {",
-      new="        for (uint256 m = (uint256(1) << route.hops[0].legs.length) - 1; m != 0; ) {",
+      old="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, execLegs, 0);",
+      new="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);",
       teste="test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor"),
 ]
 

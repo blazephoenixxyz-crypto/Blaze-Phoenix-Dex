@@ -1367,13 +1367,29 @@ contract BlazePhoenixRouter {
         // quote down to 80%, bought with calldata. The loosening exists to pay for the real
         // composition risk of a real split; a leg that never touched a pool carries none of it.
         // Counting the mask instead is both correct and smaller than the loop it replaces.
-        uint256 totalLegs;
+        // TWO COUNTS, because the two consumers ask different questions and one of them has a
+        // cancellation that must not be disturbed. `_wImp` pre-multiplies each leg's impact by
+        // the hop's DECLARED leg count so that the division below returns a share-weighted mean;
+        // counting anything else there inflates the mean by declared/executed and walks the floor
+        // down by a different route than the one being closed (measured: 391 bps of the 799).
+        uint256 declaredLegs;
+        for (uint256 th; th < route.hops.length; ) {
+            declaredLegs += route.hops[th].legs.length;
+            unchecked { ++th; }
+        }
+        // The SHAVE is the other question: FLOOR_PER_LEG_BPS pays for the composition risk of a
+        // real split, and a leg that never touched a pool carries none of it. `executedMask` has
+        // recorded exactly that since the hop loop, and was never read here - so padding a hop
+        // with legs declaring amountIn = 0 bought 200 bps each for the price of calldata
+        // (measured: 9501 -> 8702 bps of the quote for four of them, and the structural maximum
+        // of 15 legs reaches the 8000 hard clamp).
+        uint256 execLegs;
         for (uint256 m = executedMask; m != 0; ) {
             m &= m - 1;                       // clear the lowest set bit
-            unchecked { ++totalLegs; }
+            unchecked { ++execLegs; }
         }
-        uint256 avgImpact = totalLegs > 0 ? impactAcc / totalLegs : 0;
-        uint256 floorBps  = BPC.ironFloorBps(avgImpact, totalLegs, 0);
+        uint256 avgImpact = declaredLegs > 0 ? impactAcc / declaredLegs : 0;
+        uint256 floorBps  = BPC.ironFloorBps(avgImpact, execLegs, 0);
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.

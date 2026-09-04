@@ -52,7 +52,7 @@ contract RobinhoodV4NativeTest is Test {
     bool ligado;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         // BLOCO FIXADO, o mesmo do RobinhoodV4Derive (decisao de 2026-08-21).
         // Sem pino, este teste compara liquidez ao vivo e fica vermelho quando
         // o mercado se mexe — um vermelho falso que ja custou uma sessao. Com
@@ -87,7 +87,7 @@ contract RobinhoodV4NativeTest is Test {
     ///         materialmente mais. Se este teste ficar verde com as duas iguais,
     ///         ou o par deixou de ter pool nativa ou o registo nao a alcancou.
     function test_NativaEntregaMaisQueWrapped() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         uint256 amt = 1e18; // 1 WETH
 
         (BlazePhoenixHub hW, BlazePhoenixQuoter qW) = _stack();
@@ -111,7 +111,7 @@ contract RobinhoodV4NativeTest is Test {
     ///         falhava — mas se devolvesse zero so na wrapped, passaria sem a
     ///         nativa provar nada. Aqui exige-se que a V4 EXECUTE mesmo.
     function test_V4RoteiaDeFactoNaRobinhood() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         (BlazePhoenixHub h, BlazePhoenixQuoter q) = _stack();
         h.addV4(address(0), USDG, FEE, TS, address(0));
         // `pv.route` e a rota ESCOLHIDA. O segundo retorno e `fallbackRoute`
@@ -148,7 +148,7 @@ contract RobinhoodV4NativeTest is Test {
     ///         output. Enquanto este teste estiver vermelho, e isso que se perde
     ///         em qualquer chain onde a liquidez V4 esteja em ETH nativo.
     function test_DeriveScanTemDeEncontrarAPoolNativa() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         (BlazePhoenixHub h, ) = _stack();
         uint24[] memory f = new uint24[](0);
         int24[]  memory sp = new int24[](0);
@@ -180,7 +180,7 @@ contract RobinhoodV4NativeTest is Test {
     /// @notice DIAGNOSTICO: onde e que a varredura derivada se perde?
     ///         Chama cada degrau isoladamente, do mais baixo ao mais alto.
     function test_Diag_ScanV4() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         bytes32 pid = BPC.computeV4PoolId(WETH, USDG, FEE, TS, address(0));
         console2.log("pid:", vm.toString(pid));
 

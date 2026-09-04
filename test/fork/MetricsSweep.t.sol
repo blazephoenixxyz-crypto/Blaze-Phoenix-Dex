@@ -365,7 +365,7 @@ contract MetricsSweepBaseTest is MetricsSweepBase {
     uint256 constant PINNED_BLOCK = 49_800_000;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("base", PINNED_BLOCK);
         _reset();
     }

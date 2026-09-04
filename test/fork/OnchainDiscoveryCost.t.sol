@@ -41,7 +41,7 @@ contract OnchainDiscoveryCostTest is Test {
     address user = address(0xB1A2E);
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("base", PINNED_BLOCK);
         (hub, solver, router, quoter) = BaseTestDeploy.deploy(address(this));
     }

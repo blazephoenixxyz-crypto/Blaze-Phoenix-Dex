@@ -39,7 +39,7 @@ contract FactoryWorthBaseTest is Test {
     address constant BSWAP  = 0xFDa619b6d20975be80A10332cD39b9a4b0FAa8BB;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("base", BLK);
     }
 
