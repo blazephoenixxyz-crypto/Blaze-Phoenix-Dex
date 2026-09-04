@@ -1150,7 +1150,6 @@ contract BlazePhoenixRouter {
             // R3/BP-15 in _hopScaleImpactAndQuote: foreign/stranded bridge balances
             // are never scaled into the swap (invariant I1, holds-nothing).
             impactAcc += hopImpact;
-            if (h + 1 == route.hops.length) finalHopQuote = hopQuote;
 
             uint256 hopGot;
             uint256 hopAttested;
@@ -1285,7 +1284,22 @@ contract BlazePhoenixRouter {
             // pool, a dynamic-fee V4 pool once a protocol fee is on). On these
             // swaps `ExecutionProof.quoted` therefore carries the attested
             // figure, not a measured one.
-            if (h + 1 == route.hops.length && finalHopQuote == 0) finalHopQuote = hopAttested;
+            // FLOOR-01. The anchor used to be "the LAST hop", read from route.hops.length —
+            // a caller's declaration. Appending a hop that declares amountIn = 0 costs calldata
+            // and nothing else: `_execScaled` returns at the top before touching a pool, so the
+            // hop's quote AND its attested figure are both zero, and this line's predecessor
+            // anchored the floor on that zero. `mulDivUp(0, floorBps, BPS)` is 0, so the entire
+            // protocol floor disappeared and only userMinOut remained — measured at 9501 bps of
+            // the quote for the honest route and 0 for the same route with one parasite hop.
+            // The comment eleven lines above promises the caller "can never RELAX the protocol
+            // floor"; that promise was false for the price of one struct.
+            //
+            // The anchor now follows the last hop that actually MOVED value. hopGot is measured
+            // (balance deltas, not calldata), so a hop that spent nothing cannot become the
+            // anchor. NM-002 is preserved inside the same expression rather than beside it: a
+            // hop that legitimately could not be quoted in-frame but DID execute still falls
+            // back to its attested figure. Nothing reverts, for the reason written above.
+            if (hopGot != 0) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;
             unchecked { ++h; }
         }
 
@@ -1344,10 +1358,19 @@ contract BlazePhoenixRouter {
         // its own loop over CALLDATA (cheap, no storage, no external calls) and the value is born
         // exactly where it is consumed. Readability improves too: the loop above executes, this
         // one counts.
+        // FLOOR-02. This used to sum route.hops[th].legs.length — the DECLARED leg count —
+        // while `executedMask`, three hundred lines above, already recorded which legs actually
+        // ran. ironFloorBps shaves FLOOR_PER_LEG_BPS (200) per leg beyond the first, so padding
+        // a hop with legs carrying amountIn = 0 walked the floor down for free: measured at
+        // 9501 -> 8702 bps of the quote for four padded legs, and the structural maximum of
+        // MAX_HOPS x MAX_LEGS_PER_HOP = 15 legs drives it into the 8000 hard clamp — 96% of the
+        // quote down to 80%, bought with calldata. The loosening exists to pay for the real
+        // composition risk of a real split; a leg that never touched a pool carries none of it.
+        // Counting the mask instead is both correct and smaller than the loop it replaces.
         uint256 totalLegs;
-        for (uint256 th; th < route.hops.length; ) {
-            totalLegs += route.hops[th].legs.length;
-            unchecked { ++th; }
+        for (uint256 m = executedMask; m != 0; ) {
+            m &= m - 1;                       // clear the lowest set bit
+            unchecked { ++totalLegs; }
         }
         uint256 avgImpact = totalLegs > 0 ? impactAcc / totalLegs : 0;
         uint256 floorBps  = BPC.ironFloorBps(avgImpact, totalLegs, 0);

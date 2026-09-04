@@ -14,7 +14,7 @@ O CONTRATO: aplicar o mutante -> o teste nomeado tem de ficar VERMELHO. Se ficar
 esta desprotegido e o CI para. Adicionar um guarda de seguranca ao protocolo implica adicionar a
 sua linha aqui.
 """
-import re, subprocess, sys, shutil, os, tempfile
+import re, subprocess, sys, shutil, os, tempfile, json, hashlib
 
 M = [
  dict(nome="portao-de-cobertura: elevacao para a quote medida",
@@ -526,8 +526,12 @@ M = [
       teste="test_BalanceOf_CodelessIsDeliberateZero_NotARefusal"),
  dict(nome="NM-002: the floor no longer falls back to the attested quote when the last hop's quote is zero",
       f="src/BlazePhoenixRouter.sol",
-      old="            if (h + 1 == route.hops.length && finalHopQuote == 0) finalHopQuote = hopAttested;",
-      new="            // MUTANTE",
+      # Retargeted 2026-09-04: the two producers of `finalHopQuote` were folded into one
+      # expression by the FLOOR-01 fix. NM-002's property lives inside it - a hop that DID
+      # execute but could not be quoted in-frame falls back to its attested figure - so the
+      # mutant now removes exactly that fallback and leaves the rest of the fix standing.
+      old="            if (hopGot != 0) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
+      new="            if (hopGot != 0) finalHopQuote = hopQuote;",
       teste="test_LiquidityGapOnLastHop_FloorFallsBackToAttested"),
  dict(nome="impact: an unquotable concentrated leg counts BPS again (the floor collapses to the clamp)",
       f="src/BlazePhoenixRouter.sol",
@@ -929,6 +933,33 @@ M = [
       old="            if (hopAttested != 0) {",
       new="            if (hopGot != 0) {",
       teste="test_G7_OneWeiOutput_BoundaryPasses"),
+ # The joint the whole hook argument stands on. The sieve reads `leg.hooks`; the swap executes
+ # `key.hooks`; one assignment binds them. Before test/V4SievedHookIsTheExecutedHook.t.sol this
+ # mutant survived the ENTIRE suite - measured 2026-09-04: 1002 passed, 1 failed, and the one
+ # was the new test. Every V4 mock in the corpus declares the pool key parameter unnamed and
+ # throws it away, and the artefact standing in for this property was a lexical census.
+ dict(nome="V4 key: the executed hook is not the hook the sieve inspected",
+      f="src/BlazePhoenixRouter.sol",
+      old="            tickSpacing: leg.tickSpacing, hooks: leg.hooks",
+      new="            tickSpacing: leg.tickSpacing, hooks: address(0)",
+      teste="test_TheSievedHookIsTheOneTheSwapExecutesAgainst"),
+
+ # FLOOR-01: the anchor goes back to "the LAST hop DECLARED" instead of "the last hop that
+ # MOVED". A trailing hop carrying amountIn = 0 then anchors the floor on its own zero and
+ # mulDivUp(0, ...) removes the protocol floor entirely.
+ dict(nome="FLOOR-01: the floor anchors on the last DECLARED hop instead of the last that moved",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (hopGot != 0) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
+      new="            if (h + 1 == route.hops.length) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
+      teste="test_TrailingHopThatMovesNothingCannotZeroTheProtocolFloor"),
+
+ # FLOOR-02: the leg count goes back to the DECLARED legs of the hop instead of the executed
+ # mask, so padding with zero-amount legs shaves FLOOR_PER_LEG_BPS each.
+ dict(nome="FLOOR-02: the leg shave counts DECLARED legs instead of executed ones",
+      f="src/BlazePhoenixRouter.sol",
+      old="        for (uint256 m = executedMask; m != 0; ) {",
+      new="        for (uint256 m = (uint256(1) << route.hops[0].legs.length) - 1; m != 0; ) {",
+      teste="test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor"),
 ]
 
 def run(t):
@@ -936,6 +967,28 @@ def run(t):
                        capture_output=True, text=True,
                        env={**os.environ,"FOUNDRY_PROFILE":"release"})
     return r.returncode == 0, r.stdout + r.stderr
+
+
+def artefact_fingerprint():
+    """sha256 of each shipped contract's DEPLOYED bytecode.
+
+    A mutant is a claim about the artefact, not about the source. A source edit the optimiser
+    folds away compiles to a byte-identical object: the paired test then passes for the same
+    reason it always passed, the mutant is scored DECORATIVE, and the verdict is about nothing.
+    The reverse is worse - a mutant scored killed while the artefact never moved would be
+    counted as evidence for a guard the run never exercised.
+
+    So the guard now reads what decides. Byte-identical artefact means the mutant is inert and
+    its verdict is discarded rather than reported. (Owner's point, 2026-09-04: run the mutants
+    against the bytecode too, or there is no certainty.)"""
+    out = {}
+    for c in ("Core", "Quoter", "Solver", "Router", "Hub"):
+        f = os.path.join("out", f"BlazePhoenix{c}.sol", f"BlazePhoenix{c}.json")
+        if not os.path.exists(f):
+            return {}
+        obj = json.load(open(f)).get("deployedBytecode", {}).get("object", "")
+        out[c] = hashlib.sha256(obj.encode()).hexdigest()[:16]
+    return out
 
 
 def baseline():
@@ -961,6 +1014,8 @@ def baseline():
 def main():
     falhas = []
     green, red, _ = baseline()
+    pristine = artefact_fingerprint()
+    inert = []
     unseen = {m["teste"] for m in M} - green - red
     if red & {m["teste"] for m in M}:
         for t in sorted(red & {m["teste"] for m in M}):
@@ -982,7 +1037,14 @@ def main():
         try:
             open(m["f"],"w").write(src.replace(m["old"], m["new"]))
             ok, out = run(m["teste"])
-            if ok:
+            fp = artefact_fingerprint()
+            if pristine and fp and fp == pristine:
+                # The source moved and the artefact did not. Whatever the test did, it did not
+                # do it because of this mutant.
+                inert.append(f"[{i}] {m['nome']}: INERT - the deployed bytecode is byte-identical "
+                             f"to pristine, so this mutant exercises nothing.")
+                print(f"  [{i}] INERT        {m['nome']}  (artefact unchanged)")
+            elif ok:
                 falhas.append(f"[{i}] {m['nome']}: o teste '{m['teste']}' PASSOU com o guarda mutado. "
                               f"O guarda esta sem vigia — o teste e decorativo.")
                 print(f"  [{i}] DECORATIVO   {m['nome']}  ({m['teste']} passou mutado)")
@@ -994,6 +1056,10 @@ def main():
         finally:
             open(m["f"],"w").write(bak)
     print()
+    if inert:
+        print("INERT MUTANTS (the artefact never moved, so their verdict means nothing):")
+        for f in inert: print("  -", f)
+        falhas.extend(inert)
     if falhas:
         print("GUARDAS SEM VIGIA:"); [print("  -", f) for f in falhas]
         sys.exit(1)
