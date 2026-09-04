@@ -2036,6 +2036,27 @@ contract BlazePhoenixRouter {
                 address t0 = leg.zeroForOne ? hop.tokenIn  : hop.tokenOut;
                 address t1 = leg.zeroForOne ? hop.tokenOut : hop.tokenIn;
                 uint256 depth;
+                // THE ROW THIS SWAP TICKS. For every leg family except the concentrated-single
+                // one, `leg.pool` is the address execution actually swapped against, so a lie in
+                // it is self-punishing and the identity is confirmed for free. V4 has no pool
+                // address: `_execV4Amt` builds its key from (tokenIn, auxId, fee, tickSpacing,
+                // hooks) and NEVER READS `leg.pool` - which left this call the only consumer, and
+                // therefore an identity the caller declares and nothing confirms.
+                //
+                // The measured consequence was not a mis-labelled event. `recordSwap`'s hot path
+                // applies `tickSlot`, which overwrites the depth bucket UNCONDITIONALLY, to
+                // `keyOf(leg.pool, t0, t1)` - and `keyOf` is keccak(pool, t0, t1) with nothing
+                // tying it to a kind. So executing a dust V4 pool while declaring another pool
+                // wrote the dust reading onto that pool's row: bucket 9 -> 0 on an honest V4
+                // pool, 0 -> 9 on the attacker's, and - the realistic one - a dust V4 swap
+                // knocking the pair's DEEPEST V2 PAIR to bucket 0. The bucket is what `_topKPools`
+                // ranks by and what `_canInsert` evicts by, and the Solver's own comment prices
+                // losing the best venue at 16-20 bps.
+                //
+                // The derived poolId is already in scope below, so the confirmed identity costs
+                // one word. `regPool` starts as the declaration and is REPLACED by the derivation
+                // on the one family where the declaration is unconfirmable.
+                address regPool = leg.pool;
                 if (BPC.kindHas(leg.kind, BPC.A_RESERVES)) {
                     // NORMALISE BEFORE THE `min`. This was the EIGHTH site of
                     // the same defect class: the raw `min(r0, r1)` picks the
@@ -2089,6 +2110,10 @@ contract BlazePhoenixRouter {
                     // and the billion-unit pool weighs the same as the dust one.
                     depth = BPC.depthFromL18(liq, sp4,
                         BPC.decimalsOf(t0), BPC.decimalsOf(t1));
+                    // The pool that executed, not the pool that was named. Same `pid`
+                    // the quote and the swap used, truncated the way the registry
+                    // stores a V4 row everywhere else (`Hub.claimV4`, `_admitV4`).
+                    regPool = address(uint160(uint256(pid)));
                 } else {
                     // V3/Algebra: raw L is in root-scale and is not comparable with the min(r0,r1)
                     // that V2 reports. One extra slot0 read on the registry path (which already
@@ -2111,7 +2136,7 @@ contract BlazePhoenixRouter {
                 uint256 inM = BPC.mulDiv(leg.amountIn,    sc, 1e18);
                 uint256 outM = BPC.mulDiv(leg.expectedOut, sc, 1e18);
                 try hub.recordSwap(
-                    leg.pool, leg.kind, leg.fee, leg.hooks,
+                    regPool, leg.kind, leg.fee, leg.hooks,
                     t0, t1, inM, outM, depth
                 ) {} catch {}
                 unchecked { ++l; }
