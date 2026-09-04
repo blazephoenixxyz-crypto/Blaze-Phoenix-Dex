@@ -160,7 +160,30 @@ contract RobinhoodV4DeriveTest is Test {
     /// the one-probe phase-(a) path and skips the cold-start grid — the gas
     /// drop logged here is the self-learning evidence. The bridge side never
     /// learns a code (it pairs with many tokens at many tiers).
-    function test_Learning_CodeMakesRepeatDiscoveryCheaper() public {
+    /// @notice A LEARNED CODE ADDS A HIT AND DOES NOT SUPPRESS THE SEARCH.
+    ///
+    /// @dev THIS TEST ASSERTED THE OPPOSITE UNTIL 2026-09-04, and was red from the day the
+    ///      security fix landed. It was written in the initial public release and named
+    ///      `..._CodeMakesRepeatDiscoveryCheaper`, because at the time a learned code let
+    ///      discovery skip the grid and the repeat scan really was cheaper.
+    ///
+    ///      PR #23 removed that saving on purpose, on a report by Mohd Huzaifa: `v4CodeOf` is
+    ///      writable by anyone through the permissionless `claimV4`, so planting a dust pool at
+    ///      any valid tier set the code, produced a hit in stage (a), and switched off stage (e)
+    ///      - the only probe that reaches non-canonical tiers. A legitimate deep pool at such a
+    ///      tier then vanished from discovery entirely. The fix gates the grid on whether THIS
+    ///      PAIR's own probes found anything, deliberately not counting the learned hit
+    ///      (`Hub:_v4Discover`, the `kfBeforeOwnProbes` capture).
+    ///
+    ///      So the warm scan now does everything the cold scan does, PLUS stage (a). It must
+    ///      cost more, and the difference is the price of the property. The old assertion did
+    ///      not become wrong because the world changed - it became wrong because we chose this,
+    ///      and nobody noticed for weeks because the fork job was not running.
+    ///
+    ///      What is asserted instead: the code is learned, the warm scan still finds the pool,
+    ///      and the extra gas is bounded - a learned code that started costing an order of
+    ///      magnitude more would mean stage (a) had grown a search of its own.
+    function test_Learning_CodeIsConsultedAndDoesNotSuppressTheSearch() public {
         // cold: no code anywhere, the grid pays the discovery
         (PoolInfo[] memory h1, uint256 gCold) = _scanGas(USDG, MOMO);
         assertTrue(_hasV4(h1, MOMO_FEE, MOMO_TS), "cold scan missed MOMO");
@@ -173,10 +196,18 @@ contract RobinhoodV4DeriveTest is Test {
         // warm: phase (a) finds the pool from the learned code, grid skipped
         (PoolInfo[] memory h2, uint256 gWarm) = _scanGas(USDG, MOMO);
         assertTrue(_hasV4(h2, MOMO_FEE, MOMO_TS), "warm scan missed MOMO");
-        assertLt(gWarm, gCold, "learned code did not reduce scan gas");
+        // The learned code costs stage (a) and saves nothing, BY DESIGN. Asserting the
+        // direction pins that choice: if a future change made the warm scan cheaper again, the
+        // grid would be suppressible by a planted code and this test must say so.
+        assertGt(gWarm, gCold,
+            "the warm scan became cheaper - stage (a) is suppressing a probe again");
+        // And the extra is bounded. Stage (a) is two storage reads and one admit; if it ever
+        // costs multiples of the cold scan it has grown a search of its own.
+        assertLt(gWarm - gCold, gCold / 4,
+            "stage (a) now costs more than a quarter of a full scan - it is doing more than a lookup");
         console2.log("MOMO/USDG scan gas cold:", gCold);
         console2.log("MOMO/USDG scan gas warm (code learned):", gWarm);
-        console2.log("MOMO/USDG scan gas saved:", gCold - gWarm);
+        console2.log("MOMO/USDG cost of consulting the learned code:", gWarm - gCold);
 
         // ─── SEGUNDO TOKEN: o BAG prova a REGRA OPOSTA, e por isso fica ──
         // A propriedade "aprender o codigo baixa o gas do scan" ja esta provada
