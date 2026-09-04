@@ -1,0 +1,94 @@
+{
+  "$comment": [
+    "ASSET CLOSURE - the denominator that comes BEFORE the threat catalogue.",
+    "",
+    "The evidence chain in this repository starts at a class of published exploit. That is a",
+    "LAGGING denominator: it can only contain what has already happened to somebody. It cannot",
+    "answer 'what if we failed to write a property before anyone thought of the threat'.",
+    "",
+    "This is the leading one. Enumerate what the system holds or decides that anyone could lose,",
+    "cross it with the ways a thing can be lost, and every cell must resolve to a threat class",
+    "already in threats.json, or to an explicit out-of-scope with a reason, or be OPEN.",
+    "",
+    "It is enumerable from the DESIGN rather than from the historical record, so it can name a",
+    "cell nobody has ever exploited. That is the whole point of having it.",
+    "",
+    "Checked by .github/scripts/assurance/asset_closure.py: every threat id named here must",
+    "exist in threats.json, and every cell must carry a status."
+  ],
+  "loss_modes": {
+    "theft": "value leaves the owner and reaches someone else",
+    "freeze": "value stays where it is and nobody can move it",
+    "dilution": "value stays nominally intact and is worth less",
+    "misdirection": "value moves where it was not meant to, without an attacker profiting",
+    "griefing": "no value moves and the owner pays anyway, in gas or in a denied service"
+  },
+  "assets": [
+    {
+      "asset": "funds in transit",
+      "what": "the input a caller has handed over and the output not yet delivered, held by the executor for the length of one transaction",
+      "cells": {
+        "theft":        { "status": "covered", "threats": ["SOK-ARBITRARY-CALL", "DASP-1", "SWC-107", "SOK-VENUE-ADMISSION", "SOK-V4-DERIVE"] },
+        "freeze":       { "status": "covered", "threats": ["DASP-5"], "note": "nothing holds value across transactions; a route that cannot complete reverts and returns the input." },
+        "dilution":     { "status": "covered", "threats": ["DASP-7", "SOK-ORACLE"], "note": "the enforced output floor and the caller's own minimum bound how much a route may lose." },
+        "misdirection": { "status": "covered", "threats": ["SOK-V4-DERIVE", "SOK-PROXY-VENUE", "SOK-MODE-FLIP"] },
+        "griefing":     { "status": "covered", "threats": ["DASP-5", "SOK-GRIEF-SEATS"] }
+      }
+    },
+    {
+      "asset": "delegated allowance",
+      "what": "the standing approval a caller grants the executor or the canonical permit contract, which outlives the swap that motivated it",
+      "cells": {
+        "theft":        { "status": "covered", "threats": ["SOK-ARBITRARY-CALL", "SOK-SIG-REPLAY"], "note": "the executor never takes a caller-supplied call target, so an allowance cannot be spent through a route the caller did not sign." },
+        "freeze":       { "status": "out-of-scope", "rationale": "an allowance is the caller's to revoke at any time; this system cannot prevent them and does not hold it." },
+        "dilution":     { "status": "not-applicable", "rationale": "an allowance is a permission, not a quantity that can be devalued." },
+        "misdirection": { "status": "covered", "threats": ["SOK-ARBITRARY-CALL"] },
+        "griefing":     { "status": "out-of-scope", "rationale": "a caller who approves and never trades loses nothing but the gas of approving." }
+      }
+    },
+    {
+      "asset": "protocol fee",
+      "what": "the share of a swap owed to the treasuries, and the arithmetic that decides it",
+      "cells": {
+        "theft":        { "status": "covered", "threats": ["SOK-FEE-BASE"], "note": "the fee base is re-derived from the on-chain quote of the legs as executed, so a declared figure cannot shrink it." },
+        "freeze":       { "status": "out-of-scope", "rationale": "the fee is transferred within the swap; it is never accrued or held pending a later claim." },
+        "dilution":     { "status": "covered", "threats": ["SOK-FEE-BASE", "SOK-QUOTE-EXEC"] },
+        "misdirection": { "status": "covered", "threats": ["DASP-2"], "note": "the treasury addresses are control-plane state and the control plane can be renounced." },
+        "griefing":     { "status": "open", "note": "a caller who structures a route so the fee lands in a denomination nobody wants imposes a cost on the recipient rather than on themselves. Bounded and unquantified." }
+      }
+    },
+    {
+      "asset": "registry integrity",
+      "what": "which venues discovery serves, which origins are attested, and the fitness ranking that decides what a route may use",
+      "cells": {
+        "theft":        { "status": "covered", "threats": ["SOK-VENUE-ADMISSION", "SOK-PROXY-VENUE", "SOK-MODE-FLIP"] },
+        "freeze":       { "status": "covered", "threats": ["DASP-2"], "note": "after renunciation the registry only grows; what survives that is enumerated and tested." },
+        "dilution":     { "status": "covered", "threats": ["SOK-GRIEF-SEATS"] },
+        "misdirection": { "status": "covered", "threats": ["SOK-V4-DERIVE", "SOK-VOLUME"] },
+        "griefing":     { "status": "covered", "threats": ["SOK-GRIEF-SEATS", "DASP-5"] }
+      }
+    },
+    {
+      "asset": "stranded balances",
+      "what": "tokens that reach the executor outside a swap - a mis-send, a rebase, a fee-on-transfer residual",
+      "cells": {
+        "theft":        { "status": "covered", "threats": ["SOK-FOT"], "note": "scaling excludes the pre-swap balance, so a crafted route cannot size itself to funds that were already there." },
+        "freeze":       { "status": "covered", "threats": ["DASP-2"], "note": "recovery is a queued, control-plane action and dies with the control plane, which is a deliberate trade and not an oversight." },
+        "dilution":     { "status": "not-applicable", "rationale": "a stranded balance has no share to dilute." },
+        "misdirection": { "status": "covered", "threats": ["SOK-FOT"] },
+        "griefing":     { "status": "open", "note": "an attacker can strand dust deliberately to make recovery uneconomic. No loss to any user; unquantified." }
+      }
+    },
+    {
+      "asset": "caller gas",
+      "what": "what a caller spends to reach a refusal, including refusals raised by the compiler rather than by a named guard",
+      "cells": {
+        "theft":        { "status": "not-applicable", "rationale": "gas cannot be transferred to an attacker by this system." },
+        "freeze":       { "status": "not-applicable", "rationale": "gas is consumed, not held." },
+        "dilution":     { "status": "not-applicable", "rationale": "gas has no share to dilute." },
+        "misdirection": { "status": "open", "note": "three compiler Panic codes are reachable and asserted by no test. A caller meeting one pays for a bare panic instead of a named refusal they could interpret. See panic_inventory.py and panic_sites.py." },
+        "griefing":     { "status": "covered", "threats": ["DASP-5"] }
+      }
+    }
+  ]
+}

@@ -55,7 +55,8 @@
 //  pool inserts it on the success path with vitality = 1 and a depth bucket
 //  derived from the current pool depth. When a pair already holds MAX_SLOTS
 //  pools, the lowest-scoring occupant is overwritten only if the newcomer's
-//  projected score improves on it by at least EVICTION_IMPROVE_BPS.
+//  projected fitness beats it by the margin _canInsert enforces (a quarter of the
+//  incumbent's psi, quantised - see the note there; the percentage is not exact).
 //
 //  Discovery is permissionless and factory/CREATE2-driven. Factory entries
 //  describe the supported DEXs; for any (t0, t1) the Hub iterates the factory
@@ -133,7 +134,6 @@ contract BlazePhoenixHub {
     ///      explains the divergence instead of leaving it silent.
     uint8   internal constant MAX_BRIDGE_ROUTES      = MAX_BRIDGES;
     uint8   internal constant MAX_FACTORIES          = 16;
-    uint16  internal constant EVICTION_IMPROVE_BPS   = 1_000;
 
     // ─── addFactory coherence-guard constants ────────────────────────────
     // Kind enumeration: SINGLE PRODUCER in the Core (`BPC.KIND_*`). This file used to keep a
@@ -1549,8 +1549,21 @@ contract BlazePhoenixHub {
 
     /// @notice Called by the Router on every successful leg. If the pool is
     ///         already registered, we tick its slot. If not, and the pair has
-    ///         room or the newcomer beats the weakest occupant by
-    ///         EVICTION_IMPROVE_BPS, we register it.
+    ///         room or the newcomer's projected fitness beats the weakest
+    ///         occupant by the margin `_canInsert` enforces, we register it.
+    ///
+    ///         THE MARGIN IS A QUARTER, NOT A TENTH (corrected 2026-09-04). This
+    ///         docstring named a constant `EVICTION_IMPROVE_BPS = 1_000` that no
+    ///         code has ever read - it was declared, described here and at the
+    ///         file header as the governing rule, and used nowhere. The rule that
+    ///         runs is `newcomerPsi > worstPsi + worstPsi / 4`, and `_canInsert`
+    ///         explains why even that quarter is not exact against a quantised
+    ///         psi. The constant is deleted rather than wired up: the implemented
+    ///         rule is the stricter of the two, and a documented threshold nobody
+    ///         enforces is worse than no threshold at all.
+    ///
+    ///         Found by counting how many times each declared constant is pushed
+    ///         in the deployed bytecode. This one was pushed zero times.
     function recordSwap(
         address pool, uint8 kind, uint24 fee, address hooks,
         address tA, address tB, uint256 amtIn, uint256 amtOut, uint256 depthWad

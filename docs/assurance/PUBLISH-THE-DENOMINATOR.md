@@ -129,6 +129,46 @@ The artefact also proves something the language only promises. Three of our five
 
 ---
 
+## 4b. What the artefact said that the source did not
+
+Four things came out of reading the compiled object rather than the text, and the order matters:
+in each case the artefact spoke first and the source only confirmed it afterwards.
+
+**The suite was running against an undeployable contract.** The test profile and the release
+profile differed in one setting — the optimiser run count — and nothing compared them. Measured
+across three settings on identical source:
+
+| optimiser runs | registry runtime | margin to the 24,576-byte limit |
+|---:|---:|---:|
+| 600 | 24,334 | **+242** |
+| 800 | 24,454 | +122 |
+| 1000 | 24,982 | **−406** |
+
+The suite ran at 1000. At 1000 the registry contract exceeds the deployment limit by 406 bytes
+and the executor by 31. Every check was green throughout: the size guard runs under the release
+profile, the tests run under the default profile, and no one had ever asserted that the two agree.
+So the evidence was being produced against a binary that cannot be deployed, and the mechanism
+that would say so did not exist.
+
+The repair is not a second test run. It is to stop having two binaries — the settings are now
+identical, and a guard asserts it, because a divergence reintroduced later would be exactly as
+invisible as this one was.
+
+**A documented rule that nothing implements.** Counting how many times each declared constant is
+pushed in the deployed bytecode turned up one that is pushed zero times in 85 KB of runtime. Its
+two apparent uses in the source are both comments — including a docstring naming it as the rule
+that governs registry eviction. The rule that actually runs requires a quarter, not a tenth, and
+is documented as such three hundred lines away. No review finds that: the comment reads
+perfectly and the constant exists. The compiler had already established it was inert.
+
+**Three of five contracts write no storage at all.** `view` is a promise the language makes.
+Zero `SSTORE` in the emitted code is what the compiler did, and it is the stronger statement.
+
+**Nine tenths of the shipped bytes trace back to source anyone here wrote.** 91.8% attributable
+to `src/`, 0% to dependencies — nothing imported reaches the chain — and **7,056 bytes of
+compiler machinery**: dispatch, decoding, allocation, revert plumbing. That last fraction is
+reviewed by nobody, measured by no coverage report and named in no threat model, and it ships.
+
 ## 5. Adding metres to seconds
 
 Physics checks dimensional homogeneity as a matter of course. You do not add metres to seconds,

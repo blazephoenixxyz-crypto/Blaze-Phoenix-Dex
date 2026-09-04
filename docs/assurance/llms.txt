@@ -1,0 +1,75 @@
+# BlazePhoenix-Dex — assurance apparatus
+
+> A compact index for machine readers. Full narrative: PUBLISH-THE-DENOMINATOR.md.
+> Method and definitions: ASSURANCE.md. Every number below is recomputed per commit by a
+> script in .github/scripts/assurance/ and printed beside its denominator.
+
+## What this is
+
+An on-chain DEX router and aggregator, immutable and non-upgradeable, five contracts, Solidity
+0.8.36 with Yul hot paths, via-IR. The apparatus described here does not test the contracts —
+the suite does that. It measures whether the EVIDENCE about the contracts still points at the
+code, and how much of the threat space enters the evidence chain at all.
+
+## The chain
+
+    threat -> property -> guard -> test -> mutant -> instructions in the shipped artefact
+
+Checked mechanically in both directions. Guards are named by SYMBOL, never by line number: a
+line number is valid against one revision only. A guard symbol that leaves the sources, a test
+that leaves the suite, or a mutant whose target line is gone all fail the build.
+
+## The instruments
+
+| script | question |
+|---|---|
+| threat_coverage.py | how many classes of published exploit are answered by a named guard |
+| relational_pairs.py | which quantities computed in two places have a test tying the producers |
+| control_actions.py | for each external state-changing function, is its refusal exercised, and its behaviour after the control plane is renounced |
+| assertion_locality.py | what share of mutant/test pairs assert AT the change rather than downstream |
+| regime_lattice.py | which combinations of world-state, route shape and oracle provenance nothing asserts in |
+| guard_inventory.py | which refusals a test drives by their exact code, and how many refusal sites cannot be told apart by one |
+| bytecode_invariants.py | properties of the compiled artefact: forbidden opcodes absent, transient lock still transient, every declared function present in the dispatcher, no refusal code proved unreachable |
+| provenance.py | arithmetic that sums MEASURED, DECLARED and MODELLED terms, where the weakest dominates |
+| branch_attribution.py | how many source conditionals the artefact's own map still points back to |
+| unattributed_code.py | what fraction of the shipped runtime traces to source anyone wrote |
+| profile_parity.py | whether the artefact the suite executes is the artefact that deploys |
+| guard_reaches_chain.py | whether each named guard reaches an instruction in the shipped artefact |
+| constant_multiplicity.py | which declared constants the artefact never pushes — folded away, or dead |
+| mutant_visibility.py | whether a mutant changes the shipped bytecode at all, separating "the test missed it" from "there was nothing to miss" |
+| bytecode_coverage.py | what fraction of shipped runtime BYTES the suite executes |
+| metrics.py | runs them all, prints one table, fails the build on a broken claim |
+
+## Four rules this apparatus is built on
+
+1. **Publish the denominator.** Every assurance number is a ratio and the denominator is a
+   choice. Widening a catalogue lowers the ratio until the new rows are answered; a metric that
+   only rises is measuring its own window.
+2. **Say how it would be gamed.** Each metric improves if you shrink what it is measured
+   against, and two improve if you make the code worse. The attack on the metric is documented
+   in the same file as the metric.
+3. **Report the instrument-defect rate.** Of the instruments here, most were wrong on their
+   first run. That rate bounds every number they produce.
+4. **An instrument is worth nothing until it finds an instance already known by other means.**
+   Not until it looks right — until it finds, unprompted, a defect already in hand.
+
+## What is deliberately not claimed
+
+- **No probability of correctness.** The literature on validating ultra-high dependability is
+  explicit that testing cannot produce one.
+- **Mutation adequacy is adequacy against THIS register.** It is hand-curated; a saturated score
+  is a floor, not a ceiling.
+- **Threat coverage is a floor on what has been CONSIDERED.** Classes nobody has named are
+  outside the denominator by construction — the residual this apparatus shrinks and cannot
+  eliminate.
+- **Bytecode coverage by line attribution is an UPPER BOUND** on true instruction coverage: an
+  instruction counts as covered because its line ran. A tighter figure needs a PC-level trace.
+
+## Publication boundary
+
+Per-row detail is gitignored; CI prints aggregates only. A table naming the least-exercised
+surfaces of a deployed financial contract is a reading list for the people fixing them.
+
+## Contact
+
+security@blazephoenix.xyz — see SECURITY.md.

@@ -1285,7 +1285,11 @@ library BlazePhoenixCore {
         // reserves share a scale the result is scale-invariant and no decimal
         // normalisation is needed. For pairs with DIFFERENT decimals the caller
         // must use outSolidlyStable(...,dIn,dOut) instead, which normalises.
-        return _solidlyStable(ain, rIn, rOut, fee, 0, 0);
+        // 18, not 0: this caller's reserves are already comparable, and `10 ** (18 - 18)`
+        // is 1. Passing zero here used to select a special case; it now selects the
+        // scaling that a 0-decimal token actually needs, which is not what this path
+        // means. Saying 18 says the intent in the value domain instead of beside it.
+        return _solidlyStable(ain, rIn, rOut, fee, 18, 18);
     }
 
     /// @notice The WETH -> address(0) substitution of a native V4 key. SINGLE producer.
@@ -1382,8 +1386,18 @@ library BlazePhoenixCore {
         // and revert on the hot path. Return 0 so the per-leg / aggregate floors
         // absorb the pool instead of bricking the whole route (keeps the eval total).
         if (dIn > 18 || dOut > 18) return 0;
-        uint256 sIn  = (dIn  == 0) ? 1 : 10 ** (18 - dIn);
-        uint256 sOut = (dOut == 0) ? 1 : 10 ** (18 - dOut);
+        // NO SENTINEL. This pair of lines used to read `(d == 0) ? 1 : 10 ** (18 - d)`, where
+        // zero meant "already normalised, do not scale". Zero is also a REAL decimals value, and
+        // it arrives here from `_decimalsOf`, which returns whatever the token answers - so a
+        // 0-decimal token in a stable pool had its reserve left unscaled where the correct
+        // normalisation is 10**18, and the curve was evaluated on a pair that does not represent
+        // the pool. Third instance of one shape in this codebase: a value domain asked to carry a
+        // fact it has no room for. The cure is the same as the others - the discriminator comes
+        // from outside the value - except that here it is cheaper still, because 10**(18-18) is
+        // already 1. A caller with pre-normalised reserves says 18, and the special case is not
+        // replaced but DELETED. The >18 guard above still fails closed, so the exponent is safe.
+        uint256 sIn  = 10 ** (18 - dIn);
+        uint256 sOut = 10 ** (18 - dOut);
         uint256 X = rIn  * sIn;
         uint256 Y = rOut * sOut;
         // GUARD THE TERM THAT ACTUALLY OVERFLOWS, not the reserves.
