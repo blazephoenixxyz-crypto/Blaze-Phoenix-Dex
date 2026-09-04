@@ -916,6 +916,19 @@ M = [
       old='        exactOut = gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
       new='        exactOut = gross - BPC.mulDiv(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANT',
       teste='test_ExactOut_OneHop_IsThePoolMathCeilingLessTheFeeRoundedUp'),
+ # The compiler's own refusal, paired. `Router:_execute` divides hopAttested/hopQuoted under
+ # `if (hopAttested != 0)`, and that guard is what makes panic 0x12 unreachable there: the three
+ # hop accumulators are declared inside the hop loop and hopAttested is the sum of exactly the
+ # legAtt values whose non-zero-ness increments hopQuoted, so a non-zero sum needs a non-zero
+ # term. Moving the guard onto hopGot - an accumulator the divisor is NOT built from - lets a hop
+ # that executes without attesting divide by zero. It dies with `panic: division or modulo by
+ # zero (0x12)`, which is the point: the corpus really does drive such a hop, so the argument
+ # above is tested rather than merely asserted.
+ dict(nome="panic 0x12: the hop-slack guard moves to an accumulator the divisor is not built from",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (hopAttested != 0) {",
+      new="            if (hopGot != 0) {",
+      teste="test_G7_OneWeiOutput_BoundaryPasses"),
 ]
 
 def run(t):

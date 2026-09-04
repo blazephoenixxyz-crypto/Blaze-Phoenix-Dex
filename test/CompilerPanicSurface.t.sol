@@ -25,12 +25,17 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 ///         declared INSIDE the hop loop body, and `hopAttested` is the sum of exactly the
 ///         `legAtt` values whose non-zero-ness increments `hopQuoted`, so a non-zero sum needs a
 ///         non-zero term and `hopQuoted >= 1`. An argument is not evidence, so the evidence is a
-///         mutant (`mutants.py`, panic-0x12-hop-slack-divisor) that moves the guard onto
-///         `hopGot`, an accumulator the divisor is NOT built from; a hop whose legs execute
-///         without attesting then divides by zero. 0x41 is reachable only through curator
-///         configuration - `discoverFor` sizes its array from `fac.fees.length *
-///         fac.spacings.length`, both curator-writable, and gas exhaustion arrives long before
-///         the allocation limit - so no stranger can grow it. See `panic_sites.py`.
+///         mutant in `mutants.py` that moves the guard onto `hopGot`, an accumulator the
+///         divisor is NOT built from. It dies: `test_G7_OneWeiOutput_BoundaryPasses` and
+///         `test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused` both fail with `panic:
+///         division or modulo by zero (0x12)`. That is the part that matters - the corpus
+///         really does drive a hop whose legs execute without attesting, so the guard is
+///         load-bearing rather than decorative and the argument above is tested, not asserted.
+///
+///         0x41 is reachable only through curator configuration: `discoverFor` sizes its array
+///         from `fac.fees.length * fac.spacings.length`, both curator-writable, and gas
+///         exhaustion arrives long before the allocation limit. No stranger can grow it -
+///         creating pools in a listed factory does not enter that product. See `panic_sites.py`.
 contract CompilerPanicSurfaceTest is Test {
     BlazePhoenixHub hub;
 
