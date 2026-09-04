@@ -9,7 +9,7 @@ import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
-/// @notice FLOOR-01 and FLOOR-02 — two ways the caller could relax a floor the code promised
+/// @notice FLOOR-01 — one of two ways the caller could relax a floor the code promised
 ///         they could not, both found by a census of quantities with two producers rather than
 ///         by hand, and both measured before they were fixed.
 ///
@@ -85,24 +85,6 @@ contract FloorAnchorAndLegCountTest is Test {
             }
         }
         revert("no ExecutionProof emitted");
-    }
-
-    /// @notice FLOOR-02. Legs that execute nothing must not buy any loosening. The floor shaves
-    ///         FLOOR_PER_LEG_BPS per leg to pay for the composition risk of a real split; a leg
-    ///         that never touched a pool carries none of it.
-    function test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor() public {
-        uint256 amt = 100e18;
-        uint256 clean  = _floorBpsOfQuote(_route(amt, 0), amt);
-        uint256 padded = _floorBpsOfQuote(_route(amt, 4), amt);   // MAX_LEGS_PER_HOP = 5
-
-        emit log_named_uint("floor bps of quote, one leg      ", clean);
-        emit log_named_uint("floor bps of quote, four padded  ", padded);
-
-        assertGt(clean, 9_000, "premise: the honest route carries a floor near the 9600 base");
-        // Pre-fix this gap was 799 - four legs times FLOOR_PER_LEG_BPS, to the bps. What is left
-        // is the impact term moving because the first swap shifted the reserves.
-        uint256 gap = clean > padded ? clean - padded : 0;
-        assertLt(gap, 50, "PADDING: zero-amount legs must not walk the protocol floor down");
     }
 
     /// @notice FLOOR-01. A trailing hop that moves nothing must not become the floor's anchor.

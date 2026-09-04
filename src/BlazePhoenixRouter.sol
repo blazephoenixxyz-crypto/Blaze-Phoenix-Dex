@@ -1389,7 +1389,18 @@ contract BlazePhoenixRouter {
             unchecked { ++execLegs; }
         }
         uint256 avgImpact = declaredLegs > 0 ? impactAcc / declaredLegs : 0;
-        uint256 floorBps  = BPC.ironFloorBps(avgImpact, execLegs, 0);
+        // FLOOR-02 IS NOT CLOSED HERE, and saying so is the point of this block. Passing
+        // `execLegs` is the correct shape - a leg that never touched a pool carries none of the
+        // composition risk the shave pays for, and it removes the measured 799 bps that four
+        // zero-amount legs bought. It also REFUSES four routes that existing security
+        // regressions need to execute in order to observe the fee they were written to prove
+        // (FeeEscapeViaBridgeResidual and siblings): those routes legitimately contain a leg
+        // that spends nothing, and the tighter floor turns them into RouterE(5). Trading
+        // fee-charging evidence for a refusal is a decision about protocol behaviour, not a
+        // refactor, so it is not made here. `execLegs` is computed and left visible so the
+        // change is one word when that decision is taken.
+        uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);
+        execLegs;         // measured, not yet consumed: see the note above
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.

@@ -955,11 +955,6 @@ M = [
 
  # FLOOR-02: the leg count goes back to the DECLARED legs of the hop instead of the executed
  # mask, so padding with zero-amount legs shaves FLOOR_PER_LEG_BPS each.
- dict(nome="FLOOR-02: the leg shave counts DECLARED legs instead of executed ones",
-      f="src/BlazePhoenixRouter.sol",
-      old="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, execLegs, 0);",
-      new="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);",
-      teste="test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor"),
 
  # WIDENING mutants. Measured 2026-09-04 over this register: 33 entries neutralise a guard, 21
  # tighten one, and only 17 widen - exactly one adds an alternative with `||`. "Absence read as
@@ -975,6 +970,13 @@ M = [
       old="    modifier onlyAdmin()    { _auth(msg.sender == _store().admin); _; }",
       new="    modifier onlyAdmin()    { _auth(msg.sender == _store().admin || _store().operator[msg.sender]); _; }",
       teste="test_AnOperatorIsRefusedAtTheAdminDoor"),
+ # The ceiling itself. Raising it leaves every existing test green - the one that names it
+ # builds a 61-hop route and swallows the result with a bare expectRevert, and 61 > 60.
+ dict(nome="MAX_HOPS: the route-length ceiling is raised and nothing notices",
+      f="src/BlazePhoenixRouter.sol",
+      old="    uint8   internal constant MAX_HOPS          = 3;",
+      new="    uint8   internal constant MAX_HOPS          = 4;",
+      teste="test_FourHopsIsPastTheCeilingAndRefused"),
 ]
 
 def run(t):
