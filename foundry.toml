@@ -16,7 +16,7 @@ optimizer = true
 # `[profile.release]` below (FOUNDRY_PROFILE=release) for the real
 # gas-optimized build before an actual deploy; keep default fast for local
 # dev/test iteration.
-optimizer_runs = 1000
+optimizer_runs = 600
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }]
 
@@ -62,7 +62,7 @@ optimizer = true
 # rehearsal. Next code lever if this dial is ever exhausted: Router/Core
 # revert strings -> custom errors (~14 sites, est. 400-800 B; needs the two
 # "BPC:" expectRevert pins in BlazePhoenixCore.t.sol updated with it).
-optimizer_runs = 800
+optimizer_runs = 600
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }]
 

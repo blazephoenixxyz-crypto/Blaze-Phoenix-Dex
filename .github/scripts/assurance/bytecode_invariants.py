@@ -33,6 +33,9 @@ Usage: python3 bytecode_invariants.py <repo_root>
 import json, os, sys, glob, re
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "."
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _freshness import require_fresh
+require_fresh(ROOT, quiet=True)
 OUT  = os.path.join(ROOT, "out")
 
 # opcode -> (name, may it appear in these contracts?)
@@ -97,8 +100,15 @@ def opcodes(hexstr):
     return seen
 
 targets, problems, rows = [], [], []
-for p in glob.glob(os.path.join(OUT, "BlazePhoenix*.sol", "*.json")):
+# ONLY WHAT DEPLOYS. `out/` also holds artefacts for test contracts, whose directories match
+# any glob over BlazePhoenix*.sol. Including them made this read eleven artefacts instead of
+# five and report a TEST contract as having an unreachable selector - a finding about a
+# contract that never leaves the machine.
+for p in sorted(glob.glob(os.path.join(OUT, "BlazePhoenix*.sol", "*.json"))):
+    d = os.path.basename(os.path.dirname(p))
     name = os.path.basename(p)[:-5]
+    if d.endswith(".t.sol") or d.endswith(".s.sol"): continue
+    if name + ".sol" != d: continue
     if not name.startswith("BlazePhoenix"): continue
     try:
         art = json.load(open(p))
@@ -124,7 +134,34 @@ for p in glob.glob(os.path.join(OUT, "BlazePhoenix*.sol", "*.json")):
     if missing:
         problems.append(f"{name}: {len(missing)} declared function(s) have no selector in the "
                         f"dispatcher - declared and unreachable: {', '.join(missing[:6])}")
+    # THE OPTIMISER IS AN UNREACHABILITY PROVER, and nobody has asked it what it proved.
+    # Every refusal in the source names an error and an argument. Both are emitted as constants.
+    # If a code that the source still contains has NO path in the artefact that can produce it,
+    # the optimiser proved the condition impossible - so either the guard is dead code wearing
+    # the costume of a defence, or the optimiser is wrong, and the second is worse. Either way
+    # it is a fact about the shipped contract that no source review and no test can reach.
+    #
+    # Detection is coarse on purpose: the error selector must appear as a PUSH constant, and the
+    # numeric argument as an immediate somewhere in the code. A missing selector is strong
+    # evidence; a present one proves only that some path mentions it.
+    src_codes = set()
+    for sp in sorted(glob.glob(os.path.join(ROOT, "src", "*.sol"))):
+        body = open(sp).read()
+        if os.path.basename(sp)[:-4] not in name: continue
+        for m in re.finditer(r"revert\s+(\w+)\s*\(\s*(\d+)\s*\)", body):
+            src_codes.add((m.group(1), int(m.group(2))))
+    imm = set()
+    for _o, op, i2 in walk(obj):
+        if 0x60 <= op <= 0x7f and i2:
+            v = int.from_bytes(i2, "big")
+            if v < 256: imm.add(v)
+    gone = sorted({f"{e}({n})" for e, n in src_codes if n not in imm})
+    if gone:
+        problems.append(f"{name}: refusal code(s) present in source but with no matching "
+                        f"immediate in the artefact - the optimiser may have proved them "
+                        f"unreachable: {', '.join(gone)}")
     row = {"contract": name, "bytes": (len(obj) - 2) // 2,
+           "src_refusal_codes": len(src_codes), "codes_absent_from_artefact": len(gone),
            "unlinked_libs": len(LIB_REF.findall(obj)),
            "selectors_declared": len(abi_sel), "selectors_missing": len(missing),
            **counts}

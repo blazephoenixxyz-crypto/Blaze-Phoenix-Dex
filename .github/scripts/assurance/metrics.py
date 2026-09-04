@@ -20,6 +20,27 @@ hard to fake.
                        the compiler has had its say
   provenance           arithmetic that SUMS terms of different epistemic status - measured,
                        declared, modelled - where the weakest one dominates the result
+  branch attribution   how many source conditionals the artefact's own map still points back
+                       to - a WATCH, not a coverage figure: it is a fact about the map
+  unattributed         what fraction of the SHIPPED runtime traces back to a file in src/,
+                       and what fraction is compiler machinery nobody reviews
+  profile parity       whether the artefact the suite executes is the artefact that deploys -
+                       a suite that ran against a different binary is evidence about a contract
+                       nobody will use
+  guard reach          named guards that reach an instruction in the SHIPPED artefact - the
+                       bytecode half of the traceability chain, which stops at source everywhere
+                       else
+  constants            declared constants the artefact never pushes: folded away, or dead
+  bytecode coverage    what fraction of the SHIPPED runtime bytes the suite executes - the
+                       figure over the deployed object rather than over source lines
+  panics               the refusal surface we did NOT write - which compiler-generated
+                       Panic(uint256) codes the artefact can raise, and which any test asserts
+  panic sites          where in the SOURCE each compiler panic could come from, and whether a
+                       guard of ours refuses first
+  asset closure        the denominator BEFORE the threat catalogue: what this system holds that
+                       anyone could lose, crossed with the ways a thing can be lost
+  evidence independence  whether the confirmations behind a property are one hypothesis or
+                       several - the minimum over five axes, because evidence is a chain
   mutation targets     mutants whose target line still exists exactly once
 
 WHAT MOVES EACH OF THEM THE WRONG WAY, stated so a reader can check for it:
@@ -39,6 +60,24 @@ WHAT MOVES EACH OF THEM THE WRONG WAY, stated so a reader can check for it:
   * bytecode cannot be gamed upward in any useful way, and that is its point: absence of an
     opcode is a real guarantee, while presence proves nothing on its own. It is a floor, and it
     is a no-op on a tree that has not been built.
+  * branch attribution cannot be gamed in any direction that means anything, which is why it is
+    a watch rather than a target. Its value is the CHANGE: a fall means the compiler started
+    treating guards differently, and that is the event worth being told about.
+  * unattributed is not a target in either direction. Driving the unmapped fraction down would
+    mean hand-writing what the compiler writes better. Its value is the PROPORTION being known
+    at all, and a jump in it meaning this build emits materially more machinery than the last.
+  * profile parity has one correct value and cannot be gamed: it either holds or the suite is
+    evidence about a binary that does not ship.
+  * bytecode coverage rises by deleting declarations, which is why the four buckets are printed
+    rather than one ratio. It needs an lcov file and is skipped without one.
+  * panics cannot be gamed downward except by removing the assumption that produced the guard,
+    which is the correct response. A panic no test asserts is not a defect - it is a refusal path
+    whose reachability nobody has established in either direction.
+  * asset closure rises by declaring a cell not-applicable, so every exemption carries a written
+    reason and the OPEN count is printed beside the total.
+  * evidence independence cannot be gamed by writing more tests of the same kind - that is the
+    one thing it is built not to reward. It rises only by adding a confirmation that differs on
+    an axis where the property currently has one value.
   * mutation targets is the only one with a single correct value: anything but 100% means a
     claim in the guard points at code that is gone.
 
@@ -56,7 +95,16 @@ STEPS = [("threat coverage", "threat_coverage.py", "assurance-threat-coverage.js
          ("regime lattice",  "regime_lattice.py",  "assurance-regime-lattice.json"),
          ("guard inventory", "guard_inventory.py", "assurance-guard-inventory.json"),
          ("bytecode",        "bytecode_invariants.py", "assurance-bytecode.json"),
-         ("provenance",      "provenance.py",      "assurance-provenance.json")]
+         ("provenance",      "provenance.py",      "assurance-provenance.json"),
+         ("branch attribution", "branch_attribution.py", "assurance-branch-attribution.json"),
+         ("unattributed",    "unattributed_code.py", "assurance-unattributed.json"),
+         ("profile parity",  "profile_parity.py",  None),
+         ("guard reach",     "guard_reaches_chain.py", "assurance-guard-reach.json"),
+         ("constants",       "constant_multiplicity.py", "assurance-constants.json"),
+         ("panics",          "panic_inventory.py", "assurance-panics.json"),
+         ("panic sites",     "panic_sites.py",     "assurance-panic-sites.json"),
+         ("asset closure",   "asset_closure.py",   "assurance-asset-closure.json"),
+         ("evidence independence", "evidence_independence.py", "assurance-evidence-independence.json")]
 
 out, failed = {}, []
 for label, script, artefact in STEPS:
@@ -64,6 +112,9 @@ for label, script, artefact in STEPS:
                        capture_output=True, text=True)
     if r.returncode != 0:
         failed.append((label, r.stdout.strip().splitlines()[-3:]))
+    if artefact is None:
+        out[label] = {"ok": r.returncode == 0}
+        continue
     p = os.path.join(ROOT, artefact)
     if os.path.exists(p):
         out[label] = json.load(open(p))
@@ -78,6 +129,15 @@ lat = out.get("regime lattice", {})
 gi  = out.get("guard inventory", {})
 bc  = out.get("bytecode", {})
 pv  = out.get("provenance", {})
+ba  = out.get("branch attribution", {})
+ua  = out.get("unattributed", {})
+pp  = out.get("profile parity", {})
+grx = out.get("guard reach", {})
+cst = out.get("constants", {})
+pan = out.get("panics", {})
+psi = out.get("panic sites", {})
+asc = out.get("asset closure", {})
+evi = out.get("evidence independence", {})
 print("=" * 66)
 print("ASSURANCE METRICS")
 print("=" * 66)
@@ -96,6 +156,23 @@ print(f"bytecode             {bc.get('artefacts','?')} artefacts, "
       f"{len(bc.get('problems',[]))} invariants broken")
 print(f"provenance           {pv.get('mixed','?')} mixed sums; "
       f"{pv.get('by_kind',{}).get('MEASURED + MODELLED',0)} where a model meets a measurement")
+print(f"branch attribution   {ba.get('with_branch','?')}/{ba.get('conditionals','?')} source "
+      f"conditionals mapped to a branch in the artefact")
+_t = ua.get("totals", {})
+_g = sum(_t.values()) or 1
+print(f"unattributed         {ua.get('ours_fraction','?')} of shipped runtime traces to src/; "
+      f"{_t.get('UNMAPPED','?')} bytes are compiler machinery")
+print(f"profile parity       {'one binary - the suite ran against what deploys' if pp.get('ok') else 'DIVERGED - the suite tested a binary that does not ship'}")
+print(f"guard reach          {grx.get('reaching','?')}/{grx.get('guards','?')} named guards reach the shipped artefact")
+print(f"constants            {len(cst.get('never_pushed',[]))} declared constants the artefact never pushes")
+print(f"panics               {len(pan.get('codes',[]))} compiler panic codes reachable; "
+      f"{len(pan.get('unasserted',[]))} asserted by no test")
+print(f"panic sites          {psi.get('sites','?')} sites could raise one; "
+      f"{psi.get('unguarded','?')} with no guard found in the enclosing function")
+print(f"asset closure        {asc.get('covered','?')}/{asc.get('cells','?')} asset x loss cells "
+      f"answered; {asc.get('open','?')} open")
+print(f"evidence independence {len(evi.get('single_axis',[]))} properties whose confirmations "
+      f"collapse to one hypothesis on some axis")
 print(f"mutation targets     {out['mutation targets']['line']}")
 print("=" * 66)
 if failed:
