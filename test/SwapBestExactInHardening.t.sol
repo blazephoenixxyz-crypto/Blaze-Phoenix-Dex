@@ -218,10 +218,16 @@ contract SwapBestExactInHardeningTest is Test {
         // break on any side is a real quote!=execution regression.
         assertLe(delivered, rt.totalOut, "delivered above the pool-math ceiling");
         assertGe(delivered, exactOut, "delivered below the exact preview: exactOut is the floor");
+        // This band used to be written against `exactOut`, which line 219 already asserts
+        // `delivered` is at or above — so `delivered >= exactOut * 0.99` was implied by its own
+        // predecessor and could not fail under any mutation. The comment above says what it was
+        // meant to bound: the distance from the POOL-MATH CEILING. Written against `rt.totalOut`
+        // it is a real two-sided band, and the protocol fee (28 bps) plus rounding is what has
+        // to fit inside the 1%.
         assertGe(
             delivered,
-            BPC.mulDiv(exactOut, 9_900, BPC.BPS),
-            "delivered fell >1% below the exact preview"
+            BPC.mulDiv(rt.totalOut, 9_900, BPC.BPS),
+            "delivered fell >1% below the pool-math ceiling"
         );
 
         assertEq(

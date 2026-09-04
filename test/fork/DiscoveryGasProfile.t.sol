@@ -50,7 +50,7 @@ contract DiscoveryGasProfileTest is Test {
     bool ligado;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("base", 49_800_000);
         ligado = true;
     }
@@ -110,7 +110,7 @@ contract DiscoveryGasProfileTest is Test {
 
     /// @notice A DECOMPOSICAO.
     function test_PerfilDeGas_Descoberta() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
 
         console2.log("=== A) 8 factories classicas ===");
         _base();

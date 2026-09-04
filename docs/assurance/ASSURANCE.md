@@ -234,6 +234,17 @@ release artefact** — same sources, different optimiser, roughly twice the size
 shipped object is by source item, not by byte, and this figure is read beside `profile_parity.py`,
 not instead of it.
 
+**What the report hands back is one deployed instance, not the artefact.** A second probe
+settles it. `test/PcCoverageImmutableProbe.t.sol` deploys one contract twice with different values
+in an immutable and calls only the first. The disassembly comes back carrying the *second*
+instance's tag — the one never called — while the annotation marks the *first* instance's function
+as reached. The listing and the annotation are therefore two different objects: the hit map is
+merged across every deployment by source item, and the disassembly is one arbitrary deployed
+instance, immutables patched, chosen by hash order. That predicts exactly which contracts move —
+the ones the suite deploys many times, which is every fixture's own Hub and Router. So the figure
+is a lower bound on the union of what all deployments executed, laid over one instance's layout,
+and not a measurement of the shipped artefact, whose immutables match no test instance.
+
 **The input is not stable, and that bounds what may be cited.** Two runs of the identical tree
 with the same `--fuzz-seed` do not produce the same listings. Core, Quoter and Solver came back
 identical in their instruction stream. Router and Hub did not: same instruction count and the same
@@ -247,6 +258,52 @@ The aggregate survives it, and barely moves: **85.9% and 86.2%** across two pinn
 figure to quote is the **lowest observed**, because every run's closure is a subset of what that run
 executed, so a lower number is never contradicted by a higher one. Any citation should say how many
 runs it rests on — this one rests on two.
+
+## 4f. How far each refusal observes from what decides
+
+Every defect confirmed in this repository, internal or reported, has one shape: a check observes
+one object while a DIFFERENT object decides the behaviour. The preview modelled a fee the executor
+measured. The volume event published the caller's declaration instead of the flow. The classifier
+named the first intermediate while the fee anchor walked hop inputs. The hook pin commits to a
+proxy's dispatcher while the implementation executes. "Absence is permission" is the same shape
+with the observed object empty: nothing is read, and nothing is taken for yes.
+
+That makes the interesting property of a refusal not its complexity but its DISTANCE — how far
+what it reads sits from what decides. `projection_distance.py` classifies the predicate guarding
+every `revert` in the five contracts:
+
+| what the predicate reads | distance |
+|---|---|
+| a constant, an `immutable`, a value fixed at construction | 0 |
+| a balance delta, or a quantity computed in-frame from one | 0 |
+| a field of the caller's `Route`/`Hop`/`Leg` | 1 — unless the declared value is also what SELECTS the object it describes |
+| a lookup in another contract's mutable storage | 1 |
+| a property of a contract that can delegate its behaviour | unbounded |
+
+Measured over 99 refusal sites: **86 at distance 0, 11 at distance 1, and exactly 2 unbounded.**
+
+The two unbounded sites are both `EXTCODEHASH` pins, and they are twins — `Hub:499` pins an
+admitted hook's code, `Hub:728` pins an admitted factory's. Both are defeated by the same thing: a
+proxy's runtime does not change when its implementation does. External researchers have reported
+the first one twice. The asymmetry is what matters and it is not symmetric at all:
+
+- For **hooks**, the residual is CLOSED by an argument the pin does not carry. A V4 hook's
+  permission bits live in its ADDRESS, which is immutable, and the refusal at `Router:1764` reads
+  those bits — distance 0. A proxy can replace every line of its logic and still gain no bit its
+  address never had. The pin is defence in depth on top of that, not the defence.
+- For **factories**, there is no equivalent. A factory address carries no bits. The residual is
+  BOUNDED — by pool admission, the per-leg floor and `userMinOut`, so the damage is route
+  degradation rather than drainage — but it is not closed, and the guard at `Hub:728` says so in
+  its own comment.
+
+Stating that difference is the point of measuring the distance. Two guards with identical text and
+identical failure modes, one of which stands on something immutable and one of which does not.
+
+The screen's own limit, stated: it reads one predicate and classifies the identifiers in it. It
+cannot see that a value was constrained three frames up, and it cannot decide the `leg.hooks`
+question — a caller-declared field that is ALSO the pool selector is at distance 0, not 1, but
+only because one assignment binds them. That assignment had no test at all until
+`test/V4SievedHookIsTheExecutedHook.t.sol`, which is the whole argument for measuring this.
 
 ## 5. What none of this establishes
 

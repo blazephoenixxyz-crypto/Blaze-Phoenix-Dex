@@ -53,13 +53,34 @@ CROSS = lambda t: bool(
     and re.search(r"\.swapExactIn\(|\.swapBestExactIn\(", t)
     and re.search(r"assert\w*\([^;]*\bpv\.|assert\w*\([^;]*preview", t))
 
+_WORKFLOWS = None
+
+
+def _is_run_by_ci(path):
+    """Does any workflow name the contract this file declares?"""
+    global _WORKFLOWS
+    if _WORKFLOWS is None:
+        _WORKFLOWS = ""
+        for w in glob.glob(os.path.join(ROOT, ".github", "workflows", "*.y*ml")):
+            _WORKFLOWS += open(w).read()
+    for m in re.finditer(r"contract\s+(\w+)", open(path).read()):
+        if m.group(1) in _WORKFLOWS:
+            return True
+    return False
+
+
 def axes_of(path, text):
     """The five coordinates of one body of evidence."""
     # tool and environment come from where it lives
     if path.endswith(".spec"):
         tool, env = "certora", "formal"
     elif "/formal/" in path:
-        tool, env = "halmos", "formal"
+        # A path is not a runner. `check_` is the Halmos prefix, so `forge test` skips these
+        # files entirely, and a spec no job invokes discharges nothing — one such file was
+        # counted here as formal evidence for months while being executed by nothing, and was
+        # cited in SHARED_QUANTITIES.md as a PIN. Classify by whether some workflow actually
+        # names the contract; everything else is evidence that does not exist.
+        tool, env = ("halmos", "formal") if _is_run_by_ci(path) else ("unrun", "none")
     elif "/fork/" in path:
         tool, env = "forge", "fork"
     else:

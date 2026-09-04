@@ -51,7 +51,7 @@ contract QuoteFidelityTest is Test {
     bool ligado;
 
     function setUp() public {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) return;
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }   // a bare return reports PASSED on a test that ran nothing
         vm.createSelectFork("base", BLOCO);
         ligado = true;
         _wire();
@@ -110,7 +110,7 @@ contract QuoteFidelityTest is Test {
 
     /// @notice FIDELIDADE no mesmo bloco: promessa contra facto.
     function test_Fidelidade_MesmoBloco() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         uint256 n; int256 somaBps; int256 pior;
         for (uint256 i; i < N_PARES; ++i) {
             (string memory sym, address tok) = _tok(i);
@@ -151,7 +151,7 @@ contract QuoteFidelityTest is Test {
     function test_Latencia_N3_Slippage_100() public { _latencia(100); }
 
     function _latencia(uint256 tolBps) internal {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         address[N_PARES] memory toks;
         uint256[N_PARES] memory minOuts;
         uint256[N_PARES] memory previstos;
@@ -206,7 +206,7 @@ contract QuoteFidelityTest is Test {
     ///         dumpa a rota e os numeros todos para o desvio ter uma causa com
     ///         nome em vez de uma suspeita.
     function test_Diag_ENA() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         address ENA = 0x58538e6A46E07434d7E7375Bc268D3cb839C0133;
         (BlazePhoenixQuoter.Preview memory pv, , ) = quoter.previewPlan(USDC, ENA, AMOUNT);
         console2.log("grossOut     :", pv.grossOut);
@@ -240,7 +240,7 @@ contract QuoteFidelityTest is Test {
     ///  Se o erro for CONSTANTE em percentagem, a causa e outra (uma fee mal
     ///  aplicada, por exemplo) e este teste refuta a minha explicacao.
     function test_Diag_ENA_PorTamanho() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         address ENA = 0x58538e6A46E07434d7E7375Bc268D3cb839C0133;
         uint256[5] memory montantes = [uint256(100e6), 1_000e6, 10_000e6, 100_000e6, 1_000_000e6];
         for (uint256 i; i < 5; ++i) {
@@ -295,7 +295,7 @@ contract QuoteFidelityTest is Test {
     ///  Um utilizador real quase sempre cai no caso frio, porque cada `eth_call`
     ///  comeca com o cache do no vazio para a sua transacao.
     function test_GasDeCotacao_WETH_USDC() public {
-        if (!ligado) return;
+        if (!ligado) { vm.skip(true); return; }   // skip, not pass: the key is absent, nothing was exercised
         uint256 amt = 1e18; // 1 WETH
 
         uint256 a = gasleft();
