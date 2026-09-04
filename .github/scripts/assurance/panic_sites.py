@@ -28,6 +28,23 @@ import re, os, sys, glob, json
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "."
 
+MAPPINGS, ARRAYS, UNRESOLVED = set(), set(), set()
+
+
+def harvest_types(src):
+    """Which storage/memory names are mappings and which are arrays.
+
+    Only a name proven to be an array is a 0x32 candidate. A name proven to be a mapping is
+    dropped, and a name proven to be neither is dropped too - but counted, because an unresolved
+    name is a hole in this screen and the report has to say how big it is."""
+    for m in re.finditer(r"mapping\s*\([^;]*?\)\s+(?:public|internal|private|\s)*([A-Za-z_]\w*)\s*;", src):
+        MAPPINGS.add(m.group(1))
+    # T[] name;  T[N] name;  T[] memory name;  T[N] storage name;
+    for m in re.finditer(r"[\w\.]+\s*\[[^\]]*\]\s*(?:memory|storage|calldata|public|internal|private|\s)*"
+                         r"([A-Za-z_]\w*)\s*(?:;|=|\)|,)", src):
+        ARRAYS.add(m.group(1))
+
+
 def strip_comments(src):
     src = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
     return "\n".join(l.split("//")[0] for l in src.splitlines())
@@ -49,8 +66,14 @@ def functions(src):
 
 CONSTANT = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 
+SOURCES = sorted(glob.glob(os.path.join(ROOT, "src", "*.sol")))
+# Two passes: a name can be declared in one file and indexed in another, so every declaration
+# is harvested before any site is judged.
+for p in SOURCES:
+    harvest_types(strip_comments(open(p).read()))
+
 rows = []
-for p in sorted(glob.glob(os.path.join(ROOT, "src", "*.sol"))):
+for p in SOURCES:
     raw = open(p).read()
     src = strip_comments(raw)
     name = os.path.basename(p)[12:-4]
@@ -72,17 +95,29 @@ for p in sorted(glob.glob(os.path.join(ROOT, "src", "*.sol"))):
         rows.append({"panic": "0x12", "file": name, "fn": fn, "what": d,
                      "line": src.count("\n", 0, m.start()) + 1, "guarded": guarded})
 
-    # 0x32 - index into a dynamic array or bytes with a non-constant index
-    for m in re.finditer(r"\b(\w+(?:\.\w+)*)\s*\[\s*([A-Za-z_]\w*)\s*\]", src):
+    # 0x32 - index into an ARRAY with a non-constant index.
+    #
+    # A mapping is not bounds-checked and can never raise 0x32, so counting mapping reads here
+    # is not conservatism, it is noise: it put 295 sites on this list of which the overwhelming
+    # majority could not panic under any input, and buried the one that can. The previous filter
+    # tested `arr.startswith("$.")`, which never fired - the capture group cannot match `$`,
+    # being a non-word character, so `$.operator[admin_]` arrives as `operator` - and on the day
+    # it had fired it would have dropped `$.bridges[idx]`, an array, along with the mappings.
+    # Resolve the declared type instead, and say plainly which names could not be resolved.
+    for m in re.finditer(r"([\w$]+(?:\.\w+)*)\s*\[\s*([A-Za-z_]\w*)\s*\]", src):
         arr, idx = m.group(1), m.group(2)
         if CONSTANT.match(idx): continue
-        if arr.startswith("$."):                 # a mapping: no bounds to exceed
+        base = arr.split(".")[-1]
+        if base in MAPPINGS: continue            # never bounds-checked: cannot raise 0x32
+        if base not in ARRAYS:
+            UNRESOLVED.add(base)                 # counted, not judged: a hole in the screen
             continue
         fn, _s, _e, body = enclosing(m.start())
         if fn is None: continue
         guarded = bool(re.search(r"\b%s\s*<\s*[\w.]*length" % re.escape(idx), body) or
                        re.search(r"\b%s\s*>=\s*[\w.]*length[^;]*revert" % re.escape(idx), body) or
-                       re.search(r"for\s*\([^;]*;\s*%s\s*<\s*" % re.escape(idx), body))
+                       re.search(r"for\s*\([^;]*;\s*%s\s*(?:\+\s*\d+\s*)?<" % re.escape(idx), body) or
+                       re.search(r"\b%s\s*\+\s*\d+\s*<\s*[\w.]*length" % re.escape(idx), body))
         rows.append({"panic": "0x32", "file": name, "fn": fn, "what": f"{arr}[{idx}]",
                      "line": src.count("\n", 0, m.start()) + 1, "guarded": guarded})
 
@@ -109,6 +144,11 @@ tot = len(rows); ung = len([r for r in rows if not r["guarded"]])
 print(f"\nsites that could raise a panic : {tot}")
 print(f"  with a guard in the function : {tot - ung}")
 print(f"  with none found              : {ung}")
+print(f"\nnames resolved as arrays      : {len(ARRAYS)}   as mappings: {len(MAPPINGS)}")
+print(f"  indexed but type unresolved  : {len(UNRESOLVED)}   "
+      f"({', '.join(sorted(UNRESOLVED)[:6])}{'...' if len(UNRESOLVED) > 6 else ''})")
+print("Only array indexing is counted for 0x32. A mapping has no bounds to exceed, so counting\n"
+      "its reads would bury the sites that can actually panic - which is what it did.")
 print("\nA site with no guard FOUND is not a reachable panic: the screen reads one function and")
 print("a value can be constrained elsewhere. It is a reading list, ordered so that the shortest")
 print("list is the one that gets read.")

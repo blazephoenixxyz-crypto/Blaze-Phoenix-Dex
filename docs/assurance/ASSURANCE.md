@@ -184,6 +184,57 @@ this project either.
 Opcode presence is coarse. Absence is a guarantee; presence is not. Anything requiring the
 MEANING of emitted code needs symbolic execution or a verified compiler, and neither is claimed.
 
+## 4e. How much of the emitted code is reached, and one tool that cannot say
+
+`bytecode_coverage.py` reports an UPPER bound: an instruction counts as covered because the
+LINE it belongs to ran, so a line holding an untaken branch still contributes its bytes. It ends
+by asking for the other side. `pc_coverage.py` is the other side, and getting there required
+throwing away the obvious answer first.
+
+The obvious answer is `forge coverage --report bytecode`, which prints a disassembly with a hit
+count in front of some instructions. Read literally it is a per-instruction execution map. It is
+not, and the file refutes itself if asked: **25.7% of its marked instructions have an UNMARKED
+straight-line successor**, which control flow forbids — if a JUMPDEST executed, the PUSH after it
+executed too. The marks are the hit counts of foundry's SOURCE-level coverage items, each pinned
+to the single instruction that anchors it; every other instruction in the same statement is left
+blank, and a zero count is never printed at all, so a blank means "not an anchor" OR "an anchor
+that never ran" and nothing distinguishes them. Two further readings were tried and refuted: that
+the map is indexed by instruction counter and printed by byte offset (worse — 31.7% violations,
+and a third of the marks land off an instruction boundary), and that the runtime section carries
+a fixed offset (no shift in 0–700 bytes improves on none).
+
+What survives is one direction. An instruction carrying a positive count ran. So the marks are a
+SEED, closed under the two successors execution forces — a non-terminator is followed by its
+neighbour, and `PUSH <const>; JUMP` lands on that JUMPDEST because the JUMP consumes exactly what
+the PUSH left. JUMPI is not followed: reaching a branch implies neither arm. The closure is a
+subset of what really ran, so its size is a lower bound and never an estimate, and the report
+prints the residual control-flow violations, which must be zero.
+
+An instrument is worth nothing until it finds an instance already known by another route, so this
+one ships with its own: `test/PcCoverageGroundTruth.t.sol` deploys a contract with one function
+the suite calls and two it never calls, and `--check` fails the build unless the closure reaches
+the first and leaves BOTH the others at exactly zero instructions. A closure rule that leaked
+would inflate every figure below by an amount nobody could see.
+
+Measured over the five shipped runtime objects, 93,787 instructions:
+
+| | share |
+|---|---|
+| carrying a positive recorded hit count | 68.1% |
+| **proven executed** (seed + forced successors) | **85.9%** |
+| no execution evidence | 14.1% |
+
+The complement is not dead code. It is code that no evidence in this repository reaches, which is
+a different and weaker statement, and the honest one.
+
+Two caveats, neither cosmetic. Coverage builds with `--ir-minimum`, so these instructions are a
+**different binary from the release artefact** — same sources, different optimiser, roughly twice
+the size; the bridge to the shipped object is by source item, not by byte, and this figure is
+read beside `profile_parity.py`, not instead of it. And the suite fuzzes without a pinned seed, so
+the bound moves between runs: the Quoter's seed was observed at 94.0% in one run and 61.6% in the
+next of the same suite. A published figure has to pin `--fuzz-seed`; a bound without one is true
+only of the run that produced it.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.
