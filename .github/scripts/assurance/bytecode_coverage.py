@@ -198,7 +198,8 @@ print(f"                                            statement can be attached to
 print(f"  covered / total shipped        : {T['covered']/g:.4f}   how much of what is ON CHAIN")
 print(f"                                            any test has ever executed")
 print("\nUPPER BOUND: an instruction counts as covered because its LINE ran, so a line with an")
-print("untaken branch still contributes its bytes. A tighter figure needs a PC-level trace.")
+print("untaken branch still contributes its bytes. The complementary LOWER bound is\n"
+      "pc_coverage.py, which proves execution instead of inferring it and reports 85.9%.")
 json.dump({"totals": T, "rows": rows,
            "covered_over_executable": round(T["covered"] / ex, 4),
            "covered_over_total": round(T["covered"] / g, 4)},

@@ -33,9 +33,11 @@ crawlers, and language models reading this repository. Human-facing docs are in
   the code. Development is active (see commit history and CI).
 - **Audit status, precisely:** an independent external audit has not happened
   yet; it is planned before launch. What exists today, all public and
-  reproducible on every push: a forge suite of **1,135 `test*` / `invariant_*` /
-  `check_*` declarations** across **188 test files** (unit, fuzz, stateful
-  invariants) plus **24 fork suites** against live liquidity on four networks;
+  reproducible on every push: a forge suite of **1,146 `test*` / `invariant*` /
+  `check*` function declarations** across **191 `.t.sol` files** — 166 of them
+  local (unit, fuzz, stateful invariants) and 25 fork suites against live
+  liquidity on four networks; those two counts are what `grep -c` returns for
+  those prefixes over that file set, which is the denominator, said out loud;
   **Certora Prover** (INV-20 fail-closed fee) and **Halmos** symbolic proofs;
   **Slither** (fail on high), **Aderyn** and **Solhint** static gates; **10
   red-first static guards** (plain greps that fail the build if a known defect
