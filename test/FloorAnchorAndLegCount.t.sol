@@ -9,7 +9,7 @@ import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
-/// @notice FLOOR-01 — one of two ways the caller could relax a floor the code promised
+/// @notice FLOOR-01 and FLOOR-02 — two ways the caller could relax a floor the code promised
 ///         they could not, both found by a census of quantities with two producers rather than
 ///         by hand, and both measured before they were fixed.
 ///
@@ -85,6 +85,74 @@ contract FloorAnchorAndLegCountTest is Test {
             }
         }
         revert("no ExecutionProof emitted");
+    }
+
+    /// @notice FLOOR-02. Legs that carry no share of the hop buy no loosening. The shave is
+    ///         computed from the CONCENTRATION of the trade across legs - `(Σa)² / Σa²` per
+    ///         hop, the effective number of legs - so the loosening a split earns is
+    ///         proportional to how genuinely it is split. Before this, four zero-amount legs
+    ///         moved the floor 9501 -> 8702 bps of the quote: exactly 4 x FLOOR_PER_LEG_BPS.
+    function test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor() public {
+        uint256 amt = 100e18;
+        uint256 clean  = _floorBpsOfQuote(_route(amt, 0), amt);
+        uint256 padded = _floorBpsOfQuote(_route(amt, 4), amt);   // MAX_LEGS_PER_HOP = 5
+        emit log_named_uint("floor bps of quote, one leg      ", clean);
+        emit log_named_uint("floor bps of quote, four padded  ", padded);
+        assertGt(clean, 9_000, "premise: the honest route carries a floor near the 9600 base");
+        // What remains is the impact term drifting because the first swap moved the reserves.
+        uint256 gap = clean > padded ? clean - padded : 0;
+        assertLt(gap, 50, "PADDING: zero-amount legs must not walk the protocol floor down");
+    }
+
+    /// @notice And the one-wei variant, which a count of EXECUTED legs would still have paid
+    ///         for: a leg carrying a vanishing share of the hop earns a vanishing shave, whether
+    ///         it declares zero or one wei. Concentration is what closes both.
+    function test_OneWeiPaddedLegsCannotLowerTheProtocolFloorEither() public {
+        uint256 amt = 100e18;
+        uint256 clean = _floorBpsOfQuote(_route(amt, 0), amt);
+        Leg[] memory legs = new Leg[](5);
+        legs[0] = _leg(amt);
+        for (uint256 i = 1; i < 5; ++i) legs[i] = _leg(1);
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({tokenIn: address(tIn), tokenOut: address(tOut),
+                       amountIn: amt + 4, expectedOut: 0, legs: legs});
+        Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+                                expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+                                hasSurplus: false, isV4Bundle: false});
+        uint256 padded = _floorBpsOfQuote(r, amt + 4);
+        emit log_named_uint("floor bps of quote, one leg       ", clean);
+        emit log_named_uint("floor bps of quote, four x 1 wei  ", padded);
+        uint256 gap = clean > padded ? clean - padded : 0;
+        assertLt(gap, 50, "PADDING: one-wei legs must not walk the protocol floor down");
+    }
+
+    /// @notice The positive control, without which the two above would pass on a shave that
+    ///         had simply been deleted: an HONEST equal split still earns its full loosening.
+    ///         Five equal legs have an effective count of exactly five, so the shave is exactly
+    ///         4 x FLOOR_PER_LEG_BPS - the same 800 bps the padding used to steal.
+    function test_AnHonestEqualSplitStillEarnsItsFullShave() public {
+        uint256 amt = 100e18;
+        uint256 clean = _floorBpsOfQuote(_route(amt, 0), amt);
+        Leg[] memory legs = new Leg[](5);
+        for (uint256 i; i < 5; ++i) legs[i] = _leg(amt / 5);
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({tokenIn: address(tIn), tokenOut: address(tOut),
+                       amountIn: amt, expectedOut: 0, legs: legs});
+        Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+                                expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+                                hasSurplus: false, isV4Bundle: false});
+        uint256 split = _floorBpsOfQuote(r, amt);
+        emit log_named_uint("floor bps of quote, one leg           ", clean);
+        emit log_named_uint("floor bps of quote, five equal legs   ", split);
+        uint256 gap = clean > split ? clean - split : 0;
+        // 800 from the shave, LESS what the split gives back through the impact term: five legs
+        // each carrying a fifth of the order have a fifth of the price impact, and `ironFloorBps`
+        // subtracts impact, so the floor rises by roughly four fifths of the single-leg impact
+        // (~99 bps here -> ~79 back). Measured: 721. The bound is the shave minus that, with
+        // room for the reserve drift between the two swaps - and it must stay well above the
+        // ~0 a padded route earns, which is the whole distinction this file exists to pin.
+        assertGt(gap, 600, "an honest five-way split must earn most of 4 x 200 bps");
+        assertLt(gap, 850, "and not more than the shave itself");
     }
 
     /// @notice FLOOR-01. A trailing hop that moves nothing must not become the floor's anchor.

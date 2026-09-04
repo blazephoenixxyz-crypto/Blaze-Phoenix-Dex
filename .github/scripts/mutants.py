@@ -614,7 +614,7 @@ M = [
  # ── the multi-hop twin of the floor (found by the review pass after PR #25) ──
  dict(nome="floor, multi-hop: a leg's impact stops being weighted by its share",
       f="src/BlazePhoenixSolver.sol",
-      old="                weightedAcc += hopIn == 0 ? li : BPC.mulDiv(li * legs, hops[h].legs[i].amountIn, hopIn);",
+      old="                weightedAcc += hopIn == 0 ? li : BPC.mulDiv(li * legs, a, hopIn);",
       new="                weightedAcc += li; // MUTANT",
       teste="test_Parity_TwoHopSplitRoute_AttestedFloorRateEqualsEnforcedFloorRate"),
  dict(nome="floor, multi-hop: the sum of per-hop means feeds the floor again",
@@ -977,6 +977,14 @@ M = [
       old="    uint8   internal constant MAX_HOPS          = 3;",
       new="    uint8   internal constant MAX_HOPS          = 4;",
       teste="test_FourHopsIsPastTheCeilingAndRefused"),
+ # FLOOR-02, closed 2026-09-04. The shave came from the DECLARED leg count; four zero-amount
+ # legs bought 800 bps of floor for the price of calldata. It now comes from the concentration
+ # of the trade across legs (Core.legShaveBps). This mutant puts the count back.
+ dict(nome="FLOOR-02: the leg shave counts DECLARED legs again instead of their concentration",
+      f="src/BlazePhoenixRouter.sol",
+      old="        uint256 floorBps  = BPC.ironFloorBpsShv(avgImpact, legShv, 0);",
+      new="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);",
+      teste="test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor"),
 ]
 
 def run(t):

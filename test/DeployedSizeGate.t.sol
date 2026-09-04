@@ -76,17 +76,23 @@ contract DeployedSizeGateTest is Test {
         BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
         BlazePhoenixRouter router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), TREASURY_1, TREASURY_2);
+        BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(solver));
 
-        uint256 routerSize = address(router).code.length;
-        uint256 hubSize = address(hub).code.length;
-        emit log_named_uint("Router: bytes left to the project gate", PROJECT_GATE - routerSize);
-        emit log_named_uint("Router: bytes left to EIP-170", EIP_170_LIMIT - routerSize);
-        emit log_named_uint("Hub:    bytes left to the project gate", PROJECT_GATE - hubSize);
-        emit log_named_uint("Hub:    bytes left to EIP-170", EIP_170_LIMIT - hubSize);
+        // Signed, so a contract over the budget prints its overshoot instead of panicking -
+        // the whole point of this test is to be readable on the day a number goes wrong.
+        _margin("Hub", address(hub).code.length);
+        _margin("Solver", address(solver).code.length);
+        _margin("Router", address(router).code.length);
+        _margin("Quoter", address(quoter).code.length);
 
-        // The two that bind. Stated as an assertion and not only a log, because a log nobody
-        // reads is not a guard either.
-        assertLt(routerSize, PROJECT_GATE, "the Router is the binding contract; it must have room");
-        assertLt(hubSize, PROJECT_GATE, "the Hub is the other one");
+        assertLt(address(router).code.length, PROJECT_GATE, "the Router must have room");
+        assertLt(address(hub).code.length, PROJECT_GATE, "the Hub must have room");
+    }
+
+    function _margin(string memory name, uint256 size) private {
+        emit log_named_int(string.concat(name, ": bytes to the project gate"),
+            int256(PROJECT_GATE) - int256(size));
+        emit log_named_int(string.concat(name, ": bytes to EIP-170"),
+            int256(EIP_170_LIMIT) - int256(size));
     }
 }

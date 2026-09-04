@@ -1461,7 +1461,13 @@ contract BlazePhoenixSolver {
         uint256 totalImpactBps;
         uint256 maxLegImpactBps;
         uint256 hopIn;
-        for (uint256 i; i < legs; ) { hopIn += hop.legs[i].amountIn; unchecked { ++i; } }
+        uint256 hopIn2;    // Σa², for the concentration-based leg shave (see Core.legShaveBps)
+        for (uint256 i; i < legs; ) {
+            uint256 a = hop.legs[i].amountIn;
+            hopIn += a;
+            hopIn2 += a * a;
+            unchecked { ++i; }
+        }
         for (uint256 i; i < legs; ) {
             uint256 li = _legImpactBps(hop.legs[i]);
             // WEIGHTED BY THE LEG'S SHARE OF THE HOP, with the Router's own
@@ -1483,7 +1489,10 @@ contract BlazePhoenixSolver {
         // the Solver's existing "no path" answer — fail-closed, no new revert.
         if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
-        uint256 floorBps = BPC.ironFloorBps(totalImpactBps, legs, 0);
+        // The leg shave from CONCENTRATION, not from the count - the same `legShaveBps` the
+        // Router applies to the same amounts, so the attested floor and the enforced floor are one
+        // number by construction.
+        uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, BPC.legShaveBps(hopIn, hopIn2), 0);
         // R-C: a protective threshold rounds UP, as the Router's does — the
         // other half of the same-number parity above.
         uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);
@@ -1549,20 +1558,27 @@ contract BlazePhoenixSolver {
         uint256 weightedAcc;
         uint256 totalLegs;
         uint256 maxLegImpactBps;
+        uint256 legShv;      // concentration-based, summed per hop - the Router's own arithmetic
         for (uint256 h; h < hops.length; ) {
             uint256 legs = hops[h].legs.length;
             uint256 hopIn = hops[h].amountIn;
             uint256 hopImpact;
+            uint256 sA;
+            uint256 sA2;
             for (uint256 i; i < legs; ) {
                 uint256 li = _legImpactBps(hops[h].legs[i]);
+                uint256 a  = hops[h].legs[i].amountIn;
                 hopImpact += li;
-                weightedAcc += hopIn == 0 ? li : BPC.mulDiv(li * legs, hops[h].legs[i].amountIn, hopIn);
+                weightedAcc += hopIn == 0 ? li : BPC.mulDiv(li * legs, a, hopIn);
                 if (li > maxLegImpactBps) maxLegImpactBps = li;
+                sA += a;
+                sA2 += a * a;
                 unchecked { ++i; }
             }
             if (legs > 0) hopImpact = hopImpact / legs;
             gateImpactBps += hopImpact;  // linear sum: safe over-estimate, for the gate only
             totalLegs += legs;
+            legShv += BPC.legShaveBps(sA, sA2);
             unchecked { ++h; }
         }
 
@@ -1571,7 +1587,7 @@ contract BlazePhoenixSolver {
         if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
 
         uint256 totalImpactBps = totalLegs > 0 ? weightedAcc / totalLegs : 0;
-        uint256 floorBps = BPC.ironFloorBps(totalImpactBps, totalLegs, 0);
+        uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, legShv, 0);
         // R-C: rounds UP like the single-hop twin and like the Router.
         uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);
 
