@@ -52,6 +52,11 @@ jobs:
         # duas fontes da mesma grandeza sem nada a obriga-las a concordar.
         run: bash .github/scripts/shared-quantities.sh
 
+      - name: llms-full.txt is current
+        # The one-file corpus for agents is generated from the docs it points at; a stale
+        # copy is a stale claim wearing the clothes of a current one.
+        run: python3 .github/scripts/llms_full.py --check
+
       - name: Yul evaluation-order guard
         # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
         # `and(staticcall(...), eq(returndatasize(), 32))` tests the size left

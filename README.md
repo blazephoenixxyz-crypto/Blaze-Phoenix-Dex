@@ -282,13 +282,15 @@ certora/                Certora Prover specifications and harnesses
                         formal-explore.yml · docs.yml · graph.yml
 .github/scripts/        the shared-quantity register check, the mutation guard, the assurance instruments
 docs/                   AUDIT_METHOD.md (what the audit guarantees) · BOUNTY_METHOD.md (how a report is handled) · assurance/
+AGENTS.md               how coding agents work here — the enforced rules, the commands, what not to claim
 CONTRIBUTING.md         how work lands here — red before green, and the house conventions
 SECURITY.md             disclosure policy, bounty terms, severity rubric
 SECURITY_HALL_OF_FAME.md  the researchers who reported confirmed findings
 SHARED_QUANTITIES.md    the shared-quantity register
 TESTING.md              how the suite is organised and how to extend it
 REPORTS.md              published analysis and measurements
-llms.txt                machine-readable index for agents and models
+llms.txt                machine-readable index for agents and models (llmstxt.org); llms-full.txt is the corpus in one file
+CITATION.cff            how to cite this repository
 ```
 
 ## Security
@@ -323,6 +325,14 @@ Machine-readable surfaces, in this repo and on the site: [`llms.txt`](./llms.txt
 [provenance (OpenTimestamps)](https://blazephoenix.xyz/provenance/provenance.json) ·
 [knowledge graph](https://blazephoenix.xyz/knowledge-graph.jsonld). Site AI index:
 [blazephoenix.xyz/llms.txt](https://blazephoenix.xyz/llms.txt).
+
+## Cite this repository
+
+`CITATION.cff` carries the metadata for reference managers and GitHub's *Cite this repository*
+button. Plain form:
+
+> Fable & Mitra (2026). *BlazePhoenix-Dex: an on-chain DEX aggregator with measured routing.*
+> https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex
 
 ## License
 

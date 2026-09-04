@@ -86,6 +86,14 @@ make this fail?* Three things every test in the suite carries:
   executed, closure verified against a ground-truth contract.
 - **The regime lattice** — which cells of regime × shape × oracle hold a cross-producer assertion.
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
+- **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps
+  through the release Router; `pc_trace.py` replays the program counter against the shipped
+  artefacts, checking the opcode at every step, and reports which instructions ran:
+
+  ```bash
+  PC_TRACE=1 FOUNDRY_PROFILE=release forge test --match-contract PcTraceProbe -vvv
+  python3 .github/scripts/assurance/pc_trace.py --check
+  ```
 
 ## Extending the suite
 

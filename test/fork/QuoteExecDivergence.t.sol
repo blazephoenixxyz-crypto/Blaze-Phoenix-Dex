@@ -90,7 +90,7 @@ contract QuoteExecDivergenceTest is Test {
         // A `Preview` tem um campo `route` PROPRIO, e o previewPlan devolve
         // AINDA outra `Route` em separado. Se as duas divergirem, quem usar os
         // numeros de uma com a rota da outra recebe uma mentira coerente.
-        console2.log("--- pv.route CONTRA a Route devolvida ---");
+        console2.log("--- pv.route (the best, previewed) vs the FALLBACK route returned beside it ---");
         console2.log("  pv.hops (campo)     :", pv.hops);
         console2.log("  pv.route.hops.length:", pv.route.hops.length);
         console2.log("  route.hops.length   :", r.hops.length);
@@ -116,10 +116,16 @@ contract QuoteExecDivergenceTest is Test {
 
         console2.log("--- O QUE A EXECUCAO FEZ ---");
         uint256 antes = IERC20Q(USDS).balanceOf(user);
+        // THE OBJECT EXECUTED IS THE OBJECT PREVIEWED. `previewPlan` returns the preview of
+        // `plan.best` and, separately, the plan's FALLBACK route; `pv.route` is the route the
+        // numbers above describe. Executing the fallback while asserting on the preview of
+        // the best compares two different objects - the shape of defect the projection-
+        // distance instrument exists to catch, here inside a test.
         vm.prank(user);
-        try router.swapExactIn(r, amt, 1, user, t0 + 600) returns (uint256 got) {
+        try router.swapExactIn(pv.route, amt, 1, user, t0 + 600) returns (uint256 got) {
             console2.log("  NAO reverteu. entregue:", got);
             assertEq(IERC20Q(USDS).balanceOf(user) - antes, got, "the Router returns exactly the balance it delivered");
+            assertGe(got, pv.ironFloor, "a settled swap delivered at least the floor the preview published");
             console2.log("  delta saldo           :", IERC20Q(USDS).balanceOf(user) - antes);
             console2.log("  entregue / prometido (x100):",
                 pv.grossOut == 0 ? 0 : (got * 100) / pv.grossOut);
