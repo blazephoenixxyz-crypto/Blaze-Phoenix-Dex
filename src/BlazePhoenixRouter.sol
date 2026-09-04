@@ -2123,9 +2123,42 @@ contract BlazePhoenixRouter {
                     // the quote path demanded 96, so the register and the quote
                     // could disagree about the same pool being alive.
                     (uint160 spReg, , ) = BPC.v3StateAndDynFee(leg.pool);
-                    depth = BPC.depthFromL18(
-                        BPC.getLiquidity(leg.pool), spReg,
-                        BPC.decimalsOf(t0), BPC.decimalsOf(t1));
+                    uint8 dc0 = BPC.decimalsOf(t0);
+                    uint8 dc1 = BPC.decimalsOf(t1);
+                    depth = BPC.depthFromL18(BPC.getLiquidity(leg.pool), spReg, dc0, dc1);
+                    // PROV-01 ON THE CONCENTRATED ARM. The rule "mass that costs nothing is not
+                    // mass" was written for `getReserves` and applied to `A_RESERVES` in both
+                    // producers - and the register recorded it as closed "at both producers",
+                    // with every sentence in the row about reserves. This arm was never asked.
+                    // It reads `liquidity()` off a pool the CALLER names, and a pool that swaps
+                    // honestly may still answer anything at all to that call: measured, a pool
+                    // declaring 1e33 while holding 5,000e18 a side wrote bucket 15 where its
+                    // physical mass supports 6, and took a seat on a full pair - which means it
+                    // evicted an incumbent.
+                    // The cap the pair arm uses is available here for the same two staticcalls:
+                    // the pool has an address and holds the tokens. Inert on an honest pool,
+                    // where holdings always exceed what the curve can move, and binding on a
+                    // synthetic one. V4 needs no such cap: its liquidity is read from the Hub's
+                    // canonical PoolManager, not from a caller-named contract.
+                    // ONE-SIDED RANGES ARE LEGITIMATE, and that is why this cap is conditional
+                    // rather than a copy of the pair arm. A concentrated pool with all of its
+                    // liquidity on one side of the current tick genuinely holds ~zero of the
+                    // other token, so `min(both sides)` would demote an honest pool to bucket 0.
+                    // The suite says so out loud: `test_L799c2_ZeroBalanceConcLegKeepsItsRawPromise`
+                    // pins that a zero-balance concentrated book keeps its promise, and the
+                    // unconditional form turned it red. Scoping PROV-01 to reserve pairs was not
+                    // an oversight - a pair always holds both sides and a concentrated pool does
+                    // not.
+                    // So the cap binds only when the pool claims to hold both tokens, which is
+                    // exactly the shape an inflated `liquidity()` needs in order to be believed:
+                    // an attacker must put real mass on BOTH sides to escape it, and a one-sided
+                    // honest pool is left exactly as it is today.
+                    uint256 b0 = BPC.balanceOf(t0, leg.pool);
+                    uint256 b1 = BPC.balanceOf(t1, leg.pool);
+                    if (b0 != 0 && b1 != 0) {
+                        uint256 held = BPC.shortSide18(b0, dc0, b1, dc1);
+                        if (held < depth) depth = held;
+                    }
                 }
                 // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
                 // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend
