@@ -14,7 +14,7 @@ O CONTRATO: aplicar o mutante -> o teste nomeado tem de ficar VERMELHO. Se ficar
 esta desprotegido e o CI para. Adicionar um guarda de seguranca ao protocolo implica adicionar a
 sua linha aqui.
 """
-import subprocess, sys, shutil, os, tempfile
+import re, subprocess, sys, shutil, os, tempfile
 
 M = [
  dict(nome="portao-de-cobertura: elevacao para a quote medida",
@@ -937,8 +937,41 @@ def run(t):
                        env={**os.environ,"FOUNDRY_PROFILE":"release"})
     return r.returncode == 0, r.stdout + r.stderr
 
+
+def baseline():
+    """Which paired tests are GREEN before anything is mutated.
+
+    Killing a mutant is a two-sided claim - the test passed, then the mutation made it fail -
+    and only the second side was ever checked here. Any test that is red for a reason of its
+    own scores every mutant pinned to it as killed, for free and for ever, and this repository
+    has carried a red test for weeks without noticing (two, in the fork job, found on
+    2026-09-04). Today no mutant is pinned to one: all 151 paired names exist, resolve to
+    exactly one test each, and none lives in test/fork/. That is a fact about today, not a
+    property, which is why it is now measured on every run instead of assumed.
+
+    One suite run, in the same profile the mutants use, so the baseline and the verdict cannot
+    disagree about which binary they are talking about."""
+    r = subprocess.run(["forge", "test"], capture_output=True, text=True,
+                       env={**os.environ, "FOUNDRY_PROFILE": "release"})
+    out = r.stdout + r.stderr
+    green = set(re.findall(r"\[PASS\]\s+(\w+)", out))
+    red = set(re.findall(r"\[FAIL[^\]]*\]\s+(\w+)", out))
+    return green, red, out
+
 def main():
     falhas = []
+    green, red, _ = baseline()
+    unseen = {m["teste"] for m in M} - green - red
+    if red & {m["teste"] for m in M}:
+        for t in sorted(red & {m["teste"] for m in M}):
+            falhas.append(f"BASELINE RED: '{t}' already fails with no mutation, so every mutant "
+                          f"paired with it scores as killed for free and proves nothing.")
+            print(f"  BASELINE RED  {t}")
+    if unseen:
+        for t in sorted(unseen):
+            falhas.append(f"BASELINE MISSING: '{t}' appeared as neither PASS nor FAIL in the "
+                          f"baseline run, so whether it can fail at all is unknown.")
+            print(f"  BASELINE ?    {t}")
     for i, m in enumerate(M, 1):
         src = open(m["f"]).read()
         if src.count(m["old"]) != 1:
@@ -964,7 +997,8 @@ def main():
     if falhas:
         print("GUARDAS SEM VIGIA:"); [print("  -", f) for f in falhas]
         sys.exit(1)
-    print(f"{len(M)}/{len(M)} guardas com teste que os apanha.")
+    print(f"{len(M)}/{len(M)} guardas com teste que os apanha, "
+          f"all green at baseline ({len(green)} passing tests).")
 
 if __name__ == "__main__":
     main()

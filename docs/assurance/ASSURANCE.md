@@ -234,6 +234,17 @@ release artefact** — same sources, different optimiser, roughly twice the size
 shipped object is by source item, not by byte, and this figure is read beside `profile_parity.py`,
 not instead of it.
 
+**What the report hands back is one deployed instance, not the artefact.** A second probe
+settles it. `test/PcCoverageImmutableProbe.t.sol` deploys one contract twice with different values
+in an immutable and calls only the first. The disassembly comes back carrying the *second*
+instance's tag — the one never called — while the annotation marks the *first* instance's function
+as reached. The listing and the annotation are therefore two different objects: the hit map is
+merged across every deployment by source item, and the disassembly is one arbitrary deployed
+instance, immutables patched, chosen by hash order. That predicts exactly which contracts move —
+the ones the suite deploys many times, which is every fixture's own Hub and Router. So the figure
+is a lower bound on the union of what all deployments executed, laid over one instance's layout,
+and not a measurement of the shipped artefact, whose immutables match no test instance.
+
 **The input is not stable, and that bounds what may be cited.** Two runs of the identical tree
 with the same `--fuzz-seed` do not produce the same listings. Core, Quoter and Solver came back
 identical in their instruction stream. Router and Hub did not: same instruction count and the same

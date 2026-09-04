@@ -36,6 +36,21 @@ covers the called one and leaves BOTH uncalled ones at exactly zero instructions
 has caught the failure mode that matters here - a closure rule that leaks into code that never
 ran would silently inflate every number below.
 
+WHAT THE REPORT ACTUALLY HANDS BACK, established rather than guessed. The second probe
+(`test/PcCoverageImmutableProbe.t.sol`) deploys ONE contract TWICE with different values in an
+immutable, and calls only the first instance. The disassembly comes back carrying the SECOND
+instance's tag - the one never called - while the annotation marks the called instance's
+function as reached. So the listing and the annotation are two different objects: the hit map
+is merged across every deployment by source item, and the disassembly is ONE ARBITRARY
+DEPLOYED INSTANCE. Not the artefact - a deployed instance, immutables patched, chosen by hash
+order.
+
+That is the whole mechanism, and it predicts exactly which contracts move: the ones the suite
+deploys many times. Every fixture builds its own Hub and Router; Core, Quoter and Solver are
+built far less. So the figure below is a lower bound on the union of what all deployments
+executed, laid over one instance's layout - NOT a measurement of the shipped artefact, whose
+immutables differ from any test instance.
+
 THE INPUT IS NOT STABLE, AND THAT BOUNDS WHAT MAY BE CITED. Two runs of the identical tree
 with the same `--fuzz-seed` do not produce the same listings. Core, Quoter and Solver came back
 byte-identical in their instruction stream; Router and Hub did not - same instruction COUNT and
@@ -60,8 +75,19 @@ import os, re, sys, json, glob
 
 SHIPPED = ["BlazePhoenixCore", "BlazePhoenixQuoter", "BlazePhoenixSolver",
            "BlazePhoenixRouter", "BlazePhoenixHub"]
-PROBE = "PcCoverageProbeTarget"
-PROBE_SRC = "test/PcCoverageGroundTruth.t.sol"
+PROBES = [
+    # (artefact name, source file, the function the suite calls, the functions it never calls)
+    ("PcCoverageProbeTarget", "test/PcCoverageGroundTruth.t.sol",
+     "touched", ("untouched", "alsoUntouched")),
+    # The second probe has a constructor argument stored in an immutable, which is the shape
+    # the first probe lacked and the shape of the two contracts whose listings moved.
+    ("PcCoverageImmutableProbe", "test/PcCoverageImmutableProbe.t.sol",
+     "touchedImm", ("untouchedImm",)),
+]
+# Patched into the immutable probe's RUNTIME code at deployment. An artefact carries a zero
+# placeholder here; a deployed instance carries the real number. Which of these appears in the
+# disassembly says which object the report handed back, with no inference.
+TAGS = {"c0ffee01": "deployed instance A", "c0ffee02": "deployed instance B"}
 TERM = {"JUMP", "JUMPI", "STOP", "RETURN", "REVERT", "INVALID", "SELFDESTRUCT"}
 LINE = re.compile(r'^(?:\[(\d+)\] |      )([0-9a-f]{8}): (\S+)(?:\s+(0x[0-9a-f]+))?')
 
@@ -134,36 +160,55 @@ def _spans(src_path):
 
 
 def ground_truth(d, root):
-    """The probe: `touched` must be reached, `untouched`/`alsoUntouched` must not be."""
-    asm = os.path.join(d, PROBE + ".asm")
-    src = os.path.join(root, PROBE_SRC)
-    if not os.path.exists(asm):
-        return None, (f"{PROBE}.asm absent - the ground truth did not build, so nothing below "
-                      "is checked. Rebuild with the probe in the suite.")
-    if not os.path.exists(src):
-        return None, f"{PROBE_SRC} absent - the probe source is what locates the functions"
-    spans, _ = _spans(src)
-    rows = parse(asm)
-    _, marked = close(rows)
-    got = {}
-    for fn in ("touched", "untouched", "alsoUntouched"):
-        lo, hi = spans[fn]
-        idx = []
-        for i, r in enumerate(rows):
-            m = re.search(r":\s*(\d+):\d+-(\d+):", r["src"])
-            if m and lo <= int(m.group(1)) and int(m.group(2)) <= hi:
-                idx.append(i)
-        got[fn] = (sum(1 for i in idx if i in marked), len(idx))
-    bad = []
-    if got["touched"][0] == 0:
-        bad.append("touched was never reached - the probe did not run at all")
-    for fn in ("untouched", "alsoUntouched"):
-        if got[fn][0] != 0:
-            bad.append(f"{fn} reached {got[fn][0]} instructions and must reach none")
-    if not got["untouched"][1] or not got["alsoUntouched"][1]:
-        bad.append("the uncalled functions have no instructions attributed to them, so the "
-                   "check is vacuous - the source map did not carry their lines")
-    return got, ("" if not bad else "GROUND TRUTH FAILED: " + "; ".join(bad))
+    """Every probe: the called function must be reached, the uncalled ones must not be."""
+    out, errs = {}, []
+    for name, src_rel, called, uncalled in PROBES:
+        asm, src = os.path.join(d, name + ".asm"), os.path.join(root, src_rel)
+        if not os.path.exists(asm):
+            errs.append(f"{name}.asm absent - that probe checked nothing this run")
+            continue
+        if not os.path.exists(src):
+            errs.append(f"{src_rel} absent - the probe source is what locates the functions")
+            continue
+        spans, _ = _spans(src)
+        rows = parse(asm)
+        _, marked = close(rows)
+        for fn in (called,) + tuple(uncalled):
+            lo, hi = spans[fn]
+            idx = []
+            for i, r in enumerate(rows):
+                m = re.search(r":\s*(\d+):\d+-(\d+):", r["src"])
+                if m and lo <= int(m.group(1)) and int(m.group(2)) <= hi:
+                    idx.append(i)
+            hit = sum(1 for i in idx if i in marked)
+            out[f"{name}.{fn}"] = (hit, len(idx), fn == called)
+            if not idx:
+                errs.append(f"{name}.{fn} has no instructions attributed to it - the check is "
+                            "vacuous, the source map did not carry its lines")
+            elif (fn == called) != (hit > 0):
+                errs.append(f"{name}.{fn} reached {hit} of {len(idx)} instructions and must "
+                            f"reach {'more than none' if fn == called else 'none'}")
+    return out, "; ".join(errs)
+
+
+def object_identity(d):
+    """WHICH object the report handed back for the immutable probe.
+
+    The tag is an immutable, so it is patched into the runtime code at deployment. Nothing else
+    in this repository contains these values, so a plain search settles the question that could
+    not be settled from the Router and Hub listings: an artefact carries a zero placeholder, a
+    deployed instance carries its own number, and two numbers at once means the listing is not
+    one object."""
+    p = os.path.join(d, "PcCoverageImmutableProbe.asm")
+    if not os.path.exists(p):
+        return None
+    blob = open(p).read().lower()
+    found = [why for tag, why in TAGS.items() if tag in blob]
+    if not found:
+        return "the ARTEFACT (immutables unpatched) - not any deployed instance"
+    if len(found) > 1:
+        return "MORE THAN ONE OBJECT: " + " and ".join(found)
+    return found[0]
 
 
 if __name__ == "__main__":
@@ -205,12 +250,15 @@ if __name__ == "__main__":
 
     got, err = ground_truth(d, args[1] if len(args) > 1 else ".")
     if got:
-        print("\nGROUND TRUTH (test/PcCoverageGroundTruth.t.sol):")
-        for k, (hit, tot) in got.items():
-            print(f"  {k:16} {hit:3}/{tot:<3} instructions reached"
-                  f"   {'must be > 0' if k == 'touched' else 'must be 0'}")
+        print("\nGROUND TRUTH")
+        for k, (hit, tot, is_called) in got.items():
+            print(f"  {k:44} {hit:3}/{tot:<3} reached"
+                  f"   {'must be > 0' if is_called else 'must be 0'}")
+    ident = object_identity(d)
+    if ident:
+        print(f"  object handed back for the immutable probe: {ident}")
     if err:
-        print("\n" + err)
+        print("\nGROUND TRUTH FAILED: " + err)
 
     json.dump({"rows": rows_out, "totals": T,
                "executed_at_least": round(T["closed"] / g, 4)},
