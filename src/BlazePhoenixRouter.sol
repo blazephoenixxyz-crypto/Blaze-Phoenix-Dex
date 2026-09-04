@@ -1503,7 +1503,9 @@ contract BlazePhoenixRouter {
         // `tinStart` minus the baseline gives the ORIGINAL amount with not one new local: the
         // tokens are pre-pulled, so tinStart >= amountIn0 and baseIn == tinStart - amountIn0 by
         // construction.
-        emit Swap(payer, tokenIn, tokenOut, tinStart - baseIn, delivered, totalLegs);
+        // The count published here is the MEASURED one for the same reason the volume is
+        // (VOL_01): an event that reports the caller's declaration reports the caller.
+        emit Swap(payer, tokenIn, tokenOut, tinStart - baseIn, delivered, execLegs);
         emit ExecutionProof(payer, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number);
         return delivered;
     }

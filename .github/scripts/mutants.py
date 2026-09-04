@@ -960,6 +960,21 @@ M = [
       old="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, execLegs, 0);",
       new="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);",
       teste="test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor"),
+
+ # WIDENING mutants. Measured 2026-09-04 over this register: 33 entries neutralise a guard, 21
+ # tighten one, and only 17 widen - exactly one adds an alternative with `||`. "Absence read as
+ # permission" is the axis this project named, and the corpus barely exercised it. These two add
+ # the door rather than remove it, which is the direction a real mistake takes.
+ dict(nome="widening: onlyRouter admits any operator (the router door stops being one address)",
+      f="src/BlazePhoenixHub.sol",
+      old="    modifier onlyRouter()   { _auth(msg.sender == _store().router); _; }",
+      new="    modifier onlyRouter()   { _auth(msg.sender == _store().router || _store().operator[msg.sender]); _; }",
+      teste="test_AnOperatorIsRefusedAtTheRouterDoor"),
+ dict(nome="widening: onlyAdmin admits any operator (the curator's grow-only power spreads)",
+      f="src/BlazePhoenixHub.sol",
+      old="    modifier onlyAdmin()    { _auth(msg.sender == _store().admin); _; }",
+      new="    modifier onlyAdmin()    { _auth(msg.sender == _store().admin || _store().operator[msg.sender]); _; }",
+      teste="test_AnOperatorIsRefusedAtTheAdminDoor"),
 ]
 
 def run(t):
