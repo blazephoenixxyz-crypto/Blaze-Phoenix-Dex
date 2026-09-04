@@ -36,12 +36,24 @@ covers the called one and leaves BOTH uncalled ones at exactly zero instructions
 has caught the failure mode that matters here - a closure rule that leaks into code that never
 ran would silently inflate every number below.
 
+THE INPUT IS NOT STABLE, AND THAT BOUNDS WHAT MAY BE CITED. Two runs of the identical tree
+with the same `--fuzz-seed` do not produce the same listings. Core, Quoter and Solver came back
+byte-identical in their instruction stream; Router and Hub did not - same instruction COUNT and
+same per-source line attribution, but a different total byte span (0xa741 vs 0xa769) and a
+different head, one run opening on the runtime dispatcher and the next on a constructor's
+CALLVALUE guard. The two contracts that moved are the two built with constructor arguments.
+Consequence: the PER-CONTRACT rows below are printed for shape and must not be cited, because
+the same name did not describe the same object twice. The aggregate moved 0.3 points across two
+pinned-seed runs (85.9% and 86.2%), and the figure to quote is the LOWEST one observed, since
+every run's closure is a subset of what that run executed. `--compare <other dir>` reports the
+spread directly, and any report of this number should say how many runs it rests on.
+
 CAVEAT, and it is not small. Coverage builds with `--ir-minimum`, so these instructions are a
 DIFFERENT binary from the release artefact: same sources, different optimiser, roughly twice
 the size. This bounds the coverage build, and the bridge to the shipped object is by source
 item, not by byte. Read it beside profile_parity.py, not instead of it.
 
-Usage: python3 pc_coverage.py <bytecode-coverage dir> [repo root] [--check]
+Usage: python3 pc_coverage.py <bytecode-coverage dir> [repo root] [--check] [--compare=<dir>]
   Produce the input with: forge coverage --ir-minimum --report bytecode
 """
 import os, re, sys, json, glob
@@ -157,6 +169,10 @@ def ground_truth(d, root):
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     check = "--check" in sys.argv
+    other = None
+    for a in sys.argv[1:]:
+        if a.startswith("--compare="):
+            other = a.split("=", 1)[1]
     d = args[0] if args else "bytecode-coverage"
     if not os.path.isdir(d):
         sys.exit(f"no {d}/ - run: forge coverage --ir-minimum --report bytecode")
@@ -167,13 +183,13 @@ if __name__ == "__main__":
     for name in SHIPPED:
         p = os.path.join(d, name + ".asm")
         if not os.path.exists(p):
-            print(f"{name[13:]:22} {'absent':>7}")
+            print(f"{name[12:]:22} {'absent':>7}")
             continue
         rows = parse(p)
         seed, marked = close(rows)
         bad, tot = violations(rows, marked)
         n = len(rows)
-        print(f"{name[13:]:22} {n:7} {len(seed):7} {len(marked):7} {len(marked)/n:6.1%}  {bad:4}/{tot}")
+        print(f"{name[12:]:22} {n:7} {len(seed):7} {len(marked):7} {len(marked)/n:6.1%}  {bad:4}/{tot}")
         rows_out.append(dict(contract=name, instructions=n, seed=len(seed),
                              executed_at_least=len(marked), violations=bad))
         T["instr"] += n; T["seed"] += len(seed); T["closed"] += len(marked); T["viol"] += bad
@@ -199,6 +215,28 @@ if __name__ == "__main__":
     json.dump({"rows": rows_out, "totals": T,
                "executed_at_least": round(T["closed"] / g, 4)},
               open("assurance-pc-coverage.json", "w"), indent=1)
+
+    if other:
+        # Input stability. Two runs of the same tree should disassemble the same object for
+        # each contract; when they do not, the per-contract rows are not comparable and the
+        # aggregate is the only figure that survives.
+        print("\nINPUT STABILITY vs " + other)
+        same = moved = 0
+        oT = oN = 0
+        for name in SHIPPED:
+            a, b = os.path.join(d, name + ".asm"), os.path.join(other, name + ".asm")
+            if not (os.path.exists(a) and os.path.exists(b)):
+                continue
+            ra, rb = parse(a), parse(b)
+            ident = ([(x["pc"], x["op"]) for x in ra] == [(x["pc"], x["op"]) for x in rb])
+            _, mb = close(rb)
+            oT += len(mb); oN += len(rb)
+            same, moved = same + ident, moved + (not ident)
+            print(f"  {name[12:]:22} listing {'identical' if ident else 'DIFFERENT OBJECT'}"
+                  f"   this run {len(ra):6}  other {len(rb):6}")
+        lo, hi = sorted((T["closed"] / g, oT / (oN or 1)))
+        print(f"  {same} of {same+moved} listings identical")
+        print(f"  aggregate across the two runs: {lo:.1%} .. {hi:.1%}  -> quote {lo:.1%}")
 
     if check and (err or T["viol"]):
         sys.exit(1)

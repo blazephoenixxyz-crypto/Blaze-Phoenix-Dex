@@ -227,13 +227,26 @@ Measured over the five shipped runtime objects, 93,787 instructions:
 The complement is not dead code. It is code that no evidence in this repository reaches, which is
 a different and weaker statement, and the honest one.
 
-Two caveats, neither cosmetic. Coverage builds with `--ir-minimum`, so these instructions are a
-**different binary from the release artefact** — same sources, different optimiser, roughly twice
-the size; the bridge to the shipped object is by source item, not by byte, and this figure is
-read beside `profile_parity.py`, not instead of it. And the suite fuzzes without a pinned seed, so
-the bound moves between runs: the Quoter's seed was observed at 94.0% in one run and 61.6% in the
-next of the same suite. A published figure has to pin `--fuzz-seed`; a bound without one is true
-only of the run that produced it.
+Three caveats, none cosmetic.
+
+Coverage builds with `--ir-minimum`, so these instructions are a **different binary from the
+release artefact** — same sources, different optimiser, roughly twice the size; the bridge to the
+shipped object is by source item, not by byte, and this figure is read beside `profile_parity.py`,
+not instead of it.
+
+**The input is not stable, and that bounds what may be cited.** Two runs of the identical tree
+with the same `--fuzz-seed` do not produce the same listings. Core, Quoter and Solver came back
+identical in their instruction stream. Router and Hub did not: same instruction count and the same
+per-source line attribution, but a different total byte span (`0xa741` against `0xa769`) and a
+different head — one run opening on the runtime dispatcher, the next on a constructor's `CALLVALUE`
+guard. The two that moved are the two built with constructor arguments. So the **per-contract rows
+above are printed for shape and must not be cited**: the same name did not describe the same object
+twice. `--compare <dir>` reports that directly, and `3 of 5 listings identical` is what it said here.
+
+The aggregate survives it, and barely moves: **85.9% and 86.2%** across two pinned-seed runs. The
+figure to quote is the **lowest observed**, because every run's closure is a subset of what that run
+executed, so a lower number is never contradicted by a higher one. Any citation should say how many
+runs it rests on — this one rests on two.
 
 ## 5. What none of this establishes
 
