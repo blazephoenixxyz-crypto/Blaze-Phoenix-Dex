@@ -1286,30 +1286,14 @@ contract BlazePhoenixRouter {
             // pool, a dynamic-fee V4 pool once a protocol fee is on). On these
             // swaps `ExecutionProof.quoted` therefore carries the attested
             // figure, not a measured one.
-            // FLOOR-01. The anchor used to be "the LAST hop", read from route.hops.length —
-            // a caller's declaration. Appending a hop that declares amountIn = 0 costs calldata
-            // and nothing else: `_execScaled` returns at the top before touching a pool, so the
-            // hop's quote AND its attested figure are both zero, and this line's predecessor
-            // anchored the floor on that zero. `mulDivUp(0, floorBps, BPS)` is 0, so the entire
-            // protocol floor disappeared and only userMinOut remained — measured at 9501 bps of
-            // the quote for the honest route and 0 for the same route with one parasite hop.
-            // The comment eleven lines above promises the caller "can never RELAX the protocol
-            // floor"; that promise was false for the price of one struct.
-            //
-            // The anchor now follows the last hop that actually MOVED value. hopGot is measured
-            // (balance deltas, not calldata), so a hop that spent nothing cannot become the
-            // anchor. NM-002 is preserved inside the same expression rather than beside it: a
-            // hop that legitimately could not be quoted in-frame but DID execute still falls
-            // back to its attested figure. Nothing reverts, for the reason written above.
-            // ... and it must produce the ROUTE's output token. Without that clause the anchor
-            // can land on an earlier hop denominated in a different currency, and a floor read
-            // in one token against an amount delivered in another is not conservative, it is
-            // arbitrary: it turned four escape-route regressions into RouterE(5) by comparing a
-            // bridge-token quote with a destination-token delivery. Since hops chain, only a hop
-            // whose tokenOut is the route's can be the anchor - which is the last hop, EXCEPT
-            // when a trailing hop repeats the same token, and that is exactly the parasite this
-            // closes. A route whose real final hop moved nothing still gets an inert floor and
-            // still does not revert here, which is what NM-002 requires.
+            // THE FLOOR'S ANCHOR IS A HOP THAT MOVED VALUE AND PRODUCES THE ROUTE'S OUTPUT.
+            // `hopGot` is a balance delta, so a hop that spent nothing cannot become the anchor,
+            // and the output-token clause keeps the anchor in the currency the floor is compared
+            // against - a floor read in one token against a delivery in another is not
+            // conservative. NM-002 lives inside the same expression: a hop that could not be
+            // quoted in-frame but did execute falls back to its attested figure, and nothing
+            // reverts here, because two of the zero-quote paths are legitimately executable
+            // pools (a 0-fee CL pool, a dynamic-fee V4 pool under a protocol fee).
             if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)
                 finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;
             unchecked { ++h; }
@@ -1370,42 +1354,33 @@ contract BlazePhoenixRouter {
         // its own loop over CALLDATA (cheap, no storage, no external calls) and the value is born
         // exactly where it is consumed. Readability improves too: the loop above executes, this
         // one counts.
-        // FLOOR-02. This used to sum route.hops[th].legs.length — the DECLARED leg count —
-        // while `executedMask`, three hundred lines above, already recorded which legs actually
-        // ran. ironFloorBps shaves FLOOR_PER_LEG_BPS (200) per leg beyond the first, so padding
-        // a hop with legs carrying amountIn = 0 walked the floor down for free: measured at
-        // 9501 -> 8702 bps of the quote for four padded legs, and the structural maximum of
-        // MAX_HOPS x MAX_LEGS_PER_HOP = 15 legs drives it into the 8000 hard clamp — 96% of the
-        // quote down to 80%, bought with calldata. The loosening exists to pay for the real
-        // composition risk of a real split; a leg that never touched a pool carries none of it.
-        // Counting the mask instead is both correct and smaller than the loop it replaces.
-        // TWO COUNTS, because the two consumers ask different questions and one of them has a
-        // cancellation that must not be disturbed. `_wImp` pre-multiplies each leg's impact by
-        // the hop's DECLARED leg count so that the division below returns a share-weighted mean;
-        // counting anything else there inflates the mean by declared/executed and walks the floor
-        // down by a different route than the one being closed (measured: 391 bps of the 799).
+        // THE FLOOR'S TWO INPUTS, each from the object that decides it. The impact term is the
+        // share-weighted mean over the route's legs: `_wImp` pre-multiplies each leg's impact by
+        // its hop's leg count so that dividing by the route's leg count here yields the weighted
+        // mean, and a leg with no share carries no weight. The leg shave is computed from the
+        // CONCENTRATION of the trade across legs - `(Σa)² / Σa²` per hop, the effective number
+        // of legs - so a split earns loosening in proportion to how genuinely it is split, and a
+        // leg carrying a vanishing share of its hop earns a vanishing amount. The Solver computes
+        // the same figure from the same amounts when it attests `singleOutFloor`, so the attested
+        // floor and the enforced floor agree by construction.
         uint256 declaredLegs;
+        uint256 legShv;
         for (uint256 th; th < route.hops.length; ) {
-            declaredLegs += route.hops[th].legs.length;
+            Leg[] calldata ls = route.hops[th].legs;
+            declaredLegs += ls.length;
+            uint256 sA;
+            uint256 sA2;
+            for (uint256 i; i < ls.length; ) {
+                uint256 a = ls[i].amountIn;
+                sA += a;
+                sA2 += a * a;
+                unchecked { ++i; }
+            }
+            legShv += BPC.legShaveBps(sA, sA2);
             unchecked { ++th; }
         }
-
-        // FLOOR-02 IS OPEN, and the shave below still counts DECLARED legs. Padding a hop with
-        // legs carrying amountIn = 0 shaves FLOOR_PER_LEG_BPS each: measured 9501 -> 8702 bps of
-        // the quote for four of them, and the structural maximum of MAX_HOPS x MAX_LEGS_PER_HOP
-        // = 15 legs drives it into the 8000 hard clamp - 96% of the quote down to 80%, bought
-        // with calldata.
-        //
-        // A popcount of `executedMask` stood here briefly and was taken out again, for two
-        // reasons worth recording. It made the shave CHEAP rather than closed: a padded leg sets
-        // its mask bit as soon as it moves enough to clear `outAmt == 0`, and nothing stops legs
-        // repeating one pool. And it cost bytes this contract does not have - the Router
-        // measured 24,015 against this repository's own 24,000 size gate, which has not run
-        // since the CI account was locked. Closing FLOOR-02 means weighting the shave by each
-        // leg's share of the hop, the way the impact term already is; that is a behaviour
-        // decision with its own measurement, not a swap of one counter for another.
         uint256 avgImpact = declaredLegs > 0 ? impactAcc / declaredLegs : 0;
-        uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);
+        uint256 floorBps  = BPC.ironFloorBpsShv(avgImpact, legShv, 0);
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.
@@ -2036,26 +2011,15 @@ contract BlazePhoenixRouter {
                 address t0 = leg.zeroForOne ? hop.tokenIn  : hop.tokenOut;
                 address t1 = leg.zeroForOne ? hop.tokenOut : hop.tokenIn;
                 uint256 depth;
-                // THE ROW THIS SWAP TICKS. For every leg family except the concentrated-single
-                // one, `leg.pool` is the address execution actually swapped against, so a lie in
-                // it is self-punishing and the identity is confirmed for free. V4 has no pool
-                // address: `_execV4Amt` builds its key from (tokenIn, auxId, fee, tickSpacing,
-                // hooks) and NEVER READS `leg.pool` - which left this call the only consumer, and
-                // therefore an identity the caller declares and nothing confirms.
-                //
-                // The measured consequence was not a mis-labelled event. `recordSwap`'s hot path
-                // applies `tickSlot`, which overwrites the depth bucket UNCONDITIONALLY, to
-                // `keyOf(leg.pool, t0, t1)` - and `keyOf` is keccak(pool, t0, t1) with nothing
-                // tying it to a kind. So executing a dust V4 pool while declaring another pool
-                // wrote the dust reading onto that pool's row: bucket 9 -> 0 on an honest V4
-                // pool, 0 -> 9 on the attacker's, and - the realistic one - a dust V4 swap
-                // knocking the pair's DEEPEST V2 PAIR to bucket 0. The bucket is what `_topKPools`
-                // ranks by and what `_canInsert` evicts by, and the Solver's own comment prices
-                // losing the best venue at 16-20 bps.
-                //
-                // The derived poolId is already in scope below, so the confirmed identity costs
-                // one word. `regPool` starts as the declaration and is REPLACED by the derivation
-                // on the one family where the declaration is unconfirmable.
+                // THE ROW THIS SWAP TICKS IS THE POOL THAT EXECUTED. For the pair and
+                // concentrated-pool families that is `leg.pool` itself - execution swaps against
+                // it, so the identity is confirmed by the swap. A V4 pool has no address:
+                // `_execV4Amt` keys it by (tokenIn, auxId, fee, tickSpacing, hooks), so the row is
+                // keyed on the DERIVED poolId, the same identity the quote and the swap used.
+                // `regPool` starts as the leg's field and is replaced by the derivation on that
+                // family. The depth handed with it is measured from that same poolId, so the
+                // registry receives a measurement under the identity it was measured on -
+                // which is what `_topKPools` ranks by and `_canInsert` evicts by.
                 address regPool = leg.pool;
                 if (BPC.kindHas(leg.kind, BPC.A_RESERVES)) {
                     // NORMALISE BEFORE THE `min`. This was the EIGHTH site of
@@ -2126,33 +2090,16 @@ contract BlazePhoenixRouter {
                     uint8 dc0 = BPC.decimalsOf(t0);
                     uint8 dc1 = BPC.decimalsOf(t1);
                     depth = BPC.depthFromL18(BPC.getLiquidity(leg.pool), spReg, dc0, dc1);
-                    // PROV-01 ON THE CONCENTRATED ARM. The rule "mass that costs nothing is not
-                    // mass" was written for `getReserves` and applied to `A_RESERVES` in both
-                    // producers - and the register recorded it as closed "at both producers",
-                    // with every sentence in the row about reserves. This arm was never asked.
-                    // It reads `liquidity()` off a pool the CALLER names, and a pool that swaps
-                    // honestly may still answer anything at all to that call: measured, a pool
-                    // declaring 1e33 while holding 5,000e18 a side wrote bucket 15 where its
-                    // physical mass supports 6, and took a seat on a full pair - which means it
-                    // evicted an incumbent.
-                    // The cap the pair arm uses is available here for the same two staticcalls:
-                    // the pool has an address and holds the tokens. Inert on an honest pool,
-                    // where holdings always exceed what the curve can move, and binding on a
-                    // synthetic one. V4 needs no such cap: its liquidity is read from the Hub's
-                    // canonical PoolManager, not from a caller-named contract.
-                    // ONE-SIDED RANGES ARE LEGITIMATE, and that is why this cap is conditional
-                    // rather than a copy of the pair arm. A concentrated pool with all of its
-                    // liquidity on one side of the current tick genuinely holds ~zero of the
-                    // other token, so `min(both sides)` would demote an honest pool to bucket 0.
-                    // The suite says so out loud: `test_L799c2_ZeroBalanceConcLegKeepsItsRawPromise`
-                    // pins that a zero-balance concentrated book keeps its promise, and the
-                    // unconditional form turned it red. Scoping PROV-01 to reserve pairs was not
-                    // an oversight - a pair always holds both sides and a concentrated pool does
-                    // not.
-                    // So the cap binds only when the pool claims to hold both tokens, which is
-                    // exactly the shape an inflated `liquidity()` needs in order to be believed:
-                    // an attacker must put real mass on BOTH sides to escape it, and a one-sided
-                    // honest pool is left exactly as it is today.
+                    // PROV-01 ON THE CONCENTRATED ARM: mass that costs nothing is not mass.
+                    // `liquidity()` is the pool's own word about itself; the depth recorded here
+                    // is capped by the tokens the pool physically holds, the same rule the pair
+                    // arm applies through `_v2Depth18`. The cap binds only when the pool holds
+                    // BOTH tokens: a concentrated range with all of its liquidity on one side of
+                    // the current tick legitimately holds ~zero of the other, and the suite pins
+                    // that such a book keeps its raw promise (`test_L799c2`). Inert on an honest
+                    // pool, binding on an inflated claim - which must now be backed by real mass
+                    // on both sides to be believed. V4 needs no cap: its liquidity is read from
+                    // the Hub's canonical PoolManager, not from a caller-named contract.
                     uint256 b0 = BPC.balanceOf(t0, leg.pool);
                     uint256 b1 = BPC.balanceOf(t1, leg.pool);
                     if (b0 != 0 && b1 != 0) {

@@ -104,6 +104,15 @@ interface IHubQ {
     function isBridgeToken(address t) external view returns (bool);
 }
 
+/// @dev The Router's primary door, declared here only so `abi.encodeCall` type-checks the
+///      encoding against the real signature - a hand-rolled selector would drift silently.
+interface IRouterExec {
+    function swapExactIn(
+        Route calldata route, uint256 amountIn, uint256 userMinOut,
+        address recipient, uint256 deadline
+    ) external returns (uint256);
+}
+
 contract BlazePhoenixQuoter {
 
     string  public constant VERSION             = "2.0.0";
@@ -198,6 +207,39 @@ contract BlazePhoenixQuoter {
         pv = _pack(plan.best, userMinOut);
         fallbackRoute = plan.fallbackRoute;
         hasFallback   = plan.hasFallback;
+    }
+
+    /// @notice One call, two answers: the full preview AND the exact calldata that executes it.
+    /// @dev The integrator's round-trip used to be: ask for a preview, rebuild the nested
+    ///      `Route` client-side, encode `swapExactIn` by hand, and choose a `minOut`. Every step
+    ///      is a place to drift from what was quoted. This returns the bytes ready to submit, with
+    ///      `effectiveMinOut` - the protocol's own floor, tightened by the caller's - already
+    ///      inside them, so the transaction carries the floor the preview promised.
+    ///      When the preview says the route cannot execute, the bytes are EMPTY on purpose: a
+    ///      caller cannot submit a transaction this function already knows will not settle.
+    ///      View-only, no state, no Solver re-run beyond the preview's own.
+    function previewAndEncode(
+        address tIn, address tOut, uint256 amountIn, address recipient, uint256 deadline
+    ) external view returns (Preview memory pv, bytes memory call) {
+        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
+        pv = _pack(plan.best, 0);
+        if (pv.canExecute) {
+            call = abi.encodeCall(IRouterExec.swapExactIn,
+                (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));
+        }
+    }
+
+    /// @notice The same, with a caller-tightened floor folded into the encoded bytes.
+    function previewAndEncodeWithMinOut(
+        address tIn, address tOut, uint256 amountIn, uint256 userMinOut,
+        address recipient, uint256 deadline
+    ) external view returns (Preview memory pv, bytes memory call) {
+        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
+        pv = _pack(plan.best, userMinOut);
+        if (pv.canExecute) {
+            call = abi.encodeCall(IRouterExec.swapExactIn,
+                (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));
+        }
     }
 
     /// @notice Preview an already-built Route (e.g. one returned previously

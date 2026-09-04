@@ -2016,18 +2016,49 @@ library BlazePhoenixCore {
     //  leg count, and is clamped so it never drops below the 80% hard cap
     //  (BPS − 2 000 = 8 000) regardless of inputs.
 
-    function ironFloorBps(
-        uint256 impactBps, uint256 legCount, uint256 sigmaLn
+    /// @notice The leg shave, from CONCENTRATION rather than from a count.
+    /// @dev `FLOOR_PER_LEG_BPS` per extra leg exists to pay for the composition risk of a real
+    ///      split. A count of legs is the caller's declaration; the risk lives in how the trade is
+    ///      actually divided. `(Σa)² / Σa²` is the effective number of legs - exactly N for N equal
+    ///      shares, exactly 1 for one dominant leg, and a leg carrying a vanishing share of the hop
+    ///      contributes a vanishing amount, whether it declares zero or one wei. So the shave is
+    ///      `FLOOR_PER_LEG_BPS × (effN − 1)`, computed as `((Σa)² − Σa²) / Σa²` to keep the
+    ///      fraction. By Cauchy–Schwarz `(Σa)² ≥ Σa²`, so the numerator never underflows.
+    ///      The square is checked arithmetic on purpose: a declared amount past 2¹²⁸ reverts the
+    ///      caller's own swap, which is the correct answer to an absurd route.
+    ///      Called by the Solver on the amounts it plans and by the Router on the amounts it is
+    ///      handed, and for a Solver-built route those are the same numbers - so the attested floor
+    ///      and the enforced floor agree by construction, not by test.
+    function legShaveBps(uint256 sumA, uint256 sumA2) internal pure returns (uint256) {
+        if (sumA2 == 0) return 0;
+        uint256 sq = sumA * sumA;
+        return mulDiv(sq - sumA2, FLOOR_PER_LEG_BPS, sumA2);
+    }
+
+    /// @notice The floor from an impact figure and a leg shave already expressed in bps.
+    function ironFloorBpsShv(
+        uint256 impactBps, uint256 legShv, uint256 sigmaLn
     ) internal pure returns (uint256 floorBps) {
         unchecked {
             uint256 base = FLOOR_BASE_BPS;
-            uint256 legShv = legCount > 1 ? (legCount - 1) * FLOOR_PER_LEG_BPS : 0;
             uint256 impShv = impactBps > BPS ? BPS : impactBps;
             uint256 sigShv = sigmaLn / 1e14;
             uint256 hardFloor = BPS - FLOOR_HARD_MAX_LOSS_BPS;
             uint256 total = legShv + impShv + sigShv;
             floorBps = total >= base ? hardFloor : base - total;
             if (floorBps < hardFloor) floorBps = hardFloor;
+        }
+    }
+
+    /// @notice The count-based form, kept for callers that reason in whole legs. Equivalent to
+    ///         `ironFloorBpsShv` with `(legCount − 1) × FLOOR_PER_LEG_BPS`; the shipped producers
+    ///         use the concentration form above.
+    function ironFloorBps(
+        uint256 impactBps, uint256 legCount, uint256 sigmaLn
+    ) internal pure returns (uint256 floorBps) {
+        unchecked {
+            return ironFloorBpsShv(
+                impactBps, legCount > 1 ? (legCount - 1) * FLOOR_PER_LEG_BPS : 0, sigmaLn);
         }
     }
 

@@ -305,8 +305,7 @@ the first one twice. The asymmetry is what matters and it is not symmetric at al
   address never had. The pin is defence in depth on top of that, not the defence.
 - For **factories**, there is no equivalent. A factory address carries no bits. The residual is
   BOUNDED — by pool admission, the per-leg floor and `userMinOut`, so the damage is route
-  degradation rather than drainage — but it is not closed, and the guard at `Hub:728` says so in
-  its own comment.
+  degradation rather than drainage — and the guard at `Hub:728` documents that bound at the site.
 
 Stating that difference is the point of measuring the distance. Two guards with identical text and
 identical failure modes, one of which stands on something immutable and one of which does not.
@@ -314,8 +313,8 @@ identical failure modes, one of which stands on something immutable and one of w
 The screen's own limit, stated: it reads one predicate and classifies the identifiers in it. It
 cannot see that a value was constrained three frames up, and it cannot decide the `leg.hooks`
 question — a caller-declared field that is ALSO the pool selector is at distance 0, not 1, but
-only because one assignment binds them. That assignment had no test at all until
-`test/V4SievedHookIsTheExecutedHook.t.sol`, which is the whole argument for measuring this.
+only because one assignment binds them. That assignment is pinned by
+`test/V4SievedHookIsTheExecutedHook.t.sol`, which is the point of measuring the distance.
 
 ## 5. What none of this establishes
 
