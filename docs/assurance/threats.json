@@ -54,7 +54,7 @@
 
     { "id": "SOK-FEE-BASE", "class": "Caller-supplied quantity substituted for a measured one",
       "status": "blocked",
-      "guard": "resolvePoolDeployer",
+      "guard": "_chargeHopFee",
       "test": "test_FeeBase_IgnoresLiedAboutTotalOut",
       "note": "Declared route figures are treated as coordinates to measure at, never as values to act on. The fee base is re-derived from the on-chain quote of the legs as executed." },
 
@@ -108,12 +108,12 @@
 
     { "id": "SOK-ARBITRARY-CALL", "class": "Arbitrary external call or transfer-from sink",
       "status": "blocked",
-      "guard": "onlyRouter",
+      "guard": "_execScaled",
       "note": "The executor never takes a caller-supplied call target. Venue interaction is dispatched from a closed set of shapes selected by a registry-held kind." },
 
     { "id": "SOK-SIG-REPLAY", "class": "Signature replay on delegated approval",
       "status": "blocked",
-      "guard": "MAX_BATCH",
+      "guard": "permitTransferFrom",
       "note": "Delegated approval is handled by the canonical permit contract; the system holds no signature scheme of its own." },
 
     { "id": "SOK-GOV", "class": "Governance capture",

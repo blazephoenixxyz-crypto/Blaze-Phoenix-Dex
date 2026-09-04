@@ -1930,6 +1930,11 @@ contract BlazePhoenixHub {
         address tA, address tB
     ) external onlyOperator returns (bytes32 key) {
         _ne0(pool); _ne0(tA); _ne0(tB);
+        // The second registration door admits a hook on the same terms as the first: listed, or
+        // none. `addV4` has held this line since its hook argument existed; a row written here
+        // with an unlisted hook is filtered out of every read by `isHookLive` and so is a dead
+        // seat on the pair, and after renunciation nothing can take it back.
+        if (hooks != address(0) && !_store().hookAllowed[hooks]) revert HubE(8);
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         key = keyOf(pool, t0, t1);
         if (BPC.kindHas(kind, BPC.A_CONC_SING)) {

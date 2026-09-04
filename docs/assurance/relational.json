@@ -30,7 +30,7 @@
 
     { "quantity": "leg budget",
       "producer_a": "MAX_LEGS_PER_HOP", "producer_b": "MAX_LEGS",
-      "status": "tied", "test": "test_Seam2_LegBudget_ExecutorCapCoversPlannerBudget",
+      "status": "tied", "test": "test_Seam2_SolverMaxSplit_ExecutesThroughRouter",
       "note": "What the planner is allowed to compose must be executable; an executor cap below the planner budget turns a valid plan into a revert." },
 
     { "quantity": "stable-curve quote",
@@ -40,7 +40,7 @@
 
     { "quantity": "pool depth",
       "producer_a": "depthFromL18", "producer_b": "recordSwap",
-      "status": "tied", "test": "test_Parity_Reserves",
+      "status": "tied", "test": "test_probe_forgedReserves_registryBucketIsThePhysicalMass",
       "note": "Depth as the library computes it against depth as the registry stores it, per venue family." },
 
     { "quantity": "per-pool traded volume",

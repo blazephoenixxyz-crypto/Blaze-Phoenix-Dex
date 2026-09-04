@@ -15,6 +15,11 @@ pragma solidity 0.8.36;
 //  quote equals the Solver's (no input-side fee to fold in).
 //  RED on main a1ec7cd (off by the rounding, and by the weighting whenever the
 //  legs' impacts differ).
+//
+//  What the equality proves: both sides feed their aggregated impact into the
+//  single producer `BPC.ironFloorBps` / `ironFloorBpsShv`. The fixtures sit far
+//  below the hard-floor clamp, where that function is strictly monotone in its
+//  impact input, so equal floors mean the two aggregations agreed exactly.
 // =============================================================================
 
 import {Test, Vm} from "forge-std/Test.sol";

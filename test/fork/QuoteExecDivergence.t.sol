@@ -119,10 +119,12 @@ contract QuoteExecDivergenceTest is Test {
         vm.prank(user);
         try router.swapExactIn(r, amt, 1, user, t0 + 600) returns (uint256 got) {
             console2.log("  NAO reverteu. entregue:", got);
+            assertEq(IERC20Q(USDS).balanceOf(user) - antes, got, "the Router returns exactly the balance it delivered");
             console2.log("  delta saldo           :", IERC20Q(USDS).balanceOf(user) - antes);
             console2.log("  entregue / prometido (x100):",
                 pv.grossOut == 0 ? 0 : (got * 100) / pv.grossOut);
         } catch (bytes memory err) {
+            assertFalse(pv.canExecute, "the preview promised an executable route and the Router refused it");
             console2.log("  REVERTEU. selector+dados:");
             console2.logBytes(err);
             console2.log("  >> correr com -vvvv para ver a linha exacta do Router");
