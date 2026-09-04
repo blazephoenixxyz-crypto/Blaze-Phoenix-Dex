@@ -12,6 +12,10 @@ pragma solidity 0.8.36;
 //  ANSWER changes after admission steers which address discovery treats as
 //  the pair's pool.
 //
+//  The fix pins the answer at admission as `factoryDeployer` (Hub.addFactory via
+//  Core.resolvePoolDeployer); every expected address below is derived from that
+//  pinned origin, never from the factory's live answer.
+//
 //  The mock here is deliberately proxy-shaped (EIP-1967 threat model): its
 //  runtime code NEVER changes between admission and scan — only the answer
 //  does. So these tests fail against the unfixed Hub AND against the

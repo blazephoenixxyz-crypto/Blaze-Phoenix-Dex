@@ -134,12 +134,22 @@ contract FactoryCodehashPinTest is Test {
         assertEq(address(factory).codehash, before_, "a proxy upgrade leaves the runtime identical");
     }
 
-    /// The guard must be fail-CLOSED, never a new revert: a stale factory simply
-    /// stops contributing candidates, and discovery for the pair still returns.
+    /// The guard is fail-CLOSED, never a new revert: a stale factory stops
+    /// contributing candidates, so the set discovery returns can only SHRINK
+    /// when a source goes stale — never grow, never revert. (The proxy shape
+    /// above leaves the runtime unchanged; here the runtime really changes.)
     function test_StaleFactoryDegradesGracefullyInsteadOfReverting() public {
         hub.renounceControl();
-        factory.upgradeTo(address(new FixedPairLogic(address(attackerPool))));
-        // Must not revert — the call itself is the assertion.
-        hub.discoverFor(address(tokenA), address(tokenB));
+        address[] memory before_ = _discoveredPools();
+        bool servedHonest;
+        for (uint256 i; i < before_.length; ++i) if (before_[i] == address(honest)) servedHonest = true;
+        assertTrue(servedHonest, "precondition: the factory served the honest pool while it was live");
+
+        vm.etch(address(factory), address(new FixedPairLogic(address(attackerPool))).code);
+        address[] memory after_ = _discoveredPools();   // returns: one stale source never bricks the pair
+        assertLe(after_.length, before_.length, "a stale factory can only remove candidates, never add");
+        for (uint256 i; i < after_.length; ++i) {
+            assertTrue(after_[i] != address(attackerPool), "a stale factory steers nothing");
+        }
     }
 }

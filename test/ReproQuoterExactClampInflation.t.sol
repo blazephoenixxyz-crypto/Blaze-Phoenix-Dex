@@ -71,7 +71,7 @@ contract ReproQuoterExactClampInflationTest is Test {
         emit log_named_uint("previewPlanExact exactOut", exactOut);
         emit log_named_uint("router delivered      ", delivered);
         assertGt(delivered, 0, "sanity: clamped route should deliver something");
-        assertLe(exactOut, delivered * 2, "previewPlanExact overstates deliverable output (clamp re-inflation)");
+        assertLe(exactOut, delivered, "previewPlanExact overstates deliverable output (clamp re-inflation)");
     }
 
     // RED-FIRST: a swap sized to 95% of the quoter's OWN exact quote must be fillable, not revert.

@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  F1 — LAYER 2 IS ENFORCED PER HOP; THE THREAT IT NAMES IS ROUTE-WIDE.
 //
-//  Router:1140, inside the `for (uint256 h; h < route.hops.length; )` body:
+//  Router:1140 (`Router._execute`), inside the `for (uint256 h; h < route.hops.length; )` body:
 //
 //      bool sawHooked;
 //      for (uint256 l; l < legs; ) {
@@ -156,7 +156,7 @@ contract CrossHopHookOrderingTest is Test {
         // (token0()) that would otherwise consume the prank and the expectRevert.
         Route memory r = _twoHopRoute(HOOK, address(0));
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 3));
         router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
     }
 

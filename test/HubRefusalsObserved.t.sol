@@ -312,6 +312,9 @@ contract HubRefusalsObservedTest is Test {
     /// fails. (For a V4 kind that stale hook would also flow into the
     /// isHookLive routability filter: a ghost with consequences.)
     function test_Registry_EvictionClearsTheHookMapping() public {
+        // Both registration doors admit a hook only if it is listed, so the victim's hook
+        // is listed first. What this test pins - eviction clearing the hook mapping - is unchanged.
+        hub.allowHook(hookAddr, true);
         address hooked = _seed(0, hookAddr);          // index 0 — the victim
         for (uint256 i = 1; i < MAX_SLOTS; ++i) _seed(i, address(0));
         _seed(MAX_SLOTS, address(0));                 // evicts `hooked`

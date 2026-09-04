@@ -309,7 +309,7 @@ contract BlazePhoenixQuoterTest is Test {
         assertEq(bytes4(ret), BlazePhoenixQuoter.QuoterE.selector);
     }
 
-    function test_UnlockCallback_RevertsWhenNotV4Manager() public {
+    function test_QuoterUnlockCallback_RevertsWhenNotV4Manager() public {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixQuoter.QuoterE.selector, 6));
         quoter.unlockCallback("");
     }

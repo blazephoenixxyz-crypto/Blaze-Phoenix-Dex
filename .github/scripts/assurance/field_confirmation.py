@@ -40,7 +40,7 @@ DATA = os.path.join(ROOT, "docs", "assurance", "fields.json")
 
 # The instances this table must still remember, and the word that must appear in each note.
 HISTORY = {"FLOOR-01": "closed", "VOL_01": "rescaled", "REG-03": "closed", "F-B": "closed",
-           "FLOOR-02": "open", "F-C": "bounded"}
+           "FLOOR-02": "closed", "F-C": "bounded"}
 
 d = json.load(open(DATA))
 rows = d["rows"]
