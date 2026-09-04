@@ -1064,7 +1064,10 @@ def artefact_fingerprint():
         f = os.path.join("out", f"BlazePhoenix{c}.sol", f"BlazePhoenix{c}.json")
         if not os.path.exists(f):
             return {}
-        obj = json.load(open(f)).get("deployedBytecode", {}).get("object", "")
+        art = json.load(open(f))
+        # Creation AND runtime: a constant used only by a constructor (PERMIT2_DEFAULT) lives
+        # in the creation object alone, and a runtime-only hash is blind to a mutant on it.
+        obj = art.get("bytecode", {}).get("object", "") + "|" + art.get("deployedBytecode", {}).get("object", "")
         out[c] = hashlib.sha256(obj.encode()).hexdigest()[:16]
     return out
 

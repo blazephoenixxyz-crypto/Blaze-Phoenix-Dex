@@ -79,7 +79,7 @@ def walk(hexstr):
             i += 1
 
 
-def opcodes(hexstr):
+def opcodes(hexstr, n_instr=None):
     """Walk the code, skipping PUSH immediates so a constant is never read as an opcode.
 
     Unlinked library references appear as `__$<34 hex>$__` placeholders and are not hex. They
@@ -89,8 +89,16 @@ def opcodes(hexstr):
     h = hexstr[2:] if hexstr.startswith("0x") else hexstr
     h = LIB_REF.sub("0" * 40, h)
     b = bytes.fromhex(h)
-    seen, i = set(), 0
+    seen, i, count = set(), 0, 0
     while i < len(b):
+        # THE CODE SECTION ENDS WHERE THE SOURCE MAP ENDS. At low optimizer-runs the compiler
+        # moves large constants (the Router's eight TSLOT keccaks) into a data table that is
+        # CODECOPY'd at use, and a walk that continues past the last mapped instruction reads
+        # that table as opcodes - 0xff in a hash is not SELFDESTRUCT. One instruction per
+        # source-map entry; nothing after them is executable.
+        if n_instr is not None and count >= n_instr:
+            break
+        count += 1
         op = b[i]
         seen.add(op)
         if 0x60 <= op <= 0x7f:          # PUSH1..PUSH32
@@ -115,9 +123,11 @@ for p in sorted(glob.glob(os.path.join(OUT, "BlazePhoenix*.sol", "*.json"))):
     except Exception:
         continue
     obj = (art.get("deployedBytecode") or {}).get("object")
+    smap = (art.get("deployedBytecode") or {}).get("sourceMap") or ""
+    n_code = len(smap.split(";")) if smap else None
     if not obj or len(obj) < 10: continue
     targets.append(name)
-    ops = opcodes(obj)
+    ops = opcodes(obj, n_code)
     counts, push4 = {}, set()
     for _off, op, imm in walk(obj):
         if op in COUNTED:

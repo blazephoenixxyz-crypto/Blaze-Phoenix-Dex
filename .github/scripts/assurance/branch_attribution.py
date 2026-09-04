@@ -88,7 +88,7 @@ for sp in sorted(glob.glob(os.path.join(ROOT, "src", "*.sol"))):
             s, l, f, _j, _m = smap[idx]
             jumpi_at.add((f, s, l))
 
-    src = open(sp).read()
+    src = open(sp, 'rb').read().decode('latin-1')   # source maps are BYTE offsets
     # THE SPAN IS THE STATEMENT, NOT THE KEYWORD. Under the IR pipeline the map attributes a
     # JUMPI to the CONDITION sub-expression, which begins after `if (`. The first version of
     # this script matched only against the keyword's own few characters and therefore reported

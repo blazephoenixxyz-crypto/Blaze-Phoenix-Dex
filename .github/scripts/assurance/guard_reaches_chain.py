@@ -96,7 +96,7 @@ for p in sorted(shipped_artefacts(ROOT)):
 src_files = {}
 for sp in sorted(glob.glob(os.path.join(ROOT, "src", "*.sol"))):
     name = os.path.basename(sp)[:-4]
-    src_files[name] = open(sp).read()
+    src_files[name] = open(sp, 'rb').read().decode('latin-1')   # source maps are BYTE offsets
 
 cat = json.load(open(os.path.join(ROOT, "docs/assurance/threats.json")))["classes"]
 guards = sorted({c["guard"] for c in cat if c.get("guard")})

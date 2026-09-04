@@ -41,24 +41,26 @@ analysis; a report that defeats one of these is especially welcome.
 
 ## Verification pipeline and track record
 
-An independent external audit has not happened yet; it is planned before
-launch. What runs on every push, today, in public CI: a ~290-test forge suite
-(unit, fuzz, stateful invariants) plus ~40 fork tests against live chain
-liquidity; Halmos symbolic proofs, Slither (fail on high), an EIP-170 size
-guard and the offline gas ledger — those five, plus the suite, are what branch
-protection on `main` actually requires. The Certora Prover (INV-20 fail-closed),
-Aderyn, Solhint, the secret scan and the fork suites run but do **not** block a
-merge; read the enforcing list from the branch protection API, not from this
-file.
+An independent external audit is scheduled before launch. What runs on every
+push: a forge suite of 1,183 declared tests across 203 files (unit, property,
+parity, stateful invariants) and 25 fork suites against live chain liquidity;
+Halmos symbolic proofs, Slither (fail on high), an EIP-170 size guard — also
+asserted inside the suite — and the offline gas ledger, which together with the
+suite are what branch protection on `main` requires; the Certora Prover (INV-20
+fail-closed), Aderyn, Solhint and the secret scan run alongside. Beyond the
+suite, a curated mutation guard of 181 named mutants, a shared-quantity
+register, a calldata-field matrix and twenty instruments over the compiled
+artefact are recomputed per commit. What each guarantees, and how to check it
+from a clean checkout: [`docs/AUDIT_METHOD.md`](./docs/AUDIT_METHOD.md).
 
-Track record so far, across this repo and the staking sibling: **17 researchers
+Track record, across this repo and the staking sibling: **19 researchers
 credited** in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) — a count
-you can check against that file rather than against this sentence — with every
-confirmed finding fixed with regression tests, and **zero Critical** — no direct theft or permanent freeze of user
-funds has ever been demonstrated. Internal adversarial audits are red-first:
-a finding becomes a failing CI test before any fix is written. The public
-ledger of findings and credits lives in
-[`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) and [`REPORTS.md`](./REPORTS.md).
+you can check against that file rather than against this sentence — every
+confirmed finding fixed with a regression test that fails against the pre-fix
+code, and **zero Critical**: no direct theft or permanent freeze of funds has
+ever been demonstrated. Every report is reproduced red-first before a verdict
+is given; the process, from receipt to Hall of Fame, is written down in
+[`docs/BOUNTY_METHOD.md`](./docs/BOUNTY_METHOD.md).
 
 ## Bounty programme
 

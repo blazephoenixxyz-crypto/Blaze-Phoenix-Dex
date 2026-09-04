@@ -14,10 +14,9 @@ details are in [`SECURITY.md`](./SECURITY.md); confirmed reporters are credited 
 ## The rule that matters most: red before green
 
 A change that fixes a defect must arrive with a test that **fails without the fix**. Not a test
-that passes with it — one that fails without it. This is not ceremony. Twice in this codebase a
-live fix shipped with dead tests, and the second time we only found out because a mutation guard
-caught it. If you cannot make the test fail on the unfixed code, you have not yet understood the
-defect.
+that passes with it — one that fails without it. This is not ceremony: a test that was never red proves
+nothing about the fix it accompanies, and the mutation guard exists to make that visible. If you
+cannot make the test fail on the unfixed code, you have not yet understood the defect.
 
 The same applies to guards: adding a security guard means adding the mutant that proves the guard
 is watched. The CI mutation job pairs every versioned mutant with the named test that must catch

@@ -78,7 +78,7 @@ for line in open(LCOV):
 # offset -> line, per source file
 lines_at = {}
 for p in sorted(glob.glob(os.path.join(ROOT, "src", "*.sol"))):
-    text = open(p).read()
+    text = open(p, 'rb').read().decode('latin-1')
     starts, off = [0], 0
     for ch in text.split("\n")[:-1]:
         off += len(ch) + 1
@@ -199,7 +199,7 @@ print(f"  covered / total shipped        : {T['covered']/g:.4f}   how much of wh
 print(f"                                            any test has ever executed")
 print("\nUPPER BOUND: an instruction counts as covered because its LINE ran, so a line with an")
 print("untaken branch still contributes its bytes. The complementary LOWER bound is\n"
-      "pc_coverage.py, which proves execution instead of inferring it and reports 85.9%.")
+      "pc_coverage.py, which proves execution instead of inferring it (88.3% at 84d1553).")
 json.dump({"totals": T, "rows": rows,
            "covered_over_executable": round(T["covered"] / ex, 4),
            "covered_over_total": round(T["covered"] / g, 4)},
