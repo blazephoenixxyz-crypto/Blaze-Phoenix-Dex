@@ -1389,30 +1389,23 @@ contract BlazePhoenixRouter {
             declaredLegs += route.hops[th].legs.length;
             unchecked { ++th; }
         }
-        // The SHAVE is the other question: FLOOR_PER_LEG_BPS pays for the composition risk of a
-        // real split, and a leg that never touched a pool carries none of it. `executedMask` has
-        // recorded exactly that since the hop loop, and was never read here - so padding a hop
-        // with legs declaring amountIn = 0 bought 200 bps each for the price of calldata
-        // (measured: 9501 -> 8702 bps of the quote for four of them, and the structural maximum
-        // of 15 legs reaches the 8000 hard clamp).
-        uint256 execLegs;
-        for (uint256 m = executedMask; m != 0; ) {
-            m &= m - 1;                       // clear the lowest set bit
-            unchecked { ++execLegs; }
-        }
+
+        // FLOOR-02 IS OPEN, and the shave below still counts DECLARED legs. Padding a hop with
+        // legs carrying amountIn = 0 shaves FLOOR_PER_LEG_BPS each: measured 9501 -> 8702 bps of
+        // the quote for four of them, and the structural maximum of MAX_HOPS x MAX_LEGS_PER_HOP
+        // = 15 legs drives it into the 8000 hard clamp - 96% of the quote down to 80%, bought
+        // with calldata.
+        //
+        // A popcount of `executedMask` stood here briefly and was taken out again, for two
+        // reasons worth recording. It made the shave CHEAP rather than closed: a padded leg sets
+        // its mask bit as soon as it moves enough to clear `outAmt == 0`, and nothing stops legs
+        // repeating one pool. And it cost bytes this contract does not have - the Router
+        // measured 24,015 against this repository's own 24,000 size gate, which has not run
+        // since the CI account was locked. Closing FLOOR-02 means weighting the shave by each
+        // leg's share of the hop, the way the impact term already is; that is a behaviour
+        // decision with its own measurement, not a swap of one counter for another.
         uint256 avgImpact = declaredLegs > 0 ? impactAcc / declaredLegs : 0;
-        // FLOOR-02 IS NOT CLOSED HERE, and saying so is the point of this block. Passing
-        // `execLegs` is the correct shape - a leg that never touched a pool carries none of the
-        // composition risk the shave pays for, and it removes the measured 799 bps that four
-        // zero-amount legs bought. It also REFUSES four routes that existing security
-        // regressions need to execute in order to observe the fee they were written to prove
-        // (FeeEscapeViaBridgeResidual and siblings): those routes legitimately contain a leg
-        // that spends nothing, and the tighter floor turns them into RouterE(5). Trading
-        // fee-charging evidence for a refusal is a decision about protocol behaviour, not a
-        // refactor, so it is not made here. `execLegs` is computed and left visible so the
-        // change is one word when that decision is taken.
         uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);
-        execLegs;         // measured, not yet consumed: see the note above
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.
@@ -1528,7 +1521,7 @@ contract BlazePhoenixRouter {
         // construction.
         // The count published here is the MEASURED one for the same reason the volume is
         // (VOL_01): an event that reports the caller's declaration reports the caller.
-        emit Swap(payer, tokenIn, tokenOut, tinStart - baseIn, delivered, execLegs);
+        emit Swap(payer, tokenIn, tokenOut, tinStart - baseIn, delivered, declaredLegs);
         emit ExecutionProof(payer, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number);
         return delivered;
     }
