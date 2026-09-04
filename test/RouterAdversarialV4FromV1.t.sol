@@ -59,6 +59,16 @@ contract HostileV4Manager {
     BlazePhoenixRouter public router;
     bool public reenter;
     bool public reenteredOk; // true only if the guard FAILED to block the nested call
+    // WHY THE CODE AND NOT ONLY THE OUTCOME. `reenteredOk` alone made the invariant below
+    // UNFALSIFIABLE, and it was measured: with the reentrancy lock deleted the campaign still
+    // ran 50 x 50 green. The nested call carried `Route memory empty`, so without the lock
+    // control simply reached `Router:579` - `route.hops.length == 0` - and was refused there
+    // instead. The flag is unreachable in both worlds, which makes the assertion true for a
+    // reason that has nothing to do with the guard it is named after. This repository already
+    // catalogued that shape ("a revert with the right code does not prove the right check
+    // fired"); here it had reappeared one layer up, inside an invariant.
+    uint16  public nestedCode;    // the RouterE code the nested call actually died on
+    bool    public nestedTried;   // non-vacuity: did a nested call ever happen at all
 
     function arm(bool _use, int128 _d0, int128 _d1) external { useOverride = _use; d0Ov = _d0; d1Ov = _d1; }
     function setRouter(BlazePhoenixRouter _r) external { router = _r; }
@@ -79,9 +89,29 @@ contract HostileV4Manager {
         // a hostile hook/manager nesting a call here must be rejected. If it did NOT revert, the
         // guard failed.
         if (reenter && address(router) != address(0)) {
-            Route memory empty;
-            try router.swapExactIn(empty, 1, 1, address(this), type(uint256).max)
-                returns (uint256) { reenteredOk = true; } catch {}
+            // A NON-EMPTY route, so that the empty-route refusal cannot stand in for the lock.
+            // One hop, one concentrated-single leg naming its output through auxId: it passes
+            // the shape checks and reaches the reentrancy guard, which is the only thing that
+            // should refuse it.
+            Leg[] memory legs = new Leg[](1);
+            legs[0] = Leg({
+                pool: address(this), hooks: address(0), kind: 4, fee: 500, tickSpacing: 10,
+                zeroForOne: true, stable: false, amountIn: 1, expectedOut: 0,
+                auxId: bytes32(uint256(uint160(address(this))))
+            });
+            Hop[] memory hops = new Hop[](1);
+            hops[0] = Hop({tokenIn: address(this), tokenOut: address(this),
+                           amountIn: 1, expectedOut: 0, legs: legs});
+            Route memory nested;
+            nested.hops = hops;
+            nestedTried = true;
+            try router.swapExactIn(nested, 1, 1, address(this), type(uint256).max)
+                returns (uint256) { reenteredOk = true; }
+            catch (bytes memory err) {
+                uint16 c;
+                if (err.length >= 0x24) { assembly { c := mload(add(err, 0x24)) } }
+                nestedCode = c;
+            }
         }
         if (useOverride) return _pack(d0Ov, d1Ov);
         uint256 amt = uint256(-p.amountSpecified);
@@ -253,6 +283,13 @@ contract RouterAdversarialV4FromV1Test is Test {
     }
     function invariant_reentrancyBlocked() public view {
         assertTrue(!mgr.reenteredOk(), "V4-ADV: reentrancy during V4 lock succeeded");
+        // And the DISCRIMINATING half: whenever a nested call was attempted, the thing that
+        // refused it must have been the LOCK (RouterE(7)) and not a sibling guard that happens
+        // to refuse the same shape. Without this, deleting the lock leaves the campaign green.
+        if (mgr.nestedTried()) {
+            assertEq(uint256(mgr.nestedCode()), 7,
+                "V4-ADV: the nested call was refused, but not by the reentrancy lock");
+        }
     }
 
     /// @dev Non-vacuousness guard: mints happen before each swap attempt, so conservation and
