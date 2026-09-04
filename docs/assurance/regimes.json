@@ -1,0 +1,44 @@
+{
+  "$comment": [
+    "Regimes: states of the world that a FIXTURE fixes before a call, not states that the",
+    "call's arguments choose. A predicate over a regime never varies inside a single test, so",
+    "condition coverage cannot reach it by varying inputs, and a mutant on it dies in whichever",
+    "regime the fixtures happen to agree on.",
+    "",
+    "Each entry names the call a test makes to put the world in that regime. Its ABSENCE is the",
+    "other regime, which is why the entry names only the ON side.",
+    "",
+    "Adding a regime here multiplies the lattice and will lower the coverage ratio until the new",
+    "cells are answered. That is the intended behaviour of a completeness measure."
+  ],
+  "regimes": [
+    { "name": "bridge",     "on": "\\.addBridge\\(",
+      "why": "decides whether the fee is anchored to one hop or charged on every hop" },
+    { "name": "renounced",  "on": "\\.renounceControl\\(",
+      "why": "the terminal state the system is designed to reach; nothing can answer a hazard after it" },
+    { "name": "paused",     "on": "\\.setPaused\\(\\s*true",
+      "why": "the only reversible refusal, and the one that dies with the control plane" },
+    { "name": "hook",       "on": "\\.allowHook\\(",
+      "why": "admits a third party into the execution path of a swap" },
+    { "name": "v4",         "on": "\\.addV4\\(|\\.claimV4\\(|\\.seedPool\\(",
+      "why": "a singleton venue whose pools are derived rather than deployed" },
+    { "name": "permit2",    "on": "\\.setPermit2\\(",
+      "why": "delegated approval moves the authority for pulling funds outside this system" },
+    { "name": "native",     "on": "\\.setWeth\\(",
+      "why": "the wrap/unwrap bijection is the only place value changes representation" },
+    { "name": "operator",   "on": "\\.setOperator\\(",
+      "why": "a seat that outlives renunciation, so what it can still do is bounded by nothing else" }
+  ],
+  "shapes": [
+    { "name": "multi-hop",
+      "match": "new Hop\\[\\]\\((?:[2-9]|\\w*[hH]ops?\\b)|\\.hops\\s*,\\s*[23]\\b|hops\\s*==\\s*[23]\\b",
+      "why": "composition is where properties that hold per hop stop holding per route" }
+  ],
+  "oracles": [
+    { "name": "cross-producer",
+      "match_all": ["\\.previewPlan\\(|\\.previewRoute\\(|\\.previewPlanExact\\(",
+                    "\\.swapExactIn\\(|\\.swapBestExactIn\\(",
+                    "assert\\w*\\([^;]*\\bpv\\.|assert\\w*\\([^;]*preview"],
+      "why": "the expected value comes from a producer independent of the one under test, rather than from a literal, the code's own output, or a helper that reuses production arithmetic" }
+  ]
+}
