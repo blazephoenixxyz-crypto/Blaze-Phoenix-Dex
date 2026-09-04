@@ -1299,7 +1299,17 @@ contract BlazePhoenixRouter {
             // anchor. NM-002 is preserved inside the same expression rather than beside it: a
             // hop that legitimately could not be quoted in-frame but DID execute still falls
             // back to its attested figure. Nothing reverts, for the reason written above.
-            if (hopGot != 0) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;
+            // ... and it must produce the ROUTE's output token. Without that clause the anchor
+            // can land on an earlier hop denominated in a different currency, and a floor read
+            // in one token against an amount delivered in another is not conservative, it is
+            // arbitrary: it turned four escape-route regressions into RouterE(5) by comparing a
+            // bridge-token quote with a destination-token delivery. Since hops chain, only a hop
+            // whose tokenOut is the route's can be the anchor - which is the last hop, EXCEPT
+            // when a trailing hop repeats the same token, and that is exactly the parasite this
+            // closes. A route whose real final hop moved nothing still gets an inert floor and
+            // still does not revert here, which is what NM-002 requires.
+            if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)
+                finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;
             unchecked { ++h; }
         }
 

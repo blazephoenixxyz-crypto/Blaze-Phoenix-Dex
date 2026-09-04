@@ -48,10 +48,12 @@ contract RouteHopCeilingIsThreeTest is Test {
             Leg[] memory legs = new Leg[](1);
             legs[0] = Leg({pool: address(p[h]), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
                            tickSpacing: 0, zeroForOne: address(t[h]) < address(t[h + 1]),
-                           stable: false, amountIn: h == 0 ? amountIn : 0, expectedOut: 0,
+                           stable: false, amountIn: amountIn, expectedOut: 0,
                            auxId: bytes32(0)});
+            // Every hop declares the same nominal figure: the Router rescales each hop by what
+            // it MEASURED arriving, so the declaration only has to be non-zero to be spent.
             hops[h] = Hop({tokenIn: address(t[h]), tokenOut: address(t[h + 1]),
-                           amountIn: h == 0 ? amountIn : 0, expectedOut: 0, legs: legs});
+                           amountIn: amountIn, expectedOut: 0, legs: legs});
         }
         r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
                    expectedImpactBps: 0, confidenceWad: 0, estGas: 0,

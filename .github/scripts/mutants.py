@@ -530,8 +530,8 @@ M = [
       # expression by the FLOOR-01 fix. NM-002's property lives inside it - a hop that DID
       # execute but could not be quoted in-frame falls back to its attested figure - so the
       # mutant now removes exactly that fallback and leaves the rest of the fix standing.
-      old="            if (hopGot != 0) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
-      new="            if (hopGot != 0) finalHopQuote = hopQuote;",
+      old="                finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
+      new="                finalHopQuote = hopQuote;",
       teste="test_LiquidityGapOnLastHop_FloorFallsBackToAttested"),
  dict(nome="impact: an unquotable concentrated leg counts BPS again (the floor collapses to the clamp)",
       f="src/BlazePhoenixRouter.sol",
@@ -949,8 +949,8 @@ M = [
  # mulDivUp(0, ...) removes the protocol floor entirely.
  dict(nome="FLOOR-01: the floor anchors on the last DECLARED hop instead of the last that moved",
       f="src/BlazePhoenixRouter.sol",
-      old="            if (hopGot != 0) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
-      new="            if (h + 1 == route.hops.length) finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
+      old="            if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)",
+      new="            if (h + 1 == route.hops.length)",
       teste="test_TrailingHopThatMovesNothingCannotZeroTheProtocolFloor"),
 
  # FLOOR-02: the leg count goes back to the DECLARED legs of the hop instead of the executed
