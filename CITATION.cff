@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 title: BlazePhoenix-Dex
-message: "If you reference or build on this software, please cite it as below."
+message: "If you reference, build on, or evaluate this software, please cite it as below and link to the repository."
 type: software
 authors:
   - alias: Mitra
@@ -10,18 +10,44 @@ authors:
 repository-code: "https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex"
 url: "https://blazephoenix.xyz"
 abstract: >-
-  An on-chain DeFi router and aggregator that prices routes on the pool's
-  measured marginal output rather than self-reported state, with
-  quote-equals-execution and fail-closed guarantees, across Uniswap V2/V3/V4,
-  Solidly, and Curve. Includes permissionless on-chain Uniswap V4 pool discovery.
+  A fully on-chain DeFi router and aggregator for the EVM. Routing runs inside
+  the executing transaction: pool discovery, quoting, believability filtering,
+  split allocation across up to four legs per hop, multi-hop assembly up to
+  three hops, and deterministic Uniswap V4 pool derivation, with no off-chain
+  price feed, keeper or sequencer. Every route is priced on the pool's measured
+  marginal output rather than self-reported state; the quoted output and the
+  enforced floor come from one evaluator (quote equals execution); every swap
+  fails closed on the output floor. Venues: Uniswap V2, V3 and V4 (native-ETH
+  pools included), Algebra (dynamic fee) and Solidly. The repository also
+  publishes its own assurance apparatus: a curated, named mutation guard, a
+  shared-quantity register, a calldata-field confirmation matrix, a
+  projection-distance measure over every refusal site, a regime-by-oracle
+  coverage lattice, a sound executed-bytecode lower bound on the shipped
+  binary, and a funded public bug bounty - every number printed beside its
+  denominator.
 keywords:
   - defi
   - dex-aggregator
+  - on-chain-routing
   - ethereum
   - evm
   - uniswap-v4
+  - uniswap-v4-hooks
+  - algebra
+  - solidly
   - solidity
+  - yul
+  - foundry
   - smart-contracts
+  - smart-contract-security
+  - formal-verification
+  - halmos
+  - certora
+  - mutation-testing
+  - assurance-case
+  - metrological-design
+  - bug-bounty
+  - mev
 license: BUSL-1.1
 version: 2.0.0
 date-released: "2026-07-01"

@@ -368,7 +368,10 @@ contract QuoterExactRefusalBranchesTest is Test {
         r.hops[0].legs = ls;
         pv = quoter.previewRoute(r, 0);
         assertEq(pv.topology, 1, "2 hops with a real first hop is a one-bridge route");
-        assertEq(pv.bridgeUsed, bridge, "the bridge is hop 0's tokenOut");
+        // This hub registers no bridge, so the executor charges on every hop and anchors on
+        // none; the preview names the bridge the fee is taken in, which here is no bridge.
+        // The four topologies are pinned in QuoterBridgeUsedIsTheFeeAnchor.t.sol.
+        assertEq(pv.bridgeUsed, address(0), "no bridged input: the fee has no single anchor to name");
     }
 
     // =========================================================================

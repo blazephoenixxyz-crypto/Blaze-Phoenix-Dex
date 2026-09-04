@@ -18,7 +18,7 @@ optimizer = true
 # dev/test iteration.
 optimizer_runs = 300
 via_ir = true
-fs_permissions = [{ access = "read", path = "./" }]
+fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
 
 [fuzz]
 runs = 256
@@ -64,7 +64,7 @@ optimizer = true
 # "BPC:" expectRevert pins in BlazePhoenixCore.t.sol updated with it).
 optimizer_runs = 300
 via_ir = true
-fs_permissions = [{ access = "read", path = "./" }]
+fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
 
 # SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the
 # glacier-abacus `smtchecker` job (this profile is what that job greps for).

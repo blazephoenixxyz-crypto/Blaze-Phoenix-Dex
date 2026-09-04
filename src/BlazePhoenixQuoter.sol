@@ -313,13 +313,17 @@ contract BlazePhoenixQuoter {
         // `test/QuoterAssumedFeeMargin.t.sol` depends on exactly that (it drives single-hop
         // routes against a Quoter built with a hub address that has no code).
         uint256 charges = 1;
+        // `feeHop` is the hop the Router anchors the fee on (`Router:_execute`, same scan,
+        // same producer): the first hop whose INPUT is a registered bridge. It is read once
+        // here and answers two questions - how many times the fee is charged, and which
+        // bridge `pv.bridgeUsed` names - so the two can never disagree (BRIDGE-02).
+        uint256 feeHop = type(uint256).max;
         if (route.hops.length > 1) {
-            bool anchored;
             for (uint256 fi; fi < route.hops.length; ) {
-                if (hub.isBridgeToken(route.hops[fi].tokenIn)) { anchored = true; break; }
+                if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
                 unchecked { ++fi; }
             }
-            if (!anchored) charges = route.hops.length;
+            if (feeHop == type(uint256).max) charges = route.hops.length;
         }
         for (uint256 c; c < charges; ) {
             // Round the fee UP here too, matching both Router sites. Rounding the
@@ -386,7 +390,7 @@ contract BlazePhoenixQuoter {
 
         pv.estGas     = route.estGas;
         pv.canExecute = pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut;
-        (pv.topology, pv.bridgeUsed) = _classify(route);
+        (pv.topology, pv.bridgeUsed) = _classify(route, feeHop);
     }
 
     /// @dev A REAL CLASSIFIER since 2026-08-22. It used to be dead: it always
@@ -398,17 +402,20 @@ contract BlazePhoenixQuoter {
     ///      sweep) using them was reading a constant, not a measurement.
     ///
     ///      Topology derives from the NUMBER OF HOPS, which is the definition:
-    ///      one hop is direct, two go through a bridge, three through two. And
-    ///      the bridge used is hop 0's `tokenOut` — the first intermediate token
-    ///      the route touches, which is also where the fee is charged.
-    function _classify(Route memory route)
+    ///      one hop is direct, two go through a bridge, three through two. The
+    ///      bridge named is the INPUT token of the hop the Router anchors the
+    ///      fee on - the first hop whose input is a registered bridge - so the
+    ///      field answers "where is the fee charged?" with the executor's own
+    ///      answer. A multi-hop route with no bridged input is charged on every
+    ///      hop and names no bridge.
+    function _classify(Route memory route, uint256 feeHop)
         private pure returns (uint8 topology, address bridgeUsed)
     {
         uint256 n = route.hops.length;
         if (n == 0 || route.hops[0].legs.length == 0) return (0, address(0));
-        if (n == 1) return (0, address(0));                 // directo
+        if (n == 1) return (0, address(0));                 // direct
         // 1 = via one bridge (2 hops), 2 = via two bridges (3 hops), ...
-        return (uint8(n - 1), route.hops[0].tokenOut);
+        return (uint8(n - 1), feeHop == type(uint256).max ? address(0) : route.hops[feeHop].tokenIn);
     }
 
     // =========================================================================

@@ -103,6 +103,10 @@ assert, per commit:
   under its ERC-7201 namespace;
 - every compiler `Panic` code the artefact can raise classified and tested — pinned with its
   boundary where reachable, proven unreachable with a paired mutant where not;
+- **which instructions of the shipped binary a recorded scenario executed**, replayed from an
+  opcode-level trace with the artefact's own opcode checked at every step (28.2 % of the
+  Router's code section for one recorded swap, zero mismatches; the union grows with every
+  scenario recorded);
 - **every contract's deployed size asserted inside the suite**, with a signed margin to the
   project's own gate under EIP-170, on the same optimiser profile the suite runs under.
 

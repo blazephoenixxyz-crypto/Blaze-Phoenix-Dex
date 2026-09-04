@@ -311,6 +311,35 @@ question — a caller-declared field that is ALSO the pool selector is at distan
 only because one assignment binds them. That assignment is pinned by
 `test/V4SievedHookIsTheExecutedHook.t.sol`, which is the point of measuring the distance.
 
+## 4g. What the shipped binary executes
+
+Every execution figure above is measured on the coverage build, a different binary from the one
+that deploys. `pc_trace.py` reads the release artefacts and a trace recorded by
+`test/PcTraceProbe.t.sol` with `vm.startDebugTraceRecording` under the release profile. A
+`DebugStep` carries no program counter; it carries the opcode, the depth, the running address
+and, for jumps and calls, the top two stack words — enough to replay the counter exactly, with
+the artefact's own opcode checked at every step. A frame that disagrees once is abandoned and
+counted, and a single mismatch fails the check: a replay that disagrees with the trace is no
+bound. Which artefact a frame runs is learned by replaying its first steps under each of the
+five objects, never assumed from an address.
+
+Ground truth the reader must re-find before its number is printed: zero opcode mismatches; a
+second Router deployed by the probe and never called must appear in no frame; the called Router
+must have crossed the reentrancy lock (a `TLOAD` and two distinct `TSTORE` sites).
+
+Measured for one recorded scenario — an honest V2 swap through `swapExactIn`:
+
+| artefact | instructions run | code section | share | replayed steps | mismatches |
+|---|---:|---:|---:|---:|---:|
+| Router | 4,382 | 15,565 | 28.2 % | 9,043 | 0 |
+| Hub | 407 | 16,120 | 2.5 % | 828 | 0 |
+
+The complement is not dead code. It is code no recorded scenario ran, which is a list of
+scenarios still to record — one per door and per venue family — and the union grows with each.
+The figure this instrument is built to produce next is the intersection of each mutant's
+footprint in the shipped binary with the instructions its paired test executed: a pair whose
+intersection is empty is a test that cannot kill that mutant, whatever the guard reports.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.
