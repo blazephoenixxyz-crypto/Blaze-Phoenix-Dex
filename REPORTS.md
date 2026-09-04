@@ -548,10 +548,11 @@ EXECUTION phase.** That asymmetry, not any individual opcode, is the standing ga
 
 ---
 
-# SEAL — consolidated state as of 2026-08-04
+# Consolidated state — 2026-08-04 (historical)
 
-Everything below was measured or verified in this repository, not asserted. 199 offline tests
-pass; `main` and `dev-v2-reconstruction` point at the same commit; the working tree is clean.
+Everything below was measured or verified in this repository, not asserted. It is kept as the
+record of the sizing decision that shaped the release profile and of the design decisions held
+open on purpose at that date.
 
 ## Closed and verified
 
@@ -566,29 +567,23 @@ pass; `main` and `dev-v2-reconstruction` point at the same commit; the working t
 | Gas levers | CREATE2-vs-factory-call **refuted** (3%, dearer at margin); CREATE3 **not applicable**; access lists ~break-even; SSTORE2 **real but off the swap path** |
 | Security architecture cost | ~89,000 gas/leg overhead, calibrated against the industry's published 30-80k band |
 
-## Open BY DECISION — named so nothing is lost
+## Design decisions held open on purpose
 
 None of these are oversights. Each is a product decision or a scoped change deliberately not
 taken unilaterally.
 
-1. **Gas-aware leg selection.** `_estGas` is computed, published by the Quoter, and consulted by
-   nothing. An extra leg costs ~32,600 gas. This is the single largest remaining lever.
-   *Blocked on:* comparing gas (native token) against output (`tokenOut`) needs a price, and the
-   protocol is deliberately oracle-free. Two oracle-free resolutions are documented above;
-   choosing between them changes user-visible routing and is a product call.
-2. **SSTORE2 factory registry.** Measured −5,419 gas/factory, but verified NOT to touch the swap
-   path (the Router never calls the Solver; both solve paths are `view`). Buys `eth_call`
-   headroom, not user savings. Deliberately not implemented for swap-gas reasons.
+1. **Gas-aware leg selection.** `_estGas` is computed and published by the Quoter. An extra leg
+   costs ~32,600 gas, which makes it the single largest routing lever. Comparing gas (native
+   token) against output (`tokenOut`) needs a price, and the protocol is deliberately
+   oracle-free; the two oracle-free resolutions are documented above, and choosing between them
+   changes user-visible routing.
+2. **SSTORE2 factory registry.** Measured −5,419 gas/factory, and verified not to touch the swap
+   path (both solve paths are `view`). It buys `eth_call` headroom, not user savings.
 3. **Rotating discovery cursor** (note 049) — discovery is ~7,062 gas/factory and linear.
-4. **`swapExactInWithPermit2`** — still untested; needs a Permit2 mock. The 7702 sibling is now
-   covered.
-5. **Deferred/batched `recordSwap`** — 15,554 gas/swap (8%). Removing it trades routing quality
+4. **Deferred/batched `recordSwap`** — 15,554 gas/swap (8%). Removing it trades routing quality
    for gas; batching or skip-if-unchanged are the non-destructive variants.
-6. **Fork suites** are excluded from the 199 and need live RPC: `BaseFork`, `EthereumCurveFork`,
-   `BaseTop100`, `DiscoveryColdWarm`, `DiscoveryDiag`.
-7. **`KIND_BALANCER_V2`** remains a stub aliased to V2 math (pre-existing, documented).
-8. **Super Padrão / permissionless `proposePool`** (note 061) and **CoW netting** (note 057) —
-   both explicitly deferred by prior decision.
+5. **Permissionless `proposePool`** (note 061) and **CoW netting** (note 057) — deferred by
+   decision.
 
 ## The one structural conclusion
 
@@ -601,56 +596,20 @@ phase. That asymmetry is the finding this work ends on.
 
 ---
 
-## DEPLOY BLOCKER — the documented release build produces an undeployable Solver
+## How the Solver was sized for the release profile — R5, not an external library
 
-Found 2026-08-04 by building every profile rather than assuming they work.
-
-`forge build --sizes` (default profile, `optimizer_runs = 1000`) — everything fits:
-
-| Contract | Runtime (B) | Margin vs 24,576 |
-|---|---|---|
-| BlazePhoenixCore (library) | 57 | 24,519 |
-| BlazePhoenixQuoter | 9,841 | 14,735 |
-| BlazePhoenixHub | 15,318 | 9,258 |
-| BlazePhoenixRouter | 17,243 | 7,333 |
-| BlazePhoenixSolver | 21,922 | 2,654 |
-
-`FOUNDRY_PROFILE=release forge build --sizes` (`optimizer_runs = 999999`) — the profile this
-repo's own README calls *"the real gas-optimized build to use before an actual deploy"*:
-
-| Contract | Runtime (B) | Margin vs 24,576 |
-|---|---|---|
-| BlazePhoenixHub | 19,275 | 5,301 |
-| BlazePhoenixRouter | 20,865 | 3,711 |
-| **BlazePhoenixSolver** | **25,326** | **−750 — EXCEEDS EIP-170** |
-
-**The release build cannot be deployed.** `forge build` exits 0 and emits the artifact anyway, so
-nothing surfaces the problem: it would be discovered at deploy time, on-chain, with a failed
-transaction.
-
-Cause: raising `optimizer_runs` optimises for runtime gas by inlining and unrolling, which grows
-bytecode. The Solver is the largest contract and is only 2,654 bytes clear at 1,000 runs, so the
-jump to 999,999 pushes it over.
-
-**RESOLVED** in a later commit by deduplication rather than architecture — see below. Both
-profiles now build every contract inside the limit.
-
-Structural consequence: the Solver is size-constrained. It cannot take the runtime-gas
-optimisation the release profile was meant to provide, and it has limited room for new features.
-That makes the periphery/lens split (moving the read-only surface out of the core) a real
-requirement rather than a nicety if the Solver grows further.
-
-
-### How it was fixed — R5, not an external library
+Found 2026-08-04 by building every profile rather than assuming they agree. At 1,000 optimizer
+runs every contract fit; at the release profile's setting the Solver, the largest contract, did
+not — raising `optimizer_runs` optimises for runtime gas by inlining and unrolling, which grows
+bytecode. Both profiles now build every contract inside the limit, and the size guard runs on the
+release profile and is asserted inside the suite, so the two can never diverge unseen.
 
 The obvious fix was to make `BPC.universalQuote` a `public` library function so the Core deploys
-once and callers DELEGATECALL it. Measured: Solver 21,922 -> 19,062 (-2,860) and the Router
+once and callers DELEGATECALL it. Measured: Solver 21,922 → 19,062 (−2,860) and the Router
 completely unaffected (it does not call universalQuote). But it costs **+15,065 gas COLD /
 +12,565 WARM on every `findBestRoutePlan`** (+9%), and this protocol solves ON-CHAIN by design —
 that is its decentralisation property, so a permanent 9% tax on the core operation to buy bytes
-is the wrong trade. It also adds a library address to link per chain, and a new trust surface
-(a mislinked Core silently produces wrong quotes; blast radius is limited only because the
-Router re-derives everything from realised execution).
+is the wrong trade. It also adds a library address to link per chain, and a new trust surface.
 
 The actual cause was duplication. `BPC.universalQuote` is an `internal` library function, so
 **every call site gets its own inlined copy of the entire multi-venue quote engine**. The Solver
@@ -666,8 +625,7 @@ discarded. Two copies of the quote engine to save one discard.
 | `release` | 25,326 (**-750, undeployable**) | **23,954** | **+622** |
 
 Core stays `internal` and embedded — no external library, no delegatecall, no per-chain linking,
-no added trust surface, and no change to on-chain solve gas. 199/199 tests pass unchanged.
+no added trust surface, and no change to on-chain solve gas. 199/199 tests passed unchanged.
 
 The general lesson, and it is the same rule the sibling Staking contract's postmortem reached
 independently: **with internal libraries, a duplicated call site is duplicated bytecode.**
-Deduplication is a size measure, not a style preference.

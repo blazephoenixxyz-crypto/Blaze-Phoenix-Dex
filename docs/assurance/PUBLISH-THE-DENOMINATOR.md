@@ -164,8 +164,8 @@ perfectly and the constant exists. The compiler had already established it was i
 **Three of five contracts write no storage at all.** `view` is a promise the language makes.
 Zero `SSTORE` in the emitted code is what the compiler did, and it is the stronger statement.
 
-**Nine tenths of the shipped bytes trace back to source anyone here wrote.** 91.8% attributable
-to `src/`, 0% to dependencies — nothing imported reaches the chain — and **7,056 bytes of
+**Nine tenths of the shipped bytes trace back to source anyone here wrote.** 89.6% attributable
+to `src/`, 0% to dependencies — nothing imported reaches the chain — and **8,849 bytes of
 compiler machinery**: dispatch, decoding, allocation, revert plumbing. That last fraction is
 reviewed by nobody, measured by no coverage report and named in no threat model, and it ships.
 

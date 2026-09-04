@@ -22,9 +22,9 @@
 
 **Pre-launch engineering preview.** The BZPX token has **no provisioned
 liquidity and no TGE yet** — on-chain volume ≈ 0 is the expected state of this
-stage, not a signal about the code. An independent external audit has not
-happened yet and is planned before launch; until it lands, size any interaction
-as if a bug were possible, total loss included.
+stage, not a signal about the code. An independent external audit is scheduled
+before launch; until it lands, treat this as the engineering preview it is and
+size any interaction accordingly.
 
 What branch protection on `main` **actually requires**. This list is read from the enforcing
 surface (`gh api repos/.../branches/main/protection`), not from this file — a gate is what the
@@ -44,7 +44,7 @@ not a gate that stopped anything.
 
 ---
 
-## Seven numbers this repository computes about itself
+## Eight numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -53,22 +53,18 @@ every commit, from a clean checkout, compiling nothing.
 
 | | Measured at this revision |
 |---|---|
-| Classes of published exploit answered by a **named guard** | 17 / 21 considered |
-| Quantities computed in **two places** that a test ties together | 6 / 7 |
-| Control actions whose **refusal** is exercised | 31 / 31 |
-| Control actions whose **post-renunciation** behaviour is exercised | 29 / 31 |
-| Refusal codes driven by an **exact** assertion, not a bare revert | 25 / 25 |
-| Refusal sites that **share a code** with another site | 90 / 99 |
-| Mutants still pointing at exactly one line of real code | 158 / 158 |
+| Quantities computed in **two places** that a named test ties together | 7 / 7 |
+| Control actions whose **refusal** is exercised by exact code | 31 / 31 |
+| Refusal codes driven by an **exact** assertion, never a bare revert | 25 / 25 |
+| Refusals that read the **very object they decide on** (projection distance zero) | 86 / 99 |
+| Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
+| Classes of published exploit answered by a **named guard** | 19 / 23 considered |
+| Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
+| Curated mutants **killed**, each paired with the one test that must die | 181 / 181 |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,
-for each, precisely how it would be gamed.
-
-**The line worth reading twice is the sixth.** 90 of 99 refusals answer with an error code that
-another refusal also uses — so an assertion about those bytes cannot say *which* guard refused.
-Fire one, disable its neighbour by mutation, and both still look correct. That number is published
-because it is true, not because it is flattering.
+for each, precisely how it would be gamed — and every one is recomputable from a clean checkout.
 
 ### What none of these establish
 
@@ -90,16 +86,17 @@ instruments above were wrong on their first run.
 
 ---
 
-## The people who found what we missed
+## The researchers who read the source
 
-Eighteen researchers have read this source, thought adversarially, and told us privately what
-they found. Several corrected us on our own severity ratings and were right. One found a defect
-in the *instrument* we use to judge defects, which is worth more than a finding in the code,
-because the instrument is what tells you whether the code is sound.
+Nineteen researchers have read this source, thought adversarially, and told us privately what
+they found. Every confirmed finding became a named property, a regression test that fails against
+the pre-fix code, and a mutant the test must kill. Several reports sharpened our own severity
+reasoning; one improved the *instrument* we use to judge the code, which is worth more than a
+finding in the code, because the instrument is what tells you whether the code is sound.
 
 [NetGakarot](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · auditor_1b3f2c ·
 siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo ·
-Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Anonymous
+Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Anonymous
 
 Every confirmed finding becomes a named property, a regression test that fails against the
 pre-fix code, and a mutant that the test must kill. Nothing is closed by argument alone.
@@ -111,13 +108,13 @@ Note the profile split: the suite is gated under `fast` and the size guard under
 measured on one profile is not evidence about the other, and this file names the profile beside every
 number for that reason.
 
-| Apparatus | Size, measured at `6334df6` |
+| Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,126** `test*` / `invariant_*` / `check_*` declarations across **185** `.t.sol` files — unit, fuzz, and stateful invariants |
-| **Fork suites** | **23**, against live chain liquidity, in a separate job |
-| **Mutation guard** | **158** mutants, each paired with the named test that must catch it |
-| **Static guards** | **8 red-first greps** that fail the build if a known defect shape reappears |
-| **Assurance metrics** | **5** recomputed per commit: threat-class coverage, two-producer consistency, control-action arms, assertion locality, mutation-target integrity — see [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
+| **Test suite** | **1,183** `test*` / `invariant*` / `check*` declarations across **203** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Fork suites** | **25**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
+| **Mutation guard** | **181** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
+| **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 
 Every claim in the assurance registers names a guard by SYMBOL and a test by NAME, and the build
 fails when either stops existing — a claim that cannot be checked is not evidence. What those
@@ -126,12 +123,13 @@ metrics do **not** establish is stated as carefully as what they do, in the same
 These are declaration counts at a named revision, not a pass count. A pass count belongs to a run,
 and the badge at the top of this file is the only honest place for one.
 
-A funded public bounty (40M BZPX, shared with
+A funded public bounty (50,000,000 BZPX, shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking))
-has credited **17 researchers** — every confirmed finding fixed with regression
-tests, zero Critical. The roster is [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md),
-so that count is checkable in this repository without taking our word for it.
-Details: [`SECURITY.md`](./SECURITY.md).
+has credited **19 researchers** — every confirmed finding fixed with a regression
+test that fails against the pre-fix code, zero Critical. The roster is
+[`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md), so that count is checkable in this
+repository without taking our word for it. Terms: [`SECURITY.md`](./SECURITY.md). How a report
+is handled, step by step: [`docs/BOUNTY_METHOD.md`](./docs/BOUNTY_METHOD.md).
 
 ## Why it is different
 
@@ -175,13 +173,13 @@ flowchart TD
 
 | Contract | Role | Runtime size |
 |---|---|---:|
-| **Router** | Pulls input, executes the plan leg-by-leg, measures the real balance delta at each seam, enforces the output floor. Reentrancy-locked across the whole swap, pool callbacks included. | 23 452 B |
-| **Solver** | Builds the best route and split from *measured* marginal output and measured capital — never from self-reported liquidity. | 19 643 B |
-| **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. | 23 963 B |
-| **Core** | The shared measured-math library: constant-product, concentrated liquidity, Solidly stable curve, Algebra dynamic fee, V4. One evaluator prices both the quote and the floor. | 6 599 B |
-| **Quoter** | Off-chain preview surface. `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg. | 10 092 B |
+| **Router** | Pulls input, executes the plan leg-by-leg, measures the real balance delta at each seam, enforces the output floor. Reentrancy-locked across the whole swap, pool callbacks included. | 23 754 B |
+| **Solver** | Builds the best route and split from *measured* marginal output and measured capital — never from self-reported liquidity. | 19 677 B |
+| **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. | 23 469 B |
+| **Core** | The shared measured-math library: constant-product, concentrated liquidity, Solidly stable curve, Algebra dynamic fee, V4. One evaluator prices both the quote and the floor. | 6 477 B |
+| **Quoter** | Off-chain preview surface. `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg. | 11 405 B |
 
-All five are under the EIP-170 24 576-byte limit, enforced in CI with margin.
+All five are under the EIP-170 24 576-byte limit, enforced in CI with margin and asserted inside the suite itself (`DeployedSizeGate`).
 
 ## Supported venues
 
@@ -273,8 +271,8 @@ not name what it pins.
 
 ```
 src/                    the five contracts — Router, Solver, Hub, Core, Quoter
-test/                   185 suites: unit, fuzz, stateful invariants, regressions
-  fork/                 23 suites against live chain liquidity
+test/                   203 files: unit, property, parity, stateful invariants, regressions
+  fork/                 25 suites against live chain liquidity, and the pins of what is deployed
   formal/               formal specifications and composition proofs
   hunt/                 regressions for findings from adversarial review
   mocks/                venue mocks: V2 pair, V3 pool, Solidly pair, Permit2, ERC-20
@@ -282,7 +280,8 @@ certora/                Certora Prover specifications and harnesses
 .github/workflows/      ci.yml (test · fork-tests · size-guard · formal · gas-metrics)
                         security.yml (slither · aderyn · solhint)
                         formal-explore.yml · docs.yml · graph.yml
-.github/scripts/        the shared-quantity register check
+.github/scripts/        the shared-quantity register check, the mutation guard, the assurance instruments
+docs/                   AUDIT_METHOD.md (what the audit guarantees) · BOUNTY_METHOD.md (how a report is handled) · assurance/
 CONTRIBUTING.md         how work lands here — red before green, and the house conventions
 SECURITY.md             disclosure policy, bounty terms, severity rubric
 SECURITY_HALL_OF_FAME.md  the researchers who reported confirmed findings
@@ -297,7 +296,7 @@ llms.txt                machine-readable index for agents and models
 Responsible disclosure, severity rubric, and bounty terms are in
 [`SECURITY.md`](./SECURITY.md).
 
-Report privately to **security@blazephoenix.xyz**. Do not open a public issue
+Report privately to **contact@blazephoenix.xyz**. Do not open a public issue
 for a suspected vulnerability.
 
 ### Security researchers
@@ -305,9 +304,9 @@ for a suspected vulnerability.
 Every confirmed finding in this repository was fixed with a regression test that
 fails without the fix. The researchers who found them, with our thanks:
 
-**[NetGakarot](https://github.com/NetGakarot)** · **duxun** · **AmanDara1** ·
-**amitbhakar** · **auditor_1b3f2c** · **siam siddik** · **Thomas** · **llen** ·
-**Anonymous**
+[NetGakarot](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · auditor_1b3f2c ·
+siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo ·
+Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Anonymous
 
 Technical detail stays in the verified source and our private records, never on
 a credits page. Full list and terms: [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md).

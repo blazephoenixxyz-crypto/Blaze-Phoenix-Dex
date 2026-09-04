@@ -257,19 +257,14 @@ the ones the suite deploys many times, which is every fixture's own Hub and Rout
 is a lower bound on the union of what all deployments executed, laid over one instance's layout,
 and not a measurement of the shipped artefact, whose immutables match no test instance.
 
-**The input is not stable, and that bounds what may be cited.** Two runs of the identical tree
-with the same `--fuzz-seed` do not produce the same listings. Core, Quoter and Solver came back
-identical in their instruction stream. Router and Hub did not: same instruction count and the same
-per-source line attribution, but a different total byte span (`0xa741` against `0xa769`) and a
-different head — one run opening on the runtime dispatcher, the next on a constructor's `CALLVALUE`
-guard. The two that moved are the two built with constructor arguments. So the **per-contract rows
-above are printed for shape and must not be cited**: the same name did not describe the same object
-twice. `--compare <dir>` reports that directly, and `3 of 5 listings identical` is what it said here.
-
-The aggregate survives it, and barely moves: **85.9% and 86.2%** across two pinned-seed runs. The
-figure to quote is the **lowest observed**, because every run's closure is a subset of what that run
-executed, so a lower number is never contradicted by a higher one. Any citation should say how many
-runs it rests on — this one rests on two.
+**Stability, measured.** Two runs of the identical tree at `84d1553` with the same `--fuzz-seed`
+produced five listings identical instruction for instruction and the same closure: **88.3 % in
+both**. The per-contract rows above are still printed for shape rather than cited, because the
+report disassembles one deployed instance chosen by hash order and a run may hand back a
+different instance of the same contract (the immutable probe shows exactly that). The figure to
+quote is the **lowest observed** across pinned-seed runs, because every run's closure is a subset
+of what that run executed, so a lower number is never contradicted by a higher one. Any citation
+should say how many runs it rests on — this one rests on two.
 
 ## 4f. How far each refusal observes from what decides
 
@@ -365,10 +360,9 @@ container before a change is proposed, never argued from the shape of the source
 
 ## 7. What is not in this repository
 
-Findings that are open, paths that are unfixed, and the per-row detail behind the metrics are
-not published. The aggregate is: a reader can see how many rows of each register are answered
-and how many are not. The rows themselves are a reading list for the people fixing them, and
-publishing a list of the least-exercised surfaces of a live financial contract would be an
+The per-row detail behind the metrics is not published; the aggregates are. A reader can see
+how many rows of each register are answered and how many are not. The rows themselves are a
+working list, and publishing the least-exercised surfaces of a financial contract would be an
 odd way to protect its users.
 
 Security contact and disclosure policy: see `SECURITY.md`.

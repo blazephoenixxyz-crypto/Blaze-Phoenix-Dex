@@ -11,7 +11,7 @@ on this page. This is only our gratitude and a list of names: every researcher
 below read the source, thought adversarially, and told us privately and in good
 faith what they found.
 
-> Private disclosure: **security@blazephoenix.xyz** / blazephoenixxyz@proton.me.
+> Private disclosure: **contact@blazephoenix.xyz** / blazephoenixxyz@proton.me.
 > Non-critical reports may be filed as a GitHub issue. Responsible disclosure is
 > credited here and, once the bounty pool is funded, paid.
 
@@ -39,6 +39,7 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Borutobro**
 - **mohaseenkatika**
 - **mohaseenbasha**
+- **Karan Rathod**
 - **Anonymous**
 
 ---
