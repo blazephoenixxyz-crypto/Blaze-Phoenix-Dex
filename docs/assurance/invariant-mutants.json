@@ -1,5 +1,5 @@
 {
- "measured_on": "2026-09-05 CI box, forge test --match-test invariant_ --fuzz-seed 0xb1a2ef00, repo tree df46649",
+ "measured_on": "2026-09-05, release settings, forge test --match-test invariant_ --fuzz-seed 0xb1a2ef00, repo tree df46649",
  "question": "does any stateful invariant notice when a guard disappears? Until this file, 0 of 183 mutants named an invariant.",
  "invariants_declared": 39,
  "mutants": 15,

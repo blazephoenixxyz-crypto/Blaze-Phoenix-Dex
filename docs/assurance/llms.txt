@@ -87,6 +87,9 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 - exploit classes answered by a named guard: 19 / 23 considered
 - shipped-shape instructions proven executed (lower bound): 88.3 %
 - curated mutants killed: 197 / 197
+- verification report, September 2026 (docs/assurance/VERIFICATION-REPORT-2026-09.md): every instrument, its result on this tree and its stated limit, in one document written for the site and the paper
+- how a quote ages (ASSURANCE §4p): 240 samples, quote through previewAndEncode then executed 0-10 s later under 0-3% adverse drift; drift-free 64/64 settle at exactly the prediction at every delay; under 100-300 bps drift 102 settle / 31 refused by the floor, fills within 3.5% of prediction; after the deadline 20/20 refused with RouterE(4); no third way
+- fee rule: both regimes named (anchored: once; exhaustion: once per hop, the pinned policy), asserted by the Router at run time (transient ledger, RouterE 15/16); the fee base from one producer (_legSum); detection rates of the fee mutants under 20 seeds per test in fee-seal-detection.json (ASSURANCE §4o)
 - metamorphic relations: 14 over the Core's quote maths (V2, V3, stable), 5 over the Solver's plan; three bounds measured before written (ASSURANCE §4m)
 - n-version: the quote maths compiled at optimizer_runs 1 / 300 / 20000 agree on 6 functions × 3,000 fuzz runs; the lane's first full-domain run found the stable curve reverting on dust pools — fixed red-first, 3 guard mutants (ASSURANCE §4n)
 - stateful invariants shown falsifiable by a named mutant: 18 distinct names went red under 11 of 15 mutants; 4 survivors published with their reading (2 guards with no watcher at all)
@@ -95,7 +98,7 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 - venue pathologies x doors that settle or refuse with a selector of ours: 20 / 20
 - largest sandwich the floor lets through on a 1 %-of-depth trade before it refuses: about 2.7 % of the trade
 - Core quotes against oracles written from the venues' specifications: V2 exact, stable curve within 4 wei, V3 within one ulp of the square-root price
-- suite: 1,468 declared tests across 213 files; 1,122 green on the release profile with fork suites excluded; 119 green on live liquidity across 39 fork suites
+- suite: 1,478 declared tests across 218 files; 1,319 green on the release profile with fork suites excluded; 119 green on live liquidity across 39 fork suites
 
 ## Publication boundary
 

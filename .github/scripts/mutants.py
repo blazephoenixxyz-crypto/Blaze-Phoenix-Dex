@@ -1042,7 +1042,7 @@ M = [
     dict(nome='F-D: discovery lists an asked pool without proving its pair', f='src/BlazePhoenixHub.sol', old='            if (fac.mode < 4 && (BPC.token0Of(p) != t0 || BPC.token1Of(p) != t1)) return k;', new='            // MUTANT', teste='test_Matrix_WrongPairFactory_Best'),
  # ─── INVARIANT-AIMED (2026-09-05). Until here no mutant named an invariant: the stateful
  # campaigns certified properties nobody had tried to break. Each entry below is a source
- # mutation a NAMED invariant must die to; measured on the CI box against all 39
+ # mutation a NAMED invariant must die to; measured against all 39
  # invariant_ tests (see docs/assurance/invariant-mutants.json for the full matrix).
  dict(nome="INVARIANT-AIMED HN-1wei: invariant_RouterHoldsNothing / routerHoldsNothing / HoldsNothingBeyondTheSeed",
       f="src/BlazePhoenixRouter.sol",
@@ -1117,6 +1117,24 @@ M = [
       old="        if (!_solKFits(X + A, Y)) return 0;",
       new="        // MUTANTE",
       teste="testFuzz_StableQuoteNeverReverts"),
+ # ─── THE FEE RULE, BOTH REGIMES (2026-09-05). The ledger's own checks are belts — unobservable
+ # in isolation, measured as such in docs/assurance/fee-seal-detection.json — and are NOT here.
+ dict(nome="fee: regime de exaustao cobra so no hop 0 (reabre a fuga do prefixo sem valor)",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (!feeOnOut && (feeHop == type(uint256).max || h == feeHop)) {",
+      new="            if (!feeOnOut && (feeHop == type(uint256).max ? h == 0 : h == feeHop)) { // MUTANTE",
+      teste="test_JUIZ_PrefixoSemValorEscapaAFee"),
+ dict(nome="fee: regime de exaustao cobra em todos os hops MENOS o primeiro",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (!feeOnOut && (feeHop == type(uint256).max || h == feeHop)) {",
+      new="            if (!feeOnOut && (feeHop == type(uint256).max ? h != 0 : h == feeHop)) { // MUTANTE",
+      teste="test_NoBridgeThreeHops_PaysOnEveryHop_ImmunityByExhaustion"),
+ dict(nome="fee: o produtor unico do compromisso do hop conta so a primeira perna",
+      f="src/BlazePhoenixRouter.sol",
+      old="        for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }\n    }",
+      new="        c = hop.legs[0].amountIn; // MUTANTE\n    }",
+      teste="testFuzz_OneFeeOnePlace_EveryShape"),
+
 ]
 
 def run(t):

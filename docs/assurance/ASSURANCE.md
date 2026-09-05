@@ -600,6 +600,101 @@ unobservable by any test once the two checks hold (its mutant was *decorative*),
 the guard reports it rather than carrying it. The repair is also smaller than the code it replaces. Its class is the one this repository names first — fail-open — found by an
 instrument that was not looking for it.
 
+## 4o. The fee rule, both regimes named — and the contract asserting the count
+
+The protocol fee has had one rule since 2026-08-22: charge once, on the input of the first hop
+whose input is a bridge coin (or on the output of a direct route into one). It also had a second
+regime the rule did not name: a hand-built route through pools the registry would not hold, with
+no bridge coin as any hop's input. There the fee hop is never found and the predicate that charges
+is true for every hop, so each hop pays on its own measured input — *immunity by exhaustion*. The
+register carried it as **FEE-01** ("~56 bps on an honest two-hop route") and the suite pinned it
+(`ExhaustionRegimePreviewParity.t.sol`), with the Quoter modelling the same per-hop deduction.
+
+On 2026-09-05 the obvious repair was tried inside the suite: no bridge anywhere → charge once, on
+hop 0. It reopened the escape the exhaustion policy exists to close — a value-less first hop
+(`FeeEscapeViaJunkPrefix.t.sol`) carries the fee spot onto dust and the real hop pays nothing —
+and five pinned tests went red within the same run. The policy stands, and is now **named in the
+code** where the predicate is, with the reason. What changed is the assertion of it:
+
+| seal | what it does | where |
+|---|---|---|
+| both regimes named | the anchored regime pays exactly once, at `feeHop`; the exhaustion regime pays once per hop; the alternative is written down as tried and refused | `_execute`, at the predicate |
+| one producer of the commitment | the sum of a hop's declared leg inputs — the fee base at hop 0 and the scale's denominator — is computed by one function, `_legSum`; before, two loops | `_legSum` |
+| the run-time ledger | `_payFee` counts into a transient slot; every settlement reads it once and refuses a delivery that paid nothing (`RouterE(15)`) and, on an anchored route, a second payment (`RouterE(16)`), then clears it | `_payFee`, end of `_execute` |
+
+The tests were written to **catch**, not to fit. `test/FeeSeals.t.sol` reads none of the Router's
+numbers: the fee token comes from the rule and the bridge list, the base from the pools' balance
+deltas (what left the Router into the fee hop, or what the previous hop's pools paid out) or the
+recipient's, the fee from the treasuries' deltas, the count from the `Fee` events — over every
+shape the Router accepts (one to three hops; bridge in no, first, middle or last position; one or
+two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
+events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
+
+**How often each test notices each defect** was measured rather than assumed: every fee mutant
+(the regime predicate moved two ways, the commitment producer, the ledger's two checks, and the
+three fee mutants of §4l) was run under twenty fuzz seeds per fuzzed test, and the detection rate
+is published with a Wilson 95 % interval (`docs/assurance/fee-seal-detection.json`):
+
+| mutant | FeeSeals fuzz | Router fee campaign | covering array t=2 | junk-prefix escape | exhaustion preview parity |
+|---|---|---|---|---|---|
+| exhaustion charges hop 0 only (junk-prefix escape) | 20/20 [0.84, 1.00] | 0/20 [-0.00, 0.16] | no | yes | yes |
+| exhaustion skips hop 0 | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
+| commitment counts the first leg only | 20/20 [0.84, 1.00] | 0/20 [-0.00, 0.16] | no | no | no |
+| BELT ledger: settlement without a fee no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
+| BELT ledger: anchored double payment no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
+| fee doubled | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | yes | yes | yes |
+| input-side fee never charged | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
+| fee charged on both sides | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
+
+Read across a row: which tests see this defect. Read down a column: what a test can and cannot
+see. The Router campaign builds direct routes only, so the exhaustion-regime mutants that spare
+hop 0 are invisible to it and visible to the every-shape fuzz and the two pinned tests; the
+commitment producer only matters on a two-leg hop, which only the every-shape fuzz builds; the
+two ledger belts are seen by nothing, as their name says. Twenty seeds at 20/20 bound the miss
+probability of one campaign at 15 % (rule of three), which is why the guard runs the named test
+and the campaign both.
+
+
+The ledger's two checks are **belts**: in isolation no test can make them fire, because the
+predicate in front of them leaves no path that settles without paying, or pays twice on an
+anchored route. They are kept — they are the contract refusing at run time what the tests refuse
+at review time, on paths that do not exist yet — listed as belts here, counted as covered nowhere,
+and absent from the mutation guard, which admits only mutants a named test kills.
+
+## 4p. How a quote ages — the promise measured against time and drift
+
+A quote is a promise about a future block. `test/QuoteDelayStatistics.t.sol` takes it the way an
+integrator does — `previewAndEncode` returns the preview and the calldata — lets the world move
+(zero to three trades by someone else through the same pools, each up to 3 % of the shallow
+reserve, all in the user's direction so every one of them hurts), lets zero to ten seconds pass,
+and executes the calldata unchanged. 240 samples on the three-token universe, every outcome
+classified, the guarantees asserted and the distribution printed:
+
+| drift between quote and execution | samples | settled | refused by the floor (`RouterE 5`) | delivered / predicted, mean · min |
+|---|---|---|---|---|
+| none | 64 | 64 | 0 | 100.00 % · 100.00 % |
+| up to 100 bps | 43 | 43 | 0 | 99.52 % · 98.03 % |
+| 100 – 300 bps | 133 | 102 | 31 | 99.66 % · 96.53 % |
+
+Bucketed by delay instead (0 s / 1–5 s / 6–10 s) the settle rates are 15/17, 89/99, 105/124 —
+the same picture, because time is not what moves a quote: drift is. What is asserted, not
+printed: time alone never breaks a quote inside its deadline (drift-free samples settle 100 % at
+every delay, delivering exactly the prediction); a settlement never delivers below the floor the
+preview attested; nothing is a third way; and after the deadline the refusal is the deadline's
+own code (`RouterE 4`, 20 of 20). Under 3 % of adverse drift, one settlement in four is refused
+by the floor rather than filled below it, and the ones that fill land within 3.5 % of the
+prediction — the sandwich curve of §4j seen from the quote's side.
+
+The same measurement on live Base (`test/fork/QuoteDelayFork.t.sol`, 1,000 USDC → WETH): executed
+0, 3, 6 and 10 s later with nothing else moving, the quote delivered exactly its prediction all
+four times; with 10,000 to 5,000,000 USDC traded ahead of it and the calldata executed 10 s later,
+all five settled inside the floor at 9,999 · 9,998 · 9,994 · 9,974 · 10,000 bps of the prediction.
+`test/QuoterGasStatistics.t.sol` and `test/fork/QuoterGasFork.t.sol` price the quote itself through
+the ABI as mean, minimum, maximum and spread: on the three-token universe `previewPlan` costs
+121,313 gas (σ 1,433) where discovery finds one pool and 235,574 (σ 1,815) where a fresh registry
+prices three; `batchQuote` of ten, 205,539 per entry; on live Base 1,524,221 cold, 1,414,633 warm,
+1,359,925 cold again — the discovery sweep is about 7 % of a live quote.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.

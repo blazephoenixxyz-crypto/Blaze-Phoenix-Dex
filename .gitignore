@@ -53,3 +53,4 @@ __pycache__/
 # starting point for someone else, so the aggregate goes in the log and the rows stay local.
 assurance-*.json
 lcov.info
+.drpc

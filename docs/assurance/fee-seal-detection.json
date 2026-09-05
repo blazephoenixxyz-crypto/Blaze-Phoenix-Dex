@@ -1,0 +1,389 @@
+{
+ "measured": "2026-09-05, release settings; 20 fuzz seeds per fuzzed test (0x5EED0000 + 7919\u00b7i), one run per deterministic test; a kill is a non-zero exit; Wilson 95% interval on the detection probability; rule-of-three bound on the miss probability where nothing was missed",
+ "question": "how often does each test notice each fee defect? A test that fits the code passes; a test that catches is one whose detection rate of a named defect is measured.",
+ "tests": [
+  "FeeSeals (fuzz, every shape)",
+  "Router fee invariants (campaign)",
+  "Regime covering array (deterministic)",
+  "Junk-prefix escape (deterministic)",
+  "Exhaustion preview parity (deterministic)"
+ ],
+ "mutants": {
+  "exhaustion charges hop 0 only (junk-prefix escape)": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   }
+  },
+  "exhaustion skips hop 0": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   }
+  },
+  "commitment counts the first leg only": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   }
+  },
+  "BELT ledger: settlement without a fee no longer refused": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   }
+  },
+  "BELT ledger: anchored double payment no longer refused": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   }
+  },
+  "fee doubled": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   }
+  },
+  "input-side fee never charged": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   }
+  },
+  "fee charged on both sides": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 20,
+    "runs": 20,
+    "detection_ci95": [
+     0.839,
+     1.0
+    ],
+    "miss_upper_bound_95": 0.15
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 1,
+    "runs": 1,
+    "detection_ci95": [
+     0.207,
+     1.0
+    ],
+    "miss_upper_bound_95": 3.0
+   }
+  }
+ }
+}

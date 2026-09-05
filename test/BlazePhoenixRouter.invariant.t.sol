@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 import {StdInvariant} from "forge-std/StdInvariant.sol";
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
@@ -29,12 +29,14 @@ contract RouterHandler is Test {
     address public immutable treasury1;
     address public immutable treasury2;
 
+    bytes32 constant FEE_SIG = keccak256("Fee(address,uint256,uint256,uint256)");
     uint256 public callCount;
     uint256 public successCount;
     bool    public ghost_feeBoundViolated;
     bool    public ghost_deliveredBelowMinOut;
     bool    public ghost_feeEscaped;
     bool    public ghost_feeChargedTwice;
+    bool    public ghost_feeEventsNotOne;   // a settlement emitted zero or several Fee events
     // Non-vacuity counter for the fee guards THEMSELVES: how many runs
     // observed a non-zero fee. Without it, the three ghosts above read false
     // both when the code is correct and when the fee was never measured at
@@ -115,9 +117,16 @@ contract RouterHandler is Test {
         // not assumed here.
         uint256 minOut = bound(minOutSeed, 1, quoted);
 
+        vm.recordLogs();
         vm.prank(user);
         try router.swapExactIn(route, amountIn, minOut, user, block.timestamp + 1) returns (uint256 delivered) {
             successCount++;
+            {
+                Vm.Log[] memory logs = vm.getRecordedLogs();
+                uint256 nFee;
+                for (uint256 i; i < logs.length; ++i) if (logs[i].topics[0] == FEE_SIG) ++nFee;
+                if (nFee != 1) ghost_feeEventsNotOne = true;
+            }
             // Sentinel write for invariant_DeliveredNeverBelowUserMinOut:
             // unreachable today BY CONSTRUCTION (the Router's final check
             // reverts when delivered < userMinOut) — it records a violation
@@ -240,6 +249,13 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
     /// @notice One fee, one side. Charging on input AND output would be an
     ///         overcharge that neither ceiling catches in isolation, because
     ///         each one passes on its own.
+    /// @notice The ledger's property, observed from outside: one Fee event per settlement — never
+    ///         zero, never two. The Router now refuses both at run time (RouterE 15 / 16); this is
+    ///         the campaign confirming that the refusal never had to fire on an honest route.
+    function invariant_SettledSwapEmitsExactlyOneFee() public view {
+        assertFalse(handler.ghost_feeEventsNotOne(), "a settled swap emitted zero or several Fee events");
+    }
+
     function invariant_FeeIsChargedOnExactlyOneSide() public view {
         assertFalse(handler.ghost_feeChargedTwice(),
             "a single swap paid a protocol fee on BOTH tokenIn and tokenOut");
