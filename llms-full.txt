@@ -1388,6 +1388,7 @@ make this fail?* Three things every test in the suite carries:
   forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
   ```
 - **The sandwich curve** — `SandwichCurve.t.sol` plays the attacker across a grid of manipulations and asserts the floor's bound at every point; `forge test --match-contract SandwichCurve -vv` prints the curve.
+- **The Router campaign, two hops and two legs** — `BlazePhoenixRouter.invariant.t.sol` walks the chain through two adjacent pairs, splits hop 0 across two pools, and asserts the fee shape the rule prescribes from the bridge list and the pools (`invariant_TwoHopFeeShapeFollowsTheRule`); its detection column in `docs/assurance/fee-seal-detection.json` was blind to two fee mutants before the widening and sees them 20/20 after.
 - **How a quote ages** — `QuoteDelayStatistics.t.sol` (mocks) and `fork/QuoteDelayFork.t.sol` (live Base): a quote taken through `previewAndEncode`, the world moves, 0–10 s pass, the calldata runs unchanged; settle rate and delivered/predicted per drift bucket printed, the guarantees asserted (ASSURANCE §4p). **What a quote costs** — `QuoterGasStatistics.t.sol` / `fork/QuoterGasFork.t.sol`: discovery vs fresh registry through the ABI, mean/min/max/spread.
 - **Metamorphic relations** — `CoreMetamorphicRelations.t.sol` (14, over the quote maths) and `RouteMetamorphicRelations.t.sol` (5, over the Solver's plan): how the output must move when the input moves, no reference implementation; three bounds measured before written (ASSURANCE §4m).
 - **N-version lane** — `test/nversion/`: the quote maths compiled at `optimizer_runs` 1 and 20000 beside the shipped 300, three binaries compared on fuzzed inputs. `FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'` (and `nver2`), then `NVERSION_LANE=1 forge test --match-path 'test/nversion/*'`. Its first run found the stable curve failing open on dust pools (ASSURANCE §4n).
@@ -2518,24 +2519,27 @@ events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
 three fee mutants of §4l) was run under twenty fuzz seeds per fuzzed test, and the detection rate
 is published with a Wilson 95 % interval (`docs/assurance/fee-seal-detection.json`):
 
-| mutant | FeeSeals fuzz | Router fee campaign | covering array t=2 | junk-prefix escape | exhaustion preview parity |
+| mutant | FeeSeals fuzz | Router campaign (2 hops, 2 legs) | covering array t=2 | junk-prefix escape | exhaustion preview parity |
 |---|---|---|---|---|---|
-| exhaustion charges hop 0 only (junk-prefix escape) | 20/20 [0.84, 1.00] | 0/20 [-0.00, 0.16] | no | yes | yes |
+| exhaustion charges hop 0 only (junk-prefix escape) | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
 | exhaustion skips hop 0 | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
-| commitment counts the first leg only | 20/20 [0.84, 1.00] | 0/20 [-0.00, 0.16] | no | no | no |
-| BELT ledger: settlement without a fee no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
-| BELT ledger: anchored double payment no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
+| commitment counts the first leg only | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | no | no |
 | fee doubled | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | yes | yes | yes |
 | input-side fee never charged | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
 | fee charged on both sides | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
+| BELT ledger: settlement without a fee no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
+| BELT ledger: anchored double payment no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
 
 Read across a row: which tests see this defect. Read down a column: what a test can and cannot
-see. The Router campaign builds direct routes only, so the exhaustion-regime mutants that spare
-hop 0 are invisible to it and visible to the every-shape fuzz and the two pinned tests; the
-commitment producer only matters on a two-leg hop, which only the every-shape fuzz builds; the
-two ledger belts are seen by nothing, as their name says. Twenty seeds at 20/20 bound the miss
-probability of one campaign at 15 % (rule of three), which is why the guard runs the named test
-and the campaign both.
+see. The first measurement of this table found the Router campaign blind to the exhaustion-regime
+mutant that spares hop 0 and to the commitment producer: it built direct one-leg routes only. The
+campaign was widened the same day — a second action walks two hops through the chain, splits hop 0
+across two pools, and checks the fee shape the rule prescribes from the bridge list and the pools
+(`invariant_TwoHopFeeShapeFollowsTheRule`), with T1 as the bridge coin so one campaign holds every
+regime — and the column was re-measured: both mutants are now seen 20 of 20. The covering array
+sees only the doubled fee, because its rows always cross a bridge; the two ledger belts are seen by
+nothing, as their name says. Twenty seeds at 20/20 bound the miss probability of one campaign at
+15 % (rule of three), which is why the guard runs the named test and the campaign both.
 
 
 The ledger's two checks are **belts**: in isolation no test can make them fire, because the

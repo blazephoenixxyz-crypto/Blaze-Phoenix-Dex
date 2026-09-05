@@ -1,5 +1,5 @@
 {
- "measured": "2026-09-05, release settings; 20 fuzz seeds per fuzzed test (0x5EED0000 + 7919\u00b7i), one run per deterministic test; a kill is a non-zero exit; Wilson 95% interval on the detection probability; rule-of-three bound on the miss probability where nothing was missed",
+ "measured": "2026-09-05, release settings; 20 fuzz seeds per fuzzed test (0x5EED0000 + 7919\u00b7i), one run per deterministic test; a kill is a non-zero exit; Wilson 95% interval on the detection probability; rule-of-three bound on the miss probability where nothing was missed. The Router campaign column is the campaign widened to two hops and two legs (test/BlazePhoenixRouter.invariant.t.sol, swap2).",
  "question": "how often does each test notice each fee defect? A test that fits the code passes; a test that catches is one whose detection rate of a named defect is measured.",
  "tests": [
   "FeeSeals (fuzz, every shape)",
@@ -20,13 +20,13 @@
     "miss_upper_bound_95": 0.15
    },
    "Router fee invariants (campaign)": {
-    "kills": 0,
+    "kills": 20,
     "runs": 20,
     "detection_ci95": [
-     -0.0,
-     0.161
+     0.839,
+     1.0
     ],
-    "miss_upper_bound_95": null
+    "miss_upper_bound_95": 0.15
    },
    "Regime covering array (deterministic)": {
     "kills": 0,
@@ -114,107 +114,13 @@
     "miss_upper_bound_95": 0.15
    },
    "Router fee invariants (campaign)": {
-    "kills": 0,
+    "kills": 20,
     "runs": 20,
     "detection_ci95": [
-     -0.0,
-     0.161
+     0.839,
+     1.0
     ],
-    "miss_upper_bound_95": null
-   },
-   "Regime covering array (deterministic)": {
-    "kills": 0,
-    "runs": 1,
-    "detection_ci95": [
-     0.0,
-     0.793
-    ],
-    "miss_upper_bound_95": null
-   },
-   "Junk-prefix escape (deterministic)": {
-    "kills": 0,
-    "runs": 1,
-    "detection_ci95": [
-     0.0,
-     0.793
-    ],
-    "miss_upper_bound_95": null
-   },
-   "Exhaustion preview parity (deterministic)": {
-    "kills": 0,
-    "runs": 1,
-    "detection_ci95": [
-     0.0,
-     0.793
-    ],
-    "miss_upper_bound_95": null
-   }
-  },
-  "BELT ledger: settlement without a fee no longer refused": {
-   "FeeSeals (fuzz, every shape)": {
-    "kills": 0,
-    "runs": 20,
-    "detection_ci95": [
-     -0.0,
-     0.161
-    ],
-    "miss_upper_bound_95": null
-   },
-   "Router fee invariants (campaign)": {
-    "kills": 0,
-    "runs": 20,
-    "detection_ci95": [
-     -0.0,
-     0.161
-    ],
-    "miss_upper_bound_95": null
-   },
-   "Regime covering array (deterministic)": {
-    "kills": 0,
-    "runs": 1,
-    "detection_ci95": [
-     0.0,
-     0.793
-    ],
-    "miss_upper_bound_95": null
-   },
-   "Junk-prefix escape (deterministic)": {
-    "kills": 0,
-    "runs": 1,
-    "detection_ci95": [
-     0.0,
-     0.793
-    ],
-    "miss_upper_bound_95": null
-   },
-   "Exhaustion preview parity (deterministic)": {
-    "kills": 0,
-    "runs": 1,
-    "detection_ci95": [
-     0.0,
-     0.793
-    ],
-    "miss_upper_bound_95": null
-   }
-  },
-  "BELT ledger: anchored double payment no longer refused": {
-   "FeeSeals (fuzz, every shape)": {
-    "kills": 0,
-    "runs": 20,
-    "detection_ci95": [
-     -0.0,
-     0.161
-    ],
-    "miss_upper_bound_95": null
-   },
-   "Router fee invariants (campaign)": {
-    "kills": 0,
-    "runs": 20,
-    "detection_ci95": [
-     -0.0,
-     0.161
-    ],
-    "miss_upper_bound_95": null
+    "miss_upper_bound_95": 0.15
    },
    "Regime covering array (deterministic)": {
     "kills": 0,
@@ -383,6 +289,100 @@
      1.0
     ],
     "miss_upper_bound_95": 3.0
+   }
+  },
+  "BELT ledger: settlement without a fee no longer refused": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   }
+  },
+  "BELT ledger: anchored double payment no longer refused": {
+   "FeeSeals (fuzz, every shape)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Router fee invariants (campaign)": {
+    "kills": 0,
+    "runs": 20,
+    "detection_ci95": [
+     -0.0,
+     0.161
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Regime covering array (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Junk-prefix escape (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
+   },
+   "Exhaustion preview parity (deterministic)": {
+    "kills": 0,
+    "runs": 1,
+    "detection_ci95": [
+     0.0,
+     0.793
+    ],
+    "miss_upper_bound_95": null
    }
   }
  }
