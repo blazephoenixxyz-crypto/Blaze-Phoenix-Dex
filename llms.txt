@@ -199,6 +199,10 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   refuses beyond it, leaving the attacker's round trip negative; the refusal region is closed
   upward, and every point asserts the victim never receives less than the floor attested at
   quote time.
+- **Canonical oracles.** The Core's quote maths fuzzed against implementations written from
+  the venues' specifications (constant product, single-tick sqrt-price step with the pool's own
+  rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
+  four wei, V3 within one ulp of the square-root price.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.

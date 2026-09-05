@@ -214,6 +214,10 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   refuses beyond it, leaving the attacker's round trip negative; the refusal region is closed
   upward, and every point asserts the victim never receives less than the floor attested at
   quote time.
+- **Canonical oracles.** The Core's quote maths fuzzed against implementations written from
+  the venues' specifications (constant product, single-tick sqrt-price step with the pool's own
+  rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
+  four wei, V3 within one ulp of the square-root price.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.
@@ -440,7 +444,7 @@ not a gate that stopped anything.
 
 ---
 
-## Eleven numbers this repository computes about itself
+## Twelve numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -460,6 +464,7 @@ every commit, from a clean checkout, compiling nothing.
 | Pairs of regime-factor values exercised **by construction** — 63 generated fixtures standing in for 5,184 combinations | 258 / 258 |
 | Venue pathologies × doors that **settle or refuse with a selector of ours** — never a third way | 20 / 20 |
 | Largest sandwich the floor lets through on a 1 %-of-depth trade before it **refuses** (constant-product venue, attacker's round trip negative past the edge) | ≈ 2.7 % of the trade |
+| Core quotes fuzzed against oracles written from the venues' **specifications**, never from the Core (15,000 runs) | V2 exact · stable within 4 wei · V3 within one price-ulp |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,
@@ -849,7 +854,9 @@ at least one of 63 generated fixtures, each judged by one assertion — settle i
 floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
 fixture cannot build are counted, not skipped. A hostile-venue matrix crosses ten venue
 pathologies with the doors under the same rule, and a sandwich harness measures the attacker's
-side of the floor across a grid of manipulations, asserting the victim's bound at every point. Every
+side of the floor across a grid of manipulations, asserting the victim's bound at every point.
+The quote maths themselves are fuzzed against oracles written from the venues' specifications,
+never from the Core, so the formula every mock quotes with is not its own witness. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.
@@ -1350,6 +1357,7 @@ make this fail?* Three things every test in the suite carries:
   forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
   ```
 - **The sandwich curve** — `SandwichCurve.t.sol` plays the attacker across a grid of manipulations and asserts the floor's bound at every point; `forge test --match-contract SandwichCurve -vv` prints the curve.
+- **Canonical oracles** — `CanonicalOracles.t.sol` fuzzes `outV2`, `outV3` and the stable curve against implementations written from the venues' specifications; direction first, tightness second.
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
 - **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps
   through the release Router; `pc_trace.py` replays the program counter against the shipped
@@ -2261,6 +2269,27 @@ attested floor; and the refusal region is closed upward — past the edge, every
 is refused and the attacker is left holding the price they moved. The number worth quoting is the
 last settled row: **the floor caps what a sandwich can take from a 1 % trade at about 2.7 % of it**,
 and turns the attacker's trade into a loss the moment it would take more.
+
+## 4k. Canonical oracles — the quote maths against the venues' specifications
+
+Every mock in the suite quotes with the Core's own formulas, so a defect in a formula is invisible
+to every parity test that uses them: the oracle is the object. `test/regime/CanonicalOracles.t.sol`
+holds three implementations written from the venues' published invariants — Uniswap V2's constant
+product with the fee on the input, Uniswap V3's single-tick square-root-price step with the pool's
+own against-the-trader rounding, Solidly's stable curve `x³y + xy³ = k` solved by Newton's method —
+and fuzzes the Core against them, 5,000 runs each, asserting the direction first (the Core never
+promises more than the venue's maths delivers) and the tightness second.
+
+| family | direction | tightness measured |
+|---|---|---|
+| Uniswap V2 | the Core never exceeds the spec | exact to the wei |
+| Solidly stable | the Core never exceeds the curve by more than the solver's own last step | within 4 wei |
+| Uniswap V3 | the Core never exceeds the spec by more than **one ulp of the square-root price**, which is `L / 2⁹⁶` wei | below one wei for every pool with `L < 2⁹⁶`, i.e. every pool in existence |
+
+The V3 bound is stated in the quantity that causes it: the pool rounds its new price against the
+trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
+wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
+assertion is the bound, not the sample.
 
 ## 5. What none of this establishes
 

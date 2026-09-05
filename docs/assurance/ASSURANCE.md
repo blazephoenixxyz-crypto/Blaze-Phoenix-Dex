@@ -429,6 +429,27 @@ is refused and the attacker is left holding the price they moved. The number wor
 last settled row: **the floor caps what a sandwich can take from a 1 % trade at about 2.7 % of it**,
 and turns the attacker's trade into a loss the moment it would take more.
 
+## 4k. Canonical oracles — the quote maths against the venues' specifications
+
+Every mock in the suite quotes with the Core's own formulas, so a defect in a formula is invisible
+to every parity test that uses them: the oracle is the object. `test/regime/CanonicalOracles.t.sol`
+holds three implementations written from the venues' published invariants — Uniswap V2's constant
+product with the fee on the input, Uniswap V3's single-tick square-root-price step with the pool's
+own against-the-trader rounding, Solidly's stable curve `x³y + xy³ = k` solved by Newton's method —
+and fuzzes the Core against them, 5,000 runs each, asserting the direction first (the Core never
+promises more than the venue's maths delivers) and the tightness second.
+
+| family | direction | tightness measured |
+|---|---|---|
+| Uniswap V2 | the Core never exceeds the spec | exact to the wei |
+| Solidly stable | the Core never exceeds the curve by more than the solver's own last step | within 4 wei |
+| Uniswap V3 | the Core never exceeds the spec by more than **one ulp of the square-root price**, which is `L / 2⁹⁶` wei | below one wei for every pool with `L < 2⁹⁶`, i.e. every pool in existence |
+
+The V3 bound is stated in the quantity that causes it: the pool rounds its new price against the
+trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
+wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
+assertion is the bound, not the sample.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.

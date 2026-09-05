@@ -93,7 +93,9 @@ at least one of 63 generated fixtures, each judged by one assertion — settle i
 floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
 fixture cannot build are counted, not skipped. A hostile-venue matrix crosses ten venue
 pathologies with the doors under the same rule, and a sandwich harness measures the attacker's
-side of the floor across a grid of manipulations, asserting the victim's bound at every point. Every
+side of the floor across a grid of manipulations, asserting the victim's bound at every point.
+The quote maths themselves are fuzzed against oracles written from the venues' specifications,
+never from the Core, so the formula every mock quotes with is not its own witness. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.
