@@ -579,7 +579,7 @@ flowchart TD
 |---|---|---:|
 | **Router** | Pulls input, executes the plan leg-by-leg, measures the real balance delta at each seam, enforces the output floor. Reentrancy-locked across the whole swap, pool callbacks included. | 23 754 B |
 | **Solver** | Builds the best route and split from *measured* marginal output and measured capital — never from self-reported liquidity. | 19 677 B |
-| **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. | 23 469 B |
+| **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. | 23 648 B |
 | **Core** | The shared measured-math library: constant-product, concentrated liquidity, Solidly stable curve, Algebra dynamic fee, V4. One evaluator prices both the quote and the floor. | 6 477 B |
 | **Quoter** | Off-chain preview surface. `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg. | 11 405 B |
 
@@ -1115,7 +1115,7 @@ analysis; a report that defeats one of these is especially welcome.
 ## Verification pipeline and track record
 
 An independent external audit is scheduled before launch. What runs on every
-push: a forge suite of 1,183 declared tests across 203 files (unit, property,
+push: a forge suite of 1,252 declared tests across 206 files (unit, property,
 parity, stateful invariants) and 25 fork suites against live chain liquidity;
 Halmos symbolic proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
@@ -1268,7 +1268,7 @@ How the suite is organised, how to run every gate, and what a test has to satisf
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
 Measured on this tree (2026-09-05): **206 `.t.sol` files** — 181 local, 25 fork — holding
-**1,252 `test*` / `invariant*` / `check*` declarations**; **1,117 tests green** in the release
+**1,252 `test*` / `invariant*` / `check*` declarations**; **1,122 tests green** in the release
 profile with fork suites excluded and **119 green on live liquidity**; **183 curated mutants**, all killed.
 
 ## Running
@@ -1880,6 +1880,13 @@ Every link is checked mechanically. A guard symbol that leaves `src/`, a test th
 | Guard inventory | How many refusals in the code a test drives by their exact error code, and how many refusal sites cannot be told apart by one |
 | Bytecode invariants | Properties of the compiled artefact the source cannot guarantee: opcodes that must be absent, and the transient lock still transient after the compiler has spoken |
 | Mutation-target integrity | Whether every mutant still points at exactly one line of real code |
+| Projection distance | For each refusal site, how far the object the guard reads is from the object that decides (§4f) |
+| Calldata-field confirmation | Which integrator-writable fields are steering, confirmed against an observation, or declared (`fields.json`) |
+| Release-binary execution | Which instructions of the shipped artefact a recorded scenario ran, replayed with an opcode check at every step (§4g) |
+| Regime covering array | Whether every pair of values of the ten regime factors appears in a generated fixture, and how each row ended (§4h) |
+| Hostile-venue matrix | Whether every venue pathology × door settles or refuses with a selector of ours, never a third way (§4i) |
+| Sandwich bound | How much an adversary who orders the block can take from a trade before the floor refuses (§4j) |
+| Canonical-oracle tightness | How far the Core's quote maths sit from implementations written from the venues' specifications (§4k) |
 
 Each is recomputable from a clean checkout. None of them is a probability that the system is
 correct; see §5.

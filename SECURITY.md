@@ -42,7 +42,7 @@ analysis; a report that defeats one of these is especially welcome.
 ## Verification pipeline and track record
 
 An independent external audit is scheduled before launch. What runs on every
-push: a forge suite of 1,183 declared tests across 203 files (unit, property,
+push: a forge suite of 1,252 declared tests across 206 files (unit, property,
 parity, stateful invariants) and 25 fork suites against live chain liquidity;
 Halmos symbolic proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
