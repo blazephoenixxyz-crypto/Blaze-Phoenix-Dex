@@ -20,6 +20,8 @@ contract RouterHandler is Test {
     BlazePhoenixRouter public router;
     MockERC20[] public tokens;
     MockV2Pair[] public pairs;
+    MockV2Pair[] public pairs2;             // a second pool per pair, for two-leg hops
+    BlazePhoenixHub public hub;
     address public user = address(0xBEEF);
     // Fixed, matching the Router's actual configured treasuries — these must
     // NOT be fuzzer-controlled parameters of swap() (an earlier version of
@@ -37,6 +39,9 @@ contract RouterHandler is Test {
     bool    public ghost_feeEscaped;
     bool    public ghost_feeChargedTwice;
     bool    public ghost_feeEventsNotOne;   // a settlement emitted zero or several Fee events
+    bool    public ghost_multiHopFeeShapeWrong;   // a 2-hop settlement paid where the rule does not say
+    uint256 public multiCalls;
+    uint256 public multiSettles;
     // Non-vacuity counter for the fee guards THEMSELVES: how many runs
     // observed a non-zero fee. Without it, the three ghosts above read false
     // both when the code is correct and when the fee was never measured at
@@ -45,9 +50,11 @@ contract RouterHandler is Test {
 
     constructor(
         BlazePhoenixRouter _router, MockERC20[] memory _tokens, MockV2Pair[] memory _pairs,
-        address _treasury1, address _treasury2
+        MockV2Pair[] memory _pairs2, BlazePhoenixHub _hub, address _treasury1, address _treasury2
     ) {
         router = _router;
+        hub = _hub;
+        for (uint256 i; i < _pairs2.length; ++i) pairs2.push(_pairs2[i]);
         treasury1 = _treasury1;
         treasury2 = _treasury2;
         for (uint256 i; i < _tokens.length; ++i) tokens.push(_tokens[i]);
@@ -169,6 +176,86 @@ contract RouterHandler is Test {
             // confirm no state was corrupted by the attempt.
         }
     }
+
+    // ── TWO HOPS, ONE OR TWO LEGS (2026-09-05). Until here the campaign built direct one-leg
+    //    routes only, and the detection study measured it blind to the exhaustion-regime and
+    //    commitment mutants. This action walks two adjacent pairs of the chain, splits hop 0
+    //    across the pair's two pools when asked, and checks the fee SHAPE the rule prescribes
+    //    for the route it built: anchored (a bridge coin is some hop's input) pays once, there,
+    //    ceil(28 bps) of that hop's measured input; exhausted pays once per hop on each input.
+
+    function _leg(MockV2Pair p, address tIn, uint256 amt) private view returns (Leg memory) {
+        (uint112 r0, uint112 r1, ) = p.getReserves();
+        bool zfo = p.token0() == tIn;
+        uint256 q = BPC.outV2(amt, zfo ? r0 : r1, zfo ? r1 : r0, 30);
+        return Leg({pool: address(p), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
+                    zeroForOne: zfo, stable: false, amountIn: amt, expectedOut: q, auxId: bytes32(0)});
+    }
+
+    struct Two { address tIn; address m; address tOut; MockV2Pair p0; MockV2Pair p0b; MockV2Pair p1; }
+
+    function _pickTwo(uint256 hopSeed, bool reverse) private view returns (Two memory t) {
+        uint256 i = hopSeed % (pairs.length - 1);              // hops through pairs[i] and pairs[i+1]
+        address a = address(tokens[i]); address m = address(tokens[i + 1]); address c = address(tokens[i + 2]);
+        if (reverse) t = Two(c, m, a, pairs[i + 1], pairs2[i + 1], pairs[i]);
+        else t = Two(a, m, c, pairs[i], pairs2[i], pairs[i + 1]);
+    }
+
+    function _twoHopRoute(Two memory t, uint256 amountIn, bool twoLegs) private view returns (Route memory) {
+        Hop[] memory hops = new Hop[](2);
+        Leg[] memory legs0 = new Leg[](twoLegs ? 2 : 1);
+        uint256 e0;
+        if (twoLegs) { legs0[0] = _leg(t.p0, t.tIn, amountIn / 2); legs0[1] = _leg(t.p0b, t.tIn, amountIn - amountIn / 2); e0 = legs0[0].expectedOut + legs0[1].expectedOut; }
+        else { legs0[0] = _leg(t.p0, t.tIn, amountIn); e0 = legs0[0].expectedOut; }
+        hops[0] = Hop({tokenIn: t.tIn, tokenOut: t.m, amountIn: amountIn, expectedOut: e0, legs: legs0});
+        Leg[] memory legs1 = new Leg[](1);
+        legs1[0] = _leg(t.p1, t.m, e0);
+        hops[1] = Hop({tokenIn: t.m, tokenOut: t.tOut, amountIn: e0, expectedOut: legs1[0].expectedOut, legs: legs1});
+        return Route({hops: hops, totalOut: hops[1].expectedOut, singleOut: hops[1].expectedOut, singleOutFloor: 0,
+                      expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+    }
+
+    function _treas(address t) private view returns (uint256) {
+        return MockERC20(t).balanceOf(treasury1) + MockERC20(t).balanceOf(treasury2);
+    }
+
+    function swap2(uint256 hopSeed, uint256 amountSeed, bool twoLegs, bool reverse) external {
+        multiCalls++;
+        if (pairs.length < 2) return;
+        Two memory t = _pickTwo(hopSeed, reverse);
+        uint256 amountIn = bound(amountSeed, 1e15, 300e18);
+        MockERC20(t.tIn).mint(user, amountIn);
+        vm.prank(user);
+        MockERC20(t.tIn).approve(address(router), amountIn);
+        Route memory route = _twoHopRoute(t, amountIn, twoLegs);
+
+        // the rule, computed here from the bridge list — never from the Router
+        bool anchored = hub.isBridgeToken(t.tIn) || hub.isBridgeToken(t.m);
+        bool feeAtZero = hub.isBridgeToken(t.tIn);
+        uint256[3] memory before = [_treas(t.tIn), _treas(t.m), _treas(t.tOut)];
+        uint256 mPoolBefore = MockERC20(t.m).balanceOf(address(t.p0)) + MockERC20(t.m).balanceOf(address(t.p0b));
+
+        vm.recordLogs();
+        vm.prank(user);
+        try router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1) returns (uint256 delivered) {
+            multiSettles++;
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            uint256 nFee;
+            for (uint256 k; k < logs.length; ++k) if (logs[k].topics[0] == FEE_SIG) ++nFee;
+            uint256 feeTin = _treas(t.tIn) - before[0];
+            uint256 feeM   = _treas(t.m) - before[1];
+            uint256 feeOut = _treas(t.tOut) - before[2];
+            uint256 mReceived = mPoolBefore - (MockERC20(t.m).balanceOf(address(t.p0)) + MockERC20(t.m).balanceOf(address(t.p0b)));
+            uint256 wantTin = BPC.mulDivUp(amountIn, 28, BPC.BPS);
+            uint256 wantM   = BPC.mulDivUp(mReceived, 28, BPC.BPS);
+            bool okShape;
+            if (!anchored)      okShape = nFee == 2 && feeTin == wantTin && feeM == wantM && feeOut == 0;
+            else if (feeAtZero) okShape = nFee == 1 && feeTin == wantTin && feeM == 0 && feeOut == 0;
+            else                okShape = nFee == 1 && feeTin == 0 && feeM == wantM && feeOut == 0;
+            if (!okShape || delivered == 0) ghost_multiHopFeeShapeWrong = true;
+        } catch {
+        }
+    }
 }
 
 /// @notice Stateful (Monte Carlo) invariant coverage for the Router — the
@@ -183,12 +270,14 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
     RouterHandler handler;
     MockERC20[] tokens;
     MockV2Pair[] pairs;
+    MockV2Pair[] pairs2;
 
     address treasury1 = address(0xFEE1);
     address treasury2 = address(0xFEE2);
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
+        hub.initialize(address(this), address(0));
         router = new BlazePhoenixRouter(address(hub), address(0xBEEF), address(this), treasury1, treasury2);
 
         tokens.push(new MockERC20("T0", "T0"));
@@ -210,9 +299,22 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
                 uint112(t0 == address(a) ? depthB : depthA)
             );
             pairs.push(p);
+            // the pair's second pool, half as deep, for the two-leg hops of swap2
+            MockV2Pair q = new MockV2Pair(address(a), address(b));
+            a.mint(address(q), depthA / 2);
+            b.mint(address(q), depthB / 2);
+            q.setReserves(
+                uint112(t0 == address(a) ? depthA / 2 : depthB / 2),
+                uint112(t0 == address(a) ? depthB / 2 : depthA / 2)
+            );
+            pairs2.push(q);
         }
+        // T1 is the bridge coin, so the chain holds every regime the rule names: T0->T1 (output
+        // into a bridge), T1->T2 and T1->T2->T3 (anchored at hop 0), T0->T1->T2 (anchored at
+        // hop 1), and T2->T3 / T3->T2->T1 shapes down to the exhaustion regime.
+        hub.addBridge(address(tokens[1]));
 
-        handler = new RouterHandler(router, tokens, pairs, treasury1, treasury2);
+        handler = new RouterHandler(router, tokens, pairs, pairs2, hub, treasury1, treasury2);
         targetContract(address(handler));
     }
 
@@ -256,6 +358,12 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
         assertFalse(handler.ghost_feeEventsNotOne(), "a settled swap emitted zero or several Fee events");
     }
 
+    /// @notice Two hops, one or two legs, every regime the rule names: the fee lands where the
+    ///         rule says, in the amount the pools measured, and nowhere else.
+    function invariant_TwoHopFeeShapeFollowsTheRule() public view {
+        assertFalse(handler.ghost_multiHopFeeShapeWrong(), "a two-hop settlement paid the fee where or how much the rule does not say");
+    }
+
     function invariant_FeeIsChargedOnExactlyOneSide() public view {
         assertFalse(handler.ghost_feeChargedTwice(),
             "a single swap paid a protocol fee on BOTH tokenIn and tokenOut");
@@ -281,6 +389,9 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
     ///         engaged under the configured depth (50) and never trips on a
     ///         short custom run.
     function afterInvariant() public view {
+        if (handler.multiCalls() >= 10) {
+            assertGt(handler.multiSettles(), 0, "vacuous: no two-hop route ever settled");
+        }
         if (handler.callCount() >= 10) {
             assertGt(handler.successCount(), 0,
                 "vacuous invariant run: zero swaps settled (entry-guard regression?)");

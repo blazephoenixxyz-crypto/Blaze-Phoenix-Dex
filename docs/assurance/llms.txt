@@ -87,6 +87,7 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 - exploit classes answered by a named guard: 19 / 23 considered
 - shipped-shape instructions proven executed (lower bound): 88.3 %
 - curated mutants killed: 197 / 197
+- swap tests report, September 2026 (docs/assurance/SWAP-TESTS-REPORT-2026-09.md): quotes, fees, floors, settlements and refusals, on mocks and live Base, every table with its command
 - verification report, September 2026 (docs/assurance/VERIFICATION-REPORT-2026-09.md): every instrument, its result on this tree and its stated limit, in one document written for the site and the paper
 - how a quote ages (ASSURANCE §4p): 240 samples, quote through previewAndEncode then executed 0-10 s later under 0-3% adverse drift; drift-free 64/64 settle at exactly the prediction at every delay; under 100-300 bps drift 102 settle / 31 refused by the floor, fills within 3.5% of prediction; after the deadline 20/20 refused with RouterE(4); no third way
 - fee rule: both regimes named (anchored: once; exhaustion: once per hop, the pinned policy), asserted by the Router at run time (transient ledger, RouterE 15/16); the fee base from one producer (_legSum); detection rates of the fee mutants under 20 seeds per test in fee-seal-detection.json (ASSURANCE §4o)
