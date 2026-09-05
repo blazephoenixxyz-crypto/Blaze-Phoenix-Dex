@@ -44,7 +44,7 @@ not a gate that stopped anything.
 
 ---
 
-## Nine numbers this repository computes about itself
+## Ten numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -60,8 +60,9 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 182 / 182 |
+| Curated mutants **killed**, each paired with the one test that must die | 183 / 183 |
 | Pairs of regime-factor values exercised **by construction** — 63 generated fixtures standing in for 5,184 combinations | 258 / 258 |
+| Venue pathologies × doors that **settle or refuse with a selector of ours** — never a third way | 20 / 20 |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,
@@ -111,9 +112,9 @@ number for that reason.
 
 | Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,183** `test*` / `invariant*` / `check*` declarations across **203** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Test suite** | **1,252** `test*` / `invariant*` / `check*` declarations across **206** `.t.sol` files — unit, property, parity, and stateful invariants |
 | **Fork suites** | **25**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
-| **Mutation guard** | **181** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Mutation guard** | **183** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
 | **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 

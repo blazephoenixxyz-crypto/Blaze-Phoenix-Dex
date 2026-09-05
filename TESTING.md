@@ -4,8 +4,8 @@ How the suite is organised, how to run every gate, and what a test has to satisf
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
 Measured on this tree (2026-09-05): **206 `.t.sol` files** — 181 local, 25 fork — holding
-**1,252 `test*` / `invariant*` / `check*` declarations**; **1,097 tests green** in the release
-profile with fork suites excluded and **119 green on live liquidity**; **182 curated mutants**, all killed.
+**1,252 `test*` / `invariant*` / `check*` declarations**; **1,117 tests green** in the release
+profile with fork suites excluded and **119 green on live liquidity**; **183 curated mutants**, all killed.
 
 ## Running
 
@@ -50,7 +50,7 @@ stale sequence can be scored as a fresh result.
 | `test/fork/` | 25 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
 | `test/formal/` | Halmos specifications for the fail-closed arithmetic (iron floor, impact, V3 fail-closed, `effV4Fee`) |
 | `test/hunt/` | regressions from adversarial review campaigns |
-| `test/regime/` | the **regime covering array**: `RegimeHarness.sol` (one fixture builder, one assertion) and the generated `RegimeCoverage.t.sol` — 63 rows holding every pair of values of ten regime factors |
+| `test/regime/` | the **regime covering array** (`RegimeHarness.sol`, one fixture builder, one assertion; the generated `RegimeCoverage.t.sol` — 63 rows holding every pair of values of ten regime factors) and the **hostile-venue matrix** (`HostileVenues.sol`, `HostileVenueMatrix.t.sol` — ten venue pathologies × two doors under the same rule); `Outcomes.sol` is the one classifier of a refusal both use |
 | `test/mocks/` | venue mocks — V2 pair, V3 pool, Solidly pair, V4 manager, Permit2, ERC-20 with every pathology (fee-on-transfer, no-return-data, return-false, rebasing, blocklisting, pausing, non-standard decimals) |
 
 Three families of test do the load-bearing work:
@@ -79,7 +79,7 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 182 curated mutants, each paired with the one test that must die;
+- **The mutation guard** — 183 curated mutants, each paired with the one test that must die;
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.

@@ -367,6 +367,43 @@ the floor the Router enforces equals the attested floor when the protocol fee co
 output, and sits inside `[attested × (1 − fee), attested]` when it comes off the input — the lower
 edge by the fee, the upper by the curve's convexity. Both frames are now asserted on every row.
 
+## 4i. The hostile-venue matrix
+
+Token pathologies had their tests; venue pathologies had none in a matrix. `test/regime/HostileVenues.sol`
+holds one misbehaviour per venue — a pair that takes the input and pays nothing, one that pays
+half, reserves that come back as a 64 KiB returndata bomb, a reserve read and a swap that burn
+every unit of gas, a token whose `decimals()` never returns, a V3 pool that fires its payment
+callback twice, one that re-enters the Router through the solve door before paying, one whose
+`slot0()` reverts, and a factory whose `getPair()` answers with a pool on other tokens — and
+`HostileVenueMatrix.t.sol` crosses each with the calldata door and the solve-in-transaction
+door under the covering array's rule: settle with the delivered amount equal to the balance
+delta and nothing left on the Router, or refuse with a selector of ours. Two cells carry a
+sharper oracle: a venue that under-pays must be refused, and the re-entering pool records
+whether the Router ever let its nested swap run.
+
+| venue | calldata door | solve door |
+|---|---|---|
+| pays nothing / pays half | refused `RouterE(5)` | refused `RouterE(5)` |
+| returndata bomb on the reserve read | settles | settles |
+| reserve read burns all gas | refused `RouterE(8)` | the planner never selects it |
+| swap burns all gas | whole transaction reverts, balance untouched | whole transaction reverts, balance untouched |
+| `decimals()` burns all gas | settles | settles |
+| payment callback fired twice | refused `RouterE(6)` | refused `RouterE(6)` |
+| re-enters the Router before paying | settles; the nested swap never ran | settles; the nested swap never ran |
+| `slot0()` reverts | settles on the attested quote | the planner never selects it |
+| factory answers with a pool on other tokens | never listed | never listed |
+
+The last row is what the matrix's first run changed. Discovery listed a pool a curator-admitted
+factory answered with, the planner ranked it, and the executor refused it at the seam that pays
+(`LEG-01`, `RouterE(3)`) — funds never at risk, the pair refused while the impostor won the
+split. An asked pool now proves its own `token0()` / `token1()` before discovery lists it, with
+the reads the executor already makes, so a pool that would be refused at execution is never
+listed, planned or ranked. A derived address is a theorem over the pair and needs no proof.
+
+A swap that burns all forwarded gas is the one cell no caller can decide for its callee; the
+transaction reverts whole and the user's balance is untouched, which is asserted rather than
+assumed. Read the matrix with `matrix_summary.py`.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.

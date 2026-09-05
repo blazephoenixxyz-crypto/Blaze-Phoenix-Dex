@@ -19,6 +19,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract DiscoveryModeGasTest is Test {
     MockERC20 tokenA;
@@ -52,8 +53,9 @@ contract DiscoveryModeGasTest is Test {
         hub.initialize(address(this), address(0));
         for (uint256 i; i < n; ++i) {
             MockV2Factory f = new MockV2Factory();
-            address pool = address(uint160(uint256(keccak256(abi.encode("fc-pool", i)))));
-            vm.etch(pool, POOL_CODE);
+            // A real pair: the factory-call arm proves an asked pool's tokens before listing it,
+            // and that proof is part of the arm's measured cost.
+            address pool = address(new MockV2Pair(t0, t1));
             f.setPair(t0, t1, pool);
             hub.addFactory(address(f), BPC.KIND_V2, 0 /*MODE_CALL*/, bytes32(0),
                 new uint24[](0), new int24[](0));

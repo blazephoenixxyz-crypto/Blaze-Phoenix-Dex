@@ -308,7 +308,7 @@ contract BlazePhoenixHubTest is Test {
     function test_DiscoverFor_FindsFactoryCallPool() public {
         MockV2Factory factory = new MockV2Factory();
         hub.addFactory(address(factory), BPC.KIND_V2, 0, bytes32(0), new uint24[](0), new int24[](0));
-        address pool = address(new MockERC20("P", "P")); // any deployed contract has code
+        address pool = address(new MockV2Pair(tokenA, tokenB)); // a pair that proves its own tokens
         (address t0, address t1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         factory.setPair(t0, t1, pool);
 

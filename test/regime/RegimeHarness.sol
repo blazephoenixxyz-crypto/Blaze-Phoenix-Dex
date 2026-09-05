@@ -39,6 +39,7 @@ import {MockV3Pool} from "../mocks/MockV3Pool.sol";
 import {MockSolidlyPair} from "../mocks/MockSolidlyPair.sol";
 import {MockPermit2} from "../mocks/MockPermit2.sol";
 import {TransferFromTaxERC20} from "../PartialFotAtPrePulledDoors.t.sol";
+import {Outcomes} from "./Outcomes.sol";
 
 library F {
     enum Kind { V2, V3, SOLIDLY }
@@ -315,7 +316,7 @@ abstract contract RegimeHarness is Test {
             console2.log("ROW", id, "SETTLED", got);
             return;
         }
-        (bool ours, string memory what) = _classify(err);
+        (bool ours, string memory what) = Outcomes.classify(err);
         assertTrue(ours, string.concat("refused without a selector of ours: ", what));
         console2.log("ROW", id, "REFUSED", what);
     }
@@ -330,24 +331,5 @@ abstract contract RegimeHarness is Test {
                 return (floorOut, true);
             }
         }
-    }
-
-    function _classify(bytes memory err) private pure returns (bool ours, string memory what) {
-        if (err.length < 4) return (false, "empty revert");
-        bytes4 sel;
-        assembly { sel := mload(add(err, 32)) }
-        bytes memory body = new bytes(err.length - 4);
-        for (uint256 i; i < body.length; ++i) body[i] = err[i + 4];
-        if (sel == BlazePhoenixRouter.RouterE.selector) return (true, string.concat("RouterE(", vm.toString(abi.decode(body, (uint16))), ")"));
-        if (sel == BlazePhoenixSolver.SolverE.selector) return (true, string.concat("SolverE(", vm.toString(abi.decode(body, (uint16))), ")"));
-        if (sel == BlazePhoenixHub.HubE.selector)       return (true, string.concat("HubE(", vm.toString(abi.decode(body, (uint16))), ")"));
-        if (sel == bytes4(keccak256("Error(string)"))) {
-            string memory m = abi.decode(body, (string));
-            bytes memory mb = bytes(m);
-            bool bpc = mb.length >= 4 && mb[0] == "B" && mb[1] == "P" && mb[2] == "C" && mb[3] == ":";
-            return (bpc, m);
-        }
-        if (sel == bytes4(keccak256("Panic(uint256)"))) return (false, string.concat("Panic(", vm.toString(abi.decode(body, (uint256))), ")"));
-        return (false, vm.toString(sel));
     }
 }

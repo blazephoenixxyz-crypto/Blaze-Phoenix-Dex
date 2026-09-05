@@ -32,7 +32,7 @@ seen to fail once, for the reason it is named after.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **182 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **183 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -47,7 +47,7 @@ Three properties make it a guard rather than a score:
 - a one-second static check verifies that every mutant still points at exactly one line, so a
   refactor cannot silently orphan a watcher.
 
-**182 of 182 are killed.** The figure is always printed beside its denominator: it is adequacy
+**183 of 183 are killed.** The figure is always printed beside its denominator: it is adequacy
 against this register, which is what §9 is about.
 
 ## 4. One question, one answer
@@ -68,7 +68,9 @@ never what the pool is; **confirmed** — measured from the pool or proven by de
 reaches shared state; or **declared**, with the reason recorded. The registry's ranking, the
 protocol floor and the fee base are computed only from confirmed quantities. Where a value is
 authenticated by construction — a Uniswap V4 pool id derives from its own fee — the derivation
-is the proof; everywhere else, the contract reads the pool.
+is the proof; everywhere else, the contract reads the pool. Discovery applies the same rule to
+what a factory answers: an asked pool proves its own pair before it is listed, so a pool the
+executor would refuse is never planned.
 
 ## 6. Every refusal reads what it decides on
 

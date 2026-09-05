@@ -33,6 +33,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
 import {MockAlgebraPool} from "./mocks/MockAlgebraPool.sol";
 import {MockV4DeriveManager} from "./V4LearnedCodeSuppressesGrid.t.sol";
@@ -286,10 +287,9 @@ contract ConditionAdequacyHubTest is Test {
     function _setupMode2BothVariants() private returns (address volPool, address staPool) {
         MockSolidlyGetPoolFactory fac = new MockSolidlyGetPoolFactory();
         hub.addFactory(address(fac), BPC.KIND_SOLIDLY, MODE_SOLIDLY_CALL, bytes32(0), noFees, noSpacings);
-        volPool = address(0xA1A1);
-        staPool = address(0xB2B2);
-        vm.etch(volPool, hex"fe");
-        vm.etch(staPool, hex"fe");
+        // Real pairs: an asked pool proves its own token0()/token1() before discovery lists it.
+        volPool = address(new MockSolidlyPair(tokenA, tokenB, false));
+        staPool = address(new MockSolidlyPair(tokenA, tokenB, true));
         (address t0, address t1) = BPC.sortTokens(tokenA, tokenB);
         fac.setPool(t0, t1, false, volPool);
         fac.setPool(t0, t1, true, staPool);
