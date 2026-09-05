@@ -4,7 +4,7 @@ How the suite is organised, how to run every gate, and what a test has to satisf
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
 Measured on this tree (2026-09-05): **206 `.t.sol` files** — 181 local, 25 fork — holding
-**1,252 `test*` / `invariant*` / `check*` declarations**; **1,117 tests green** in the release
+**1,252 `test*` / `invariant*` / `check*` declarations**; **1,122 tests green** in the release
 profile with fork suites excluded and **119 green on live liquidity**; **183 curated mutants**, all killed.
 
 ## Running

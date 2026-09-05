@@ -179,7 +179,7 @@ flowchart TD
 |---|---|---:|
 | **Router** | Pulls input, executes the plan leg-by-leg, measures the real balance delta at each seam, enforces the output floor. Reentrancy-locked across the whole swap, pool callbacks included. | 23 754 B |
 | **Solver** | Builds the best route and split from *measured* marginal output and measured capital — never from self-reported liquidity. | 19 677 B |
-| **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. | 23 469 B |
+| **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. | 23 648 B |
 | **Core** | The shared measured-math library: constant-product, concentrated liquidity, Solidly stable curve, Algebra dynamic fee, V4. One evaluator prices both the quote and the floor. | 6 477 B |
 | **Quoter** | Off-chain preview surface. `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg. | 11 405 B |
 

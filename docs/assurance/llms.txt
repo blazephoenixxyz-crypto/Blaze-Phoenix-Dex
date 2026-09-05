@@ -38,9 +38,16 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 | constant_multiplicity.py | which declared constants the artefact never pushes — folded away, or dead |
 | mutant_visibility.py | whether a mutant changes the shipped bytecode at all, separating "the test missed it" from "there was nothing to miss" |
 | bytecode_coverage.py | what fraction of shipped runtime BYTES the suite executes (UPPER bound) |
-| field_confirmation.py | which caller declarations execution confirms, and which it merely believes (23 fields: 5 steering, 13 confirmed, 5 declared) |
+| field_confirmation.py | which caller declarations execution confirms, and which it merely believes (23 fields: 5 steering, 14 confirmed, 4 declared) |
 | projection_distance.py | how far each refusal observes from the object that decides (86 at 0, 11 at 1, 2 unbounded) |
-| pc_coverage.py | how much of the emitted INSTRUCTION stream is proven to execute (LOWER bound, 85.9%) |
+| pc_coverage.py | how much of the emitted INSTRUCTION stream is proven to execute (LOWER bound, 88.3% on two identical pinned-seed runs) |
+| pc_trace.py | which instructions of the SHIPPED binary a recorded scenario ran, replayed from an opcode-level trace with the opcode checked at every step (one V2 swap: 28.2% of the Router's code section, 0 mismatches) |
+| covering_array.py + regime_summary.py | a strength-2 covering array over ten regime factors (63 generated rows, all 258 value pairs of 5,184 combinations) and how each row ended: 53 settle, 4 refuse with our selector, 6 not constructible, 0 third way |
+| matrix_summary.py | the hostile-venue matrix: ten venue pathologies x two doors, 20/20 settle or refuse with a selector of ours |
+| panic_inventory.py + panic_sites.py | which compiler Panic codes the artefact can raise, and which sites could raise one without a guard in the enclosing function |
+| storage_discipline.py | which storage slots the emitted code writes; every registry write under its ERC-7201 namespace |
+| asset_closure.py | an asset x loss-mode matrix as a LEADING denominator |
+| evidence_independence.py | for each named guard, how many independent confirmations exist across source, oracle, tool, environment and methodology; the minimum is the number |
 | metrics.py | runs them all, prints one table, fails the build on a broken claim |
 
 ## Four rules this apparatus is built on
@@ -51,8 +58,9 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 2. **Say how it would be gamed.** Each metric improves if you shrink what it is measured
    against, and two improve if you make the code worse. The attack on the metric is documented
    in the same file as the metric.
-3. **Report the instrument-defect rate.** Of the instruments here, most were wrong on their
-   first run. That rate bounds every number they produce.
+3. **Calibrate before trusting.** Every instrument was run against an instance already known
+   by other means before its number was trusted; the ones that needed correction to pass were
+   corrected, and the step is mandatory for any new instrument.
 4. **An instrument is worth nothing until it finds an instance already known by other means.**
    Not until it looks right — until it finds, unprompted, a defect already in hand.
 
@@ -66,7 +74,24 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
   outside the denominator by construction — the residual this apparatus shrinks and cannot
   eliminate.
 - **Bytecode coverage by line attribution is an UPPER BOUND** on true instruction coverage: an
-  instruction counts as covered because its line ran. A tighter figure needs a PC-level trace.
+  instruction counts as covered because its line ran. The lower bound is pc_coverage.py, and the
+  shipped binary's own execution is pc_trace.py.
+
+## Measured on this tree (2026-09-05)
+
+- two-producer quantities tied by a named test: 7 / 7
+- control actions whose refusal is exercised by exact code: 31 / 31; lifecycle arm: 29 / 31
+- refusal codes driven by an exact assertion: 25 / 25
+- refusals at projection distance zero: 86 / 99
+- calldata fields: 14 confirmed, 5 steering, 4 declared with reason
+- exploit classes answered by a named guard: 19 / 23 considered
+- shipped-shape instructions proven executed (lower bound): 88.3 %
+- curated mutants killed: 183 / 183
+- regime-factor value pairs exercised by construction: 258 / 258 (63 rows for 5,184 combinations)
+- venue pathologies x doors that settle or refuse with a selector of ours: 20 / 20
+- largest sandwich the floor lets through on a 1 %-of-depth trade before it refuses: about 2.7 % of the trade
+- Core quotes against oracles written from the venues' specifications: V2 exact, stable curve within 4 wei, V3 within one ulp of the square-root price
+- suite: 1,252 declared tests across 206 files; 1,122 green on the release profile with fork suites excluded; 119 green on live liquidity across 39 fork suites
 
 ## Publication boundary
 
@@ -75,4 +100,4 @@ surfaces of a deployed financial contract is a reading list for the people fixin
 
 ## Contact
 
-security@blazephoenix.xyz — see SECURITY.md.
+contact@blazephoenix.xyz — see SECURITY.md.

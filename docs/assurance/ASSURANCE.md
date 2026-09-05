@@ -39,6 +39,13 @@ Every link is checked mechanically. A guard symbol that leaves `src/`, a test th
 | Guard inventory | How many refusals in the code a test drives by their exact error code, and how many refusal sites cannot be told apart by one |
 | Bytecode invariants | Properties of the compiled artefact the source cannot guarantee: opcodes that must be absent, and the transient lock still transient after the compiler has spoken |
 | Mutation-target integrity | Whether every mutant still points at exactly one line of real code |
+| Projection distance | For each refusal site, how far the object the guard reads is from the object that decides (§4f) |
+| Calldata-field confirmation | Which integrator-writable fields are steering, confirmed against an observation, or declared (`fields.json`) |
+| Release-binary execution | Which instructions of the shipped artefact a recorded scenario ran, replayed with an opcode check at every step (§4g) |
+| Regime covering array | Whether every pair of values of the ten regime factors appears in a generated fixture, and how each row ended (§4h) |
+| Hostile-venue matrix | Whether every venue pathology × door settles or refuses with a selector of ours, never a third way (§4i) |
+| Sandwich bound | How much an adversary who orders the block can take from a trade before the floor refuses (§4j) |
+| Canonical-oracle tightness | How far the Core's quote maths sit from implementations written from the venues' specifications (§4k) |
 
 Each is recomputable from a clean checkout. None of them is a probability that the system is
 correct; see §5.
