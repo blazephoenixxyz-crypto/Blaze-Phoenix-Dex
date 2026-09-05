@@ -44,7 +44,7 @@ not a gate that stopped anything.
 
 ---
 
-## Ten numbers this repository computes about itself
+## Eleven numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -63,6 +63,7 @@ every commit, from a clean checkout, compiling nothing.
 | Curated mutants **killed**, each paired with the one test that must die | 183 / 183 |
 | Pairs of regime-factor values exercised **by construction** — 63 generated fixtures standing in for 5,184 combinations | 258 / 258 |
 | Venue pathologies × doors that **settle or refuse with a selector of ours** — never a third way | 20 / 20 |
+| Largest sandwich the floor lets through on a 1 %-of-depth trade before it **refuses** (constant-product venue, attacker's round trip negative past the edge) | ≈ 2.7 % of the trade |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,

@@ -92,6 +92,7 @@ make this fail?* Three things every test in the suite carries:
   python3 .github/scripts/assurance/covering_array.py --check
   forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
   ```
+- **The sandwich curve** — `SandwichCurve.t.sol` plays the attacker across a grid of manipulations and asserts the floor's bound at every point; `forge test --match-contract SandwichCurve -vv` prints the curve.
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
 - **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps
   through the release Router; `pc_trace.py` replays the program counter against the shipped

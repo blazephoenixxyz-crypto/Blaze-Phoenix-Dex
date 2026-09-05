@@ -91,7 +91,9 @@ stateful invariant campaigns exist to reach the cells no hand-written fixture re
 generated **covering array** goes further: every pair of values of ten regime factors appears in
 at least one of 63 generated fixtures, each judged by one assertion — settle inside the emitted
 floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
-fixture cannot build are counted, not skipped. Every
+fixture cannot build are counted, not skipped. A hostile-venue matrix crosses ten venue
+pathologies with the doors under the same rule, and a sandwich harness measures the attacker's
+side of the floor across a grid of manipulations, asserting the victim's bound at every point. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.

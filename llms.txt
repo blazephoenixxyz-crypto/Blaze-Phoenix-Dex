@@ -194,6 +194,11 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   payment callback, a re-entering pool, a reverting slot0(), a factory answering with a pool on
   other tokens — crossed with two doors under one rule: settle with the balance delta and
   nothing left on the Router, or refuse with a selector of ours.
+- **The sandwich curve.** The attacker's side of the floor, measured: on a 1 %-of-depth trade
+  against a constant-product pool the floor caps a sandwich at about 2.7 % of the trade and
+  refuses beyond it, leaving the attacker's round trip negative; the refusal region is closed
+  upward, and every point asserts the victim never receives less than the floor attested at
+  quote time.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.

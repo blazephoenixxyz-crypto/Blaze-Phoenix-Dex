@@ -404,6 +404,31 @@ A swap that burns all forwarded gas is the one cell no caller can decide for its
 transaction reverts whole and the user's balance is untouched, which is asserted rather than
 assumed. Read the matrix with `matrix_summary.py`.
 
+## 4j. The sandwich curve — the attacker's side of the floor
+
+Every floor test asks whether a bad fill is refused. `test/regime/SandwichCurve.t.sol` asks what
+an adversary who orders the block can extract before it is: the victim's route and floor are fixed
+at quote time, as in a pending transaction; the attacker trades a fraction of the pool's depth
+ahead of the victim, the victim executes, the attacker trades back. The venue is a constant-product
+pair, the shape every sandwich model uses, so the curve is a property of the floor.
+
+Measured on a 1 %-of-depth trade (10,000 against 1,000,000 a side):
+
+| attacker moves | victim | victim's loss vs the quote | attacker's round trip |
+|---|---|---|---|
+| 0.1 % of depth | settles | 0.47 % | +13.9 |
+| 0.5 % | settles | 1.26 % | +68.9 |
+| 1 % | settles | 2.22 % | +136.7 |
+| 2 % | settles | 4.12 % | +268.7 |
+| 3 % and beyond | **refused** | 0 | −174.5 … −544.9 |
+
+The guarantee asserted at every point: a settled victim never receives less than the floor
+attested at quote time, so the loss is bounded by the distance between the attested quote and the
+attested floor; and the refusal region is closed upward — past the edge, every larger manipulation
+is refused and the attacker is left holding the price they moved. The number worth quoting is the
+last settled row: **the floor caps what a sandwich can take from a 1 % trade at about 2.7 % of it**,
+and turns the attacker's trade into a loss the moment it would take more.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.

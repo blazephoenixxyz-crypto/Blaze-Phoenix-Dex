@@ -209,6 +209,11 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   payment callback, a re-entering pool, a reverting slot0(), a factory answering with a pool on
   other tokens — crossed with two doors under one rule: settle with the balance delta and
   nothing left on the Router, or refuse with a selector of ours.
+- **The sandwich curve.** The attacker's side of the floor, measured: on a 1 %-of-depth trade
+  against a constant-product pool the floor caps a sandwich at about 2.7 % of the trade and
+  refuses beyond it, leaving the attacker's round trip negative; the refusal region is closed
+  upward, and every point asserts the victim never receives less than the floor attested at
+  quote time.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.
@@ -435,7 +440,7 @@ not a gate that stopped anything.
 
 ---
 
-## Ten numbers this repository computes about itself
+## Eleven numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -454,6 +459,7 @@ every commit, from a clean checkout, compiling nothing.
 | Curated mutants **killed**, each paired with the one test that must die | 183 / 183 |
 | Pairs of regime-factor values exercised **by construction** — 63 generated fixtures standing in for 5,184 combinations | 258 / 258 |
 | Venue pathologies × doors that **settle or refuse with a selector of ours** — never a third way | 20 / 20 |
+| Largest sandwich the floor lets through on a 1 %-of-depth trade before it **refuses** (constant-product venue, attacker's round trip negative past the edge) | ≈ 2.7 % of the trade |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,
@@ -841,7 +847,9 @@ stateful invariant campaigns exist to reach the cells no hand-written fixture re
 generated **covering array** goes further: every pair of values of ten regime factors appears in
 at least one of 63 generated fixtures, each judged by one assertion — settle inside the emitted
 floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
-fixture cannot build are counted, not skipped. Every
+fixture cannot build are counted, not skipped. A hostile-venue matrix crosses ten venue
+pathologies with the doors under the same rule, and a sandwich harness measures the attacker's
+side of the floor across a grid of manipulations, asserting the victim's bound at every point. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.
@@ -1341,6 +1349,7 @@ make this fail?* Three things every test in the suite carries:
   python3 .github/scripts/assurance/covering_array.py --check
   forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
   ```
+- **The sandwich curve** — `SandwichCurve.t.sol` plays the attacker across a grid of manipulations and asserts the floor's bound at every point; `forge test --match-contract SandwichCurve -vv` prints the curve.
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
 - **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps
   through the release Router; `pc_trace.py` replays the program counter against the shipped
@@ -2227,6 +2236,31 @@ listed, planned or ranked. A derived address is a theorem over the pair and need
 A swap that burns all forwarded gas is the one cell no caller can decide for its callee; the
 transaction reverts whole and the user's balance is untouched, which is asserted rather than
 assumed. Read the matrix with `matrix_summary.py`.
+
+## 4j. The sandwich curve — the attacker's side of the floor
+
+Every floor test asks whether a bad fill is refused. `test/regime/SandwichCurve.t.sol` asks what
+an adversary who orders the block can extract before it is: the victim's route and floor are fixed
+at quote time, as in a pending transaction; the attacker trades a fraction of the pool's depth
+ahead of the victim, the victim executes, the attacker trades back. The venue is a constant-product
+pair, the shape every sandwich model uses, so the curve is a property of the floor.
+
+Measured on a 1 %-of-depth trade (10,000 against 1,000,000 a side):
+
+| attacker moves | victim | victim's loss vs the quote | attacker's round trip |
+|---|---|---|---|
+| 0.1 % of depth | settles | 0.47 % | +13.9 |
+| 0.5 % | settles | 1.26 % | +68.9 |
+| 1 % | settles | 2.22 % | +136.7 |
+| 2 % | settles | 4.12 % | +268.7 |
+| 3 % and beyond | **refused** | 0 | −174.5 … −544.9 |
+
+The guarantee asserted at every point: a settled victim never receives less than the floor
+attested at quote time, so the loss is bounded by the distance between the attested quote and the
+attested floor; and the refusal region is closed upward — past the edge, every larger manipulation
+is refused and the attacker is left holding the price they moved. The number worth quoting is the
+last settled row: **the floor caps what a sandwich can take from a 1 % trade at about 2.7 % of it**,
+and turns the attacker's trade into a loss the moment it would take more.
 
 ## 5. What none of this establishes
 
