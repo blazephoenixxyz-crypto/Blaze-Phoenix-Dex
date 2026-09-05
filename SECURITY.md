@@ -48,7 +48,7 @@ Halmos symbolic proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
 suite are what branch protection on `main` requires; the Certora Prover (INV-20
 fail-closed), Aderyn, Solhint and the secret scan run alongside. Beyond the
-suite, a curated mutation guard of 181 named mutants, a shared-quantity
+suite, a curated mutation guard of 183 named mutants, a shared-quantity
 register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it
 from a clean checkout: [`docs/AUDIT_METHOD.md`](./docs/AUDIT_METHOD.md).

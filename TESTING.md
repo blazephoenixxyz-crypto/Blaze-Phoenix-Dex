@@ -3,9 +3,9 @@
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-04): **203 `.t.sol` files** — 178 local, 25 fork — holding
-**1,183 `test*` / `invariant*` / `check*` declarations**; **1,029 tests green** in the release
-profile with fork suites excluded; **181 curated mutants**, all killed.
+Measured on this tree (2026-09-05): **206 `.t.sol` files** — 181 local, 25 fork — holding
+**1,252 `test*` / `invariant*` / `check*` declarations**; **1,117 tests green** in the release
+profile with fork suites excluded and **119 green on live liquidity**; **183 curated mutants**, all killed.
 
 ## Running
 
@@ -50,6 +50,7 @@ stale sequence can be scored as a fresh result.
 | `test/fork/` | 25 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
 | `test/formal/` | Halmos specifications for the fail-closed arithmetic (iron floor, impact, V3 fail-closed, `effV4Fee`) |
 | `test/hunt/` | regressions from adversarial review campaigns |
+| `test/regime/` | the **regime covering array** (`RegimeHarness.sol`, one fixture builder, one assertion; the generated `RegimeCoverage.t.sol` — 63 rows holding every pair of values of ten regime factors) and the **hostile-venue matrix** (`HostileVenues.sol`, `HostileVenueMatrix.t.sol` — ten venue pathologies × two doors under the same rule); `Outcomes.sol` is the one classifier of a refusal both use |
 | `test/mocks/` | venue mocks — V2 pair, V3 pool, Solidly pair, V4 manager, Permit2, ERC-20 with every pathology (fee-on-transfer, no-return-data, return-false, rebasing, blocklisting, pausing, non-standard decimals) |
 
 Three families of test do the load-bearing work:
@@ -78,13 +79,21 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 181 curated mutants, each paired with the one test that must die;
+- **The mutation guard** — 183 curated mutants, each paired with the one test that must die;
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.
 - **The executed-bytecode bound** — 88.3 % of the shipped-shape instruction stream proven
   executed, closure verified against a ground-truth contract.
 - **The regime lattice** — which cells of regime × shape × oracle hold a cross-producer assertion.
+- **The regime covering array** — every pair of factor values in a generated fixture; regenerate and read it with:
+
+  ```bash
+  python3 .github/scripts/assurance/covering_array.py --check
+  forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
+  ```
+- **The sandwich curve** — `SandwichCurve.t.sol` plays the attacker across a grid of manipulations and asserts the floor's bound at every point; `forge test --match-contract SandwichCurve -vv` prints the curve.
+- **Canonical oracles** — `CanonicalOracles.t.sol` fuzzes `outV2`, `outV3` and the stable curve against implementations written from the venues' specifications; direction first, tightness second.
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
 - **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps
   through the release Router; `pc_trace.py` replays the program counter against the shipped

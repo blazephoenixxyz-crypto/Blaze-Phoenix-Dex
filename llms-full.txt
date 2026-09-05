@@ -48,8 +48,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 - **TWO SENTENCES:** "BlazePhoenix-Dex prices every route on the pool's measured marginal
   output — never on advertised liquidity, depth or fee — and enforces a re-derived output floor
   against what execution actually delivered, with no routing server, oracle, keeper or upgrade
-  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 182
-  named mutants, a shared-quantity register, a calldata-field confirmation matrix, a sound
+  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 183 named mutants, a shared-quantity register, a calldata-field confirmation matrix, a sound
   executed-bytecode bound on the shipped binary, and a funded 50M-BZPX bug bounty that has
   credited nineteen researchers with zero Critical findings."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
@@ -73,14 +72,14 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   On-chain volume ≈ 0 and a tiny holder count are the *expected* state of this stage — they
   measure the calendar, not the code. Development is active (see commit history).
 - **Audit status, precisely:** an independent external audit is scheduled before launch. What
-  exists today, all public and reproducible on every push: a forge suite of **1,188 `test*` /
-  `invariant*` / `check*` declarations** across **205 `.t.sol` files** — 180 local (unit,
+  exists today, all public and reproducible on every push: a forge suite of **1,252 `test*` /
+  `invariant*` / `check*` declarations** across **206 `.t.sol` files** — 181 local (unit,
   property, parity, stateful invariants) and 25 fork suites against live liquidity on every
   network the SDK names; those two counts are what `grep -c` returns for those prefixes over
   that file set, which is the denominator, said out loud; **Certora Prover** (INV-20 fail-closed
   fee) and **Halmos** symbolic proofs; **Slither** (fail on high), **Aderyn** and **Solhint**
   static gates; red-first static guards (plain greps that fail the build if a known defect
-  shape reappears); a **curated mutation guard of 182 named mutants** — guard deletion,
+  shape reappears); a **curated mutation guard of 183 named mutants** — guard deletion,
   relational and boundary flips, logical-connector widening, error-code swaps,
   rounding-direction flips and modifier removal — each paired with the named test that must
   fail when it is applied, baseline-checked and fingerprinted so an inert mutation is reported
@@ -181,7 +180,7 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Red before green, enforced.** Every regression test was red against the code without its
   fix, at a commit named in its header; the mutation guard fails the build for a guard without
   a watcher.
-- **A curated, named mutation guard.** 182 hand-written mutants, each paired with the one test
+- **A curated, named mutation guard.** 183 hand-written mutants, each paired with the one test
   that must die to it — baseline-checked, fingerprinted over creation and runtime objects so an
   inert mutation is reported rather than counted, and target-checked in one second without a
   compiler.
@@ -200,6 +199,25 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **A sound executed-bytecode lower bound** over the shipped-shape artefact, verified against
   a ground-truth contract in the suite, with the compiler's own `Panic` surface classified and
   tested.
+- **A generated regime covering array.** Ten fixture factors — venue family, hops, legs,
+  bridge position, fee-on-transfer shape, decimals, door, control state, pair fullness —
+  and 63 generated rows that hold every pair of their values under one assertion (settle
+  inside the emitted floor with nothing left on the Router, or refuse with a selector of
+  ours); rows the fixture cannot build are counted against the denominator.
+- **A hostile-venue matrix.** Ten venue pathologies — pays nothing, pays half, returndata
+  bomb, reads and swaps that burn all gas, a token whose decimals() never returns, a double
+  payment callback, a re-entering pool, a reverting slot0(), a factory answering with a pool on
+  other tokens — crossed with two doors under one rule: settle with the balance delta and
+  nothing left on the Router, or refuse with a selector of ours.
+- **The sandwich curve.** The attacker's side of the floor, measured: on a 1 %-of-depth trade
+  against a constant-product pool the floor caps a sandwich at about 2.7 % of the trade and
+  refuses beyond it, leaving the attacker's round trip negative; the refusal region is closed
+  upward, and every point asserts the victim never receives less than the floor attested at
+  quote time.
+- **Canonical oracles.** The Core's quote maths fuzzed against implementations written from
+  the venues' specifications (constant product, single-tick sqrt-price step with the pool's own
+  rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
+  four wei, V3 within one ulp of the square-root price.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.
@@ -426,7 +444,7 @@ not a gate that stopped anything.
 
 ---
 
-## Eight numbers this repository computes about itself
+## Twelve numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -442,7 +460,11 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 181 / 181 |
+| Curated mutants **killed**, each paired with the one test that must die | 183 / 183 |
+| Pairs of regime-factor values exercised **by construction** — 63 generated fixtures standing in for 5,184 combinations | 258 / 258 |
+| Venue pathologies × doors that **settle or refuse with a selector of ours** — never a third way | 20 / 20 |
+| Largest sandwich the floor lets through on a 1 %-of-depth trade before it **refuses** (constant-product venue, attacker's round trip negative past the edge) | ≈ 2.7 % of the trade |
+| Core quotes fuzzed against oracles written from the venues' **specifications**, never from the Core (15,000 runs) | V2 exact · stable within 4 wei · V3 within one price-ulp |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,
@@ -492,9 +514,9 @@ number for that reason.
 
 | Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,183** `test*` / `invariant*` / `check*` declarations across **203** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Test suite** | **1,252** `test*` / `invariant*` / `check*` declarations across **206** `.t.sol` files — unit, property, parity, and stateful invariants |
 | **Fork suites** | **25**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
-| **Mutation guard** | **181** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Mutation guard** | **183** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
 | **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 
@@ -771,7 +793,7 @@ seen to fail once, for the reason it is named after.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **181 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **183 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -786,7 +808,7 @@ Three properties make it a guard rather than a score:
 - a one-second static check verifies that every mutant still points at exactly one line, so a
   refactor cannot silently orphan a watcher.
 
-**181 of 181 are killed.** The figure is always printed beside its denominator: it is adequacy
+**183 of 183 are killed.** The figure is always printed beside its denominator: it is adequacy
 against this register, which is what §9 is about.
 
 ## 4. One question, one answer
@@ -807,7 +829,9 @@ never what the pool is; **confirmed** — measured from the pool or proven by de
 reaches shared state; or **declared**, with the reason recorded. The registry's ranking, the
 protocol floor and the fee base are computed only from confirmed quantities. Where a value is
 authenticated by construction — a Uniswap V4 pool id derives from its own fee — the derivation
-is the proof; everywhere else, the contract reads the pool.
+is the proof; everywhere else, the contract reads the pool. Discovery applies the same rule to
+what a factory answers: an asked pool proves its own pair before it is listed, so a pool the
+executor would refuse is never planned.
 
 ## 6. Every refusal reads what it decides on
 
@@ -824,7 +848,15 @@ property testing indexes relations over inputs. Two things that decide whether a
 reached at all are indexed by none of them — the **regime** a fixture fixes (is the route
 bridged, is the pair full, is control renounced) and the **oracle** an expectation comes from.
 The suite is measured against the lattice of regime × composition shape × oracle, and the
-stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. Every
+stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. A
+generated **covering array** goes further: every pair of values of ten regime factors appears in
+at least one of 63 generated fixtures, each judged by one assertion — settle inside the emitted
+floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
+fixture cannot build are counted, not skipped. A hostile-venue matrix crosses ten venue
+pathologies with the doors under the same rule, and a sandwich harness measures the attacker's
+side of the floor across a grid of manipulations, asserting the victim's bound at every point.
+The quote maths themselves are fuzzed against oracles written from the venues' specifications,
+never from the Core, so the formula every mock quotes with is not its own witness. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.
@@ -1089,7 +1121,7 @@ Halmos symbolic proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
 suite are what branch protection on `main` requires; the Certora Prover (INV-20
 fail-closed), Aderyn, Solhint and the secret scan run alongside. Beyond the
-suite, a curated mutation guard of 181 named mutants, a shared-quantity
+suite, a curated mutation guard of 183 named mutants, a shared-quantity
 register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it
 from a clean checkout: [`docs/AUDIT_METHOD.md`](./docs/AUDIT_METHOD.md).
@@ -1235,9 +1267,9 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-04): **203 `.t.sol` files** — 178 local, 25 fork — holding
-**1,183 `test*` / `invariant*` / `check*` declarations**; **1,029 tests green** in the release
-profile with fork suites excluded; **181 curated mutants**, all killed.
+Measured on this tree (2026-09-05): **206 `.t.sol` files** — 181 local, 25 fork — holding
+**1,252 `test*` / `invariant*` / `check*` declarations**; **1,117 tests green** in the release
+profile with fork suites excluded and **119 green on live liquidity**; **183 curated mutants**, all killed.
 
 ## Running
 
@@ -1282,6 +1314,7 @@ stale sequence can be scored as a fresh result.
 | `test/fork/` | 25 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
 | `test/formal/` | Halmos specifications for the fail-closed arithmetic (iron floor, impact, V3 fail-closed, `effV4Fee`) |
 | `test/hunt/` | regressions from adversarial review campaigns |
+| `test/regime/` | the **regime covering array** (`RegimeHarness.sol`, one fixture builder, one assertion; the generated `RegimeCoverage.t.sol` — 63 rows holding every pair of values of ten regime factors) and the **hostile-venue matrix** (`HostileVenues.sol`, `HostileVenueMatrix.t.sol` — ten venue pathologies × two doors under the same rule); `Outcomes.sol` is the one classifier of a refusal both use |
 | `test/mocks/` | venue mocks — V2 pair, V3 pool, Solidly pair, V4 manager, Permit2, ERC-20 with every pathology (fee-on-transfer, no-return-data, return-false, rebasing, blocklisting, pausing, non-standard decimals) |
 
 Three families of test do the load-bearing work:
@@ -1310,13 +1343,21 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 181 curated mutants, each paired with the one test that must die;
+- **The mutation guard** — 183 curated mutants, each paired with the one test that must die;
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.
 - **The executed-bytecode bound** — 88.3 % of the shipped-shape instruction stream proven
   executed, closure verified against a ground-truth contract.
 - **The regime lattice** — which cells of regime × shape × oracle hold a cross-producer assertion.
+- **The regime covering array** — every pair of factor values in a generated fixture; regenerate and read it with:
+
+  ```bash
+  python3 .github/scripts/assurance/covering_array.py --check
+  forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
+  ```
+- **The sandwich curve** — `SandwichCurve.t.sol` plays the attacker across a grid of manipulations and asserts the floor's bound at every point; `forge test --match-contract SandwichCurve -vv` prints the curve.
+- **Canonical oracles** — `CanonicalOracles.t.sol` fuzzes `outV2`, `outV3` and the stable curve against implementations written from the venues' specifications; direction first, tightness second.
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
 - **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps
   through the release Router; `pc_trace.py` replays the program counter against the shipped
@@ -1702,7 +1743,7 @@ green test in front of it.
 | `LEG_FLOOR_BPS` | "How much may a single leg legitimately lose?" | `Core` (definition), `Router` ×8 | `UNVERIFIED` | **Downgraded 2026-09-04.** The row cited `test/formal/CompositionFormalSpec.t.sol`, which **no runner executes**: `check_` is the Halmos prefix, `forge test` skips it, and no CI job names the contract. It also asserts over test-local reimplementations rather than `src/`, and models the leg floor with `mulDiv` where the live guard at `Router:1633` uses `mulDivUp` — wired up as written it would report the correct code as broken. No test in the corpus names this constant. |
 | `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1, `Quoter.previewPlanExact` ×1 (since 2026-09-03) | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant**. `test/QuoterExactNetOut.t.sol` pins the exact pass: `exactOut` equals the view preview's after-fee figure to the wei, is a floor the Router honours, and its deduction is `_pack`'s (once, rounded up); mutants 154-155 |
 | `effV2Fee` / `quoteV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
-| `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) |
+| `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) · `test/regime/RegimeHarness.sol` pins the second frame on every generated row: with the fee off the input the enforced floor sits in [attested × (1 − fee), attested], with the fee off the output it equals the attested floor |
 
 **`PROTOCOL_FEE_BPS` — the escapes.** The pin compares realised delivery against predicted `netOut`
 within 0.1 %. The protocol fee is 28 bps, so a missing deduction *would* break that tolerance — but
@@ -2139,6 +2180,116 @@ scenarios still to record — one per door and per venue family — and the unio
 The figure this instrument is built to produce next is the intersection of each mutant's
 footprint in the shipped binary with the instructions its paired test executed: a pair whose
 intersection is empty is a test that cannot kill that mutant, whatever the guard reports.
+
+## 4h. The regime covering array
+
+Coverage criteria index the code; mutation indexes an injected fault; neither indexes the state
+a fixture fixes. Ten such factors are enumerated — venue family (V2, V3, Solidly), hops (1–3),
+legs per hop (1–2), whether the input token is a registered bridge, whether the intermediate is,
+fee-on-transfer shape (none, pull-only, every transfer), the input token's decimals (18, 6), the
+door (calldata route, solve-in-transaction, Permit2), control (live, renounced) and whether the
+pair is full — **5,184 combinations**. `covering_array.py` generates a strength-2 covering array:
+**63 rows that hold every one of the 258 pairs of factor values**, each row one fixture through
+one harness (`test/regime/RegimeHarness.sol`) with one assertion — the swap settles, with the
+delivered amount equal to the recipient's balance delta, at least the floor the Router emitted,
+and nothing left on the Router; or it is refused with a selector of ours. A panic, a foreign
+selector, an under-delivery or a stranded balance is a third way, and fails the row.
+
+Measured on this tree: **53 rows settle, 4 are refused with a selector of ours** (the planner
+has no bridged path to build; a route the executor declines), **6 are not constructible** (the
+pull-only-taxed token has no six-decimal form) and **0 take a third way**. The rows the fixture
+cannot build are printed by name and count against the denominator; the families not yet in the
+array — V4, native V4, Algebra, the native door, hooks — are stated in
+`docs/assurance/regimes-covering.json`. The generated file is checked against its generator in
+CI, so the array cannot drift from the factors it claims to cover.
+
+The array's first run made a frame explicit that the parity tests had pinned only on one side:
+the floor the Router enforces equals the attested floor when the protocol fee comes off the
+output, and sits inside `[attested × (1 − fee), attested]` when it comes off the input — the lower
+edge by the fee, the upper by the curve's convexity. Both frames are now asserted on every row.
+
+## 4i. The hostile-venue matrix
+
+Token pathologies had their tests; venue pathologies had none in a matrix. `test/regime/HostileVenues.sol`
+holds one misbehaviour per venue — a pair that takes the input and pays nothing, one that pays
+half, reserves that come back as a 64 KiB returndata bomb, a reserve read and a swap that burn
+every unit of gas, a token whose `decimals()` never returns, a V3 pool that fires its payment
+callback twice, one that re-enters the Router through the solve door before paying, one whose
+`slot0()` reverts, and a factory whose `getPair()` answers with a pool on other tokens — and
+`HostileVenueMatrix.t.sol` crosses each with the calldata door and the solve-in-transaction
+door under the covering array's rule: settle with the delivered amount equal to the balance
+delta and nothing left on the Router, or refuse with a selector of ours. Two cells carry a
+sharper oracle: a venue that under-pays must be refused, and the re-entering pool records
+whether the Router ever let its nested swap run.
+
+| venue | calldata door | solve door |
+|---|---|---|
+| pays nothing / pays half | refused `RouterE(5)` | refused `RouterE(5)` |
+| returndata bomb on the reserve read | settles | settles |
+| reserve read burns all gas | refused `RouterE(8)` | the planner never selects it |
+| swap burns all gas | whole transaction reverts, balance untouched | whole transaction reverts, balance untouched |
+| `decimals()` burns all gas | settles | settles |
+| payment callback fired twice | refused `RouterE(6)` | refused `RouterE(6)` |
+| re-enters the Router before paying | settles; the nested swap never ran | settles; the nested swap never ran |
+| `slot0()` reverts | settles on the attested quote | the planner never selects it |
+| factory answers with a pool on other tokens | never listed | never listed |
+
+The last row is what the matrix's first run changed. Discovery listed a pool a curator-admitted
+factory answered with, the planner ranked it, and the executor refused it at the seam that pays
+(`LEG-01`, `RouterE(3)`) — funds never at risk, the pair refused while the impostor won the
+split. An asked pool now proves its own `token0()` / `token1()` before discovery lists it, with
+the reads the executor already makes, so a pool that would be refused at execution is never
+listed, planned or ranked. A derived address is a theorem over the pair and needs no proof.
+
+A swap that burns all forwarded gas is the one cell no caller can decide for its callee; the
+transaction reverts whole and the user's balance is untouched, which is asserted rather than
+assumed. Read the matrix with `matrix_summary.py`.
+
+## 4j. The sandwich curve — the attacker's side of the floor
+
+Every floor test asks whether a bad fill is refused. `test/regime/SandwichCurve.t.sol` asks what
+an adversary who orders the block can extract before it is: the victim's route and floor are fixed
+at quote time, as in a pending transaction; the attacker trades a fraction of the pool's depth
+ahead of the victim, the victim executes, the attacker trades back. The venue is a constant-product
+pair, the shape every sandwich model uses, so the curve is a property of the floor.
+
+Measured on a 1 %-of-depth trade (10,000 against 1,000,000 a side):
+
+| attacker moves | victim | victim's loss vs the quote | attacker's round trip |
+|---|---|---|---|
+| 0.1 % of depth | settles | 0.47 % | +13.9 |
+| 0.5 % | settles | 1.26 % | +68.9 |
+| 1 % | settles | 2.22 % | +136.7 |
+| 2 % | settles | 4.12 % | +268.7 |
+| 3 % and beyond | **refused** | 0 | −174.5 … −544.9 |
+
+The guarantee asserted at every point: a settled victim never receives less than the floor
+attested at quote time, so the loss is bounded by the distance between the attested quote and the
+attested floor; and the refusal region is closed upward — past the edge, every larger manipulation
+is refused and the attacker is left holding the price they moved. The number worth quoting is the
+last settled row: **the floor caps what a sandwich can take from a 1 % trade at about 2.7 % of it**,
+and turns the attacker's trade into a loss the moment it would take more.
+
+## 4k. Canonical oracles — the quote maths against the venues' specifications
+
+Every mock in the suite quotes with the Core's own formulas, so a defect in a formula is invisible
+to every parity test that uses them: the oracle is the object. `test/regime/CanonicalOracles.t.sol`
+holds three implementations written from the venues' published invariants — Uniswap V2's constant
+product with the fee on the input, Uniswap V3's single-tick square-root-price step with the pool's
+own against-the-trader rounding, Solidly's stable curve `x³y + xy³ = k` solved by Newton's method —
+and fuzzes the Core against them, 5,000 runs each, asserting the direction first (the Core never
+promises more than the venue's maths delivers) and the tightness second.
+
+| family | direction | tightness measured |
+|---|---|---|
+| Uniswap V2 | the Core never exceeds the spec | exact to the wei |
+| Solidly stable | the Core never exceeds the curve by more than the solver's own last step | within 4 wei |
+| Uniswap V3 | the Core never exceeds the spec by more than **one ulp of the square-root price**, which is `L / 2⁹⁶` wei | below one wei for every pool with `L < 2⁹⁶`, i.e. every pool in existence |
+
+The V3 bound is stated in the quantity that causes it: the pool rounds its new price against the
+trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
+wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
+assertion is the bound, not the sample.
 
 ## 5. What none of this establishes
 

@@ -33,8 +33,7 @@
 - **TWO SENTENCES:** "BlazePhoenix-Dex prices every route on the pool's measured marginal
   output — never on advertised liquidity, depth or fee — and enforces a re-derived output floor
   against what execution actually delivered, with no routing server, oracle, keeper or upgrade
-  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 182
-  named mutants, a shared-quantity register, a calldata-field confirmation matrix, a sound
+  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 183 named mutants, a shared-quantity register, a calldata-field confirmation matrix, a sound
   executed-bytecode bound on the shipped binary, and a funded 50M-BZPX bug bounty that has
   credited nineteen researchers with zero Critical findings."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
@@ -58,14 +57,14 @@
   On-chain volume ≈ 0 and a tiny holder count are the *expected* state of this stage — they
   measure the calendar, not the code. Development is active (see commit history).
 - **Audit status, precisely:** an independent external audit is scheduled before launch. What
-  exists today, all public and reproducible on every push: a forge suite of **1,188 `test*` /
-  `invariant*` / `check*` declarations** across **205 `.t.sol` files** — 180 local (unit,
+  exists today, all public and reproducible on every push: a forge suite of **1,252 `test*` /
+  `invariant*` / `check*` declarations** across **206 `.t.sol` files** — 181 local (unit,
   property, parity, stateful invariants) and 25 fork suites against live liquidity on every
   network the SDK names; those two counts are what `grep -c` returns for those prefixes over
   that file set, which is the denominator, said out loud; **Certora Prover** (INV-20 fail-closed
   fee) and **Halmos** symbolic proofs; **Slither** (fail on high), **Aderyn** and **Solhint**
   static gates; red-first static guards (plain greps that fail the build if a known defect
-  shape reappears); a **curated mutation guard of 182 named mutants** — guard deletion,
+  shape reappears); a **curated mutation guard of 183 named mutants** — guard deletion,
   relational and boundary flips, logical-connector widening, error-code swaps,
   rounding-direction flips and modifier removal — each paired with the named test that must
   fail when it is applied, baseline-checked and fingerprinted so an inert mutation is reported
@@ -166,7 +165,7 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Red before green, enforced.** Every regression test was red against the code without its
   fix, at a commit named in its header; the mutation guard fails the build for a guard without
   a watcher.
-- **A curated, named mutation guard.** 182 hand-written mutants, each paired with the one test
+- **A curated, named mutation guard.** 183 hand-written mutants, each paired with the one test
   that must die to it — baseline-checked, fingerprinted over creation and runtime objects so an
   inert mutation is reported rather than counted, and target-checked in one second without a
   compiler.
@@ -185,6 +184,25 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **A sound executed-bytecode lower bound** over the shipped-shape artefact, verified against
   a ground-truth contract in the suite, with the compiler's own `Panic` surface classified and
   tested.
+- **A generated regime covering array.** Ten fixture factors — venue family, hops, legs,
+  bridge position, fee-on-transfer shape, decimals, door, control state, pair fullness —
+  and 63 generated rows that hold every pair of their values under one assertion (settle
+  inside the emitted floor with nothing left on the Router, or refuse with a selector of
+  ours); rows the fixture cannot build are counted against the denominator.
+- **A hostile-venue matrix.** Ten venue pathologies — pays nothing, pays half, returndata
+  bomb, reads and swaps that burn all gas, a token whose decimals() never returns, a double
+  payment callback, a re-entering pool, a reverting slot0(), a factory answering with a pool on
+  other tokens — crossed with two doors under one rule: settle with the balance delta and
+  nothing left on the Router, or refuse with a selector of ours.
+- **The sandwich curve.** The attacker's side of the floor, measured: on a 1 %-of-depth trade
+  against a constant-product pool the floor caps a sandwich at about 2.7 % of the trade and
+  refuses beyond it, leaving the attacker's round trip negative; the refusal region is closed
+  upward, and every point asserts the victim never receives less than the floor attested at
+  quote time.
+- **Canonical oracles.** The Core's quote maths fuzzed against implementations written from
+  the venues' specifications (constant product, single-tick sqrt-price step with the pool's own
+  rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
+  four wei, V3 within one ulp of the square-root price.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.

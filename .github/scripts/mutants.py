@@ -1039,6 +1039,7 @@ M = [
     dict(nome="PIN-01 Solver side: the per-stage leg budget widens past the executor's mirror", f='src/BlazePhoenixSolver.sol', old='    uint8   internal constant MAX_LEGS_PER_STAGE   = 4;', new='    uint8   internal constant MAX_LEGS_PER_STAGE   = 6;', teste='test_Seam2_SolverMaxSplit_ExecutesThroughRouter'),
     dict(nome="REG-01: the registry fee comes from calldata again instead of the pool's shape", f='src/BlazePhoenixHub.sol', old='            feeReg = isConc ? (dynShape ? 0 : BPC.getV3Fee(pool)) : 0;', new='            feeReg = fee;', teste='test_FeeForjadaNoCalldataNaoEntraNoRegisto'),
     dict(nome="BRIDGE-02: the preview names hop 0's output instead of the hop the fee is anchored on", f='src/BlazePhoenixQuoter.sol', old='        return (uint8(n - 1), feeHop == type(uint256).max ? address(0) : route.hops[feeHop].tokenIn);', new='        return (uint8(n - 1), route.hops[0].tokenOut);', teste='test_TokenInIsABridge_TheAnchorIsHopZero'),
+    dict(nome='F-D: discovery lists an asked pool without proving its pair', f='src/BlazePhoenixHub.sol', old='            if (fac.mode < 4 && (BPC.token0Of(p) != t0 || BPC.token1Of(p) != t1)) return k;', new='            // MUTANT', teste='test_Matrix_WrongPairFactory_Best'),
 ]
 
 def run(t):

@@ -32,7 +32,7 @@ seen to fail once, for the reason it is named after.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **181 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **183 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -47,7 +47,7 @@ Three properties make it a guard rather than a score:
 - a one-second static check verifies that every mutant still points at exactly one line, so a
   refactor cannot silently orphan a watcher.
 
-**181 of 181 are killed.** The figure is always printed beside its denominator: it is adequacy
+**183 of 183 are killed.** The figure is always printed beside its denominator: it is adequacy
 against this register, which is what §9 is about.
 
 ## 4. One question, one answer
@@ -68,7 +68,9 @@ never what the pool is; **confirmed** — measured from the pool or proven by de
 reaches shared state; or **declared**, with the reason recorded. The registry's ranking, the
 protocol floor and the fee base are computed only from confirmed quantities. Where a value is
 authenticated by construction — a Uniswap V4 pool id derives from its own fee — the derivation
-is the proof; everywhere else, the contract reads the pool.
+is the proof; everywhere else, the contract reads the pool. Discovery applies the same rule to
+what a factory answers: an asked pool proves its own pair before it is listed, so a pool the
+executor would refuse is never planned.
 
 ## 6. Every refusal reads what it decides on
 
@@ -85,7 +87,15 @@ property testing indexes relations over inputs. Two things that decide whether a
 reached at all are indexed by none of them — the **regime** a fixture fixes (is the route
 bridged, is the pair full, is control renounced) and the **oracle** an expectation comes from.
 The suite is measured against the lattice of regime × composition shape × oracle, and the
-stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. Every
+stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. A
+generated **covering array** goes further: every pair of values of ten regime factors appears in
+at least one of 63 generated fixtures, each judged by one assertion — settle inside the emitted
+floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
+fixture cannot build are counted, not skipped. A hostile-venue matrix crosses ten venue
+pathologies with the doors under the same rule, and a sandwich harness measures the attacker's
+side of the floor across a grid of manipulations, asserting the victim's bound at every point.
+The quote maths themselves are fuzzed against oracles written from the venues' specifications,
+never from the Core, so the formula every mock quotes with is not its own witness. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.

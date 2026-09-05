@@ -340,6 +340,116 @@ The figure this instrument is built to produce next is the intersection of each 
 footprint in the shipped binary with the instructions its paired test executed: a pair whose
 intersection is empty is a test that cannot kill that mutant, whatever the guard reports.
 
+## 4h. The regime covering array
+
+Coverage criteria index the code; mutation indexes an injected fault; neither indexes the state
+a fixture fixes. Ten such factors are enumerated — venue family (V2, V3, Solidly), hops (1–3),
+legs per hop (1–2), whether the input token is a registered bridge, whether the intermediate is,
+fee-on-transfer shape (none, pull-only, every transfer), the input token's decimals (18, 6), the
+door (calldata route, solve-in-transaction, Permit2), control (live, renounced) and whether the
+pair is full — **5,184 combinations**. `covering_array.py` generates a strength-2 covering array:
+**63 rows that hold every one of the 258 pairs of factor values**, each row one fixture through
+one harness (`test/regime/RegimeHarness.sol`) with one assertion — the swap settles, with the
+delivered amount equal to the recipient's balance delta, at least the floor the Router emitted,
+and nothing left on the Router; or it is refused with a selector of ours. A panic, a foreign
+selector, an under-delivery or a stranded balance is a third way, and fails the row.
+
+Measured on this tree: **53 rows settle, 4 are refused with a selector of ours** (the planner
+has no bridged path to build; a route the executor declines), **6 are not constructible** (the
+pull-only-taxed token has no six-decimal form) and **0 take a third way**. The rows the fixture
+cannot build are printed by name and count against the denominator; the families not yet in the
+array — V4, native V4, Algebra, the native door, hooks — are stated in
+`docs/assurance/regimes-covering.json`. The generated file is checked against its generator in
+CI, so the array cannot drift from the factors it claims to cover.
+
+The array's first run made a frame explicit that the parity tests had pinned only on one side:
+the floor the Router enforces equals the attested floor when the protocol fee comes off the
+output, and sits inside `[attested × (1 − fee), attested]` when it comes off the input — the lower
+edge by the fee, the upper by the curve's convexity. Both frames are now asserted on every row.
+
+## 4i. The hostile-venue matrix
+
+Token pathologies had their tests; venue pathologies had none in a matrix. `test/regime/HostileVenues.sol`
+holds one misbehaviour per venue — a pair that takes the input and pays nothing, one that pays
+half, reserves that come back as a 64 KiB returndata bomb, a reserve read and a swap that burn
+every unit of gas, a token whose `decimals()` never returns, a V3 pool that fires its payment
+callback twice, one that re-enters the Router through the solve door before paying, one whose
+`slot0()` reverts, and a factory whose `getPair()` answers with a pool on other tokens — and
+`HostileVenueMatrix.t.sol` crosses each with the calldata door and the solve-in-transaction
+door under the covering array's rule: settle with the delivered amount equal to the balance
+delta and nothing left on the Router, or refuse with a selector of ours. Two cells carry a
+sharper oracle: a venue that under-pays must be refused, and the re-entering pool records
+whether the Router ever let its nested swap run.
+
+| venue | calldata door | solve door |
+|---|---|---|
+| pays nothing / pays half | refused `RouterE(5)` | refused `RouterE(5)` |
+| returndata bomb on the reserve read | settles | settles |
+| reserve read burns all gas | refused `RouterE(8)` | the planner never selects it |
+| swap burns all gas | whole transaction reverts, balance untouched | whole transaction reverts, balance untouched |
+| `decimals()` burns all gas | settles | settles |
+| payment callback fired twice | refused `RouterE(6)` | refused `RouterE(6)` |
+| re-enters the Router before paying | settles; the nested swap never ran | settles; the nested swap never ran |
+| `slot0()` reverts | settles on the attested quote | the planner never selects it |
+| factory answers with a pool on other tokens | never listed | never listed |
+
+The last row is what the matrix's first run changed. Discovery listed a pool a curator-admitted
+factory answered with, the planner ranked it, and the executor refused it at the seam that pays
+(`LEG-01`, `RouterE(3)`) — funds never at risk, the pair refused while the impostor won the
+split. An asked pool now proves its own `token0()` / `token1()` before discovery lists it, with
+the reads the executor already makes, so a pool that would be refused at execution is never
+listed, planned or ranked. A derived address is a theorem over the pair and needs no proof.
+
+A swap that burns all forwarded gas is the one cell no caller can decide for its callee; the
+transaction reverts whole and the user's balance is untouched, which is asserted rather than
+assumed. Read the matrix with `matrix_summary.py`.
+
+## 4j. The sandwich curve — the attacker's side of the floor
+
+Every floor test asks whether a bad fill is refused. `test/regime/SandwichCurve.t.sol` asks what
+an adversary who orders the block can extract before it is: the victim's route and floor are fixed
+at quote time, as in a pending transaction; the attacker trades a fraction of the pool's depth
+ahead of the victim, the victim executes, the attacker trades back. The venue is a constant-product
+pair, the shape every sandwich model uses, so the curve is a property of the floor.
+
+Measured on a 1 %-of-depth trade (10,000 against 1,000,000 a side):
+
+| attacker moves | victim | victim's loss vs the quote | attacker's round trip |
+|---|---|---|---|
+| 0.1 % of depth | settles | 0.47 % | +13.9 |
+| 0.5 % | settles | 1.26 % | +68.9 |
+| 1 % | settles | 2.22 % | +136.7 |
+| 2 % | settles | 4.12 % | +268.7 |
+| 3 % and beyond | **refused** | 0 | −174.5 … −544.9 |
+
+The guarantee asserted at every point: a settled victim never receives less than the floor
+attested at quote time, so the loss is bounded by the distance between the attested quote and the
+attested floor; and the refusal region is closed upward — past the edge, every larger manipulation
+is refused and the attacker is left holding the price they moved. The number worth quoting is the
+last settled row: **the floor caps what a sandwich can take from a 1 % trade at about 2.7 % of it**,
+and turns the attacker's trade into a loss the moment it would take more.
+
+## 4k. Canonical oracles — the quote maths against the venues' specifications
+
+Every mock in the suite quotes with the Core's own formulas, so a defect in a formula is invisible
+to every parity test that uses them: the oracle is the object. `test/regime/CanonicalOracles.t.sol`
+holds three implementations written from the venues' published invariants — Uniswap V2's constant
+product with the fee on the input, Uniswap V3's single-tick square-root-price step with the pool's
+own against-the-trader rounding, Solidly's stable curve `x³y + xy³ = k` solved by Newton's method —
+and fuzzes the Core against them, 5,000 runs each, asserting the direction first (the Core never
+promises more than the venue's maths delivers) and the tightness second.
+
+| family | direction | tightness measured |
+|---|---|---|
+| Uniswap V2 | the Core never exceeds the spec | exact to the wei |
+| Solidly stable | the Core never exceeds the curve by more than the solver's own last step | within 4 wei |
+| Uniswap V3 | the Core never exceeds the spec by more than **one ulp of the square-root price**, which is `L / 2⁹⁶` wei | below one wei for every pool with `L < 2⁹⁶`, i.e. every pool in existence |
+
+The V3 bound is stated in the quantity that causes it: the pool rounds its new price against the
+trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
+wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
+assertion is the bound, not the sample.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.

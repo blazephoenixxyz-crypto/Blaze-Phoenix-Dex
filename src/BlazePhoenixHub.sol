@@ -1052,6 +1052,12 @@ contract BlazePhoenixHub {
             p = BPC.deriveAddress(fac.factory, t0, t1, fee, stable, sp, fac.mode, fac.initHash);
         }
         if (p != address(0) && BPC.hasCode(p)) {
+            // ASKED, NOT DERIVED. A derived address (modes 4-7) is a theorem over (t0, t1);
+            // an asked one (modes 0-3) is whatever the factory answered, and a factory can
+            // answer with a pool on other tokens. The pool proves its own pair here, with the
+            // token0()/token1() reads the executor makes at the seam that pays (LEG-01), so a
+            // pool that would be refused at execution is never listed, planned or ranked.
+            if (fac.mode < 4 && (BPC.token0Of(p) != t0 || BPC.token1Of(p) != t1)) return k;
             // Dedup: the same pool address can be derived for several
             // (fee, spacing) combinations. Listing it multiple times saturates
             // the Solver's top-K with one venue and starves deeper pools.
