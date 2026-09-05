@@ -14,7 +14,12 @@ import collections, json, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 log = open(sys.argv[1]).read() if len(sys.argv) > 1 else sys.stdin.read()
-doc = json.load(open(os.path.join(ROOT, "docs", "assurance", "regimes-covering.json")))
+JSON = os.path.join(ROOT, "docs", "assurance", "regimes-covering.json")
+if "--strength" in sys.argv:                       # the t=3 array has its own file
+    t = int(sys.argv[sys.argv.index("--strength") + 1])
+    if t != 2:
+        JSON = os.path.join(ROOT, "docs", "assurance", "regimes-covering-t%d.json" % t)
+doc = json.load(open(JSON))
 labels = doc["row_labels"]
 
 rows = {}
@@ -24,7 +29,7 @@ failed = re.findall(r"\[FAIL[^\]]*\] (test_Regime_\d+_\S+)", log)
 
 by = collections.Counter(o for o, _ in rows.values())
 refusals = collections.Counter(w.split(" ")[0] for o, w in rows.values() if o == "REFUSED")
-print(f"regime covering array: strength {doc['strength']}, {doc['rows']} rows, {doc['pairs']} value pairs, "
+print(f"regime covering array: strength {doc['strength']}, {doc['rows']} rows, {doc.get('pairs', doc.get('tuples'))} value {'pairs' if doc['strength'] == 2 else '%d-tuples' % doc['strength']}, "
       f"standing in for {doc['full_factorial']} combinations")
 print(f"  settled            : {by['SETTLED']}")
 print(f"  refused, ours      : {by['REFUSED']}   {dict(refusals)}")

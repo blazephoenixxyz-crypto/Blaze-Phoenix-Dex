@@ -73,6 +73,77 @@ fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", pat
 # (overflow/underflow, assertion, divByZero) across the Core assembly and the
 # floor/median paths. Kept off the fast/release profiles because CHC solving
 # is minutes-slow and must never gate normal CI.
+# ─── N-version lane (test/nversion): the release settings with ONE code-generation knob
+# moved, so the same source yields a different binary to compare against the shipped one.
+# Never used for a release; profile_parity.py compares default vs release only.
+[profile.nver1]
+src = "src"
+test = "test"
+out = "out-nver1"
+libs = ["lib"]
+solc_version = "0.8.36"
+evm_version = "cancun"
+bytecode_hash = "none"
+optimizer = true
+# 999999 maxed runtime-gas bias but left the Router 246 B over the 24000
+# margin once the native-ETH entry landed (measured: 24246 @ 999999);
+# 5000 still measured 24107 (-107 short). 3000 bought the margin then, but
+# the fa6c847 hardening pass outgrew it (Router 25,684 @ 3000).
+# Remediation 2026-08-15: (1) heavyweight cold-path Core quote helpers went
+# public -> deployed-library delegatecalls (see the EIP-170 note in
+# BlazePhoenixCore.sol), (2) dead KIND_BALANCER_V2 branches removed,
+# (3) runs re-measured: 3000->24,754 / 2000->24,679 / 1500->24,098 /
+# 1000->23,829 / 800->23,184. 800 keeps every BlazePhoenix* contract under
+# the CI's 24,000 guard with ~800 B of Router headroom for the next
+# feature; re-measure the gas side with forge snapshot at the S3 testnet
+# rehearsal. Next code lever if this dial is ever exhausted: Router/Core
+# revert strings -> custom errors (~14 sites, est. 400-800 B; needs the two
+# "BPC:" expectRevert pins in BlazePhoenixCore.t.sol updated with it).
+optimizer_runs = 1
+via_ir = true
+fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
+
+# SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the
+# glacier-abacus `smtchecker` job (this profile is what that job greps for).
+# Report-only by nature: solc prints warnings for properties it cannot prove,
+# it never fails the build. Targets the load-bearing arithmetic invariants
+# (overflow/underflow, assertion, divByZero) across the Core assembly and the
+# floor/median paths. Kept off the fast/release profiles because CHC solving
+# is minutes-slow and must never gate normal CI.
+[profile.nver2]
+src = "src"
+test = "test"
+out = "out-nver2"
+libs = ["lib"]
+solc_version = "0.8.36"
+evm_version = "cancun"
+bytecode_hash = "none"
+optimizer = true
+# 999999 maxed runtime-gas bias but left the Router 246 B over the 24000
+# margin once the native-ETH entry landed (measured: 24246 @ 999999);
+# 5000 still measured 24107 (-107 short). 3000 bought the margin then, but
+# the fa6c847 hardening pass outgrew it (Router 25,684 @ 3000).
+# Remediation 2026-08-15: (1) heavyweight cold-path Core quote helpers went
+# public -> deployed-library delegatecalls (see the EIP-170 note in
+# BlazePhoenixCore.sol), (2) dead KIND_BALANCER_V2 branches removed,
+# (3) runs re-measured: 3000->24,754 / 2000->24,679 / 1500->24,098 /
+# 1000->23,829 / 800->23,184. 800 keeps every BlazePhoenix* contract under
+# the CI's 24,000 guard with ~800 B of Router headroom for the next
+# feature; re-measure the gas side with forge snapshot at the S3 testnet
+# rehearsal. Next code lever if this dial is ever exhausted: Router/Core
+# revert strings -> custom errors (~14 sites, est. 400-800 B; needs the two
+# "BPC:" expectRevert pins in BlazePhoenixCore.t.sol updated with it).
+optimizer_runs = 20000
+via_ir = true
+fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
+
+# SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the
+# glacier-abacus `smtchecker` job (this profile is what that job greps for).
+# Report-only by nature: solc prints warnings for properties it cannot prove,
+# it never fails the build. Targets the load-bearing arithmetic invariants
+# (overflow/underflow, assertion, divByZero) across the Core assembly and the
+# floor/median paths. Kept off the fast/release profiles because CHC solving
+# is minutes-slow and must never gate normal CI.
 [profile.smt]
 src = "src"
 test = "test"

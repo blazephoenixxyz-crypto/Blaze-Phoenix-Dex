@@ -42,7 +42,7 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 | projection_distance.py | how far each refusal observes from the object that decides (86 at 0, 11 at 1, 2 unbounded) |
 | pc_coverage.py | how much of the emitted INSTRUCTION stream is proven to execute (LOWER bound, 88.3% on two identical pinned-seed runs) |
 | pc_trace.py | which instructions of the SHIPPED binary a recorded scenario ran, replayed from an opcode-level trace with the opcode checked at every step (one V2 swap: 28.2% of the Router's code section, 0 mismatches) |
-| covering_array.py + regime_summary.py | a strength-2 covering array over ten regime factors (63 generated rows, all 258 value pairs of 5,184 combinations) and how each row ended: 53 settle, 4 refuse with our selector, 6 not constructible, 0 third way |
+| covering_array.py + regime_summary.py | strength-2 and strength-3 covering arrays over ten regime factors (63 rows holding all 258 value pairs; 168 rows holding all 1,636 value triples; of 5,184 combinations) and how each row ended: 53 settle, 4 refuse with our selector, 6 not constructible, 0 third way |
 | matrix_summary.py | the hostile-venue matrix: ten venue pathologies x two doors, 20/20 settle or refuse with a selector of ours |
 | panic_inventory.py + panic_sites.py | which compiler Panic codes the artefact can raise, and which sites could raise one without a guard in the enclosing function |
 | storage_discipline.py | which storage slots the emitted code writes; every registry write under its ERC-7201 namespace |
@@ -86,12 +86,16 @@ that leaves the suite, or a mutant whose target line is gone all fail the build.
 - calldata fields: 14 confirmed, 5 steering, 4 declared with reason
 - exploit classes answered by a named guard: 19 / 23 considered
 - shipped-shape instructions proven executed (lower bound): 88.3 %
-- curated mutants killed: 183 / 183
+- curated mutants killed: 197 / 197
+- metamorphic relations: 14 over the Core's quote maths (V2, V3, stable), 5 over the Solver's plan; three bounds measured before written (ASSURANCE §4m)
+- n-version: the quote maths compiled at optimizer_runs 1 / 300 / 20000 agree on 6 functions × 3,000 fuzz runs; the lane's first full-domain run found the stable curve reverting on dust pools — fixed red-first, 3 guard mutants (ASSURANCE §4n)
+- stateful invariants shown falsifiable by a named mutant: 18 distinct names went red under 11 of 15 mutants; 4 survivors published with their reading (2 guards with no watcher at all)
 - regime-factor value pairs exercised by construction: 258 / 258 (63 rows for 5,184 combinations)
+- regime-factor value triples exercised by construction: 1,636 / 1,636 (168 rows, strength 3): 158 settled, 10 refused with a selector of ours (SolverE(5) ×7, RouterE(13) ×3), 0 not constructible, 0 third way
 - venue pathologies x doors that settle or refuse with a selector of ours: 20 / 20
 - largest sandwich the floor lets through on a 1 %-of-depth trade before it refuses: about 2.7 % of the trade
 - Core quotes against oracles written from the venues' specifications: V2 exact, stable curve within 4 wei, V3 within one ulp of the square-root price
-- suite: 1,252 declared tests across 206 files; 1,122 green on the release profile with fork suites excluded; 119 green on live liquidity across 39 fork suites
+- suite: 1,468 declared tests across 213 files; 1,122 green on the release profile with fork suites excluded; 119 green on live liquidity across 39 fork suites
 
 ## Publication boundary
 

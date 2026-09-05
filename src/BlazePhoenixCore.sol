@@ -1482,14 +1482,27 @@ library BlazePhoenixCore {
     ///      each already fit (mulDiv carries 512-bit intermediates); what can
     ///      fail is the final a*b/WAD. It fits exactly when a <= uintmax*WAD/b,
     ///      which is checked without ever forming a*b.
+    /// @dev Does a·b / WAD fit a word? `mulDiv` reverts exactly when the high word of a·b is
+    ///      at least the divisor, so the test IS that comparison — two multiplications and no
+    ///      division, which is what lets it be asked on dust (b below one WAD) without the check
+    ///      itself overflowing. The previous form, `a <= max·WAD/b`, reverted there: found by the
+    ///      N-version lane, 2026-09-05.
+    function _mulFitsWad(uint256 a, uint256 b) private pure returns (bool) {
+        uint256 mm; uint256 p0;
+        assembly { mm := mulmod(a, b, not(0)) p0 := mul(a, b) }
+        unchecked { return mm - p0 - (mm < p0 ? 1 : 0) < WAD; }
+    }
+
+    /// @dev k = x·y·(x² + y²)/WAD³ must fit a word before Newton starts; the seed is the largest
+    ///      (x, y) the iteration sees (y only descends from it), so one check covers the loop.
     function _solKFits(uint256 x, uint256 y) private pure returns (bool) {
         if (x == 0 || y == 0) return true;      // _solK is 0; nothing to overflow
         uint256 a = mulDiv(x, y, WAD);
-        uint256 b = mulDiv(x, x, WAD) + mulDiv(y, y, WAD);
-        if (a == 0 || b == 0) return true;
-        // a * b / WAD <= uintmax  <=>  a <= uintmax / b * WAD, in integer terms
-        // with the division done first so the product is never formed.
-        return a <= mulDiv(type(uint256).max, WAD, b);
+        uint256 yy = mulDiv(y, y, WAD);
+        uint256 b = mulDiv(x, x, WAD) + yy;
+        // the derivative fp = x·(x² + 3y²)/WAD² has its own product; a whale input reserve
+        // against a dust output reserve passes the k check and overflows this one
+        return _mulFitsWad(a, b) && _mulFitsWad(x, b + 2 * yy);
     }
 
     function _solK(uint256 x, uint256 y) private pure returns (uint256) {
