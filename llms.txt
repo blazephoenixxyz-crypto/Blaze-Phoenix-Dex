@@ -33,7 +33,7 @@
 - **TWO SENTENCES:** "BlazePhoenix-Dex prices every route on the pool's measured marginal
   output — never on advertised liquidity, depth or fee — and enforces a re-derived output floor
   against what execution actually delivered, with no routing server, oracle, keeper or upgrade
-  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 183 named mutants, a shared-quantity register, a calldata-field confirmation matrix, a sound
+  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 197 named mutants (eleven aimed at the stateful invariants), a shared-quantity register, a calldata-field confirmation matrix, a sound
   executed-bytecode bound on the shipped binary, and a funded 50M-BZPX bug bounty that has
   credited nineteen researchers with zero Critical findings."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
@@ -57,14 +57,14 @@
   On-chain volume ≈ 0 and a tiny holder count are the *expected* state of this stage — they
   measure the calendar, not the code. Development is active (see commit history).
 - **Audit status, precisely:** an independent external audit is scheduled before launch. What
-  exists today, all public and reproducible on every push: a forge suite of **1,252 `test*` /
-  `invariant*` / `check*` declarations** across **206 `.t.sol` files** — 181 local (unit,
+  exists today, all public and reproducible on every push: a forge suite of **1,478 `test*` /
+  `invariant*` / `check*` declarations** across **218 `.t.sol` files** — 188 local (unit,
   property, parity, stateful invariants) and 25 fork suites against live liquidity on every
   network the SDK names; those two counts are what `grep -c` returns for those prefixes over
   that file set, which is the denominator, said out loud; **Certora Prover** (INV-20 fail-closed
   fee) and **Halmos** symbolic proofs; **Slither** (fail on high), **Aderyn** and **Solhint**
   static gates; red-first static guards (plain greps that fail the build if a known defect
-  shape reappears); a **curated mutation guard of 183 named mutants** — guard deletion,
+  shape reappears); a **curated mutation guard of 197 named mutants** — guard deletion,
   relational and boundary flips, logical-connector widening, error-code swaps,
   rounding-direction flips and modifier removal — each paired with the named test that must
   fail when it is applied, baseline-checked and fingerprinted so an inert mutation is reported
@@ -165,7 +165,7 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Red before green, enforced.** Every regression test was red against the code without its
   fix, at a commit named in its header; the mutation guard fails the build for a guard without
   a watcher.
-- **A curated, named mutation guard.** 183 hand-written mutants, each paired with the one test
+- **A curated, named mutation guard.** 197 hand-written mutants, each paired with the one test
   that must die to it — baseline-checked, fingerprinted over creation and runtime objects so an
   inert mutation is reported rather than counted, and target-checked in one second without a
   compiler.
@@ -186,7 +186,8 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   tested.
 - **A generated regime covering array.** Ten fixture factors — venue family, hops, legs,
   bridge position, fee-on-transfer shape, decimals, door, control state, pair fullness —
-  and 63 generated rows that hold every pair of their values under one assertion (settle
+  and 63 generated rows that hold every pair of their values — and a second, strength-3
+  array of 168 rows that holds every triple (1,636 of them) — under one assertion (settle
   inside the emitted floor with nothing left on the Router, or refuse with a selector of
   ours); rows the fixture cannot build are counted against the denominator.
 - **A hostile-venue matrix.** Ten venue pathologies — pays nothing, pays half, returndata
@@ -203,6 +204,23 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   the venues' specifications (constant product, single-tick sqrt-price step with the pool's own
   rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
   four wei, V3 within one ulp of the square-root price.
+- **Mutants aimed at the invariants.** Fifteen source mutations, one per property the stateful
+  campaigns claim, each run against all 39 invariants; eleven were noticed and are now entries
+  in the guard, and the four survivors are published with their reading — two of them guards
+  with no watcher of any kind.
+- **Metamorphic relations at two levels.** Fourteen over the quote maths (monotone, sub-additive,
+  no round trip, scale equivariance, fee monotone, direction symmetry) and five over the
+  Solver's plan (never below the best single pool, monotone, liquidity monotone, order
+  independence to one weight unit, floor below expectation) — each bound measured before written.
+- **N-version testing of the quote maths.** The same source compiled at three optimiser settings,
+  the three binaries compared on fuzzed inputs; the lane's first run found the stable curve
+  reverting on dust pools instead of quoting zero, fixed red-first and guarded.
+- **The fee rule, both regimes named and asserted at run time.** Once per settlement where a bridge
+  coin anchors the route, once per hop where none does (immunity by exhaustion — the single charge
+  was tried and reopened a prefix escape inside the suite); the Router keeps a transient ledger and
+  refuses a settlement that paid nothing, or twice on an anchored route. The tests measure the fee
+  from the pools and the treasuries, not from the Router, and each fee mutant's detection rate is
+  published with its confidence interval.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.

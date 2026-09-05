@@ -1,0 +1,250 @@
+{
+ "measured_on": "2026-09-05, release settings, forge test --match-test invariant_ --fuzz-seed 0xb1a2ef00, repo tree df46649",
+ "question": "does any stateful invariant notice when a guard disappears? Until this file, 0 of 183 mutants named an invariant.",
+ "invariants_declared": 39,
+ "mutants": 15,
+ "killed": 11,
+ "survived": 4,
+ "invariants_shown_falsifiable": [
+  "invariant_DeliveredNeverBelowUserMinOut",
+  "invariant_DivergentLegNeverSettles",
+  "invariant_FeeIsChargedOnExactlyOneSide",
+  "invariant_FeeNeverEscapes",
+  "invariant_FeeNeverExceedsProtocolMax",
+  "invariant_HoldsNothingBeyondTheSeed",
+  "invariant_LedgerConservationA",
+  "invariant_PausedRouterNeverSettles",
+  "invariant_RouterHoldsNothing",
+  "invariant_StrandedMoneyIsNeverSwept",
+  "invariant_TokenConservation",
+  "invariant_conservationA",
+  "invariant_conservationB",
+  "invariant_conservationC",
+  "invariant_conservationH",
+  "invariant_neverExceedsMaxSlots",
+  "invariant_reentrancyBlocked",
+  "invariant_routerHoldsNothing"
+ ],
+ "rows": [
+  {
+   "id": "HN-1wei",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "BPC.safeTransfer(tokenOut, recipient, net);",
+    "new": "BPC.safeTransfer(tokenOut, recipient, net - 1);"
+   },
+   "aimed_at": "invariant_RouterHoldsNothing / routerHoldsNothing / HoldsNothingBeyondTheSeed",
+   "status": "killed",
+   "killed_by": [
+    "invariant_HoldsNothingBeyondTheSeed",
+    "invariant_RouterHoldsNothing",
+    "invariant_routerHoldsNothing"
+   ],
+   "seconds": 26
+  },
+  {
+   "id": "FEE-cap2x",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
+    "new": "uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS * 2, BPC.BPS);"
+   },
+   "aimed_at": "invariant_FeeNeverExceedsProtocolMax",
+   "status": "killed",
+   "killed_by": [
+    "invariant_FeeNeverExceedsProtocolMax"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "FEE-never-in",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (feeH == 0) return amountIn;",
+    "new": "if (feeH != 0) return amountIn;"
+   },
+   "aimed_at": "invariant_FeeNeverEscapes",
+   "status": "killed",
+   "killed_by": [
+    "invariant_DeliveredNeverBelowUserMinOut",
+    "invariant_FeeNeverEscapes"
+   ],
+   "seconds": 52
+  },
+  {
+   "id": "FEE-both-sides",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (feeOnOut) {",
+    "new": "if (feeOnOut || true) {"
+   },
+   "aimed_at": "invariant_FeeIsChargedOnExactlyOneSide",
+   "status": "killed",
+   "killed_by": [
+    "invariant_FeeIsChargedOnExactlyOneSide"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "MINOUT-half",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (delivered < userMinOut) revert RouterE(5);",
+    "new": "if (delivered < userMinOut / 2) revert RouterE(5);"
+   },
+   "aimed_at": "invariant_DeliveredNeverBelowUserMinOut (sentinela: espera-se SOBREVIVER sem FoT no handler)",
+   "status": "survived",
+   "killed_by": [],
+   "seconds": 26,
+   "reading": "expected survivor: the post-fee userMinOut check is a regression sentinel; delivered == net for every token in the campaign universes (no fee-on-transfer tokenOut), so the guard is unreachable there and only a unit test (2 entries in mutants.py) watches it."
+  },
+  {
+   "id": "LEAK-t2-dead",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (t2 > 0) BPC.safeTransfer(token, treasury2, t2);",
+    "new": "if (t2 > 0) BPC.safeTransfer(token, address(0xdead), t2);"
+   },
+   "aimed_at": "invariant_conservation* / TokenConservation / LedgerConservation*",
+   "status": "killed",
+   "killed_by": [
+    "invariant_LedgerConservationA",
+    "invariant_TokenConservation",
+    "invariant_conservationA",
+    "invariant_conservationB",
+    "invariant_conservationC",
+    "invariant_conservationH"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "LEG-pair-and",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (legIn != hop.tokenIn || legOutRaw != hop.tokenOut) revert RouterE(3);",
+    "new": "if (legIn != hop.tokenIn && legOutRaw != hop.tokenOut) revert RouterE(3);"
+   },
+   "aimed_at": "invariant_DivergentLegNeverSettles",
+   "status": "killed",
+   "killed_by": [
+    "invariant_DivergentLegNeverSettles",
+    "invariant_HoldsNothingBeyondTheSeed",
+    "invariant_StrandedMoneyIsNeverSwept"
+   ],
+   "seconds": 26
+  },
+  {
+   "id": "PAUSE-off",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "modifier whenLive()  { if (paused) revert RouterE(2); _; }",
+    "new": "modifier whenLive()  { _; }"
+   },
+   "aimed_at": "invariant_PausedRouterNeverSettles",
+   "status": "killed",
+   "killed_by": [
+    "invariant_PausedRouterNeverSettles"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "LOCK-off",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (v != 0) revert RouterE(7);",
+    "new": "if (v == 2) revert RouterE(7);"
+   },
+   "aimed_at": "invariant_reentrancyBlocked",
+   "status": "killed",
+   "killed_by": [
+    "invariant_reentrancyBlocked"
+   ],
+   "seconds": 26
+  },
+  {
+   "id": "FLOOR-half",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (amountOut < effMin) revert RouterE(5);",
+    "new": "if (amountOut < effMin / 2) revert RouterE(5);"
+   },
+   "aimed_at": "(nenhuma invariante vigia o piso do protocolo — espera-se SOBREVIVER = lacuna)",
+   "status": "survived",
+   "killed_by": [],
+   "seconds": 26,
+   "reading": "gap: no stateful campaign asserts the protocol floor; the guard is watched by one unit mutant only. A handler that records ExecutionProof.floorOut and an invariant delivered >= floorOut would close it."
+  },
+  {
+   "id": "SLOTS-17",
+   "file": "src/BlazePhoenixHub.sol",
+   "mutation": {
+    "old": "uint8   internal constant MAX_SLOTS              = 16;",
+    "new": "uint8   internal constant MAX_SLOTS              = 17;"
+   },
+   "aimed_at": "invariant_RegistryNeverExceedsMaxSlots / neverExceedsMaxSlots",
+   "status": "killed",
+   "killed_by": [
+    "invariant_neverExceedsMaxSlots"
+   ],
+   "seconds": 52,
+   "name_note": "bare assertLe without message = test/HubInvariantFromV1.t.sol:130; FullStackLoop's twin carries a message and did not fire"
+  },
+  {
+   "id": "PAIRPROOF-off",
+   "file": "src/BlazePhoenixHub.sol",
+   "mutation": {
+    "old": "&& (BPC.token0Of(pool) != t0 || BPC.token1Of(pool) != t1)) return;",
+    "new": "&& false) return;"
+   },
+   "aimed_at": "invariant_ActiveEntriesResolveToRealPools / activePoolsResolve",
+   "status": "survived",
+   "killed_by": [],
+   "seconds": 52,
+   "reading": "gap: recordSwap's pair-proof (a pool must really trade t0/t1 before entering the registry) has NO mutant anywhere - no handler ever offers the Hub a pool on other tokens. Unwatched guard."
+  },
+  {
+   "id": "SWEEP-in-nobase",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);",
+    "new": "if (residIn > 0) BPC.safeTransfer(tokenIn, payer, residIn);"
+   },
+   "aimed_at": "invariant_StrandedMoneyIsNeverSwept",
+   "status": "killed",
+   "killed_by": [
+    "invariant_HoldsNothingBeyondTheSeed",
+    "invariant_StrandedMoneyIsNeverSwept"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "SWEEP-bridge-nobase",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);",
+    "new": "if (rb > 0) BPC.safeTransfer(bridge, payer, rb);"
+   },
+   "aimed_at": "invariant_StrandedMoneyIsNeverSwept (ponte)",
+   "status": "survived",
+   "killed_by": [],
+   "seconds": 26,
+   "reading": "gap: the bridge-residual sweep baseline (bridgeBase[h]) has NO mutant anywhere - StrandedRegime seeds tokenIn/tokenOut balances but never a pre-existing BRIDGE balance under a multi-hop route. Unwatched guard."
+  },
+  {
+   "id": "TOUT-nobase",
+   "file": "src/BlazePhoenixRouter.sol",
+   "mutation": {
+    "old": "uint256 totalReceived = BPC.balanceOf(tokenOut, address(this)) - toutStart;",
+    "new": "uint256 totalReceived = BPC.balanceOf(tokenOut, address(this));"
+   },
+   "aimed_at": "invariant_StrandedMoneyIsNeverSwept / HoldsNothingBeyondTheSeed",
+   "status": "killed",
+   "killed_by": [
+    "invariant_HoldsNothingBeyondTheSeed",
+    "invariant_StrandedMoneyIsNeverSwept"
+   ],
+   "seconds": 26
+  }
+ ],
+ "invariants_shown_falsifiable_count": 18
+}

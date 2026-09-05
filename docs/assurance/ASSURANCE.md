@@ -374,6 +374,24 @@ the floor the Router enforces equals the attested floor when the protocol fee co
 output, and sits inside `[attested × (1 − fee), attested]` when it comes off the input — the lower
 edge by the fee, the upper by the curve's convexity. Both frames are now asserted on every row.
 
+### 4h.1 Strength three
+
+The same generator, asked for every **triple** of factor values: `covering_array.py` now builds a
+strength-3 array beside the pairwise one (`test/regime/RegimeCoverageT3.t.sol`,
+`docs/assurance/regimes-covering-t3.json`), 168 rows holding all 1,636 triples of the same ten
+factors, through the same harness and the same single assertion. The pairwise file is byte-identical
+to before — the two arrays are two denominators, not one replacing the other.
+
+| strength | rows | tuples held | settled | refused, ours | not constructible | third way |
+|---|---|---|---|---|---|---|
+| 2 | 63 | 258 pairs | 53 | 4 | 6 | 0 |
+| 3 | 168 | 1,636 triples | 158 | 10 — `SolverE(5)` ×7, `RouterE(13)` ×3 | 0 | 0 |
+
+What strength three adds is interactions of three factors that no pair reaches — a fee-on-transfer
+token entering a three-hop route through the planned door, a six-decimal input on a full pair under
+renounced control. Every one of the 168 rows either settled inside its floors or refused with a
+selector of ours; the ten refusals are the same two families the pairwise array refuses for.
+
 ## 4i. The hostile-venue matrix
 
 Token pathologies had their tests; venue pathologies had none in a matrix. `test/regime/HostileVenues.sol`
@@ -456,6 +474,226 @@ The V3 bound is stated in the quantity that causes it: the pool rounds its new p
 trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
 wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
 assertion is the bound, not the sample.
+
+## 4l. Mutants aimed at the invariants
+
+Until 2026-09-05 none of the 183 curated mutants named a stateful invariant as the test that must
+die to it. The 39 `invariant_*` functions across 14 campaigns were green, and nothing had ever
+asked whether any of them could go red: a campaign whose handler never reaches the state a
+property protects certifies that property over an empty universe, and looks identical from the
+outside to one that reaches it. The measurement is the same one the guard makes for unit tests,
+pointed at the campaigns: alter one guard in the source, run every invariant, and record which
+ones notice.
+
+Fifteen mutants, one per property the campaigns claim, each run against all 39 invariants on the
+same seed (`docs/assurance/invariant-mutants.json` holds the full matrix, with the exact edit):
+
+| mutant | what it removes | noticed by |
+|---|---|---|
+| the final transfer pays one wei less | holds-nothing | `RouterHoldsNothing`, `routerHoldsNothing`, `HoldsNothingBeyondTheSeed` |
+| the protocol fee doubles | the fee ceiling | `FeeNeverExceedsProtocolMax` |
+| the input-side fee is never charged | the fee floor | `FeeNeverEscapes` |
+| the fee is charged on both sides | one fee, one side | `FeeIsChargedOnExactlyOneSide` |
+| 30 % of every fee goes to a dead address | conservation | `conservationA/B/C/H`, `TokenConservation`, `LedgerConservationA` |
+| the leg-pair guard admits a leg on the wrong pair | homogeneous hops | `DivergentLegNeverSettles`, and the stranded-money pair |
+| `whenLive` no longer checks `paused` | the pause | `PausedRouterNeverSettles` |
+| the reentrancy lock no longer refuses | the lock | `reentrancyBlocked` |
+| `MAX_SLOTS` becomes 17 | the registry bound | `neverExceedsMaxSlots` |
+| the input-residual sweep ignores its baseline | stranded money | `StrandedMoneyIsNeverSwept`, `HoldsNothingBeyondTheSeed` |
+| the output measurement ignores its baseline | stranded money | the same pair |
+
+**Eleven of fifteen were noticed; eighteen distinct invariant names went red at least once.** The
+eleven are now entries in the mutation guard, paired with the invariant that dies to them, so the
+campaigns stop being properties nobody has tried to break.
+
+The four survivors are the finding, and each is read rather than counted:
+
+| survivor | reading |
+|---|---|
+| the post-fee `userMinOut` check is halved | expected — `DeliveredNeverBelowUserMinOut` is a regression sentinel; no campaign universe holds a fee-on-transfer `tokenOut`, so the guard is unreachable there and two unit mutants watch it instead |
+| the protocol floor is halved | **gap**: no stateful campaign asserts the floor. One unit mutant watches the comparison. A handler that reads `ExecutionProof.floorOut` and asserts `delivered >= floorOut` would close it |
+| `recordSwap`'s pair-proof is removed | **unwatched guard**: no mutant anywhere, unit or invariant. No handler ever offers the Hub a pool that trades other tokens |
+| the bridge-residual sweep ignores its baseline | **unwatched guard**: no mutant anywhere. `StrandedRegime` seeds `tokenIn` and `tokenOut` balances but never a pre-existing bridge balance under a multi-hop route |
+
+Two guards with no watcher at all is the number this section exists to print. Both are recorded
+as `survived` with their reading in `invariant-mutants.json`, and neither is counted anywhere as
+covered; a green suite with an unwatched guard in it was the shape of both documented
+regressions in this codebase.
+
+## 4m. Metamorphic relations — a second judge for the maths and for the plan
+
+An oracle written from the same formula cannot catch the formula. A metamorphic relation asks
+instead how the output must **move** when the input moves, and the venue's own curve answers
+that question without a reference implementation. `test/CoreMetamorphicRelations.t.sol` (2026-09-02,
+extended 2026-09-05) holds fourteen relations over the Core's quote maths; `test/RouteMetamorphicRelations.t.sol`
+(2026-09-05) holds five over the Solver's plan on a two-pool universe with a real Hub and a real Solver.
+
+| level | relation | what it says |
+|---|---|---|
+| Core, V2 · V3 · stable | MR1 monotone | more in, never less out |
+| Core, V2 · V3 · stable | MR2 sub-additive | splitting an order across the same pool never gains |
+| Core, V2 · stable | MR3 no round trip | in, then back on the updated reserves, never returns more than went in |
+| Core, V2 · V3 · stable | MR4 scale equivariance | scaling order and pool together scales the output, to rounding |
+| Core, V2 · V3 | MR5 fee monotone | a higher fee never pays more |
+| Core, V3 | MR6 direction symmetry | at price 1.0 the two arms of `outV3` agree to two ulps |
+| Core, Solidly | MR7 identity | the volatile arm **is** `outV2`, one producer |
+| plan | MR-R1 | the split never pays less than the best single pool would |
+| plan | MR-R2 | monotone in `amountIn` |
+| plan | MR-R3 | adding a pool inside the price band never lowers the plan |
+| plan | MR-R4 | registration order moves the plan by at most one weight unit of the split |
+| plan | MR-R5 | the attested floor never exceeds the expected output |
+
+Three of the bounds were **measured before they were written**, and the number in the assertion is
+the mechanism, not the sample:
+
+- **MR6.** At `L = 8.5 × 10³⁷` and 1,374 wei in, the `zeroForOne` arm quoted 1,073,741,823 wei —
+  exactly `L / 2⁹⁶`, one ulp of the square-root price — while the other arm quoted 0 (its price
+  step rounded to nothing and it failed closed). Both sit inside the §4k bound; the relation now
+  states it between the arms: two ulps, one per arm, plus the two output floors.
+- **MR-R1 / MR-R3.** With one pool priced 10¹⁰ away from the other, the plan paid 35 % less than
+  the outlier alone, and a deep mispriced pool displaced a shallow honest one. That is the Solver's
+  median filter (`MEDIAN_FILTER_BPS`, ±5 %) refusing to believe an outlier — the relations hold over
+  pools it admits, so the domain keeps the two prices within ±4 %.
+- **MR-R4.** Replayed leg by leg: a pool whose depth weight floors to the minimum (1 of 10,000
+  against the deepest) is **kept** as a dust leg when it was registered first and **cut** when
+  registered second. Both plans are sound; they differ by what one weight unit of the amount earns
+  in one pool against the other — observed 3 × 10⁻⁷ of the output. The split's keep-or-cut of a
+  minimum-weight pool depends on its position; that is now written down where it was found.
+
+## 4n. N-version: the same source under other code generation
+
+The suite executes one binary — the one the release settings emit, and `profile_parity.py` keeps
+the suite on those settings. Every other optimiser setting is a different program compiled from the
+same source, and the compiler is a component: a miscompile, or source that only means what it seems
+to mean under one setting, is invisible to a suite that runs under that setting alone.
+
+`test/nversion/` compiles the Core's quote maths (`CoreProbe.sol`, an external surface over the
+internal library) under two more profiles — `nver1` at `optimizer_runs = 1`, `nver2` at
+`20000`, everything else identical to `release` — and `NVersionCore.t.sol` deploys the three
+binaries side by side and asserts equality on fuzzed inputs: `outV2`, `outV3`, `outSolidly`,
+`outSolidlyStable`, `mulDiv`, `mulDivUp`, 3,000 runs each, over the whole input domain. The lane
+first asserts the alternate bytecode **differs** from the shipped one, so it cannot pass by comparing
+a program with itself; and `NVERSION_LANE=1` turns a missing artefact from a skip into a failure,
+so it cannot pass by never having built anything.
+
+**The three binaries agree.** The compiler was not the finding. The lane's first full-domain run
+made the *reference* revert: `outSolidlyStable` on a pool holding under one unit of each token
+raised `BPC:mulDiv` instead of quoting zero. The stable curve's domain guards were written for the
+seed of Newton's method; the guard that checks whether `k` fits a word divides `max · WAD / b`, and
+that division itself overflows once `b < WAD` — a pool with less than one token per side. A second
+escape, a whale input reserve against a dust output reserve, passed the `k` check and overflowed the
+derivative on the first step. Neither was a wrong number: both were **reverts inside a quote**, and
+`universalQuote` is a library `DELEGATECALL`, so the revert unwinds the Solver's whole plan and,
+with it, the planned door for the pair. Reach: the curve is the fallback for a pool whose own
+`getAmountOut` answers at most 1 wei — a registered pool holding 1 wei of the output token is enough.
+
+The repair replaces the division with the question it was standing in for: `mulDiv` reverts
+exactly when the high word of the 512-bit product reaches the divisor, so `_mulFitsWad` computes
+that high word (two multiplications, no division) and compares it with one WAD — asked once for
+`k` and once for the derivative, at the seed, which is the largest point Newton visits. It cannot
+overflow on any input, and it went in red-first: three named tests
+(`CoreStableCurveFailsClosed.t.sol`, including the plan-level reach through a real Solver) failed
+against the tree before the repair and pass against the tree after it; a 5,000-run fuzz over the full domain and a
+60,000-sample sweep of the same arithmetic in Python find no revert; three mutants in the guard
+watch the two checks. A further guard — a cap on Newton's iterate — was written first, found to be
+unobservable by any test once the two checks hold (its mutant was *decorative*), and removed:
+the guard reports it rather than carrying it. The repair is also smaller than the code it replaces. Its class is the one this repository names first — fail-open — found by an
+instrument that was not looking for it.
+
+## 4o. The fee rule, both regimes named — and the contract asserting the count
+
+The protocol fee has had one rule since 2026-08-22: charge once, on the input of the first hop
+whose input is a bridge coin (or on the output of a direct route into one). It also had a second
+regime the rule did not name: a hand-built route through pools the registry would not hold, with
+no bridge coin as any hop's input. There the fee hop is never found and the predicate that charges
+is true for every hop, so each hop pays on its own measured input — *immunity by exhaustion*. The
+register carried it as **FEE-01** ("~56 bps on an honest two-hop route") and the suite pinned it
+(`ExhaustionRegimePreviewParity.t.sol`), with the Quoter modelling the same per-hop deduction.
+
+On 2026-09-05 the obvious repair was tried inside the suite: no bridge anywhere → charge once, on
+hop 0. It reopened the escape the exhaustion policy exists to close — a value-less first hop
+(`FeeEscapeViaJunkPrefix.t.sol`) carries the fee spot onto dust and the real hop pays nothing —
+and five pinned tests went red within the same run. The policy stands, and is now **named in the
+code** where the predicate is, with the reason. What changed is the assertion of it:
+
+| seal | what it does | where |
+|---|---|---|
+| both regimes named | the anchored regime pays exactly once, at `feeHop`; the exhaustion regime pays once per hop; the alternative is written down as tried and refused | `_execute`, at the predicate |
+| one producer of the commitment | the sum of a hop's declared leg inputs — the fee base at hop 0 and the scale's denominator — is computed by one function, `_legSum`; before, two loops | `_legSum` |
+| the run-time ledger | `_payFee` counts into a transient slot; every settlement reads it once and refuses a delivery that paid nothing (`RouterE(15)`) and, on an anchored route, a second payment (`RouterE(16)`), then clears it | `_payFee`, end of `_execute` |
+
+The tests were written to **catch**, not to fit. `test/FeeSeals.t.sol` reads none of the Router's
+numbers: the fee token comes from the rule and the bridge list, the base from the pools' balance
+deltas (what left the Router into the fee hop, or what the previous hop's pools paid out) or the
+recipient's, the fee from the treasuries' deltas, the count from the `Fee` events — over every
+shape the Router accepts (one to three hops; bridge in no, first, middle or last position; one or
+two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
+events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
+
+**How often each test notices each defect** was measured rather than assumed: every fee mutant
+(the regime predicate moved two ways, the commitment producer, the ledger's two checks, and the
+three fee mutants of §4l) was run under twenty fuzz seeds per fuzzed test, and the detection rate
+is published with a Wilson 95 % interval (`docs/assurance/fee-seal-detection.json`):
+
+| mutant | FeeSeals fuzz | Router fee campaign | covering array t=2 | junk-prefix escape | exhaustion preview parity |
+|---|---|---|---|---|---|
+| exhaustion charges hop 0 only (junk-prefix escape) | 20/20 [0.84, 1.00] | 0/20 [-0.00, 0.16] | no | yes | yes |
+| exhaustion skips hop 0 | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
+| commitment counts the first leg only | 20/20 [0.84, 1.00] | 0/20 [-0.00, 0.16] | no | no | no |
+| BELT ledger: settlement without a fee no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
+| BELT ledger: anchored double payment no longer refused | 0/20 [-0.00, 0.16] | 0/20 [-0.00, 0.16] | no | no | no |
+| fee doubled | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | yes | yes | yes |
+| input-side fee never charged | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
+| fee charged on both sides | 20/20 [0.84, 1.00] | 20/20 [0.84, 1.00] | no | yes | yes |
+
+Read across a row: which tests see this defect. Read down a column: what a test can and cannot
+see. The Router campaign builds direct routes only, so the exhaustion-regime mutants that spare
+hop 0 are invisible to it and visible to the every-shape fuzz and the two pinned tests; the
+commitment producer only matters on a two-leg hop, which only the every-shape fuzz builds; the
+two ledger belts are seen by nothing, as their name says. Twenty seeds at 20/20 bound the miss
+probability of one campaign at 15 % (rule of three), which is why the guard runs the named test
+and the campaign both.
+
+
+The ledger's two checks are **belts**: in isolation no test can make them fire, because the
+predicate in front of them leaves no path that settles without paying, or pays twice on an
+anchored route. They are kept — they are the contract refusing at run time what the tests refuse
+at review time, on paths that do not exist yet — listed as belts here, counted as covered nowhere,
+and absent from the mutation guard, which admits only mutants a named test kills.
+
+## 4p. How a quote ages — the promise measured against time and drift
+
+A quote is a promise about a future block. `test/QuoteDelayStatistics.t.sol` takes it the way an
+integrator does — `previewAndEncode` returns the preview and the calldata — lets the world move
+(zero to three trades by someone else through the same pools, each up to 3 % of the shallow
+reserve, all in the user's direction so every one of them hurts), lets zero to ten seconds pass,
+and executes the calldata unchanged. 240 samples on the three-token universe, every outcome
+classified, the guarantees asserted and the distribution printed:
+
+| drift between quote and execution | samples | settled | refused by the floor (`RouterE 5`) | delivered / predicted, mean · min |
+|---|---|---|---|---|
+| none | 64 | 64 | 0 | 100.00 % · 100.00 % |
+| up to 100 bps | 43 | 43 | 0 | 99.52 % · 98.03 % |
+| 100 – 300 bps | 133 | 102 | 31 | 99.66 % · 96.53 % |
+
+Bucketed by delay instead (0 s / 1–5 s / 6–10 s) the settle rates are 15/17, 89/99, 105/124 —
+the same picture, because time is not what moves a quote: drift is. What is asserted, not
+printed: time alone never breaks a quote inside its deadline (drift-free samples settle 100 % at
+every delay, delivering exactly the prediction); a settlement never delivers below the floor the
+preview attested; nothing is a third way; and after the deadline the refusal is the deadline's
+own code (`RouterE 4`, 20 of 20). Under 3 % of adverse drift, one settlement in four is refused
+by the floor rather than filled below it, and the ones that fill land within 3.5 % of the
+prediction — the sandwich curve of §4j seen from the quote's side.
+
+The same measurement on live Base (`test/fork/QuoteDelayFork.t.sol`, 1,000 USDC → WETH): executed
+0, 3, 6 and 10 s later with nothing else moving, the quote delivered exactly its prediction all
+four times; with 10,000 to 5,000,000 USDC traded ahead of it and the calldata executed 10 s later,
+all five settled inside the floor at 9,999 · 9,998 · 9,994 · 9,974 · 10,000 bps of the prediction.
+`test/QuoterGasStatistics.t.sol` and `test/fork/QuoterGasFork.t.sol` price the quote itself through
+the ABI as mean, minimum, maximum and spread: on the three-token universe `previewPlan` costs
+121,313 gas (σ 1,433) where discovery finds one pool and 235,574 (σ 1,815) where a fresh registry
+prices three; `batchQuote` of ten, 205,539 per entry; on live Base 1,524,221 cold, 1,414,633 warm,
+1,359,925 cold again — the discovery sweep is about 7 % of a live quote.
 
 ## 5. What none of this establishes
 

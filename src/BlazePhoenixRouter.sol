@@ -191,6 +191,11 @@ contract BlazePhoenixRouter {
     uint256 private constant TSLOT_V4OUT = uint256(keccak256("blaze.r.v4out"));
     uint256 private constant TSLOT_LOCK  = uint256(keccak256("blaze.r.lock"));
     uint256 private constant TSLOT_FOT   = uint256(keccak256("blaze.r.fot"));
+    // FEE LEDGER (2026-09-05). Counted by the one function that pays the protocol fee, read once
+    // at the end of every settlement: a swap that delivers and did not pay is refused (15); in the
+    // anchored regime a swap that paid twice is refused (16). The fee rule has one home; this is
+    // the contract asserting it at run time, on every path, including paths that do not exist yet.
+    uint256 private constant TSLOT_FEE   = uint256(keccak256("blaze.r.fee"));
     /// @dev Native-ETH receive() gate: holds the ONE address allowed to send
     ///      raw ETH to the Router at this instant (the canonical WETH during a
     ///      JIT unwrap, the V4 PoolManager during a native take), zero at
@@ -259,7 +264,8 @@ contract BlazePhoenixRouter {
     // 5 = slippage, 6 = callback auth, 7 = reentrancy, 8 = swap failed,
     // 9 = disallowed V4 hook, 10 = userMinOut == 0 with amountIn > 0 (BP-04),
     // 13 = FoT token on a V3-only route (route-where-natural), 14 = rescue
-    // not queued or still inside the 48h timelock
+    // not queued or still inside the 48h timelock, 15 = a swap settled without
+    // paying the protocol fee, 16 = the fee was paid twice on an anchored route
 
     // Every privileged door in this contract is gated by onlyControl, so all
     // administrative power ends permanently at renounceControl(). Keep it that
@@ -632,14 +638,23 @@ contract BlazePhoenixRouter {
     ///      THE COST, stated where it is decided: an honest H-hop route pays ~H times the rate.
     ///      With this design's 2-hop budget, the honest worst case is double. The minimum charged
     ///      is ALWAYS the full rate on the value moved — never less, which was the condition.
+    /// @dev THE ONE PRODUCER of "how much does this hop commit?" — the sum of its legs' declared
+    ///      inputs. The fee base at hop 0 and the scale denominator read this same function; before
+    ///      2026-09-05 each summed the legs in its own loop, which is two producers of one number
+    ///      and the defect signature this codebase names first.
+    function _legSum(Hop calldata hop) private pure returns (uint256 c) {
+        for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
+    }
+
     function _chargeHopFee(Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase)
         private returns (uint256)
     {
         uint256 baseH;
         if (h == 0) {
+            // `amountIn` here is the MEASURED pull (every door hands `_execute` its balance
+            // delta), capped by what the route commits — the same cap the scale applies.
             baseH = amountIn;
-            uint256 c;
-            for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
+            uint256 c = _legSum(hop);
             if (c < baseH) baseH = c;
         } else {
             uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
@@ -666,6 +681,9 @@ contract BlazePhoenixRouter {
     /// @dev The 30/70 split in its own frame: under via_ir `_execute` sits at the stack limit,
     ///      and two locals (t1, t2) declared inside it are enough to blow it.
     function _payFee(address token, uint256 fee) private {
+        uint256 sFee = TSLOT_FEE;
+        uint256 paid; assembly { paid := tload(sFee) }
+        assembly { tstore(sFee, add(paid, 1)) }
         uint256 t1 = BPC.mulDiv(fee, TREASURY1_SHARE, BPC.BPS);
         uint256 t2 = fee - t1;
         if (t1 > 0) BPC.safeTransfer(token, treasury1, t1);
@@ -757,8 +775,7 @@ contract BlazePhoenixRouter {
                 uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
                 realIn = bal > foreignBase ? bal - foreignBase : 0;
             }
-            uint256 quotedIn;
-            for (uint256 l; l < legs; ) { quotedIn += hop.legs[l].amountIn; unchecked { ++l; } }
+            uint256 quotedIn = _legSum(hop);
             // SECURITY (issue #1 cap × BP-02 floor seam): the hop-0 cap is
             // applied HERE, BEFORE the quote loop below, so hopQuote/hopImpact
             // are priced on the SAME legAmt _execute later spends. Capping
@@ -1047,6 +1064,15 @@ contract BlazePhoenixRouter {
         // Read ONCE: the predicate used here and in the block at the end has to be
         // the same value, and between the two the whole route runs (hooks included).
         bool feeOnOut = route.hops.length == 1 && hub.isBridgeToken(tokenOut);
+        // TWO REGIMES, BOTH NAMED (2026-09-05). ANCHORED: a bridge coin is an input somewhere, and
+        // the fee is charged exactly once, there. EXHAUSTION: no bridge coin is an input anywhere
+        // (a hand-built route through pools the registry would not hold) — `feeHop` stays at max
+        // and the predicate below is true for EVERY hop, so each hop pays on its own measured
+        // input. That is immunity by exhaustion, not an oversight: charging such a route once, on
+        // hop 0, was tried on this date and reopened the junk-prefix escape inside the suite
+        // (a value-less first hop moves the fee spot onto dust; `FeeEscapeViaJunkPrefix.t.sol`).
+        // The policy is pinned by `ExhaustionRegimePreviewParity.t.sol` and modelled by
+        // `Quoter._pack`; the ledger at the end of this function enforces the count per regime.
 
         // Bit i is set when the i-th leg of the route actually executed. Beyond
         // 255 legs the shift yields 0, so the bit stays clear and the leg is not
@@ -1474,6 +1500,17 @@ contract BlazePhoenixRouter {
         // Slippage protection is enforced on the DELIVERED amount: a fee-on-
         // transfer token cannot be used to slip the user below their userMinOut.
         if (delivered < userMinOut) revert RouterE(5);
+
+        // THE FEE LEDGER, read once per settlement: a delivery that paid nothing is refused; in
+        // the anchored regime a second payment is refused; the slot is cleared for the next swap
+        // in the same transaction.
+        {
+            uint256 sFee = TSLOT_FEE;
+            uint256 paid; assembly { paid := tload(sFee) }
+            if (paid == 0) revert RouterE(15);
+            if (paid > 1 && feeHop != type(uint256).max) revert RouterE(16);
+            assembly { tstore(sFee, 0) }
+        }
 
         amountOut = delivered;
         _recordHits(route, executedMask, hopScale);

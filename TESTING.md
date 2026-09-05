@@ -3,9 +3,9 @@
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-05): **206 `.t.sol` files** — 181 local, 25 fork — holding
-**1,252 `test*` / `invariant*` / `check*` declarations**; **1,122 tests green** in the release
-profile with fork suites excluded and **119 green on live liquidity**; **183 curated mutants**, all killed.
+Measured on this tree (2026-09-05): **218 `.t.sol` files** — 191 local, 27 fork — holding
+**1,478 `test*` / `invariant*` / `check*` declarations**; **1,319 tests green** in the release
+profile with fork suites excluded and **119 green on live liquidity**; **197 curated mutants**, all killed.
 
 ## Running
 
@@ -79,7 +79,7 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 183 curated mutants, each paired with the one test that must die;
+- **The mutation guard** — 197 curated mutants, each paired with the one test that must die (eleven of them name a stateful `invariant_*` — see `docs/assurance/invariant-mutants.json` for the matrix of 15 mutants × 39 invariants and the two guards it found unwatched);
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.
@@ -93,6 +93,9 @@ make this fail?* Three things every test in the suite carries:
   forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
   ```
 - **The sandwich curve** — `SandwichCurve.t.sol` plays the attacker across a grid of manipulations and asserts the floor's bound at every point; `forge test --match-contract SandwichCurve -vv` prints the curve.
+- **How a quote ages** — `QuoteDelayStatistics.t.sol` (mocks) and `fork/QuoteDelayFork.t.sol` (live Base): a quote taken through `previewAndEncode`, the world moves, 0–10 s pass, the calldata runs unchanged; settle rate and delivered/predicted per drift bucket printed, the guarantees asserted (ASSURANCE §4p). **What a quote costs** — `QuoterGasStatistics.t.sol` / `fork/QuoterGasFork.t.sol`: discovery vs fresh registry through the ABI, mean/min/max/spread.
+- **Metamorphic relations** — `CoreMetamorphicRelations.t.sol` (14, over the quote maths) and `RouteMetamorphicRelations.t.sol` (5, over the Solver's plan): how the output must move when the input moves, no reference implementation; three bounds measured before written (ASSURANCE §4m).
+- **N-version lane** — `test/nversion/`: the quote maths compiled at `optimizer_runs` 1 and 20000 beside the shipped 300, three binaries compared on fuzzed inputs. `FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'` (and `nver2`), then `NVERSION_LANE=1 forge test --match-path 'test/nversion/*'`. Its first run found the stable curve failing open on dust pools (ASSURANCE §4n).
 - **Canonical oracles** — `CanonicalOracles.t.sol` fuzzes `outV2`, `outV3` and the stable curve against implementations written from the venues' specifications; direction first, tightness second.
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
 - **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps

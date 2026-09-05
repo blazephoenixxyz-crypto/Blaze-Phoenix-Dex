@@ -320,6 +320,35 @@ jobs:
           echo "::error::fork tests failed three consecutive attempts — treat this as real, not as a flake"
           exit 1
 
+  n-version:
+    name: n-version lane (same source, other code generation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build the Core probe under two other optimiser settings
+        # test/nversion: the suite executes one binary (the release settings). This lane
+        # compiles the same quote maths at optimizer_runs = 1 and 20000 and asserts the
+        # three binaries agree on fuzzed inputs. A disagreement is a compiler-setting
+        # dependence in the source, and would be invisible to a suite that runs under one
+        # setting alone.
+        run: |
+          FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'
+          FOUNDRY_PROFILE=nver2 forge build --skip '*.t.sol'
+
+      - name: Compare the binaries
+        # NVERSION_LANE=1 turns the test's "no artefacts" skip into a failure, so the lane
+        # cannot go green by never having built anything.
+        env:
+          NVERSION_LANE: "1"
+        run: forge test --match-path "test/nversion/*" --fuzz-runs 2000 -vv
+
   size-guard:
     name: EIP-170 size guard (release profile)
     runs-on: ubuntu-latest

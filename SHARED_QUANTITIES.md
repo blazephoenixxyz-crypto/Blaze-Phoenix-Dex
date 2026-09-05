@@ -49,6 +49,8 @@ green test in front of it.
 | Quantity | The question it answers | Producers / consumers | Status | Pin |
 |---|---|---|---|---|
 | `LEG_FLOOR_BPS` | "How much may a single leg legitimately lose?" | `Core` (definition), `Router` ×8 | `UNVERIFIED` | **Downgraded 2026-09-04.** The row cited `test/formal/CompositionFormalSpec.t.sol`, which **no runner executes**: `check_` is the Halmos prefix, `forge test` skips it, and no CI job names the contract. It also asserts over test-local reimplementations rather than `src/`, and models the leg floor with `mulDiv` where the live guard at `Router:1633` uses `mulDivUp` — wired up as written it would report the correct code as broken. No test in the corpus names this constant. |
+| hop commitment (`Σ leg.amountIn`) | "How much does this hop commit to trade?" | `Router._legSum` — the fee base at hop 0 and the scale denominator both read it (since 2026-09-05; before, two loops) | `SINGLE` | `test/FeeSeals.t.sol` fuzz: the fee is `ceil(28 bps)` of the base the pools measured, one and two legs; mutant 200 (first leg only) |
+| fee count per settlement | "Did this swap pay the protocol — once on an anchored route, once per hop on an exhausted one?" | `Router._payFee` counts into a transient slot, `Router._execute` reads it once at settlement: zero → `RouterE(15)`, more than one on an anchored route → `RouterE(16)` | `SINGLE` | `invariant_SettledSwapEmitsExactlyOneFee` (Fee events counted per settlement), `test/FeeSeals.t.sol` (every shape, both regimes); the ledger's own two checks are belts — `docs/assurance/fee-seal-detection.json` measures them as unobservable in isolation |
 | `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1, `Quoter.previewPlanExact` ×1 (since 2026-09-03) | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant**. `test/QuoterExactNetOut.t.sol` pins the exact pass: `exactOut` equals the view preview's after-fee figure to the wei, is a floor the Router honours, and its deduction is `_pack`'s (once, rounded up); mutants 154-155 |
 | `effV2Fee` / `quoteV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
 | `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) · `test/regime/RegimeHarness.sol` pins the second frame on every generated row: with the fee off the input the enforced floor sits in [attested × (1 − fee), attested], with the fee off the output it equals the attested floor |
@@ -58,9 +60,15 @@ within 0.1 %. The protocol fee is 28 bps, so a missing deduction *would* break t
 only on the routes the test builds, which all have a bridge token in a hop input (the **anchored**
 fee regime). Two regimes escape it:
 
-- **FEE-01** — in the *exhaustion* regime (multi-hop route with no bridge token in any hop input) the
-  Router charges on **every** hop while the Quoter models a single deduction. Measured: 2.80e18 in
-  `tA` **and** 2.78e18 in `tB` against the 28 bps promised — ~56 bps on an honest route.
+- **FEE-01** — **policy, named 2026-09-05.** In the *exhaustion* regime (multi-hop route with no
+  bridge token in any hop input) the Router charges on **every** hop — measured 2.80e18 in `tA`
+  **and** 2.78e18 in `tB` against the 28 bps promised, ~56 bps on an honest route. It is immunity
+  by exhaustion, not an oversight: charging such a route once, on hop 0, was tried on 2026-09-05
+  and reopened the junk-prefix escape inside the suite (`FeeEscapeViaJunkPrefix.t.sol`). The
+  earlier sentence here, "while the Quoter models a single deduction", was stale — the Quoter has
+  modelled the per-hop deduction since `ExhaustionRegimePreviewParity.t.sol` tied the two. Pinned
+  by that file, by `test/FeeSeals.t.sol` (every shape, both regimes, bases measured from the
+  pools) and by mutants 198-199 (the predicate moved either way).
 - **FEE-02** — **closed 2026-09-03.** `Quoter.previewPlanExact` contained no `PROTOCOL_FEE_BPS` term at
   all, yet its own docstring called the result *execution-grade* and the Router's docstring told
   integrators to derive `userMinOut` from it: delivery was exactly the fee below it on every route,
