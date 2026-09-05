@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 import {StdInvariant} from "forge-std/StdInvariant.sol";
-import {Test, Vm} from "forge-std/Test.sol";
+import {Test, Vm, console2} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
@@ -40,6 +40,15 @@ contract RouterHandler is Test {
     bool    public ghost_feeChargedTwice;
     bool    public ghost_feeEventsNotOne;   // a settlement emitted zero or several Fee events
     bool    public ghost_multiHopFeeShapeWrong;   // a 2-hop settlement paid where the rule does not say
+    bool    public ghost_deliveredBelowProtocolFloor;   // a settlement delivered under the floor the Router itself emitted
+    uint256 public driftCalls;
+    uint256 public driftSettled;
+    uint256 public driftRefusedByFloor;
+    uint256 public driftRefusedOther;
+    uint256 public driftSettledBelowAttested;
+    uint256 public driftWhaleFailed;
+    bytes32 constant PROOF_SIG = keccak256("ExecutionProof(address,address,uint256,uint256,uint256,uint256)");
+    address public whale = address(0xB16);
     uint256 public multiCalls;
     uint256 public multiSettles;
     // Non-vacuity counter for the fee guards THEMSELVES: how many runs
@@ -190,6 +199,73 @@ contract RouterHandler is Test {
         uint256 q = BPC.outV2(amt, zfo ? r0 : r1, zfo ? r1 : r0, 30);
         return Leg({pool: address(p), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
                     zeroForOne: zfo, stable: false, amountIn: amt, expectedOut: q, auxId: bytes32(0)});
+    }
+
+    // ── THE PROTOCOL FLOOR, UNDER DRIFT (2026-09-05). No campaign asserted the floor: honest
+    //    pools always pay the quote, so the floor never bound and a halved floor was invisible
+    //    (invariant-mutants.json, FLOOR-half). This action quotes a route at the current
+    //    reserves, lets a whale move the pool by 0-8 % in the user's direction, then executes the
+    //    stale route. The Router either refuses by the floor (RouterE 5) or settles — and a
+    //    settlement must deliver at least the floor the Router itself published in ExecutionProof.
+    function swapAfterDrift(uint256 pairSeed, uint256 amountSeed, uint256 driftBps, bool reverseDirection) external {
+        driftCalls++;
+        if (pairs.length == 0) return;
+        MockV2Pair pair = pairs[pairSeed % pairs.length];
+        (address tIn, address tOut) = reverseDirection ? (pair.token1(), pair.token0()) : (pair.token0(), pair.token1());
+        uint256 amountIn = bound(amountSeed, 1e15, 200e18);
+        driftBps = bound(driftBps, 0, 800);
+        // the route carries the floor a Solver would attest at quote time (96 % of the quote): the
+        // protocol floor the Router enforces is max(userMinOut, attested floor, measured floor)
+        Route memory route = _direct(pair, tIn, tOut, amountIn);
+        route.singleOutFloor = BPC.mulDiv(route.totalOut, 9_600, BPC.BPS);
+        MockERC20(tIn).mint(user, amountIn);
+        vm.prank(user); MockERC20(tIn).approve(address(router), amountIn);
+        // the world moves against the user
+        if (driftBps > 0) {
+            (uint112 r0, uint112 r1, ) = pair.getReserves();
+            uint256 rIn = pair.token0() == tIn ? r0 : r1;
+            uint256 w = rIn * driftBps / 10_000;
+            if (w > 0) {
+                MockERC20(tIn).mint(whale, w);
+                vm.startPrank(whale);
+                MockERC20(tIn).approve(address(router), w);
+                try router.swapExactIn(_direct(pair, tIn, tOut, w), w, 1, whale, block.timestamp + 1) {} catch { driftWhaleFailed++; }
+                vm.stopPrank();
+            }
+        }
+        uint256 outTreasBefore = _treas(tOut);
+        vm.recordLogs();
+        vm.prank(user);
+        try router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1) returns (uint256 delivered) {
+            driftSettled++;
+            // the floor is enforced on the GROSS output (before the output-side fee on a direct
+            // route into the bridge coin); delivered is net, so the gross is rebuilt from the
+            // treasuries' delta in tokenOut
+            uint256 gross = delivered + (_treas(tOut) - outTreasBefore);
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            uint256 floorUsed; bool seen;
+            for (uint256 i; i < logs.length; ++i) {
+                if (logs[i].topics[0] == PROOF_SIG) { (, , floorUsed, ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256)); seen = true; }
+            }
+            // two observers of the same floor: the one the Router published, and the one the
+            // handler attested at quote time — a settlement must clear both
+            if (!seen || floorUsed == 0 || gross < floorUsed) ghost_deliveredBelowProtocolFloor = true;
+            if (gross < route.singleOutFloor) { ghost_deliveredBelowProtocolFloor = true; driftSettledBelowAttested++; }
+        } catch (bytes memory ret) {
+            if (ret.length == 36 && bytes4(ret) == BlazePhoenixRouter.RouterE.selector) {
+                uint16 code; assembly { code := mload(add(ret, 36)) }
+                if (code == 5) driftRefusedByFloor++; else driftRefusedOther++;
+            } else driftRefusedOther++;
+        }
+    }
+
+    function _direct(MockV2Pair pair, address tIn, address tOut, uint256 amt) private view returns (Route memory) {
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = _leg(pair, tIn, amt);
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({tokenIn: tIn, tokenOut: tOut, amountIn: amt, expectedOut: legs[0].expectedOut, legs: legs});
+        return Route({hops: hops, totalOut: legs[0].expectedOut, singleOut: legs[0].expectedOut, singleOutFloor: 0,
+                      expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
     }
 
     struct Two { address tIn; address m; address tOut; MockV2Pair p0; MockV2Pair p0b; MockV2Pair p1; }
@@ -358,6 +434,12 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
         assertFalse(handler.ghost_feeEventsNotOne(), "a settled swap emitted zero or several Fee events");
     }
 
+    /// @notice The protocol floor, observed where the Router publishes it: a settlement under
+    ///         drift delivers at least the floor in its own ExecutionProof, or is refused by it.
+    function invariant_DeliveredNeverBelowTheProtocolFloor() public view {
+        assertFalse(handler.ghost_deliveredBelowProtocolFloor(), "a settlement delivered below the floor the Router itself published");
+    }
+
     /// @notice Two hops, one or two legs, every regime the rule names: the fee lands where the
     ///         rule says, in the amount the pools measured, and nowhere else.
     function invariant_TwoHopFeeShapeFollowsTheRule() public view {
@@ -389,6 +471,13 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
     ///         engaged under the configured depth (50) and never trips on a
     ///         short custom run.
     function afterInvariant() public view {
+        console2.log("drift calls", handler.driftCalls(), "settled", handler.driftSettled());
+        console2.log("refused by floor", handler.driftRefusedByFloor(), "refused other", handler.driftRefusedOther());
+        console2.log("settled below attested", handler.driftSettledBelowAttested(), "whale failed", handler.driftWhaleFailed());
+        if (handler.driftCalls() >= 20) {
+            assertGt(handler.driftSettled(), 0, "vacuous: no drifted route ever settled");
+            assertGt(handler.driftRefusedByFloor(), 0, string.concat("vacuous: the floor never bound - no drifted route was ever refused by it | calls=", vm.toString(handler.driftCalls()), " settled=", vm.toString(handler.driftSettled()), " refusedOther=", vm.toString(handler.driftRefusedOther()), " belowAttested=", vm.toString(handler.driftSettledBelowAttested()), " whaleFailed=", vm.toString(handler.driftWhaleFailed())));
+        }
         if (handler.multiCalls() >= 10) {
             assertGt(handler.multiSettles(), 0, "vacuous: no two-hop route ever settled");
         }

@@ -20,7 +20,7 @@ filled in the commit that lands it.
 | green on the release profile, fork suites excluded | 1,319 passed · 0 failed · 1 skipped (1,320) | `forge test --no-match-path 'test/fork/**'` |
 | green on live liquidity | 119 of 119 on the 39 suites of the fork lane, five chains; plus the 3 tests of §5 on Base | `forge test --match-path 'test/fork/**'` with an archive RPC |
 | stateful invariants | 40 `invariant_*` functions in 14 campaigns | `grep -rc 'function invariant_' test` |
-| curated mutants, all killed | 200 of 200 | `.github/scripts/mutants.py`; `check_targets.py` 200/200 |
+| curated mutants, all killed | 203 of 203 | `.github/scripts/mutants.py`; `check_targets.py` 200/200 |
 | regime covering arrays | strength 2: 63 rows, all 258 pairs · strength 3: 168 rows, all 1,636 triples · of 5,184 combinations | `covering_array.py --check` |
 | shipped sizes (runtime bytes, EIP-170 limit 24,576, project gate 24,000) | Hub 23,648 · Router 23,781 · Solver 19,686 · Quoter 11,429 · Core 6,442 | `FOUNDRY_PROFILE=release forge build --sizes` |
 
@@ -29,7 +29,7 @@ filled in the commit that lands it.
 | instrument | the question it answers | result on this tree | the limit, stated |
 |---|---|---|---|
 | **Curated mutation guard** | do the tests notice when a guard disappears? | 200 hand-written mutants, each paired with the one named test that must die; baseline-checked, fingerprinted so an optimiser-removed mutation is reported as inert; 200/200 killed | adequacy against *this* register — a saturated score is a floor, not a ceiling |
-| **Mutants aimed at the invariants** (new) | can the stateful campaigns go red at all? | 15 source mutations × 39 invariants on one seed: 11 noticed, 18 distinct invariant names went red; the 11 are now guard entries paired with their invariant | four survivors, each published with its reading in `invariant-mutants.json`; two guards had no watcher of any kind and are queued |
+| **Mutants aimed at the invariants** (new) | can the stateful campaigns go red at all? | 15 source mutations × 39 invariants on one seed: 11 noticed, 18 distinct invariant names went red; the 11 are now guard entries paired with their invariant | one survivor — the `userMinOut` sentinel, unreachable by design in the campaign universes; the other three were closed the same day by campaigns that gained the action they lacked (`invariant-mutants.json`) |
 | **Shared-quantity register** | is every quantity with two producers or two consumers tied? | every such quantity, the question it answers, the mechanism binding the copies, graded `SINGLE / PINNED / WEAK / OPEN / UNVERIFIED`; a CI rule demotes a row whose test does not reach what it claims to pin | a grade is a reading of the tree, not a proof of equivalence |
 | **Regime covering arrays** (t = 3 new) | which combinations of regime factors has a fixture actually run? | strength 2: 53 settle, 4 refuse with a selector of ours, 6 not constructible, 0 third way · strength 3: 158 settle, 10 refuse (`SolverE(5)` ×7, `RouterE(13)` ×3), 0 not constructible, 0 third way | ten factors; V4, Algebra and the native door are stated as outside the array |
 | **Hostile-venue matrix** | does a pathological pool ever produce a third outcome? | ten pathologies × two doors: settle with the balance delta and nothing left on the Router, or refuse with a selector of ours — 20/20 | the ten pathologies are the ones named; classes nobody has named are outside the denominator |
@@ -76,9 +76,12 @@ pool whose depth weight floors to the minimum is kept as a dust leg when registe
 when registered second, moving the plan by 3 × 10⁻⁷ of the output: the split's keep-or-cut of a
 minimum-weight pool depends on its position, and is now written where it was found.
 
-**The measurement of the campaigns found what they cannot see.** Two guards — the registry's
-pair-proof and the bridge-residual sweep's baseline — had no watcher of any kind, and no campaign
-asserts the protocol floor. They are recorded with their reading and are the next work.
+**The measurement of the campaigns found what they could not see, and the campaigns were given
+eyes.** Two guards — the registry's pair-proof and the bridge-residual sweep's baseline — had no
+watcher of any kind, and no campaign asserted the protocol floor. Each campaign gained the action
+it lacked: foreign pools offered under the pair, a two-hop route over a pre-seeded intermediate
+balance, a whale moving the pool against a quoted route; three invariants and three guard
+entries, each verified red without its guard.
 
 ## 4. Detection rates — how often a test notices a defect
 

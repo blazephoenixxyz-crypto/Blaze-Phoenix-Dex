@@ -48,6 +48,7 @@ contract StrandedRegimeHandler {
     address immutable recipient;
 
     uint256 public swaps;
+    uint256 public twoHopSwaps;        // A -> B -> T settlements: hop 1 spends the bridge balance
     uint256 public divergentAttempts;
     uint256 public divergentSettled;
     uint256 public mintedA;
@@ -127,6 +128,50 @@ contract StrandedRegimeHandler {
     /// the T/B pool. `_legTokens` derives the leg's tokens from the calldata pool,
     /// so legIn resolves to T -- a token this swap never received and which the
     /// Router is holding only because someone mis-sent it. Router:1216 must refuse.
+    /// THE BRIDGE-RESIDUAL BASELINE (2026-09-05). A -> B -> T: the Router already holds SEED_B
+    /// of the intermediate coin before the swap. Hop 1 must spend only what hop 0 produced, and
+    /// the residual sweep must return only this swap's residual — never the seed. Until this
+    /// action existed no campaign carried a pre-existing balance of a MID-ROUTE token, and the
+    /// baseline `bridgeBase[h]` had no watcher of any kind.
+    function swapTwoHop(uint256 amtSeed) external {
+        uint256 amt = _bound(amtSeed, 1e15, 1e21);
+        A.mint(address(this), amt); mintedA += amt;
+        B.mint(address(poolAB), 1e27); mintedB += 1e27;
+        T.mint(address(poolTB), 1e27); mintedT += 1e27;
+        A.approve(address(router), amt);
+        Hop[] memory hops = new Hop[](2);
+        uint256 q0;
+        {
+            (uint112 r0, uint112 r1,) = poolAB.getReserves();
+            bool zfo = poolAB.token0() == address(A);
+            q0 = BPC.outV2(amt, zfo ? r0 : r1, zfo ? r1 : r0, 30);
+            if (q0 == 0) return;
+            Leg[] memory l0 = new Leg[](1);
+            l0[0] = Leg({pool: address(poolAB), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
+                         zeroForOne: zfo, stable: false, amountIn: amt, expectedOut: q0, auxId: bytes32(0)});
+            hops[0] = Hop({tokenIn: address(A), tokenOut: address(B), amountIn: amt, expectedOut: q0, legs: l0});
+        }
+        {
+            (uint112 r0, uint112 r1,) = poolTB.getReserves();
+            bool zfo = poolTB.token0() == address(B);
+            uint256 q1 = BPC.outV2(q0, zfo ? r0 : r1, zfo ? r1 : r0, 30);
+            if (q1 == 0) return;
+            Leg[] memory l1 = new Leg[](1);
+            l1[0] = Leg({pool: address(poolTB), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
+                         zeroForOne: zfo, stable: false, amountIn: q0, expectedOut: q1, auxId: bytes32(0)});
+            hops[1] = Hop({tokenIn: address(B), tokenOut: address(T), amountIn: q0, expectedOut: q1, legs: l1});
+        }
+        Route memory r = Route({
+            hops: hops, totalOut: hops[1].expectedOut, singleOut: hops[1].expectedOut, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
+        });
+        bool wasPaused = router.paused();
+        if (wasPaused) { unchecked { ++attemptsWhilePaused; } }
+        try router.swapExactIn(r, amt, 1, recipient, block.timestamp + 1) returns (uint256) {
+            unchecked { ++swaps; ++twoHopSwaps; if (wasPaused) ++settledWhilePaused; }
+        } catch {}
+    }
+
     function swapDivergent(uint256 amtSeed) external {
         uint256 amt = _bound(amtSeed, 1e15, 1e21);
         A.mint(address(this), amt); mintedA += amt;
@@ -283,6 +328,7 @@ contract MetaStrandedRegimeInvariantTest is StdInvariant, Test {
     /// counter nothing ever tried to move.
     function afterInvariant() public view {
         assertGt(handler.swaps(), 0, "no swap ever settled - vacuous pass");
+        assertGt(handler.twoHopSwaps(), 0, "no two-hop route through the seeded bridge coin ever settled - the bridge baseline was never exercised");
         assertGt(handler.divergentAttempts(), 0,
             "the divergent-leg action was never called - the drain guard was never pushed on");
         // NON-VACUITY FOR THE NEW AXIS. A composition campaign whose configuration
