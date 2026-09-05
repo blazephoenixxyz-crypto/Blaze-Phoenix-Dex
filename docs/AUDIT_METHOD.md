@@ -32,7 +32,7 @@ seen to fail once, for the reason it is named after.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **181 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **182 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -47,7 +47,7 @@ Three properties make it a guard rather than a score:
 - a one-second static check verifies that every mutant still points at exactly one line, so a
   refactor cannot silently orphan a watcher.
 
-**181 of 181 are killed.** The figure is always printed beside its denominator: it is adequacy
+**182 of 182 are killed.** The figure is always printed beside its denominator: it is adequacy
 against this register, which is what §9 is about.
 
 ## 4. One question, one answer

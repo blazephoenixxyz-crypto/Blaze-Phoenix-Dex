@@ -293,7 +293,8 @@ abstract contract RegimeHarness is Test {
             assertTrue(proved, "a settled swap emits its ExecutionProof");
             assertGe(got, floorUsed, "delivered at least the floor the Router enforced");
             if (fromSolver && r.fot == F.Fot.FOT_NONE) {
-                // WHERE THE FEE IS TAKEN DECIDES THE FLOOR'S FRAME. Fee on the OUTPUT (a single
+                // WHERE THE FEE IS TAKEN DECIDES THE FLOOR'S FRAME. Both producers apply
+                // `ironFloorBps` to their own in-frame quote; the frames differ by the fee. Fee on the OUTPUT (a single
                 // hop into a bridge): the Router's in-frame quote is the Solver's, and the
                 // enforced floor is the attested one exactly. Fee on the INPUT: the legs receive
                 // the net amount, the Router re-derives its floor on that, and the result sits in

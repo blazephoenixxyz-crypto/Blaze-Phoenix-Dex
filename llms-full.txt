@@ -777,7 +777,7 @@ seen to fail once, for the reason it is named after.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **181 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **182 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -792,7 +792,7 @@ Three properties make it a guard rather than a score:
 - a one-second static check verifies that every mutant still points at exactly one line, so a
   refactor cannot silently orphan a watcher.
 
-**181 of 181 are killed.** The figure is always printed beside its denominator: it is adequacy
+**182 of 182 are killed.** The figure is always printed beside its denominator: it is adequacy
 against this register, which is what §9 is about.
 
 ## 4. One question, one answer
@@ -1245,9 +1245,9 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-04): **203 `.t.sol` files** — 178 local, 25 fork — holding
-**1,183 `test*` / `invariant*` / `check*` declarations**; **1,029 tests green** in the release
-profile with fork suites excluded; **181 curated mutants**, all killed.
+Measured on this tree (2026-09-05): **206 `.t.sol` files** — 181 local, 25 fork — holding
+**1,252 `test*` / `invariant*` / `check*` declarations**; **1,097 tests green** in the release
+profile with fork suites excluded and **119 green on live liquidity**; **182 curated mutants**, all killed.
 
 ## Running
 
@@ -1321,7 +1321,7 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 181 curated mutants, each paired with the one test that must die;
+- **The mutation guard** — 182 curated mutants, each paired with the one test that must die;
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.
@@ -1719,7 +1719,7 @@ green test in front of it.
 | `LEG_FLOOR_BPS` | "How much may a single leg legitimately lose?" | `Core` (definition), `Router` ×8 | `UNVERIFIED` | **Downgraded 2026-09-04.** The row cited `test/formal/CompositionFormalSpec.t.sol`, which **no runner executes**: `check_` is the Halmos prefix, `forge test` skips it, and no CI job names the contract. It also asserts over test-local reimplementations rather than `src/`, and models the leg floor with `mulDiv` where the live guard at `Router:1633` uses `mulDivUp` — wired up as written it would report the correct code as broken. No test in the corpus names this constant. |
 | `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1, `Quoter.previewPlanExact` ×1 (since 2026-09-03) | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant**. `test/QuoterExactNetOut.t.sol` pins the exact pass: `exactOut` equals the view preview's after-fee figure to the wei, is a floor the Router honours, and its deduction is `_pack`'s (once, rounded up); mutants 154-155 |
 | `effV2Fee` / `quoteV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
-| `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) · `test/regime/RegimeCoverage.t.sol` pins the second frame on every row: with the fee off the input the enforced floor sits in [attested × (1 − fee), attested], with the fee off the output it equals the attested floor |
+| `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) · `test/regime/RegimeHarness.sol` pins the second frame on every generated row: with the fee off the input the enforced floor sits in [attested × (1 − fee), attested], with the fee off the output it equals the attested floor |
 
 **`PROTOCOL_FEE_BPS` — the escapes.** The pin compares realised delivery against predicted `netOut`
 within 0.1 %. The protocol fee is 28 bps, so a missing deduction *would* break that tolerance — but
