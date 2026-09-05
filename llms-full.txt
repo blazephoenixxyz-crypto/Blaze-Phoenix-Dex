@@ -200,6 +200,11 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **A sound executed-bytecode lower bound** over the shipped-shape artefact, verified against
   a ground-truth contract in the suite, with the compiler's own `Panic` surface classified and
   tested.
+- **A generated regime covering array.** Ten fixture factors — venue family, hops, legs,
+  bridge position, fee-on-transfer shape, decimals, door, control state, pair fullness —
+  and 63 generated rows that hold every pair of their values under one assertion (settle
+  inside the emitted floor with nothing left on the Router, or refuse with a selector of
+  ours); rows the fixture cannot build are counted against the denominator.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.
@@ -426,7 +431,7 @@ not a gate that stopped anything.
 
 ---
 
-## Eight numbers this repository computes about itself
+## Nine numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -442,7 +447,8 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 181 / 181 |
+| Curated mutants **killed**, each paired with the one test that must die | 182 / 182 |
+| Pairs of regime-factor values exercised **by construction** — 63 generated fixtures standing in for 5,184 combinations | 258 / 258 |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,
@@ -824,7 +830,11 @@ property testing indexes relations over inputs. Two things that decide whether a
 reached at all are indexed by none of them — the **regime** a fixture fixes (is the route
 bridged, is the pair full, is control renounced) and the **oracle** an expectation comes from.
 The suite is measured against the lattice of regime × composition shape × oracle, and the
-stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. Every
+stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. A
+generated **covering array** goes further: every pair of values of ten regime factors appears in
+at least one of 63 generated fixtures, each judged by one assertion — settle inside the emitted
+floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
+fixture cannot build are counted, not skipped. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.
@@ -1282,6 +1292,7 @@ stale sequence can be scored as a fresh result.
 | `test/fork/` | 25 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
 | `test/formal/` | Halmos specifications for the fail-closed arithmetic (iron floor, impact, V3 fail-closed, `effV4Fee`) |
 | `test/hunt/` | regressions from adversarial review campaigns |
+| `test/regime/` | the **regime covering array**: `RegimeHarness.sol` (one fixture builder, one assertion) and the generated `RegimeCoverage.t.sol` — 63 rows holding every pair of values of ten regime factors |
 | `test/mocks/` | venue mocks — V2 pair, V3 pool, Solidly pair, V4 manager, Permit2, ERC-20 with every pathology (fee-on-transfer, no-return-data, return-false, rebasing, blocklisting, pausing, non-standard decimals) |
 
 Three families of test do the load-bearing work:
@@ -1317,6 +1328,12 @@ make this fail?* Three things every test in the suite carries:
 - **The executed-bytecode bound** — 88.3 % of the shipped-shape instruction stream proven
   executed, closure verified against a ground-truth contract.
 - **The regime lattice** — which cells of regime × shape × oracle hold a cross-producer assertion.
+- **The regime covering array** — every pair of factor values in a generated fixture; regenerate and read it with:
+
+  ```bash
+  python3 .github/scripts/assurance/covering_array.py --check
+  forge test --match-contract RegimeCoverage -vv > regime.log; python3 .github/scripts/assurance/regime_summary.py regime.log
+  ```
 - **The in-suite size gate** — every contract's deployed size asserted with a signed margin.
 - **Release-binary execution** — `PcTraceProbe` records an opcode-level trace of real swaps
   through the release Router; `pc_trace.py` replays the program counter against the shipped
@@ -1702,7 +1719,7 @@ green test in front of it.
 | `LEG_FLOOR_BPS` | "How much may a single leg legitimately lose?" | `Core` (definition), `Router` ×8 | `UNVERIFIED` | **Downgraded 2026-09-04.** The row cited `test/formal/CompositionFormalSpec.t.sol`, which **no runner executes**: `check_` is the Halmos prefix, `forge test` skips it, and no CI job names the contract. It also asserts over test-local reimplementations rather than `src/`, and models the leg floor with `mulDiv` where the live guard at `Router:1633` uses `mulDivUp` — wired up as written it would report the correct code as broken. No test in the corpus names this constant. |
 | `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1, `Quoter.previewPlanExact` ×1 (since 2026-09-03) | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant**. `test/QuoterExactNetOut.t.sol` pins the exact pass: `exactOut` equals the view preview's after-fee figure to the wei, is a floor the Router honours, and its deduction is `_pack`'s (once, rounded up); mutants 154-155 |
 | `effV2Fee` / `quoteV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
-| `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) |
+| `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) · `test/regime/RegimeCoverage.t.sol` pins the second frame on every row: with the fee off the input the enforced floor sits in [attested × (1 − fee), attested], with the fee off the output it equals the attested floor |
 
 **`PROTOCOL_FEE_BPS` — the escapes.** The pin compares realised delivery against predicted `netOut`
 within 0.1 %. The protocol fee is 28 bps, so a missing deduction *would* break that tolerance — but
@@ -2139,6 +2156,33 @@ scenarios still to record — one per door and per venue family — and the unio
 The figure this instrument is built to produce next is the intersection of each mutant's
 footprint in the shipped binary with the instructions its paired test executed: a pair whose
 intersection is empty is a test that cannot kill that mutant, whatever the guard reports.
+
+## 4h. The regime covering array
+
+Coverage criteria index the code; mutation indexes an injected fault; neither indexes the state
+a fixture fixes. Ten such factors are enumerated — venue family (V2, V3, Solidly), hops (1–3),
+legs per hop (1–2), whether the input token is a registered bridge, whether the intermediate is,
+fee-on-transfer shape (none, pull-only, every transfer), the input token's decimals (18, 6), the
+door (calldata route, solve-in-transaction, Permit2), control (live, renounced) and whether the
+pair is full — **5,184 combinations**. `covering_array.py` generates a strength-2 covering array:
+**63 rows that hold every one of the 258 pairs of factor values**, each row one fixture through
+one harness (`test/regime/RegimeHarness.sol`) with one assertion — the swap settles, with the
+delivered amount equal to the recipient's balance delta, at least the floor the Router emitted,
+and nothing left on the Router; or it is refused with a selector of ours. A panic, a foreign
+selector, an under-delivery or a stranded balance is a third way, and fails the row.
+
+Measured on this tree: **53 rows settle, 4 are refused with a selector of ours** (the planner
+has no bridged path to build; a route the executor declines), **6 are not constructible** (the
+pull-only-taxed token has no six-decimal form) and **0 take a third way**. The rows the fixture
+cannot build are printed by name and count against the denominator; the families not yet in the
+array — V4, native V4, Algebra, the native door, hooks — are stated in
+`docs/assurance/regimes-covering.json`. The generated file is checked against its generator in
+CI, so the array cannot drift from the factors it claims to cover.
+
+The array's first run made a frame explicit that the parity tests had pinned only on one side:
+the floor the Router enforces equals the attested floor when the protocol fee comes off the
+output, and sits inside `[attested × (1 − fee), attested]` when it comes off the input — the lower
+edge by the fee, the upper by the curve's convexity. Both frames are now asserted on every row.
 
 ## 5. What none of this establishes
 

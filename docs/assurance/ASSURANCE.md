@@ -340,6 +340,33 @@ The figure this instrument is built to produce next is the intersection of each 
 footprint in the shipped binary with the instructions its paired test executed: a pair whose
 intersection is empty is a test that cannot kill that mutant, whatever the guard reports.
 
+## 4h. The regime covering array
+
+Coverage criteria index the code; mutation indexes an injected fault; neither indexes the state
+a fixture fixes. Ten such factors are enumerated — venue family (V2, V3, Solidly), hops (1–3),
+legs per hop (1–2), whether the input token is a registered bridge, whether the intermediate is,
+fee-on-transfer shape (none, pull-only, every transfer), the input token's decimals (18, 6), the
+door (calldata route, solve-in-transaction, Permit2), control (live, renounced) and whether the
+pair is full — **5,184 combinations**. `covering_array.py` generates a strength-2 covering array:
+**63 rows that hold every one of the 258 pairs of factor values**, each row one fixture through
+one harness (`test/regime/RegimeHarness.sol`) with one assertion — the swap settles, with the
+delivered amount equal to the recipient's balance delta, at least the floor the Router emitted,
+and nothing left on the Router; or it is refused with a selector of ours. A panic, a foreign
+selector, an under-delivery or a stranded balance is a third way, and fails the row.
+
+Measured on this tree: **53 rows settle, 4 are refused with a selector of ours** (the planner
+has no bridged path to build; a route the executor declines), **6 are not constructible** (the
+pull-only-taxed token has no six-decimal form) and **0 take a third way**. The rows the fixture
+cannot build are printed by name and count against the denominator; the families not yet in the
+array — V4, native V4, Algebra, the native door, hooks — are stated in
+`docs/assurance/regimes-covering.json`. The generated file is checked against its generator in
+CI, so the array cannot drift from the factors it claims to cover.
+
+The array's first run made a frame explicit that the parity tests had pinned only on one side:
+the floor the Router enforces equals the attested floor when the protocol fee comes off the
+output, and sits inside `[attested × (1 − fee), attested]` when it comes off the input — the lower
+edge by the fee, the upper by the curve's convexity. Both frames are now asserted on every row.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.

@@ -85,7 +85,11 @@ property testing indexes relations over inputs. Two things that decide whether a
 reached at all are indexed by none of them — the **regime** a fixture fixes (is the route
 bridged, is the pair full, is control renounced) and the **oracle** an expectation comes from.
 The suite is measured against the lattice of regime × composition shape × oracle, and the
-stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. Every
+stateful invariant campaigns exist to reach the cells no hand-written fixture reaches. A
+generated **covering array** goes further: every pair of values of ten regime factors appears in
+at least one of 63 generated fixtures, each judged by one assertion — settle inside the emitted
+floor with nothing left on the Router, or refuse with a selector of ours — and the rows the
+fixture cannot build are counted, not skipped. Every
 compound decision in the sources is additionally censused sub-condition by sub-condition, so an
 `&&` whose second half no test can notice is either documented as dead by construction or given
 its test.

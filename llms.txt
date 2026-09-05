@@ -185,6 +185,11 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **A sound executed-bytecode lower bound** over the shipped-shape artefact, verified against
   a ground-truth contract in the suite, with the compiler's own `Panic` surface classified and
   tested.
+- **A generated regime covering array.** Ten fixture factors — venue family, hops, legs,
+  bridge position, fee-on-transfer shape, decimals, door, control state, pair fullness —
+  and 63 generated rows that hold every pair of their values under one assertion (settle
+  inside the emitted floor with nothing left on the Router, or refuse with a selector of
+  ours); rows the fixture cannot build are counted against the denominator.
 - **Execution replayed on the shipped binary.** An opcode-level trace of real swaps through
   the release Router, replayed against the artefact with the opcode checked at every step, so
   the repository can say which instructions of the code that deploys a scenario ran.

@@ -44,7 +44,7 @@ not a gate that stopped anything.
 
 ---
 
-## Eight numbers this repository computes about itself
+## Nine numbers this repository computes about itself
 
 Most projects publish a test count. A test count answers *does it pass?*, which is the easiest
 question in the room. These answer two harder ones — *does the evidence still point at the code?*
@@ -60,7 +60,8 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 181 / 181 |
+| Curated mutants **killed**, each paired with the one test that must die | 182 / 182 |
+| Pairs of regime-factor values exercised **by construction** — 63 generated fixtures standing in for 5,184 combinations | 258 / 258 |
 
 Every one is printed beside its denominator, because every one of them improves by shrinking what
 it is measured against, and the denominator is the only defence a reader has. The document states,

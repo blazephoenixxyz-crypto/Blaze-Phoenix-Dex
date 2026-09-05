@@ -57,6 +57,10 @@ jobs:
         # copy is a stale claim wearing the clothes of a current one.
         run: python3 .github/scripts/llms_full.py --check
 
+      - name: regime covering array is current
+        # The generated rows must be the rows the generator produces for the declared factors.
+        run: python3 .github/scripts/assurance/covering_array.py --check
+
       - name: Yul evaluation-order guard
         # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
         # `and(staticcall(...), eq(returndatasize(), 32))` tests the size left
