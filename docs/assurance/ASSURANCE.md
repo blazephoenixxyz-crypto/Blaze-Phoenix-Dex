@@ -502,23 +502,24 @@ same seed (`docs/assurance/invariant-mutants.json` holds the full matrix, with t
 | the input-residual sweep ignores its baseline | stranded money | `StrandedMoneyIsNeverSwept`, `HoldsNothingBeyondTheSeed` |
 | the output measurement ignores its baseline | stranded money | the same pair |
 
-**Eleven of fifteen were noticed; eighteen distinct invariant names went red at least once.** The
-eleven are now entries in the mutation guard, paired with the invariant that dies to them, so the
-campaigns stop being properties nobody has tried to break.
+**Eleven of fifteen were noticed on the first measurement; eighteen distinct invariant names went
+red at least once.** The eleven became entries in the mutation guard, paired with the invariant
+that dies to them. The four survivors were the finding, each read rather than counted — and three
+of the four were closed the same day by giving a campaign the action it lacked:
 
-The four survivors are the finding, and each is read rather than counted:
+| survivor on the first measurement | reading | closed by |
+|---|---|---|
+| the post-fee `userMinOut` check is halved | expected — `DeliveredNeverBelowUserMinOut` is a regression sentinel; no campaign universe holds a fee-on-transfer `tokenOut`, so the guard is unreachable there and two unit mutants watch it instead | stays, by design |
+| the protocol floor is halved | no stateful campaign asserted the floor: honest pools always pay the quote, so it never bound | the Router campaign quotes a route with the floor a Solver attests, lets a whale move the pool 0–8 % against the user, then executes the stale route; `invariant_DeliveredNeverBelowTheProtocolFloor` reads the floor from the Router's own `ExecutionProof` and from the attested route, and the run is vacuous unless the floor both bound and released |
+| `recordSwap`'s pair-proof is removed | no test of any kind offered the Hub a pool that trades other tokens | `HubInvariantFromV1` offers pools on other tokens — the pair reversed, one token shared, two foreign — under the pair's name on every run; `invariant_ActiveEntriesTradeThePair` reads every active entry's `token0`/`token1` |
+| the bridge-residual sweep ignores its baseline | no campaign carried a pre-existing balance of a mid-route token | `StrandedRegime` gains A → B → T over a Router already holding `SEED_B` of the intermediate coin; `invariant_StrandedMoneyIsNeverSwept` now watches `bridgeBase[h]` |
 
-| survivor | reading |
-|---|---|
-| the post-fee `userMinOut` check is halved | expected — `DeliveredNeverBelowUserMinOut` is a regression sentinel; no campaign universe holds a fee-on-transfer `tokenOut`, so the guard is unreachable there and two unit mutants watch it instead |
-| the protocol floor is halved | **gap**: no stateful campaign asserts the floor. One unit mutant watches the comparison. A handler that reads `ExecutionProof.floorOut` and asserts `delivered >= floorOut` would close it |
-| `recordSwap`'s pair-proof is removed | **unwatched guard**: no mutant anywhere, unit or invariant. No handler ever offers the Hub a pool that trades other tokens |
-| the bridge-residual sweep ignores its baseline | **unwatched guard**: no mutant anywhere. `StrandedRegime` seeds `tokenIn` and `tokenOut` balances but never a pre-existing bridge balance under a multi-hop route |
-
-Two guards with no watcher at all is the number this section exists to print. Both are recorded
-as `survived` with their reading in `invariant-mutants.json`, and neither is counted anywhere as
-covered; a green suite with an unwatched guard in it was the shape of both documented
-regressions in this codebase.
+Two guards with no watcher at all was the number this section existed to print; it is now zero,
+and the three mutants are guard entries (`INVARIANT-AIMED PAIRPROOF-off`, `SWEEP-bridge-nobase`,
+`FLOOR-half`) each paired with the invariant that dies to it. The remaining survivor is the
+sentinel the table names as expected. A green suite with an unwatched guard in it was the shape
+of both documented regressions in this codebase; the measurement that finds one now runs on
+every guard the campaigns claim.
 
 ## 4m. Metamorphic relations — a second judge for the maths and for the plan
 

@@ -33,7 +33,7 @@
 - **TWO SENTENCES:** "BlazePhoenix-Dex prices every route on the pool's measured marginal
   output — never on advertised liquidity, depth or fee — and enforces a re-derived output floor
   against what execution actually delivered, with no routing server, oracle, keeper or upgrade
-  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 197 named mutants (eleven aimed at the stateful invariants), a shared-quantity register, a calldata-field confirmation matrix, a sound
+  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 203 named mutants (eleven aimed at the stateful invariants), a shared-quantity register, a calldata-field confirmation matrix, a sound
   executed-bytecode bound on the shipped binary, and a funded 50M-BZPX bug bounty that has
   credited nineteen researchers with zero Critical findings."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
@@ -64,7 +64,7 @@
   that file set, which is the denominator, said out loud; **Certora Prover** (INV-20 fail-closed
   fee) and **Halmos** symbolic proofs; **Slither** (fail on high), **Aderyn** and **Solhint**
   static gates; red-first static guards (plain greps that fail the build if a known defect
-  shape reappears); a **curated mutation guard of 197 named mutants** — guard deletion,
+  shape reappears); a **curated mutation guard of 203 named mutants** — guard deletion,
   relational and boundary flips, logical-connector widening, error-code swaps,
   rounding-direction flips and modifier removal — each paired with the named test that must
   fail when it is applied, baseline-checked and fingerprinted so an inert mutation is reported
@@ -165,7 +165,7 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Red before green, enforced.** Every regression test was red against the code without its
   fix, at a commit named in its header; the mutation guard fails the build for a guard without
   a watcher.
-- **A curated, named mutation guard.** 197 hand-written mutants, each paired with the one test
+- **A curated, named mutation guard.** 203 hand-written mutants, each paired with the one test
   that must die to it — baseline-checked, fingerprinted over creation and runtime objects so an
   inert mutation is reported rather than counted, and target-checked in one second without a
   compiler.
@@ -205,9 +205,9 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
   four wei, V3 within one ulp of the square-root price.
 - **Mutants aimed at the invariants.** Fifteen source mutations, one per property the stateful
-  campaigns claim, each run against all 39 invariants; eleven were noticed and are now entries
-  in the guard, and the four survivors are published with their reading — two of them guards
-  with no watcher of any kind.
+  campaigns claim, each run against every invariant; eleven were noticed at once and three more
+  after the campaigns gained the action they lacked, all fourteen now entries in the guard; the
+  one survivor is a sentinel unreachable by design, published with its reading.
 - **Metamorphic relations at two levels.** Fourteen over the quote maths (monotone, sub-additive,
   no round trip, scale equivariance, fee monotone, direction symmetry) and five over the
   Solver's plan (never below the best single pool, monotone, liquidity monotone, order

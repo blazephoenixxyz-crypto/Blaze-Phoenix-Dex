@@ -1,11 +1,13 @@
 {
- "measured_on": "2026-09-05, release settings, forge test --match-test invariant_ --fuzz-seed 0xb1a2ef00, repo tree df46649",
+ "measured_on": "2026-09-05, release settings, forge test --match-test invariant_ --fuzz-seed 0xb1a2ef00; first measurement on tree df46649, the three closed rows re-measured after their campaigns gained the action they lacked",
  "question": "does any stateful invariant notice when a guard disappears? Until this file, 0 of 183 mutants named an invariant.",
- "invariants_declared": 39,
+ "invariants_declared": 40,
  "mutants": 15,
- "killed": 11,
- "survived": 4,
+ "killed": 14,
+ "survived": 1,
  "invariants_shown_falsifiable": [
+  "invariant_ActiveEntriesTradeThePair",
+  "invariant_DeliveredNeverBelowTheProtocolFloor",
   "invariant_DeliveredNeverBelowUserMinOut",
   "invariant_DivergentLegNeverSettles",
   "invariant_FeeIsChargedOnExactlyOneSide",
@@ -169,10 +171,13 @@
     "new": "if (amountOut < effMin / 2) revert RouterE(5);"
    },
    "aimed_at": "(nenhuma invariante vigia o piso do protocolo — espera-se SOBREVIVER = lacuna)",
-   "status": "survived",
-   "killed_by": [],
-   "seconds": 26,
-   "reading": "gap: no stateful campaign asserts the protocol floor; the guard is watched by one unit mutant only. A handler that records ExecutionProof.floorOut and an invariant delivered >= floorOut would close it."
+   "status": "killed",
+   "killed_by": [
+    "invariant_DeliveredNeverBelowTheProtocolFloor"
+   ],
+   "seconds": 52,
+   "history": "survived on the first measurement (no campaign could see it); closed 2026-09-05: the Router campaign quotes a route with the attested floor, lets a whale move the pool 0-8% against the user, executes the stale route; invariant_DeliveredNeverBelowTheProtocolFloor compares the gross output with the floor the Router published and with the attested floor, and the run is vacuous unless the floor both bound and released.",
+   "kill_mechanism": "under the halved floor no drifted route is refused any more (0 of 20 in the reported run, where the sane tree refuses several) and 13 of 20 drifted settlements deliver a gross output below the attested floor; the campaign's non-vacuity rung and its floor observer both fire"
   },
   {
    "id": "SLOTS-17",
@@ -197,10 +202,12 @@
     "new": "&& false) return;"
    },
    "aimed_at": "invariant_ActiveEntriesResolveToRealPools / activePoolsResolve",
-   "status": "survived",
-   "killed_by": [],
+   "status": "killed",
+   "killed_by": [
+    "invariant_ActiveEntriesTradeThePair"
+   ],
    "seconds": 52,
-   "reading": "gap: recordSwap's pair-proof (a pool must really trade t0/t1 before entering the registry) has NO mutant anywhere - no handler ever offers the Hub a pool on other tokens. Unwatched guard."
+   "history": "survived on the first measurement (no campaign could see it); closed 2026-09-05: HubInvariantFromV1 offers pools trading other tokens under the pair on every run; invariant_ActiveEntriesTradeThePair reads every active entry's token0/token1."
   },
   {
    "id": "SWEEP-in-nobase",
@@ -225,10 +232,13 @@
     "new": "if (rb > 0) BPC.safeTransfer(bridge, payer, rb);"
    },
    "aimed_at": "invariant_StrandedMoneyIsNeverSwept (ponte)",
-   "status": "survived",
-   "killed_by": [],
-   "seconds": 26,
-   "reading": "gap: the bridge-residual sweep baseline (bridgeBase[h]) has NO mutant anywhere - StrandedRegime seeds tokenIn/tokenOut balances but never a pre-existing BRIDGE balance under a multi-hop route. Unwatched guard."
+   "status": "killed",
+   "killed_by": [
+    "invariant_HoldsNothingBeyondTheSeed",
+    "invariant_StrandedMoneyIsNeverSwept"
+   ],
+   "seconds": 52,
+   "history": "survived on the first measurement (no campaign could see it); closed 2026-09-05: StrandedRegime gains A -> B -> T over a Router already holding SEED_B of the intermediate coin; invariant_StrandedMoneyIsNeverSwept now watches bridgeBase[h]."
   },
   {
    "id": "TOUT-nobase",
@@ -246,5 +256,5 @@
    "seconds": 26
   }
  ],
- "invariants_shown_falsifiable_count": 18
+ "invariants_shown_falsifiable_count": 20
 }

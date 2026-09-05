@@ -60,8 +60,8 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 197 / 197 |
-| Stateful invariants shown **falsifiable** by a named source mutant (15 mutants × 39 invariants; the 4 survivors are published as findings) | 18 distinct invariant names / 11 of 15 mutants noticed |
+| Curated mutants **killed**, each paired with the one test that must die | 203 / 203 |
+| Stateful invariants shown **falsifiable** by a named source mutant (15 mutants × 40 invariants; the one survivor is a sentinel unreachable by design) | 14 of 15 mutants noticed |
 | Triples of regime-factor values exercised **by construction** — 168 generated fixtures, strength 3 | 1,636 / 1,636 |
 | Binaries of the quote maths that agree — optimiser runs 1 / 300 / 20000, six functions, 3,000 fuzz runs each | 3 / 3 |
 | Metamorphic relations over the quote maths and over the Solver's plan, each a bound measured before it was written | 14 + 5 |
@@ -122,7 +122,7 @@ number for that reason.
 |---|---|
 | **Test suite** | **1,478** `test*` / `invariant*` / `check*` declarations across **218** `.t.sol` files — unit, property, parity, and stateful invariants |
 | **Fork suites** | **25**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
-| **Mutation guard** | **197** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Mutation guard** | **203** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
 | **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 

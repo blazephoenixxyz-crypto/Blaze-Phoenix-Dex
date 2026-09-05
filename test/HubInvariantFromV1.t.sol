@@ -56,7 +56,11 @@ contract HubInvariantHandler is Test {
     /// is not a proxy for variety, and gating the fill assertion on it asks
     /// the registry to hold more pools than the run ever showed it.
     uint256 public distinctOffered;
+    uint256 public foreignOffered;     // pools that trade OTHER tokens, offered under (t0, t1)
+    uint256 public foreignAdmitted;    // ghost: one of them entered the registry
+    address[] public foreignList;
     mapping(address => bool) private _seen;
+    mapping(address => bool) public isForeign;
 
     /// @param n How many distinct stubs to stand up. MUST exceed MAX_SLOTS so
     ///           the pair can fill and eviction actually runs; at exactly
@@ -64,6 +68,26 @@ contract HubInvariantHandler is Test {
     constructor(BlazePhoenixHub h, address a, address b, uint256 n) {
         hub = h; t0 = a; t1 = b;
         for (uint256 i; i < n; ++i) poolsList.push(address(new PairStub(a, b)));
+        // the same shapes, on other tokens: a pool that trades (x, y) offered as if it traded
+        // (a, b), a pool with the pair reversed, and a pool sharing one token only
+        address x = address(uint160(uint256(keccak256("foreign-x"))));
+        address y = address(uint160(uint256(keccak256("foreign-y"))));
+        foreignList.push(address(new PairStub(x, y)));
+        foreignList.push(address(new PairStub(b, a)));
+        foreignList.push(address(new PairStub(a, y)));
+        for (uint256 i; i < foreignList.length; ++i) isForeign[foreignList[i]] = true;
+    }
+
+    /// recordSwap's pair-proof (2026-09-05): every argument here is what a caller controls, and
+    /// the pool trades tokens the pair does not name. It must be refused without reverting (the
+    /// user's swap has already executed) and must never appear under the pair.
+    function recordForeign(uint256 seed, uint256 depth) external {
+        address pool = foreignList[uint256(keccak256(abi.encode(seed, "f"))) % foreignList.length];
+        depth = bound(depth, 1, 1e30);
+        foreignOffered++;
+        try hub.recordSwap(pool, 0, 3000, address(0), t0, t1, 1e18, 1e18, depth) {} catch {}
+        PoolInfo[] memory ps = hub.getActivePools(t0, t1);
+        for (uint256 i; i < ps.length; ++i) if (isForeign[ps[i].pool]) foreignAdmitted++;
     }
 
     function poolCount() external view returns (uint256) { return poolsList.length; }
@@ -119,8 +143,9 @@ contract HubInvariantFromV1Test is StdInvariant, Test {
         // reach recordSwap and the registry never gets near MAX_SLOTS —
         // eviction, the property this suite exists for, is then unreachable no
         // matter how many runs are configured.
-        bytes4[] memory sels = new bytes4[](1);
+        bytes4[] memory sels = new bytes4[](2);
         sels[0] = HubInvariantHandler.recordSwap.selector;
+        sels[1] = HubInvariantHandler.recordForeign.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: sels}));
     }
 
@@ -128,6 +153,18 @@ contract HubInvariantFromV1Test is StdInvariant, Test {
     /// forge-config: default.invariant.depth = 64
     function invariant_neverExceedsMaxSlots() public view {
         assertLe(hub.getActivePools(T0, T1).length, MAX_SLOTS);
+    }
+
+    /// @notice The pair-proof, asserted over the registry itself: every active entry under the
+    ///         pair trades exactly that pair. The handler offers pools on other tokens under the
+    ///         pair's name on every run; none may be here.
+    function invariant_ActiveEntriesTradeThePair() public view {
+        PoolInfo[] memory ps = hub.getActivePools(T0, T1);
+        for (uint256 i; i < ps.length; ++i) {
+            assertEq(PairStub(ps[i].pool).token0(), T0, "an active entry's token0 is not the pair's");
+            assertEq(PairStub(ps[i].pool).token1(), T1, "an active entry's token1 is not the pair's");
+        }
+        assertEq(handler.foreignAdmitted(), 0, "a pool trading other tokens entered the registry under this pair");
     }
 
     function invariant_activePoolsResolve() public view {
@@ -151,6 +188,9 @@ contract HubInvariantFromV1Test is StdInvariant, Test {
     ///              interacting across many calls). Without it MAX_SLOTS is
     ///              never touched and the central property goes untested.
     function afterInvariant() public view {
+        if (handler.foreignOffered() + handler.inserts() >= 10) {
+            assertGt(handler.foreignOffered(), 0, "vacuous: no foreign pool was ever offered under the pair");
+        }
         assertGt(handler.inserts(), 0,
             "vacuous run: every recordSwap reverted into the handler's catch");
         assertGt(handler.maxActive(), 0,

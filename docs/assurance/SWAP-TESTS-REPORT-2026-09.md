@@ -159,9 +159,11 @@ the attacker's round trip is negative.
 Hub → Solver → Router with the registry moving, stranded-money regime with a paused Router, the
 V4 adversarial manager with a re-entering hook, conservation across split and multi-hop routes,
 registry bounds), all green on the release settings. Fifteen source mutations were run against
-all of them on one seed to ask whether any campaign can go red at all: eleven were noticed and
-are now paired guard entries; the four that were not are published with their reading
-(`docs/assurance/invariant-mutants.json`).
+all of them on one seed to ask whether any campaign can go red at all: eleven were noticed on
+the first measurement and three more after the campaigns gained the actions they lacked (foreign
+pools under the pair, a two-hop route over a pre-seeded intermediate balance, a whale moving the
+pool against a quoted route); the one that remains is the `userMinOut` sentinel, unreachable by
+design (`docs/assurance/invariant-mutants.json`).
 
 ## 9. What these results do not say
 

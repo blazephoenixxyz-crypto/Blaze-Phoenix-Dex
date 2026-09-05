@@ -1135,6 +1135,24 @@ M = [
       new="        c = hop.legs[0].amountIn; // MUTANTE\n    }",
       teste="testFuzz_OneFeeOnePlace_EveryShape"),
 
+ # ─── THE THREE GAPS OF invariant-mutants.json, CLOSED (2026-09-05): the pair-proof, the
+ # bridge-residual baseline and the protocol floor each get a campaign that can go red.
+ dict(nome="INVARIANT-AIMED PAIRPROOF-off: recordSwap admits a pool that trades other tokens",
+      f="src/BlazePhoenixHub.sol",
+      old="            && (BPC.token0Of(pool) != t0 || BPC.token1Of(pool) != t1)) return;",
+      new="            && false) return; // MUTANTE",
+      teste="invariant_ActiveEntriesTradeThePair"),
+ dict(nome="INVARIANT-AIMED SWEEP-bridge-nobase: the bridge-residual sweep ignores its baseline",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);",
+      new="                if (rb > 0) BPC.safeTransfer(bridge, payer, rb); // MUTANTE",
+      teste="invariant_StrandedMoneyIsNeverSwept"),
+ dict(nome="INVARIANT-AIMED FLOOR-half: the protocol floor is halved",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (amountOut < effMin) revert RouterE(5);",
+      new="        if (amountOut < effMin / 2) revert RouterE(5); // MUTANTE",
+      teste="invariant_DeliveredNeverBelowTheProtocolFloor"),
+
 ]
 
 def run(t):
