@@ -14,4 +14,4 @@ The staking engine is specified in its own paper (https://blazephoenix.xyz/staki
 
 Every figure printed in the papers is recomputed from a clean checkout by a named command in `docs/assurance/`; the release tag `papers-v2.2` pins the tree the papers describe. The Solidity source remains BUSL-1.1.
 
-Archival record: the whitepaper is registered on Zenodo under the concept DOI [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526574), which always resolves to the latest record version (currently version 3, [10.5281/zenodo.22530645](https://doi.org/10.5281/zenodo.22530645)). Cite the concept DOI.
+Archival record: the whitepaper is registered on Zenodo under the concept DOI [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526574), which always resolves to the latest record version (currently version 4, [10.5281/zenodo.22531485](https://doi.org/10.5281/zenodo.22531485)). Cite the concept DOI.

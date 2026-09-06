@@ -53,8 +53,8 @@ identifiers:
     value: 10.5281/zenodo.22526574
     description: "Technical Whitepaper v2.2 — concept DOI, resolves to the latest record version"
   - type: doi
-    value: 10.5281/zenodo.22530645
-    description: "Technical Whitepaper v2.2 — record version 3 (2026-09-06)"
+    value: 10.5281/zenodo.22531485
+    description: "Technical Whitepaper v2.2 — record version 4 (2026-09-06)"
 license: BUSL-1.1
 version: 2.2.0
 date-released: "2026-09-06"
