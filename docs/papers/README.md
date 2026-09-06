@@ -4,7 +4,7 @@ The protocol papers, released with the repository so that a Zenodo record (and i
 
 | file | what | text licence |
 |---|---|---|
-| `BlazePhoenix_Whitepaper_v2.2.pdf` | Technical Whitepaper, Version 2.2 — DOI [10.5281/zenodo.22526575](https://doi.org/10.5281/zenodo.22526575) — the aggregator alone: mechanism, mathematics, security model, the verification apparatus measured | CC BY 4.0 |
+| `BlazePhoenix_Whitepaper_v2.2.pdf` | Technical Whitepaper, Version 2.2 — DOI [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526574) — the aggregator alone: mechanism, mathematics, security model, the verification apparatus measured | CC BY 4.0 |
 | `BlazePhoenix_Litepaper_v2.2.pdf` | Litepaper, Version 2.2 — the same protocol for a general reader | CC BY 4.0 |
 | `whitepaper-v2.2.md` | the whitepaper's complete text in Markdown, for citation and ingestion | CC BY 4.0 |
 

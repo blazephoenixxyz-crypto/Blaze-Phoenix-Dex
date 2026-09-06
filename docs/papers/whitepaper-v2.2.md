@@ -15,7 +15,7 @@
 | Text licence | CC BY 4.0 — quote and cite with attribution and a link |
 | Code licence | BUSL-1.1 (Change Date 2030-07-01) — cite the architecture, do not redeploy |
 | Repository measured | `Blaze-Phoenix-Dex`, `main` at `8949a9d`, 2026-09-05 |
-| DOI | 10.5281/zenodo.22526575 — https://doi.org/10.5281/zenodo.22526575 |
+| DOI | 10.5281/zenodo.22526574 — https://doi.org/10.5281/zenodo.22526574 |
 | Companion paper | *BlazePhoenix Staking Engine — Design Specification, Version 1.0* (§18) |
 
 > The price you are shown is computed by the public code that executes your trade, in the frame that executes it. Nobody — the authors included — can change the fee or the floors: they are compiled in.
