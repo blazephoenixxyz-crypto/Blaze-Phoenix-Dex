@@ -6,6 +6,8 @@ The protocol papers, released with the repository so that a Zenodo record (and i
 |---|---|---|
 | `BlazePhoenix_Whitepaper_v2.2.pdf` | Technical Whitepaper, Version 2.2 — DOI [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526574) — the aggregator alone: mechanism, mathematics, security model, the verification apparatus measured | CC BY 4.0 |
 | `BlazePhoenix_Litepaper_v2.2.pdf` | Litepaper, Version 2.2 — the same protocol for a general reader | CC BY 4.0 |
+| `llms.txt` | the whitepaper's machine-readable companion: citation, abstract, measured record, the 24 section openers and both appendices as one-line entries — for indexers, answer engines and AI agents | CC BY 4.0 |
+| `whitepaper-v2.2.jsonld` | schema.org ScholarlyArticle for the paper with Appendix A and B as DefinedTermSets | CC BY 4.0 |
 | `whitepaper-v2.2.md` | the whitepaper's complete text in Markdown, for citation and ingestion | CC BY 4.0 |
 
 The staking engine is specified in its own paper (https://blazephoenix.xyz/staking-whitepaper.md) and is referenced here, not reproduced.

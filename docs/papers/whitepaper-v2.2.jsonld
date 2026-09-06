@@ -1,0 +1,453 @@
+{
+  "@context": "https://schema.org",
+  "@type": "ScholarlyArticle",
+  "@id": "https://doi.org/10.5281/zenodo.22526574",
+  "identifier": [
+    {
+      "@type": "PropertyValue",
+      "propertyID": "DOI",
+      "value": "10.5281/zenodo.22526574"
+    }
+  ],
+  "sameAs": [
+    "https://doi.org/10.5281/zenodo.22526574",
+    "https://blazephoenix.xyz/research/whitepaper/"
+  ],
+  "headline": "BlazePhoenix Technical Whitepaper: an on-chain liquidity aggregator whose quote and execution are one computation",
+  "name": "BlazePhoenix Technical Whitepaper",
+  "version": "2.2",
+  "datePublished": "2026-09-06",
+  "inLanguage": "en",
+  "abstract": "BlazePhoenix-Dex is an on-chain liquidity aggregator built on one claim: a quote and its execution are the same computation. The route is derived inside the transaction that executes it, from public pool state, by a stateless library any reader can re-run; the number that binds at settlement is re-derived by the same dispatcher in the executing frame. There is no routing service, no price oracle, no keeper and no upgrade path. This paper specifies the five contracts — Core, Hub, Solver, Router, Quoter — and the operators of the Meta-Equation: the Eightfold Dispatcher Ω, the Deterministic Derivation 𝒟, the Iron-Law floor Φ, the Vitality Field Ψ and the anti-scam projector Ξ. Behind them sits one discipline, Metrological Design: measure every coordinate that can be measured, and make the rest monotone so a false input hurts only its supplier. Every guarantee is stated with its enforcement site and its limit. The verification apparatus is printed with its denominators: 1,319 of 1,320 tests green on the release profile, 203 of 203 curated mutants killed, 14 of 15 mutants aimed at 40 stateful invariants noticed, covering arrays of strength 2 (63 rows, 258 pairs) and 3 (168 rows, 1,636 triples), 14 + 5 metamorphic relations, three optimiser builds in agreement, and a 240-sample study of how a quote ages. What none of it establishes is stated as carefully. The code described is V2 and is not deployed; the deployed generation is V1, pinned by codehash so the two are never conflated.",
+  "author": {
+    "@type": "Person",
+    "name": "Mitra",
+    "affiliation": {
+      "@type": "Organization",
+      "name": "BlazePhoenix",
+      "url": "https://blazephoenix.xyz"
+    },
+    "email": "contact@blazephoenix.xyz"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "BlazePhoenix",
+    "url": "https://blazephoenix.xyz"
+  },
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "isAccessibleForFree": true,
+  "url": "https://blazephoenix.xyz/research/whitepaper/",
+  "encoding": [
+    {
+      "@type": "MediaObject",
+      "contentUrl": "https://blazephoenix.xyz/docs/BlazePhoenix_Whitepaper.pdf",
+      "encodingFormat": "application/pdf"
+    },
+    {
+      "@type": "MediaObject",
+      "contentUrl": "https://blazephoenix.xyz/whitepaper.md",
+      "encodingFormat": "text/markdown"
+    }
+  ],
+  "keywords": [
+    "decentralized finance",
+    "DEX aggregator",
+    "on-chain routing",
+    "automated market maker",
+    "Uniswap V4",
+    "Ethereum",
+    "Solidity",
+    "smart contract verification",
+    "mutation testing",
+    "metamorphic testing",
+    "covering arrays",
+    "MEV",
+    "Metrological Design"
+  ],
+  "isBasedOn": "https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/tree/8949a9d",
+  "citation": "https://blazephoenix.xyz/verification-report-2026-09.md",
+  "workTranslation": [
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "pt",
+      "url": "https://blazephoenix.xyz/pt/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "es",
+      "url": "https://blazephoenix.xyz/es/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "fr",
+      "url": "https://blazephoenix.xyz/fr/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "de",
+      "url": "https://blazephoenix.xyz/de/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "ru",
+      "url": "https://blazephoenix.xyz/ru/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "tr",
+      "url": "https://blazephoenix.xyz/tr/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "ar",
+      "url": "https://blazephoenix.xyz/ar/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "hi",
+      "url": "https://blazephoenix.xyz/hi/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "ja",
+      "url": "https://blazephoenix.xyz/ja/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "zh",
+      "url": "https://blazephoenix.xyz/zh/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "ko",
+      "url": "https://blazephoenix.xyz/ko/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "id",
+      "url": "https://blazephoenix.xyz/id/whitepaper/",
+      "name": "digest"
+    },
+    {
+      "@type": "CreativeWork",
+      "inLanguage": "bn",
+      "url": "https://blazephoenix.xyz/bn/whitepaper/",
+      "name": "digest"
+    }
+  ],
+  "hasPart": [
+    {
+      "@type": "DefinedTermSet",
+      "@id": "https://doi.org/10.5281/zenodo.22526574#appendix-a",
+      "name": "Appendix A — the primitive equations",
+      "hasDefinedTerm": [
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E1",
+          "name": "Meta-Equation",
+          "description": "$R^{\\star} = \\arg\\max_{R}\\ \\mathrm{net}(R)\\cdot\\prod_{\\ell}\\hat{\\Psi}(p_{\\ell})\\cdot\\mathbf{1}[\\mathrm{net}(R)\\ge\\Phi(R)]\\cdot\\Xi(R)$ — defined in Solver pipeline (§3)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E2",
+          "name": "Constant-product output",
+          "description": "$y = \\lfloor x(\\mathrm{BPS}-f)\\,r_{\\mathrm{out}} / (r_{\\mathrm{in}}\\,\\mathrm{BPS} + x(\\mathrm{BPS}-f)) \\rfloor$ — defined in Core `outV2` (§4.2)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E3",
+          "name": "Concentrated-liquidity output (within tick)",
+          "description": "$\\sqrt{P}' = L\\sqrt{P}/(L + x_{f}\\sqrt{P}/Q_{96})$, $y = L(\\sqrt{P}-\\sqrt{P}')/Q_{96}$; dual form for the other direction — defined in Core `outV3` (§4.2)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E4",
+          "name": "V4 storage base slot",
+          "description": "$\\mathrm{slot} = \\mathrm{keccak256}(\\mathrm{abi.encode}(\\mathrm{poolId}, 6))$; $\\sqrt{P}$ in bits [0,160), LP fee in [208,232) of word 0; $L$ in word 3 — defined in Core `v4SqrtAndLiq` (§5)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E5",
+          "name": "Solidly stable invariant",
+          "description": "$k(x,y) = x^{3}y + xy^{3}$ — defined in Core `_solK` (§6)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E6",
+          "name": "Solidly Newton step",
+          "description": "seed $y_{0} = Y$; up-step $\\max(1, \\lfloor (K-k)/f' \\rfloor)$; down-step $\\max(1, \\lfloor (k-K)/f' \\rfloor)$, replaced by $\\lfloor y/2 \\rfloor$ when it would cross zero; exit at $\\lvert y_{n+1}-y_{n}\\rvert \\le 1$ with a one-unit bump against the taker; cap 64 → seed → quote 0 — defined in Core `_solY` (§6)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E7",
+          "name": "Decimal normalisation",
+          "description": "$X = r_{\\mathrm{in}}10^{18-d_{\\mathrm{in}}}$, $Y = r_{\\mathrm{out}}10^{18-d_{\\mathrm{out}}}$, de-scaled after the solve — defined in Core `_solidlyStable` (§6)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E8",
+          "name": "CREATE2 derivation",
+          "description": "$\\mathrm{pool} = \\mathrm{addr}_{20}(\\mathrm{keccak256}(\\mathtt{0xff} \\Vert \\mathrm{origin} \\Vert \\mathrm{salt} \\Vert \\mathrm{initCodeHash}))$ — defined in Core `create2Address`, `deriveAddress` (§7)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E9",
+          "name": "Monoslot packing",
+          "description": "$s = a \\,\\vert\\, f\\!\\ll\\!8 \\,\\vert\\, k\\!\\ll\\!32 \\,\\vert\\, r\\!\\ll\\!40 \\,\\vert\\, (c\\wedge\\mathtt{0xFFF})\\!\\ll\\!48 \\,\\vert\\, b\\!\\ll\\!60 \\,\\vert\\, \\dots \\,\\vert\\, B_{\\mathrm{last}}\\!\\ll\\!224$ — defined in Core `encodeSlot` (§8)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E10",
+          "name": "Vitality Field",
+          "description": "$\\Psi = V \\cdot 2^{b} \\cdot (1 + 0.25\\,\\mathbf{1}_{\\mathrm{bridge}}) \\cdot (1 + 0.05\\,\\mathbf{1}_{\\mathrm{conc}})$ — defined in Core `psi` (§9.2)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E11",
+          "name": "Activity decay",
+          "description": "$V = \\mathrm{swapCount} \\gg \\lfloor (t - t_{\\mathrm{last}})/24{,}576 \\rfloor$; 0 once the shift exceeds 31 — defined in Core `_decayedSwapCount` (§9.2)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E12",
+          "name": "Depth bucket",
+          "description": "$b = \\min(15, \\lfloor \\log_{10}(d/10^{15}) \\rfloor)$ — defined in Core `depthBucket` (§9.2)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E13",
+          "name": "Eviction hurdle",
+          "description": "$2^{b(d_{\\mathrm{new}})} > \\Psi_{\\mathrm{worst}} + \\lfloor \\Psi_{\\mathrm{worst}}/4 \\rfloor$ — defined in Hub `_canInsert` (§9.3)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E14",
+          "name": "Split gate",
+          "description": "keep the split iff $\\mathrm{out}_{\\mathrm{split}} \\ge \\mathrm{out}_{\\mathrm{single}}\\cdot(1 + 25/10^{6})$, $\\mathrm{out}_{\\mathrm{single}}$ the better of the deepest and the best-rate candidate at full size — defined in Solver `_buildHop` (§10.4)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E15",
+          "name": "Iron-Law floor",
+          "description": "$\\mathtt{floorBps} = \\max(9{,}600 - \\mathtt{legShv} - \\min(\\delta, 10^{4}) - \\sigma_{\\ln}/10^{14},\\ 8{,}000)$ — defined in Core `ironFloorBpsShv` (§11.5)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E16",
+          "name": "Effective minimum",
+          "description": "$\\mathtt{effMin} = \\max(\\mathtt{userMinOut},\\ \\mathtt{route.singleOutFloor},\\ \\lceil \\mathtt{finalHopQuote}\\cdot\\mathtt{floorBps}/10^{4}\\rceil)$; the second term dropped and the third re-scaled by the measured net ratio when fee-on-transfer is detected — defined in Router `_execute` (§11.5)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E17",
+          "name": "Protocol fee",
+          "description": "$\\mathrm{fee} = \\lceil 28 \\cdot \\mathrm{base} / 10^{4} \\rceil$, base = the fee hop's measured input (anchored), the gross output (direct route into a bridge coin), or each hop's measured input (exhaustion); $t_{1} = \\lfloor 3{,}000\\cdot\\mathrm{fee}/10^{4} \\rfloor$, $t_{2} = \\mathrm{fee} - t_{1}$ — defined in Router `_chargeHopFee`, `_payFee` (§13)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E18",
+          "name": "Hook gate",
+          "description": "$(\\mathrm{uint160}(\\mathrm{hook}) \\,\\&\\, \\mathtt{0x3FFF}) \\,\\&\\, ((1\\ll 3)\\mid(1\\ll 2)) \\ne 0 \\Rightarrow$ leg refused, no call made — defined in Core `hookAltersDeltas`; Router (§14.2)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E19",
+          "name": "Dynamic-fee gate",
+          "description": "$f_{\\mathrm{eff}} = f_{\\mathrm{key}}$ if static; unquotable if the sentinel rides with a non-zero protocol fee; else the live LP fee from `slot0` / `globalState` / the pool's `fee()` — defined in Core `effV4Fee`, `quoteV3Fee` (§5.4)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E20",
+          "name": "V2 fee ceiling",
+          "description": "$f_{\\mathrm{eff}} = f_{\\mathrm{decl}}$ if $0 < f_{\\mathrm{decl}} \\le 100$ bps, else 30 — defined in Core `effV2Fee`; the same rule for the Solidly declared fallback (§4.2)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E21",
+          "name": "Preview safety buffer",
+          "description": "$s = \\min(\\max(0, n-2) + 5a,\\ 10)$ bps — defined in Quoter `_pack` (§12.1)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E22",
+          "name": "Surface choice",
+          "description": "carry the route in calldata iff $p_{\\mathrm{byte}} < \\rho^{*}$; $\\rho^{*}$ measured 66.9–105.5 gas/byte by route shape — defined in `test/EquationBench.t.sol` (§17.6)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E23",
+          "name": "Leg shave from concentration",
+          "description": "$\\mathtt{legShv} = \\sum_{\\mathrm{hops}} \\lfloor 200\\,((\\sum a)^{2} - \\sum a^{2})/\\sum a^{2} \\rfloor$ — defined in Core `legShaveBps` (§11.5)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E24",
+          "name": "Aggregate hop floor",
+          "description": "$\\sum \\mathrm{got} + (\\mathrm{BPS} - 8{,}000)\\cdot(\\sum \\mathrm{attested})/n \\ge \\sum \\mathrm{attested}$ — defined in Router `_execute` (§11.3)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E25",
+          "name": "Believability centre",
+          "description": "the depth-weighted median: sort $(r_{i}, d_{i})$ by $r_{i}$, return the first $r_{i}$ at which $\\sum_{j \\le i} d_{j} \\ge \\lceil \\sum d / 2 \\rceil$; band $[0.95, 1.05] \\times$ centre — defined in Solver `_depthWeightedMedian` (§10.3)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "E26",
+          "name": "Fee regime predicate",
+          "description": "$\\mathrm{feeHop} = \\min\\{h : \\mathrm{isBridge}(\\mathrm{hops}[h].\\mathrm{tokenIn})\\}$; charge at $h$ iff $\\neg\\mathrm{feeOnOut} \\wedge (\\mathrm{feeHop} = \\infty \\vee h = \\mathrm{feeHop})$; $\\mathrm{feeOnOut} \\iff$ one hop and $\\mathrm{isBridge}(\\mathrm{tokenOut})$ — defined in Router `_execute` (§13.1)"
+        }
+      ]
+    },
+    {
+      "@type": "DefinedTermSet",
+      "@id": "https://doi.org/10.5281/zenodo.22526574#appendix-b",
+      "name": "Appendix B — the invariants",
+      "hasDefinedTerm": [
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-1",
+          "name": "The Router holds no funds between transactions; its balance at rest is zero.",
+          "description": "Enforced by Baseline-scoped sweeps and payout (§11); `invariant_RouterHoldsNothing`, `HoldsNothingBeyondTheSeed`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-2",
+          "name": "Every swap is atomic: no state exists in which part of a trade settled.",
+          "description": "Enforced by EVM transaction semantics; one frame"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-3",
+          "name": "No oracle: no external price feed is an input to admission, ordering, splitting, flooring or fees.",
+          "description": "Enforced by No feed call exists in the five contracts"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-4",
+          "name": "The fee rate, the fee split and the floor constants have no setters in the deployed bytecode.",
+          "description": "Enforced by Compile-time constants in the Core and the Router (§13)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-5",
+          "name": "Caller-supplied route fields can tighten protection, never loosen it.",
+          "description": "Enforced by E16 three-way maximum; the coverage gate lifts an attestation, never lowers it (§11)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-6",
+          "name": "A swap with a zero minimum does not execute.",
+          "description": "Enforced by `RouterE(10)` at every door"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-7",
+          "name": "Ψ ranks and truncates candidates; no quote, floor or allocation reads it.",
+          "description": "Enforced by Data flow: nothing downstream of ranking consumes Ψ (§9.6)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-8",
+          "name": "A pair's registry holds at most sixteen pools, and eviction keeps the fittest by full Ψ with the margin of E13.",
+          "description": "Enforced by Hub `_canInsert`; `invariant_neverExceedsMaxSlots`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-9",
+          "name": "No address without runtime bytecode enters a route.",
+          "description": "Enforced by `hasCode` on every derivation (§7)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-10",
+          "name": "The universal callback pays only the pool committed for the current leg, only while a leg is in flight, and never more than the leg's recorded budget.",
+          "description": "Enforced by Transient leg context; `RouterE(6)` (§11.4)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-11",
+          "name": "A V4 hook whose address declares delta-altering permissions is rejected before any token moves, without calling it.",
+          "description": "Enforced by E18; `RouterE(9)`; Solver `_topKPools`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-12",
+          "name": "No pricing product can overflow: every dangerous multiplication is factored through 512-bit `mulDiv`, and a state that cannot be bounded quotes zero.",
+          "description": "Enforced by Core (§4.2, §6)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-13",
+          "name": "Rounding runs against over-promise: quotes and payouts floor, protective floors and the fee round up.",
+          "description": "Enforced by Core `mulDiv` / `mulDivUp` at each site"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-14",
+          "name": "Where a bound cannot be proven, the computation returns zero and the venue is surrendered — never a guess, never a schedulable revert inside a quote.",
+          "description": "Enforced by Fail-closed posture across the Core; `_solKFits` (§6)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-15",
+          "name": "The fee base is a measured balance, never a declared one; `route.totalOut` is read by nothing.",
+          "description": "Enforced by `_chargeHopFee`; `test_FeeBase_IgnoresLiedAboutTotalOut`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-16",
+          "name": "Renunciation is one-way: the flag is written `true` at one site and `false` at none; after it, only the grow-only curator tier remains, and a moved factory or hook cannot be re-armed.",
+          "description": "Enforced by `renounceControl` on Hub and Router (§14.7)"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-17",
+          "name": "A declared constant-product or Solidly fallback fee is believed only within a 100 bps ceiling; outside it the canonical 30 bps prices the pool.",
+          "description": "Enforced by E20"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-18",
+          "name": "No hop carries more than four legs and no route more than eleven in the Solver's plan; the Router accepts at most three hops and five legs per hop.",
+          "description": "Enforced by Solver budgets; Router `_execute` → `RouterE(3)`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-19",
+          "name": "A pool enters the registry only if it proves it trades the pair: `token0()`/`token1()` for pair-shaped kinds, re-derivation of the pool id for V4; an asked pool proves the same before discovery lists it.",
+          "description": "Enforced by Hub `recordSwap`, `_probe`; `invariant_ActiveEntriesTradeThePair`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-20",
+          "name": "A settlement pays the protocol fee exactly once on an anchored route and once per hop on an exhausted one; a settlement that paid nothing does not exist.",
+          "description": "Enforced by Fee ledger, `RouterE(15)`/`RouterE(16)`; `invariant_SettledSwapEmitsExactlyOneFee`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-21",
+          "name": "Hops chain — each hop's input is the previous hop's output — and a hooked leg sits only in the last hop.",
+          "description": "Enforced by Router `_execute` → `RouterE(3)`; `sawHooked`"
+        },
+        {
+          "@type": "DefinedTerm",
+          "termCode": "INV-22",
+          "name": "Every contract ships under the project's 24,000-byte gate on the release profile, and the suite runs on that profile.",
+          "description": "Enforced by `DeployedSizeGate`; `profile_parity.py`"
+        }
+      ]
+    }
+  ]
+}
