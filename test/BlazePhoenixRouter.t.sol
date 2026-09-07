@@ -99,21 +99,39 @@ contract BlazePhoenixRouterTest is Test {
 
     }
 
-    /// INV-15: the base every leg is scaled from is the MEASURED pull, capped by what
-    /// the route commits. A leg declaring twice the input must still execute on what
-    /// actually arrived; if the declared figure were the base, the leg would try to
-    /// push twice the balance and the swap could not settle.
-    function test_HopBase_IsTheMeasuredPull_NotTheDeclaredLegInput() public {
+    /// INV-15: the fee base at hop 0 is min(measured pull, the sum the route's legs
+    /// commit). A leg declaring TWICE the input must not inflate the fee: it stays at
+    /// 28 bps of what actually arrived, to the wei. (The 1 % tolerance on delivery that
+    /// an earlier form of this test used could not see a doubled fee; the equality can.)
+    function test_FeeBase_IgnoresOverDeclaredLegInput() public {
         uint256 amountIn = 3_000e18;
         deal(address(tokenIn), user, amountIn * 4);
-        uint256 realQuote = BPC.outV2(amountIn, 10_000e18, 10_000e18, 30);
         Route memory route = _buildRoute(amountIn, 1);
         route.hops[0].amountIn = amountIn * 2;
         route.hops[0].legs[0].amountIn = amountIn * 2;      // declared: twice what is pulled
         vm.prank(user);
         uint256 delivered = router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
-        assertApproxEqRel(delivered, realQuote, 0.01e18, "executed on the measured pull");
+        uint256 fee = tokenIn.balanceOf(treasury1) + tokenIn.balanceOf(treasury2);
+        assertEq(fee, (amountIn * 28) / 10_000, "the fee is 28 bps of the measured pull, not of the declared input");
+        assertApproxEqRel(delivered, BPC.outV2(amountIn - fee, 10_000e18, 10_000e18, 30), 0.0001e18, "executed on the measured pull less the fee");
         assertEq(tokenIn.balanceOf(address(router)), 0, "nothing stranded");
+    }
+
+    /// The mirror: a leg declaring HALF the input. The base is the committed half, so the
+    /// fee is 28 bps of the half, and the Router keeps nothing of the rest.
+    function test_FeeBase_UnderDeclaredLegInput_FeeFollowsTheCommittedSum() public {
+        uint256 amountIn = 3_000e18;
+        deal(address(tokenIn), user, amountIn * 4);
+        Route memory route = _buildRoute(amountIn, 1);
+        route.hops[0].amountIn = amountIn / 2;
+        route.hops[0].legs[0].amountIn = amountIn / 2;      // declared: half of what is pulled
+        uint256 before = tokenIn.balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
+        uint256 fee = tokenIn.balanceOf(treasury1) + tokenIn.balanceOf(treasury2);
+        assertEq(fee, ((amountIn / 2) * 28) / 10_000, "the fee follows the committed half");
+        assertEq(tokenIn.balanceOf(address(router)), 0, "nothing stranded in the Router");
+        assertLe(before - tokenIn.balanceOf(user), amountIn, "the caller spent at most the pull");
     }
 
     function test_Receive_RejectsPlainEthTransfer() public {

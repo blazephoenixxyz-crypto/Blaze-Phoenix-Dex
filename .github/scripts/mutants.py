@@ -56,7 +56,7 @@ M = [
       f="src/BlazePhoenixRouter.sol",
       old="            if (c < baseH) baseH = c;",
       new="            baseH = c; // MUTANTE",
-      teste="test_HopBase_IsTheMeasuredPull_NotTheDeclaredLegInput"),
+      teste="test_FeeBase_IgnoresOverDeclaredLegInput"),
  dict(nome="V4: a promessa e truncada na fronteira do range (sqrtBoundary ligado)",
       f="src/BlazePhoenixCore.sol",
       old="            sqrtBoundary(sp, tick, tickSpacing, zeroForOne)",
