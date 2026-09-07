@@ -175,17 +175,17 @@ contract HookAdmissionByBitsTest is Test {
         uint256 rate = bound(uint256(rateBps), 0, 1200);          // 0 .. 120 % of a 1:1 fill
         mgr.setRate(pid, rate);
         uint256 amt = 1e18;
-        uint256 promise = BPC.v4LegOut(address(mgr), pid, amt, FEE, TS, true);
+        uint256 promised = BPC.v4LegOut(address(mgr), pid, amt, FEE, TS, true);
         uint256 minOut = bound(uint256(minSeed), 1, amt);
         Route memory r = _route(pid, h, amt);
-        r.hops[0].expectedOut = promise; r.hops[0].legs[0].expectedOut = promise; r.totalOut = promise; r.singleOut = promise;
+        r.hops[0].expectedOut = promised; r.hops[0].legs[0].expectedOut = promised; r.totalOut = promised; r.singleOut = promised;
         vm.prank(user);
         try router.swapExactIn(r, amt, minOut, user, block.timestamp + 1) returns (uint256 got) {
             assertGe(got, minOut, "a settlement never delivers below the caller's minimum");
-            assertGe(got + 1, promise * 8 / 10, "nor below the gate's share of the in-frame promise");
+            assertGe(got + 1, promised * 8 / 10, "nor below the gate's share of the in-frame promise");
         } catch {
             uint256 fill = amt * rate / 1000;
-            assertTrue(fill < minOut || fill + 1 < promise * 8 / 10, "a refusal only where the minimum or the gate would have been missed");
+            assertTrue(fill < minOut || fill + 1 < promised * 8 / 10, "a refusal only where the minimum or the gate would have been missed");
         }
     }
 
