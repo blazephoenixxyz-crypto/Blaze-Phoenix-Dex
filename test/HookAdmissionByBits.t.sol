@@ -12,8 +12,10 @@ pragma solidity 0.8.36;
 //  by construction, and no judgement about the hook's code can change that.
 //
 //  Guarantee: pools under swap-invisible hooks are routable without an operator
-//  step; pools under hooks that run in the swap (bit 7 or 6) still require the
-//  allow-list and the codehash pin; delta-returning hooks are refused regardless.
+//  step; a hook that runs in the swap (bit 7 or 6) is refused only while PAUSED
+//  (revoked, or listed and its code moved); one nobody listed is the caller's
+//  signed choice on the explicit door, bounded like every venue, and never
+//  proposed by the automatic door; delta-returning hooks are refused regardless.
 //  Red first: the settle test fails on the tree that gated every hook.
 // =============================================================================
 
@@ -115,17 +117,76 @@ contract HookAdmissionByBitsTest is Test {
         assertGt(_swap(_pool(h), h), 9e17, "settles");
     }
 
-    /// The antagonist: a beforeSwap hook that is not allow-listed is refused, as before.
-    function test_BeforeSwapHook_Unlisted_IsRefused() public {
+    /// A beforeSwap hook nobody listed: on the explicit door it is the caller's signed
+    /// choice and settles, bounded like every venue. (It never reaches the automatic door:
+    /// registry reads filter by isHookLive.)
+    function test_BeforeSwapHook_Unlisted_ExplicitDoor_Settles() public {
         address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
         assertTrue(BPC.hookRunsInSwap(h), "premise: runs in the swap");
+        assertFalse(hub.isHookLive(h), "premise: not listed");
+        assertGt(_swap(_pool(h), h), 9e17, "settles on the explicit door");
+    }
+
+    /// Its twin: an afterSwap-only hook, not listed, settles on the explicit door too.
+    function test_AfterSwapHook_Unlisted_ExplicitDoor_Settles() public {
+        address h = forge_.deploy(AFTER_SWAP, BEFORE_SWAP | SWAP_DELTAS);
+        assertGt(_swap(_pool(h), h), 9e17, "settles");
+    }
+
+    /// The curator's explicit "no": a revoked hook is refused on the explicit door too.
+    function test_RevokedHook_ExplicitDoor_IsRefused() public {
+        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        hub.allowHook(h, true); hub.allowHook(h, false);
+        assertTrue(hub.hookPaused(h), "premise: revoked");
         _refused9(_pool(h), h);
     }
 
-    /// Its twin: an afterSwap-only hook, not allow-listed, is refused too.
-    function test_AfterSwapHook_Unlisted_IsRefused() public {
-        address h = forge_.deploy(AFTER_SWAP, BEFORE_SWAP | SWAP_DELTAS);
+    /// The auto-pause: a listed hook whose runtime code moved is refused on every door.
+    function test_ListedHook_CodeMoved_IsPaused() public {
+        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        hub.allowHook(h, true);
+        vm.etch(h, hex"6000");
+        assertTrue(hub.hookPaused(h), "premise: pin no longer matches");
         _refused9(_pool(h), h);
+    }
+
+    /// Registration is admission: addV4 with an unlisted swap-running hook lists and pins it
+    /// (one operator step where there were two); a revoked hook is not re-admitted that way.
+    function test_AddV4_AdmitsAndPinsTheHookItRegisters() public {
+        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        assertFalse(hub.isHookLive(h), "premise: not listed");
+        hub.setRoles(address(router), address(0xBEEF), address(this));
+        hub.addV4(c0, c1, FEE, TS, h);
+        assertTrue(hub.isHookLive(h), "listed and pinned by the registration");
+        address r = forge_.deploy(AFTER_SWAP, BEFORE_SWAP | SWAP_DELTAS);
+        hub.allowHook(r, true); hub.allowHook(r, false);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint8(8)));
+        hub.addV4(c0, c1, 500, 10, r);
+    }
+
+    /// The bound the explicit door gives a caller who routes through a hook nobody vetted:
+    /// whatever the hook does to the fill (here: the singleton fills at a fraction of the
+    /// in-frame promise), a settlement delivers at least the caller's minimum and at least
+    /// the gate's share of the promise, and a refusal happens only where one of those would
+    /// have been missed. 256 runs locally; the campaign figure comes from the CI box.
+    function testFuzz_UnlistedHook_HostileFill_BoundedByGateAndMinOut(uint16 rateBps, uint96 minSeed) public {
+        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        bytes32 pid = _pool(h);
+        uint256 rate = bound(uint256(rateBps), 0, 1200);          // 0 .. 120 % of a 1:1 fill
+        mgr.setRate(pid, rate);
+        uint256 amt = 1e18;
+        uint256 promise = BPC.v4LegOut(address(mgr), pid, amt, FEE, TS, true);
+        uint256 minOut = bound(uint256(minSeed), 1, amt);
+        Route memory r = _route(pid, h, amt);
+        r.hops[0].expectedOut = promise; r.hops[0].legs[0].expectedOut = promise; r.totalOut = promise; r.singleOut = promise;
+        vm.prank(user);
+        try router.swapExactIn(r, amt, minOut, user, block.timestamp + 1) returns (uint256 got) {
+            assertGe(got, minOut, "a settlement never delivers below the caller's minimum");
+            assertGe(got + 1, promise * 8 / 10, "nor below the gate's share of the in-frame promise");
+        } catch {
+            uint256 fill = amt * rate / 1000;
+            assertTrue(fill < minOut || fill + 1 < promise * 8 / 10, "a refusal only where the minimum or the gate would have been missed");
+        }
     }
 
     /// Allow-listing a swap-running hook admits it: the operator step still works where it matters.
