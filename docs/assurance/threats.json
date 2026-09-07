@@ -130,8 +130,8 @@
       "id": "SOK-HOOK",
       "class": "Malicious hook on a hooked venue",
       "status": "blocked",
-      "guard": "hookAltersDeltas (bits) at three surfaces; hookRunsInSwap (bits) gates the allow-list and codehash pin to the hooks that run in a swap",
-      "note": "Permissions are encoded in immutable address bits. Delta-taking hooks are refused at several independent surfaces. Hooks with no swap bit never run in a swap and are admitted by the bits (no operator step: quote equals execution for them as for a hookless pool). Hooks that run in the swap (beforeSwap or afterSwap) are admitted explicitly and pinned by codehash; what they do inside the swap is bounded by the in-frame promise, the attestation gate and userMinOut, which read no list."
+      "guard": "hookAltersDeltas (bits) at three surfaces; hookRunsInSwap (bits) scopes the list and pin to hooks that run in a swap; hookPaused refuses revoked and code-moved hooks on every door; registry reads filter by isHookLive",
+      "note": "Permissions are encoded in immutable address bits; delta-taking hooks are refused at several independent surfaces. Hooks with no swap bit never run in a swap and need neither list nor pin. For hooks that run in the swap, the list curates the AUTOMATIC door (registry reads filter by isHookLive; registering a hooked pool admits and pins its hook) and the pin pauses a listed hook whose code moved on every door; the curator's revocation refuses on every door. A hook nobody listed is the caller's signed choice on the explicit door: what it does inside the swap is bounded by the in-frame promise, the attestation gate and userMinOut, which read no list — measured by a fuzzed campaign (testFuzz_UnlistedHook_HostileFill_BoundedByGateAndMinOut)."
     },
     {
       "id": "SOK-GRIEF-SEATS",

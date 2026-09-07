@@ -26,8 +26,21 @@ contract SeedPoolHookMustBeAllowedTest is Test {
         hub.allowHook(hookListed, true);
     }
 
-    /// @notice An unlisted hook is refused at the second door with the first door's code.
-    function test_SeedPoolRefusesAnUnlistedHook() public {
+    /// @notice Registration is admission (2026-09-07): an unlisted hook seeded through the
+    ///         second door is listed and pinned by that write, on the same terms as addV4.
+    function test_SeedPoolAdmitsAndPinsAnUnlistedHook() public {
+        assertFalse(hub.isHookLive(hookUnlisted), "premise: not listed");
+        vm.prank(operator);
+        hub.seedPool(pool, BPC.KIND_V2, 30, hookUnlisted, tA, tB);
+        assertTrue(hub.isHookLive(hookUnlisted), "listed and pinned by the registration");
+    }
+
+    /// @notice The curator's "no" holds at the second door with the first door's code: a
+    ///         revoked hook is refused, and registration does not re-admit it.
+    function test_SeedPoolRefusesARevokedHook() public {
+        hub.allowHook(hookUnlisted, true);
+        hub.allowHook(hookUnlisted, false);
+        assertTrue(hub.hookPaused(hookUnlisted), "premise: revoked");
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(8)));
         hub.seedPool(pool, BPC.KIND_V2, 30, hookUnlisted, tA, tB);

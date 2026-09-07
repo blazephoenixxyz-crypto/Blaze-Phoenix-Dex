@@ -166,10 +166,21 @@ contract HubRefusalsObservedTest is Test {
     //  1. Hub:640 — the hook allow-list at its only admission door
     // =========================================================================
 
-    /// A hooked pool key whose hook was never allow-listed must be refused.
-    /// DELETION-SENSITIVE: without the guard, addV4 registers the entry and
+    /// Registration is admission (2026-09-07): a hooked pool key whose hook was never
+    /// listed is written, and the write lists and pins the hook (one operator step).
+    function test_AddV4_UnlistedHookIsAdmittedAndPinned() public {
+        assertFalse(hub.isHookLive(hookAddr), "premise: not listed");
+        bytes32 key = hub.addV4(bridgeTok, counter, CANON_FEE, CANON_TS, hookAddr);
+        assertTrue(hub.getPool(key) != address(0), "the row is written");
+        assertTrue(hub.isHookLive(hookAddr), "and the hook is listed and pinned by it");
+    }
+
+    /// The curator's "no" holds at this door: a revoked hook is refused with HubE(8).
+    /// DELETION-SENSITIVE: without the guard, addV4 re-admits the revoked hook and
     /// returns a key — no revert, expectRevert fails.
-    function test_AddV4_UnlistedHookIsRefused() public {
+    function test_AddV4_RevokedHookIsRefused() public {
+        hub.allowHook(hookAddr, true);
+        hub.allowHook(hookAddr, false);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 8));
         hub.addV4(bridgeTok, counter, CANON_FEE, CANON_TS, hookAddr);
     }

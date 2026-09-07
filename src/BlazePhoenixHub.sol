@@ -305,7 +305,7 @@ contract BlazePhoenixHub {
         address v4PoolManager;
         // hooks allow-list + codehash pin (Layer 3: auto-pause on code change)
         mapping(address => bool) hookAllowed;
-        mapping(address => bytes32) hookCodehash;
+        mapping(address => bytes32) hookCodehash;   // codehash at admission; HOOK_REVOKED after revocation
         // The same pin, for the factory-call modes (0-3): see _scanFactory.
         mapping(address => bytes32) factoryCodehash;
         // status
@@ -480,6 +480,9 @@ contract BlazePhoenixHub {
 
     // ─── Curator (permanent: grows the registry only) ──────────────────
 
+    /// @dev Pin-slot sentinel of a revoked hook (no runtime code hashes to it).
+    bytes32 private constant HOOK_REVOKED = bytes32(uint256(1));
+
     function allowHook(address h, bool ok) external onlyAdmin {
         HubStore storage $ = _store();
         // Curator power = GROW only, as renounceControl promises. De-listing
@@ -501,7 +504,36 @@ contract BlazePhoenixHub {
         // Pin the code at admission (Layer 3). A later code change (proxy
         // upgrade, selfdestruct+redeploy) makes isHookLive() false → the hook is
         // auto-paused (not routable) WITHOUT eviction; re-admitting re-pins it.
-        if (ok) $.hookCodehash[h] = h.codehash; else delete $.hookCodehash[h];
+        // A revoked hook keeps a sentinel in its pin slot with `hookAllowed == false`: that
+        // pair is the curator's explicit "no", refused on every door until re-listed. An
+        // unknown hook (never listed) has no pin and is the caller's own choice on the
+        // explicit door. The sentinel is not a codehash (no runtime hashes to 1), and it
+        // does not depend on the hook having code at all.
+        $.hookCodehash[h] = ok ? h.codehash : HOOK_REVOKED;
+    }
+
+    /// @dev Registering a hooked pool is the admission of its hook: the operator who writes the
+    ///      row has judged it, so the row and the listing are one step (they used to be two,
+    ///      and a row could not be written without the other). A revoked hook (curator's "no")
+    ///      is not re-admitted here: HubE(8), as before.
+    function _admitOnRegistration(HubStore storage $, address hooks) private {
+        if (hooks == address(0) || $.hookAllowed[hooks]) return;
+        if ($.hookCodehash[hooks] == HOOK_REVOKED) revert HubE(8);
+        $.hookAllowed[hooks] = true;
+        $.hookCodehash[hooks] = hooks.codehash;
+    }
+
+    /// @notice Is routing through this hook refused on every door? True for a hook the
+    ///         curator revoked, and for a listed hook whose runtime code moved since its
+    ///         pin (auto-pause). False for a hook nobody ever listed: the explicit door
+    ///         accepts it as the caller's signed choice, bounded by the in-frame floor and
+    ///         the caller's minimum; the automatic door never proposes it, because the
+    ///         registry reads filter rows by `isHookLive`.
+    function hookPaused(address h) public view returns (bool) {
+        if (h == address(0)) return false;
+        HubStore storage $ = _store();
+        bytes32 pin = $.hookCodehash[h];
+        return $.hookAllowed[h] ? h.codehash != pin : pin == HOOK_REVOKED;
     }
 
     /// @notice A hook is routable only while allow-listed AND its runtime code
@@ -787,7 +819,7 @@ contract BlazePhoenixHub {
         _ne0(c1);
         if (c0 == c1) revert HubE(4);
         HubStore storage $ = _store();
-        if (hooks != address(0) && !$.hookAllowed[hooks]) revert HubE(8);
+        _admitOnRegistration($, hooks);
 
         // ─── POOL OF NATIVE ETH ───────────────────────────────────────────
         // In V4 native ETH IS `address(0)` as a currency, and it ALWAYS sorts
@@ -1941,7 +1973,7 @@ contract BlazePhoenixHub {
         // none. `addV4` has held this line since its hook argument existed; a row written here
         // with an unlisted hook is filtered out of every read by `isHookLive` and so is a dead
         // seat on the pair, and after renunciation nothing can take it back.
-        if (hooks != address(0) && !_store().hookAllowed[hooks]) revert HubE(8);
+        _admitOnRegistration(_store(), hooks);
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         key = keyOf(pool, t0, t1);
         if (BPC.kindHas(kind, BPC.A_CONC_SING)) {

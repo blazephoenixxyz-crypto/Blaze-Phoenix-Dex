@@ -88,7 +88,7 @@
       "family": "A_CONC_SING",
       "class": "CONFIRMED",
       "site": "src/BlazePhoenixRouter.sol:_execV4Amt",
-      "note": "address bits are immutable and the manager dispatches on them: a hook with no swap bit (beforeSwap, afterSwap, swap deltas) never runs in a swap and its pools are admitted by the bits alone; a hook that runs in the swap is routed only while allow-listed and its codehash is unchanged; delta-returning hooks are refused regardless. The key carries the sieved value"
+      "note": "address bits are immutable and the manager dispatches on them: a hook with no swap bit never runs in a swap and its pools need neither list nor pin; a hook that runs in the swap is refused while paused (revoked by the curator, or listed and its code moved since the pin); a hook nobody listed is the caller's signed choice on the explicit door, bounded like every venue, and is never proposed by the automatic door (registry reads filter by isHookLive); delta-returning hooks are refused regardless. Registering a hooked pool admits and pins its hook (one operator step). The key carries the sieved value"
     },
     {
       "field": "leg.hooks",

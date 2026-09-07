@@ -72,6 +72,7 @@ interface IHubW {
     ) external;
     function v4PoolManager() external view returns (address);
     function isHookLive(address hook) external view returns (bool);
+    function hookPaused(address h) external view returns (bool);
     function bridge(uint8 i) external view returns (address);
 }
 
@@ -1833,14 +1834,15 @@ contract BlazePhoenixRouter {
             // Delta-hooks stay blocked: the vanilla V4 quote cannot price custom
             // accounting, so quote would diverge from execution.
             if (BPC.hookAltersDeltas(leg.hooks)) revert RouterE(9);
-            // Codehash pin (Layer 3): a hook that RUNS IN THE SWAP (beforeSwap or
-            // afterSwap bit) is routed only while it is admitted AND its code is
-            // unchanged since admission — closes proxy-upgrade and
-            // crafted-route-with-unadmitted-hook vectors; auto-pauses on change.
-            // A hook with no swap bit never runs in a swap (the manager dispatches
-            // on the immutable address bits), so its pools are admitted by the
-            // bits alone: no operator step, and nothing for the pin to guard.
-            if (BPC.hookRunsInSwap(leg.hooks) && !hub.isHookLive(leg.hooks)) revert RouterE(9);
+            // Layer 2/3 for a hook that RUNS IN THE SWAP (beforeSwap or afterSwap
+            // bit): refused while PAUSED — revoked by the curator, or listed and
+            // its code moved since the pin (proxy upgrade, redeploy). A hook nobody
+            // listed is the caller's signed choice on this door, bounded like every
+            // venue by the in-frame promise, the attestation gate and userMinOut;
+            // the automatic door never proposes it (registry reads filter by
+            // isHookLive). A hook with no swap bit never runs in a swap and needs
+            // neither list nor pin.
+            if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) revert RouterE(9);
         }
         // V4 has no pool address — leg.pool holds the truncated poolId, not a
         // token. The counterpart currency travels in auxId (low 160 bits).
