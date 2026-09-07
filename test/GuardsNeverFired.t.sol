@@ -257,13 +257,19 @@ contract GuardsNeverFiredTest is Test {
     ///      the knobs the witnesses turn. The fully-formed shape (auxId = vB,
     ///      hopOut = vB, hooks = 0) is the settling shape RefusalsNeverDriven
     ///      already proved end to end against this same manager.
+    /// @dev BPX-2026-009: leg.pool must be the pool the key derives to.
+    function _pidAddr(address hooks_) internal view returns (address) {
+        (address t0, address t1) = BPC.sortTokens(address(vA), address(vB));
+        return address(uint160(uint256(BPC.computeV4PoolId(t0, t1, 500, 10, hooks_))));
+    }
+
     function _v4Route(uint256 amountIn, address hooksAddr, bytes32 auxId, address hopOut)
         private view returns (Route memory route)
     {
         bool zfo = address(vA) < address(vB);
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({
-            pool: V4_PID_ADDR, hooks: hooksAddr, kind: BPC.KIND_V4, fee: 500,
+            pool: _pidAddr(hooksAddr), hooks: hooksAddr, kind: BPC.KIND_V4, fee: 500,
             tickSpacing: 10, zeroForOne: zfo, stable: false,
             amountIn: amountIn, expectedOut: 0, auxId: auxId
         });

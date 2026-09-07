@@ -124,9 +124,15 @@ contract V4SievedHookIsTheExecutedHookTest is Test {
         hub.allowHook(HOOK_CLEAN, true);
     }
 
+    /// @dev BPX-2026-009: leg.pool must be the pool the key derives to.
+    function _pidAddr(address hooks_) internal view returns (address) {
+        (address t0, address t1) = BPC.sortTokens(address(A), address(B));
+        return address(uint160(uint256(BPC.computeV4PoolId(t0, t1, 500, 10, hooks_))));
+    }
+
     function _v4Route(uint256 amt, address hooks) internal view returns (Route memory r) {
         Leg memory leg = Leg({
-            pool: address(uint160(uint256(keccak256("pid")))),
+            pool: _pidAddr(hooks),
             hooks: hooks, kind: 4, fee: 500, tickSpacing: 10,
             zeroForOne: address(A) < address(B), stable: false,
             amountIn: amt, expectedOut: 0, auxId: bytes32(uint256(uint160(address(B))))

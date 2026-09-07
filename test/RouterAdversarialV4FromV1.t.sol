@@ -27,6 +27,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 
 interface IERC20Min {
     function transfer(address, uint256) external returns (bool);
@@ -166,6 +167,12 @@ contract V4Adversary {
 
     /// A V4 leg through the hostile manager, with fuzzed hook, fuzzed returned delta, and fuzzed
     /// crafted Route fields.
+    /// @dev BPX-2026-009: leg.pool must be the pool the key derives to.
+    function _pidAddr(address hooks_) internal view returns (address) {
+        (address t0, address t1) = BPC.sortTokens(address(A), address(B));
+        return address(uint160(uint256(BPC.computeV4PoolId(t0, t1, 500, 10, hooks_))));
+    }
+
     function swapV4(
         uint256 amtSeed, uint256 hookSeed, bool useOv,
         int128 d0, int128 d1, uint256 recSeed, bool reenter
@@ -184,7 +191,7 @@ contract V4Adversary {
 
         bool zfo = address(A) < address(B); // consistent with sortTokens
         Leg memory leg = Leg({
-            pool: address(uint160(uint256(keccak256("pid")))), // truncated poolId
+            pool: _pidAddr(hook), // the truncated poolId the key derives to (BPX-2026-009)
             hooks: hook, kind: 4 /*V4*/, fee: 500, tickSpacing: 10,
             zeroForOne: zfo, stable: false,
             amountIn: amt, expectedOut: 0,
