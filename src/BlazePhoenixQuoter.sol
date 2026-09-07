@@ -521,8 +521,10 @@ contract BlazePhoenixQuoter {
             else tokenOther = address(0);
         }
         (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
-        // Parity with the Router's BPX-2026-009 refusal: a leg that names a pool its
-        // key does not derive to is unquotable, so preview and execution agree.
+        // Parity with the Router's BPX-2026-009 refusals: a leg whose direction is not
+        // the direction of its tokens, or that names a pool its key does not derive
+        // to, is unquotable, so preview and execution agree.
+        if (leg.zeroForOne != (tokenIn == c0)) return 0;
         if (leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks))))) return 0;
         IV4Q.V4PoolKey memory key = IV4Q.V4PoolKey({
             currency0: c0, currency1: c1, fee: leg.fee,

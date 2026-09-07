@@ -49,6 +49,13 @@
       "note": "re-derived from pool shape; an unknown kind reverts at dispatch"
     },
     {
+      "field": "leg.kind",
+      "family": "A_RESERVES|solidly",
+      "class": "STEERING",
+      "site": "src/BlazePhoenixRouter.sol:_execPairAmt",
+      "note": "execution runs the branch the kind names: a V2 pair run as Solidly settles for less (measured within five percent, the difference stays in the pair); a V2 pair run as V3 reverts before any token moves; the registry row is re-derived by the Hub regardless. Measured 2026-09-07 (test/RouteIntegrityFields.t.sol)"
+    },
+    {
       "field": "leg.fee",
       "family": "A_CONC_POOL",
       "class": "CONFIRMED",
@@ -107,9 +114,9 @@
     {
       "field": "leg.zeroForOne",
       "family": "A_CONC_SING",
-      "class": "STEERING",
+      "class": "CONFIRMED",
       "site": "src/BlazePhoenixRouter.sol:_execV4Amt",
-      "note": "a wrong direction fails closed in the manager's settlement accounting"
+      "note": "zeroForOne is derivable (true exactly when the input is currency0), so a flipped direction is refused here (RouterE(11)) rather than left to the manager's settlement accounting; closed 2026-09-07 in the BPX-2026-009 follow-up"
     },
     {
       "field": "leg.amountIn",

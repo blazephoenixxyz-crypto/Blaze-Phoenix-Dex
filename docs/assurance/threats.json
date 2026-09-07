@@ -180,11 +180,11 @@
     },
     {
       "id": "SOK-ROUTE-SELF",
-      "class": "A route whose fields disagree with each other (the pool it names is not the pool its key executes)",
+      "class": "A route whose fields disagree with each other (the pool it names is not the pool its key executes, or its direction is not the direction of its tokens)",
       "status": "blocked",
       "guard": "RouterE(11) in _execV4Amt; the Quoter refuses to price a mismatched leg and holds the plan's own point",
-      "test": "test_SubstitutedHook_RouteNamesPoolA_IsRefused, test_SwappedTickSpacing_RouteNamesPoolA_IsRefused, test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool",
-      "note": "BPX-2026-009 (Karan Rathod): a V4 leg is executed by its derived key, so swapping leg.hooks after the quote sent the swap to another pool while leg.pool still named the quoted one. The derived poolId is now pinned to leg.pool. A route that lies consistently in every field is the caller's signed intent and is bounded by the in-frame promise, the attestation gate and userMinOut, as every route is."
+      "test": "test_SubstitutedHook_RouteNamesPoolA_IsRefused, test_SwappedTickSpacing_RouteNamesPoolA_IsRefused, test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool, test_V4_FlippedDirection_IsRefused, test_Quoter_FlippedDirection_IsNotPriced, testFuzz_V4Leg_AcceptedIffFieldsAgree",
+      "note": "BPX-2026-009 (Karan Rathod): a V4 leg is executed by its derived key, so swapping leg.hooks after the quote sent the swap to another pool while leg.pool still named the quoted one. The derived poolId is now pinned to leg.pool. A route that lies consistently in every field is the caller's signed intent and is bounded by the in-frame promise, the attestation gate and userMinOut, as every route is. Follow-up 2026-09-07: the direction is pinned too, and the family is measured on both sides of the pool, per field, in the second hop of a two-hop route, in one leg of a split, and as a fuzzed accept-iff-consistent property."
     },
     {
       "id": "SOK-ROUTE-AUTHOR",
