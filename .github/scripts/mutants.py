@@ -17,6 +17,21 @@ sua linha aqui.
 import re, subprocess, sys, shutil, os, tempfile, json, hashlib
 
 M = [
+ dict(nome="V4: a promessa e truncada na fronteira do range (sqrtBoundary ligado)",
+      f="src/BlazePhoenixCore.sol",
+      old="            sqrtBoundary(sp, tick, tickSpacing, zeroForOne)",
+      new="            0 // MUTANTE",
+      teste="test_RangeExit_PromiseIsTruncatedAtTheBoundary"),
+ dict(nome="V4: chave estatica compoe a protocol fee do manager por direcao",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (pf == 0) return keyFee;",
+      new="            return keyFee; // MUTANTE",
+      teste="test_StaticFee_ComposesProtocolFee_PerDirection"),
+ dict(nome="V4: o Router cota a perna pela promessa ligada do Core",
+      f="src/BlazePhoenixRouter.sol",
+      old="        quote = BPC.v4LegOut(v4mgr, pid, legAmt, leg.fee, leg.tickSpacing, leg.zeroForOne);",
+      new="        quote = 0; // MUTANTE",
+      teste="test_Native_DeliveryBelowInFrameFloorIsRefused"),
  dict(nome="portao-de-cobertura: elevacao para a quote medida",
       f="src/BlazePhoenixRouter.sol",
       old="                if (bound < BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)) bound = qs;",

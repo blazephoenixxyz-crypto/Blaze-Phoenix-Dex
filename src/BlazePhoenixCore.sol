@@ -1714,7 +1714,7 @@ library BlazePhoenixCore {
             // already-sized leg, the Preview's `netOut` and the `ironFloor`.
             // There a lower bound is exactly what is wanted, and there is no
             // cross-family comparison to bias.
-            out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF), c.zeroForOne, 0);
+            out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF, c.zeroForOne), c.zeroForOne, 0);
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
@@ -1770,20 +1770,53 @@ library BlazePhoenixCore {
         tick     = int24(uint24(uint256(word0) >> 160));
     }
 
-    /// @notice INV-20 (V4-FEE-MEASURED): the effective swap fee for a V4 leg.
-    ///         A static-fee key carries the real fee in the key itself. A
-    ///         dynamic-fee key uses the sentinel 0x800000 — its true fee lives
-    ///         only in slot0's lpFee (measure-not-nominal). Fail closed while a
-    ///         non-zero protocolFee is present: its composition with lpFee is
-    ///         not yet anchored, so we return an unquotable fee (outV3 → 0)
-    ///         rather than under-charge. Measured protocolFee on Base = 0 today,
-    ///         so this loses nothing in practice.
-    function effV4Fee(uint24 keyFee, uint24 lpFee, uint24 protoFee)
+    /// @notice INV-20 (V4-FEE-MEASURED): the effective swap fee for a V4 leg,
+    ///         in the swap's direction.
+    ///         A static-fee key carries the LP fee in the key; the PoolManager
+    ///         may add a protocol fee on top, per direction, and charges
+    ///         `calculateSwapFee(protocolFee, lpFee) = p + lp − p·lp/1e6` when
+    ///         `protocolFee != 0` (v4-core ProtocolFeeLibrary; each direction
+    ///         is a 12-bit field, zeroForOne in the low bits). The static arm
+    ///         composes exactly that, so a quote on a static key never
+    ///         overstates the delivered output once a fee controller enables
+    ///         the protocol fee (measured 0 on every chain served today).
+    ///         A dynamic-fee key uses the sentinel 0x800000 — its true fee
+    ///         lives only in slot0's lpFee (measure-not-nominal); with a
+    ///         non-zero protocolFee it still fails closed (0xFFFFFF → outV3
+    ///         returns 0), because the LP fee a hook may override in
+    ///         beforeSwap is not anchored the way the key fee is.
+    function effV4Fee(uint24 keyFee, uint24 lpFee, uint24 protoFee, bool zeroForOne)
         internal pure returns (uint24)
     {
-        if (keyFee != 0x800000) return keyFee;      // static: the key is truth
+        if (keyFee != 0x800000) {                    // static: the key is the LP fee
+            uint256 pf = zeroForOne ? uint256(protoFee & 0xFFF) : uint256(protoFee >> 12);
+            if (pf == 0) return keyFee;
+            // p + lp − p·lp/1e6, all in pips; p ≤ 0xFFF and lp ≤ 1e6 keep it in uint24
+            return uint24(pf + uint256(keyFee) - (pf * uint256(keyFee)) / 1_000_000);
+        }
         if (protoFee != 0)      return 0xFFFFFF;     // dynamic + protoFee: fail-closed (≥1e6 → outV3 returns 0)
         return lpFee;                                 // dynamic: the measured slot0 fee
+    }
+
+    /// @notice The in-frame PROMISE for a V4 leg: slot0 and liquidity read from
+    ///         the singleton, the fee resolved in the swap's direction, and the
+    ///         single-tick closed form TRUNCATED at the current range's boundary
+    ///         (`sqrtBoundary`) — exact for what fits inside the range and
+    ///         strictly below for the rest, never above. Ranking keeps the
+    ///         unclamped form (see universalQuote's V4 arm for why); this is the
+    ///         quantity the floor is derived from, where a lower bound is what
+    ///         is wanted. Public so the Router reaches it through the linked
+    ///         library instead of carrying the inlined mathematics.
+    function v4LegOut(
+        address manager, bytes32 poolId, uint256 amountIn,
+        uint24 keyFee, int24 tickSpacing, bool zeroForOne
+    ) public view returns (uint256) {
+        (uint160 sp, uint128 lq, uint24 lpF, uint24 pF, int24 tick) = v4SqrtAndLiq(manager, poolId);
+        if (sp == 0 || lq == 0) return 0;
+        return outV3(
+            amountIn, sp, lq, effV4Fee(keyFee, lpF, pF, zeroForOne), zeroForOne,
+            sqrtBoundary(sp, tick, tickSpacing, zeroForOne)
+        );
     }
 
     /// @notice Batch slot0 read for many V4 poolIds in ONE staticcall via the

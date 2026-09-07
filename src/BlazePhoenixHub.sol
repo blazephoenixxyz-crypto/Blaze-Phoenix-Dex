@@ -882,7 +882,7 @@ contract BlazePhoenixHub {
             BPC.v4SqrtAndLiq($.v4PoolManager, pid);
         if (sp == 0 || liq == 0) revert HubE(9);
         // Dynamic fee must resolve to a quotable value (INV-20), else fail closed.
-        if (BPC.effV4Fee(fee, lpF, pF) >= 1_000_000) revert HubE(9);
+        if (BPC.effV4Fee(fee, lpF, pF, true) >= 1_000_000) revert HubE(9);  // direction-free check: quotable at all?
         // Learn the token-side pattern code from every successful on-chain
         // proof — idempotent re-claims included, so a stale hint self-heals.
         _writeV4Code(s0, s1, fee, tickSpacing);
@@ -1221,7 +1221,7 @@ contract BlazePhoenixHub {
         bytes32 pid = BPC.computeV4PoolId(t0, t1, fee, ts, address(0));
         (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) = BPC.v4SqrtAndLiq(mgr, pid);
         if (sp == 0 || liq == 0) return kf;                      // not live: fail closed
-        if (BPC.effV4Fee(fee, lpF, pF) >= 1_000_000) return kf;  // unresolvable dynamic fee
+        if (BPC.effV4Fee(fee, lpF, pF, true) >= 1_000_000) return kf;  // unresolvable dynamic fee (direction-free check)
         address p = address(uint160(uint256(pid)));
         for (uint256 d; d < k; ) {
             if (hits[d].pool == p) return kf;
@@ -1826,9 +1826,10 @@ contract BlazePhoenixHub {
         // The margin's effective strength is NOT what the "25%" says, because
         // `newcomerPsi` is `bucketWeight(...)` = a POWER OF TWO while `worstPsi`
         // is continuous. The real margin is set by where worstPsi falls between
-        // two powers of two: from ~100% (worstPsi just above one) down to ~3%
-        // (worstPsi = 31, smallest admissible newcomer 32). The constant does
-        // not describe the behaviour at any single point.
+        // two powers of two: from ~100% (worstPsi just above one) down to ~25%
+        // (worstPsi = 51, smallest admissible newcomer 64 — 32 fails, since
+        // 32 > 51 + 51/4 = 63 is false). The constant is therefore both the
+        // rule and the floor of the behaviour; it is never undercut.
         //
         // Two changes were tried in one session and both were wrong:
         //   * rounding UP always yields a margin >= 1, but at worstPsi in

@@ -400,4 +400,25 @@ contract RouterV4NativeEthTest is Test {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
         bare.swapExactIn(route, 1e18, 1, user, block.timestamp + 1);
     }
+    /// The in-frame V4 promise is what the floor is derived from. Seed the pool's
+    /// slot0 at price 4:1 (sqrtP = 2·Q96) so the Router's own quote is ~4× the
+    /// input while the mock still fills 1:1 and the caller attests 1:1: every
+    /// calldata floor passes, delivery lands at ~25 % of the in-frame promise,
+    /// and the swap must be refused with RouterE(5) by that promise alone.
+    /// Measured before this test: no V4 test depended on the in-frame quote —
+    /// a Router that quoted every V4 leg as 0 settled them all.
+    function test_Native_DeliveryBelowInFrameFloorIsRefused() public {
+        uint256 amt = 10e18;
+        bytes32 base = keccak256(abi.encode(pid, uint256(6)));
+        mgr.setSlot(base, bytes32(uint256(uint160(2 * BPC.Q96)))); // sqrtP = 2·Q96, tick 0, fees 0
+        uint256 promised = BPC.outV3(_netIn(amt), uint160(2 * BPC.Q96), LIQ, FEE, true, 0);
+        assertGt(promised, 3 * amt, "sanity: the promise dwarfs a 1:1 fill");
+        // An HONEST 1:1 attestation: the caller promises what the mock delivers, so
+        // every calldata-derived floor is satisfied and the only guard that can
+        // refuse is the one derived from the Router's own in-frame quote.
+        Route memory route = _nativeRoute(true, amt, _netIn(amt));
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
+        router.swapExactIn(route, amt, 1, user, block.timestamp + 1);
+    }
 }

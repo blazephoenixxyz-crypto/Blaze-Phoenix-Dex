@@ -192,7 +192,7 @@ contract RobinhoodV4NativeTest is Test {
         console2.log("2) v4SqrtAndLiq sqrtP:", sp);
         console2.log("   liq:", lq);
         console2.log("   lpFee / protoFee:", lpf, pf);
-        console2.log("3) effV4Fee:", BPC.effV4Fee(FEE, lpf, pf));
+        console2.log("3) effV4Fee:", BPC.effV4Fee(FEE, lpf, pf, true));
 
         (BlazePhoenixHub h, ) = _stack();
         uint24[] memory f = new uint24[](0);
