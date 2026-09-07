@@ -184,7 +184,7 @@
       "status": "blocked",
       "guard": "RouterE(11) in _execV4Amt; the Quoter refuses to price a mismatched leg and holds the plan's own point",
       "test": "test_SubstitutedHook_RouteNamesPoolA_IsRefused, test_SwappedTickSpacing_RouteNamesPoolA_IsRefused, test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool, test_V4_FlippedDirection_IsRefused, test_Quoter_FlippedDirection_IsNotPriced, testFuzz_V4Leg_AcceptedIffFieldsAgree",
-      "note": "BPX-2026-009 (Karan Rathod): a V4 leg is executed by its derived key, so swapping leg.hooks after the quote sent the swap to another pool while leg.pool still named the quoted one. The derived poolId is now pinned to leg.pool. A route that lies consistently in every field is the caller's signed intent and is bounded by the in-frame promise, the attestation gate and userMinOut, as every route is. Follow-up 2026-09-07: the direction is pinned too, and the family is measured on both sides of the pool, per field, in the second hop of a two-hop route, in one leg of a split, and as a fuzzed accept-iff-consistent property."
+      "note": "Reported by Karan Rathod (BPX-2026-009). Guarantee: a V4 leg is executed only if the pool it names is the pool its key derives to and its direction is the direction of its tokens; any disagreement is refused before a token moves, and the Quoter refuses to price it. A route that is consistent in every field is the caller's signed intent and is bounded, as every route is, by the in-frame promise, the attestation gate and userMinOut. Measured on both sides of the pool, per field, in the second hop of a two-hop route, in one leg of a split, and as a fuzzed accept-iff-consistent property."
     },
     {
       "id": "SOK-ROUTE-AUTHOR",
@@ -192,7 +192,7 @@
       "status": "out-of-scope",
       "guard": "userMinOut is the only absolute anchor (RouterE(5)); every other floor is relative to the venue the route names",
       "test": "test_ConsistentRoute_PoolB_Settles_ByDesign",
-      "note": "Registered 2026-09-07 from the BPX-2026-009 review. A route that is consistent in every field is the caller's signed intent; the Router cannot know a venue the caller did not name. SECURITY.md's scope line already draws this boundary (a defect is in scope where the measured floor or the caller's own minimum can be bypassed). What the fix adds is that leg.pool now always equals the executed poolId, so a wallet or a route verifier reading the calldata sees the venue that will execute."
+      "note": "Registered 2026-09-07. A route that is consistent in every field is the caller's signed intent; the Router cannot know a venue the caller did not name. SECURITY.md's scope line draws this boundary (a defect is in scope where the measured floor or the caller's own minimum can be bypassed). leg.pool always equals the executed pool id, so a wallet or a route verifier reading the calldata sees the venue that will execute."
     }
   ]
 }
