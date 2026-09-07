@@ -59,7 +59,8 @@ contract PricedV4Manager {
         bytes32 pid = keccak256(abi.encode(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks));
         lastPid = pid;
         uint256 amt = uint256(-p.amountSpecified);
-        uint256 out = amt * rate[pid] / 1000;
+        // price is per direction: c0 -> c1 at rate, c1 -> c0 at its inverse
+        uint256 out = p.zeroForOne ? amt * rate[pid] / 1000 : amt * 1000 / rate[pid];
         pendingCur = p.zeroForOne ? key.currency0 : key.currency1;
         pendingOwe = amt;
         int128 owe = -int128(int256(amt));

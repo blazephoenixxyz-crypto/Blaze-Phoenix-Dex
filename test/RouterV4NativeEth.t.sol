@@ -217,6 +217,18 @@ contract RouterV4NativeEthTest is Test {
     /// @dev One-leg native-V4 route in WETH-canonical terms. wethIsIn selects
     ///      direction; zeroForOne == wethIsIn because a native pool's
     ///      currency0 is ALWAYS address(0) (sorts first), i.e. the WETH side.
+    /// BPX-2026-009 follow-up, native twin: the direction of a native leg is derivable
+    /// too (the native side is currency0 by construction), so a token-in leg that claims
+    /// zeroForOne is refused by the Router's own check before the manager is touched.
+    function test_Native_FlippedDirection_IsRefused() public {
+        uint256 amt = 1e18;
+        Route memory route = _nativeRoute(false, amt, amt);
+        route.hops[0].legs[0].zeroForOne = true;
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(11)));
+        router.swapExactIn(route, amt, 1, user, block.timestamp + 1);
+    }
+
     function _nativeRoute(bool wethIsIn, uint256 amountIn, uint256 expOut)
         private view returns (Route memory route)
     {
