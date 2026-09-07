@@ -1234,8 +1234,15 @@ library BlazePhoenixCore {
         int256 r = int256(tick) % sp_;
         if (r < 0) r += sp_;
         uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r);
-        // We are already ON the boundary: the whole range lies ahead.
-        if (d == 0) d = uint256(sp_);
+        // d == 0 happens only going DOWN from a tick that is itself a range
+        // boundary (r == 0): the price sits inside [tick, tick + 1), so the
+        // lower edge is less than one tick away, not a whole range. Treating
+        // the range below as "ahead" priced its liquidity with this range's
+        // figure and clamped a full spacing late. One tick keeps the promise
+        // continuous across the boundary (tick 0 promises no more than tick 1)
+        // and over-states the edge by at most 0.01 %. Going up, r == 0 gives
+        // d == S already: the whole range does lie ahead.
+        if (d == 0) d = 1;
         uint256 P = uint256(sqrtP);
         // THE TWO DIRECTIONS ARE NOT SYMMETRIC, and assuming so was a defect.
         // The boundary `d` ticks away sits at `P * r` going up and `P / r` going

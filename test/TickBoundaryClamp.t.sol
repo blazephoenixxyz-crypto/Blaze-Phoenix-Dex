@@ -85,9 +85,18 @@ contract TickBoundaryClampTest is Test {
     ///         (spacing 10), como tem de ser.
     function test_SpacingMaiorFronteiraMaisLonge() public pure {
         uint160 sp = uint160(Q96);
-        uint160 perto  = BPC.sqrtBoundary(sp, 0, 10,  true);
-        uint160 longe  = BPC.sqrtBoundary(sp, 0, 200, true);
-        assertGt(perto, longe, "spacing 200 deixa o preco descer mais que spacing 10");
+        // Going UP from tick 0 the whole range lies ahead: 10 ticks against 200.
+        assertGt(BPC.sqrtBoundary(sp, 0, 200, false), BPC.sqrtBoundary(sp, 0, 10, false),
+            "going up, spacing 200 lets the price rise further than spacing 10");
+        // Going DOWN from tick 150: the 10-spaced pool sits on its own lower edge (less
+        // than a tick away), the 200-spaced pool has 150 ticks of range below it.
+        assertGt(BPC.sqrtBoundary(sp, 150, 10, true), BPC.sqrtBoundary(sp, 150, 200, true),
+            "going down from inside the range, spacing 200 lets the price fall further");
+        // Going DOWN from tick 0 both ranges begin here, so both clamp within one tick.
+        // (V4-4, 2026-09-07: the old form of this test asserted a whole spacing below
+        // the edge for the wider pool, which was the defect and not the property.)
+        assertEq(BPC.sqrtBoundary(sp, 0, 10, true), BPC.sqrtBoundary(sp, 0, 200, true),
+            "going down from a shared boundary tick, the spacing makes no difference");
     }
 
     /// @notice `tickSpacing == 0` (pools nao concentradas, ou registo

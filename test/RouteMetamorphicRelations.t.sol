@@ -87,14 +87,79 @@ contract RouteMetamorphicRelationsTest is Test {
         return bound(a, 1e12, shallow / 100);
     }
 
+    /// @dev The oracle's own constant-product arithmetic, written here and not taken
+    ///      from the Core: `outV2` is the code under test's formula, so an oracle built
+    ///      on it could only agree with it.
+    function _cp(uint256 a, uint256 rIn, uint256 rOut) private pure returns (uint256) {
+        uint256 aFee = a * 997;
+        return (aFee * rOut) / (rIn * 1000 + aFee);
+    }
+
+    function _bestSingle(uint256 a, Pool[] memory ps) private pure returns (uint256 best) {
+        uint256 o0 = _cp(a, ps[0].rA, ps[0].rB); uint256 o1 = _cp(a, ps[1].rA, ps[1].rB);
+        best = o0 > o1 ? o0 : o1;
+    }
+
+    /// @dev A two-way split at a fixed fraction (in hundredths) of the input to pool 0.
+    function _splitAt(uint256 a, Pool[] memory ps, uint256 pct0) private pure returns (uint256) {
+        uint256 a0 = a * pct0 / 100;
+        return _cp(a0, ps[0].rA, ps[0].rB) + _cp(a - a0, ps[1].rA, ps[1].rB);
+    }
+
+    /// @dev The price-aware optimum over 1 % steps: the bound the depth-weighted split is measured against.
+    function _bestSplit(uint256 a, Pool[] memory ps) private pure returns (uint256 best) {
+        best = _bestSingle(a, ps);
+        for (uint256 k = 1; k < 100; ++k) { uint256 v = _splitAt(a, ps, k); if (v > best) best = v; }
+    }
+
+    function _pools(uint256 rA0, uint256 rB0, uint256 rA1, uint256 rB1) private pure returns (Pool[] memory ps) {
+        ps = new Pool[](2); ps[0] = Pool(rA0, rB0); ps[1] = Pool(rA1, rB1);
+    }
+
     function testFuzz_MRR1_SplitNeverWorseThanBestSinglePool(uint256 a, uint256 r1, uint256 r2, uint256 r3, uint256 r4) public {
         Pool[] memory ps = _two(r1, r2, r3, r4);
         a = _amt(a, ps);
         BlazePhoenixSolver s = _universe(ps);
-        uint256 best = BPC.outV2(a, ps[0].rA, ps[0].rB, 30);
-        uint256 other = BPC.outV2(a, ps[1].rA, ps[1].rB, 30);
-        if (other > best) best = other;
-        assertGe(_plan(s, a).best.totalOut, best, "MR-R1: the plan pays less than the best single pool would");
+        assertGe(_plan(s, a).best.totalOut, _bestSingle(a, ps), "MR-R1: the plan pays less than the best single pool would");
+    }
+
+    /// MR-R1 is not vacuous: where a split wins it is TAKEN, and with the weights the
+    /// allocator promises (proportional to depth). Two pools at the same price, one four
+    /// times deeper, a trade at 5 % of the deep pool: the depth-weighted 80 / 20 split beats
+    /// the best single by close to a hundred basis points and the uniform 50 / 50 split by a clear
+    /// margin, because half the flow into the shallow pool pays four times the impact.
+    function test_MRR1_DepthWeightedSplitIsTakenWhereItWins() public {
+        Pool[] memory ps = _pools(1e28, 1e28, 25e26, 25e26);
+        uint256 a = 5e26;
+        BlazePhoenixSolver s = _universe(ps);
+        RoutePlan memory plan = _plan(s, a);
+        uint256 single = _bestSingle(a, ps);
+        uint256 uniform = _splitAt(a, ps, 50);
+        uint256 depthWeighted = _splitAt(a, ps, 80);
+        assertGt(depthWeighted, uniform, "premise: the depth-weighted split beats the uniform one here");
+        assertEq(plan.best.hops[0].legs.length, 2, "a split that wins is taken");
+        assertGt(plan.best.totalOut, single + single * 50 / 10_000, "and beats the best single by more than 50 bps (measured: 96)");
+        assertGt(plan.best.totalOut, uniform + uniform / 1000, "with weights that follow depth, not a uniform share");
+        assertGe(plan.best.totalOut, depthWeighted - depthWeighted / 10_000, "within 1 bp of the oracle's depth-weighted split");
+    }
+
+    /// The allocator weighs by depth, not by price, and the paper says so. This pins how
+    /// far that sits from the price-aware optimum (marginal prices equalised) at a large
+    /// trade between two equal-depth pools whose prices differ by 4 %: within 20 bps of
+    /// the optimum, while beating the best single pool by more than 250 bps. Measured
+    /// 2026-09-07 at 17.1 and 19.2 bps; the number here is the bound, not the sample.
+    function test_SplitQuality_DepthWeightedIsWithin20bpsOfPriceAware() public {
+        uint256[2] memory devs = [uint256(9600), 10400];
+        for (uint256 d; d < 2; ++d) {
+            Pool[] memory ps = _pools(1e28, 1e28, 1e28, 1e28 * devs[d] / 10_000);
+            uint256 a = 1e27;
+            BlazePhoenixSolver s = _universe(ps);
+            uint256 got = _plan(s, a).best.totalOut;
+            uint256 optimum = _bestSplit(a, ps);
+            uint256 single = _bestSingle(a, ps);
+            assertGe(got + optimum * 20 / 10_000, optimum, "within 20 bps of the price-aware optimum");
+            assertGt(got, single + single * 250 / 10_000, "and more than 250 bps above the best single pool");
+        }
     }
 
     function testFuzz_MRR2_PlanMonotoneInAmountIn(uint256 a, uint256 b, uint256 r1, uint256 r2, uint256 r3, uint256 r4) public {

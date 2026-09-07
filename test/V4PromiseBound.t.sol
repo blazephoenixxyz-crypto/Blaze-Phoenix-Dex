@@ -78,6 +78,35 @@ contract V4PromiseBoundTest is Test {
         assertEq(withFee, BPC.outV3(1e18, P, uint128(1e24), 3005, true, 0), "by exactly the composed fee");
     }
 
+    /// V4-4: going DOWN from a tick that is itself a range boundary, the lower edge is
+    /// less than one tick away. The promise there must not exceed the promise one tick
+    /// inside the range (continuity across the boundary). Measured before the fix: the
+    /// boundary tick promised a full spacing of this range's liquidity below the edge.
+    function test_BoundaryTick_Down_PromisesNoMoreThanOneTickInside() public {
+        uint160 P = uint160(BPC.Q96);
+        uint256 amt = 1e21;                                   // large enough to leave the range
+        _seed(P, int24(0), 0, 3000, uint128(1e18));
+        uint256 atBoundary = BPC.v4LegOut(address(mgr), pid, amt, 3000, TS, true);
+        _seed(P, int24(1), 0, 3000, uint128(1e18));
+        uint256 oneInside = BPC.v4LegOut(address(mgr), pid, amt, 3000, TS, true);
+        _seed(P, int24(59), 0, 3000, uint128(1e18));
+        uint256 farInside = BPC.v4LegOut(address(mgr), pid, amt, 3000, TS, true);
+        assertLe(atBoundary, oneInside, "the boundary tick promises no more than one tick inside");
+        assertLt(oneInside, farInside, "and the promise grows with the distance to the edge");
+        assertGt(atBoundary, 0, "while still promising what the last tick holds");
+    }
+
+    /// The mirror: going UP from the same boundary tick the whole range does lie ahead,
+    /// so the promise equals the one-spacing clamp exactly as before.
+    function test_BoundaryTick_Up_PromisesTheWholeRange() public {
+        uint160 P = uint160(BPC.Q96);
+        uint256 amt = 1e21;
+        _seed(P, int24(0), 0, 3000, uint128(1e18));
+        uint256 up = BPC.v4LegOut(address(mgr), pid, amt, 3000, TS, false);
+        assertEq(up, BPC.outV3(amt, P, uint128(1e18), 3000, false, BPC.sqrtBoundary(P, int24(0), TS, false)), "one spacing ahead");
+        assertEq(BPC.sqrtBoundary(P, int24(0), TS, false), BPC.sqrtBoundary(P, int24(60), TS, false), "the up clamp is periodic in the spacing");
+    }
+
     function test_EmptyPool_PromisesZero() public view {
         assertEq(BPC.v4LegOut(address(mgr), pid, 1e18, 3000, TS, true), 0);
     }
