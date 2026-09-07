@@ -144,8 +144,17 @@ contract LifecycleMetricsTest is Test {
             gDiscover = g0 - gasleft();
         }
         console2.log("discoverFor() alone, gas:", gDiscover);
+        // The whole test is one transaction, so the FIRST solve also pays the
+        // cold-access surcharge (EIP-2929) on every Hub and factory slot it
+        // touches. That surcharge is storage warmth, not registry warmth: the
+        // later solves run on warm slots whatever the registry holds. Measure
+        // the first touch for the record, then take the cold-REGISTRY figure
+        // from a second solve on warm slots, so that the comparison below is
+        // registry-empty versus registry-warm at the same storage warmth.
+        (uint256 gFirstTouch, ) = _solveGas();
+        console2.log("findBestRoutePlan COLD, first touch (cold slots), gas:", gFirstTouch);
         (uint256 gColdSolve, uint256 legsCold) = _solveGas();
-        console2.log("findBestRoutePlan COLD, gas:", gColdSolve);
+        console2.log("findBestRoutePlan COLD (registry empty, warm slots), gas:", gColdSolve);
         console2.log("  legs planned:", legsCold);
         (uint256 regCold,,) = _vitalitySnapshot(uint32(t));
         console2.log("  pools registered before any swap:", regCold);
