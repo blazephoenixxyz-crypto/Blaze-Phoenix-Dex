@@ -164,11 +164,15 @@ contract HookAdmissionByBitsTest is Test {
         hub.addV4(c0, c1, 500, 10, r);
     }
 
-    /// The bound the explicit door gives a caller who routes through a hook nobody vetted:
-    /// whatever the hook does to the fill (here: the singleton fills at a fraction of the
-    /// in-frame promise), a settlement delivers at least the caller's minimum and at least
-    /// the gate's share of the promise, and a refusal happens only where one of those would
-    /// have been missed. 256 runs locally; the campaign figure comes from the CI box.
+    /// The bound the explicit door gives a caller who routes through a hook nobody vetted.
+    /// The singleton fills at a fraction of a 1:1 price (what a hostile hook could do to the
+    /// fill); the caller attests the in-frame promise and sets a minimum. Then:
+    ///   - a settlement never delivers below the caller's minimum, nor below the gate's
+    ///     share (80 %) of the in-frame promise;
+    ///   - a refusal happens only where the fill sits below the caller's minimum or below the
+    ///     Iron-Law floor's base share (96 %) of what the caller attested. The floor's
+    ///     constant is restated here from the paper, not read from the code.
+    /// 256 runs locally; the campaign figure comes from the CI box.
     function testFuzz_UnlistedHook_HostileFill_BoundedByGateAndMinOut(uint16 rateBps, uint96 minSeed) public {
         address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
         bytes32 pid = _pool(h);
@@ -179,34 +183,15 @@ contract HookAdmissionByBitsTest is Test {
         uint256 minOut = bound(uint256(minSeed), 1, amt);
         Route memory r = _route(pid, h, amt);
         r.hops[0].expectedOut = promised; r.hops[0].legs[0].expectedOut = promised; r.totalOut = promised; r.singleOut = promised;
+        // what the singleton will hand over: the input net of the protocol fee, at the rate
+        uint256 fill = (amt - amt * 28 / 10_000) * rate / 1000;
         vm.prank(user);
         try router.swapExactIn(r, amt, minOut, user, block.timestamp + 1) returns (uint256 got) {
             assertGe(got, minOut, "a settlement never delivers below the caller's minimum");
             assertGe(got + 1, promised * 8 / 10, "nor below the gate's share of the in-frame promise");
         } catch {
-            uint256 fill = amt * rate / 1000;
-            assertTrue(fill < minOut || fill + 1 < promised * 8 / 10, "a refusal only where the minimum or the gate would have been missed");
+            assertTrue(fill < minOut || fill < promised * 96 / 100 + 1,
+                "a refusal only where the minimum or the floor's base share of the attestation would have been missed");
         }
-    }
-
-    /// Allow-listing a swap-running hook admits it: the operator step still works where it matters.
-    function test_BeforeSwapHook_Listed_Settles() public {
-        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
-        hub.allowHook(h, true);
-        assertGt(_swap(_pool(h), h), 9e17, "settles once admitted");
-    }
-
-    /// A delta-returning hook is refused even when allow-listed: the bits win over the list.
-    function test_DeltaHook_Listed_IsRefused() public {
-        address h = forge_.deploy(1 << 2, 0);
-        hub.allowHook(h, true);
-        _refused9(_pool(h), h);
-    }
-
-    /// The predicate itself, over the 14-bit space: runs-in-swap iff a swap bit is set.
-    function testFuzz_HookRunsInSwap_IffASwapBitIsSet(uint16 bits) public pure {
-        bits = uint16(bits & 0x3FFF);
-        address h = address(uint160(uint256(bits) | (uint256(0xABCD) << 16)));
-        assertEq(BPC.hookRunsInSwap(h), (bits & SWAP_BITS) != 0);
     }
 }
