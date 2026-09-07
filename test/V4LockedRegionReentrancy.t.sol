@@ -27,6 +27,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 
 interface IERC20Min {
     function transfer(address, uint256) external returns (bool);
@@ -110,10 +111,16 @@ contract V4LockedRegionReentrancyTest is Test {
         mgr.setRouter(router);
     }
 
+    /// @dev BPX-2026-009: leg.pool must be the pool the key derives to.
+    function _pidAddr(address hooks_) internal view returns (address) {
+        (address t0, address t1) = BPC.sortTokens(address(A), address(B));
+        return address(uint160(uint256(BPC.computeV4PoolId(t0, t1, 500, 10, hooks_))));
+    }
+
     function _v4Route(uint256 amt) internal view returns (Route memory r) {
         bool zfo = address(A) < address(B);
         Leg memory leg = Leg({
-            pool: address(uint160(uint256(keccak256("pid")))),
+            pool: _pidAddr(address(0)),
             hooks: address(0), kind: 4, fee: 500, tickSpacing: 10,
             zeroForOne: zfo, stable: false, amountIn: amt, expectedOut: 0,
             auxId: bytes32(uint256(uint160(address(B))))

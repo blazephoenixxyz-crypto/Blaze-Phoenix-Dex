@@ -592,6 +592,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         Leg memory l = _v4Leg(AMT);
         l.hooks = HOOK_CLEAN;
         l.zeroForOne = address(tokA) == c0;
+        l.pool = address(uint160(uint256(BPC.computeV4PoolId(c0, c1, POOL_FEE, TICK_SP, HOOK_CLEAN))));
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, Q_OUT, "the V4 dry run must return the manager's own number");
     }
@@ -608,6 +609,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         Leg memory l = _v4Leg(AMT);
         l.kind = BPC.KIND_V4_NATIVE;
         l.zeroForOne = true; // input is currency0 == native
+        l.pool = address(uint160(uint256(BPC.computeV4PoolId(address(0), address(tokB), POOL_FEE, TICK_SP, address(0)))));
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, Q_OUT, "native zfo leg must key on (0, counterToken)");
     }
@@ -624,6 +626,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         Leg memory l = _v4Leg(AMT);
         l.kind = BPC.KIND_V4_NATIVE;
         l.zeroForOne = false; // input is currency1 == hop.tokenIn; native is the out side
+        l.pool = address(uint160(uint256(BPC.computeV4PoolId(address(0), address(tokA), POOL_FEE, TICK_SP, address(0)))));
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, Q_OUT, "native !zfo leg must key on (0, hop.tokenIn)");
     }

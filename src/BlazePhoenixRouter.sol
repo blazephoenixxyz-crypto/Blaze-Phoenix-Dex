@@ -263,6 +263,7 @@ contract BlazePhoenixRouter {
     // 1 = unauthorized, 2 = paused, 3 = bad input, 4 = deadline,
     // 5 = slippage, 6 = callback auth, 7 = reentrancy, 8 = swap failed,
     // 9 = disallowed V4 hook, 10 = userMinOut == 0 with amountIn > 0 (BP-04),
+    // 11 = a V4 leg names a pool (leg.pool) that its key does not derive to (BPX-2026-009),
     // 13 = FoT token on a V3-only route (route-where-natural), 14 = rescue
     // not queued or still inside the 48h timelock, 15 = a swap settled without
     // paying the protocol fee, 16 = the fee was paid twice on an anchored route
@@ -1860,6 +1861,15 @@ contract BlazePhoenixRouter {
             if (tokenIn == address(0) && tokenOther == address(0)) revert RouterE(8);
         }
         (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
+        // ROUTE SELF-CONSISTENCY (BPX-2026-009): the pool a V4 leg NAMES must be
+        // the pool its key EXECUTES. leg.pool carries the truncated poolId the
+        // Solver and Quoter derive from (c0, c1, fee, tickSpacing, hooks); a
+        // route whose hooks (or fee, spacing, counterpart) were swapped after
+        // the quote no longer derives to that id and is refused before any
+        // token moves. A route that lies consistently in every field is the
+        // caller's signed intent and is bounded, as every route is, by the
+        // in-frame promise, the attestation gate and userMinOut.
+        if (leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks))))) revert RouterE(11);
         IV4PoolManager.V4PoolKey memory key = IV4PoolManager.V4PoolKey({
             currency0: c0, currency1: c1, fee: leg.fee,
             tickSpacing: leg.tickSpacing, hooks: leg.hooks

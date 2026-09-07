@@ -17,6 +17,16 @@ sua linha aqui.
 import re, subprocess, sys, shutil, os, tempfile, json, hashlib
 
 M = [
+ dict(nome="rota V4: leg.pool tem de derivar da chave que executa (BPX-2026-009)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks))))) revert RouterE(11);",
+      new="        // MUTANTE",
+      teste="test_SubstitutedHook_RouteNamesPoolA_IsRefused"),
+ dict(nome="rota V4: o Quoter recusa a perna cujo pool nomeado nao deriva da chave (BPX-2026-009)",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        if (leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks))))) return 0;",
+      new="        // MUTANTE",
+      teste="test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool"),
  dict(nome="V4: a promessa e truncada na fronteira do range (sqrtBoundary ligado)",
       f="src/BlazePhoenixCore.sol",
       old="            sqrtBoundary(sp, tick, tickSpacing, zeroForOne)",

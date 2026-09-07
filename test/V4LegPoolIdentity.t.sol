@@ -117,6 +117,23 @@ contract V4LegPoolIdentityTest is Test {
     }
 
     function _swap(uint24 fee, int24 ts, address declaredPool, uint256 amt) internal {
+        Route memory r = _route(fee, ts, declaredPool, amt);
+        vm.prank(user);
+        router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
+    }
+
+    /// @dev BPX-2026-009 (Karan Rathod, 2026-09-07): a V4 leg that names a pool its key does
+    ///      not derive to is refused before any token moves. The three attacks below used to
+    ///      rely on the registry being keyed on the DERIVED id (REG-03); now the route itself
+    ///      is refused, and the registry assertions stay as the second line.
+    function _swapRefused(uint24 fee, int24 ts, address declaredPool, uint256 amt) internal {
+        Route memory r = _route(fee, ts, declaredPool, amt);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(11)));
+        router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
+    }
+
+    function _route(uint24 fee, int24 ts, address declaredPool, uint256 amt) internal view returns (Route memory r) {
         Leg memory leg = Leg({
             pool: declaredPool,
             hooks: address(0), kind: BPC.KIND_V4, fee: fee, tickSpacing: ts,
@@ -128,10 +145,7 @@ contract V4LegPoolIdentityTest is Test {
         Hop[] memory hops = new Hop[](1);
         hops[0] = Hop({tokenIn: address(A), tokenOut: address(B),
                        amountIn: amt, expectedOut: 0, legs: legs});
-        Route memory r;
         r.hops = hops;
-        vm.prank(user);
-        router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
     }
 
     function _bucket(bytes32 key) internal view returns (uint8) {
@@ -164,8 +178,8 @@ contract V4LegPoolIdentityTest is Test {
         assertGt(bucketHonest, 0, "setup: honest registration must carry a real depth bucket");
 
         // 2) attack: execute DUST, declare DEEP
-        _swap(3000, 60, deepAddr, 1e15);
-        assertEq(mgr.lastFee(), 3000, "setup: swap 2 must really have executed on DUST");
+        _swapRefused(3000, 60, deepAddr, 1e15);
+        assertEq(mgr.lastFee(), 500, "the DUST swap declaring DEEP never reached the manager");
 
         uint8 bucketAfter = _bucket(keyDeep);
         emit log_named_uint("bucket after DUST swap declaring DEEP", bucketAfter);
@@ -193,7 +207,7 @@ contract V4LegPoolIdentityTest is Test {
         uint8 b0 = _bucket(keyDust);
         emit log_named_uint("DUST bucket, honestly registered", b0);
 
-        _swap(500, 10, dustAddr, 1e18);           // execute DEEP, declare DUST
+        _swapRefused(500, 10, dustAddr, 1e18);    // execute DEEP, declare DUST: refused
         uint8 b1 = _bucket(keyDust);
         emit log_named_uint("DUST bucket after borrowing DEEP's measurement", b1);
 
@@ -223,7 +237,7 @@ contract V4LegPoolIdentityTest is Test {
         // The attacker's dust V4 pool, executed — but declared as the V2 pair.
         bytes32 pidDust = _pid(3000, 60);
         mgr.setPool(pidDust, Q96, 1e9);
-        _swap(3000, 60, address(pair), 1e15);
+        _swapRefused(3000, 60, address(pair), 1e15);
 
         uint8 after_ = _bucket(keyPair);
         emit log_named_uint("deep V2 pair bucket after the dust V4 swap", after_);
