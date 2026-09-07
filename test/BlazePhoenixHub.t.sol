@@ -280,6 +280,60 @@ contract BlazePhoenixHubTest is Test {
         assertTrue(sawNewcomer, "deep newcomer must be admitted");
     }
 
+    /// INV-8, second clause: the row evicted is the WEAKEST, wherever it sits. The
+    /// equal-depth test above cannot tell a right comparator from a wrong one (every
+    /// psi ties, and either picks index 0); here one shallow row sits in the middle.
+    function test_RecordSwap_EvictsTheWeakest_NotTheFirstInserted() public {
+        address[] memory pools = new address[](16);
+        for (uint256 i; i < 16; ++i) {
+            pools[i] = address(new MockV2Pair(tokenA, tokenB));
+            uint256 depth = i == 9 ? 1e18 : 1e20;              // bucket 3 versus bucket 5
+            hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, depth);
+        }
+        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e23);
+        PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);
+        assertEq(active.length, 16, "count stays capped");
+        bool sawWeakest; bool sawFirst; bool sawNewcomer;
+        for (uint256 i; i < active.length; ++i) {
+            if (active[i].pool == pools[9]) sawWeakest = true;
+            if (active[i].pool == pools[0]) sawFirst = true;
+            if (active[i].pool == newcomer) sawNewcomer = true;
+        }
+        assertFalse(sawWeakest, "the shallow row in the middle is the one evicted");
+        assertTrue(sawFirst, "the first-inserted deep row stays");
+        assertTrue(sawNewcomer, "the deep newcomer is admitted");
+    }
+
+    /// INV-8, the margin itself: a newcomer that outranks the weakest row but not by
+    /// a quarter is refused. Psi is vitality times a power-of-two depth weight, so the
+    /// case sits between buckets: incumbents with seven swaps at bucket 3 (psi 56)
+    /// against a fresh newcomer at bucket 6 (psi 64): above the weakest, below the
+    /// margin (70). Without the margin it would be admitted.
+    function test_RecordSwap_RejectsNewcomerAboveWeakestButInsideTheMargin() public {
+        address[] memory pools = new address[](16);
+        for (uint256 i; i < 16; ++i) {
+            pools[i] = address(new MockV2Pair(tokenA, tokenB));
+            for (uint256 k; k < 7; ++k) {
+                hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+            }
+        }
+        assertEq(hub.getActivePools(tokenA, tokenB).length, 16);
+        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e21);
+        PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);
+        for (uint256 i; i < active.length; ++i) {
+            assertTrue(active[i].pool != newcomer, "above the weakest but inside the margin: refused");
+        }
+        // and the same newcomer clears the margin once it is deep enough (bucket 7, psi 128)
+        address deeper = address(new MockV2Pair(tokenA, tokenB));
+        hub.recordSwap(deeper, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e22);
+        active = hub.getActivePools(tokenA, tokenB);
+        bool sawDeeper;
+        for (uint256 i; i < active.length; ++i) if (active[i].pool == deeper) sawDeeper = true;
+        assertTrue(sawDeeper, "clearing the margin admits");
+    }
+
     function test_RecordSwap_RejectsInsertWhenMarginNotCleared() public {
         for (uint256 i; i < 16; ++i) {
             hub.recordSwap(address(new MockV2Pair(tokenA, tokenB)), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);

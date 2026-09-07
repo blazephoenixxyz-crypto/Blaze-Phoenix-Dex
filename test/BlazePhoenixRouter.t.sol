@@ -99,6 +99,23 @@ contract BlazePhoenixRouterTest is Test {
 
     }
 
+    /// INV-15: the base every leg is scaled from is the MEASURED pull, capped by what
+    /// the route commits. A leg declaring twice the input must still execute on what
+    /// actually arrived; if the declared figure were the base, the leg would try to
+    /// push twice the balance and the swap could not settle.
+    function test_HopBase_IsTheMeasuredPull_NotTheDeclaredLegInput() public {
+        uint256 amountIn = 3_000e18;
+        deal(address(tokenIn), user, amountIn * 4);
+        uint256 realQuote = BPC.outV2(amountIn, 10_000e18, 10_000e18, 30);
+        Route memory route = _buildRoute(amountIn, 1);
+        route.hops[0].amountIn = amountIn * 2;
+        route.hops[0].legs[0].amountIn = amountIn * 2;      // declared: twice what is pulled
+        vm.prank(user);
+        uint256 delivered = router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
+        assertApproxEqRel(delivered, realQuote, 0.01e18, "executed on the measured pull");
+        assertEq(tokenIn.balanceOf(address(router)), 0, "nothing stranded");
+    }
+
     function test_Receive_RejectsPlainEthTransfer() public {
         vm.deal(user, 1 ether);
         vm.prank(user);

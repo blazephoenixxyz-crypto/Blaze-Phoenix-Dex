@@ -403,6 +403,7 @@ contract BlazePhoenixRouterInvariantTest is StdInvariant, Test {
             assertEq(tokens[i].balanceOf(address(router)), 0,
                 "Router must never retain a residual token balance");
         }
+        assertEq(address(router).balance, 0, "Router must never retain ether either");
     }
 
     /// @notice Every successful swap's collected fee must stay within the
