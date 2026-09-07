@@ -107,6 +107,19 @@ contract V4PromiseBoundTest is Test {
         assertEq(BPC.sqrtBoundary(P, int24(0), TS, false), BPC.sqrtBoundary(P, int24(60), TS, false), "the up clamp is periodic in the spacing");
     }
 
+    /// A dynamic-fee key (fee sentinel 0x800000) under a non-zero protocol fee cannot be
+    /// priced in the frame: the promise is zero, so the floor is the caller's attestation and
+    /// userMinOut (SOK-DYNFEE-PROTOFEE). Pinned so the residual is visible, not assumed.
+    function test_DynamicFeeKey_UnderProtocolFee_PromisesZero() public {
+        uint160 P = uint160(BPC.Q96);
+        (address s0, address s1) = BPC.sortTokens(tokenA, tokenB);
+        bytes32 dyn = BPC.computeV4PoolId(s0, s1, 0x800000, TS, address(0));
+        bytes32 base = keccak256(abi.encode(dyn, uint256(6)));
+        mgr.set(base, bytes32(uint256(P) | (uint256(uint24(int24(30))) << 160) | (uint256(5) << 184) | (uint256(3000) << 208)));
+        mgr.set(bytes32(uint256(base) + 3), bytes32(uint256(1e24)));
+        assertEq(BPC.v4LegOut(address(mgr), dyn, 1e18, 0x800000, TS, true), 0, "dynamic fee under a protocol fee promises zero");
+    }
+
     function test_EmptyPool_PromisesZero() public view {
         assertEq(BPC.v4LegOut(address(mgr), pid, 1e18, 3000, TS, true), 0);
     }
