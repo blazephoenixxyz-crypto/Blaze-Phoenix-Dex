@@ -24,7 +24,9 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {PricedV4Manager} from "./RouteIntegrityV4.t.sol";
+import {PricedV4Manager, FixedPlanSolver} from "./RouteIntegrityV4.t.sol";
+import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
+import {PoolInfo} from "../src/BlazePhoenixCore.sol";
 
 contract AnyHook { constructor(uint256) {} }
 
@@ -193,5 +195,118 @@ contract HookAdmissionByBitsTest is Test {
             assertTrue(fill < minOut || fill < promised * 96 / 100 + 1,
                 "a refusal only where the minimum or the floor's base share of the attestation would have been missed");
         }
+    }
+
+    // ── Relations around the rule ──────────────────────────────────────────
+
+    /// The whole decision table, fuzzed over the 14 permission bits and the four states a
+    /// hook can be in. The verdict restated here, from the rule and not from the code:
+    ///   delta bit set              -> refused, whatever the state;
+    ///   no swap bit                -> settles, whatever the state;
+    ///   swap bit, never listed     -> settles (the caller's choice on the explicit door);
+    ///   swap bit, listed           -> settles;
+    ///   swap bit, revoked          -> refused;
+    ///   swap bit, listed, moved    -> refused.
+    function testFuzz_Verdict_DecisionTable(uint16 bitsSeed, uint8 stateSeed) public {
+        uint256 bits = uint256(bitsSeed) & 0x3FFF;
+        uint8 state = stateSeed % 4;                         // 0 unknown, 1 listed, 2 revoked, 3 listed then moved
+        address h = address(uint160((uint256(0xD00D) << 20) | bits));
+        vm.etch(h, hex"6001");                               // a hook with code, so a pin means something
+        if (state == 1 || state == 3) hub.allowHook(h, true);
+        if (state == 2) { hub.allowHook(h, true); hub.allowHook(h, false); }
+        if (state == 3) vm.etch(h, hex"6002");
+        bool deltaBit = (bits & SWAP_DELTAS) != 0;
+        bool runs = (bits & SWAP_BITS) != 0;
+        bool expectRefusal = deltaBit || (runs && (state == 2 || state == 3));
+        bytes32 pid = _pool(h);
+        uint256 amt = 1e18;
+        Route memory r = _route(pid, h, amt);
+        vm.prank(user);
+        if (expectRefusal) {
+            vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(9)));
+            router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
+        } else {
+            assertGt(router.swapExactIn(r, amt, 1, user, block.timestamp + 1), 9e17, "settles");
+        }
+    }
+
+    /// Metamorphic: two pools that differ only in the hook, one listed and one nobody listed,
+    /// deliver the same amount for the same fill. The list changes routability, never price.
+    function test_Metamorphic_ListedAndUnlistedHooksDeliverAlike() public {
+        address hl = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS); hub.allowHook(hl, true);
+        address hu = forge_.deploy(AFTER_SWAP, SWAP_DELTAS);
+        uint256 a = _swap(_pool(hl), hl); uint256 b = _swap(_pool(hu), hu);
+        assertEq(a, b, "same fill, same delivery, list or no list");
+    }
+
+    /// The automatic door never proposes a hook that is not live: a row registered under a
+    /// hook (admitted by the registration) leaves every registry read once the hook is
+    /// revoked, while the explicit door refuses the same hook.
+    function test_AutomaticDoor_ExcludesTheRevokedHooksRow() public {
+        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        hub.setRoles(address(router), address(0xBEEF), address(this));
+        hub.addV4(c0, c1, FEE, TS, h);
+        assertTrue(_rowVisible(h), "the row is read while the hook is live");
+        hub.allowHook(h, false);
+        assertFalse(_rowVisible(h), "the row leaves every registry read once revoked");
+        _refused9(_pool(h), h);
+    }
+
+    function _rowVisible(address h) internal view returns (bool) {
+        PoolInfo[] memory rows = hub.getActivePools(c0, c1);
+        for (uint256 i; i < rows.length; ++i) if (rows[i].hooks == h) return true;
+        return false;
+    }
+
+    /// After renunciation: registering still admits (admission survives), revocation dies,
+    /// and a hook revoked before renunciation stays refused for ever, at both doors.
+    function test_AfterRenounce_RegistrationAdmits_RevocationDies_RevokedStays() public {
+        address gone = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        hub.allowHook(gone, true); hub.allowHook(gone, false);
+        hub.setRoles(address(router), address(0xBEEF), address(this));
+        hub.renounceControl();
+        address fresh = forge_.deploy(AFTER_SWAP, BEFORE_SWAP | SWAP_DELTAS);
+        hub.addV4(c0, c1, FEE, TS, fresh);
+        assertTrue(hub.isHookLive(fresh), "registration still admits after renunciation");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint8(1)));
+        hub.allowHook(fresh, false);
+        assertTrue(hub.hookPaused(gone), "revoked before renunciation: still refused");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint8(8)));
+        hub.addV4(c0, c1, 500, 10, gone);
+        _refused9(_pool(gone), gone);
+    }
+
+    /// The route-shape rule is untouched by admission: a hookless leg after a hooked one is
+    /// refused (RouterE(3)) whether the hook is listed or not, and the canonical order settles.
+    function test_Ordering_AppliesToUnlistedHooksToo() public {
+        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        bytes32 pidH = _pool(h); bytes32 pidP = _pool(address(0));
+        uint256 amt = 1e18;
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = Leg({ pool: address(uint160(uint256(pidH))), hooks: h, kind: BPC.KIND_V4, fee: FEE, tickSpacing: TS, zeroForOne: true, stable: false, amountIn: amt / 2, expectedOut: 0, auxId: bytes32(uint256(uint160(c1))) });
+        legs[1] = Leg({ pool: address(uint160(uint256(pidP))), hooks: address(0), kind: BPC.KIND_V4, fee: FEE, tickSpacing: TS, zeroForOne: true, stable: false, amountIn: amt / 2, expectedOut: 0, auxId: bytes32(uint256(uint160(c1))) });
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({ tokenIn: c0, tokenOut: c1, amountIn: amt, expectedOut: 0, legs: legs });
+        Route memory bad = Route({ hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0, expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false });
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
+        router.swapExactIn(bad, amt, 1, user, block.timestamp + 1);
+        (legs[0], legs[1]) = (legs[1], legs[0]);
+        vm.prank(user);
+        assertGt(router.swapExactIn(bad, amt, 1, user, block.timestamp + 1), 9e17, "hookless first, hooked last: settles");
+    }
+
+    /// Preview and delivery agree on a pool under a hook nobody listed: the Quoter never
+    /// read the list, and the exact preview equals what the Router delivers.
+    function test_Quoter_PricesAnUnlistedHookPool_AndMatchesDelivery() public {
+        address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
+        bytes32 pid = _pool(h);
+        uint256 amt = 1e18;
+        FixedPlanSolver solver = new FixedPlanSolver();
+        BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(solver));
+        solver.setPlan(_route(pid, h, amt));
+        (, uint256 exactOut) = quoter.previewPlanExact(c0, c1, amt);
+        assertGt(exactOut, 9e17, "priced");
+        assertEq(_swap(pid, h), exactOut, "the exact preview is the delivery");
     }
 }

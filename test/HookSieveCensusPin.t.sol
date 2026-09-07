@@ -97,14 +97,14 @@ contract HookSieveCensusPinTest is Test {
         (uint256 a, uint256 b) = _fnSlice(s, "function _execV4Amt");
         uint256 mgrRd = _indexOf(s, bytes("address mgr = hub.v4PoolManager();"), a);
         uint256 sieve = _indexOf(s, bytes("BPC.hookAltersDeltas("), 0);
-        uint256 live  = _indexOf(s, bytes("hub.isHookLive("), 0);
+        uint256 live  = _indexOf(s, bytes("hub.hookPaused("), 0);
         uint256 unl   = _indexOf(s, bytes("IV4PoolManager(mgr).unlock("), 0);
         assertTrue(mgrRd != NF && mgrRd < b,
             "A4 pin: _execV4Amt no longer reads the manager from the Hub in-frame");
         assertTrue(sieve != NF && a < sieve && sieve < b,
             "A4 pin: the Router sieve left _execV4Amt");
         assertTrue(live != NF && a < live && live < b,
-            "A4 pin: the isHookLive co-check (Layer 3 codehash pin) left _execV4Amt");
+            "A4 pin: the hookPaused co-check (Layer 2/3: revocation and codehash pin) left _execV4Amt");
         assertTrue(unl != NF && a < unl && unl < b,
             "A4 pin: the Router unlock call left _execV4Amt");
         assertTrue(sieve < unl && live < unl,
