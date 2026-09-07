@@ -952,8 +952,9 @@ contract BlazePhoenixRouter {
         }
         (address t0, address t1) = BPC.sortTokens(tokenIn, tokenOther);
         bytes32 pid = BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
-        (uint160 sp4, uint128 lq4, uint24 lpF4, uint24 pF4, ) = BPC.v4SqrtAndLiq(v4mgr, pid);
-        if (sp4 != 0 && lq4 != 0) quote = BPC.outV3(legAmt, sp4, lq4, BPC.effV4Fee(leg.fee, lpF4, pF4), leg.zeroForOne, 0);
+        // The promise, bounded at the current range's edge and fee-resolved in the
+        // swap's direction — one linked-library call (BlazePhoenixCore.v4LegOut).
+        quote = BPC.v4LegOut(v4mgr, pid, legAmt, leg.fee, leg.tickSpacing, leg.zeroForOne);
     }
 
     /// @dev `payer` is who funded this swap and therefore who the unspent
