@@ -318,7 +318,7 @@ contract GuardsNeverFiredTest is Test {
     //  W1 -- _execV4Amt: `!hub.isHookLive(leg.hooks)` (RouterE 9)
     //  The execution-time codehash pin. The only RouterE(9) any prior test
     //  drives is the hookAltersDeltas neighbour one line above -- same code,
-    //  different guard. HOOK's low 14 bits are zero, so the neighbour cannot
+    //  different guard. HOOK's delta bits are zero, so the neighbour cannot
     //  fire for this address, and the settling preamble proves it end to end.
     // =========================================================================
 
