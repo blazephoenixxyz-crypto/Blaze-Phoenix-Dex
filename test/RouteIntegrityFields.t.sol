@@ -14,11 +14,9 @@ pragma solidity 0.8.36;
 //       any token moves, and the Quoter refuses to price it. Red first: before
 //       the pin the harness singleton refused the flipped leg with its own
 //       settlement error, not with the Router's code.
-//    2. Pair kind: measured, not pinned. A V2 pair run as Solidly settles and
-//       delivers less than the honest route (the difference stays in the pair);
-//       a V2 pair run as V3 reverts before any token moves. Both are the
-//       caller's own signed fields (STEERING in the field register), bounded
-//       by userMinOut; the measurements here keep the cost from drifting.
+//    2. Pair kind: measured, not pinned. The kind is the caller's own signed
+//       field (STEERING in the field register), bounded by userMinOut; the
+//       measurements here pin the cost of a wrong kind so it cannot drift.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";

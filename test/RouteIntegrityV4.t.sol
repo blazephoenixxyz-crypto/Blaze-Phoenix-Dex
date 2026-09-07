@@ -6,26 +6,21 @@ pragma solidity 0.8.36;
 //
 //  A V4 leg is executed by the key derived from (tokenIn, auxId, fee,
 //  tickSpacing, hooks); `leg.pool` carries the truncated poolId the Solver and
-//  Quoter derive from that key. Before this fix the Router never compared the
-//  two: a route whose `leg.hooks` was swapped after the quote executed against
-//  another pool while `leg.pool` still named the quoted one. The researcher's
-//  proof of concept used a Router stub; these tests use the REAL Router, the
-//  REAL Hub and a per-pool priced singleton, and record what actually bounds a
-//  substituted route:
+//  Quoter derive from that key. Guarantee: the two must agree, or the leg is
+//  refused before any token moves (RouterE(11)), and the Quoter refuses to price
+//  it. These tests run the REAL Router, the REAL Hub and a per-pool priced
+//  singleton and record the bound around the guarantee:
 //
 //    1. an honest route settles;
-//    2. a substituted hook with the HONEST attestation is refused by the
-//       attestation gate (RouterE(5)) — the protection that existed before;
-//    3. a substituted hook with the attestation and minimum lowered too — the
-//       researcher's silent case — is now refused before any token moves,
-//       because the leg names pool A and its key derives pool B (RouterE(11));
-//    4. a route that lies CONSISTENTLY (pool B named, pool B attested) is the
-//       caller's signed intent and settles, bounded like every route by the
-//       in-frame promise, the gate and userMinOut. That residual is recorded
-//       in the threat register (SOK-ROUTE-SELF), not hidden.
+//    2. a leg executing under another admitted hook with the honest attestation
+//       is refused by the attestation gate (RouterE(5));
+//    3. a leg whose fields disagree with the pool it names is refused (RouterE(11));
+//    4. a route that is consistent in every field is the caller's signed intent
+//       and settles, bounded like every route by the in-frame promise, the gate
+//       and userMinOut (registered as SOK-ROUTE-SELF / SOK-ROUTE-AUTHOR).
 //
-//  Red first: test 3 settles on the tree before the check (the mutant registry
-//  removes the check and expects this test to go red).
+//  Red first: test 3 fails on the tree before the check; the mutant registry
+//  removes the check and expects it to go red.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -175,9 +170,9 @@ contract RouteIntegrityV4Test is Test {
         router.swapExactIn(_route(pidB, hookB, amt, qa), amt, 1, user, block.timestamp + 1);
     }
 
-    /// The researcher's silent case: hooks swapped to B, attestation and minimum lowered,
-    /// leg.pool still naming A. Measured before the fix: settled on pool B, 1:1, no event
-    /// naming the substitution. Now refused before any token moves.
+    /// A leg whose hooks derive pool B while leg.pool names pool A, with attestation and
+    /// minimum consistent with B: refused before any token moves. Red on the tree before
+    /// the check.
     function test_SubstitutedHook_RouteNamesPoolA_IsRefused() public {
         uint256 amt = 1e18; uint256 qb = _quote(pidB, amt);
         vm.prank(user);
@@ -185,9 +180,8 @@ contract RouteIntegrityV4Test is Test {
         router.swapExactIn(_route(pidA, hookB, amt, qb), amt, 1, user, block.timestamp + 1);
     }
 
-    /// A route that lies consistently is the caller's signed intent: pool B named,
-    /// pool B attested, pool B executed. Bounded like every route; recorded as the
-    /// residual of SOK-ROUTE-SELF, not hidden.
+    /// A route consistent in every field is the caller's signed intent: pool B named,
+    /// pool B attested, pool B executed. Bounded like every route (SOK-ROUTE-AUTHOR).
     function test_ConsistentRoute_PoolB_Settles_ByDesign() public {
         uint256 amt = 1e18; uint256 qb = _quote(pidB, amt);
         vm.prank(user);
@@ -209,8 +203,7 @@ contract RouteIntegrityV4Test is Test {
 
     /// Preview and execution agree. The Quoter's exact preview dry-runs every V4 leg on
     /// the singleton; a leg whose named pool is not the pool its key derives is refused
-    /// there too, and the preview holds the plan's own point instead of quietly carrying
-    /// the substituted pool's price under the named pool's identity.
+    /// there too, and the preview holds the plan's own point.
     function test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool() public {
         uint256 amt = 1e18; uint256 qa = _quote(pidA, amt);
         FixedPlanSolver solver = new FixedPlanSolver();
