@@ -88,7 +88,7 @@
       "family": "A_CONC_SING",
       "class": "CONFIRMED",
       "site": "src/BlazePhoenixRouter.sol:_execV4Amt",
-      "note": "address bits are immutable; sieve plus codehash pin, and the key carries the sieved value"
+      "note": "address bits are immutable and the manager dispatches on them: a hook with no swap bit (beforeSwap, afterSwap, swap deltas) never runs in a swap and its pools are admitted by the bits alone; a hook that runs in the swap is routed only while allow-listed and its codehash is unchanged; delta-returning hooks are refused regardless. The key carries the sieved value"
     },
     {
       "field": "leg.hooks",

@@ -130,8 +130,8 @@
       "id": "SOK-HOOK",
       "class": "Malicious hook on a hooked venue",
       "status": "blocked",
-      "guard": "hookAllowed",
-      "note": "Hooks are admitted explicitly; delta-taking hook permissions are refused at several independent surfaces, and those permissions are encoded in immutable address bits rather than in mutable state."
+      "guard": "hookAltersDeltas (bits) at three surfaces; hookRunsInSwap (bits) gates the allow-list and codehash pin to the hooks that run in a swap",
+      "note": "Permissions are encoded in immutable address bits. Delta-taking hooks are refused at several independent surfaces. Hooks with no swap bit never run in a swap and are admitted by the bits (no operator step: quote equals execution for them as for a hookless pool). Hooks that run in the swap (beforeSwap or afterSwap) are admitted explicitly and pinned by codehash; what they do inside the swap is bounded by the in-frame promise, the attestation gate and userMinOut, which read no list."
     },
     {
       "id": "SOK-GRIEF-SEATS",
@@ -193,6 +193,14 @@
       "guard": "userMinOut is the only absolute anchor (RouterE(5)); every other floor is relative to the venue the route names",
       "test": "test_ConsistentRoute_PoolB_Settles_ByDesign",
       "note": "Registered 2026-09-07. A route that is consistent in every field is the caller's signed intent; the Router cannot know a venue the caller did not name. SECURITY.md's scope line draws this boundary (a defect is in scope where the measured floor or the caller's own minimum can be bypassed). leg.pool always equals the executed pool id, so a wallet or a route verifier reading the calldata sees the venue that will execute."
+    },
+    {
+      "id": "SOK-DYNFEE-PROTOFEE",
+      "class": "A dynamic-fee key under a non-zero protocol fee: the in-frame promise is zero",
+      "status": "out-of-scope",
+      "guard": "effV4Fee fails closed on a dynamic key with a protocol fee, so the promise is 0; the floor is then the caller's attestation and userMinOut; the registry refuses to claim such pools",
+      "test": "test_DynamicFeeKey_UnderProtocolFee_PromisesZero",
+      "note": "Registered 2026-09-07 from the hook-admission review. An honest attestation from the Quoter's dry run keeps the gate (80 % of the attestation); lowering it is the caller's signed intent. Refusing the leg outright is an owner decision recorded as open."
     }
   ]
 }

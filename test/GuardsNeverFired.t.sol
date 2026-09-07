@@ -157,7 +157,10 @@ contract GuardsNeverFiredTest is Test {
 
     // W1: hook address whose low 14 bits are ZERO, so hookAltersDeltas(h) is
     // false by construction and the neighbouring RouterE(9) site is cleared.
-    address constant HOOK = address(uint160(0xBEEF) << 14);
+    // BEFORE_SWAP (bit 7) set, no delta bit: a hook that RUNS in the swap, the class the
+    // allow-list and the codehash pin still govern. A hook with no swap bit is admitted by
+    // its bits alone since 2026-09-07 (test/HookAdmissionByBits.t.sol) and has nothing to revoke.
+    address constant HOOK = address((uint160(0xBEEF) << 14) | uint160(1 << 7));
     bytes constant RUNTIME_A = hex"fe";
     bytes constant RUNTIME_B = hex"fefe";
 
@@ -315,7 +318,7 @@ contract GuardsNeverFiredTest is Test {
     //  W1 -- _execV4Amt: `!hub.isHookLive(leg.hooks)` (RouterE 9)
     //  The execution-time codehash pin. The only RouterE(9) any prior test
     //  drives is the hookAltersDeltas neighbour one line above -- same code,
-    //  different guard. HOOK's low 14 bits are zero, so the neighbour cannot
+    //  different guard. HOOK's delta bits are zero, so the neighbour cannot
     //  fire for this address, and the settling preamble proves it end to end.
     // =========================================================================
 

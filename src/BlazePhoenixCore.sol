@@ -2138,6 +2138,18 @@ library BlazePhoenixCore {
         return (bits & deltaFlags) != 0;
     }
 
+    /// @notice Does the manager enter this hook during a SWAP at all? True when any
+    ///         of BEFORE_SWAP (1<<7), AFTER_SWAP (1<<6) or the two swap-delta flags is
+    ///         set. A hook with none of them is invisible to swaps by construction
+    ///         (the manager dispatches on these bits, and they are immutable), so the
+    ///         Router admits its pools by the bits alone: quote equals execution for
+    ///         it exactly as for a hookless pool, and nothing an operator could judge
+    ///         about its code can change a swap. Hooks that DO run in the swap keep
+    ///         the allow-list and the codehash pin.
+    function hookRunsInSwap(address hook) internal pure returns (bool) {
+        return (uint160(hook) & 0xCC) != 0;
+    }
+
     /// @notice Impact in BPS from an ALREADY COMPUTED output — the primitive.
     /// @dev    THE PATTERN THIS KILLS: "impact re-derives the quote". An impact function that
     ///         embeds the curve forces its caller to pay the curve TWICE, because whoever wants
