@@ -18,7 +18,7 @@
   "version": "2.2",
   "datePublished": "2026-09-06",
   "inLanguage": "en",
-  "abstract": "BlazePhoenix-Dex is an on-chain liquidity aggregator built on one claim: a quote and its execution are the same computation. The route is derived inside the transaction that executes it, from public pool state, by a stateless library any reader can re-run; the number that binds at settlement is re-derived by the same dispatcher in the executing frame. There is no routing service, no price oracle, no keeper and no upgrade path. This paper specifies the five contracts — Core, Hub, Solver, Router, Quoter — and the operators of the Meta-Equation: the Eightfold Dispatcher Ω, the Deterministic Derivation 𝒟, the Iron-Law floor Φ, the Vitality Field Ψ and the anti-scam projector Ξ. Behind them sits one discipline, Metrological Design: measure every coordinate that can be measured, and make the rest monotone so a false input hurts only its supplier. Every guarantee is stated with its enforcement site and its limit. The verification apparatus is printed with its denominators: 1,319 of 1,320 tests green on the release profile, 203 of 203 curated mutants killed, 14 of 15 mutants aimed at 40 stateful invariants noticed, covering arrays of strength 2 (63 rows, 258 pairs) and 3 (168 rows, 1,636 triples), 14 + 5 metamorphic relations, three optimiser builds in agreement, and a 240-sample study of how a quote ages. What none of it establishes is stated as carefully. The code described is V2 and is not deployed; the deployed generation is V1, pinned by codehash so the two are never conflated.",
+  "abstract": "BlazePhoenix-Dex is an on-chain liquidity aggregator built on one claim: a quote and its execution are the same computation. The route is derived inside the transaction that executes it, from public pool state, by a stateless library any reader can re-run; the number that binds at settlement is re-derived by the same dispatcher in the executing frame. There is no routing service, no price oracle, no keeper and no upgrade path. This paper specifies the five contracts — Core, Hub, Solver, Router, Quoter — and the operators of the Meta-Equation: the Eightfold Dispatcher Ω, the Deterministic Derivation 𝒟, the Iron-Law floor Φ, the Vitality Field Ψ and the anti-scam projector Ξ. Behind them sits one discipline, Metrological Design: measure every coordinate that can be measured, and make the rest monotone so a false input hurts only its supplier. Every guarantee is stated with its enforcement site and its limit. The verification apparatus is printed with its denominators: 1,319 of 1,320 tests green on the release profile, 203 of 203 curated mutants killed, 14 of 15 mutants aimed at 43 stateful invariants noticed, covering arrays of strength 2 (63 rows, 258 pairs) and 3 (168 rows, 1,636 triples), 14 + 5 metamorphic relations, three optimiser builds in agreement, and a 240-sample study of how a quote ages. What none of it establishes is stated as carefully. The code described is V2 and is not deployed; the deployed generation is V1, pinned by codehash so the two are never conflated.",
   "author": {
     "@type": "Person",
     "name": "Mitra",
@@ -294,7 +294,7 @@
           "@type": "DefinedTerm",
           "termCode": "E24",
           "name": "Aggregate hop floor",
-          "description": "$\\sum \\mathrm{got} + (\\mathrm{BPS} - 8{,}000)\\cdot(\\sum \\mathrm{attested})/n \\ge \\sum \\mathrm{attested}$ — defined in Router `_execute` (§11.3)"
+          "description": "$\\sum \\mathrm{got} + \\lfloor (\\mathrm{BPS} - 8{,}000)\\cdot \\lfloor \\sum \\mathrm{attested}/n \\rfloor / \\mathrm{BPS} \\rfloor \\ge \\sum \\mathrm{attested}$ — defined in Router `_execute` (§11.3)"
         },
         {
           "@type": "DefinedTerm",
@@ -361,7 +361,7 @@
           "@type": "DefinedTerm",
           "termCode": "INV-8",
           "name": "A pair's registry holds at most sixteen pools, and eviction keeps the fittest by full Ψ with the margin of E13.",
-          "description": "Enforced by Hub `_canInsert`; `invariant_neverExceedsMaxSlots`"
+          "description": "Enforced by Hub `_canInsert`; `invariant_neverExceedsMaxSlots` (the cap); `test_RecordSwap_EvictsWeakestWhenFullAndNewcomerClearsMargin` (the eviction)"
         },
         {
           "@type": "DefinedTerm",
@@ -373,7 +373,7 @@
           "@type": "DefinedTerm",
           "termCode": "INV-10",
           "name": "The universal callback pays only the pool committed for the current leg, only while a leg is in flight, and never more than the leg's recorded budget.",
-          "description": "Enforced by Transient leg context; `RouterE(6)` (§11.4)"
+          "description": "Enforced by Transient leg context; `RouterE(6)` for the pool, `RouterE(8)` for the budget (§11.4)"
         },
         {
           "@type": "DefinedTerm",
@@ -402,7 +402,7 @@
         {
           "@type": "DefinedTerm",
           "termCode": "INV-15",
-          "name": "The fee base is a measured balance, never a declared one; `route.totalOut` is read by nothing.",
+          "name": "The fee base is the measured pull, capped by the route's committed input — never a declared output; `route.totalOut` is read by nothing.",
           "description": "Enforced by `_chargeHopFee`; `test_FeeBase_IgnoresLiedAboutTotalOut`"
         },
         {
@@ -433,21 +433,22 @@
           "@type": "DefinedTerm",
           "termCode": "INV-20",
           "name": "A settlement pays the protocol fee exactly once on an anchored route and once per hop on an exhausted one; a settlement that paid nothing does not exist.",
-          "description": "Enforced by Fee ledger, `RouterE(15)`/`RouterE(16)`; `invariant_SettledSwapEmitsExactlyOneFee`"
+          "description": "Enforced by Fee ledger, `RouterE(15)`/`RouterE(16)`; `invariant_SettledSwapEmitsExactlyOneFee` (anchored); `test/FeeSeals.t.sol`, `test/ExhaustionRegimePreviewParity.t.sol` (exhaustion)"
         },
         {
           "@type": "DefinedTerm",
           "termCode": "INV-21",
-          "name": "Hops chain — each hop's input is the previous hop's output — and a hooked leg sits only in the last hop.",
+          "name": "Hops chain — each hop's input is the previous hop's output — and no hookless leg executes after a hooked one, in this or any later hop (`sawHooked` is route-wide).",
           "description": "Enforced by Router `_execute` → `RouterE(3)`; `sawHooked`"
         },
         {
           "@type": "DefinedTerm",
           "termCode": "INV-22",
-          "name": "Every contract ships under the project's 24,000-byte gate on the release profile, and the suite runs on that profile.",
+          "name": "The four deployed contracts — Hub, Solver, Router, Quoter — ship under the project's 24,000-byte gate on the release profile, the Core library is measured separately (6,477 bytes of 24,576), and the suite runs on that profile.",
           "description": "Enforced by `DeployedSizeGate`; `profile_parity.py`"
         }
       ]
     }
-  ]
+  ],
+  "dateModified": "2026-09-07"
 }
