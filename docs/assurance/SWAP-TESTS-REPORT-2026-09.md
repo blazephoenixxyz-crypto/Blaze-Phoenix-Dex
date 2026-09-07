@@ -92,7 +92,7 @@ after the ledger: 23,781 bytes.
 
 ## 4. How often the fee tests notice a defect
 
-`docs/assurance/fee-seal-detection.json` — twenty fuzz seeds per fuzzed test, one run per
+`docs/assurance/fee-seal-detection.json` (producer: `.github/scripts/assurance/fee_seal_detection.py`) — twenty fuzz seeds per fuzzed test, one run per
 deterministic test, Wilson 95 % interval on the detection probability.
 
 | mutant | FeeSeals fuzz | Router campaign (2 hops, 2 legs) | covering array t=2 | junk-prefix escape | exhaustion preview parity |
