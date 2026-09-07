@@ -344,6 +344,8 @@ button. Plain form:
 > Fable & Mitra (2026). *BlazePhoenix-Dex: an on-chain DEX aggregator with measured routing.*
 > https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex
 
+The papers have their own archival record: the Technical Whitepaper, Version 2.2, is registered as DOI [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526574) (text CC BY 4.0), and `CITATION.cff` carries it as the preferred citation.
+
 ## License
 
 **Business Source License 1.1.** Copyright © 2026 Mitra. Effective 1 July 2026;

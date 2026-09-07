@@ -19,11 +19,11 @@ Every entry below was verified on 2026-09-06 from this device. Web sources: `cur
 | 13 | A. Avizienis. *The N-Version Approach to Fault-Tolerant Software.* IEEE Transactions on Software Engineering SE-11(12), 1985. DOI 10.1109/TSE.1985.231893 | Crossref → "The N-Version Approach to Fault-Tolerant Software", IEEE TSE, 1985 | §15.8, §23 |
 | 14 | D. R. Kuhn, R. N. Kacker, Y. Lei. *Practical Combinatorial Testing.* NIST Special Publication 800-142, 2010. DOI 10.6028/NIST.SP.800-142 | Crossref → "Practical combinatorial testing", 2010; curl → 200 | §15.4, §23 |
 | 15 | B. Littlewood, L. Strigini. *Validation of Ultrahigh Dependability for Software-Based Systems.* Communications of the ACM 36(11), 1993. DOI 10.1145/163359.163373 | Crossref → "Validation of ultrahigh dependability for software-based systems", Communications of the ACM, 1993 | §15.11, §23 |
-| 16 | A. Akhunov, M. H. Swende. *EIP-1153: Transient Storage Opcodes.* https://eips.ethereum.org/EIPS/eip-1153 | curl → 200 | §11.4, §13.2, §23 |
+| 16 | A. Akhunov, M. Salem. *EIP-1153: Transient Storage Opcodes.* https://eips.ethereum.org/EIPS/eip-1153 | curl → 200 | §11.4, §13.2, §23 |
 | 17 | V. Buterin. *EIP-170: Contract Code Size Limit.* https://eips.ethereum.org/EIPS/eip-170 | curl → 200 | §16.3, §23 |
 | 18 | V. Buterin. *EIP-1014: Skinny CREATE2.* https://eips.ethereum.org/EIPS/eip-1014 | curl → 200 | §7, §23 |
 | 19 | M. Lundfall et al. *EIP-2612: Permit Extension for EIP-20 Signed Approvals.* https://eips.ethereum.org/EIPS/eip-2612 · Uniswap Labs. *Permit2.* https://github.com/Uniswap/permit2 | curl → 200; curl → 200 | §11.1, §23 |
-| 20 | V. Buterin, S. Feist et al. *EIP-7702: Set Code for EOAs.* https://eips.ethereum.org/EIPS/eip-7702 | curl → 200 | §11.1, §23 |
+| 20 | V. Buterin, S. Wilson, A. Dietrichs, M. Garnett. *EIP-7702: Set Code for EOAs.* https://eips.ethereum.org/EIPS/eip-7702 | curl → 200 | §11.1, §23 |
 | 21 | *ERC-7201: Namespaced Storage Layout.* https://eips.ethereum.org/EIPS/eip-7201 | curl → 200 | §16.1, §23 |
 | 22 | MariaDB Corporation Ab. *Business Source License 1.1.* https://mariadb.com/bsl11/ | curl → 200 | cover |
 | 23 | Mitra. *BlazePhoenix Staking Engine — Design Specification, Version 1.0.* https://blazephoenix.xyz/staking-whitepaper.md | curl → 200 | §18, §20 |

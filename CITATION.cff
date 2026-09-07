@@ -48,6 +48,25 @@ keywords:
   - metrological-design
   - bug-bounty
   - mev
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.22526574
+    description: "Technical Whitepaper v2.2 — concept DOI, resolves to the latest record version"
+  - type: doi
+    value: 10.5281/zenodo.22529654
+    description: "Technical Whitepaper v2.2 — record version 2 (2026-09-06)"
 license: BUSL-1.1
 version: 2.2.0
 date-released: "2026-09-06"
+preferred-citation:
+  type: report
+  title: "BlazePhoenix Technical Whitepaper: an on-chain liquidity aggregator whose quote and execution are one computation"
+  authors:
+    - alias: Mitra
+      affiliation: BlazePhoenix
+  version: "2.2"
+  doi: 10.5281/zenodo.22526574
+  date-released: "2026-09-06"
+  url: "https://blazephoenix.xyz/research/whitepaper/"
+  license: CC-BY-4.0
+  notes: "Full text in Markdown at https://blazephoenix.xyz/whitepaper.md; archived at https://doi.org/10.5281/zenodo.22526574"

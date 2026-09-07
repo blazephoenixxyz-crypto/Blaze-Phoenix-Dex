@@ -3,23 +3,64 @@
   "upload_type": "software",
   "description": "<p>BlazePhoenix-Dex is an on-chain DEX aggregator in Solidity/Yul for Base, Ethereum, Optimism and Arbitrum whose route is solved on-chain inside the transaction that executes it. This record archives the repository at the release tagged <code>papers-v2.2</code>, which carries the two papers in <code>docs/papers/</code>: the <em>Technical Whitepaper, Version 2.2</em> (the aggregator alone: the Meta-Equation, the Eightfold Dispatcher, deterministic derivation, the Iron-Law floor, the two fee regimes, the quote surfaces and how a quote ages, the security model, and the verification apparatus measured — a curated mutation guard of 203 mutants, covering arrays of strength 2 and 3 over the regime factors, N-version testing of the quote maths, fee-mutant detection rates with Wilson intervals) and the <em>Litepaper, Version 2.2</em> (the same protocol for a general reader). Every figure in the papers is recomputed from a clean checkout by a named command in <code>docs/assurance/</code>.</p><p>Paper text: CC BY 4.0. Solidity source: BUSL-1.1 (cite the architecture; do not redeploy).</p>",
   "creators": [
-    { "name": "Mitra", "affiliation": "BlazePhoenix" }
+    {
+      "name": "Mitra",
+      "affiliation": "BlazePhoenix"
+    }
   ],
   "keywords": [
-    "decentralized finance", "DEX aggregator", "automated market maker", "on-chain routing",
-    "Ethereum", "Solidity", "Uniswap V4", "smart contract verification", "mutation testing",
-    "metamorphic testing", "N-version programming", "combinatorial testing", "covering arrays",
-    "MEV", "formal methods", "Metrological Design"
+    "decentralized finance",
+    "DEX aggregator",
+    "automated market maker",
+    "on-chain routing",
+    "Ethereum",
+    "Solidity",
+    "Uniswap V4",
+    "smart contract verification",
+    "mutation testing",
+    "metamorphic testing",
+    "N-version programming",
+    "combinatorial testing",
+    "covering arrays",
+    "MEV",
+    "formal methods",
+    "Metrological Design"
   ],
   "license": "BUSL-1.1",
   "access_right": "open",
   "language": "eng",
   "version": "2.2",
   "related_identifiers": [
-    { "identifier": "https://blazephoenix.xyz/docs/BlazePhoenix_Whitepaper.pdf", "relation": "isSupplementedBy", "resource_type": "publication-technicalnote", "scheme": "url" },
-    { "identifier": "https://blazephoenix.xyz/whitepaper.md", "relation": "isSupplementedBy", "resource_type": "publication-technicalnote", "scheme": "url" },
-    { "identifier": "https://blazephoenix.xyz/staking-whitepaper.md", "relation": "references", "resource_type": "publication-technicalnote", "scheme": "url" },
-    { "identifier": "https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex", "relation": "isSupplementTo", "resource_type": "software", "scheme": "url" }
+    {
+      "identifier": "10.5281/zenodo.22526574",
+      "relation": "isSupplementedBy",
+      "resource_type": "publication-report",
+      "scheme": "doi"
+    },
+    {
+      "identifier": "https://blazephoenix.xyz/docs/BlazePhoenix_Whitepaper.pdf",
+      "relation": "isSupplementedBy",
+      "resource_type": "publication-report",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://blazephoenix.xyz/whitepaper.md",
+      "relation": "isSupplementedBy",
+      "resource_type": "publication-report",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://blazephoenix.xyz/staking-whitepaper.md",
+      "relation": "references",
+      "resource_type": "publication-report",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex",
+      "relation": "isSupplementTo",
+      "resource_type": "software",
+      "scheme": "url"
+    }
   ],
   "notes": "Version 2.2 supersedes the PDF Version 2.1 (August 2026) and the interim markdown text labelled 3.0 (2026-09-01). The staking engine is specified in its own paper and is not part of this record's papers beyond a reference."
 }
