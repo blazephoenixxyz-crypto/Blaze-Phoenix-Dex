@@ -72,6 +72,7 @@ interface IHubW {
     ) external;
     function v4PoolManager() external view returns (address);
     function isHookLive(address hook) external view returns (bool);
+    function hookPaused(address h) external view returns (bool);
     function bridge(uint8 i) external view returns (address);
 }
 
