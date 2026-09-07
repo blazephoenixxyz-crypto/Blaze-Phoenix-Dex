@@ -634,7 +634,7 @@ events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
 **How often each test notices each defect** was measured rather than assumed: every fee mutant
 (the regime predicate moved two ways, the commitment producer, the ledger's two checks, and the
 three fee mutants of §4l) was run under twenty fuzz seeds per fuzzed test, and the detection rate
-is published with a Wilson 95 % interval (`docs/assurance/fee-seal-detection.json`):
+is published with a Wilson 95 % interval (`docs/assurance/fee-seal-detection.json`; producer `.github/scripts/assurance/fee_seal_detection.py`):
 
 | mutant | FeeSeals fuzz | Router campaign (2 hops, 2 legs) | covering array t=2 | junk-prefix escape | exhaustion preview parity |
 |---|---|---|---|---|---|
