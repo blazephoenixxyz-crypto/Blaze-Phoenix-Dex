@@ -1302,6 +1302,7 @@ Applied after a hostile read of the 2026-09-06 text against `main 8949a9d`; the 
 14. §1 — the survey of aggregators is bounded to the seven named, as documented on 2026-09-07.
 15. References 16 and 20 — EIP-1153 is by A. Akhunov and M. Salem; EIP-7702 by V. Buterin, S. Wilson, A. Dietrichs and M. Garnett.
 16. §2.3, §15.11, §21 — instrument-calibration and defect-pattern counts replaced by the calibration rule itself.
+- §14.2, Layer 2 (2026-09-07, hook admission): the allow-list curates the automatic door and the codehash pin pauses a listed hook whose code moved, on every door. A hook whose address bits carry no swap permission never runs in a swap and needs neither list nor pin. A hook that runs in the swap and that nobody listed is accepted on the explicit door as the caller's signed choice, bounded like every venue by the in-frame promise, the attestation gate and `userMinOut`; it is never proposed by the automatic door. Registering a hooked pool admits and pins its hook, so a hooked pool is one operator step. The three layers stand; "default closed" describes the automatic door.
 
 ## Appendix A · The primitive equations
 
