@@ -17,7 +17,7 @@ pragma solidity 0.8.36;
 // que REESCREVE o bucket em cada swap, portanto o fix do `claimV4` (já em produção) era desfeito
 // no primeiro swap roteado por essa pool.
 //
-// A RESPOSTA. Uma única primitiva, `BPC.depthFromL`, e os quatro sítios a chamá-la. Três cópias
+// A RESPOSTA. Uma única primitiva, `BPC.depthFromL18`, e os quatro sítios a chamá-la. Três cópias
 // irmãs que divergem são a assinatura de defeito desta base de código — foi assim com o mulDiv de
 // 512 bits e com a fee viva do Algebra. Uma cópia não pode divergir de si própria.
 //
@@ -94,6 +94,12 @@ contract DepthUnitParityTest is Test {
         assertEq(BPC.depthFromL(12345e18, 0), 0, "sem preco tem de devolver zero, nao L cru");
         assertEq(BPC.depthFromL(type(uint128).max, 0), 0, "idem no extremo");
         assertEq(BPC.depthFromL(0, 0), 0, "zero com zero continua zero");
+        // The primitive the contracts execute is depthFromL18 (Core, Hub, Router call it;
+        // nothing shipped calls the two-argument form). The mutation guard reads what decides,
+        // so the zero rule is asserted on it as well, at equal and unequal decimals.
+        assertEq(BPC.depthFromL18(12345e18, 0, 18, 18), 0, "shipped primitive: no price, no depth");
+        assertEq(BPC.depthFromL18(type(uint128).max, 0, 6, 18), 0, "idem at the extreme, unequal decimals");
+        assertEq(BPC.depthFromL18(0, 0, 18, 6), 0, "zero with zero stays zero");
     }
 
     /// Sem overflow no intermedio: L * sqrtP transborda uint256, e por isso a primitiva usa

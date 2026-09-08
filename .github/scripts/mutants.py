@@ -132,10 +132,10 @@ M = [
       old="        return outSolidlyStable(ain, rIn, rOut, liveFee, _decimalsOf(tokenIn), _decimalsOf(other));",
       new="        other; return outSolidlyStable(ain, rIn, rOut, liveFee, 0, 0); // MUTANTE",
       teste="test_FallbackPath_UnequalDecimals_MustStillSettle"),
- dict(nome="depthFromL: repor o L cru quando nao ha preco",
+ dict(nome="depthFromL18: repor o L cru quando nao ha preco",
       f="src/BlazePhoenixCore.sol",
-      old="    function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {\n        if (sp == 0) return 0;",
-      new="    function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {\n        if (sp == 0) return uint256(liq); // MUTANTE",
+      old="    function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)\n        internal pure returns (uint256)\n    {\n        if (sp == 0) return 0;",
+      new="    function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)\n        internal pure returns (uint256)\n    {\n        if (sp == 0) return uint256(liq); // MUTANTE",
       teste="test_NoPriceMeansNoDepth"),
  dict(nome="fee: a cobranca por hop (a fuga pelo prefixo de po)",
       f="src/BlazePhoenixRouter.sol",
@@ -211,10 +211,15 @@ M = [
       old="        if ($.isBridge[t]) return;",
       new="        // MUTANTE",
       teste="test_DupAddThenRemove_ArrayMappingDesync"),
- dict(nome="registo: creditar legs declaradas em vez das executadas (a leg fantasma)",
+ # The Hub refuses `amtIn == 0` on the SCALED amount the Router hands it, and a leg that did not
+# run is exactly a leg whose scaled amount is zero: dropping the Router's skip alone reaches the
+# Hub with inM == 0 and is refused there, so that mutant was decorative (CI, 2026-09-08). The
+# reported defect credited the declared leg at its DECLARED amount; the mutant restores that
+# shape - the skipped leg is credited at full scale - so the test observes the Router's guard.
+ dict(nome="registo: creditar legs declaradas em vez das executadas, pela quantia declarada (a leg fantasma)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (!ran) { unchecked { ++l; } continue; }",
-      new="                ran; // MUTANTE",
+      new="                if (!ran) { hopScale[h] = 1e18; } // MUTANTE",
       teste="test_PhantomLeg_NotCreditedToRegistry"),
  dict(nome="V4: o grid volta a ser suprimido por um codigo aprendido",
       f="src/BlazePhoenixHub.sol",
