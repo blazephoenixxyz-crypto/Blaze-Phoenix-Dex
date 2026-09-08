@@ -130,8 +130,9 @@
       "id": "SOK-HOOK",
       "class": "Malicious hook on a hooked venue",
       "status": "blocked",
-      "guard": "hookAltersDeltas (bits) at three surfaces; hookRunsInSwap (bits) scopes the list and pin to hooks that run in a swap; hookPaused refuses revoked and code-moved hooks on every door; registry reads filter by isHookLive",
-      "note": "Permissions are encoded in immutable address bits; delta-taking hooks are refused at several independent surfaces. Hooks with no swap bit never run in a swap and need neither list nor pin. For hooks that run in the swap, the list curates the AUTOMATIC door (registry reads filter by isHookLive; registering a hooked pool admits and pins its hook) and the pin pauses a listed hook whose code moved on every door; the curator's revocation refuses on every door. A hook nobody listed is the caller's signed choice on the explicit door: what it does inside the swap is bounded by the in-frame promise, the attestation gate and userMinOut, which read no list — measured by a fuzzed campaign (testFuzz_UnlistedHook_HostileFill_BoundedByGateAndMinOut)."
+      "guard": "hookAltersDeltas",
+      "test": "testFuzz_UnlistedHook_HostileFill_BoundedByGateAndMinOut",
+      "note": "hookAltersDeltas reads the hook's immutable address bits and refuses delta-taking hooks at three independent surfaces; hookRunsInSwap scopes the allow-list and the pin to hooks that run in a swap; hookPaused refuses revoked and code-moved hooks on every door; registry reads filter by isHookLive. Hooks with no swap bit never run in a swap and need neither list nor pin. For hooks that run in the swap, the list curates the AUTOMATIC door (registering a hooked pool admits and pins its hook) and the pin pauses a listed hook whose code moved on every door; the curator's revocation refuses on every door. A hook nobody listed is the caller's signed choice on the explicit door: what it does inside the swap is bounded by the in-frame promise, the attestation gate and userMinOut, which read no list, measured by the fuzzed campaign named as the test."
     },
     {
       "id": "SOK-GRIEF-SEATS",
@@ -182,25 +183,25 @@
       "id": "SOK-ROUTE-SELF",
       "class": "A route whose fields disagree with each other (the pool it names is not the pool its key executes, or its direction is not the direction of its tokens)",
       "status": "blocked",
-      "guard": "RouterE(11) in _execV4Amt; the Quoter refuses to price a mismatched leg and holds the plan's own point",
-      "test": "test_SubstitutedHook_RouteNamesPoolA_IsRefused, test_SwappedTickSpacing_RouteNamesPoolA_IsRefused, test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool, test_V4_FlippedDirection_IsRefused, test_Quoter_FlippedDirection_IsNotPriced, testFuzz_V4Leg_AcceptedIffFieldsAgree",
-      "note": "Reported by Karan Rathod (BPX-2026-009). Guarantee: a V4 leg is executed only if the pool it names is the pool its key derives to and its direction is the direction of its tokens; any disagreement is refused before a token moves, and the Quoter refuses to price it. A route that is consistent in every field is the caller's signed intent and is bounded, as every route is, by the in-frame promise, the attestation gate and userMinOut. Measured on both sides of the pool, per field, in the second hop of a two-hop route, in one leg of a split, and as a fuzzed accept-iff-consistent property."
+      "guard": "_execV4Amt",
+      "test": "testFuzz_V4Leg_AcceptedIffFieldsAgree",
+      "note": "RouterE(11) in _execV4Amt refuses a V4 leg whose named pool is not the pool its key derives to, or whose direction is not the direction of its tokens, before a token moves; the Quoter refuses to price a mismatched leg and holds the plan's own point. Reported by Karan Rathod (BPX-2026-009). A route that is consistent in every field is the caller's signed intent and is bounded, as every route is, by the in-frame promise, the attestation gate and userMinOut. Measured on both sides of the pool, per field, in the second hop of a two-hop route, in one leg of a split (test_SubstitutedHook_RouteNamesPoolA_IsRefused, test_SwappedTickSpacing_RouteNamesPoolA_IsRefused, test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool, test_V4_FlippedDirection_IsRefused, test_Quoter_FlippedDirection_IsNotPriced) and as the fuzzed accept-iff-consistent property named as the test."
     },
     {
       "id": "SOK-ROUTE-AUTHOR",
       "class": "An interface that authors both the route and the caller's minimum (the caller signs a venue and a floor they did not choose)",
       "status": "out-of-scope",
-      "guard": "userMinOut is the only absolute anchor (RouterE(5)); every other floor is relative to the venue the route names",
+      "rationale": "A route that is consistent in every field is the caller's signed intent: the venue named in the leg is the venue that executes, and userMinOut is the only absolute floor (RouterE(5)); every other floor is relative to the venue the route names. The Router cannot refuse a venue the caller chose, so the class sits outside the scope line in SECURITY.md (a defect is in scope where the measured floor or the caller's own minimum can be bypassed). test_ConsistentRoute_PoolB_Settles_ByDesign pins that boundary.",
       "test": "test_ConsistentRoute_PoolB_Settles_ByDesign",
-      "note": "Registered 2026-09-07. A route that is consistent in every field is the caller's signed intent; the Router cannot know a venue the caller did not name. SECURITY.md's scope line draws this boundary (a defect is in scope where the measured floor or the caller's own minimum can be bypassed). leg.pool always equals the executed pool id, so a wallet or a route verifier reading the calldata sees the venue that will execute."
+      "note": "Registered 2026-09-07. leg.pool always equals the executed pool id, so a wallet or a route verifier reading the calldata sees the venue that will execute."
     },
     {
       "id": "SOK-DYNFEE-PROTOFEE",
       "class": "A dynamic-fee key under a non-zero protocol fee: the in-frame promise is zero",
       "status": "out-of-scope",
-      "guard": "effV4Fee fails closed on a dynamic key with a protocol fee, so the promise is 0; the floor is then the caller's attestation and userMinOut; the registry refuses to claim such pools",
+      "rationale": "Under a non-zero protocol fee the Router cannot price a dynamic-fee key in-frame, so effV4Fee fails closed and the leg carries no in-frame promise; the floor is then the caller's attestation (80 % of the Quoter's dry run) and userMinOut, and the registry refuses to claim such keys. The class is bounded by the caller's own signed floors rather than refused by a guard, which is why it is recorded as a scope decision. Refusing the leg outright is an owner decision recorded as open. test_DynamicFeeKey_UnderProtocolFee_PromisesZero pins the zero promise.",
       "test": "test_DynamicFeeKey_UnderProtocolFee_PromisesZero",
-      "note": "Registered 2026-09-07 from the hook-admission review. An honest attestation from the Quoter's dry run keeps the gate (80 % of the attestation); lowering it is the caller's signed intent. Refusing the leg outright is an owner decision recorded as open."
+      "note": "Registered 2026-09-07 from the hook-admission review. An honest attestation from the Quoter's dry run keeps the gate; lowering it is the caller's signed intent."
     }
   ]
 }
