@@ -1,8 +1,11 @@
 name: assurance metrics
 
-# One job, on purpose. Every check here is static - it reads the sources, the tests and the
-# mutation register, and compiles nothing - so the whole set runs in seconds and there is no
-# reason to spread it over several runs.
+# One job, on purpose. The source-level checks read the sources, the tests and the mutation
+# register and run in seconds. The bytecode instruments (invariants, branch attribution,
+# unattributed code, guard reach, constants, panics) read the compiled artefact, so the job
+# builds the release profile first and stamps the tree: an instrument reading an artefact that
+# nobody built from these sources would be a confident statement about the wrong object, and
+# the freshness guard refuses to run without a stamp.
 #
 # The heavy evidence (full suite, fork tests, the mutation guard itself, size limits) is
 # produced by the build and test workflows. This one answers a different question: not "does
@@ -23,11 +26,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      # The bytecode instruments measure the artefact that deploys. Tests are not compiled
+      # here: nothing below reads them from out/, and the suite runs in the build workflow.
+      - name: Build the release artefact and stamp the tree
+        env:
+          FOUNDRY_PROFILE: release
+        run: |
+          forge build --skip '*.t.sol'
+          python3 .github/scripts/assurance/_freshness.py stamp
 
       # Fails the build when a claim no longer holds: a guard symbol that left src/, a test
       # that left test/, a mutant whose target line is gone, or a threat class marked both
