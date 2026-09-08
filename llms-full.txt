@@ -762,6 +762,8 @@ button. Plain form:
 > Fable & Mitra (2026). *BlazePhoenix-Dex: an on-chain DEX aggregator with measured routing.*
 > https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex
 
+The papers have their own archival record: the Technical Whitepaper, Version 2.2, is registered as DOI [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526574) (text CC BY 4.0), and `CITATION.cff` carries it as the preferred citation.
+
 ## License
 
 **Business Source License 1.1.** Copyright © 2026 Mitra. Effective 1 July 2026;
@@ -2518,7 +2520,7 @@ events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
 **How often each test notices each defect** was measured rather than assumed: every fee mutant
 (the regime predicate moved two ways, the commitment producer, the ledger's two checks, and the
 three fee mutants of §4l) was run under twenty fuzz seeds per fuzzed test, and the detection rate
-is published with a Wilson 95 % interval (`docs/assurance/fee-seal-detection.json`):
+is published with a Wilson 95 % interval (`docs/assurance/fee-seal-detection.json`; producer `.github/scripts/assurance/fee_seal_detection.py`):
 
 | mutant | FeeSeals fuzz | Router campaign (2 hops, 2 legs) | covering array t=2 | junk-prefix escape | exhaustion preview parity |
 |---|---|---|---|---|---|
