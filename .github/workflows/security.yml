@@ -157,7 +157,7 @@ jobs:
       # runner user cannot own, and an installer that fails in a way nobody
       # reads is how the neighbouring job spent weeks reporting success without
       # running. The action owns its own binary and its exit code is the gate.
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
