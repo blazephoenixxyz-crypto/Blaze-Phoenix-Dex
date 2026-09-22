@@ -782,7 +782,19 @@ contract BlazePhoenixHub {
             // guard is satisfied by the UNCHANGED code, and the threat this codebase has written
             // down twice is exactly a proxy whose answer moves while its runtime does not.
             //
-            // Tightening is still allowed: 0-3 -> 4-7 narrows what the factory can say.
+            // Tightening — 0-3 -> 4-7, which narrows what the factory can say — was
+            // allowed while this guard named directions. The whole-row rule below
+            // withdraws it for a row that is ALREADY LISTED, and says so here rather
+            // than leaving the older sentence to promise what the code refuses: a
+            // live admin may still tighten, and a never-listed factory may still be
+            // admitted at any mode, but after renunciation an admitted row does not
+            // move in either direction. The narrowing is not lost, only its timing.
+            //
+            // One field is frozen that decides nothing: an ask row carries no
+            // derivation input, so freezing its initHash takes away no capability
+            // that had an effect. Kept rather than special-cased, because a rule with
+            // one exception is two rules, and the exception would have to be read
+            // correctly by whoever writes the next arm.
             // WHAT THIS GUARD COVERS: every field of a live row that decides which
             // address the row derives. The codehash pin answers for the factory's
             // runtime; it cannot answer for the row's own derivation input, because
