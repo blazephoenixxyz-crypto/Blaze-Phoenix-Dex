@@ -584,11 +584,21 @@ M = [
       old="        if (route.hops.length > 1) {",
       new="        if (route.hops.length > 99) { // MUTANT",
       teste="test_INV_F2_PreviewPredictsDeliveryWithNoBridge"),
- dict(nome="T19: the first pin loses its post-renunciation gate (an already-admitted row attests after ossification)",
-      f="src/BlazePhoenixHub.sol",
-      old="                ? (row == n || !$.controlRenounced)",
-      new="                ? true // MUTANT",
-      teste="test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer"),
+ # RETIRED 2026-09-22 - the path this mutant needs is gated upstream, so it cannot
+ # be killed and its survival is not a hole. The arm it mutated only runs when the
+ # factory has no pin yet; reaching it on an ALREADY-ADMITTED row required admitting
+ # at a non-mode-5 mode and then switching that row to mode 5, and a renounced
+ # registry no longer accepts any re-add of a listed row that is not identical. The
+ # arm stays in the contract as depth: if that outer rule is ever loosened, it is the
+ # thing that still refuses. What watches the outer rule now is the renounced-row
+ # family above, and test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer keeps
+ # its own job of pinning the second arm.
+ #
+ # dict(nome="T19: the first pin loses its post-renunciation gate (an already-admitted row attests after ossification)",
+ #       f="src/BlazePhoenixHub.sol",
+ #       old="                ? (row == n || !$.controlRenounced)",
+ #       new="                ? true // MUTANT",
+ #       teste="test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer"),
  dict(nome="T19: the Algebra derive origin is the LIVE answer again",
       f="src/BlazePhoenixHub.sol",
       old="            address orig = _store().factoryDeployer[fac.factory];",
