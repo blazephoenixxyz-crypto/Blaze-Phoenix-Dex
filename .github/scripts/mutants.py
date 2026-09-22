@@ -308,7 +308,7 @@ M = [
  # a leg can spend input with nothing bounding what it returns.
  dict(nome="NM-002 residual: a blind leg stops being noticed (the partial quote is read as complete)",
       f="src/BlazePhoenixRouter.sol",
-      old="                else if (scaledAmt != 0) hopBlind = true;",
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {\n                    hopBlind = true;\n                }",
       new="                // MUTANT: blind legs no longer flagged",
       teste="test_Probe_ABlindLegThatEatsItsHalf"),
  dict(nome="NM-002 residual: the hop's own attested figure stops being preferred",
@@ -318,9 +318,17 @@ M = [
       teste="test_Probe_ABlindLegThatEatsItsHalf"),
  dict(nome="NM-002 residual: a zero-input leg is counted as blind (over-tight, breaks honest routes)",
       f="src/BlazePhoenixRouter.sol",
-      old="                else if (scaledAmt != 0) hopBlind = true;",
-      new="                else hopBlind = true; // MUTANT",
-      teste="test_Control_TwoHonestLegsSettle"),
+      # Re-watched 2026-09-22: under test_Control_TwoHonestLegsSettle this was
+      # DECORATIVE (it passed mutated) - no leg there had zero input and an
+      # unmeasured delivery at once, so the flag changed nothing observable.
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
+      new="                if (leg.expectedOut == 0 && legQuotes[l] == 0) { // MUTANT",
+      teste="test_Control_AZeroInputLegIsNotBlindness"),
+ dict(nome="NM-002 residual: every leg that spent input is counted as blind (an over-stated hop total becomes the floor)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
+      new="                if (scaledAmt != 0) { // MUTANT",
+      teste="test_Control_AnOverStatedHopTotalDoesNotRaiseTheFloor"),
  # ── a live row is identical-or-refused once control is renounced ──────────
  # The in-place refresh writes five fields of an already-admitted row, and every
  # one of them decides which address that row resolves to. These mutants watch

@@ -235,4 +235,66 @@ contract BlindLegReachability is Test {
             emit log_named_bytes("control REFUSED (the fixture, not the finding)", e);
         }
     }
+
+    /// @dev THE CONTROL THE MUTANT ASKED FOR, built so the difference can decide.
+    ///      A leg scaled to zero input moved nothing, so it is not blindness. The
+    ///      first version of this test could not tell the two apart: with the
+    ///      attestation and the in-frame quote a few basis points apart, the floor
+    ///      cleared either way and the mutation changed nothing observable. The
+    ///      second could not either, and the mutation guard said so: its delivering
+    ///      leg sat on the pool that reports no liquidity, so that leg was blind by
+    ///      itself and the zero-input leg never decided anything.
+    ///
+    ///      Here the delivering leg is on the pool the frame CAN price and carries
+    ///      no attestation, so it is measured and the hop's figure rests on the
+    ///      in-frame quote alone, while the caller writes a hop total of double.
+    ///      Only treating the zero-input leg as blind can hand the floor that
+    ///      inflated figure - which is what must not happen, and what this sees.
+    function test_Control_AZeroInputLegIsNotBlindness() public {
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = _leg(address(honest), AMT, 0);   // delivers, measured in frame, unattested
+        legs[1] = _leg(address(honest), 0,   0);   // scaled to nothing
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({tokenIn: s0, tokenOut: s1, amountIn: AMT, expectedOut: AMT * 2, legs: legs});
+        Route memory r = Route({
+            hops: hops, totalOut: AMT, singleOut: AMT, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+            hasSurplus: false, isV4Bundle: false
+        });
+
+        uint256 before = MockERC20(s1).balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        assertGt(MockERC20(s1).balanceOf(user) - before, 0,
+            "a hop carrying a zero-input leg must still settle");
+    }
+
+    /// @dev AN OVER-STATED HOP TOTAL MUST NOT INFLATE THE PROTOCOL FLOOR. The
+    ///      fallback reaches for `hop.expectedOut` only when a leg went unmeasured;
+    ///      here every leg is attested and priced, so the hop's own figure - which
+    ///      the caller writes and can write high - must not become the floor's
+    ///      basis. Written because the mutant that flags EVERY leg as blind
+    ///      survived three earlier controls: with an honest hop total the max
+    ///      changes nothing, so no honest route could tell the two apart.
+    function test_Control_AnOverStatedHopTotalDoesNotRaiseTheFloor() public {
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = _leg(address(honest), AMT, AMT);       // attested and quotable
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({
+            tokenIn: s0, tokenOut: s1, amountIn: AMT,
+            expectedOut: AMT * 2,                        // the caller claims double
+            legs: legs
+        });
+        Route memory r = Route({
+            hops: hops, totalOut: AMT, singleOut: AMT, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+            hasSurplus: false, isV4Bundle: false
+        });
+
+        uint256 before = MockERC20(s1).balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        assertGt(MockERC20(s1).balanceOf(user) - before, 0,
+            "an inflated hop total must not become the protocol floor's basis");
+    }
 }

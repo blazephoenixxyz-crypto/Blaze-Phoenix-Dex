@@ -1283,9 +1283,18 @@ contract BlazePhoenixRouter {
                 hopAttested += legAtt;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
                 // A leg that spent input and came back with no attestation was not
-                // measured at all. A leg scaled to zero is a legitimate no-op and
-                // is not blindness: it moved nothing, so there is nothing to bound.
-                else if (scaledAmt != 0) hopBlind = true;
+                // measured at all.
+                //
+                // BLINDNESS IS "NOT MEASURED", NOT "NOT ATTESTED", and the two part
+                // company: a leg the caller left unattested is still measured when
+                // the frame could price it, and its delivery does reach the
+                // comparison. The condition below is the exact negation of the
+                // measurement guard in `_execScaled` - no attestation AND no in-frame
+                // quote - so it names the only leg that leaves no trace. A leg
+                // scaled to zero moved nothing and is not blindness.
+                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {
+                    hopBlind = true;
+                }
                 unchecked { ++l; }
             }
             // ─── LAYER 1: shared per-hop budget (aggregate) ───
