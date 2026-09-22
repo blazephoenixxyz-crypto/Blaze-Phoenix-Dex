@@ -650,6 +650,29 @@ contract BlazePhoenixHub {
     ///             fees/spacings are PAIRED explicit extras (fees[i] with
     ///             spacings[i], never a cross-product) — equal length required
     ///         Factory-call modes (mode < 4) carry no initHash requirement.
+    /// @dev The paired extras of a DERIVE row are derivation inputs too: a V4
+    ///      derive-scan enumerates its candidates from exactly these fee/spacing
+    ///      pairs, so a row whose extras move derives a different set. Compared
+    ///      element-wise rather than by a stored hash because there is no second
+    ///      producer of this quantity to keep in step, and an admin-only cold path
+    ///      can afford the loop.
+    function _sameExtras(
+        Factory storage f, uint24[] calldata fees, int24[] calldata spacings
+    ) private view returns (bool) {
+        uint256 n = f.fees.length;
+        if (n != fees.length || f.spacings.length != spacings.length) return false;
+        for (uint256 i; i < n; ) {
+            if (f.fees[i] != fees[i]) return false;
+            unchecked { ++i; }
+        }
+        n = f.spacings.length;
+        for (uint256 i; i < n; ) {
+            if (f.spacings[i] != spacings[i]) return false;
+            unchecked { ++i; }
+        }
+        return true;
+    }
+
     function addFactory(
         address factory, uint8 kind, uint8 mode, bytes32 initHash,
         uint24[] calldata fees, int24[] calldata spacings
@@ -766,10 +789,24 @@ contract BlazePhoenixHub {
             // a no-op refresh, and a factory that was never listed is still
             // admissible. This freezes rows, not the registry. Both are pinned in
             // RenouncedRowDerivationFreeze.t.sol.
+            // AFTER RENUNCIATION A LIVE ROW ACCEPTS ONLY AN IDENTICAL RE-ADD.
+            // This is what Hub:411-418 already describes — "re-listing an
+            // unchanged one still works" — stated as a rule rather than as a list
+            // of the fields anyone happened to think of. The list was the wrong
+            // shape: this block writes five fields and every one of them decides
+            // which address the row resolves to, either directly (the derivation
+            // input, and the paired extras a derive-scan enumerates from) or by
+            // choosing the producer that consumes it (the kind and the mode).
+            // Naming them one at a time leaves whichever is not named, and the
+            // mode arm below is kept explicit only so the direction it refuses
+            // stays readable.
             if ($.controlRenounced
                 && ($.factoryCodehash[factory] != factory.codehash
                     || (f.mode > 3 && mode < 4)
-                    || initHash != f.initHash))
+                    || kind != f.kind
+                    || mode != f.mode
+                    || initHash != f.initHash
+                    || !_sameExtras(f, fees, spacings)))
                 revert HubE(1);
             f.kind = kind; f.mode = mode; f.initHash = initHash;
             f.fees = fees; f.spacings = spacings;
