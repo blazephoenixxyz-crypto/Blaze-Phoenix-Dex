@@ -1280,6 +1280,10 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **mohaseenkatika**
 - **mohaseenbasha**
 - **Karan Rathod**
+- **Seavia Resources**
+- **acit aja**
+- **Brian Wahyu**
+- **M2000 Slash**
 - **Anonymous**
 
 ---
@@ -1841,13 +1845,14 @@ hop count.
 | `v4EntryOf` (V4 row → V4Entry) | "Where is this V4 row's tickSpacing?" | written by every V4 door (`addV4`, `claimV4`, `recordSwap`, and since 2026-09-02 `seedPool`); read by `_readPoolInfo` and by `_recoverV4Ts` step 5 | `SINGLE` (fixed 2026-09-02) | `test/V4EntryScanUnbounded.t.sol` — reading one pool, and registering one, costs the same with 0 and 200 foreign entries; mutants 101-102. The two linear walks over `v4Entries` (a permissionlessly grown array) are gone |
 | `factoryDeployer` (the attested Algebra origin) | "Which CREATE2 origin do this factory's mode-5 fee-0 probes derive from?" | written by `Hub.addFactory` from `Core.resolvePoolDeployer` at admission — and again at every re-admission, through a door that survives `renounceControl`; read by the mode-5 fee-0 derive in discovery | `PINNED` (fixed 2026-09-03) | After renunciation the attested origin is frozen, a dead resolver never demotes it to zero, and a non-mode-5 refresh of the row leaves it untouched; a live admin may still re-attest on purpose. Pins: `test/T19ReadmissionEdge.t.sol`, `test/T19AlgebraDeployerPin.t.sol`; mutants 67, 133, 143, 144. Was cluster **C4** of the 2026-09-03 closure pass: a pin against *time*, re-openable by the one lever renunciation keeps |
 | `factories[]` row ↔ `factoryCodehash` / `factoryDeployer` (keyed by address) | "Is this factory already admitted, and which row is it?" | the array holds the rows, the mappings are keyed by address; `addFactory` pushed one row per call, so a single address could own several rows (and, with no `removeFactory`, exhaust the sixteen seats for ever) while its mappings held one value | `SINGLE` (fixed 2026-09-03) | `addFactory` scans the seats and refreshes a known address in place — after renunciation only if its code did not move, the twin of the `allowHook` guard. Pins: `test/RenouncedFactoryRearm.t.sol` (one row per address, one address cannot exhaust the table, a mutated factory cannot be re-armed after renunciation, a new factory is still admitted, a live admin may re-attest); mutants 140-142. Was cluster **C3** |
+| `factories[row].initHash` (the CREATE2 derivation input of a live row) | "Which address does discovery derive for this factory?" | written by `Hub.addFactory` on both arms — the fresh push and the in-place refresh of a known row; read by `Core`'s CREATE2 derivation on every scan | `SINGLE`, and **fixed after renunciation** | `test_RenouncedRowRefusesInitHashRewrite` (RenouncedRowDerivationFreeze.t.sol), with `test_RenouncedRowStillAcceptsAnIdenticalReAdd` as the twin that keeps the guard from becoming a blind refusal. The codehash pin answers for the factory's runtime and cannot answer for an input that lives in the row. |
 
 ### Transient state
 
 | Quantity | The question | Producers / consumers | Status | Pin |
 |---|---|---|---|---|
 | `TSLOT_FOT` | "Did this swap meet a fee-on-transfer token?" | `Router._noteFot` — leg loop, and (since 2026-08-23) the three input pulls | `SINGLE` (fixed) | the input pull previously never marked it, so a token taxing `transferFrom` but not `transfer` made `singleOutFloor` reject an honest swap — finding **FOT-01** |
-| transient slot numbering | "Which slot holds what?" | `Router` — 8 constants, 17 materialisation sites | `SINGLE` | the Core performs no `tstore`/`tload`, which is what makes the namespace safe. If proposal **P-1** lands (literals `0..7`, −527 B, zero gas) this becomes a CI grep: `grep -c "tstore\|tload" src/BlazePhoenixCore.sol` must be `0` |
+| transient slot numbering | "Which slot holds what?" | `Router` — **9** constants (counted 2026-09-22; the ninth is `TSLOT_ETHOK` at `Router:205`, which arrived with the native-V4 seam after this row was written), 17 materialisation sites | `SINGLE` | the Core performs no `tstore`/`tload`, and by EIP-1153 the owning contract of transient storage under `DELEGATECALL` is the caller — a public library function compiles to exactly that call — so the Core reaches the Router's transient namespace by construction rather than by permission. Measured 2026-09-22: Core 0, Hub 0, Quoter 0, Solver 0, Router 28. The invariant holds today and does not wait on any proposal: `grep -c "tstore\|tload" src/BlazePhoenixCore.sol` must be `0`, and it is. If proposal **P-1** lands (literals `0..8` — nine slots, not eight, and the estimate of −527 B was taken over eight) the namespace stops being safe by unguessability and becomes safe only by discipline, so the grep would then have to be paired with "nothing the Router delegatecalls writes to `0..8`". There is no `delegatecall` in `src/` today, which is what makes that second clause writable now |
 
 ---
 

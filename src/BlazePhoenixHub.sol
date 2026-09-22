@@ -650,6 +650,34 @@ contract BlazePhoenixHub {
     ///             fees/spacings are PAIRED explicit extras (fees[i] with
     ///             spacings[i], never a cross-product) — equal length required
     ///         Factory-call modes (mode < 4) carry no initHash requirement.
+    /// @dev The paired extras of a DERIVE row are derivation inputs too: a V4
+    ///      derive-scan enumerates its candidates from exactly these fee/spacing
+    ///      pairs, so a row whose extras move derives a different set. Compared
+    ///      element-wise rather than by a stored hash because there is no second
+    ///      producer of this quantity to keep in step, and an admin-only cold path
+    ///      can afford the loop.
+    function _sameExtras(
+        Factory storage f, uint24[] calldata fees, int24[] calldata spacings
+    ) private view returns (bool) {
+        // Explicit loops, and measured against the alternative rather than
+        // assumed: encoding both sides and comparing one hash reads shorter but
+        // compiles to 1,021 bytes MORE, because abi.encode of a storage array
+        // copies it to memory first. The byte budget of this contract is shared
+        // with every guard that comes after this one, so the cheaper shape wins.
+        uint256 n = f.fees.length;
+        if (n != fees.length || f.spacings.length != spacings.length) return false;
+        for (uint256 i; i < n; ) {
+            if (f.fees[i] != fees[i]) return false;
+            unchecked { ++i; }
+        }
+        n = f.spacings.length;
+        for (uint256 i; i < n; ) {
+            if (f.spacings[i] != spacings[i]) return false;
+            unchecked { ++i; }
+        }
+        return true;
+    }
+
     function addFactory(
         address factory, uint8 kind, uint8 mode, bytes32 initHash,
         uint24[] calldata fees, int24[] calldata spacings
@@ -754,9 +782,47 @@ contract BlazePhoenixHub {
             // guard is satisfied by the UNCHANGED code, and the threat this codebase has written
             // down twice is exactly a proxy whose answer moves while its runtime does not.
             //
-            // Tightening is still allowed: 0-3 -> 4-7 narrows what the factory can say.
+            // Tightening — 0-3 -> 4-7, which narrows what the factory can say — was
+            // allowed while this guard named directions. The whole-row rule below
+            // withdraws it for a row that is ALREADY LISTED, and says so here rather
+            // than leaving the older sentence to promise what the code refuses: a
+            // live admin may still tighten, and a never-listed factory may still be
+            // admitted at any mode, but after renunciation an admitted row does not
+            // move in either direction. The narrowing is not lost, only its timing.
+            //
+            // One field is frozen that decides nothing: an ask row carries no
+            // derivation input, so freezing its initHash takes away no capability
+            // that had an effect. Kept rather than special-cased, because a rule with
+            // one exception is two rules, and the exception would have to be read
+            // correctly by whoever writes the next arm.
+            // WHAT THIS GUARD COVERS: every field of a live row that decides which
+            // address the row derives. The codehash pin answers for the factory's
+            // runtime; it cannot answer for the row's own derivation input, because
+            // that input lives here and not in the factory. After renunciation the
+            // derivation of an admitted row is therefore FIXED, exactly as the
+            // attested Algebra origin below is fixed, and for the same reason.
+            //
+            // What stays open is what Hub:411-418 guarantees: an identical re-add is
+            // a no-op refresh, and a factory that was never listed is still
+            // admissible. This freezes rows, not the registry. Both are pinned in
+            // RenouncedRowDerivationFreeze.t.sol.
+            // AFTER RENUNCIATION A LIVE ROW ACCEPTS ONLY AN IDENTICAL RE-ADD.
+            // This is what Hub:411-418 already describes — "re-listing an
+            // unchanged one still works" — stated as a rule rather than as a list
+            // of the fields anyone happened to think of. The list was the wrong
+            // shape: this block writes five fields and every one of them decides
+            // which address the row resolves to, either directly (the derivation
+            // input, and the paired extras a derive-scan enumerates from) or by
+            // choosing the producer that consumes it (the kind and the mode).
+            // Naming them one at a time leaves whichever is not named, and the
+            // mode arm below is kept explicit only so the direction it refuses
+            // stays readable.
             if ($.controlRenounced
-                && ($.factoryCodehash[factory] != factory.codehash || (f.mode > 3 && mode < 4)))
+                && ($.factoryCodehash[factory] != factory.codehash
+                    || kind != f.kind
+                    || mode != f.mode
+                    || initHash != f.initHash
+                    || !_sameExtras(f, fees, spacings)))
                 revert HubE(1);
             f.kind = kind; f.mode = mode; f.initHash = initHash;
             f.fees = fees; f.spacings = spacings;

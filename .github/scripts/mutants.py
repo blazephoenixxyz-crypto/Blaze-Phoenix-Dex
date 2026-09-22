@@ -302,6 +302,56 @@ M = [
       old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
       new="        controlRenounced = true; // MUTANTE",
       teste="test_Composition_PauseThenRenounce_IsRefused"),
+ # ── a live row is identical-or-refused once control is renounced ──────────
+ # The in-place refresh writes five fields of an already-admitted row, and every
+ # one of them decides which address that row resolves to. These mutants watch
+ # each arm and the guard as a whole: a survivor means the guard covers less
+ # than the write touches.
+ dict(nome="live row: the family (kind) can move again after renunciation",
+      f="src/BlazePhoenixHub.sol",
+      old="                    || kind != f.kind\n                    || mode != f.mode",
+      new="                    || mode != f.mode // MUTANTE",
+      teste="test_RenouncedRowKindMoveAcrossEveryLegalPair"),
+ dict(nome="live row: the producer (mode) can move again inside the derive family",
+      f="src/BlazePhoenixHub.sol",
+      old="                    || mode != f.mode\n                    || initHash != f.initHash",
+      new="                    || initHash != f.initHash // MUTANTE",
+      teste="test_RenouncedRowRefusesAMoveBetweenCreate2Producers"),
+ dict(nome="extras: _sameExtras always agrees (a live row's derivation pairs move again)",
+      f="src/BlazePhoenixHub.sol",
+      old="        uint256 n = f.fees.length;\n        if (n != fees.length || f.spacings.length != spacings.length) return false;",
+      new="        uint256 n = f.fees.length; return true; // MUTANTE",
+      teste="test_RenouncedRowAndTheDerivationExtras"),
+ dict(nome="extras: LENGTHS only (a row with every fee replaced would pass)",
+      f="src/BlazePhoenixHub.sol",
+      old="        for (uint256 i; i < n; ) {\n            if (f.fees[i] != fees[i]) return false;\n            unchecked { ++i; }\n        }",
+      new="        // MUTANT: fees loop removed",
+      teste="test_RenouncedExtrasRefuseAFeeOnlyChange"),
+ dict(nome="extras: spacings ignored (half the derivation input left free)",
+      f="src/BlazePhoenixHub.sol",
+      old="        n = f.spacings.length;\n        for (uint256 i; i < n; ) {\n            if (f.spacings[i] != spacings[i]) return false;\n            unchecked { ++i; }\n        }",
+      new="        // MUTANT: spacings loop removed",
+      teste="test_RenouncedExtrasRefuseASpacingOnlyChange"),
+ dict(nome="extras: different lengths accepted (one more tier enters a live row)",
+      f="src/BlazePhoenixHub.sol",
+      old="        if (n != fees.length || f.spacings.length != spacings.length) return false;",
+      new="        if (false) return false; // MUTANTE",
+      teste="test_RenouncedExtrasRefuseALengthChange"),
+ dict(nome="renounced: the derivation-input comparison is inverted (accepts only what it should refuse)",
+      f="src/BlazePhoenixHub.sol",
+      old="                    || initHash != f.initHash",
+      new="                    || initHash == f.initHash // MUTANTE",
+      teste="test_RenouncedRowStillAcceptsAnIdenticalReAdd"),
+ dict(nome="renounced: a live row's derivation input can be rewritten again (discovery is redirected)",
+      f="src/BlazePhoenixHub.sol",
+      old="                    || kind != f.kind\n                    || mode != f.mode\n                    || initHash != f.initHash\n                    || !_sameExtras(f, fees, spacings)))",
+      new="                    || (f.mode > 3 && mode < 4)\n                    || !_sameExtras(f, fees, spacings))) // MUTANTE",
+      teste="test_RenouncedRowRefusesInitHashRewrite"),
+ dict(nome="renounced: the live-row guard becomes a blind refusal (it would kill the legitimate identical re-add)",
+      f="src/BlazePhoenixHub.sol",
+      old="            if ($.controlRenounced\n                && ($.factoryCodehash[factory] != factory.codehash\n                    || kind != f.kind\n                    || mode != f.mode\n                    || initHash != f.initHash\n                    || !_sameExtras(f, fees, spacings)))",
+      new="            if ($.controlRenounced) // MUTANTE",
+      teste="test_RenouncedRowStillAcceptsAnIdenticalReAdd"),
  dict(nome="renounce: o Hub volta a poder ossificar pausado (registo surdo p/ sempre)",
       f="src/BlazePhoenixHub.sol",
       old="        if (_store().paused) revert HubE(2);\n        _store().controlRenounced = true;",
@@ -516,8 +566,8 @@ M = [
       teste="test_ZeroDecimals_IsAValue_NotAnInstructionNotToScale"),
  dict(nome="S3: a derive row may become an ask row again after renunciation (the mode transition is ungated)",
       f="src/BlazePhoenixHub.sol",
-      old='                && ($.factoryCodehash[factory] != factory.codehash || (f.mode > 3 && mode < 4)))',
-      new='                && ($.factoryCodehash[factory] != factory.codehash))  // MUTANT',
+      old='                    || mode != f.mode\n                    || initHash != f.initHash',
+      new='                    || initHash != f.initHash  // MUTANT',
       teste="test_C4_S3_DeriveRowMustNotBecomeAnAskRowAfterRenounce"),
  dict(nome="VOL_01: the registry is handed the declaration again instead of the measured spend",
       f="src/BlazePhoenixRouter.sol",
@@ -534,11 +584,21 @@ M = [
       old="        if (route.hops.length > 1) {",
       new="        if (route.hops.length > 99) { // MUTANT",
       teste="test_INV_F2_PreviewPredictsDeliveryWithNoBridge"),
- dict(nome="T19: the first pin loses its post-renunciation gate (an already-admitted row attests after ossification)",
-      f="src/BlazePhoenixHub.sol",
-      old="                ? (row == n || !$.controlRenounced)",
-      new="                ? true // MUTANT",
-      teste="test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer"),
+ # RETIRED 2026-09-22 - the path this mutant needs is gated upstream, so it cannot
+ # be killed and its survival is not a hole. The arm it mutated only runs when the
+ # factory has no pin yet; reaching it on an ALREADY-ADMITTED row required admitting
+ # at a non-mode-5 mode and then switching that row to mode 5, and a renounced
+ # registry no longer accepts any re-add of a listed row that is not identical. The
+ # arm stays in the contract as depth: if that outer rule is ever loosened, it is the
+ # thing that still refuses. What watches the outer rule now is the renounced-row
+ # family above, and test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer keeps
+ # its own job of pinning the second arm.
+ #
+ # dict(nome="T19: the first pin loses its post-renunciation gate (an already-admitted row attests after ossification)",
+ #       f="src/BlazePhoenixHub.sol",
+ #       old="                ? (row == n || !$.controlRenounced)",
+ #       new="                ? true // MUTANT",
+ #       teste="test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer"),
  dict(nome="T19: the Algebra derive origin is the LIVE answer again",
       f="src/BlazePhoenixHub.sol",
       old="            address orig = _store().factoryDeployer[fac.factory];",
@@ -925,7 +985,7 @@ M = [
  # ── the fixes the 7 red built tests demanded (addFactory refresh-in-place + post-renounce re-arm guard, frozen T19 attestation, initialize after renounce) ──
  dict(nome='factories: after renunciation a mutated factory can be re-armed again (twin of the hook guard)',
       f='src/BlazePhoenixHub.sol',
-      old='                && ($.factoryCodehash[factory] != factory.codehash || (f.mode > 3 && mode < 4)))',
+      old='                && ($.factoryCodehash[factory] != factory.codehash\n                    || kind != f.kind\n                    || mode != f.mode\n                    || initHash != f.initHash\n                    || !_sameExtras(f, fees, spacings)))',
       new='                && (false))  // MUTANT',
       teste='test_FactoryRearm_RenouncedAdminCanReArmAMutatedFactory'),
  dict(nome='addFactory: the duplicate-address guard is gone (a second row is pushed for one address)',
