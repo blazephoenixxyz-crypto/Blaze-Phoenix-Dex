@@ -1289,7 +1289,7 @@ contract BlazePhoenixRouter {
                 // company: a leg the caller left unattested is still measured when
                 // the frame could price it, and its delivery does reach the
                 // comparison. The condition below is the exact negation of the
-                // measurement guard at Router:1590 - no attestation AND no in-frame
+                // measurement guard in `_execScaled` - no attestation AND no in-frame
                 // quote - so it names the only leg that leaves no trace. A leg
                 // scaled to zero moved nothing and is not blindness.
                 if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {
@@ -1496,7 +1496,6 @@ contract BlazePhoenixRouter {
             protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.BPS);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
-
         if (amountOut < effMin) revert RouterE(5);
 
         // ─── THE FEE, WHEN IT COMES OUT OF THE OUTPUT ─────────────────────
@@ -1655,28 +1654,15 @@ contract BlazePhoenixRouter {
                 ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)
                 : 0;
 
-            // RANKING IS NOT A PROMISE, AND THE FLOOR IS THE PLACE THAT CARES.
-            // `expectedOut` reaches this contract from a plan whose figure came
-            // from `universalQuote`, which is deliberately unclamped: Core:1699
-            // records the measured reason - clamping only the concentrated
-            // families lets a shallow V2 out-rank a deep V4 on any trade that
-            // leaves the current range. That number is right for ranking and for
-            // what the preview publishes about a venue's capacity, and it is the
-            // wrong number to ENFORCE: on a single-tick venue whose swap leaves
-            // its range it exceeds what the pool can pay, so an honest fill the
-            // protocol's own preview called executable died in RouterE(5).
-            //
-            // The clamped figure is already in hand: `legQuote` for this family
-            // is the in-frame promise from `_v4LegQuote`, bounded at the current
-            // range's edge. Capping the bound by it fixes the floor and leaves
-            // ranking and the published preview alone, which is what the three
-            // consumers of `expectedOut` need from each other. Pro-rata because
-            // `amt` and `legAmt` part company when the last leg's clamp fires.
-            if (bound != 0 && legQuote != 0 && legAmt != 0
-                && BPC.kindHasAny(leg.kind, BPC.A_CONC_SING)) {
-                uint256 promised = BPC.mulDiv(legQuote, amt, legAmt);
-                if (promised < bound) bound = promised;
-            }
+            // THE ATTESTATION IS NEVER CAPPED BY THE FRAME. A single-tick leg whose
+            // swap leaves its range cannot pay the unclamped ranking figure, and
+            // the cure for that lives in the PLAN: the Solver attests the promise
+            // (Core:1720). Capping the bound here by `legQuote` instead was tried
+            // on 2026-09-22 and turned the attestation into a self-consistency
+            // check - the in-frame quote is of the pool that EXECUTES, so a
+            // substituted pool, or one moved before this call, sets its own
+            // floor. test_SubstitutedHook_HonestAttestation_IsRefusedByTheGate
+            // went green-to-red on it. The frame may only push this bound UP.
 
             // ─── COVERAGE GATE ───
             // Measurement does not REPLACE the attestation — it joins it as the second element of

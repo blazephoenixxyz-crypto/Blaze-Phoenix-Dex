@@ -1188,13 +1188,20 @@ contract BlazePhoenixSolver {
         });
     }
 
-    /// @dev What the hop can be PROMISED to deliver, as opposed to what it is
-    ///      ranked on. For a single-tick venue that is the in-frame figure the
-    ///      Router itself quotes - bounded at the current range's edge - and for
-    ///      every other family the attested output is already the promise. A zero
-    ///      answer leaves the attestation alone: the absence of a promise is not a
-    ///      promise of zero.
-    function _hopPromise(Hop memory hop) private view returns (uint256 sum) {
+    /// @dev WRITES each leg's promise into its attestation and returns the hop's.
+    ///      A leg's `expectedOut` leaves `universalQuote` as a CAPACITY figure,
+    ///      unclamped on purpose (Core:1699) so a deeper venue reads as deeper;
+    ///      the hop's and the route's totals keep it, and ranking is untouched.
+    ///      The leg's own `expectedOut` is the other question: it travels to the
+    ///      Router and is the per-leg floor it enforces - the promise layer
+    ///      Core:1720 names. For a single-tick venue that is the figure the
+    ///      Router itself quotes, bounded at the current range's edge; every other
+    ///      family has no edge to cross and keeps its figure. A zero answer leaves
+    ///      the attestation alone: the absence of a promise is not a promise of zero.
+    ///      Written here, at assembly, because the Router cannot do it: an
+    ///      in-frame cap is a quote of the pool that EXECUTES, and it let a
+    ///      substituted pool set its own floor.
+    function _promiseLegs(Hop memory hop) private view returns (uint256 sum) {
         address mgr;
         uint256 n = hop.legs.length;
         for (uint256 i; i < n; ) {
@@ -1217,6 +1224,7 @@ contract BlazePhoenixSolver {
                         if (p != 0 && p < one) one = p;
                     }
                 }
+                lg.expectedOut = one;
             }
             sum += one;
             unchecked { ++i; }
@@ -1538,7 +1546,7 @@ contract BlazePhoenixSolver {
         // capacity figure asks a single-tick venue for more than it can pay once
         // the swap leaves its range, and an integrator deriving `userMinOut` from
         // the published floor then sets a bound the Router refuses.
-        uint256 floorOut = BPC.mulDivUp(_hopPromise(hop), floorBps, BPC.BPS);
+        uint256 floorOut = BPC.mulDivUp(_promiseLegs(hop), floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,
@@ -1633,14 +1641,25 @@ contract BlazePhoenixSolver {
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, legShv, 0);
         // R-C: rounds UP like the single-hop twin and like the Router.
         //
-        // THE PROMISE, NOT THE CAPACITY - the multi-hop twin of the single-venue
-        // rule. `finalOut` is the LAST hop's attested output, which is the ranking
-        // figure; the floor takes what that hop can be promised to deliver. Fixing
-        // one of two symmetric channels is this codebase's documented defect
-        // signature, so the twin is written here rather than left for later.
-        uint256 floorOut = BPC.mulDivUp(
-            _hopPromise(hops[hops.length - 1]), floorBps, BPC.BPS
-        );
+        // THE PROMISE, NOT THE CAPACITY, CARRIED ALONG THE CHAIN - the multi-hop
+        // twin of the single-venue rule. Every hop's legs attest their promise,
+        // because the Router holds EACH leg to its own attestation and a
+        // single-tick leg in an earlier hop leaves its range as easily as one in
+        // the last. And the floor is not the last hop's promise alone: each later
+        // hop was SIZED on the ranking figure of the hop before it and can only
+        // count on that hop's promise, so it is scaled by what actually reaches
+        // it. Pro-rata is the conservative direction - every leg's output is
+        // concave in its input and zero at zero, so f(s*x) >= s*f(x) for s <= 1 -
+        // and a hop promised at least what it was sized on keeps its own figure.
+        // `finalOut` stays the ranking figure: it is the route's capacity.
+        uint256 carry = _promiseLegs(hops[0]);
+        for (uint256 h = 1; h < hops.length; ) {
+            uint256 sized = hops[h].amountIn;
+            uint256 own   = _promiseLegs(hops[h]);
+            carry = (sized != 0 && carry < sized) ? BPC.mulDiv(own, carry, sized) : own;
+            unchecked { ++h; }
+        }
+        uint256 floorOut = BPC.mulDivUp(carry, floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,

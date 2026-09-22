@@ -302,32 +302,39 @@ M = [
       old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
       new="        controlRenounced = true; // MUTANTE",
       teste="test_Composition_PauseThenRenounce_IsRefused"),
- # ── ranking is not a promise: two load-bearing pieces ────────────────────
- # `expectedOut` is a CAPACITY figure - Core:1699 keeps it unclamped so a deeper
- # venue reads as deeper - and a floor is a PROMISE. These watch the two places
- # that keep the two apart: the published floor, and the bound the Router enforces.
- # A third piece (capping the route-level effMin in frame) was written, measured
- # redundant against these two, and dropped rather than kept as decoration.
- dict(nome="promise: the published floor goes back to the capacity figure (an integrator derives a bound the Router refuses)",
+ # ── ranking is not a promise: the plan carries both figures ──────────────
+ # `expectedOut` leaves universalQuote as a CAPACITY figure - Core:1699 keeps it
+ # unclamped so a deeper venue reads as deeper - and a floor is a PROMISE. The
+ # Solver writes the promise into each leg's attestation at assembly and carries
+ # it along the chain; hop and route totals keep the capacity for ranking.
+ # The Router is NOT a place for this: an in-frame cap there (tried 2026-09-22)
+ # made a substituted pool set its own floor, and the BPX-2026-009 gate test
+ # caught it. These watch every piece that keeps the two figures apart.
+ dict(nome="promise: nothing is promised (the leg and the floor go back to the capacity figure)",
       f="src/BlazePhoenixSolver.sol",
       old="            if (BPC.kindHasAny(lg.kind, BPC.A_CONC_SING) && one != 0) {",
       new="            if (false) { // MUTANT",
       teste="test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay"),
- dict(nome="promise: the published floor takes the LARGER of the two (the clamp is inverted)",
+ dict(nome="promise: the LARGER of the two is kept (the clamp is inverted)",
       f="src/BlazePhoenixSolver.sol",
       old="                        if (p != 0 && p < one) one = p;",
       new="                        if (p != 0 && p > one) one = p; // MUTANT",
       teste="test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay"),
- dict(nome="promise: the enforced per-leg bound stops being capped by the in-frame quote",
-      f="src/BlazePhoenixRouter.sol",
-      old="                uint256 promised = BPC.mulDiv(legQuote, amt, legAmt);\n                if (promised < bound) bound = promised;",
-      new="                // MUTANT: the in-frame cap is gone",
+ dict(nome="promise: the floor is promised but the leg still attests the capacity (the Router refuses what the preview endorsed)",
+      f="src/BlazePhoenixSolver.sol",
+      old="                lg.expectedOut = one;",
+      new="                // MUTANT: the attestation keeps the ranking figure",
       teste="test_Red_CanExecuteMustNotBeRefused"),
- dict(nome="promise: the per-leg cap applies to every family (over-tight on venues with no boundary)",
-      f="src/BlazePhoenixRouter.sol",
-      old="                && BPC.kindHasAny(leg.kind, BPC.A_CONC_SING)) {",
-      new="                ) { // MUTANT",
-      teste="test_Control_ClampedAttestation_Settles"),
+ dict(nome="promise, across hops: an earlier hop's legs keep the capacity figure",
+      f="src/BlazePhoenixSolver.sol",
+      old="        uint256 carry = _promiseLegs(hops[0]);",
+      new="        uint256 carry = hops[0].expectedOut; // MUTANT",
+      teste="test_TheMultiHopFloorFollowsTheChainOfPromises"),
+ dict(nome="promise, across hops: the last hop's promise is not scaled by what reaches it",
+      f="src/BlazePhoenixSolver.sol",
+      old="            carry = (sized != 0 && carry < sized) ? BPC.mulDiv(own, carry, sized) : own;",
+      new="            carry = own; // MUTANT",
+      teste="test_TheMultiHopFloorFollowsTheChainOfPromises"),
  # ── NM-002's residual: a hop quoted only in PART ─────────────────────────
  # The 2026-09-02 fallback fires when the WHOLE hop went unquoted. These watch the
  # arm that tells a partly-quoted hop from a fully-quoted one: if either survives,
@@ -343,6 +350,14 @@ M = [
       new="            // MUTANT: the hop-level attestation is ignored",
       teste="test_Probe_ABlindLegThatEatsItsHalf"),
  dict(nome="NM-002 residual: a zero-input leg is counted as blind (over-tight, breaks honest routes)",
+      f="src/BlazePhoenixRouter.sol",
+      # Re-watched 2026-09-22: under test_Control_TwoHonestLegsSettle this was
+      # DECORATIVE (it passed mutated) - no leg there had zero input and an
+      # unmeasured delivery at once, so the flag changed nothing observable.
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
+      new="                if (leg.expectedOut == 0 && legQuotes[l] == 0) { // MUTANT",
+      teste="test_Control_AZeroInputLegIsNotBlindness"),
+ dict(nome="NM-002 residual: every leg that spent input is counted as blind (an over-stated hop total becomes the floor)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
       new="                if (scaledAmt != 0) { // MUTANT",
@@ -756,8 +771,8 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       # Retargeted 2026-09-22: the floor's basis moved from the capacity figure to
       # the promise one, so the rounding this watches moved with it. Same property.
-      old="        uint256 floorOut = BPC.mulDivUp(_hopPromise(hop), floorBps, BPC.BPS);",
-      new="        uint256 floorOut = BPC.mulDiv(_hopPromise(hop), floorBps, BPC.BPS); // MUTANTE",
+      old="        uint256 floorOut = BPC.mulDivUp(_promiseLegs(hop), floorBps, BPC.BPS);",
+      new="        uint256 floorOut = BPC.mulDiv(_promiseLegs(hop), floorBps, BPC.BPS); // MUTANTE",
       teste="test_Parity_SingleLegRoute_AttestedFloorEqualsEnforcedFloor"),
  dict(nome="solver floor: the hop impact is the UNWEIGHTED mean again (dust votes like a whole leg)",
       f="src/BlazePhoenixSolver.sol",

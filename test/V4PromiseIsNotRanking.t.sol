@@ -26,9 +26,17 @@ pragma solidity 0.8.36;
 //  Reported by acit aja, ninth bounty wave, with thirty measured cases on Base at
 //  commit c45aa4e. mohaseenbasha reached the same root independently, through a
 //  V4 clamp gap rather than through the published preview.
+//
+//  RED AT b2ecf64, which capped the Router's per-leg bound by its in-frame quote
+//  instead of fixing the plan: the two figures side by side, the parity with the
+//  Router's own ExecutionProof, and the multi-hop chain were all red there, and
+//  that cap turned RouteIntegrityV4's substituted-hook gate test red as well - a
+//  frame-side cap quotes the pool that executes, so a substituted pool set its
+//  own floor. The promise is now written into the plan's legs by the Solver.
 // =============================================================================
 
 import {Test, console2} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
@@ -270,12 +278,162 @@ contract V4PromiseIsNotRanking is Test {
     // ────────────────────────────────────────────────────────────────────────
     function test_Red_CanExecuteMustNotBeRefused() public {
         (BlazePhoenixQuoter.Preview memory pv,,) = quoter.previewPlan(address(A), address(B), AMT);
-        if (!pv.canExecute) return; // vacuously fine: the preview did not promise execution
+        // Asserted, not returned on: an early return here passes on a preview that
+        // stopped promising anything, which is the one regression this cannot miss.
+        assertTrue(pv.canExecute, "preview must say the route is executable");
 
         vm.prank(user);
         // No expectRevert: the preview endorsed this route, so the Router settles it
         // and the control below shows the same call with the clamped attestation
         // reaching the same delivery.
         router.swapExactIn(pv.route, AMT, 1, user, block.timestamp + 1);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    //  THE TWO FIGURES, SIDE BY SIDE. The leg attests the promise - the number
+    //  the Router holds it to - and the hop and the route keep the capacity
+    //  figure ranking compared. Core:1720 names the leg's `expectedOut` as the
+    //  promise layer; nothing that ranks moves.
+    // ────────────────────────────────────────────────────────────────────────
+    function test_TheLegAttestsThePromise_TheHopKeepsTheCapacity() public view {
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
+        Leg memory lg = plan.best.hops[0].legs[0];
+        uint256 deliverable = _clampedPromise(lg.amountIn);
+
+        console2.log("leg.expectedOut (attested) :", lg.expectedOut);
+        console2.log("clamped deliverable        :", deliverable);
+        console2.log("route.totalOut (capacity)  :", plan.best.totalOut);
+
+        assertLe(lg.expectedOut, deliverable, "the leg attests more than the venue can pay");
+        assertGt(plan.best.totalOut, lg.expectedOut, "the capacity figure moved with the promise: ranking would too");
+        assertEq(plan.best.hops[0].expectedOut, plan.best.totalOut, "the hop keeps the capacity figure");
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    //  ONE EVALUATOR. The attestation the Solver writes and the quote the
+    //  Router takes in the executing frame are the same Core call on the same
+    //  pool at the same amount, so on one block they are one number. The
+    //  Router's side is read back from its own ExecutionProof, not recomputed
+    //  here, so the two producers are compared and neither is trusted.
+    // ────────────────────────────────────────────────────────────────────────
+    function test_Parity_TheLegAttestsWhatTheRouterQuotesInFrame() public {
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
+        assertEq(plan.best.hops.length, 1, "one hop");
+        assertEq(plan.best.hops[0].legs.length, 1, "one leg, so the hop's quote is the leg's");
+        uint256 attested = plan.best.hops[0].legs[0].expectedOut;
+
+        vm.recordLogs();
+        vm.prank(user);
+        router.swapExactIn(plan.best, AMT, 1, user, block.timestamp + 1);
+
+        bytes32 sig = keccak256("ExecutionProof(address,address,uint256,uint256,uint256,uint256)");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 quoted;
+        bool found;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(router) || logs[i].topics[0] != sig) continue;
+            found = true;
+            (quoted, , , ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+        }
+        assertTrue(found, "ExecutionProof missing");
+        console2.log("solver attestation   :", attested);
+        console2.log("router in-frame quote:", quoted);
+        assertEq(attested, quoted, "the plan's attestation and the Router's in-frame quote are two numbers");
+    }
+}
+
+// =============================================================================
+//  THE SAME RULE ACROSS HOPS.
+//
+//  A later hop is SIZED on the ranking figure of the hop before it, and can only
+//  count on that hop's promise. When the first hop leaves its range, the second
+//  receives a fraction of what it was planned on, so a floor taken from the last
+//  hop alone asks for output the chain never had the input to produce.
+//
+//  A -> B leaves its one thin range (the pool from the single-hop case above);
+//  B -> C is deep and never leaves its range, so the only gap is the one carried
+//  in from the first hop.
+// =============================================================================
+contract V4PromiseAcrossHops is Test {
+    BlazePhoenixHub    hub;
+    BlazePhoenixSolver solver;
+    BlazePhoenixRouter router;
+    MockV4RangeManager mgr;
+    MockERC20 A;
+    MockERC20 B;
+    MockERC20 C;
+
+    address user = address(0xBEEF);
+    uint24  constant FEE = 3000;
+    int24   constant TS  = 60;
+    uint256 constant AMT = 1e21;
+
+    function setUp() public {
+        mgr = new MockV4RangeManager();
+        hub = new BlazePhoenixHub(address(this));
+        hub.initialize(address(this), address(mgr));
+        solver = new BlazePhoenixSolver(address(hub));
+        router = new BlazePhoenixRouter(
+            address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
+        BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(solver));
+        hub.setRoles(address(router), address(solver), address(quoter));
+
+        A = new MockERC20("AAA", "AAA");
+        B = new MockERC20("BBB", "BBB");
+        C = new MockERC20("CCC", "CCC");
+
+        // A/B: one thin range, the price in its top tick - the order leaves it.
+        _pool(address(A), address(B), 59, 1e18);
+        // B/C: mid-range and deep - the order never reaches an edge.
+        _pool(address(B), address(C), 30, 1e27);
+
+        hub.addV4(address(A), address(B), FEE, TS, address(0));
+        hub.addV4(address(B), address(C), FEE, TS, address(0));
+        hub.addBridge(address(B));
+
+        A.mint(user, AMT);
+        B.mint(address(mgr), 1e21);
+        C.mint(address(mgr), 1e21);
+        vm.prank(user);
+        A.approve(address(router), type(uint256).max);
+    }
+
+    function _pool(address x, address y, int24 tick, uint128 liq) internal {
+        (address t0, address t1) = x < y ? (x, y) : (y, x);
+        uint160 p = uint160(uint256(BPC.Q96) + uint256(BPC.Q96) * uint256(int256(tick)) / 20_000);
+        bytes32 id = BPC.computeV4PoolId(t0, t1, FEE, TS, address(0));
+        bytes32 base = keccak256(abi.encode(id, uint256(6)));
+        mgr.setSlot(base, bytes32(uint256(p) | (uint256(uint24(tick)) << 160) | (uint256(FEE) << 208)));
+        mgr.setSlot(bytes32(uint256(base) + 3), bytes32(uint256(liq)));
+    }
+
+    /// @dev What the thin A/B range can pay for `amt`: the pool's own number,
+    ///      truncated at the edge - the same computation the manager settles.
+    function _abDeliverable(uint256 amt) internal view returns (uint256) {
+        bool zfo = address(A) < address(B);
+        uint160 p = uint160(uint256(BPC.Q96) + uint256(BPC.Q96) * 59 / 20_000);
+        return BPC.outV3(amt, p, 1e18, FEE, zfo, BPC.sqrtBoundary(p, 59, TS, zfo));
+    }
+
+    function test_TheMultiHopFloorFollowsTheChainOfPromises() public {
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(C), AMT);
+        assertEq(plan.best.hops.length, 2, "the route bridges through B");
+        // The regime this is about, asserted rather than assumed: the first hop
+        // was ranked on more than its range can pay, so the second hop was sized
+        // on output that never arrives.
+        assertGt(plan.best.hops[0].expectedOut, _abDeliverable(plan.best.hops[0].amountIn),
+            "the first hop never left its range: the regime this test is about was not reached");
+
+        console2.log("hop 0 ranking (what hop 1 was sized on):", plan.best.hops[0].expectedOut);
+        console2.log("hop 0 leg attestation (its promise)    :", plan.best.hops[0].legs[0].expectedOut);
+        console2.log("route.totalOut                         :", plan.best.totalOut);
+        console2.log("route.singleOutFloor                   :", plan.best.singleOutFloor);
+
+        // The plan exactly as published, with the user's own bound excluded by
+        // construction: every floor that can refuse it is one the protocol wrote.
+        vm.prank(user);
+        uint256 got = router.swapExactIn(plan.best, AMT, 1, user, block.timestamp + 1);
+        console2.log("delivered                              :", got);
+        assertGe(got, plan.best.singleOutFloor, "delivered below the floor the plan published");
     }
 }

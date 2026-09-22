@@ -240,21 +240,22 @@ contract BlindLegReachability is Test {
     ///      A leg scaled to zero input moved nothing, so it is not blindness. The
     ///      first version of this test could not tell the two apart: with the
     ///      attestation and the in-frame quote a few basis points apart, the floor
-    ///      cleared either way and the mutation changed nothing observable.
+    ///      cleared either way and the mutation changed nothing observable. The
+    ///      second could not either, and the mutation guard said so: its delivering
+    ///      leg sat on the pool that reports no liquidity, so that leg was blind by
+    ///      itself and the zero-input leg never decided anything.
     ///
-    ///      Here the delivering leg carries NO attestation, so `hopAttested` is
-    ///      zero and the hop's figure rests on the in-frame quote alone, while the
-    ///      hop attests a full-price output. Treating the zero-input leg as blind
-    ///      swaps that quote for the hop's inflated figure and the floor bites on
-    ///      an honest swap - which is what must not happen, and what this now sees.
+    ///      Here the delivering leg is on the pool the frame CAN price and carries
+    ///      no attestation, so it is measured and the hop's figure rests on the
+    ///      in-frame quote alone, while the caller writes a hop total of double.
+    ///      Only treating the zero-input leg as blind can hand the floor that
+    ///      inflated figure - which is what must not happen, and what this sees.
     function test_Control_AZeroInputLegIsNotBlindness() public {
-        blind.setSwapLiquidity(uint128(LIQ / 100_000));   // delivers, with real slippage
-
         Leg[] memory legs = new Leg[](2);
-        legs[0] = _leg(address(blind), AMT, 0);   // delivers, unattested
-        legs[1] = _leg(address(blind), 0,   0);   // scaled to nothing
+        legs[0] = _leg(address(honest), AMT, 0);   // delivers, measured in frame, unattested
+        legs[1] = _leg(address(honest), 0,   0);   // scaled to nothing
         Hop[] memory hops = new Hop[](1);
-        hops[0] = Hop({tokenIn: s0, tokenOut: s1, amountIn: AMT, expectedOut: AMT, legs: legs});
+        hops[0] = Hop({tokenIn: s0, tokenOut: s1, amountIn: AMT, expectedOut: AMT * 2, legs: legs});
         Route memory r = Route({
             hops: hops, totalOut: AMT, singleOut: AMT, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
