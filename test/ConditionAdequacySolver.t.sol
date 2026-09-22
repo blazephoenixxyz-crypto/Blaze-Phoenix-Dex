@@ -454,23 +454,28 @@ contract CAClampKinds is CABase {
             "V2 promises must be the raw curve output; a 30%-of-balance cap bit them");
     }
 
-    /// L799 c2 (`balsOut[i] > 0`). Neutralised, a concentrated split leg whose
-    ///  pool holds ZERO tokenOut enters the clamp with cap = 0: the input cut
-    ///  fires (quote > 0 = "balance"), keep collapses to 0 and the leg is
-    ///  silently dropped. Real code skips the clamp for zero-balance books
-    ///  (the V4 doctrine) and keeps the leg with its raw promise.
-    function test_L799c2_ZeroBalanceConcLegKeepsItsRawPromise() public {
+    /// L799 c2 used to be `balsOut[i] > 0`: the clamp skipped a concentrated
+    ///  book holding ZERO tokenOut, and this test pinned that such a book kept
+    ///  its raw promise, on the V4 reasoning that a pool's own balance can be
+    ///  zero while the singleton pays. V4 never reaches this clamp (it is
+    ///  A_CONC_SING, not A_CONC_POOL), and a V3/Algebra pool custodies its own
+    ///  tokens - holding none, it can pay none. The ninth wave (Binod Bk) turned
+    ///  the skip into a route capture, and the sub-condition is gone: a zero
+    ///  holding is a zero cap. What is pinned now is the behaviour that replaced
+    ///  it - the empty twin carries no leg and the funded twin takes the order.
+    function test_L799c2_AZeroBalanceConcBookCarriesNoLeg() public {
         _fresh();
         bool zfo = address(tokenA) < address(tokenB);
         uint128 L = uint128(1e21);
-        _seedV3(address(tokenA), address(tokenB), uint160(BPC.Q96), L, 1_000e18); // funded twin
+        MockV3Pool funded = _seedV3(address(tokenA), address(tokenB), uint160(BPC.Q96), L, 1_000e18);
         _seedV3(address(tokenA), address(tokenB), uint160(BPC.Q96), L, 0);        // zero-balance twin
 
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), 100e18);
-        assertEq(plan.best.hops[0].legs.length, 2,
-            "both twins must carry a leg; the zero-balance one was clamped to nothing");
-        uint256 legOut = BPC.outV3(50e18, uint160(BPC.Q96), L, 3000, zfo, 0);
-        assertEq(plan.best.totalOut, 2 * legOut);
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, 1, "the zero-balance twin must carry no leg");
+        assertEq(legs[0].pool, address(funded), "the leg must be the funded twin's");
+        assertEq(plan.best.totalOut, BPC.outV3(legs[0].amountIn, uint160(BPC.Q96), L, 3000, zfo, 0),
+            "the funded twin's promise must be its own curve at the input it carries");
     }
 
     /// L803 c2 (`outL > balsOut[i]`). Neutralised, the input-side cut fires on
@@ -748,7 +753,10 @@ contract CAMultiHopCeiling is CABase {
             : uint160(BPC.Q96 * 10 / 13);
         _seedV3(address(tokenA), address(br), uint160(BPC.Q96), uint128(1e26), 100e18);
         _seedV3(address(tokenA), address(br), uint160(BPC.Q96), uint128(1e26), 100e18);
-        _seedV3(address(tokenA), address(br), spD, uint128(1_847e18), 0); // destroyer, no holdings
+        // The destroyer holds what it pays. Until 2026-09-23 it held nothing and still
+        // routed; a book holding no tokenOut is now dropped before any arm is reached
+        // (ninth wave, Binod Bk), and the phantom books weigh by the 100e18 they hold.
+        _seedV3(address(tokenA), address(br), spD, uint128(1_847e18), 100_000e18); // destroyer
         _seedV2(address(br), address(tokenB), 1_000_000e18, 1_000_000e18); // cheap stage B
 
         _noRoute();

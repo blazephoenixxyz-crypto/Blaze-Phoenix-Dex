@@ -756,6 +756,36 @@ M = [
       old="                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;",
       new="                    physical; // MUTANT",
       teste="test_probe_forgedMass_cannotCaptureTheRouteWithoutCapital"),
+ # ── the book that holds nothing (ninth wave, Binod Bk) ────────────────────
+ # A V3-shaped contract that ends every swap empty switched the mass cap off at
+ # every producer. One mutant per producer, and the registry watched in both
+ # directions: an empty side must not switch the cap off, and a one-sided book
+ # must not be zeroed for holding only one side.
+ dict(nome="empty book: the split clamp skips a book holding no tokenOut again",
+      f="src/BlazePhoenixSolver.sol",
+      old="            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) {",
+      new="            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL) && balsOut[i] > 0) { // MUTANT",
+      teste="test_ABookHoldingNoTokenOutIsNeverRouted"),
+ dict(nome="empty book: the single-leg clamp skips a book holding no tokenOut again",
+      f="src/BlazePhoenixSolver.sol",
+      old="            uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);\n            if (allowCut && out_ > balOut) {",
+      new="            uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);\n            if (balOut == 0) {} else if (allowCut && out_ > balOut) { // MUTANT",
+      teste="test_AnEmptyBookAloneOnItsPairYieldsNoRoute"),
+ dict(nome="empty book: concentrated depth weighs by the declaration again, not the mass held",
+      f="src/BlazePhoenixSolver.sol",
+      old="                if (BPC.kindHasAny(cands[i].kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {",
+      new="                if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES)) { // MUTANT",
+      teste="test_TheBandIsAnchoredByTheMassHeld_NotTheMassDeclared"),
+ dict(nome="empty book: an empty side switches the registry's mass cap off again",
+      f="src/BlazePhoenixRouter.sol",
+      old="                    if (held < depth) depth = held;",
+      new="                    if (held < depth && b0 != 0 && b1 != 0) depth = held; // MUTANT",
+      teste="test_AnEmptyBookIsSeatedAtTheMassItHolds_WhichIsNone"),
+ dict(nome="empty book: a one-sided book is zeroed (over-tight: a range wholly on one side holds real tokens)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                        : BPC.to18(b0, dc0) + BPC.to18(b1, dc1);",
+      new="                        : 0; // MUTANT",
+      teste="test_AOneSidedBookKeepsTheMassOfTheSideItHolds"),
  # ── the multi-hop twin of the floor (found by the review pass after PR #25) ──
  dict(nome="floor, multi-hop: a leg's impact stops being weighted by its share",
       f="src/BlazePhoenixSolver.sol",
@@ -1147,8 +1177,10 @@ M = [
       teste='test_ExactQuoteMustNotOverstateDeliverable'),
  dict(nome='F-B: the concentrated arm stops capping depth by the mass the pool holds',
       f='src/BlazePhoenixRouter.sol',
-      old='                        if (held < depth) depth = held;',
-      new='                        held; // MUTANT',
+      # Re-anchored 2026-09-23: the cap moved out of the both-sides branch when an
+      # empty side stopped switching it off. Same guard, same watcher.
+      old='                    if (held < depth) depth = held;',
+      new='                    held; // MUTANT',
       teste='test_ConcentratedDepthIsTheDeclaredL_NotThePhysicalMass'),
  dict(nome='REG-03: the V4 registry row goes back to the DECLARED pool',
       f='src/BlazePhoenixRouter.sol',

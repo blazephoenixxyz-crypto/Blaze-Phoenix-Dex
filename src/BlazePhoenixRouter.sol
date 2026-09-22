@@ -2151,19 +2151,22 @@ contract BlazePhoenixRouter {
                     // PROV-01 ON THE CONCENTRATED ARM: mass that costs nothing is not mass.
                     // `liquidity()` is the pool's own word about itself; the depth recorded here
                     // is capped by the tokens the pool physically holds, the same rule the pair
-                    // arm applies through `_v2Depth18`. The cap binds only when the pool holds
-                    // BOTH tokens: a concentrated range with all of its liquidity on one side of
-                    // the current tick legitimately holds ~zero of the other, and the suite pins
-                    // that such a book keeps its raw promise (`test_L799c2`). Inert on an honest
-                    // pool, binding on an inflated claim - which must now be backed by real mass
-                    // on both sides to be believed. V4 needs no cap: its liquidity is read from
-                    // the Hub's canonical PoolManager, not from a caller-named contract.
+                    // arm applies through `_v2Depth18`. Holding both tokens, the cap is the short
+                    // side. Holding one, it is that side: a concentrated range with all of its
+                    // liquidity on one side of the current tick legitimately holds ~zero of the
+                    // other, and it keeps the mass it does hold. Holding NEITHER, the mass is zero.
+                    // An empty side used to switch the cap off altogether, and a V3-shaped
+                    // contract that forwarded its input away and paid out everything it held
+                    // ended every swap with nothing, and was stamped at the depth it declared -
+                    // the top bucket, on every swap it captured (ninth wave, Binod Bk). V4 needs
+                    // no cap: its liquidity is read from the Hub's canonical PoolManager, not
+                    // from a caller-named contract.
                     uint256 b0 = BPC.balanceOf(t0, leg.pool);
                     uint256 b1 = BPC.balanceOf(t1, leg.pool);
-                    if (b0 != 0 && b1 != 0) {
-                        uint256 held = BPC.shortSide18(b0, dc0, b1, dc1);
-                        if (held < depth) depth = held;
-                    }
+                    uint256 held = (b0 != 0 && b1 != 0)
+                        ? BPC.shortSide18(b0, dc0, b1, dc1)
+                        : BPC.to18(b0, dc0) + BPC.to18(b1, dc1);
+                    if (held < depth) depth = held;
                 }
                 // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
                 // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend
