@@ -302,6 +302,26 @@ M = [
       old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
       new="        controlRenounced = true; // MUTANTE",
       teste="test_Composition_PauseThenRenounce_IsRefused"),
+ # ── ranking is not a promise: the single-tick attestation ────────────────
+ # `expectedOut` becomes the floor the Router enforces, so for a single-tick venue
+ # it must carry the promise layer's figure and not the ranking one. These watch
+ # the three ways that can be undone: never asking, asking and ignoring, and
+ # asking for families that have no boundary to cross.
+ dict(nome="promise: the attestation falls back to the ranking figure (the preview endorses what the Router refuses)",
+      f="src/BlazePhoenixSolver.sol",
+      old="        return (promised != 0 && promised < ranked) ? promised : ranked;",
+      new="        return ranked; // MUTANT",
+      teste="test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay"),
+ dict(nome="promise: the comparison is inverted (the larger of the two is attested)",
+      f="src/BlazePhoenixSolver.sol",
+      old="        return (promised != 0 && promised < ranked) ? promised : ranked;",
+      new="        return (promised != 0 && promised > ranked) ? promised : ranked; // MUTANT",
+      teste="test_Red_CanExecuteMustNotBeRefused"),
+ dict(nome="promise: the single-tick guard is dropped (every family pays for a boundary it does not have)",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (!BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)) return ranked;",
+      new="        // MUTANT: the family guard is gone",
+      teste="test_Control_ClampedAttestation_Settles"),
  # ── NM-002's residual: a hop quoted only in PART ─────────────────────────
  # The 2026-09-02 fallback fires when the WHOLE hop went unquoted. These watch the
  # arm that tells a partly-quoted hop from a fully-quoted one: if either survives,

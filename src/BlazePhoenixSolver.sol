@@ -845,6 +845,28 @@ contract BlazePhoenixSolver {
                 }
                 if (outL == 0) { unchecked { ++i; } continue; }
             }
+            // RANKING IS NOT A PROMISE, AND THIS IS WHERE THE TWO PART COMPANY.
+            // `_quote` reaches `universalQuote`, which is deliberately unclamped:
+            // Core:1699 records the measured lesson that clamping only the
+            // concentrated families makes a shallow V2 out-rank a deep V4 on any
+            // trade leaving the current range, because V2 has no tick structure to
+            // clamp against. That reasoning is about "which pool delivers more?".
+            //
+            // `expectedOut` answers the other question. It is written into the leg,
+            // travels to the Router, and becomes the per-leg floor the Router
+            // ENFORCES (Router:1619). A figure produced for ranking cannot serve as
+            // a promise: on a concentrated single-tick venue the unclamped number
+            // exceeds what the pool can pay once the trade leaves its range, so the
+            // floor demands what execution cannot deliver and an honest fill dies
+            // in RouterE(5) - the preview approves what the Router then refuses.
+            //
+            // So ranking keeps its number and the attestation takes the promise
+            // layer's: the same call the Router itself makes in-frame. Only the
+            // single-tick family needs it - the others have no boundary to cross -
+            // and a zero answer leaves the ranking figure alone rather than
+            // dropping the leg, because absence of a promise is not a promise of
+            // zero.
+            uint256 attest = _promised(cands[i], tIn, share, outL);
             tmpLegs[legCount] = Leg({
                 pool:        cands[i].pool,
                 hooks:       cands[i].hooks,
@@ -854,7 +876,7 @@ contract BlazePhoenixSolver {
                 zeroForOne:  cands[i].token0 == tIn,
                 stable:      cands[i].stable,
                 amountIn:    share,
-                expectedOut: outL,
+                expectedOut: attest,
                 auxId:       BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? bytes32(uint256(uint160(cands[i].token0 == tIn ? cands[i].token1 : cands[i].token0)))
                     : bytes32(0)
@@ -1167,6 +1189,13 @@ contract BlazePhoenixSolver {
                 }
             }
         }
+        // RANKING IS NOT A PROMISE — the single-venue twin of the split path.
+        // See the long note there: `out_` came from `universalQuote`, which is
+        // deliberately unclamped because clamping the concentrated families alone
+        // distorts the comparison against V2. `expectedOut` is not a comparison:
+        // it becomes the floor the Router enforces, so on a single-tick venue it
+        // takes the promise layer's figure instead.
+        out_ = _promised(cand, tIn, legIn, out_);
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({
             pool: cand.pool, hooks: cand.hooks, kind: cand.kind,
@@ -1186,6 +1215,33 @@ contract BlazePhoenixSolver {
             // off-chain reader truthful — issue #1 (NetGakarot).
             amountIn: legIn, expectedOut: out_, legs: legs
         });
+    }
+
+    /// @dev The promise-layer figure for a leg, or the ranking figure unchanged
+    ///      when there is no boundary to cross. `universalQuote` answers "which
+    ///      pool delivers more?" and Core:1699 records the measured reason it must
+    ///      stay unclamped for that question: clamping only the concentrated
+    ///      families lets a shallow V2 out-rank a deep V4 on any trade leaving the
+    ///      current range. `expectedOut` answers the other question - it travels to
+    ///      the Router and becomes the floor enforced at Router:1619 - so a
+    ///      single-tick venue attests what the same call the Router makes in-frame
+    ///      says it can pay. A zero answer leaves the ranking figure alone: the
+    ///      absence of a promise is not a promise of zero.
+    function _promised(
+        PoolInfo memory cand, address tIn, uint256 amt, uint256 ranked
+    ) private view returns (uint256) {
+        if (!BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)) return ranked;
+        address v4mgr = hub.v4PoolManager();
+        if (v4mgr == address(0)) return ranked;
+        bool zfo = cand.token0 == tIn;
+        address other = zfo ? cand.token1 : cand.token0;
+        (address q0, address q1) = BPC.sortTokens(tIn, other);
+        uint256 promised = BPC.v4LegOut(
+            v4mgr,
+            BPC.computeV4PoolId(q0, q1, cand.fee, cand.tickSpacing, cand.hooks),
+            amt, cand.fee, cand.tickSpacing, zfo
+        );
+        return (promised != 0 && promised < ranked) ? promised : ranked;
     }
 
     /// @param dIn1 decimals of `tIn` +1, `dOt1` those of the other token +1 (0 =
