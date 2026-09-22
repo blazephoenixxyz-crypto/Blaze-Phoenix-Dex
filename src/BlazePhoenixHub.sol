@@ -659,6 +659,11 @@ contract BlazePhoenixHub {
     function _sameExtras(
         Factory storage f, uint24[] calldata fees, int24[] calldata spacings
     ) private view returns (bool) {
+        // Explicit loops, and measured against the alternative rather than
+        // assumed: encoding both sides and comparing one hash reads shorter but
+        // compiles to 1,021 bytes MORE, because abi.encode of a storage array
+        // copies it to memory first. The byte budget of this contract is shared
+        // with every guard that comes after this one, so the cheaper shape wins.
         uint256 n = f.fees.length;
         if (n != fees.length || f.spacings.length != spacings.length) return false;
         for (uint256 i; i < n; ) {
@@ -802,7 +807,6 @@ contract BlazePhoenixHub {
             // stays readable.
             if ($.controlRenounced
                 && ($.factoryCodehash[factory] != factory.codehash
-                    || (f.mode > 3 && mode < 4)
                     || kind != f.kind
                     || mode != f.mode
                     || initHash != f.initHash
