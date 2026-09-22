@@ -845,28 +845,6 @@ contract BlazePhoenixSolver {
                 }
                 if (outL == 0) { unchecked { ++i; } continue; }
             }
-            // RANKING IS NOT A PROMISE, AND THIS IS WHERE THE TWO PART COMPANY.
-            // `_quote` reaches `universalQuote`, which is deliberately unclamped:
-            // Core:1699 records the measured lesson that clamping only the
-            // concentrated families makes a shallow V2 out-rank a deep V4 on any
-            // trade leaving the current range, because V2 has no tick structure to
-            // clamp against. That reasoning is about "which pool delivers more?".
-            //
-            // `expectedOut` answers the other question. It is written into the leg,
-            // travels to the Router, and becomes the per-leg floor the Router
-            // ENFORCES (Router:1619). A figure produced for ranking cannot serve as
-            // a promise: on a concentrated single-tick venue the unclamped number
-            // exceeds what the pool can pay once the trade leaves its range, so the
-            // floor demands what execution cannot deliver and an honest fill dies
-            // in RouterE(5) - the preview approves what the Router then refuses.
-            //
-            // So ranking keeps its number and the attestation takes the promise
-            // layer's: the same call the Router itself makes in-frame. Only the
-            // single-tick family needs it - the others have no boundary to cross -
-            // and a zero answer leaves the ranking figure alone rather than
-            // dropping the leg, because absence of a promise is not a promise of
-            // zero.
-            uint256 attest = _promised(cands[i], tIn, share, outL);
             tmpLegs[legCount] = Leg({
                 pool:        cands[i].pool,
                 hooks:       cands[i].hooks,
@@ -876,7 +854,7 @@ contract BlazePhoenixSolver {
                 zeroForOne:  cands[i].token0 == tIn,
                 stable:      cands[i].stable,
                 amountIn:    share,
-                expectedOut: attest,
+                expectedOut: outL,
                 auxId:       BPC.kindHasAny(cands[i].kind, BPC.A_CONC_SING)
                     ? bytes32(uint256(uint160(cands[i].token0 == tIn ? cands[i].token1 : cands[i].token0)))
                     : bytes32(0)
@@ -1189,13 +1167,6 @@ contract BlazePhoenixSolver {
                 }
             }
         }
-        // RANKING IS NOT A PROMISE — the single-venue twin of the split path.
-        // See the long note there: `out_` came from `universalQuote`, which is
-        // deliberately unclamped because clamping the concentrated families alone
-        // distorts the comparison against V2. `expectedOut` is not a comparison:
-        // it becomes the floor the Router enforces, so on a single-tick venue it
-        // takes the promise layer's figure instead.
-        out_ = _promised(cand, tIn, legIn, out_);
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({
             pool: cand.pool, hooks: cand.hooks, kind: cand.kind,
@@ -1217,31 +1188,39 @@ contract BlazePhoenixSolver {
         });
     }
 
-    /// @dev The promise-layer figure for a leg, or the ranking figure unchanged
-    ///      when there is no boundary to cross. `universalQuote` answers "which
-    ///      pool delivers more?" and Core:1699 records the measured reason it must
-    ///      stay unclamped for that question: clamping only the concentrated
-    ///      families lets a shallow V2 out-rank a deep V4 on any trade leaving the
-    ///      current range. `expectedOut` answers the other question - it travels to
-    ///      the Router and becomes the floor enforced at Router:1619 - so a
-    ///      single-tick venue attests what the same call the Router makes in-frame
-    ///      says it can pay. A zero answer leaves the ranking figure alone: the
-    ///      absence of a promise is not a promise of zero.
-    function _promised(
-        PoolInfo memory cand, address tIn, uint256 amt, uint256 ranked
-    ) private view returns (uint256) {
-        if (!BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)) return ranked;
-        address v4mgr = hub.v4PoolManager();
-        if (v4mgr == address(0)) return ranked;
-        bool zfo = cand.token0 == tIn;
-        address other = zfo ? cand.token1 : cand.token0;
-        (address q0, address q1) = BPC.sortTokens(tIn, other);
-        uint256 promised = BPC.v4LegOut(
-            v4mgr,
-            BPC.computeV4PoolId(q0, q1, cand.fee, cand.tickSpacing, cand.hooks),
-            amt, cand.fee, cand.tickSpacing, zfo
-        );
-        return (promised != 0 && promised < ranked) ? promised : ranked;
+    /// @dev What the hop can be PROMISED to deliver, as opposed to what it is
+    ///      ranked on. For a single-tick venue that is the in-frame figure the
+    ///      Router itself quotes - bounded at the current range's edge - and for
+    ///      every other family the attested output is already the promise. A zero
+    ///      answer leaves the attestation alone: the absence of a promise is not a
+    ///      promise of zero.
+    function _hopPromise(Hop memory hop) private view returns (uint256 sum) {
+        address mgr;
+        uint256 n = hop.legs.length;
+        for (uint256 i; i < n; ) {
+            Leg memory lg = hop.legs[i];
+            uint256 one = lg.expectedOut;
+            if (BPC.kindHasAny(lg.kind, BPC.A_CONC_SING) && one != 0) {
+                if (mgr == address(0)) mgr = hub.v4PoolManager();
+                if (mgr != address(0)) {
+                    address other = address(uint160(uint256(lg.auxId)));
+                    if (other != address(0)) {
+                        (address q0, address q1) = BPC.sortTokens(
+                            lg.zeroForOne ? hop.tokenIn : other,
+                            lg.zeroForOne ? other : hop.tokenIn
+                        );
+                        uint256 p = BPC.v4LegOut(
+                            mgr,
+                            BPC.computeV4PoolId(q0, q1, lg.fee, lg.tickSpacing, lg.hooks),
+                            lg.amountIn, lg.fee, lg.tickSpacing, lg.zeroForOne
+                        );
+                        if (p != 0 && p < one) one = p;
+                    }
+                }
+            }
+            sum += one;
+            unchecked { ++i; }
+        }
     }
 
     /// @param dIn1 decimals of `tIn` +1, `dOt1` those of the other token +1 (0 =
@@ -1551,7 +1530,15 @@ contract BlazePhoenixSolver {
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, BPC.legShaveBps(hopIn, hopIn2), 0);
         // R-C: a protective threshold rounds UP, as the Router's does — the
         // other half of the same-number parity above.
-        uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);
+        // THE FLOOR IS A PROMISE, AND `expectedOut` IS A CAPACITY.
+        // `hop.expectedOut` comes from `universalQuote`, which Core:1699 keeps
+        // unclamped on purpose: it answers "which venue is deeper?" and it is
+        // what the preview publishes about capacity, so a pool 292x deeper reads
+        // as 292x deeper. A floor is the other question. Taking a fraction of the
+        // capacity figure asks a single-tick venue for more than it can pay once
+        // the swap leaves its range, and an integrator deriving `userMinOut` from
+        // the published floor then sets a bound the Router refuses.
+        uint256 floorOut = BPC.mulDivUp(_hopPromise(hop), floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,
@@ -1645,7 +1632,15 @@ contract BlazePhoenixSolver {
         uint256 totalImpactBps = totalLegs > 0 ? weightedAcc / totalLegs : 0;
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, legShv, 0);
         // R-C: rounds UP like the single-hop twin and like the Router.
-        uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);
+        //
+        // THE PROMISE, NOT THE CAPACITY - the multi-hop twin of the single-venue
+        // rule. `finalOut` is the LAST hop's attested output, which is the ranking
+        // figure; the floor takes what that hop can be promised to deliver. Fixing
+        // one of two symmetric channels is this codebase's documented defect
+        // signature, so the twin is written here rather than left for later.
+        uint256 floorOut = BPC.mulDivUp(
+            _hopPromise(hops[hops.length - 1]), floorBps, BPC.BPS
+        );
 
         route = Route({
             hops:              hops,

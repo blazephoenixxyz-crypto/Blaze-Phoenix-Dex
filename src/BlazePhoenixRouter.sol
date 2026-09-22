@@ -1283,9 +1283,18 @@ contract BlazePhoenixRouter {
                 hopAttested += legAtt;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
                 // A leg that spent input and came back with no attestation was not
-                // measured at all. A leg scaled to zero is a legitimate no-op and
-                // is not blindness: it moved nothing, so there is nothing to bound.
-                else if (scaledAmt != 0) hopBlind = true;
+                // measured at all.
+                //
+                // BLINDNESS IS "NOT MEASURED", NOT "NOT ATTESTED", and the two part
+                // company: a leg the caller left unattested is still measured when
+                // the frame could price it, and its delivery does reach the
+                // comparison. The condition below is the exact negation of the
+                // measurement guard at Router:1590 - no attestation AND no in-frame
+                // quote - so it names the only leg that leaves no trace. A leg
+                // scaled to zero moved nothing and is not blindness.
+                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {
+                    hopBlind = true;
+                }
                 unchecked { ++l; }
             }
             // ─── LAYER 1: shared per-hop budget (aggregate) ───
@@ -1487,6 +1496,7 @@ contract BlazePhoenixRouter {
             protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.BPS);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
+
         if (amountOut < effMin) revert RouterE(5);
 
         // ─── THE FEE, WHEN IT COMES OUT OF THE OUTPUT ─────────────────────
@@ -1644,6 +1654,29 @@ contract BlazePhoenixRouter {
             uint256 bound = (leg.expectedOut != 0 && leg.amountIn != 0)
                 ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)
                 : 0;
+
+            // RANKING IS NOT A PROMISE, AND THE FLOOR IS THE PLACE THAT CARES.
+            // `expectedOut` reaches this contract from a plan whose figure came
+            // from `universalQuote`, which is deliberately unclamped: Core:1699
+            // records the measured reason - clamping only the concentrated
+            // families lets a shallow V2 out-rank a deep V4 on any trade that
+            // leaves the current range. That number is right for ranking and for
+            // what the preview publishes about a venue's capacity, and it is the
+            // wrong number to ENFORCE: on a single-tick venue whose swap leaves
+            // its range it exceeds what the pool can pay, so an honest fill the
+            // protocol's own preview called executable died in RouterE(5).
+            //
+            // The clamped figure is already in hand: `legQuote` for this family
+            // is the in-frame promise from `_v4LegQuote`, bounded at the current
+            // range's edge. Capping the bound by it fixes the floor and leaves
+            // ranking and the published preview alone, which is what the three
+            // consumers of `expectedOut` need from each other. Pro-rata because
+            // `amt` and `legAmt` part company when the last leg's clamp fires.
+            if (bound != 0 && legQuote != 0 && legAmt != 0
+                && BPC.kindHasAny(leg.kind, BPC.A_CONC_SING)) {
+                uint256 promised = BPC.mulDiv(legQuote, amt, legAmt);
+                if (promised < bound) bound = promised;
+            }
 
             // ─── COVERAGE GATE ───
             // Measurement does not REPLACE the attestation — it joins it as the second element of
