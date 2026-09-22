@@ -1185,6 +1185,14 @@ contract BlazePhoenixRouter {
             uint256 hopGot;
             uint256 hopAttested;
             uint256 hopQuoted;
+            // NM-002's RESIDUAL. The fallback at the end of this loop fires only
+            // when the WHOLE hop went unquoted. A hop where ONE leg spends input
+            // without being measured still has `hopQuote != 0`, so the floor is
+            // built on the legs that could be priced and the blind leg's share is
+            // bounded by nothing - it is absent from both sides of the Layer 1
+            // comparison, which therefore compares the measured legs with their
+            // own attestations. This flag is what tells the two cases apart.
+            bool hopBlind;
             // ─── LAYER 2: canonical order — hookless BEFORE hooked ───
             // A hook gains EVM control during the swap and can touch ANY
             // contract — including the pool of a leg of this same route that has
@@ -1274,6 +1282,10 @@ contract BlazePhoenixRouter {
                 hopGot += legGot;
                 hopAttested += legAtt;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
+                // A leg that spent input and came back with no attestation was not
+                // measured at all. A leg scaled to zero is a legitimate no-op and
+                // is not blindness: it moved nothing, so there is nothing to bound.
+                else if (scaledAmt != 0) hopBlind = true;
                 unchecked { ++l; }
             }
             // ─── LAYER 1: shared per-hop budget (aggregate) ───
@@ -1323,8 +1335,21 @@ contract BlazePhoenixRouter {
             // quoted in-frame but did execute falls back to its attested figure, and nothing
             // reverts here, because two of the zero-quote paths are legitimately executable
             // pools (a 0-fee CL pool, a dynamic-fee V4 pool under a protocol fee).
+            //
+            // THE RESIDUAL, CLOSED. `hopQuote != 0` was read as "this hop was
+            // quoted", and it only means "at least one leg of it was". Where a leg
+            // spent input unmeasured, the hop's own attested figure is used when it
+            // is the larger of the two: it is the only number in scope that speaks
+            // for the WHOLE hop, the caller can only push it UP (R3), and a floor
+            // that moves up is the conservative direction. Still never reverts here
+            // - the two legitimately executable zero-quote paths above are
+            // unaffected, because neither of them leaves a leg unmeasured.
+            uint256 hopBase = hopQuote != 0 ? hopQuote : hopAttested;
+            if (hopBlind && route.hops[h].expectedOut > hopBase) {
+                hopBase = route.hops[h].expectedOut;
+            }
             if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)
-                finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;
+                finalHopQuote = hopBase;
             unchecked { ++h; }
         }
 
