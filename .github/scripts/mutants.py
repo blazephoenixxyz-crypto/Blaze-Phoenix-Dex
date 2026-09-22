@@ -302,6 +302,20 @@ M = [
       old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
       new="        controlRenounced = true; // MUTANTE",
       teste="test_Composition_PauseThenRenounce_IsRefused"),
+ # ── derivacao de uma linha viva, congelada depois da renuncia ─────────────
+ # O refresh in-place escreve cinco campos de uma linha ja admitida. Estes dois
+ # mutantes vigiam a disjuncao que nomeia o input de derivacao e a guarda inteira:
+ # se um sobreviver, a guarda cobre menos do que a escrita toca.
+ dict(nome="renuncia: o initHash de uma linha viva volta a poder ser reescrito (redirecciona discovery)",
+      f="src/BlazePhoenixHub.sol",
+      old="                    || (f.mode > 3 && mode < 4)\n                    || initHash != f.initHash))",
+      new="                    || (f.mode > 3 && mode < 4))) // MUTANTE",
+      teste="test_RenouncedRowRefusesInitHashRewrite"),
+ dict(nome="renuncia: a guarda da linha viva vira revert cego (mata o re-add identico, que e legitimo)",
+      f="src/BlazePhoenixHub.sol",
+      old="            if ($.controlRenounced\n                && ($.factoryCodehash[factory] != factory.codehash\n                    || (f.mode > 3 && mode < 4)\n                    || initHash != f.initHash))",
+      new="            if ($.controlRenounced) // MUTANTE",
+      teste="test_RenouncedRowStillAcceptsAnIdenticalReAdd"),
  dict(nome="renounce: o Hub volta a poder ossificar pausado (registo surdo p/ sempre)",
       f="src/BlazePhoenixHub.sol",
       old="        if (_store().paused) revert HubE(2);\n        _store().controlRenounced = true;",
@@ -516,8 +530,8 @@ M = [
       teste="test_ZeroDecimals_IsAValue_NotAnInstructionNotToScale"),
  dict(nome="S3: a derive row may become an ask row again after renunciation (the mode transition is ungated)",
       f="src/BlazePhoenixHub.sol",
-      old='                && ($.factoryCodehash[factory] != factory.codehash || (f.mode > 3 && mode < 4)))',
-      new='                && ($.factoryCodehash[factory] != factory.codehash))  // MUTANT',
+      old='                && ($.factoryCodehash[factory] != factory.codehash\n                    || (f.mode > 3 && mode < 4)\n                    || initHash != f.initHash))',
+      new='                && ($.factoryCodehash[factory] != factory.codehash\n                    || initHash != f.initHash))  // MUTANT',
       teste="test_C4_S3_DeriveRowMustNotBecomeAnAskRowAfterRenounce"),
  dict(nome="VOL_01: the registry is handed the declaration again instead of the measured spend",
       f="src/BlazePhoenixRouter.sol",
@@ -925,7 +939,7 @@ M = [
  # ── the fixes the 7 red built tests demanded (addFactory refresh-in-place + post-renounce re-arm guard, frozen T19 attestation, initialize after renounce) ──
  dict(nome='factories: after renunciation a mutated factory can be re-armed again (twin of the hook guard)',
       f='src/BlazePhoenixHub.sol',
-      old='                && ($.factoryCodehash[factory] != factory.codehash || (f.mode > 3 && mode < 4)))',
+      old='                && ($.factoryCodehash[factory] != factory.codehash\n                    || (f.mode > 3 && mode < 4)\n                    || initHash != f.initHash))',
       new='                && (false))  // MUTANT',
       teste='test_FactoryRearm_RenouncedAdminCanReArmAMutatedFactory'),
  dict(nome='addFactory: the duplicate-address guard is gone (a second row is pushed for one address)',

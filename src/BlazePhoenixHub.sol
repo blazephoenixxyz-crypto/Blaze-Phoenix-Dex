@@ -755,8 +755,21 @@ contract BlazePhoenixHub {
             // down twice is exactly a proxy whose answer moves while its runtime does not.
             //
             // Tightening is still allowed: 0-3 -> 4-7 narrows what the factory can say.
+            // WHAT THIS GUARD COVERS: every field of a live row that decides which
+            // address the row derives. The codehash pin answers for the factory's
+            // runtime; it cannot answer for the row's own derivation input, because
+            // that input lives here and not in the factory. After renunciation the
+            // derivation of an admitted row is therefore FIXED, exactly as the
+            // attested Algebra origin below is fixed, and for the same reason.
+            //
+            // What stays open is what Hub:411-418 guarantees: an identical re-add is
+            // a no-op refresh, and a factory that was never listed is still
+            // admissible. This freezes rows, not the registry. Both are pinned in
+            // RenouncedRowDerivationFreeze.t.sol.
             if ($.controlRenounced
-                && ($.factoryCodehash[factory] != factory.codehash || (f.mode > 3 && mode < 4)))
+                && ($.factoryCodehash[factory] != factory.codehash
+                    || (f.mode > 3 && mode < 4)
+                    || initHash != f.initHash))
                 revert HubE(1);
             f.kind = kind; f.mode = mode; f.initHash = initHash;
             f.fees = fees; f.spacings = spacings;
