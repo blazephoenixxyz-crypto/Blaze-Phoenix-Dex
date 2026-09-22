@@ -339,6 +339,45 @@ contract RenouncedRowDerivationFreeze is Test {
         }
     }
 
+    /// @dev EACH HALF OF THE EXTRAS IS WATCHED SEPARATELY, and this test exists
+    ///      because a mutant proved the fuzz beside it does not do the job: with
+    ///      the spacings loop deleted the fuzz still passed, since it only demands
+    ///      a revert when `fee != 500 || sp != 10` and a random uint24 essentially
+    ///      never lands on 500 exactly. A property test that cannot reach the case
+    ///      it names is a green that proves nothing. These two are deterministic:
+    ///      one moves only a fee, the other only a spacing.
+    function test_RenouncedExtrasRefuseAFeeOnlyChange() public {
+        (BlazePhoenixHub h, address fac) = _derivedRow();
+        uint24[] memory f2 = new uint24[](2);
+        int24[] memory s2 = new int24[](2);
+        f2[0] = 3000; f2[1] = 100;   // only the fee moves
+        s2[0] = 60;   s2[1] = 10;
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, HUB_REFUSED));
+        h.addFactory(fac, BPC.KIND_V4, MODE_V4_DERIVE, INIT_A, f2, s2);
+    }
+
+    function test_RenouncedExtrasRefuseASpacingOnlyChange() public {
+        (BlazePhoenixHub h, address fac) = _derivedRow();
+        uint24[] memory f2 = new uint24[](2);
+        int24[] memory s2 = new int24[](2);
+        f2[0] = 3000; f2[1] = 500;
+        s2[0] = 60;   s2[1] = 1;     // only the spacing moves
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, HUB_REFUSED));
+        h.addFactory(fac, BPC.KIND_V4, MODE_V4_DERIVE, INIT_A, f2, s2);
+    }
+
+    /// @dev A renounced derive row carrying two fee/spacing pairs.
+    function _derivedRow() private returns (BlazePhoenixHub h, address fac) {
+        uint24[] memory f1 = new uint24[](2);
+        int24[] memory s1 = new int24[](2);
+        f1[0] = 3000; f1[1] = 500; s1[0] = 60; s1[1] = 10;
+        h = new BlazePhoenixHub(address(this));
+        h.initialize(address(this), address(0));
+        fac = address(new ImmutableFactory());
+        h.addFactory(fac, BPC.KIND_V4, MODE_V4_DERIVE, INIT_A, f1, s1);
+        h.renounceControl();
+    }
+
     /// @dev LENGTH IS NOT CONTENT, AND CONTENT IS NOT LENGTH. A shorter or longer
     ///      extras array changes the derived set as surely as a different value.
     function test_RenouncedExtrasRefuseALengthChange() public {
