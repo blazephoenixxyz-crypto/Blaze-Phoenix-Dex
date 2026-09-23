@@ -302,6 +302,33 @@ M = [
       old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
       new="        controlRenounced = true; // MUTANTE",
       teste="test_Composition_PauseThenRenounce_IsRefused"),
+ # ── NM-002's residual: a hop quoted only in PART ─────────────────────────
+ # The 2026-09-02 fallback fires when the WHOLE hop went unquoted. These watch the
+ # arm that tells a partly-quoted hop from a fully-quoted one: if either survives,
+ # a leg can spend input with nothing bounding what it returns.
+ dict(nome="NM-002 residual: a blind leg stops being noticed (the partial quote is read as complete)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {\n                    hopBlind = true;\n                }",
+      new="                // MUTANT: blind legs no longer flagged",
+      teste="test_Probe_ABlindLegThatEatsItsHalf"),
+ dict(nome="NM-002 residual: the hop's own attested figure stops being preferred",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (hopBlind && route.hops[h].expectedOut > hopBase) {\n                hopBase = route.hops[h].expectedOut;\n            }",
+      new="            // MUTANT: the hop-level attestation is ignored",
+      teste="test_Probe_ABlindLegThatEatsItsHalf"),
+ dict(nome="NM-002 residual: a zero-input leg is counted as blind (over-tight, breaks honest routes)",
+      f="src/BlazePhoenixRouter.sol",
+      # Re-watched 2026-09-22: under test_Control_TwoHonestLegsSettle this was
+      # DECORATIVE (it passed mutated) - no leg there had zero input and an
+      # unmeasured delivery at once, so the flag changed nothing observable.
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
+      new="                if (leg.expectedOut == 0 && legQuotes[l] == 0) { // MUTANT",
+      teste="test_Control_AZeroInputLegIsNotBlindness"),
+ dict(nome="NM-002 residual: every leg that spent input is counted as blind (an over-stated hop total becomes the floor)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
+      new="                if (scaledAmt != 0) { // MUTANT",
+      teste="test_Control_AnOverStatedHopTotalDoesNotRaiseTheFloor"),
  # ── a live row is identical-or-refused once control is renounced ──────────
  # The in-place refresh writes five fields of an already-admitted row, and every
  # one of them decides which address that row resolves to. These mutants watch
@@ -675,8 +702,11 @@ M = [
       # expression by the FLOOR-01 fix. NM-002's property lives inside it - a hop that DID
       # execute but could not be quoted in-frame falls back to its attested figure - so the
       # mutant now removes exactly that fallback and leaves the rest of the fix standing.
-      old="                finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
-      new="                finalHopQuote = hopQuote;",
+      # Retargeted again 2026-09-22: closing NM-002's residual lifted the fallback out of
+      # the assignment and into `hopBase`, so the mutant follows it there. Same property,
+      # same killer, one expression up.
+      old="            uint256 hopBase = hopQuote != 0 ? hopQuote : hopAttested;",
+      new="            uint256 hopBase = hopQuote;",
       teste="test_LiquidityGapOnLastHop_FloorFallsBackToAttested"),
  dict(nome="impact: an unquotable concentrated leg counts BPS again (the floor collapses to the clamp)",
       f="src/BlazePhoenixRouter.sol",
