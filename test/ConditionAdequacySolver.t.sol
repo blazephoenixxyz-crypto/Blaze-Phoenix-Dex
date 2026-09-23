@@ -467,15 +467,25 @@ contract CAClampKinds is CABase {
         _fresh();
         bool zfo = address(tokenA) < address(tokenB);
         uint128 L = uint128(1e21);
+        // TWO funded twins, so the order genuinely splits. With one, the min-split gate
+        // collapsed the route to the funded leg whatever the empty twin was promised - the
+        // clamp this test names could be deleted and it stayed green.
         MockV3Pool funded = _seedV3(address(tokenA), address(tokenB), uint160(BPC.Q96), L, 1_000e18);
-        _seedV3(address(tokenA), address(tokenB), uint160(BPC.Q96), L, 0);        // zero-balance twin
+        MockV3Pool funded2 = _seedV3(address(tokenA), address(tokenB), uint160(BPC.Q96), L, 1_000e18);
+        MockV3Pool empty = _seedV3(address(tokenA), address(tokenB), uint160(BPC.Q96), L, 0); // zero-balance twin
 
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), 100e18);
         Leg[] memory legs = plan.best.hops[0].legs;
-        assertEq(legs.length, 1, "the zero-balance twin must carry no leg");
-        assertEq(legs[0].pool, address(funded), "the leg must be the funded twin's");
-        assertEq(plan.best.totalOut, BPC.outV3(legs[0].amountIn, uint160(BPC.Q96), L, 3000, zfo, 0),
-            "the funded twin's promise must be its own curve at the input it carries");
+        assertEq(legs.length, 2, "the funded twins split the order and the zero-balance twin carries no leg");
+        for (uint256 i; i < legs.length; ++i) {
+            assertTrue(legs[i].pool != address(empty), "a leg was seated on the zero-balance twin");
+            assertTrue(legs[i].pool == address(funded) || legs[i].pool == address(funded2),
+                "every leg must be a funded twin");
+        }
+        assertEq(plan.best.totalOut,
+            BPC.outV3(legs[0].amountIn, uint160(BPC.Q96), L, 3000, zfo, 0)
+                + BPC.outV3(legs[1].amountIn, uint160(BPC.Q96), L, 3000, zfo, 0),
+            "each funded twin promises its own curve at the input it carries");
     }
 
     /// L803 c2 (`outL > balsOut[i]`). Neutralised, the input-side cut fires on

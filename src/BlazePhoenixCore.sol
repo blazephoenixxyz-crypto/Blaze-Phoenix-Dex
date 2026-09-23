@@ -1233,15 +1233,21 @@ library BlazePhoenixCore {
         // that `r` is always the position INSIDE the range (0 <= r < S).
         int256 r = int256(tick) % sp_;
         if (r < 0) r += sp_;
-        uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r);
-        // d == 0 happens only going DOWN from a tick that is itself a range
-        // boundary (r == 0): the price sits inside [tick, tick + 1), so the
-        // lower edge is less than one tick away, not a whole range. Treating
-        // the range below as "ahead" priced its liquidity with this range's
-        // figure and clamped a full spacing late. One tick keeps the promise
-        // continuous across the boundary (tick 0 promises no more than tick 1)
-        // and over-states the edge by at most 0.01 %. Going up, r == 0 gives
-        // d == S already: the whole range does lie ahead.
+        // The distance is counted from the PRICE, and the tick only says where
+        // the price's tick STARTS: the price may already sit most of a tick above
+        // it. Going down that is harmless (the edge is at least `r` ticks below
+        // any price inside the tick). Going up it is not: the top edge is
+        // `S - r` ticks above the tick's start, so from a price inside the tick
+        // it can be as little as `S - r - 1` ticks away. Counting `S - r` put the
+        // edge up to one tick too far and promised more than the range pays
+        // (1.030x with the price at 0.9 of tick 30, spacing 60 - the up twin of
+        // the down-arm defect V4-4 closed).
+        uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r - 1);
+        // d == 0 happens going DOWN from a tick that is itself a range boundary
+        // (r == 0), and going UP from the range's top tick (r == S - 1): either
+        // way the edge is less than one tick away, not a whole range. One tick
+        // keeps the promise continuous across the boundary and over-states the
+        // edge by at most that one tick (0.01 % in price).
         if (d == 0) d = 1;
         uint256 P = uint256(sqrtP);
         // THE TWO DIRECTIONS ARE NOT SYMMETRIC, and assuming so was a defect.

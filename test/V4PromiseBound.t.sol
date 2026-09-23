@@ -96,8 +96,9 @@ contract V4PromiseBoundTest is Test {
         assertGt(atBoundary, 0, "while still promising what the last tick holds");
     }
 
-    /// The mirror: going UP from the same boundary tick the whole range does lie ahead,
-    /// so the promise equals the one-spacing clamp exactly as before.
+    /// The mirror: going UP from the same boundary tick the range lies ahead, less the
+    /// one tick the price may already be inside (the clamp counts from the price, not
+    /// from the tick's start - see the next test). Periodic in the spacing.
     function test_BoundaryTick_Up_PromisesTheWholeRange() public {
         uint160 P = uint160(BPC.Q96);
         uint256 amt = 1e21;
@@ -105,6 +106,84 @@ contract V4PromiseBoundTest is Test {
         uint256 up = BPC.v4LegOut(address(mgr), pid, amt, 3000, TS, false);
         assertEq(up, BPC.outV3(amt, P, uint128(1e18), 3000, false, BPC.sqrtBoundary(P, int24(0), TS, false)), "one spacing ahead");
         assertEq(BPC.sqrtBoundary(P, int24(0), TS, false), BPC.sqrtBoundary(P, int24(60), TS, false), "the up clamp is periodic in the spacing");
+    }
+
+    /// The up arm with the price INSIDE its tick. The fixtures above sit at the bottom
+    /// of their tick (price 1 with tick 0/59), which is the one position where counting
+    /// the range from the tick's start is exact. At 0.9 of tick 30 the true top edge
+    /// (tick 60) is 29.1 ticks away; the promise may not price liquidity beyond it.
+    /// The edge is the exact sqrt price at tick 60, computed outside the Core.
+    /// RED at 28118dd: the promise was 1.030x the range's output.
+    function test_Up_PriceInsideItsTick_PromiseNeverExceedsTheRangeOutput() public {
+        uint160 P = uint160(79350658504438321566761821096);     // sqrt(1.0001^30.9) * 2^96
+        uint160 edge = uint160(79466191966197645195421774832);  // sqrt(1.0001^60)   * 2^96
+        uint256 amt = 1e21;                                     // leaves the range
+        _seed(P, int24(30), 0, 3000, uint128(1e18));
+        uint256 promised = BPC.v4LegOut(address(mgr), pid, amt, 3000, TS, false);
+        // The range's whole token0 content, from the closed form - not from `outV3`, which is
+        // the function under test: a bound it computed would move with any defect in it.
+        uint256 rangeOut = _rangeCap(P, edge, uint128(1e18), true);
+        emit log_named_uint("promised  ", promised);
+        emit log_named_uint("range out ", rangeOut);
+        assertLe(promised, rangeOut, "the up clamp priced liquidity beyond the edge of the range");
+        assertGt(promised, rangeOut * 95 / 100, "and it stays within one tick of the edge");
+    }
+
+    /// Everything a range of liquidity `L` holds between the price `P` and the edge `e`,
+    /// before fees: token0 on the way up, `L*Q96*(e-P)/(P*e)`; token1 on the way down,
+    /// `L*(P-e)/Q96`. Rounded UP, because it is a ceiling.
+    function _rangeCap(uint160 P, uint160 e, uint128 L, bool up) internal pure returns (uint256) {
+        return up
+            ? BPC.mulDivUp(BPC.mulDivUp(uint256(L), uint256(e) - uint256(P), uint256(e)), BPC.Q96, uint256(P))
+            : BPC.mulDivUp(uint256(L), uint256(P) - uint256(e), BPC.Q96);
+    }
+
+    // ─── The promise across its dimensions ────────────────────────────────────
+    // direction × spacing × tick × where the price sits inside its tick. The
+    // fixed tests above each hold one cell; the defect closed above lived in a
+    // cell none of them held (up, price inside its tick). The oracle is the
+    // tick's sqrt price computed HERE, by squaring sqrt(1.0001) in 1e38 fixed
+    // point - never by the Core - rounded so the bound it gives is the stricter.
+
+    uint256 constant ONE38 = 1e38;
+    uint256 constant SQRT_1_0001 = 100004999875006249609402341699379869721; // sqrt(1.0001) * 1e38
+
+    function _sqrtAt(int256 t) internal pure returns (uint160) {
+        uint256 k = uint256(t < 0 ? -t : t);
+        uint256 r = ONE38;
+        uint256 b = SQRT_1_0001;
+        while (k != 0) {
+            if (k & 1 == 1) r = BPC.mulDiv(r, b, ONE38);
+            b = BPC.mulDiv(b, b, ONE38);
+            k >>= 1;
+        }
+        return t < 0 ? uint160(BPC.mulDiv(BPC.Q96, ONE38, r)) : uint160(BPC.mulDiv(BPC.Q96, r, ONE38));
+    }
+
+    /// The promise never prices liquidity beyond its range's edge, in either direction,
+    /// at any spacing, anywhere inside the tick - except by the one tick the clamp keeps
+    /// on purpose when the edge is less than one tick away (the V4-4 tolerance).
+    function testFuzz_ThePromiseNeverPricesBeyondItsRange(
+        int24 tickSeed, uint16 fracSeed, uint8 spacingSel, bool up
+    ) public {
+        int256 S = spacingSel % 4 == 0 ? int256(1) : spacingSel % 4 == 1 ? int256(10)
+                 : spacingSel % 4 == 2 ? int256(60) : int256(200);
+        int256 t = int256(tickSeed) % 200_000;
+        uint256 frac = 1 + uint256(fracSeed) % 998;               // per mille, never on an edge
+        uint160 pT = _sqrtAt(t);
+        uint160 P = uint160(pT + (uint256(_sqrtAt(t + 1)) - pT) * frac / 1000);
+        int256 r = t % S;
+        if (r < 0) r += S;
+        int256 edgeTick = up ? t - r + S : t - r;
+        bool withinOneTick = up ? r == S - 1 : r == 0;
+        if (withinOneTick) edgeTick = up ? edgeTick + 1 : edgeTick - 1;
+        uint256 amt = 1e30;                                       // large enough to leave most ranges
+
+        _seed(P, int24(t), 0, 3000, uint128(1e18));
+        uint256 promised = BPC.v4LegOut(address(mgr), pid, amt, 3000, int24(S), !up);
+        uint256 bound = _rangeCap(P, _sqrtAt(edgeTick), uint128(1e18), up);
+        assertLe(promised, bound, "the promise priced liquidity beyond the edge of its range");
+        assertGt(promised, 0, "a range holding liquidity promised nothing");
     }
 
     /// A dynamic-fee key (fee sentinel 0x800000) under a non-zero protocol fee cannot be

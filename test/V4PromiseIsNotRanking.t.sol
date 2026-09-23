@@ -304,7 +304,9 @@ contract V4PromiseIsNotRanking is Test {
         console2.log("clamped deliverable        :", deliverable);
         console2.log("route.totalOut (capacity)  :", plan.best.totalOut);
 
-        assertLe(lg.expectedOut, deliverable, "the leg attests more than the venue can pay");
+        // EQUAL, not at most: a leg that attests less than it can pay still passes an upper
+        // bound, and the floor derived from it then protects the user less than it should.
+        assertEq(lg.expectedOut, deliverable, "the leg attests exactly what the venue can pay");
         assertGt(plan.best.totalOut, lg.expectedOut, "the capacity figure moved with the promise: ranking would too");
         assertEq(plan.best.hops[0].expectedOut, plan.best.totalOut, "the hop keeps the capacity figure");
     }
