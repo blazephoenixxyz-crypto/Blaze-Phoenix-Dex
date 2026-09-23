@@ -626,7 +626,20 @@ contract BlazePhoenixSolver {
                 // anchor T2 removed: it can only shrink a claim, never grow one.
                 // `balsOut` is the quantity already read for the capacity ceiling,
                 // so the cap costs no extra call.
-                if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES)) {
+                //
+                // THE CONCENTRATED FAMILY TOO (ninth wave, Binod Bk). There the
+                // depth is `depthFromL18(liquidity(), slot0())` - the contract's own
+                // word about itself - and a V3-shaped contract holding nothing that
+                // declared 1e33 took the whole order from a pool holding 1,000,000
+                // a side, then set the floor its own fill was judged against. The
+                // cap binds on honest concentrated pools as well, because their
+                // virtual depth exceeds what they hold (3.327e18 against 1.600e18
+                // measured at the capacity clamp below): they now weigh by the mass
+                // they hold, the rule the registry writer already applies. A
+                // donation can lift a concentrated pool's capped weight at most back
+                // to its declared depth - the weight it carried before this cap - so
+                // it buys no share the declaration did not already claim.
+                if (BPC.kindHasAny(cands[i].kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {
                     uint256 physical = BPC.to18(balsOut[i], dOt1_ - 1);
                     if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;
                 }
@@ -813,9 +826,16 @@ contract BlazePhoenixSolver {
             //     raises the cap AND raises what the pool can really pay, and the donated tokens
             //     are CONSUMED paying the user. It is not an attack, it is a subsidy.
             // Reading the same quantity does not mean asking the same question.
-            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)
-                && balsOut[i] > 0)
-            {
+            //
+            // ZERO HOLDINGS ARE ZERO CAPACITY. This clamp used to skip a book
+            // holding none of tokenOut, on the V4 reasoning that a pool's own
+            // balance can be zero while the singleton pays. V4 never reaches this
+            // branch - it is A_CONC_SING, and its `balsOut` is forced to zero above
+            // - and a V3/Algebra pool custodies its own tokens: holding none, it
+            // can pay none. Skipping the clamp handed a V3-shaped contract with no
+            // capital its whole declared promise (ninth wave, Binod Bk). A zero
+            // cap now drops the leg, and the freed input flows on like any cut.
+            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) {
                 uint256 cap = BPC.mulDiv(balsOut[i], MAX_CONC_DRAIN_BPS, BPC.BPS);
                 if (allowCut && outL > balsOut[i]) {
                     // ─── Input-side clamp: capital follows the promise ───
@@ -1153,18 +1173,21 @@ contract BlazePhoenixSolver {
         // uncommitted remainder back to the caller) instead of walking the
         // pool's tick ladder at a collapsing marginal price. Aggressive but
         // possible (cap < quote <= holdings): full commit, promise capped.
+        // Zero holdings are zero capacity here as on the split path, and for the
+        // same reason: this is the second consumer of the same question, and the
+        // split gate collapses a route onto the best single leg, so a skip here
+        // alone was enough to hand an empty book the whole order.
         uint256 legIn = amountIn;
         if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
             uint256 balOut = BPC.balanceOf(tOut, cand.pool);
-            if (balOut > 0) {
-                uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);
-                if (allowCut && out_ > balOut) {
-                    legIn = BPC.mulDiv(amountIn, cap, out_);
-                    out_ = cap;
-                    if (legIn == 0 || out_ == 0) return hop;
-                } else if (out_ > cap) {
-                    out_ = cap;
-                }
+            uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);
+            if (allowCut && out_ > balOut) {
+                legIn = BPC.mulDiv(amountIn, cap, out_);
+                out_ = cap;
+                if (legIn == 0 || out_ == 0) return hop;
+            } else if (out_ > cap) {
+                out_ = cap;
+                if (out_ == 0) return hop;
             }
         }
         Leg[] memory legs = new Leg[](1);
