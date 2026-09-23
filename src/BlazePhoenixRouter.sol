@@ -1185,6 +1185,14 @@ contract BlazePhoenixRouter {
             uint256 hopGot;
             uint256 hopAttested;
             uint256 hopQuoted;
+            // NM-002's RESIDUAL. The fallback at the end of this loop fires only
+            // when the WHOLE hop went unquoted. A hop where ONE leg spends input
+            // without being measured still has `hopQuote != 0`, so the floor is
+            // built on the legs that could be priced and the blind leg's share is
+            // bounded by nothing - it is absent from both sides of the Layer 1
+            // comparison, which therefore compares the measured legs with their
+            // own attestations. This flag is what tells the two cases apart.
+            bool hopBlind;
             // ─── LAYER 2: canonical order — hookless BEFORE hooked ───
             // A hook gains EVM control during the swap and can touch ANY
             // contract — including the pool of a leg of this same route that has
@@ -1274,6 +1282,19 @@ contract BlazePhoenixRouter {
                 hopGot += legGot;
                 hopAttested += legAtt;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
+                // A leg that spent input and came back with no attestation was not
+                // measured at all.
+                //
+                // BLINDNESS IS "NOT MEASURED", NOT "NOT ATTESTED", and the two part
+                // company: a leg the caller left unattested is still measured when
+                // the frame could price it, and its delivery does reach the
+                // comparison. The condition below is the exact negation of the
+                // measurement guard in `_execScaled` - no attestation AND no in-frame
+                // quote - so it names the only leg that leaves no trace. A leg
+                // scaled to zero moved nothing and is not blindness.
+                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {
+                    hopBlind = true;
+                }
                 unchecked { ++l; }
             }
             // ─── LAYER 1: shared per-hop budget (aggregate) ───
@@ -1323,8 +1344,21 @@ contract BlazePhoenixRouter {
             // quoted in-frame but did execute falls back to its attested figure, and nothing
             // reverts here, because two of the zero-quote paths are legitimately executable
             // pools (a 0-fee CL pool, a dynamic-fee V4 pool under a protocol fee).
+            //
+            // THE RESIDUAL, CLOSED. `hopQuote != 0` was read as "this hop was
+            // quoted", and it only means "at least one leg of it was". Where a leg
+            // spent input unmeasured, the hop's own attested figure is used when it
+            // is the larger of the two: it is the only number in scope that speaks
+            // for the WHOLE hop, the caller can only push it UP (R3), and a floor
+            // that moves up is the conservative direction. Still never reverts here
+            // - the two legitimately executable zero-quote paths above are
+            // unaffected, because neither of them leaves a leg unmeasured.
+            uint256 hopBase = hopQuote != 0 ? hopQuote : hopAttested;
+            if (hopBlind && route.hops[h].expectedOut > hopBase) {
+                hopBase = route.hops[h].expectedOut;
+            }
             if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)
-                finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;
+                finalHopQuote = hopBase;
             unchecked { ++h; }
         }
 
@@ -1619,6 +1653,16 @@ contract BlazePhoenixRouter {
             uint256 bound = (leg.expectedOut != 0 && leg.amountIn != 0)
                 ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)
                 : 0;
+
+            // THE ATTESTATION IS NEVER CAPPED BY THE FRAME. A single-tick leg whose
+            // swap leaves its range cannot pay the unclamped ranking figure, and
+            // the cure for that lives in the PLAN: the Solver attests the promise
+            // (Core:1720). Capping the bound here by `legQuote` instead was tried
+            // on 2026-09-22 and turned the attestation into a self-consistency
+            // check - the in-frame quote is of the pool that EXECUTES, so a
+            // substituted pool, or one moved before this call, sets its own
+            // floor. test_SubstitutedHook_HonestAttestation_IsRefusedByTheGate
+            // went green-to-red on it. The frame may only push this bound UP.
 
             // ─── COVERAGE GATE ───
             // Measurement does not REPLACE the attestation — it joins it as the second element of
@@ -2157,19 +2201,22 @@ contract BlazePhoenixRouter {
                     // PROV-01 ON THE CONCENTRATED ARM: mass that costs nothing is not mass.
                     // `liquidity()` is the pool's own word about itself; the depth recorded here
                     // is capped by the tokens the pool physically holds, the same rule the pair
-                    // arm applies through `_v2Depth18`. The cap binds only when the pool holds
-                    // BOTH tokens: a concentrated range with all of its liquidity on one side of
-                    // the current tick legitimately holds ~zero of the other, and the suite pins
-                    // that such a book keeps its raw promise (`test_L799c2`). Inert on an honest
-                    // pool, binding on an inflated claim - which must now be backed by real mass
-                    // on both sides to be believed. V4 needs no cap: its liquidity is read from
-                    // the Hub's canonical PoolManager, not from a caller-named contract.
+                    // arm applies through `_v2Depth18`. Holding both tokens, the cap is the short
+                    // side. Holding one, it is that side: a concentrated range with all of its
+                    // liquidity on one side of the current tick legitimately holds ~zero of the
+                    // other, and it keeps the mass it does hold. Holding NEITHER, the mass is zero.
+                    // An empty side used to switch the cap off altogether, and a V3-shaped
+                    // contract that forwarded its input away and paid out everything it held
+                    // ended every swap with nothing, and was stamped at the depth it declared -
+                    // the top bucket, on every swap it captured (ninth wave, Binod Bk). V4 needs
+                    // no cap: its liquidity is read from the Hub's canonical PoolManager, not
+                    // from a caller-named contract.
                     uint256 b0 = BPC.balanceOf(t0, leg.pool);
                     uint256 b1 = BPC.balanceOf(t1, leg.pool);
-                    if (b0 != 0 && b1 != 0) {
-                        uint256 held = BPC.shortSide18(b0, dc0, b1, dc1);
-                        if (held < depth) depth = held;
-                    }
+                    uint256 held = (b0 != 0 && b1 != 0)
+                        ? BPC.shortSide18(b0, dc0, b1, dc1)
+                        : BPC.to18(b0, dc0) + BPC.to18(b1, dc1);
+                    if (held < depth) depth = held;
                 }
                 // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
                 // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend

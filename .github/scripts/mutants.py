@@ -302,6 +302,66 @@ M = [
       old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
       new="        controlRenounced = true; // MUTANTE",
       teste="test_Composition_PauseThenRenounce_IsRefused"),
+ # ── ranking is not a promise: the plan carries both figures ──────────────
+ # `expectedOut` leaves universalQuote as a CAPACITY figure - Core:1699 keeps it
+ # unclamped so a deeper venue reads as deeper - and a floor is a PROMISE. The
+ # Solver writes the promise into each leg's attestation at assembly and carries
+ # it along the chain; hop and route totals keep the capacity for ranking.
+ # The Router is NOT a place for this: an in-frame cap there (tried 2026-09-22)
+ # made a substituted pool set its own floor, and the BPX-2026-009 gate test
+ # caught it. These watch every piece that keeps the two figures apart.
+ dict(nome="promise: nothing is promised (the leg and the floor go back to the capacity figure)",
+      f="src/BlazePhoenixSolver.sol",
+      old="            if (BPC.kindHasAny(lg.kind, BPC.A_CONC_SING) && one != 0) {",
+      new="            if (false) { // MUTANT",
+      teste="test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay"),
+ dict(nome="promise: the LARGER of the two is kept (the clamp is inverted)",
+      f="src/BlazePhoenixSolver.sol",
+      old="                        if (p != 0 && p < one) one = p;",
+      new="                        if (p != 0 && p > one) one = p; // MUTANT",
+      teste="test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay"),
+ dict(nome="promise: the floor is promised but the leg still attests the capacity (the Router refuses what the preview endorsed)",
+      f="src/BlazePhoenixSolver.sol",
+      old="                lg.expectedOut = one;",
+      new="                // MUTANT: the attestation keeps the ranking figure",
+      teste="test_Red_CanExecuteMustNotBeRefused"),
+ dict(nome="promise, across hops: an earlier hop's legs keep the capacity figure",
+      f="src/BlazePhoenixSolver.sol",
+      old="        uint256 carry = _promiseLegs(hops[0]);",
+      new="        uint256 carry = hops[0].expectedOut; // MUTANT",
+      teste="test_TheMultiHopFloorFollowsTheChainOfPromises"),
+ dict(nome="promise, across hops: the last hop's promise is not scaled by what reaches it",
+      f="src/BlazePhoenixSolver.sol",
+      old="            carry = (sized != 0 && carry < sized) ? BPC.mulDiv(own, carry, sized) : own;",
+      new="            carry = own; // MUTANT",
+      teste="test_TheMultiHopFloorFollowsTheChainOfPromises"),
+ # ── NM-002's residual: a hop quoted only in PART ─────────────────────────
+ # The 2026-09-02 fallback fires when the WHOLE hop went unquoted. These watch the
+ # arm that tells a partly-quoted hop from a fully-quoted one: if either survives,
+ # a leg can spend input with nothing bounding what it returns.
+ dict(nome="NM-002 residual: a blind leg stops being noticed (the partial quote is read as complete)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {\n                    hopBlind = true;\n                }",
+      new="                // MUTANT: blind legs no longer flagged",
+      teste="test_Probe_ABlindLegThatEatsItsHalf"),
+ dict(nome="NM-002 residual: the hop's own attested figure stops being preferred",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (hopBlind && route.hops[h].expectedOut > hopBase) {\n                hopBase = route.hops[h].expectedOut;\n            }",
+      new="            // MUTANT: the hop-level attestation is ignored",
+      teste="test_Probe_ABlindLegThatEatsItsHalf"),
+ dict(nome="NM-002 residual: a zero-input leg is counted as blind (over-tight, breaks honest routes)",
+      f="src/BlazePhoenixRouter.sol",
+      # Re-watched 2026-09-22: under test_Control_TwoHonestLegsSettle this was
+      # DECORATIVE (it passed mutated) - no leg there had zero input and an
+      # unmeasured delivery at once, so the flag changed nothing observable.
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
+      new="                if (leg.expectedOut == 0 && legQuotes[l] == 0) { // MUTANT",
+      teste="test_Control_AZeroInputLegIsNotBlindness"),
+ dict(nome="NM-002 residual: every leg that spent input is counted as blind (an over-stated hop total becomes the floor)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {",
+      new="                if (scaledAmt != 0) { // MUTANT",
+      teste="test_Control_AnOverStatedHopTotalDoesNotRaiseTheFloor"),
  # ── a live row is identical-or-refused once control is renounced ──────────
  # The in-place refresh writes five fields of an already-admitted row, and every
  # one of them decides which address that row resolves to. These mutants watch
@@ -675,8 +735,11 @@ M = [
       # expression by the FLOOR-01 fix. NM-002's property lives inside it - a hop that DID
       # execute but could not be quoted in-frame falls back to its attested figure - so the
       # mutant now removes exactly that fallback and leaves the rest of the fix standing.
-      old="                finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;",
-      new="                finalHopQuote = hopQuote;",
+      # Retargeted again 2026-09-22: closing NM-002's residual lifted the fallback out of
+      # the assignment and into `hopBase`, so the mutant follows it there. Same property,
+      # same killer, one expression up.
+      old="            uint256 hopBase = hopQuote != 0 ? hopQuote : hopAttested;",
+      new="            uint256 hopBase = hopQuote;",
       teste="test_LiquidityGapOnLastHop_FloorFallsBackToAttested"),
  dict(nome="impact: an unquotable concentrated leg counts BPS again (the floor collapses to the clamp)",
       f="src/BlazePhoenixRouter.sol",
@@ -706,8 +769,10 @@ M = [
  # ── 6th bounty wave (mohaseenkatika), 2026-09-02: one floor, two producers ────
  dict(nome="solver floor: the attested floor rounds DOWN again (1 wei under the Router's)",
       f="src/BlazePhoenixSolver.sol",
-      old="        uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);",
-      new="        uint256 floorOut = BPC.mulDiv(hop.expectedOut, floorBps, BPC.BPS); // MUTANTE",
+      # Retargeted 2026-09-22: the floor's basis moved from the capacity figure to
+      # the promise one, so the rounding this watches moved with it. Same property.
+      old="        uint256 floorOut = BPC.mulDivUp(_promiseLegs(hop), floorBps, BPC.BPS);",
+      new="        uint256 floorOut = BPC.mulDiv(_promiseLegs(hop), floorBps, BPC.BPS); // MUTANTE",
       teste="test_Parity_SingleLegRoute_AttestedFloorEqualsEnforcedFloor"),
  dict(nome="solver floor: the hop impact is the UNWEIGHTED mean again (dust votes like a whole leg)",
       f="src/BlazePhoenixSolver.sol",
@@ -756,6 +821,36 @@ M = [
       old="                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;",
       new="                    physical; // MUTANT",
       teste="test_probe_forgedMass_cannotCaptureTheRouteWithoutCapital"),
+ # ── the book that holds nothing (ninth wave, Binod Bk) ────────────────────
+ # A V3-shaped contract that ends every swap empty switched the mass cap off at
+ # every producer. One mutant per producer, and the registry watched in both
+ # directions: an empty side must not switch the cap off, and a one-sided book
+ # must not be zeroed for holding only one side.
+ dict(nome="empty book: the split clamp skips a book holding no tokenOut again",
+      f="src/BlazePhoenixSolver.sol",
+      old="            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) {",
+      new="            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL) && balsOut[i] > 0) { // MUTANT",
+      teste="test_ABookHoldingNoTokenOutIsNeverRouted"),
+ dict(nome="empty book: the single-leg clamp skips a book holding no tokenOut again",
+      f="src/BlazePhoenixSolver.sol",
+      old="            uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);\n            if (allowCut && out_ > balOut) {",
+      new="            uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);\n            if (balOut == 0) {} else if (allowCut && out_ > balOut) { // MUTANT",
+      teste="test_AnEmptyBookAloneOnItsPairYieldsNoRoute"),
+ dict(nome="empty book: concentrated depth weighs by the declaration again, not the mass held",
+      f="src/BlazePhoenixSolver.sol",
+      old="                if (BPC.kindHasAny(cands[i].kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {",
+      new="                if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES)) { // MUTANT",
+      teste="test_TheBandIsAnchoredByTheMassHeld_NotTheMassDeclared"),
+ dict(nome="empty book: an empty side switches the registry's mass cap off again",
+      f="src/BlazePhoenixRouter.sol",
+      old="                    if (held < depth) depth = held;",
+      new="                    if (held < depth && b0 != 0 && b1 != 0) depth = held; // MUTANT",
+      teste="test_AnEmptyBookIsSeatedAtTheMassItHolds_WhichIsNone"),
+ dict(nome="empty book: a one-sided book is zeroed (over-tight: a range wholly on one side holds real tokens)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                        : BPC.to18(b0, dc0) + BPC.to18(b1, dc1);",
+      new="                        : 0; // MUTANT",
+      teste="test_AOneSidedBookKeepsTheMassOfTheSideItHolds"),
  # ── the multi-hop twin of the floor (found by the review pass after PR #25) ──
  dict(nome="floor, multi-hop: a leg's impact stops being weighted by its share",
       f="src/BlazePhoenixSolver.sol",
@@ -1147,8 +1242,10 @@ M = [
       teste='test_ExactQuoteMustNotOverstateDeliverable'),
  dict(nome='F-B: the concentrated arm stops capping depth by the mass the pool holds',
       f='src/BlazePhoenixRouter.sol',
-      old='                        if (held < depth) depth = held;',
-      new='                        held; // MUTANT',
+      # Re-anchored 2026-09-23: the cap moved out of the both-sides branch when an
+      # empty side stopped switching it off. Same guard, same watcher.
+      old='                    if (held < depth) depth = held;',
+      new='                    held; // MUTANT',
       teste='test_ConcentratedDepthIsTheDeclaredL_NotThePhysicalMass'),
  dict(nome='REG-03: the V4 registry row goes back to the DECLARED pool',
       f='src/BlazePhoenixRouter.sol',
