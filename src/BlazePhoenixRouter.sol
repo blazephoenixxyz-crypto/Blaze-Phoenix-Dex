@@ -1840,8 +1840,14 @@ contract BlazePhoenixRouter {
             // listed is the caller's signed choice on this door, bounded like every
             // venue by the in-frame promise, the attestation gate and userMinOut;
             // the automatic door never proposes it (registry reads filter by
-            // isHookLive). A hook with no swap bit never runs in a swap and needs
-            // neither list nor pin.
+            // isHookLive). A hook with no swap bit is never entered by ITS pool's
+            // swap and needs neither list nor pin. It can still run inside this
+            // unlock through a nested PoolManager call made by a hook that does
+            // run here - a donate, a swap or a liquidity change on any pool reaches
+            // that pool's hooks. What bounds it is the manager's own flash
+            // accounting (a delta left unsettled reverts the whole unlock, measured
+            // on Base: test/fork/NestedHookSettlementFork.t.sol), the same floors,
+            // and the admission of the hook that makes the call.
             if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) revert RouterE(9);
         }
         // V4 has no pool address — leg.pool holds the truncated poolId, not a
