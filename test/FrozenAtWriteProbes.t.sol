@@ -224,23 +224,26 @@ contract FrozenAtWriteProbes is Test {
     }
 
     /// The `kind` arm of the same condition, also inert on 2026-09-03. Only a
-    /// Solidly row may carry the stable bit: a pool that answers `stable()` but
-    /// was admitted under another kind is priced by that kind's curve, and a
-    /// stable bit on it would send the fallback down the wrong one.
+    /// Solidly row may carry the stable bit: a row priced by another kind's curve
+    /// with a stable bit on it would send the fallback down the wrong one. Since
+    /// the operator's door refutes the declared kind by shape (dex-16, ninth wave),
+    /// a pool that answers `stable()` declared V2 is registered as what it is, and
+    /// the bit follows the kind the row carries - never the declaration.
     function test_probe_stableField_nonSolidlyKindNeverCarriesTheBit() public {
         MockSolidlyPair impostor = new MockSolidlyPair(address(tA), address(tB), true);
         impostor.setReserves(1_000_000e18, 1_000_000e18);
         assertTrue(impostor.stable(), "premise: this pool DOES answer stable() true");
-        // Declared V2, so the stable bit must not be written whatever the pool says.
         hub.seedPool(address(impostor), BPC.KIND_V2, 30, address(0), address(tA), address(tB));
 
         PoolInfo[] memory rows = hub.getActivePools(address(tA), address(tB));
         bool seen;
         for (uint256 i; i < rows.length; i++) {
+            if (rows[i].stable) {
+                assertEq(rows[i].kind, BPC.KIND_SOLIDLY, "only a Solidly row may carry the stable bit");
+            }
             if (rows[i].pool != address(impostor)) continue;
             seen = true;
-            assertFalse(rows[i].stable,
-                "only a Solidly row may carry the stable bit");
+            assertEq(rows[i].kind, BPC.KIND_SOLIDLY, "the shape decides the kind, not the declaration");
         }
         assertTrue(seen, "pre-condition: the seeded row is listed");
     }
@@ -253,7 +256,9 @@ contract FrozenAtWriteProbes is Test {
         uint256 order = 10_000e18;
         RoutePlan memory p = solver.findBestRoutePlan(address(tA), address(tB), order);
         assertGt(p.best.hops.length, 0, "pre-condition: there must be a route");
-        assertEq(p.best.hops[0].expectedOut, sp.getAmountOut(order, address(tA)),
+        // The pool's own number, less the one wei the executor leaves it for its K check:
+        // the quote is what the executor asks for (Core.solidlyAskOut, dex-13).
+        assertEq(p.best.hops[0].expectedOut, sp.getAmountOut(order, address(tA)) - 1,
             "control: with getAmountOut available the quote is the pool's own number");
     }
 

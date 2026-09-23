@@ -280,8 +280,11 @@ contract HubRefusalsObservedTest is Test {
     // =========================================================================
 
     function _seed(uint256 i, address hooks) private returns (address p) {
-        p = address(uint160(0xC000 + i)); // codeless is fine: _register never calls the pool
-        hub.seedPool(p, BPC.KIND_V3, 3000, hooks, TOK_A, TOK_B);
+        // Codeless, declared as the shape a codeless address answers - a pair: the operator's
+        // door refutes a declared kind by the pool's shape (Core.provenShape, ninth wave), and
+        // no slot0 answers here. Eviction, which this section pins, does not read the kind.
+        p = address(uint160(0xC000 + i));
+        hub.seedPool(p, BPC.KIND_V2, 30, hooks, TOK_A, TOK_B);
     }
 
     /// Fill a pair to MAX_SLOTS, then seed one more. The 17th must EVICT —
@@ -334,7 +337,7 @@ contract HubRefusalsObservedTest is Test {
         assertEq(hub.getPool(hookedKey), address(0), "precondition: the hooked pool was evicted");
 
         // Same pool, same pair, same key — re-registered HOOKLESS.
-        hub.seedPool(hooked, BPC.KIND_V3, 3000, address(0), TOK_A, TOK_B);
+        hub.seedPool(hooked, BPC.KIND_V2, 30, address(0), TOK_A, TOK_B);
 
         PoolInfo[] memory ps = hub.getActivePools(TOK_A, TOK_B);
         assertEq(_hooksReported(ps, hooked), address(0),

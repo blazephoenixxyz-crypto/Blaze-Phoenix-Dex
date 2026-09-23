@@ -1005,12 +1005,10 @@ contract BlazePhoenixHub {
         // inflated by ~sqrt(price), clears _canInsert's 25% margin and evicts a
         // legitimate, deeper pool. Same conversion as universalQuote (Core):
         // virtual reserves at the current price, short side. sp != 0 granted above.
-        uint256 depthTok;
-        {
-            // Normalized: _canInsert compares buckets, and a bucket blind to
-            // decimals makes the deep pool and the dust pool project the same psi.
-            depthTok = BPC.depthFromL18(liq, sp, BPC.decimalsOf(s0), BPC.decimalsOf(s1));
-        }
+        // Normalized: _canInsert compares buckets, and a bucket blind to decimals makes the
+        // deep pool and the dust pool project the same psi. From the registry's one depth
+        // producer, which the swap door and the operator's door call too.
+        uint256 depthTok = BPC.registryDepth18(poolAddr, BPC.KIND_V4, s0, s1, $.v4PoolManager, pid);
         if (!_canInsert($.pairKeys[s0][s1], depthTok, _pairBridged($, s0, s1))) return key;
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
@@ -1818,8 +1816,8 @@ contract BlazePhoenixHub {
         // `quoteV3Fee(pool, 0, 0, dyn=false)` returns 0xFFFFFF fail-closed: the pool became
         // permanently unquotable. Swapping one calldata field for another calldata
         // field closes nothing — only reading the pool's SHAPE trusts
-        // nobody. It costs ~190 B of Hub, measured: the price of not having
-        // reintroduced the defect while closing it.
+        // nobody. The reading is the Core's (`provenShape`), and the operator's
+        // door asks it too.
         //
         // THE HOOKS: address(0) always, and that is provable, not conservative. Every
         // path reaching here from `recordSwap` has either proven the pool has NO
@@ -1844,39 +1842,12 @@ contract BlazePhoenixHub {
         // `dynShape` says which family answered.
         uint24 feeReg = fee;
         if (kind != BPC.KIND_V4 && kind != BPC.KIND_V4_NATIVE) {
-            (uint160 sp, , bool dynShape) = BPC.v3StateAndDynFee(pool);
-            bool declaredConc = kind == BPC.KIND_V3 || kind == BPC.KIND_ALGEBRA;
-            bool isConc = sp != 0;
-            // A declaration that contradicts the shape is refused outright
-            // rather than corrected: a V2 pair cannot answer slot0, and a
-            // concentrated pool has no reserves to read. Registering either on
-            // the caller's word would point the Solver at the wrong reader.
-            // Fail closed on the REGISTRY, which is this Hub's stated doctrine.
-            if (declaredConc != isConc) return;
-            // Within the concentrated families the shape decides, not calldata:
-            // Algebra prices with a dynamic fee it reports itself, V3 with a
-            // static tier, so persisting the wrong one poisons every later
-            // quote for this pool.
-            if (isConc) kind = dynShape ? BPC.KIND_ALGEBRA : BPC.KIND_V3;
-            // The pair-shaped family gets the same treatment (review
-            // 2026-09-02): a Solidly pair answers stable(), a Uniswap-V2 pair
-            // does not. Declared V2 on a Solidly pool priced it with V2 math
-            // at 30 bps — a volatile pool with a higher fee then reverted
-            // every honest swap in its own K check while the Solver kept
-            // ranking it first (its V2 quote is higher than the truth); a
-            // stable pool was priced on the wrong curve; declared Solidly on
-            // a V2 pair paid the fallback haircut forever. The shape decides;
-            // the calldata only proposes. Written as its own statement, not
-            // an `else`, so the concentrated line above keeps its mutant.
-            if (!isConc) kind = BPC.isSolidlyShaped(pool) ? BPC.KIND_SOLIDLY : BPC.KIND_V2;
-            // The registry fee of a PAIR-shaped row is 0 (review 2026-09-02):
-            // `getV3Fee` reads the V3 `fee()` getter, whose unit is a V3
-            // convention; a pair whose `fee()` answers in another unit
-            // (per-mille, ppm) poisoned its own row, and `effV2Fee` read the
-            // number as bps. 0 means "the house's single producer answers":
-            // effV2Fee(0) = 30 bps for V2, and Solidly's fee is measured live
-            // by readDynamicFee regardless. A V3 getter is read on V3 shapes.
-            feeReg = isConc ? (dynShape ? 0 : BPC.getV3Fee(pool)) : 0;
+            // The refutation lives in the Core (`provenShape`), where the operator's door asks
+            // the same question: one producer of "what family is this pool, and what fee does
+            // its row carry". Skips registration on a contradiction, as above.
+            bool proven;
+            (proven, kind, feeReg) = BPC.provenShape(pool, kind);
+            if (!proven) return;
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false);
         // initial tick + stamp wall-clock activity time
@@ -1917,8 +1888,13 @@ contract BlazePhoenixHub {
             unchecked { ++i; }
         }
         // Newcomer's projected fitness: vitality starts at 1, weighted by the depth
-        // bucket it will occupy. No bridge/conc bonus assumed (conservative).
+        // bucket it will occupy. The bridge term is the PAIR's, not the pool's
+        // (`_pairBridged`: uniform across a pair), so the newcomer carries it like every
+        // incumbent it is ranked against - scored without it, it met a bar raised by a
+        // term only its rivals were given (ninth wave, mohaseenbasha dex-12). The conc
+        // bonus belongs to each pool's own kind and stays unassumed (conservative).
         uint256 newcomerPsi = BPC.bucketWeight(BPC.depthBucket(newDepth));
+        if (bridged) newcomerPsi += (newcomerPsi * 2_500) / BPC.BPS;
         // RESTORED TO THE ORIGINAL, deliberately, after two wrong attempts.
         //
         // The margin's effective strength is NOT what the "25%" says, because
@@ -2042,6 +2018,8 @@ contract BlazePhoenixHub {
         _admitOnRegistration(_store(), hooks);
         (address t0, address t1) = BPC.sortTokens(tA, tB);
         key = keyOf(pool, t0, t1);
+        HubStore storage $ = _store();
+        bytes32 pid;
         if (BPC.kindHas(kind, BPC.A_CONC_SING)) {
             // A V4 row must carry its V4Entry, or every registry read of it
             // falls into the array walk this door used to leave behind (review
@@ -2049,17 +2027,40 @@ contract BlazePhoenixHub {
             // and write the O(1) index; a tier nothing can recover is refused,
             // and so is the native kind, whose wrapped side only addV4 knows.
             if (kind != BPC.KIND_V4) revert HubE(4);
-            HubStore storage $ = _store();
+            int24 ts;
             if ($.v4EntryOf[key] == 0) {
-                (int24 ts, bool ok) = _recoverV4Ts(key, pool, t0, t1, fee);
+                bool ok;
+                (ts, ok) = _recoverV4Ts(key, pool, t0, t1, fee);
                 if (!ok) revert HubE(4);
                 $.v4Entries.push(V4Entry({
                     currency0: t0, currency1: t1, fee: fee,
                     tickSpacing: ts, hooks: hooks
                 }));
                 $.v4EntryOf[key] = $.v4Entries.length;
+            } else {
+                ts = $.v4Entries[$.v4EntryOf[key] - 1].tickSpacing;
             }
+            pid = BPC.computeV4PoolId(t0, t1, fee, ts, hooks);
+        } else {
+            // THE SAME REFUTATION AS THE SWAP DOOR (ninth wave, mohaseenbasha dex-16). This door
+            // wrote kind and fee as declared, and nothing re-reads a row after it is written - a
+            // swap only ticks it - so a V3 pool seeded at 500 kept 500 against its own 3000.
+            // A declaration the shape contradicts is refused; a concentrated row takes the fee
+            // its pool reports; a pair row keeps the declared one, which may be the only source
+            // of a fork's tier (no pair reports its fee) and binds the operator alone.
+            (bool proven, uint8 k, uint24 f) = BPC.provenShape(pool, kind);
+            if (!proven) revert HubE(4);
+            kind = k;
+            if (BPC.kindHas(k, BPC.A_CONC_POOL)) fee = f;
         }
         _register(key, pool, kind, fee, hooks, t0, t1, true);
+        // BORN AT THE DEPTH MEASURED AT THIS DOOR (ninth wave, mohaseenbasha dex-17). The swap
+        // door seals a row at the depth the Router measured and the V4 claim door at the depth
+        // it reads; this door sealed depth bucket 0. A deep pool seeded cold then ranked below
+        // dust swapped twice, fell out of the funnel's top-K, and was never swapped to be
+        // corrected. The depth comes from the same producer the Router calls. Only the bucket
+        // is written: no swap happened here, so the swap count stays what it was.
+        $.slot[key] = BPC.setBucket($.slot[key],
+            BPC.depthBucket(BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid)));
     }
 }

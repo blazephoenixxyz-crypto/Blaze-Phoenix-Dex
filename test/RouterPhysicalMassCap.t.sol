@@ -6,7 +6,7 @@ pragma solidity 0.8.36;
 //
 //  THE CLAIM. A pool's declared getReserves() is a self-declaration. The depth
 //  bucket the Hub stores for that pool is NOT: it ranks the funnel's top-K and
-//  it decides evictions. Router._v2Depth18 (Router:2044-2060) therefore caps
+//  it decides evictions. Core.registryDepth18 therefore caps
 //  each declared reserve by the balance the pool PHYSICALLY holds:
 //
 //      Router:2047        (uint256 r0, uint256 r1) = BPC.getReserves(pool);
@@ -27,7 +27,7 @@ pragma solidity 0.8.36;
 //  test/FrozenAtWriteProbes.t.sol::test_probe_forgedMass_... pins the SOLVER
 //  copy (mutant "PROV-01 ... (Solver)"). It reaches the Hub by calling
 //  hub.recordSwap directly with a hand-written depthWad, so it never executes
-//  Router._v2Depth18 at all. This file closes that gap by driving a REAL
+//  Core.registryDepth18 at all. This file closes that gap by driving a REAL
 //  swapExactIn end to end and then reading the bucket the Hub actually holds.
 //
 //  RED OR GREEN TODAY (main @ 6438fe4): every test in this file is GREEN. The
@@ -185,7 +185,7 @@ contract RouterPhysicalMassCapTest is Test {
 
     /// @dev One hop, one leg, trading FROM the token sitting at pair slot
     ///      `slotIn`. zeroForOne is set from the same slot, so
-    ///      Router._recordHits derives t0 == pair.token0() and _v2Depth18
+    ///      Router._recordHits derives t0 == pair.token0() and registryDepth18
     ///      caps r0 with the balance of the pair's real token0.
     function _routeFromSlot(uint8 slotIn) internal view returns (Route memory r) {
         Leg[] memory legs = new Leg[](1);
@@ -248,7 +248,7 @@ contract RouterPhysicalMassCapTest is Test {
     //     holds must be the PHYSICAL one.
     //
     //     Killed by: mutant "PROV-01 (Router): the physical cap is gone".
-    //     With both `if` lines removed, _v2Depth18 returns shortSide18(1e30,
+    //     With both `if` lines removed, registryDepth18 returns shortSide18(1e30,
     //     1e30) = 1e30 and tickSlot writes bucket 15.
     // =========================================================================
 
@@ -257,7 +257,9 @@ contract RouterPhysicalMassCapTest is Test {
         _fund(s1, SHALLOW);
         pair.setReserves(FORGED, FORGED);
         _seed();
-        assertEq(_bucket(), 0, "pre-condition: seedPool leaves the bucket at 0");
+        // The operator's door measures with the same producer since the ninth wave (dex-17):
+        // it seals the physical mass too. The swap below must keep it there.
+        assertEq(_bucket(), B_PHYSICAL, "pre-condition: seedPool seals the physical mass");
         assertEq(_swapCount(), 0, "pre-condition: the row has never been ticked");
 
         Route memory r = _routeFromSlot(0);
@@ -347,7 +349,7 @@ contract RouterPhysicalMassCapTest is Test {
         assertEq(hub.getPool(_key()), address(pair),
             "pre-condition: the self-swap registered the pair, so there is a bucket to read");
         assertEq(BPC.decodeKind(hub.getSlot(_key())), BPC.KIND_V2,
-            "pre-condition: the row is the pair-shaped one whose depth _v2Depth18 produced");
+            "pre-condition: the row is the pair-shaped one whose depth registryDepth18 produced");
         assertEq(_bucket(), B_PHYSICAL,
             "PROV-01 (Router): a self-registering forged pair was born in the declared bucket");
     }

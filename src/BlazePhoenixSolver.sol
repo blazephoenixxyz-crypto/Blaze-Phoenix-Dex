@@ -915,44 +915,36 @@ contract BlazePhoenixSolver {
         // exercise. If conservatism is ever restored, the right place is the
         // floor (which is checked) and not the estimate (which only ranks).
         // MIN-SPLIT IMPROVEMENT GATE. A multi-leg split must EARN its legs:
-        // unless it beats the top-weight survivor's single-leg full-size quote
+        // unless it beats the best survivor's single-leg full-size quote
         // by >= MIN_SPLIT_IMPROVEMENT_PPM (ppm), collapse to that single leg. Kills
         // micro-splits whose marginal output gain is smaller than the real
-        // gas cost of the extra legs. cands[0] is the top-weight survivor
-        // (post FUNNEL CUT); one extra full-size quote in the view path only.
+        // gas cost of the extra legs. The single leg it must beat is the best
+        // survivor at full size (post FUNNEL CUT), one full-size quote each.
         if (legCount >= 2) {
-            // TWO FALLBACK CANDIDATES, not one. `cands[0]` is the highest
-            // WEIGHT, that is the DEEPEST — never the best priced. Comparing
-            // the split only against it means a better single leg could
-            // exist and never be considered.
-            //
-            // But `argmax(rates)` alone is no good either, for a subtle
-            // reason: the `rates` come from a SMALL probe, so they are
-            // MARGINAL prices, and a marginal price favours SHALLOW pools —
-            // great on the first token, awful on the whole amount. Depth is
-            // precisely the proxy for "can take the full size".
-            //
-            // The two heuristics measure different things and neither wins.
-            // BOTH are evaluated at real size and the best one stays: it
-            // costs ONE extra quote in the view path, and it cannot lose to
-            // the old behaviour because that is one of the two candidates.
+            // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
+            // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
+            // probe and are MARGINAL prices. Neither heuristic names the best single leg at
+            // full size, so neither is asked: every survivor is quoted at full size below.
             // `n`, NOT `cands.length`. The survivors are compacted IN
             // PLACE (see the compaction block above) but the memory array
             // keeps its ORIGINAL length: positions >= n are junk from
             // candidates the median band REJECTED or the funnel CUT.
             // Walking `cands.length` resurrected them as the fallback single
-            // leg, voiding both filters — caught by
+            // leg, voiding both filters - caught by
             // test_UmaPoolFundaNaoCapturaABanda, which exists exactly to
             // stop a deep badly-priced pool from entering the route.
-            uint256 melhorTaxa;
-            for (uint256 i = 1; i < n; ) {
-                if (rates[i] > rates[melhorTaxa]) melhorTaxa = i;
-                unchecked { ++i; }
-            }
+            // EVERY SURVIVOR, NOT TWO REPRESENTATIVES (ninth wave, Brian Wahyu). The deepest
+            // and the best marginal rate are two heuristics for "the best single leg at full
+            // size", and with three or more survivors that leg can be neither: a pool of middle
+            // depth and middle price. Measured: a split that beat both representatives kept an
+            // order 1.48% below the middle pool alone (test/SplitGateSeesEverySurvivor.t.sol).
+            // The set is the survivors of the band and the funnel - at most MAX_CANDIDATES -
+            // so the argmax is taken over the set it names.
             Hop memory single = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
-            if (melhorTaxa != 0) {
-                Hop memory alt = _singleLeg(tIn, tOut, amountIn, cands[melhorTaxa], allowCut);
+            for (uint256 i = 1; i < n; ) {
+                Hop memory alt = _singleLeg(tIn, tOut, amountIn, cands[i], allowCut);
                 if (alt.legs.length != 0 && alt.expectedOut > single.expectedOut) single = alt;
+                unchecked { ++i; }
             }
             if (
                 single.legs.length != 0 && single.expectedOut > 0 &&

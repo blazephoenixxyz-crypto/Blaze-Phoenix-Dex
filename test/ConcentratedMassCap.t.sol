@@ -6,7 +6,7 @@ pragma solidity 0.8.36;
 //
 //  OBJECTION. `Router._recordHits` computes the registry depth three ways
 //  (src/BlazePhoenixRouter.sol:2055-2103):
-//     A_RESERVES  -> _v2Depth18(...)                 caps r0/r1 by balanceOf  (PROV-01)
+//     A_RESERVES  -> registryDepth18(...)             caps r0/r1 by balanceOf  (PROV-01)
 //     A_CONC_SING -> depthFromL18(v4SqrtAndLiq(...))  no cap
 //     else (V3)   -> depthFromL18(getLiquidity(pool), spReg, ...)   NO CAP
 //  The V3/Algebra arm reads `liquidity()` and `slot0()` from `leg.pool`, an

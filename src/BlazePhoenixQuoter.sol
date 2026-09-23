@@ -646,9 +646,10 @@ contract BlazePhoenixQuoter {
                 } else {
                     // SOLIDLY — priced via the ONE Core dispatcher, exactly like
                     // the V2 branch above (DEDUP BP-14/P4). universalQuote's
-                    // KIND_SOLIDLY arm asks the pool itself first
-                    // (solidlyGetAmountOut: the pair's own bytecode, so quote ==
-                    // execution by construction); a fork without the selector
+                    // KIND_SOLIDLY arm asks the pool itself first, through the
+                    // executor's own producer (solidlyAskOut: the pair's number
+                    // less the wei the executor leaves it, so quote == execution
+                    // by construction); a fork without the selector
                     // falls to the replicated curve at the live fee with a
                     // 200 bps under-ask; a pool that answers nothing quotes 0.
                     // Every arm lands AT or BELOW execution truth. The previous

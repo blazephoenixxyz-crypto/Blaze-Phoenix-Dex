@@ -60,7 +60,7 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 203 / 203 |
+| Curated mutants **killed**, each paired with the one test that must die | 267 / 267 |
 | Stateful invariants shown **falsifiable** by a named source mutant (15 mutants × 40 invariants; the one survivor is a sentinel unreachable by design) | 14 of 15 mutants noticed |
 | Triples of regime-factor values exercised **by construction** — 168 generated fixtures, strength 3 | 1,636 / 1,636 |
 | Binaries of the quote maths that agree — optimiser runs 1 / 300 / 20000, six functions, 3,000 fuzz runs each | 3 / 3 |
@@ -120,9 +120,9 @@ number for that reason.
 
 | Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,478** `test*` / `invariant*` / `check*` declarations across **218** `.t.sol` files — unit, property, parity, and stateful invariants |
-| **Fork suites** | **25**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
-| **Mutation guard** | **203** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Test suite** | **1,590** `test*` / `invariant*` / `check*` declarations across **232** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Fork suites** | **27**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
+| **Mutation guard** | **267** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
 | **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 
@@ -281,8 +281,8 @@ not name what it pins.
 
 ```
 src/                    the five contracts — Router, Solver, Hub, Core, Quoter
-test/                   203 files: unit, property, parity, stateful invariants, regressions
-  fork/                 25 suites against live chain liquidity, and the pins of what is deployed
+test/                   232 files: unit, property, parity, stateful invariants, regressions
+  fork/                 27 suites against live chain liquidity, and the pins of what is deployed
   formal/               formal specifications and composition proofs
   hunt/                 regressions for findings from adversarial review
   mocks/                venue mocks: V2 pair, V3 pool, Solidly pair, Permit2, ERC-20

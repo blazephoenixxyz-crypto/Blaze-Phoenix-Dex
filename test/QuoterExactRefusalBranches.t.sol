@@ -753,7 +753,9 @@ contract QuoterExactRefusalBranchesTest is Test {
 
         Leg memory l = _leg(BPC.KIND_SOLIDLY, address(pair), AMT, honest);
         uint256 exactOut = _exact(_wrap(l, AMT), AMT);
-        assertEq(exactOut, honest, "at scale 1 the Solidly pass-through is the pool's own number");
+        // The pool's own number less the wei the executor leaves it for its K check: the
+        // exact pass promises what the executor asks for (Core.solidlyAskOut, dex-13).
+        assertEq(exactOut, honest - 1, "at scale 1 the Solidly pass-through is the executor's ask");
     }
 
     /// RED-UNTIL-FIXED — the direction law on the branch's other flank.

@@ -670,11 +670,13 @@ contract CATopK is CABase {
             hub.recordSwap(address(g), BPC.KIND_V2, 30, address(0),
                 address(tokenA), address(tokenB), 1e18, 1e18, 1e18);
         }
-        // psi-1 (seeded, never ticked) fair-priced book with the lowest fee.
+        // Seeded, never ticked, fair-priced, with the lowest fee - and thin: a seeded row is
+        // born at the depth it holds (dex-17, ninth wave), so 5e16 a side puts it in bucket 1,
+        // psi 2, below the eight psi-8 books whatever its fee.
         MockV2Pair junk = new MockV2Pair(address(tokenA), address(tokenB));
-        tokenA.mint(address(junk), 5_000e18);
-        tokenB.mint(address(junk), 5_000e18);
-        junk.setReserves(uint112(5_000e18), uint112(5_000e18));
+        tokenA.mint(address(junk), 5e16);
+        tokenB.mint(address(junk), 5e16);
+        junk.setReserves(uint112(5e16), uint112(5e16));
         hub.seedPool(address(junk), BPC.KIND_V2, 5, address(0), address(tokenA), address(tokenB));
 
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), 1_000e18);
