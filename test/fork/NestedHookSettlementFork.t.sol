@@ -129,8 +129,15 @@ contract NestedHookSettlementFork is Test {
     PoolKeyF keyA;
     PoolKeyF keyB;
 
+    /// Pinned so the measurement is reproducible and the fork cache is reused; the
+    /// canonical PoolManager is immutable, so any block after its deployment measures
+    /// the same boundary.
+    uint256 constant BASE_BLOCK = 49_800_000;
+
     function setUp() public {
-        vm.createSelectFork("base");
+        // No DRPC_KEY, no fork: skip rather than fail, as every fork suite here does.
+        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return; }
+        vm.createSelectFork("base", BASE_BLOCK);
 
         A = new MockERC20("AAA", "AAA");
         B = new MockERC20("BBB", "BBB");
@@ -196,12 +203,14 @@ contract NestedHookSettlementFork is Test {
 
         vm.prank(USER);
         try router.swapExactIn(_route(1e18), 1e18, 1, USER, block.timestamp + 1) {
+            // Only a swap that SUCCEEDED can have left tokens behind: after a revert the
+            // balance is zero by construction, so the check lives on this arm.
+            assertEq(A.balanceOf(ATTACKER), 0, "the nested hook kept tokens it never settled");
             fail();
         } catch (bytes memory err) {
             emit log_named_bytes("revert data", err);
             assertEq(bytes4(err), CURRENCY_NOT_SETTLED, "the swap failed for another reason");
         }
-        assertEq(A.balanceOf(ATTACKER), 0, "the nested hook kept tokens it never settled");
     }
 
     /// The report's later form: the admitted hook donates without settling.
