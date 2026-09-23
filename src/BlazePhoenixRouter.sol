@@ -1654,6 +1654,16 @@ contract BlazePhoenixRouter {
                 ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)
                 : 0;
 
+            // THE ATTESTATION IS NEVER CAPPED BY THE FRAME. A single-tick leg whose
+            // swap leaves its range cannot pay the unclamped ranking figure, and
+            // the cure for that lives in the PLAN: the Solver attests the promise
+            // (Core:1720). Capping the bound here by `legQuote` instead was tried
+            // on 2026-09-22 and turned the attestation into a self-consistency
+            // check - the in-frame quote is of the pool that EXECUTES, so a
+            // substituted pool, or one moved before this call, sets its own
+            // floor. test_SubstitutedHook_HonestAttestation_IsRefusedByTheGate
+            // went green-to-red on it. The frame may only push this bound UP.
+
             // ─── COVERAGE GATE ───
             // Measurement does not REPLACE the attestation — it joins it as the second element of
             // a max. If the attestation plausibly covers the quote measured in-frame, the
