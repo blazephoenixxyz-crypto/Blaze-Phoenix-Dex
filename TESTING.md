@@ -8,6 +8,11 @@ Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 for
 `forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
 the run did not have); **268 curated mutants**, all killed.
 
+Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
+with one, where none is skipped; the five N-version checks run in their own lane, at other code
+generation; `PcTraceProbe`, which records what the shipped binary executes, runs in the release
+job, where the trace is replayed and checked (`docs/assurance/ASSURANCE.md`, §4g).
+
 ## Running
 
 ```bash

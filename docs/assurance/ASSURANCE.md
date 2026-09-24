@@ -327,19 +327,23 @@ that deploys. `pc_trace.py` reads the release artefacts and a trace recorded by
 and, for jumps and calls, the top two stack words — enough to replay the counter exactly, with
 the artefact's own opcode checked at every step. A frame that disagrees once is abandoned and
 counted, and a single mismatch fails the check: a replay that disagrees with the trace is no
-bound. Which artefact a frame runs is learned by replaying its first steps under each of the
-five objects, never assumed from an address.
+bound. Which artefact a frame runs is learned by replaying every step of every frame at an address
+under each of the five objects, never assumed from an address; a prefix is not enough, because
+contracts from the same pipeline open with the same dispatcher skeleton.
 
 Ground truth the reader must re-find before its number is printed: zero opcode mismatches; a
 second Router deployed by the probe and never called must appear in no frame; the called Router
 must have crossed the reentrancy lock (a `TLOAD` and two distinct `TSTORE` sites).
 
-Measured for one recorded scenario — an honest V2 swap through `swapExactIn`:
+Measured for one recorded scenario — an honest V2 swap through `swapExactIn` — by the release job
+on the contracts of `8916545` (2026-09-24). The job records and checks the same trace on every pull
+request, and its log prints the table for the tree it built:
 
 | artefact | instructions run | code section | share | replayed steps | mismatches |
 |---|---:|---:|---:|---:|---:|
-| Router | 4,382 | 15,565 | 28.2 % | 9,043 | 0 |
-| Hub | 407 | 16,120 | 2.5 % | 828 | 0 |
+| Router | 4,397 | 15,086 | 29.1 % | 9,067 | 0 |
+| Hub | 416 | 16,106 | 2.6 % | 855 | 0 |
+| Core | 442 | 8,477 | 5.2 % | 560 | 0 |
 
 The complement is not dead code. It is code no recorded scenario ran, which is a list of
 scenarios still to record — one per door and per venue family — and the union grows with each.
