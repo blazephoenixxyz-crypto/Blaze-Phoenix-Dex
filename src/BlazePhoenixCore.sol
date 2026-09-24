@@ -2140,12 +2140,16 @@ library BlazePhoenixCore {
 
     /// @notice Does the manager enter this hook during a SWAP at all? True when any
     ///         of BEFORE_SWAP (1<<7), AFTER_SWAP (1<<6) or the two swap-delta flags is
-    ///         set. A hook with none of them is invisible to swaps by construction
+    ///         set. A hook with none of them is never entered by its own pool's swap
     ///         (the manager dispatches on these bits, and they are immutable), so the
     ///         Router admits its pools by the bits alone: quote equals execution for
     ///         it exactly as for a hookless pool, and nothing an operator could judge
     ///         about its code can change a swap. Hooks that DO run in the swap keep
-    ///         the allow-list and the codehash pin.
+    ///         the allow-list and the codehash pin. These bits do not say whether a
+    ///         hook can be REACHED inside a swap: a hook that runs in it can call the
+    ///         manager on any pool and enter that pool's hooks. That is bounded by the
+    ///         manager's flash accounting and by admitting the hook that makes the
+    ///         call, never by the bits of the one it reaches.
     function hookRunsInSwap(address hook) internal pure returns (bool) {
         return (uint160(hook) & 0xCC) != 0;
     }
