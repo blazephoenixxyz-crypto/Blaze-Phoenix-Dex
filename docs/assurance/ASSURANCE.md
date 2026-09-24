@@ -430,8 +430,10 @@ transaction reverts whole and the user's balance is untouched, which is asserted
 assumed. Read the matrix with `matrix_summary.py`.
 
 **What one answer may cost the planner.** The planner quotes every candidate of a pair in one
-call, so the bound on a pool's answer is owned by one reader, `Core._askWord`: `GAS_CAP` of gas and
-one word copied, for every one-word answer on the quote path. `test/APoolsAnswerIsBoundedByTheReader.t.sol`
+call, so every read it makes of a pool is bounded where it is made: `GAS_CAP` of gas and a
+fixed-size copy, never the whole returndata. The Solidly pair's `getAmountOut` and the fee behind
+its `factory()` were the two reads written as high-level calls; they ask through `Core._askWord`
+now, one word copied. `test/APoolsAnswerIsBoundedByTheReader.t.sol`
 admits a Solidly pair honest and then turns one answer at a time - its `getAmountOut`, its
 `factory()`, its factory's `getFee` - into one that burns every unit of gas it is given or answers
 a megabyte. In every cell the pair is still planned within a 50M-gas call, the budget a node gives

@@ -207,8 +207,9 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   book (tick bitmap and ticks through `extsload`, the PoolManager's step arithmetic), and the
   walk is fuzzed against a specification swap across tick spacing, fee tier, price placement,
   book shape, order size and direction: never above it by more than 64 wei.
-- **What one pool's answer may cost.** Every one-word answer on the quote path is read through
-  one reader (`Core._askWord`): a gas cap and one word copied. A pair admitted honest and turned
+- **What one pool's answer may cost.** Every read the quote path makes of a pool is gas-capped
+  and copies a fixed number of words (`Core._askWord` for the two that were high-level calls).
+  A pair admitted honest and turned
   hostile - its `getAmountOut`, `factory()` or `getFee` burning all gas or answering a megabyte,
   or a `factory()` word that is not an address - leaves the pair planned within a 50M-gas call.
 - **Mutants aimed at the invariants.** Fifteen source mutations, one per property the stateful

@@ -1219,10 +1219,12 @@ library BlazePhoenixCore {
         if (ok) out = w;
     }
 
-    /// @dev THE ONLY staticcall body for "ask a contract for one word" on the quote path. The
-    ///      planner quotes every candidate of a pair in one call, so what one answer may cost is
-    ///      bounded here, once: GAS_CAP of gas, and one word copied - never the whole returndata.
-    ///      `ok` only for an answer of at least one word; the word is the answer's first.
+    /// @dev A one-word ask, bounded the way every read the quote path makes of a pool is bounded:
+    ///      GAS_CAP of gas, and a fixed-size copy - one word here, never the whole returndata. The
+    ///      planner quotes every candidate of a pair in one call, so no answer may cost it more.
+    ///      The Solidly pair's getAmountOut, its factory() and that factory's getFee ask through
+    ///      here; the fixed-selector getters keep their inline form of the same bound. `ok` only
+    ///      for an answer of at least one word; the word is the answer's first.
     function _askWord(address target, bytes memory cd) private view returns (bool ok, uint256 word) {
         assembly ("memory-safe") {
             // Two statements, not one: Yul evaluates arguments right to left, so a size check

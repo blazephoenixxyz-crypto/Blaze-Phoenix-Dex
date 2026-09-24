@@ -12,8 +12,8 @@ pragma solidity 0.8.36;
 //  registered pool answering a dirty word reverted the plan for the whole pair,
 //  its honest venues included (ninth wave, mohaseenbasha #15). A pool that lies
 //  about its origin is now unquotable - priced at zero - and the rest of the
-//  pair is planned as before. The answer is read as a word, through the quote
-//  path's one reader (`Core._askWord`).
+//  pair is planned as before. The answer is read as a word, with the quote
+//  path's bounds (`Core._askWord`).
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";

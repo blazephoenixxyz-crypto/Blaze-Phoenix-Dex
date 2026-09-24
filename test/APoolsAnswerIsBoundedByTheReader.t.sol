@@ -2,17 +2,19 @@
 pragma solidity 0.8.36;
 
 // =============================================================================
-//  WHAT A POOL'S ANSWER CAN COST THE PLANNER IS BOUNDED BY THE HOUSE READER.
+//  WHAT A POOL'S ANSWER CAN COST THE PLANNER IS BOUNDED WHERE IT IS READ.
 //
 //  The planner quotes every registered candidate of a pair in one call, so the
-//  guarantee "one pool cannot take the pair's planning down" is owned by the
-//  reader every quote asks through (`Core._askWord`), not by each call site. Its three bounds:
-//  the gas an answer may burn (GAS_CAP), the bytes it may make the caller copy
-//  (one word), and the shape it must have (a clean word where an address is
-//  read). A pool that turns hostile after it was admitted - a proxy upgrade -
-//  meets all three. The dirty-word case is the ninth wave's mohaseenbasha #15;
-//  the gas and the size cases are the same reader's other two bounds, found by
-//  following that report's root rather than its symptom.
+//  guarantee "one pool cannot take the pair's planning down" belongs to the
+//  reads, not to each caller: every read the quote path makes of a pool is
+//  gas-capped (GAS_CAP) and copies a fixed number of words, and a word read as
+//  an address must be clean. The Solidly pair's getAmountOut and the fee behind
+//  its factory() were the two reads written as high-level calls; they ask
+//  through `Core._askWord` now. A pool that turns hostile after it was admitted
+//  - a proxy upgrade - meets all three bounds. The dirty-word case is the ninth
+//  wave's mohaseenbasha #15; the gas and the size cases are the same reads'
+//  other two bounds, found by following that report's root rather than its
+//  symptom.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";

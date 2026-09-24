@@ -1311,7 +1311,7 @@ Applied after the ninth bounty wave; the version line stays 2.2 and the DOI is u
 1. §4.2, and item 1 of the 2026-09-07 errata — closed. A V4 pool is quoted by walking its own book: its price, liquidity, tick bitmap and ticks, read through `extsload`, with the PoolManager's own step arithmetic, for ranking and for the promise alike (`Core.v4WalkOut`). The boundary clamp `sqrtBoundary` is retired. The statement that the dispatcher does not replicate tick-crossing arithmetic now holds for the V3 family only.
 2. §10.4, and item 2 of the 2026-09-07 errata — closed for the purpose it served: the walk counts only the liquidity the book holds in the ticks it crosses, so a V4 leg is bounded by what its own pool holds (`test_AOneTickRangeWithNothingBeyondPaysWhatItHolds`).
 3. Item 3 of the 2026-09-07 errata — closed: a static-fee key composes the manager's protocol fee with the key's LP fee in the swap's direction (`Core.effV4Fee`; `test_StaticKey_ProtocolFee_ReachesThePromise`).
-4. §4 — every one-word answer a pool gives on the quote path is read through one reader, `Core._askWord`: a gas cap and one word copied (`test/APoolsAnswerIsBoundedByTheReader.t.sol`).
+4. §4 — every read the quote path makes of a pool is gas-capped and copies a fixed number of words; the two that were high-level calls (the Solidly pair's `getAmountOut`, and `factory()` then `getFee`) ask through `Core._askWord` (`test/APoolsAnswerIsBoundedByTheReader.t.sol`).
 
 ## Appendix A · The primitive equations
 
