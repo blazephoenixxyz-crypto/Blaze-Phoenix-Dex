@@ -146,7 +146,7 @@ fee-exempt), and the Router ends with zero residual balance.
 ## 7. Validation summary
 
 Measured on this tree (2026-09-24), by the commands in [`../TESTING.md`](../TESTING.md):
-236 `.t.sol` files — 209 local, 27 on forked live liquidity — holding 1,606
+236 `.t.sol` files — 209 local, 27 on forked live liquidity — holding 1,609
 `test*` / `invariant*` / `check*` declarations, 43 of them stateful `invariant_*`
 campaigns; and 268 curated mutants, each paired with the named test that must fail
 when it is applied. The routing logic this document describes is tested by name:

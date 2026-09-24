@@ -26,6 +26,7 @@ import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC, QuoteCtx} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 
 interface IERC20Ask {
     function transfer(address to, uint256 amt) external returns (bool);
@@ -133,5 +134,41 @@ contract SolidlyQuoteIsTheExecutorsAskTest is Test {
         c.tokenOther = address(bridgeOut);
         (uint256 q, ) = BPC.universalQuote(c, AMT);
         assertEq(q, pair.getAmountOut(AMT, address(tokenIn)) - 1, "the quote is not what the executor asks for");
+    }
+
+    /// The producer across its dimensions: the stable and the volatile curve, a pair that answers
+    /// getAmountOut and one that does not (the replicated curve at the live fee, less the fork
+    /// haircut), both directions over unequal reserves. In every cell the quote is the executor's
+    /// ask; where the pair answers, the ask is its own figure less one wei; where it does not,
+    /// the ask never exceeds what the pair pays.
+    function test_EveryCellOfTheSolidlyQuoteIsTheExecutorsAsk() public {
+        for (uint256 cell; cell < 8; ++cell) {
+            bool st = cell & 1 == 1;
+            bool hidden = cell & 2 == 2;
+            bool fwd = cell & 4 == 4;
+            MockSolidlyPair p = new MockSolidlyPair(address(tokenIn), address(bridgeOut), st);
+            p.setReserves(RESERVE, RESERVE * 3 / 2);
+            p.setHideGetAmountOut(hidden);
+            (address tIn, address tOut) = fwd
+                ? (address(tokenIn), address(bridgeOut)) : (address(bridgeOut), address(tokenIn));
+            QuoteCtx memory c;
+            c.kind       = BPC.KIND_SOLIDLY;
+            c.pool       = address(p);
+            c.zeroForOne = tIn < tOut;
+            c.fee        = 30;
+            c.stable     = st;
+            c.tokenIn    = tIn;
+            c.tokenOther = tOut;
+            (uint256 q, ) = BPC.universalQuote(c, AMT);
+            assertEq(q, BPC.solidlyAskOut(address(p), AMT, tIn, c.zeroForOne, st, 30),
+                "the quote is not the executor's ask");
+            (uint256 rIn, uint256 rOut) = tIn == p.token0()
+                ? (uint256(p.reserve0()), uint256(p.reserve1()))
+                : (uint256(p.reserve1()), uint256(p.reserve0()));
+            uint256 pays = BPC.outSolidly(AMT, rIn, rOut, 30, st);
+            assertGt(q, 0, "a cell went unquoted");
+            if (hidden) assertLe(q, pays, "the replicated curve asks for more than the pair pays");
+            else assertEq(q, pays - 1, "the ask is not the pair's own figure less one wei");
+        }
     }
 }

@@ -120,7 +120,7 @@ number for that reason.
 
 | Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,606** `test*` / `invariant*` / `check*` declarations across **236** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Test suite** | **1,609** `test*` / `invariant*` / `check*` declarations across **236** `.t.sol` files — unit, property, parity, and stateful invariants |
 | **Fork suites** | **27**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
 | **Mutation guard** | **268** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |

@@ -72,4 +72,27 @@ contract SplitGateSeesEverySurvivorTest is Test {
         assertGe(plan.best.totalOut, bestSingle,
             "the plan delivers less than a single pool it saw and never measured at full size");
     }
+
+    /// The same guarantee across the dimension the report named: three to five survivors,
+    /// between one and a hundred times the order deep. Whatever the plan does - one pool or a
+    /// split - it never delivers less than the best single survivor, measured at full size.
+    /// Survivors: the believability band keeps a pool within 5% of the depth-weighted median
+    /// marginal rate, so prices within 1.5% of 1 (plus at most 1% of probe impact) keep every
+    /// pool inside it; a wider spread lets the band exclude the best pool by design, and the
+    /// guarantee is then over the ones it keeps.
+    function testFuzz_ThePlanNeverDeliversLessThanItsBestSinglePool(uint8 nSeed, uint64 seed) public {
+        uint256 n = 3 + uint256(nSeed) % 3;
+        uint256 bestSingle;
+        for (uint256 i; i < n; ++i) {
+            uint256 r = uint256(keccak256(abi.encode(seed, i)));
+            uint256 depth = ORDER + r % (ORDER * 99);
+            uint256 rB = depth * (985 + (r >> 128) % 31) / 1000;
+            _pool(depth, rB);
+            uint256 o = BPC.outV2(ORDER, depth, rB, 30);
+            if (o > bestSingle) bestSingle = o;
+        }
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), ORDER);
+        assertGe(plan.best.totalOut, bestSingle,
+            "the plan delivers less than a single pool it saw, at full size");
+    }
 }
