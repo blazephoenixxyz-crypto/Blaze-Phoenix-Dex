@@ -35,6 +35,14 @@ import {BlazePhoenixCore as BPC, RoutePlan, Leg, PoolInfo} from "../src/BlazePho
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
+import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+
+/// @dev A concentrated pool that also answers `stable()`: its shape makes it a V3 row, and the
+///      kind arm of the stable-bit write is all that keeps the bit off it.
+contract StableAnsweringV3Pool is MockV3Pool {
+    constructor(address a, address b, uint24 f) MockV3Pool(a, b, f) {}
+    function stable() external pure returns (bool) { return true; }
+}
 
 contract FrozenAtWriteProbes is Test {
     BlazePhoenixHub hub;
@@ -235,17 +243,29 @@ contract FrozenAtWriteProbes is Test {
         assertTrue(impostor.stable(), "premise: this pool DOES answer stable() true");
         hub.seedPool(address(impostor), BPC.KIND_V2, 30, address(0), address(tA), address(tB));
 
+        // The arm still decides for a shape that answers BOTH: a concentrated pool that also
+        // answers stable() is a V3 row by its shape, and the kind arm is what keeps the bit off.
+        StableAnsweringV3Pool both = new StableAnsweringV3Pool(address(tA), address(tB), 3000);
+        both.setState(uint160(BPC.Q96), 1e21);
+        hub.seedPool(address(both), BPC.KIND_V3, 3000, address(0), address(tA), address(tB));
+
         PoolInfo[] memory rows = hub.getActivePools(address(tA), address(tB));
         bool seen;
+        bool seenBoth;
         for (uint256 i; i < rows.length; i++) {
             if (rows[i].stable) {
                 assertEq(rows[i].kind, BPC.KIND_SOLIDLY, "only a Solidly row may carry the stable bit");
+            }
+            if (rows[i].pool == address(both)) {
+                seenBoth = true;
+                assertEq(rows[i].kind, BPC.KIND_V3, "setup: a shape answering slot0 is a V3 row");
             }
             if (rows[i].pool != address(impostor)) continue;
             seen = true;
             assertEq(rows[i].kind, BPC.KIND_SOLIDLY, "the shape decides the kind, not the declaration");
         }
         assertTrue(seen, "pre-condition: the seeded row is listed");
+        assertTrue(seenBoth, "pre-condition: the concentrated row is listed");
     }
 
     /// Standard Solidly pools expose getAmountOut, and every quote channel asks
