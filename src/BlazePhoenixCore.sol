@@ -428,11 +428,15 @@ library BlazePhoenixCore {
     ///         The `hasCode` guard applied by the Hub after derivation
     ///         discards any derivation that resolves to an address with no
     ///         bytecode.
+    ///
+    ///         Public, so the Hub - its only caller, on the discovery probe - reaches it by
+    ///         DELEGATECALL into the deployed Core instead of carrying a copy: the Hub is the
+    ///         tightest contract against the size gate, and the probe is not on a swap's path.
     function deriveAddress(
         address factory, address tA, address tB,
         uint24  fee, bool stable, int24 tickSpacing,
         uint8   mode, bytes32 initCodeHash
-    ) internal view returns (address pool) {
+    ) public view returns (address pool) {
         (address t0, address t1) = tA < tB ? (tA, tB) : (tB, tA);
         if (mode < 4) {
             return _factoryLookup(factory, t0, t1, fee, stable, tickSpacing, mode);
