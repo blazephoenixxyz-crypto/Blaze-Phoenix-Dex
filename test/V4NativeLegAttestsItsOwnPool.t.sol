@@ -90,4 +90,21 @@ contract V4NativeLegAttestsItsOwnPoolTest is Test {
         router.swapExactIn(plan.best, AMT, 1, user, block.timestamp + 1);
         assertGt(tok.balanceOf(user) - before, 0, "the native route did not deliver");
     }
+
+    /// The other direction: the token in, ETH out of the native pool (one tick of range above
+    /// tick 59 and nothing beyond), paid to the user as WETH.
+    function test_ANativeLegPayingOutEthAttestsWhatItsPoolPays() public {
+        tok.mint(user, AMT);
+        vm.prank(user);
+        tok.approve(address(router), type(uint256).max);
+        RoutePlan memory plan = solver.findBestRoutePlan(address(tok), address(weth), AMT);
+        Leg memory lg = plan.best.hops[0].legs[0];
+        assertEq(lg.kind, BPC.KIND_V4_NATIVE, "setup: the leg is the native pool's");
+        (, uint256 pays, , , ) = mgr.specSwap(pid, lg.amountIn, FEE, TS, false);
+        assertApproxEqAbs(lg.expectedOut, pays, 4, "the native leg attests other than what its own pool pays");
+        uint256 before = weth.balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(plan.best, AMT, 1, user, block.timestamp + 1);
+        assertGt(weth.balanceOf(user) - before, 0, "the native route paid out nothing");
+    }
 }

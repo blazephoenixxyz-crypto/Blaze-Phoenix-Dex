@@ -152,6 +152,39 @@ contract V4TickWalkTest is Test {
         assertApproxEqAbs(walk, spec, 64, "the walk is not the pool's swap");
     }
 
+    /// The walk against the specification across its dimensions: tick spacing, fee tier, a price
+    /// on a tick or inside it (in a range or in a gap), one to four overlapping positions, an order
+    /// from dust to more than the book holds, both directions.
+    function testFuzz_TheWalkIsTheSpecSwap_AcrossDimensions(
+        uint8 spacingSel, uint8 feeSel, int16 tickSeed, uint16 fracSeed, bool onTick,
+        uint8 nPos, uint64 seed, uint96 amt, bool zfo
+    ) public {
+        int24 S = spacingSel % 4 == 0 ? int24(1) : spacingSel % 4 == 1 ? int24(10)
+                 : spacingSel % 4 == 2 ? int24(60) : int24(200);
+        uint24 F = feeSel % 4 == 0 ? uint24(100) : feeSel % 4 == 1 ? uint24(500)
+                 : feeSel % 4 == 2 ? uint24(3000) : uint24(10000);
+        int24 t = int24(int256(tickSeed) % (40 * int256(S)));
+        // The state the PoolManager writes: TickMath(t) <= P < TickMath(t + 1). The spec prices
+        // ticks on its own fixed point, a few wei from the table, so P is placed where both
+        // tables agree it lies in tick t - on its lower edge, or strictly inside.
+        uint256 lo = BPC.sqrtPriceAtTick(t) > mgr.sqrtAt(t) ? BPC.sqrtPriceAtTick(t) : mgr.sqrtAt(t);
+        uint256 hi = BPC.sqrtPriceAtTick(t + 1) < mgr.sqrtAt(t + 1) ? BPC.sqrtPriceAtTick(t + 1) : mgr.sqrtAt(t + 1);
+        uint160 P = uint160(onTick ? lo : lo + (hi - lo) * (1 + uint256(fracSeed) % 998) / 1000);
+        mgr.initialize(_pid(), P, t, F);
+        uint256 n = 1 + uint256(nPos) % 4;
+        for (uint256 i; i < n; ++i) {
+            uint256 r = uint256(keccak256(abi.encode(seed, i)));
+            int24 a = int24(int256(r % 81)) - 40;
+            int24 w = 1 + int24(int256((r >> 8) % 20));
+            mgr.addPosition(_pid(), a * S, (a + w) * S, S, uint128(1e15 + (r >> 16) % 1e24));
+        }
+        uint256 order = bound(uint256(amt), 1e9, 1e24);
+        (, uint256 spec, , , ) = mgr.specSwap(_pid(), order, F, S, zfo);
+        uint256 walk = BPC.v4WalkOut(address(mgr), _pid(), order, F, S, zfo);
+        assertLe(walk, spec + 64, "the walk promised more than the pool pays");
+        assertApproxEqAbs(walk, spec, 64, "the walk is not the pool's swap");
+    }
+
     // ── the route, end to end ─────────────────────────────────────────────────
 
     function _swapBest() internal returns (uint256 got, uint256 spent) {
