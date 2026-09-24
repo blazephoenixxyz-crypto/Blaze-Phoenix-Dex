@@ -102,6 +102,7 @@ interface IHubQ {
     function bridgeCount() external view returns (uint8);
     function bridge(uint8 i) external view returns (address);
     function isBridgeToken(address t) external view returns (bool);
+    function hookPaused(address h) external view returns (bool);
 }
 
 /// @dev The Router's primary door, declared here only so `abi.encodeCall` type-checks the
@@ -389,8 +390,28 @@ contract BlazePhoenixQuoter {
         pv.effectiveMinOut = userMinOut > pv.ironFloor ? userMinOut : pv.ironFloor;
 
         pv.estGas     = route.estGas;
-        pv.canExecute = pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut;
+        // THE ROUTER'S HOOK QUESTION, ASKED HERE TOO. `_execV4Amt` refuses a leg whose
+        // hook runs in the swap while the Hub has it paused - revoked, or its code
+        // moved since the pin - with RouterE(9). A preview that said `canExecute` for
+        // such a route endorsed a swap the Router refuses (ninth wave, V4 campaign).
+        pv.canExecute = pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut && !_hookPausedIn(route);
         (pv.topology, pv.bridgeUsed) = _classify(route, feeHop);
+    }
+
+    /// @dev True when any single-tick leg names a hook that runs in the swap and the
+    ///      Hub reports paused: exactly the condition the Router refuses on.
+    function _hookPausedIn(Route memory route) private view returns (bool) {
+        for (uint256 h; h < route.hops.length; ) {
+            Leg[] memory legs = route.hops[h].legs;
+            for (uint256 l; l < legs.length; ) {
+                address k = legs[l].hooks;
+                if (k != address(0) && BPC.kindHasAny(legs[l].kind, BPC.A_CONC_SING)
+                    && BPC.hookRunsInSwap(k) && hub.hookPaused(k)) return true;
+                unchecked { ++l; }
+            }
+            unchecked { ++h; }
+        }
+        return false;
     }
 
     /// @dev A REAL CLASSIFIER since 2026-08-22. It used to be dead: it always
@@ -625,9 +646,10 @@ contract BlazePhoenixQuoter {
                 } else {
                     // SOLIDLY — priced via the ONE Core dispatcher, exactly like
                     // the V2 branch above (DEDUP BP-14/P4). universalQuote's
-                    // KIND_SOLIDLY arm asks the pool itself first
-                    // (solidlyGetAmountOut: the pair's own bytecode, so quote ==
-                    // execution by construction); a fork without the selector
+                    // KIND_SOLIDLY arm asks the pool itself first, through the
+                    // executor's own producer (solidlyAskOut: the pair's number
+                    // less the wei the executor leaves it, so quote == execution
+                    // by construction); a fork without the selector
                     // falls to the replicated curve at the live fee with a
                     // 200 bps under-ask; a pool that answers nothing quotes 0.
                     // Every arm lands AT or BELOW execution truth. The previous

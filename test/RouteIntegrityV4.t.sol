@@ -41,6 +41,10 @@ contract PricedV4Manager {
     mapping(bytes32 => bytes32) public slots;     // extsload backing store
     bytes32 public lastPid;
     address pendingCur; uint256 pendingOwe; bool synced; address syncedCur; uint256 syncBal;
+    address public probe;        // a "hook" that runs inside the next swap (one shot)
+    uint256 public extraOwe;     // what the next swap demands beyond its own input (one shot)
+    function setProbe(address p) external { probe = p; }
+    function setExtraOwe(uint256 x) external { extraOwe = x; }
     function setRate(bytes32 pid, uint256 r) external { rate[pid] = r; }
     function setSlot(bytes32 s, bytes32 v) external { slots[s] = v; }
     function extsload(bytes32 s) external view returns (bytes32) { return slots[s]; }
@@ -48,17 +52,31 @@ contract PricedV4Manager {
         (bool ok, bytes memory ret) = msg.sender.call(abi.encodeWithSignature("unlockCallback(bytes)", data));
         // bubble the callback's revert data: the Quoter's dry-run returns its deltas that way
         if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
+        // THE MANAGER'S OWN INVARIANT: every delta is settled when the unlock returns.
+        // Without it a callback that skipped its settle passed here, and only the fork
+        // job - with the real PoolManager - could see it (V4 campaign, 2026-09-23).
+        require(pendingOwe == 0, "CurrencyNotSettled");
         return ret;
     }
     function swap(V4PoolKey calldata key, SwapParams calldata p, bytes calldata) external returns (int256) {
+        if (probe != address(0)) { address pr = probe; probe = address(0); IMidSwapProbe(pr).poke(); }
         bytes32 pid = keccak256(abi.encode(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks));
         lastPid = pid;
+        // The real manager's price-limit rule: exact-in only, and the limit strictly on the
+        // far side of the current price, inside the MIN/MAX sqrt price bounds.
+        require(p.amountSpecified < 0, "exact-in only");
+        uint160 sp = uint160(uint256(slots[keccak256(abi.encode(pid, uint256(6)))]));
+        require(p.zeroForOne
+            ? (p.sqrtPriceLimitX96 < sp && p.sqrtPriceLimitX96 > 4295128739)
+            : (p.sqrtPriceLimitX96 > sp && p.sqrtPriceLimitX96 < 1461446703485210103287273052203988822378723970342),
+            "PriceLimitOutOfBounds");
         uint256 amt = uint256(-p.amountSpecified);
         // price is per direction: c0 -> c1 at rate, c1 -> c0 at its inverse
         uint256 out = p.zeroForOne ? amt * rate[pid] / 1000 : amt * 1000 / rate[pid];
         pendingCur = p.zeroForOne ? key.currency0 : key.currency1;
-        pendingOwe = amt;
-        int128 owe = -int128(int256(amt));
+        uint256 due = amt + extraOwe; extraOwe = 0;
+        pendingOwe = due;
+        int128 owe = -int128(int256(due));
         int128 recv = int128(int256(out));
         return p.zeroForOne
             ? int256((uint256(uint128(owe)) << 128) | uint256(uint128(recv)))
@@ -72,6 +90,22 @@ contract PricedV4Manager {
         return 0;
     }
     function take(address currency, address to, uint256 amount) external { require(IERC20Min(currency).transfer(to, amount), "take: transfer"); }
+}
+
+interface IMidSwapProbe { function poke() external; }
+
+/// @dev Stands in for a hook that runs inside the swap and calls the Router's
+///      unlockCallback itself, with a well-formed payload, while the Router's
+///      transient context is live. Records what the Router answered.
+contract MidSwapCaller {
+    address immutable router; bytes payload;
+    bool public called; bool public ok; bytes public ret;
+    constructor(address r, bytes memory p) { router = r; payload = p; }
+    function poke() external {
+        called = true;
+        (bool o, bytes memory r) = router.call(abi.encodeWithSignature("unlockCallback(bytes)", payload));
+        ok = o; ret = r;
+    }
 }
 
 /// @dev An admitted hook: bit 7 set (beforeSwap), bits 2 and 3 clear (no delta
@@ -217,5 +251,65 @@ contract RouteIntegrityV4Test is Test {
         solver.setPlan(_route(pidA, hookB, amt, qa));
         (, uint256 exactMismatch) = quoter.previewPlanExact(c0, c1, amt);
         assertGt(exactMismatch, 3 * amt, "held at the plan's own point, not priced on pool B");
+    }
+
+    // ── V4 campaign (2026-09-23): guards that had no test able to see them ──────
+
+    /// The manager check on the callback is the only barrier while the Router's context
+    /// is live: a hook inside the swap calls unlockCallback with a forged, well-formed
+    /// payload. The old test sent an empty payload and died in abi.decode, not here.
+    function test_V4ImpostorCallingUnlockCallbackMidSwapIsNeverPaid() public {
+        uint256 amt = 1e18; uint256 qa = _quote(pidA, amt);
+        bytes memory forged = abi.encode(c0, c1, FEE, TS, address(0), true, amt, bytes(""));
+        MidSwapCaller probe = new MidSwapCaller(address(router), forged);
+        mgr.setProbe(address(probe));
+        vm.prank(user);
+        uint256 got = router.swapExactIn(_route(pidA, address(0), amt, qa), amt, 1, user, block.timestamp + 1);
+        assertTrue(probe.called(), "setup: the probe must run inside the swap");
+        assertFalse(probe.ok(), "an impostor inside the swap was served by the callback");
+        assertEq(keccak256(probe.ret()),
+            keccak256(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(6))),
+            "the impostor was refused, but not by the manager check");
+        assertGt(got, 3 * amt, "and the real swap settled around it");
+    }
+
+    /// A pool (or its hook) that demands more input than the leg committed would be paid
+    /// out of the input budgeted to the sibling legs; the leg's own budget caps it.
+    function test_V4LegCannotPullSiblingBudget() public {
+        uint256 amt = 1e18;
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = Leg({ pool: address(uint160(uint256(pidA))), hooks: address(0), kind: BPC.KIND_V4, fee: FEE, tickSpacing: TS,
+                        zeroForOne: true, stable: false, amountIn: amt, expectedOut: 0, auxId: bytes32(uint256(uint160(c1))) });
+        legs[1] = Leg({ pool: address(uint160(uint256(pidB))), hooks: hookB, kind: BPC.KIND_V4, fee: FEE, tickSpacing: TS,
+                        zeroForOne: true, stable: false, amountIn: amt, expectedOut: 0, auxId: bytes32(uint256(uint160(c1))) });
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({ tokenIn: c0, tokenOut: c1, amountIn: 2 * amt, expectedOut: 0, legs: legs });
+        Route memory r = Route({ hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0, expectedImpactBps: 0,
+                                 confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false });
+        // The first leg's swap asks for HALF its sibling's budget on top of its own. Half, not
+        // all: the Router holds 2*amt less the protocol fee, so a demand of a whole extra `amt`
+        // exceeds everything it holds and any balance check refuses it. A demand that fits in
+        // the Router's balance but not in the leg's budget is refused by the leg's cap alone.
+        mgr.setExtraOwe(amt / 2);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
+        router.swapExactIn(r, 2 * amt, 1, user, block.timestamp + 1);
+    }
+
+    /// Preview and execution ask the same hook question: a listed hook whose code moved
+    /// since its pin is paused, the Router refuses its leg with RouterE(9), and the
+    /// preview must not call that route executable.
+    function test_PreviewRoute_PausedHookLeg_CannotExecute() public {
+        uint256 amt = 1e18; uint256 qb = _quote(pidB, amt);
+        FixedPlanSolver solver = new FixedPlanSolver();
+        BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(solver));
+        Route memory r = _route(pidB, hookB, amt, qb);
+        assertTrue(quoter.previewRoute(r, 1).canExecute, "setup: the live hook's route is executable");
+        vm.etch(hookB, hex"00");
+        assertTrue(hub.hookPaused(hookB), "setup: a hook whose code moved is paused");
+        assertFalse(quoter.previewRoute(r, 1).canExecute, "the preview endorsed a route the Router refuses");
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(9)));
+        router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
     }
 }

@@ -6,7 +6,7 @@ pragma solidity 0.8.36;
 //
 //  OBJECTION. `Router._recordHits` computes the registry depth three ways
 //  (src/BlazePhoenixRouter.sol:2055-2103):
-//     A_RESERVES  -> _v2Depth18(...)                 caps r0/r1 by balanceOf  (PROV-01)
+//     A_RESERVES  -> registryDepth18(...)             caps r0/r1 by balanceOf  (PROV-01)
 //     A_CONC_SING -> depthFromL18(v4SqrtAndLiq(...))  no cap
 //     else (V3)   -> depthFromL18(getLiquidity(pool), spReg, ...)   NO CAP
 //  The V3/Algebra arm reads `liquidity()` and `slot0()` from `leg.pool`, an
@@ -391,6 +391,7 @@ contract ConcentratedEmptyBookTest is Test {
         honest2.setReserves(DEEP, DEEP);
         hub.seedPool(address(honest2), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
         _seat(DUST);
+        assertEq(hub.getPool(_key()), address(book), "setup: the dust swap must have seated the book");
 
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), ORDER);
         Leg[] memory legs = plan.best.hops[0].legs;
@@ -442,6 +443,13 @@ contract ConcentratedEmptyBookTest is Test {
     ///      "hop commitment" row of SHARED_QUANTITIES.md), and the user received
     ///      0.00028 B MORE. The direction is the property; the size is the fee on 0.01%.
     function test_AnEmptyBookSeatedBesideTheRouteNeverCostsTheUserAnything() public {
+        // A second honest pool, so the order really splits. Beside ONE honest pool the
+        // min-split gate collapsed every plan to a single leg, and no clamp decided anything.
+        MockV2Pair honest2 = new MockV2Pair(address(tokenA), address(tokenB));
+        tokenA.mint(address(honest2), DEEP);
+        tokenB.mint(address(honest2), DEEP);
+        honest2.setReserves(DEEP, DEEP);
+        hub.seedPool(address(honest2), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
         uint256 snap = vm.snapshotState();
         uint256 before = tokenB.balanceOf(USER);
         vm.prank(USER);
@@ -451,6 +459,7 @@ contract ConcentratedEmptyBookTest is Test {
         vm.revertToState(snap);
 
         _seat(DUST);
+        assertEq(hub.getPool(_key()), address(book), "setup: the dust swap must have seated the book");
         before = tokenB.balanceOf(USER);
         vm.prank(USER);
         router.swapBestExactIn(address(tokenA), address(tokenB), ORDER, 1, USER, block.timestamp + 1);
@@ -478,6 +487,7 @@ contract ConcentratedEmptyBookTest is Test {
             ? uint160(uint256(Q96) * r / 1e11)
             : uint160(uint256(Q96) * 1e11 / r), DECLARED_L);
         _seat(DUST);
+        assertEq(hub.getPool(_key()), address(book), "setup: the dust swap must have seated the book");
 
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), ORDER);
         Leg[] memory legs = plan.best.hops[0].legs;

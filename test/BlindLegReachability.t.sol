@@ -30,7 +30,7 @@ pragma solidity 0.8.36;
 //  from theirs, and it records what happens instead of asserting what should.
 // =============================================================================
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
@@ -292,9 +292,26 @@ contract BlindLegReachability is Test {
         });
 
         uint256 before = MockERC20(s1).balanceOf(user);
+        vm.recordLogs();
         vm.prank(user);
         router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
         assertGt(MockERC20(s1).balanceOf(user) - before, 0,
             "an inflated hop total must not become the protocol floor's basis");
+
+        // Settling is not the whole claim: a floor raised toward the caller's figure but still
+        // below the delivery settles too. The basis itself is read back from the Router's own
+        // ExecutionProof, so the number the floor was a fraction of is observed, not inferred.
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("ExecutionProof(address,address,uint256,uint256,uint256,uint256)");
+        uint256 quoted;
+        bool seen;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(router) && logs[i].topics.length != 0 && logs[i].topics[0] == sig) {
+                (quoted, , , ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+                seen = true;
+            }
+        }
+        assertTrue(seen, "setup: the Router must publish its ExecutionProof");
+        assertLt(quoted, AMT, "the floor basis is the in-frame quote, not the hop total the caller wrote");
     }
 }
