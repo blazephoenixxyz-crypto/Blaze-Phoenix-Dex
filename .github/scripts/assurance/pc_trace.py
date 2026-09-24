@@ -160,18 +160,24 @@ def replay(art, steps, frames):
     executed = collections.defaultdict(set)
     ops_at = collections.defaultdict(lambda: collections.defaultdict(set))   # art -> op -> pcs
     checked, mismatch, replayed = collections.Counter(), collections.Counter(), 0
-    for f in frames:
+    where = []                                 # one line per abandoned frame: where and why
+    for fi, f in enumerate(frames):
         c = addr_art.get(f["code_addr"])
         if c is None:
             continue
         replayed += 1
-        raw, pc = art[c]["raw"], 0
-        for i in f["idx"]:
+        raw, pc, tail = art[c]["raw"], 0, []
+        for k, i in enumerate(f["idx"]):
             _a, op, _d, s0, s1 = steps[i]
             checked[c] += 1
             if pc >= len(raw) or raw[pc] != op:
                 mismatch[c] += 1
+                have = "%02x" % raw[pc] if pc < len(raw) else "past-end"
+                where.append(f"frame {fi} ({c} at {f['code_addr']}, depth {f['depth']}): step {k} of "
+                             f"{len(f['idx'])}, pc {pc}: trace op {op:02x}, artefact op {have}; "
+                             f"before it: " + " ".join(f"{q}:{o:02x}" for q, o in tail[-6:]))
                 break                      # no pc to resynchronise on; the frame is abandoned
+            tail.append((pc, op))
             executed[c].add(pc)
             ops_at[c][op].add(pc)
             if op == 0x56:
@@ -180,7 +186,7 @@ def replay(art, steps, frames):
                 pc = s0 if s1 else pc + 1
             else:
                 pc += opsize(op)
-    return addr_art, executed, ops_at, checked, mismatch, replayed
+    return addr_art, executed, ops_at, checked, mismatch, replayed, where
 
 
 def main():
@@ -196,7 +202,7 @@ def main():
     for path in files:
         hdr, never, steps = parse(path)
         frames = frames_of(steps)
-        addr_art, executed, ops_at, checked, mismatch, replayed = replay(art, steps, frames)
+        addr_art, executed, ops_at, checked, mismatch, replayed, where = replay(art, steps, frames)
         name = os.path.basename(path)[:-4]
         ran_never = sorted(n for n in never if any(f["code_addr"] == n for f in frames))
         if ran_never:
@@ -206,6 +212,7 @@ def main():
                 rows.append((name, c, checked[c], mismatch[c], len(executed[c]), art[c]["ncode"]))
                 if mismatch[c]:
                     problems.append(f"{name}/{c}: {mismatch[c]} opcode mismatch(es) - the replay is no bound")
+                    problems.extend(f"{name}: {w}" for w in where if f"({c} at" in w)
                 union[c] |= executed[c]
                 for op, pcs in ops_at[c].items():
                     ops_union[c][op] |= pcs
