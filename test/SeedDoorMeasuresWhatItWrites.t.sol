@@ -31,6 +31,8 @@ import {BlazePhoenixCore as BPC, RoutePlan} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
+import {MockAlgebraPool} from "./mocks/MockAlgebraPool.sol";
 
 contract SeedDoorMeasuresWhatItWritesTest is Test {
     BlazePhoenixHub hub;
@@ -123,5 +125,44 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
         hub.recordSwap(address(newcomer), BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, 5e18);
         assertEq(hub.getPool(_key(address(newcomer))), address(newcomer),
             "the newcomer was refused by a bridge term only its rivals were scored with");
+    }
+
+    // ── dex-16 and dex-17 across the matrix: every real shape under every declared family ──
+
+    function _shape(uint256 s) internal returns (address pool) {
+        if (s == 0) { MockV2Pair p = new MockV2Pair(address(A), address(B)); p.setReserves(uint112(1e24), uint112(1e24)); pool = address(p); }
+        else if (s == 1) { MockSolidlyPair p = new MockSolidlyPair(address(A), address(B), false); p.setReserves(uint112(1e24), uint112(1e24)); pool = address(p); }
+        else if (s == 2) { MockV3Pool p = new MockV3Pool(address(A), address(B), 3000); p.setState(uint160(BPC.Q96), 1e21); pool = address(p); }
+        else { MockAlgebraPool p = new MockAlgebraPool(address(A), address(B), 500); p.setState(uint160(BPC.Q96), 1e21); pool = address(p); }
+        A.mint(pool, 1e24);
+        B.mint(pool, 1e24);
+    }
+
+    /// Four real shapes - a V2 pair, a Solidly pair, a V3 pool, an Algebra pool - each declared
+    /// as each of the four families. A pair declared concentrated, or a concentrated pool declared
+    /// a pair, is refused; within a family the shape decides the kind, a concentrated pool writes
+    /// the fee it reports, and every admitted row is sealed at the bucket the one depth producer
+    /// measures at the door.
+    function test_EveryShapeUnderEveryDeclaredFamilyIsWrittenAsTheShapeAnswers() public {
+        uint8[4] memory fam = [BPC.KIND_V2, BPC.KIND_SOLIDLY, BPC.KIND_V3, BPC.KIND_ALGEBRA];
+        (address t0, address t1) = address(A) < address(B) ? (address(A), address(B)) : (address(B), address(A));
+        for (uint256 s; s < 4; ++s) {
+            for (uint256 d; d < 4; ++d) {
+                address pool = _shape(s);
+                if ((s >= 2) != (d >= 2)) {
+                    vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(4)));
+                    hub.seedPool(pool, fam[d], 30, address(0), address(A), address(B));
+                    continue;
+                }
+                hub.seedPool(pool, fam[d], 30, address(0), address(A), address(B));
+                uint256 slot = hub.getSlot(_key(pool));
+                assertEq(BPC.decodeKind(slot), fam[s], "the row's family is not the one the shape answers");
+                assertEq(BPC.decodeFee(slot), s == 2 ? 3000 : s == 3 ? 0 : 30,
+                    "the row's fee is not the one the shape reports");
+                assertEq(BPC.decodeBucket(slot),
+                    BPC.depthBucket(BPC.registryDepth18(pool, fam[s], t0, t1, address(0), bytes32(0))),
+                    "the row is not sealed at the depth measured at the door");
+            }
+        }
     }
 }

@@ -37,7 +37,7 @@ contract MockSolidlyPair {
         return (reserve0, reserve1, uint32(block.timestamp));
     }
 
-    function getAmountOut(uint256 amountIn, address tokenIn) external view returns (uint256) {
+    function getAmountOut(uint256 amountIn, address tokenIn) public view virtual returns (uint256) {
         if (hideGetAmountOut) return 0;
         (uint256 rIn, uint256 rOut) = tokenIn == token0
             ? (uint256(reserve0), uint256(reserve1))

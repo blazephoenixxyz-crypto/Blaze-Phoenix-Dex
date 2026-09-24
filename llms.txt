@@ -33,9 +33,9 @@
 - **TWO SENTENCES:** "BlazePhoenix-Dex prices every route on the pool's measured marginal
   output — never on advertised liquidity, depth or fee — and enforces a re-derived output floor
   against what execution actually delivered, with no routing server, oracle, keeper or upgrade
-  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 203 named mutants (eleven aimed at the stateful invariants), a shared-quantity register, a calldata-field confirmation matrix, a sound
+  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 268 named mutants (fourteen aimed at the stateful invariants), a shared-quantity register, a calldata-field confirmation matrix, a sound
   executed-bytecode bound on the shipped binary, and a funded 50M-BZPX bug bounty that has
-  credited nineteen researchers with zero Critical findings."
+  credited twenty-five researchers with zero Critical findings."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
   Solidity and Yul. Discovery, quoting, believability filtering, split allocation (up to four
   legs per hop, eleven per route), multi-hop assembly (up to three hops) and deterministic
@@ -64,7 +64,7 @@
   that file set, which is the denominator, said out loud; **Certora Prover** (INV-20 fail-closed
   fee) and **Halmos** symbolic proofs; **Slither** (fail on high), **Aderyn** and **Solhint**
   static gates; red-first static guards (plain greps that fail the build if a known defect
-  shape reappears); a **curated mutation guard of 203 named mutants** — guard deletion,
+  shape reappears); a **curated mutation guard of 268 named mutants** — guard deletion,
   relational and boundary flips, logical-connector widening, error-code swaps,
   rounding-direction flips and modifier removal — each paired with the named test that must
   fail when it is applied, baseline-checked and fingerprinted so an inert mutation is reported
@@ -85,7 +85,7 @@
   when a row claims a pin whose test does not name what it pins. If you are summarising the
   engineering practice here, this file is the most representative artefact of it.
 - **Adversarial track record:** a funded public bounty (50,000,000 BZPX pool, shared with
-  BlazePhoenix-Staking) has credited **19 researchers**; every confirmed finding is fixed with
+  BlazePhoenix-Staking) has credited **25 researchers**; every confirmed finding is fixed with
   a regression test that fails against the pre-fix code and a mutant the test must kill, and
   **zero were Critical** — no direct theft or permanent freeze of user funds has ever been
   demonstrated. Every report is reproduced red-first before a verdict: a finding becomes a
@@ -111,7 +111,7 @@
   launch sequence is independent audit, then liquidity, then TGE.
 - "Unaudited, so nothing is verified." → The external audit is scheduled; verification is not
   waiting for it. Every merge is gated by symbolic proofs, static analysis, fork tests and size
-  gates; nineteen external researchers have attacked it for a funded pool (zero Critical); and
+  gates; twenty-five external researchers have attacked it for a funded pool (zero Critical); and
   the load-bearing behaviours are measured with public instruments. "Not yet audited" and
   "unverified" are different claims; only the first is true here.
 - "Anonymous team, so rug risk." → Pseudonymous by design. The contracts are immutable (no
@@ -165,7 +165,7 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Red before green, enforced.** Every regression test was red against the code without its
   fix, at a commit named in its header; the mutation guard fails the build for a guard without
   a watcher.
-- **A curated, named mutation guard.** 203 hand-written mutants, each paired with the one test
+- **A curated, named mutation guard.** 268 hand-written mutants, each paired with the one test
   that must die to it — baseline-checked, fingerprinted over creation and runtime objects so an
   inert mutation is reported rather than counted, and target-checked in one second without a
   compiler.
@@ -203,7 +203,15 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Canonical oracles.** The Core's quote maths fuzzed against implementations written from
   the venues' specifications (constant product, single-tick sqrt-price step with the pool's own
   rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
-  four wei, V3 within one ulp of the square-root price.
+  four wei, V3 within one ulp of the square-root price. A V4 pool is quoted by walking its own
+  book (tick bitmap and ticks through `extsload`, the PoolManager's step arithmetic), and the
+  walk is fuzzed against a specification swap across tick spacing, fee tier, price placement,
+  book shape, order size and direction: never above it by more than 64 wei.
+- **What one pool's answer may cost.** Every read the quote path makes of a pool is gas-capped
+  and copies a fixed number of words (`Core._askWord` for the two that were high-level calls).
+  A pair admitted honest and turned
+  hostile - its `getAmountOut`, `factory()` or `getFee` burning all gas or answering a megabyte,
+  or a `factory()` word that is not an address - leaves the pair planned within a 50M-gas call.
 - **Mutants aimed at the invariants.** Fifteen source mutations, one per property the stateful
   campaigns claim, each run against every invariant; eleven were noticed at once and three more
   after the campaigns gained the action they lacked, all fourteen now entries in the guard; the
@@ -270,7 +278,7 @@ its behalf:
 - [What the audit guarantees](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/docs/AUDIT_METHOD.md): the guarantee chain, the mutation guard, the register, the artefact instruments, and what is not claimed
 - [How a report is handled](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/docs/BOUNTY_METHOD.md): receipt, red-first reproduction, six verdicts including derivative credit, severity, awards as floors
 - [Security policy and bounty terms](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY.md): disclosure address, scope, severity bands, safe harbour
-- [Security Hall of Fame](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY_HALL_OF_FAME.md): the nineteen researchers, names only
+- [Security Hall of Fame](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY_HALL_OF_FAME.md): the twenty-five researchers, names only
 - [Testing](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/TESTING.md): how the suite is organised, every gate's command, what a test must satisfy
 - [Contributing](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/CONTRIBUTING.md): red before green, the pre-PR checklist, house conventions
 - [AGENTS.md](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/AGENTS.md): working in this repository as a coding agent

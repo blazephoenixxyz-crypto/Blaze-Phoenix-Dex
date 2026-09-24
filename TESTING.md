@@ -3,9 +3,10 @@
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-05): **218 `.t.sol` files** — 191 local, 27 fork — holding
-**1,478 `test*` / `invariant*` / `check*` declarations**; **1,319 tests green** in the release
-profile with fork suites excluded and **119 green on live liquidity**; **203 curated mutants**, all killed.
+Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
+**1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
+`forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
+the run did not have); **268 curated mutants**, all killed.
 
 ## Running
 
@@ -79,7 +80,7 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 203 curated mutants, each paired with the one test that must die (eleven of them name a stateful `invariant_*` — see `docs/assurance/invariant-mutants.json` for the matrix of 15 mutants × 39 invariants and the two guards it found unwatched);
+- **The mutation guard** — 268 curated mutants, each paired with the one test that must die (fourteen of them name a stateful `invariant_*` — see `docs/assurance/invariant-mutants.json` for the matrix of 15 mutants × 40 invariants and the two guards it found unwatched);
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.

@@ -50,7 +50,7 @@ contract TickBoundaryClampTest is Test {
         uint128 L  = 1e21;
         uint256 ain = 1e20;                 // grande de propositio: sai do intervalo
         uint256 semLimite = BPC.outV3(ain, sp, L, 3000, true, 0);
-        uint160 lim = BPC.sqrtBoundary(sp, 0, 60, true);
+        uint160 lim = BPC.sqrtPriceAtTick(-60);   // the lower edge of [-60, 0), below price 1
         uint256 comLimite = BPC.outV3(ain, sp, L, 3000, true, lim);
         assertLe(comLimite, semLimite, "clampar nunca pode dar MAIS");
         assertGt(comLimite, 0, "e tem de dar alguma coisa");
@@ -63,7 +63,7 @@ contract TickBoundaryClampTest is Test {
         uint160 sp = uint160(Q96);
         uint128 L  = 1e21;
         uint256 ain = 1e12;                 // minuscula face a L
-        uint160 lim = BPC.sqrtBoundary(sp, 0, 60, true);
+        uint160 lim = BPC.sqrtPriceAtTick(-60);
         assertEq(
             BPC.outV3(ain, sp, L, 3000, true, lim),
             BPC.outV3(ain, sp, L, 3000, true, 0),
@@ -71,38 +71,8 @@ contract TickBoundaryClampTest is Test {
         );
     }
 
-    /// @notice A FRONTEIRA tem de estar do lado certo do preco, nas duas
-    ///         direccoes. Sem isto, um sinal trocado clampava para o lado
-    ///         errado e o clamp deixava de morder.
-    function test_FronteiraDoLadoCerto() public pure {
-        uint160 sp = uint160(Q96);
-        assertLt(BPC.sqrtBoundary(sp, 30, 60, true),  sp, "zeroForOne: preco DESCE");
-        assertGt(BPC.sqrtBoundary(sp, 30, 60, false), sp, "oneForZero: preco SOBE");
-    }
-
-    /// @notice Um `spacing` maior da uma fronteira MAIS LONGE — e o que torna
-    ///         as pools de 1% (spacing 200) mais permissivas que as de 0,05%
-    ///         (spacing 10), como tem de ser.
-    function test_SpacingMaiorFronteiraMaisLonge() public pure {
-        uint160 sp = uint160(Q96);
-        // Going UP from tick 0 the whole range lies ahead: 10 ticks against 200.
-        assertGt(BPC.sqrtBoundary(sp, 0, 200, false), BPC.sqrtBoundary(sp, 0, 10, false),
-            "going up, spacing 200 lets the price rise further than spacing 10");
-        // Going DOWN from tick 150: the 10-spaced pool sits on its own lower edge (less
-        // than a tick away), the 200-spaced pool has 150 ticks of range below it.
-        assertGt(BPC.sqrtBoundary(sp, 150, 10, true), BPC.sqrtBoundary(sp, 150, 200, true),
-            "going down from inside the range, spacing 200 lets the price fall further");
-        // Going DOWN from tick 0 both ranges begin here, so both clamp within one tick.
-        // (V4-4, 2026-09-07: the old form of this test asserted a whole spacing below
-        // the edge for the wider pool, which was the defect and not the property.)
-        assertEq(BPC.sqrtBoundary(sp, 0, 10, true), BPC.sqrtBoundary(sp, 0, 200, true),
-            "going down from a shared boundary tick, the spacing makes no difference");
-    }
-
-    /// @notice `tickSpacing == 0` (pools nao concentradas, ou registo
-    ///         incompleto) tem de desligar o clamp em vez de rebentar.
-    function test_SpacingZeroDesligaOClamp() public pure {
-        uint160 sp = uint160(Q96);
-        assertEq(BPC.sqrtBoundary(sp, 0, 0, true), 0, "spacing 0 = sem limite");
-    }
+    // The spacing-inferred boundary these tests once pinned (`sqrtBoundary`) is gone: since the
+    // ninth wave a V4 promise walks the pool's own book (`Core.v4WalkOut`, pinned by
+    // test/V4TickWalk.t.sol and test/V4PromiseBound.t.sol). What remains here is `outV3`'s
+    // truncation at a price limit, a primitive the n-version lane also exercises.
 }

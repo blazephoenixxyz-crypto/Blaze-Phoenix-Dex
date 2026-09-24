@@ -429,6 +429,17 @@ A swap that burns all forwarded gas is the one cell no caller can decide for its
 transaction reverts whole and the user's balance is untouched, which is asserted rather than
 assumed. Read the matrix with `matrix_summary.py`.
 
+**What one answer may cost the planner.** The planner quotes every candidate of a pair in one
+call, so every read it makes of a pool is bounded where it is made: `GAS_CAP` of gas and a
+fixed-size copy, never the whole returndata. The Solidly pair's `getAmountOut` and the fee behind
+its `factory()` were the two reads written as high-level calls; they ask through `Core._askWord`
+now, one word copied. `test/APoolsAnswerIsBoundedByTheReader.t.sol`
+admits a Solidly pair honest and then turns one answer at a time - its `getAmountOut`, its
+`factory()`, its factory's `getFee` - into one that burns every unit of gas it is given or answers
+a megabyte. In every cell the pair is still planned within a 50M-gas call, the budget a node gives
+one `eth_call` by default, and a control plans the same pair honest within the same budget. A
+`factory()` word that is not an address makes the pool unquotable (`test/FactoryAnswerIsNotTrusted.t.sol`).
+
 ## 4j. The sandwich curve — the attacker's side of the floor
 
 Every floor test asks whether a bad fill is refused. `test/regime/SandwichCurve.t.sol` asks what
@@ -474,6 +485,15 @@ The V3 bound is stated in the quantity that causes it: the pool rounds its new p
 trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
 wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
 assertion is the bound, not the sample.
+
+**Uniswap V4, walked.** A V4 pool is quoted by walking its own book (`Core.v4WalkOut`), so its
+oracle is a swap. `test/mocks/MockV4TickManager.sol` implements the specification's exact-input
+swap one compressed tick at a time, pricing ticks on its own fixed point, and `test/V4TickWalk.t.sol`
+fuzzes the walk against it across tick spacing (1, 10, 60, 200), fee tier (0.01 % to 1 %), a price
+on a tick's lower edge or inside it, one to four overlapping positions, orders from 10⁹ to 10²⁴ and
+both directions: the walk never exceeds the specification by more than 64 wei. The TickMath table
+the walk prices ticks with is checked exactly at the canonical endpoints and against an independent
+fixed point on every tick.
 
 ## 4l. Mutants aimed at the invariants
 

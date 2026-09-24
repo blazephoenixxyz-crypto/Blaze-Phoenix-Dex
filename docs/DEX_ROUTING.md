@@ -108,20 +108,22 @@ Fork-measured WETH/USDC quote gas, full discovery vs. warm registry:
 
 Two quote regimes serve two purposes:
 
-- **Search quote (Solver).** The route space is scored with the Core's closed-form
-  output functions, including a current-tick branch for concentrated liquidity.
-  This is cheap enough to score many candidates on-chain, but for a large trade
-  that crosses ticks it can diverge from the realised fill. That divergence is
-  bounded on-chain by the iron floor: a route whose realised output falls below
-  the re-derived floor **reverts** rather than fills — the worst case is a failed
-  transaction, never a silently bad one.
+- **Search quote (Solver).** The route space is scored with the Core's output
+  functions. A V4 pool is quoted by walking its own book: the Core reads the
+  pool's price, liquidity, tick bitmap and ticks from the PoolManager through
+  `extsload` and applies the manager's own step arithmetic over up to sixteen
+  stretches (`Core.v4WalkOut`), so the figure that ranks a V4 venue is the
+  figure its leg promises and the Router re-quotes in frame. V3-family pools are
+  scored on the current tick's liquidity under a capacity clamp against the
+  pool's real balance. Any divergence from the realised fill is bounded on-chain
+  by the iron floor: a route whose realised output falls below the re-derived
+  floor **reverts** rather than fills — the worst case is a failed transaction,
+  never a silently bad one.
 - **Binding quote (Quoter).** The trader-facing number is produced by the Quoter's
   exact pass — *revert-extraction*: the pool's own swap is run and rolled back, so
   the displayed number equals the executed number with no tick approximation.
 
-Search is fast and approximate under a hard floor; the binding quote is exact.
-Tightening the search itself to a tick-aware quote — shrinking the gap before the
-floor engages — is the natural next refinement.
+Search is fast under a hard floor, tick-aware for V4; the binding quote is exact.
 
 ## 6. Execution
 
@@ -143,12 +145,16 @@ fee-exempt), and the Router ends with zero residual balance.
 
 ## 7. Validation summary
 
-The claim of stateful invariant fuzzing and ~85 real-liquidity fork cases could
-not be verified (no test source exists in this repository's history) and is
-carried over from a prior version of this document. As of the 2026-08
-reconstruction pass, routing logic itself (Solver's median filter, capital
-anchor, capacity clamp, bridge topology) has no dedicated test coverage yet —
-see `../TESTING.md` for what is actually tested (Core, Hub, and the Router's V2
-execution path). The one known design limitation, independent of test coverage,
-is the single-tick search approximation of §5; the on-chain floor is its
-backstop regardless of how well-tested the search path is.
+Measured on this tree (2026-09-24), by the commands in [`../TESTING.md`](../TESTING.md):
+236 `.t.sol` files — 209 local, 27 on forked live liquidity — holding 1,609
+`test*` / `invariant*` / `check*` declarations, 43 of them stateful `invariant_*`
+campaigns; and 268 curated mutants, each paired with the named test that must fail
+when it is applied. The routing logic this document describes is tested by name:
+the split gate against every survivor (`test/SplitGateSeesEverySurvivor.t.sol`),
+the capacity clamp (`test/RouterPhysicalMassCap.t.sol`), the bridge term of the
+registry (`test/FrozenAtWriteProbes.t.sol`), the V4 walk against a specification
+swap (`test/V4TickWalk.t.sol`), and a hostile-venue matrix
+(`test/regime/HostileVenueMatrix.t.sol`). Every merge is gated by the suite, the
+mutation guard, fork tests on an archive RPC, Halmos and Certora proofs, Slither,
+Aderyn, and an EIP-170 size guard with margin. The on-chain floor bounds any
+divergence between a search quote and the realised fill (§5).
