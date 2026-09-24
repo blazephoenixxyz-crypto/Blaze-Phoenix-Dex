@@ -1214,9 +1214,23 @@ library BlazePhoenixCore {
     function solidlyGetAmountOut(address pool, uint256 amountIn, address tokenIn)
         public view returns (uint256 out)
     {
-        (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature(
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSignature(
             "getAmountOut(uint256,address)", amountIn, tokenIn));
-        if (ok && ret.length >= 32) out = abi.decode(ret, (uint256));
+        if (ok) out = w;
+    }
+
+    /// @dev THE ONLY staticcall body for "ask a contract for one word" on the quote path. The
+    ///      planner quotes every candidate of a pair in one call, so what one answer may cost is
+    ///      bounded here, once: GAS_CAP of gas, and one word copied - never the whole returndata.
+    ///      `ok` only for an answer of at least one word; the word is the answer's first.
+    function _askWord(address target, bytes memory cd) private view returns (bool ok, uint256 word) {
+        assembly ("memory-safe") {
+            // Two statements, not one: Yul evaluates arguments right to left, so a size check
+            // written as the call's sibling would read the returndata of the call before it.
+            ok := staticcall(GAS_CAP, target, add(cd, 32), mload(cd), 0x00, 0x20)
+            ok := and(ok, iszero(lt(returndatasize(), 32)))
+            if ok { word := mload(0x00) }
+        }
     }
 
     /// @notice What a Solidly pair is ASKED to pay for `amountIn` - the single producer the
@@ -1418,19 +1432,19 @@ library BlazePhoenixCore {
         // Solidly arm reached the same primitive through here and was missed.
         // House rule B8: a defect found once is a pattern to hunt everywhere.
         fee = (cfgFee == 0 || cfgFee > V2_FEE_CEILING_BPS) ? 30 : cfgFee;
-        (bool ok, bytes memory ret) = pool.staticcall(
-            abi.encodeWithSignature("factory()")
-        );
-        if (!ok || ret.length < 32) return fee;
-        address fac = abi.decode(ret, (address));
+        (bool ok, uint256 word) = _askWord(pool, abi.encodeWithSignature("factory()"));
+        if (!ok) return fee;
+        // AN ANSWER THAT IS NOT AN ADDRESS IS A LIE ABOUT THE POOL'S ORIGIN. Decoded as an
+        // address, a word with its upper bits set reverted in the ABI decoder, inside the
+        // planner's per-candidate quote, and took the whole pair's planning down with it
+        // (ninth wave, mohaseenbasha #15). It is read as a word (`_askWord`), and a word that
+        // is not an address makes the pool unquotable: a fee of 100% prices it at zero, and
+        // the pair's other venues are planned as before.
+        if (word >> 160 != 0) return BPS;
+        address fac = address(uint160(word));
         if (fac == address(0)) return fee;
-        (ok, ret) = fac.staticcall(
-            abi.encodeWithSignature("getFee(address,bool)", pool, stable)
-        );
-        if (ok && ret.length >= 32) {
-            uint256 f = abi.decode(ret, (uint256));
-            if (f > 0 && f < BPS) fee = f;
-        }
+        (ok, word) = _askWord(fac, abi.encodeWithSignature("getFee(address,bool)", pool, stable));
+        if (ok && word > 0 && word < BPS) fee = word;
     }
 
     /// @dev Can `_solK(x, y)` be represented at all? The solver evaluates the

@@ -830,6 +830,17 @@ M = [
       old="        out = solidlyGetAmountOut(pool, amountIn, tokenIn);",
       new="        out = 0; // MUTANT",
       teste="test_control_stableField_standardPoolIsPricedByItsOwnGetter"),
+ # ── the pool answer the planner reads, and its three bounds (dex-15, mohaseenbasha) ──
+ dict(nome="dex-15: a dirty factory() word is decoded as an address instead of making the pool unquotable",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (word >> 160 != 0) return BPS;",
+      new="        if (false) return BPS; // MUTANT",
+      teste="test_EveryFactoryAnswerResolvesToTheFeeItMeans"),
+ dict(nome="dex-15 (reader): the quote-path read is not gas-bounded, so one pool can burn the planner's gas",
+      f="src/BlazePhoenixCore.sol",
+      old="            ok := staticcall(GAS_CAP, target, add(cd, 32), mload(cd), 0x00, 0x20)",
+      new="            ok := staticcall(gas(), target, add(cd, 32), mload(cd), 0x00, 0x20) // MUTANT",
+      teste="test_AGetAmountOutThatBurnsItsGasCannotTakeThePairDown"),
  # ── the fixes behind the probes (7th bounty wave): each producer must be the one read ──
  dict(nome="BRIDGE-01: the bridge term of psi stops following the live bridge",
       f="src/BlazePhoenixHub.sol",
