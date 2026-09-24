@@ -13,8 +13,11 @@ stack[0] and a JUMPI to stack[0] when stack[1] is non-zero. The self-check is to
 replayed pc the artefact's opcode must equal the traced opcode, and a frame that disagrees once
 is abandoned and counted. A replay with a single mismatch is no bound, and `--check` says so.
 
-Which artefact a frame runs is learned, not assumed: the first sixty steps of a frame are
-replayed under each of the five release objects and the one that agrees on every opcode wins.
+Which artefact a frame runs is learned, not assumed: every step of every frame at an address is
+replayed under each of the five release objects, and the one that agrees with all of them wins.
+A prefix is not enough - contracts from the same pipeline open with the same dispatcher skeleton,
+and a sixty-step prefix once named the Hub's frames Core. Only when no object agrees in full does
+the sixty-step prefix decide, so that a real disagreement in a shipped contract is still reported.
 Frames whose code is none of them (mocks, forge-std, the VM) are tracked by depth only.
 
 Trace format (one file per recorded scenario, under out/pc-trace/):
@@ -132,31 +135,44 @@ def frames_of(steps):
     return frames
 
 
-def identify(art, seq):
-    for c, A in art.items():
-        pc, raw = 0, A["raw"]
-        for op, s0, s1 in seq:
-            if pc >= len(raw) or raw[pc] != op:
-                break
-            if op == 0x56:
-                pc = s0
-            elif op == 0x57:
-                pc = s0 if s1 else pc + 1
-            else:
-                pc += opsize(op)
+def agree(A, seq):
+    """How many steps of `seq` replay under artefact A before the first opcode disagreement."""
+    pc, raw, n = 0, A["raw"], 0
+    for op, s0, s1 in seq:
+        if pc >= len(raw) or raw[pc] != op:
+            return n
+        n += 1
+        if op == 0x56:
+            pc = s0
+        elif op == 0x57:
+            pc = s0 if s1 else pc + 1
         else:
+            pc += opsize(op)
+    return n
+
+
+def identify(art, seqs):
+    # THE OBJECT THAT AGREES WITH EVERY STEP, NOT THE FIRST ONE THAT AGREES WITH A PREFIX.
+    total = sum(len(q) for q in seqs)
+    for c, A in art.items():
+        if sum(agree(A, q) for q in seqs) == total:
+            return c
+    # No object agrees in full: the sixty-step prefix decides, so a shipped contract that really
+    # disagrees is still named - and its replay then reports where - while a mock stays unnamed.
+    first = seqs[0][:60]
+    for c, A in art.items():
+        if agree(A, first) == len(first):
             return c
     return None
 
 
 def replay(art, steps, frames):
-    addr_art = {}
+    addr_art, seqs_at = {}, collections.defaultdict(list)
     for f in frames:
-        ca = f["code_addr"]
-        if ca is None or ca in addr_art:
-            continue
-        seq = [(steps[i][1], steps[i][3], steps[i][4]) for i in f["idx"][:60]]
-        addr_art[ca] = identify(art, seq)
+        if f["code_addr"] is not None:
+            seqs_at[f["code_addr"]].append([(steps[i][1], steps[i][3], steps[i][4]) for i in f["idx"]])
+    for ca, seqs in seqs_at.items():
+        addr_art[ca] = identify(art, seqs)
     executed = collections.defaultdict(set)
     ops_at = collections.defaultdict(lambda: collections.defaultdict(set))   # art -> op -> pcs
     checked, mismatch, replayed = collections.Counter(), collections.Counter(), 0

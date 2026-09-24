@@ -327,8 +327,9 @@ that deploys. `pc_trace.py` reads the release artefacts and a trace recorded by
 and, for jumps and calls, the top two stack words — enough to replay the counter exactly, with
 the artefact's own opcode checked at every step. A frame that disagrees once is abandoned and
 counted, and a single mismatch fails the check: a replay that disagrees with the trace is no
-bound. Which artefact a frame runs is learned by replaying its first steps under each of the
-five objects, never assumed from an address.
+bound. Which artefact a frame runs is learned by replaying every step of every frame at an address
+under each of the five objects, never assumed from an address; a prefix is not enough, because
+contracts from the same pipeline open with the same dispatcher skeleton.
 
 Ground truth the reader must re-find before its number is printed: zero opcode mismatches; a
 second Router deployed by the probe and never called must appear in no frame; the called Router
