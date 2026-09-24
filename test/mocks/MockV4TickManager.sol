@@ -226,15 +226,23 @@ contract MockV4TickManager {
             : int256((uint256(uint128(recvD)) << 128) | uint256(uint128(oweD)));
     }
 
+    receive() external payable {}
+
     function sync(address currency) external {
         syncedFlag = true;
         syncedCur = currency;
-        syncBal = IERC20Tick(currency).balanceOf(address(this));
+        syncBal = currency == address(0) ? 0 : IERC20Tick(currency).balanceOf(address(this));
     }
 
+    /// Native settlement is exactly the owed value, as the singleton takes it; an ERC-20 is
+    /// the balance delta since `sync`.
     function settle() external payable returns (uint256) {
-        require(syncedFlag && syncedCur == pendingCur, "settle: not synced");
-        require(IERC20Tick(pendingCur).balanceOf(address(this)) - syncBal >= pendingOwe, "settle: unpaid");
+        if (pendingCur == address(0)) {
+            require(msg.value == pendingOwe, "settle: value != owed");
+        } else {
+            require(syncedFlag && syncedCur == pendingCur, "settle: not synced");
+            require(IERC20Tick(pendingCur).balanceOf(address(this)) - syncBal >= pendingOwe, "settle: unpaid");
+        }
         syncedFlag = false;
         uint256 p = pendingOwe;
         pendingOwe = 0;
@@ -242,6 +250,11 @@ contract MockV4TickManager {
     }
 
     function take(address currency, address to, uint256 amount) external {
-        require(IERC20Tick(currency).transfer(to, amount), "take: transfer failed");
+        if (currency == address(0)) {
+            (bool ok, ) = to.call{value: amount}("");
+            require(ok, "take: eth send failed");
+        } else {
+            require(IERC20Tick(currency).transfer(to, amount), "take: transfer failed");
+        }
     }
 }

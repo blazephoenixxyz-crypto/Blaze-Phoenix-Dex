@@ -1527,6 +1527,11 @@ M = [
       old="        for (uint256 i; i < V4_WALK_MAX_STEPS; ) {",
       new="        for (uint256 i; i < 1; ) { // MUTANT",
       teste="test_ADeepPoolWithANarrowCurrentRangeIsPromisedWhatItPays"),
+ dict(nome="dex-20: the planner quotes a native leg on its WETH-canonical pair (the native side is not substituted)",
+      f="src/BlazePhoenixSolver.sol",
+      old="            if (zfo) qIn = address(0); else other = address(0);",
+      new="            zfo; // MUTANT",
+      teste="test_ANativeLegAttestsWhatItsNativePoolPays"),
 ]
 
 def run(t):
