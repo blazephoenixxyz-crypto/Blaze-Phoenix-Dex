@@ -1319,6 +1319,11 @@ Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 for
 `forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
 the run did not have); **268 curated mutants**, all killed.
 
+Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
+with one, where none is skipped; the five N-version checks run in their own lane, at other code
+generation; `PcTraceProbe`, which records what the shipped binary executes, runs in the release
+job, where the trace is replayed and checked (`docs/assurance/ASSURANCE.md`, §4g).
+
 ## Running
 
 ```bash
@@ -2251,7 +2256,9 @@ Ground truth the reader must re-find before its number is printed: zero opcode m
 second Router deployed by the probe and never called must appear in no frame; the called Router
 must have crossed the reentrancy lock (a `TLOAD` and two distinct `TSTORE` sites).
 
-Measured for one recorded scenario — an honest V2 swap through `swapExactIn`:
+Measured for one recorded scenario — an honest V2 swap through `swapExactIn` — at `8f13b0d`
+(2026-09-05). The code has moved since; the release job records and checks the same trace on every
+pull request, and its log prints the table for the tree it built:
 
 | artefact | instructions run | code section | share | replayed steps | mismatches |
 |---|---:|---:|---:|---:|---:|

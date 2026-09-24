@@ -334,7 +334,9 @@ Ground truth the reader must re-find before its number is printed: zero opcode m
 second Router deployed by the probe and never called must appear in no frame; the called Router
 must have crossed the reentrancy lock (a `TLOAD` and two distinct `TSTORE` sites).
 
-Measured for one recorded scenario — an honest V2 swap through `swapExactIn`:
+Measured for one recorded scenario — an honest V2 swap through `swapExactIn` — at `8f13b0d`
+(2026-09-05). The code has moved since; the release job records and checks the same trace on every
+pull request, and its log prints the table for the tree it built:
 
 | artefact | instructions run | code section | share | replayed steps | mismatches |
 |---|---:|---:|---:|---:|---:|
