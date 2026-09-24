@@ -10,6 +10,9 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 
 contract HubBatchPsiTest is Test {
     BlazePhoenixHub hub;
@@ -17,21 +20,31 @@ contract HubBatchPsiTest is Test {
     address constant TA = address(0xAAA1);
     address constant TB = address(0xBBB1);
 
+    address p1;
+    address p2;
+    address p3;
+
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        // Codeless dummy pools, deliberately (the Hub unit-test convention):
-        // slot logic is isolated from pool bytecode.
-        hub.seedPool(address(0x7001), BPC.KIND_V2, 30, address(0), TA, TB);
-        hub.seedPool(address(0x7002), BPC.KIND_V3, 500, address(0), TA, TB);
-        hub.seedPool(address(0x7003), BPC.KIND_SOLIDLY, 0, address(0), TA, TB);
+        // One pool of each shape. The operator's door reads the shape it is told about
+        // (Core.provenShape, ninth wave), so a concentrated row needs a pool that answers
+        // slot0 and a Solidly row one that answers stable(); a codeless address is a pair.
+        p1 = address(new MockV2Pair(TA, TB));
+        MockV3Pool v3 = new MockV3Pool(TA, TB, 500);
+        v3.setState(uint160(BPC.Q96), 1e18);
+        p2 = address(v3);
+        p3 = address(new MockSolidlyPair(TA, TB, false));
+        hub.seedPool(p1, BPC.KIND_V2, 30, address(0), TA, TB);
+        hub.seedPool(p2, BPC.KIND_V3, 500, address(0), TA, TB);
+        hub.seedPool(p3, BPC.KIND_SOLIDLY, 0, address(0), TA, TB);
     }
 
     function test_PsisOf_MatchesPerKeyGetPsi() public view {
         address[] memory pools = new address[](4);
-        pools[0] = address(0x7001);
-        pools[1] = address(0x7002);
-        pools[2] = address(0x7003);
+        pools[0] = p1;
+        pools[1] = p2;
+        pools[2] = p3;
         pools[3] = address(0x7FFF); // unregistered — must read 0, not revert
         address[] memory tAs = new address[](4);
         address[] memory tBs = new address[](4);

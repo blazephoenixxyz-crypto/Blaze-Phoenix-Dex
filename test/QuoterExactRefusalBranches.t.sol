@@ -130,7 +130,10 @@ contract MockV4ManagerQ {
         expC0 = c0; expC1 = c1; expFee = fee_; expTickSpacing = ts; expHooks = hooks_;
     }
 
+    uint256 public unlockCalls;   // persists only when unlock returns (the revert modes roll it back)
+
     function unlock(bytes calldata data) external returns (bytes memory) {
+        ++unlockCalls;
         if (mode == MODE_SHORT_REVERT) {
             // 32 bytes: unambiguously not the Quoter's 2-word delta payload,
             // AND short enough that abi.decode(reason,(int256,int256)) would
@@ -301,6 +304,21 @@ contract QuoterExactRefusalBranchesTest is Test {
     function _v4Leg(uint256 amt) internal view returns (Leg memory l) {
         l = _leg(BPC.KIND_V4, address(0), amt, DECOY_OUT); // singleton: pool is not a pair
         l.auxId = bytes32(uint256(uint160(address(tokB))));
+        _repool(l);
+    }
+
+    /// @dev A V4 leg must name the pool its key derives to, in the direction of its
+    ///      tokens (BPX-2026-009). A leg built with `pool = 0` is refused at that
+    ///      identity check - AFTER the early guards but BEFORE the dry run - so a
+    ///      refusal test on such a leg passed for that reason instead of its own. The
+    ///      mutation guard found it (2026-09-23): the delta-hook guard's mutant
+    ///      survived, because the malformed leg was refused one check later anyway.
+    ///      Call again after changing the hook or the counter token.
+    function _repool(Leg memory l) internal view {
+        address other = address(uint160(uint256(l.auxId)));
+        (address c0, address c1) = BPC.sortTokens(address(tokA), other);
+        l.zeroForOne = address(tokA) == c0;
+        l.pool = address(uint160(uint256(BPC.computeV4PoolId(c0, c1, l.fee, l.tickSpacing, l.hooks))));
     }
 
     // =========================================================================
@@ -555,6 +573,7 @@ contract QuoterExactRefusalBranchesTest is Test {
 
         Leg memory l = _v4Leg(AMT);
         l.hooks = HOOK_DELTA;
+        _repool(l);   // well-formed for THIS key, so only the delta-hook guard can refuse
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, DECOY_OUT,
             "a delta-altering hook is unquotable even when the manager would answer");
@@ -572,6 +591,7 @@ contract QuoterExactRefusalBranchesTest is Test {
 
         Leg memory l = _v4Leg(AMT);
         l.auxId = bytes32(0);
+        _repool(l);   // the malformed key's own pool, so only the zero-token guard can refuse
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, DECOY_OUT, "a leg with no counter token cannot be dry-run");
     }
@@ -639,6 +659,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     function test_Exact_V4_CleanReturnIsNoQuote() public {
         mgrMock.setMode(mgrMock.MODE_CLEAN_RETURN());
         uint256 exactOut = _v4Exact(_v4Leg(AMT), AMT);
+        assertEq(mgrMock.unlockCalls(), 1, "setup: the dry run must reach unlock, or this branch is never asked");
         assertEq(exactOut, DECOY_OUT, "a non-reverting unlock yields no quote");
     }
 
@@ -646,8 +667,15 @@ contract QuoterExactRefusalBranchesTest is Test {
     /// 2-word payload (32 bytes, same reasoning as the conc twin).
     /// FAILS IF DELETED: yes — the short decode reverts and the preview dies.
     function test_Exact_V4_ForeignRevertFallsBack() public {
+        // WITNESS FIRST. The revert modes roll the unlock counter back, so the refusal
+        // below cannot show it reached the manager. The same leg, in a mode that returns,
+        // shows it: every check before unlock passes, and only the manager can refuse it.
+        Leg memory l = _v4Leg(AMT);
+        mgrMock.setMode(mgrMock.MODE_CLEAN_RETURN());
+        _v4Exact(l, AMT);
+        assertEq(mgrMock.unlockCalls(), 1, "setup: this leg must reach unlock, or the refusal is not from the manager");
         mgrMock.setMode(mgrMock.MODE_SHORT_REVERT());
-        uint256 exactOut = _v4Exact(_v4Leg(AMT), AMT);
+        uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, DECOY_OUT, "a manager-side revert is a refusal, answered by the fallback");
     }
 
@@ -663,6 +691,11 @@ contract QuoterExactRefusalBranchesTest is Test {
 
         Leg memory l = _v4Leg(AMT);
         l.zeroForOne = address(tokA) == c0;
+        // WITNESS FIRST: the same leg with an honest delta is priced, so the key checks
+        // pass and the refusal below can only be the sign check.
+        mgrMock.setMode(mgrMock.MODE_ECHO());
+        assertEq(_v4Exact(l, AMT), Q_OUT, "setup: the same leg with a positive delta must be priced");
+        mgrMock.setMode(mgrMock.MODE_BAD_DELTA());
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, DECOY_OUT, "a non-positive receive delta is not a quote");
     }
@@ -720,7 +753,9 @@ contract QuoterExactRefusalBranchesTest is Test {
 
         Leg memory l = _leg(BPC.KIND_SOLIDLY, address(pair), AMT, honest);
         uint256 exactOut = _exact(_wrap(l, AMT), AMT);
-        assertEq(exactOut, honest, "at scale 1 the Solidly pass-through is the pool's own number");
+        // The pool's own number less the wei the executor leaves it for its K check: the
+        // exact pass promises what the executor asks for (Core.solidlyAskOut, dex-13).
+        assertEq(exactOut, honest - 1, "at scale 1 the Solidly pass-through is the executor's ask");
     }
 
     /// RED-UNTIL-FIXED — the direction law on the branch's other flank.

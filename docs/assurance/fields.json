@@ -31,22 +31,22 @@
       "field": "getLiquidity(leg.pool)",
       "family": "A_CONC_POOL",
       "class": "CONFIRMED",
-      "site": "src/BlazePhoenixRouter.sol:_recordHits",
-      "note": "F-B, closed 2026-09-04: capped by physical holdings when the pool holds both tokens"
+      "site": "src/BlazePhoenixCore.sol:registryDepth18",
+      "note": "F-B, closed 2026-09-04: capped by physical holdings; since the ninth wave also when one side is empty, and zero when both are. Measured by Core.registryDepth18, the one producer every registry door calls"
     },
     {
       "field": "getReserves(leg.pool)",
       "family": "A_RESERVES",
       "class": "CONFIRMED",
-      "site": "src/BlazePhoenixRouter.sol:_v2Depth18",
-      "note": "PROV-01: each declared reserve capped by balanceOf"
+      "site": "src/BlazePhoenixCore.sol:registryDepth18",
+      "note": "PROV-01: each declared reserve capped by balanceOf, at every registry door (swap, V4 claim, operator seed)"
     },
     {
       "field": "leg.kind",
       "family": "*",
       "class": "CONFIRMED",
-      "site": "src/BlazePhoenixHub.sol:recordSwap",
-      "note": "re-derived from pool shape; an unknown kind reverts at dispatch"
+      "site": "src/BlazePhoenixCore.sol:provenShape",
+      "note": "re-derived from pool shape by Core.provenShape at both doors that write a non-V4 row (recordSwap skips a contradiction, seedPool refuses it); an unknown kind reverts at dispatch"
     },
     {
       "field": "leg.kind",

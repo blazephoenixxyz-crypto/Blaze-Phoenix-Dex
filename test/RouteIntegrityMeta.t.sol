@@ -133,6 +133,13 @@ contract RouteIntegrityMetaTest is Test {
         if (lie == 3) leg.tickSpacing = ts == 10 ? int24(60) : int24(10);
         if (lie == 4) leg.hooks = hooked ? address(0) : hookB;
         if (lie == 5) leg.zeroForOne = !zfo;
+        // The key the lie names is seeded too. Unseeded, it was refused by the manager
+        // reverting on an empty pool - the right answer for the wrong reason, which would
+        // survive the identity check being deleted. Seeded, only that check can refuse it.
+        {
+            (address s0, address s1) = BPC.sortTokens(tIn, tOther);
+            _seedUnit(BPC.computeV4PoolId(s0, s1, leg.fee, leg.tickSpacing, leg.hooks));
+        }
         FixedPlanSolver fixedSolver = new FixedPlanSolver();
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(fixedSolver));
         fixedSolver.setPlan(_oneHop(tIn, tOther, leg, amt, 3 * amt));

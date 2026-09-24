@@ -40,6 +40,12 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **mohaseenkatika**
 - **mohaseenbasha**
 - **Karan Rathod**
+- **Seavia Resources**
+- **acit aja**
+- **Brian Wahyu**
+- **M2000 Slash**
+- **Binod Bk**
+- **CHARIR ABDELHAMID**
 - **Anonymous**
 
 ---

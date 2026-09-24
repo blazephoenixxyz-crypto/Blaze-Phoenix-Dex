@@ -626,7 +626,20 @@ contract BlazePhoenixSolver {
                 // anchor T2 removed: it can only shrink a claim, never grow one.
                 // `balsOut` is the quantity already read for the capacity ceiling,
                 // so the cap costs no extra call.
-                if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES)) {
+                //
+                // THE CONCENTRATED FAMILY TOO (ninth wave, Binod Bk). There the
+                // depth is `depthFromL18(liquidity(), slot0())` - the contract's own
+                // word about itself - and a V3-shaped contract holding nothing that
+                // declared 1e33 took the whole order from a pool holding 1,000,000
+                // a side, then set the floor its own fill was judged against. The
+                // cap binds on honest concentrated pools as well, because their
+                // virtual depth exceeds what they hold (3.327e18 against 1.600e18
+                // measured at the capacity clamp below): they now weigh by the mass
+                // they hold, the rule the registry writer already applies. A
+                // donation can lift a concentrated pool's capped weight at most back
+                // to its declared depth - the weight it carried before this cap - so
+                // it buys no share the declaration did not already claim.
+                if (BPC.kindHasAny(cands[i].kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {
                     uint256 physical = BPC.to18(balsOut[i], dOt1_ - 1);
                     if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;
                 }
@@ -813,9 +826,16 @@ contract BlazePhoenixSolver {
             //     raises the cap AND raises what the pool can really pay, and the donated tokens
             //     are CONSUMED paying the user. It is not an attack, it is a subsidy.
             // Reading the same quantity does not mean asking the same question.
-            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)
-                && balsOut[i] > 0)
-            {
+            //
+            // ZERO HOLDINGS ARE ZERO CAPACITY. This clamp used to skip a book
+            // holding none of tokenOut, on the V4 reasoning that a pool's own
+            // balance can be zero while the singleton pays. V4 never reaches this
+            // branch - it is A_CONC_SING, and its `balsOut` is forced to zero above
+            // - and a V3/Algebra pool custodies its own tokens: holding none, it
+            // can pay none. Skipping the clamp handed a V3-shaped contract with no
+            // capital its whole declared promise (ninth wave, Binod Bk). A zero
+            // cap now drops the leg, and the freed input flows on like any cut.
+            if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) {
                 uint256 cap = BPC.mulDiv(balsOut[i], MAX_CONC_DRAIN_BPS, BPC.BPS);
                 if (allowCut && outL > balsOut[i]) {
                     // ─── Input-side clamp: capital follows the promise ───
@@ -895,44 +915,36 @@ contract BlazePhoenixSolver {
         // exercise. If conservatism is ever restored, the right place is the
         // floor (which is checked) and not the estimate (which only ranks).
         // MIN-SPLIT IMPROVEMENT GATE. A multi-leg split must EARN its legs:
-        // unless it beats the top-weight survivor's single-leg full-size quote
+        // unless it beats the best survivor's single-leg full-size quote
         // by >= MIN_SPLIT_IMPROVEMENT_PPM (ppm), collapse to that single leg. Kills
         // micro-splits whose marginal output gain is smaller than the real
-        // gas cost of the extra legs. cands[0] is the top-weight survivor
-        // (post FUNNEL CUT); one extra full-size quote in the view path only.
+        // gas cost of the extra legs. The single leg it must beat is the best
+        // survivor at full size (post FUNNEL CUT), one full-size quote each.
         if (legCount >= 2) {
-            // TWO FALLBACK CANDIDATES, not one. `cands[0]` is the highest
-            // WEIGHT, that is the DEEPEST — never the best priced. Comparing
-            // the split only against it means a better single leg could
-            // exist and never be considered.
-            //
-            // But `argmax(rates)` alone is no good either, for a subtle
-            // reason: the `rates` come from a SMALL probe, so they are
-            // MARGINAL prices, and a marginal price favours SHALLOW pools —
-            // great on the first token, awful on the whole amount. Depth is
-            // precisely the proxy for "can take the full size".
-            //
-            // The two heuristics measure different things and neither wins.
-            // BOTH are evaluated at real size and the best one stays: it
-            // costs ONE extra quote in the view path, and it cannot lose to
-            // the old behaviour because that is one of the two candidates.
+            // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
+            // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
+            // probe and are MARGINAL prices. Neither heuristic names the best single leg at
+            // full size, so neither is asked: every survivor is quoted at full size below.
             // `n`, NOT `cands.length`. The survivors are compacted IN
             // PLACE (see the compaction block above) but the memory array
             // keeps its ORIGINAL length: positions >= n are junk from
             // candidates the median band REJECTED or the funnel CUT.
             // Walking `cands.length` resurrected them as the fallback single
-            // leg, voiding both filters — caught by
+            // leg, voiding both filters - caught by
             // test_UmaPoolFundaNaoCapturaABanda, which exists exactly to
             // stop a deep badly-priced pool from entering the route.
-            uint256 melhorTaxa;
-            for (uint256 i = 1; i < n; ) {
-                if (rates[i] > rates[melhorTaxa]) melhorTaxa = i;
-                unchecked { ++i; }
-            }
+            // EVERY SURVIVOR, NOT TWO REPRESENTATIVES (ninth wave, Brian Wahyu). The deepest
+            // and the best marginal rate are two heuristics for "the best single leg at full
+            // size", and with three or more survivors that leg can be neither: a pool of middle
+            // depth and middle price. Measured: a split that beat both representatives kept an
+            // order 1.48% below the middle pool alone (test/SplitGateSeesEverySurvivor.t.sol).
+            // The set is the survivors of the band and the funnel - at most MAX_CANDIDATES -
+            // so the argmax is taken over the set it names.
             Hop memory single = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
-            if (melhorTaxa != 0) {
-                Hop memory alt = _singleLeg(tIn, tOut, amountIn, cands[melhorTaxa], allowCut);
+            for (uint256 i = 1; i < n; ) {
+                Hop memory alt = _singleLeg(tIn, tOut, amountIn, cands[i], allowCut);
                 if (alt.legs.length != 0 && alt.expectedOut > single.expectedOut) single = alt;
+                unchecked { ++i; }
             }
             if (
                 single.legs.length != 0 && single.expectedOut > 0 &&
@@ -1153,18 +1165,21 @@ contract BlazePhoenixSolver {
         // uncommitted remainder back to the caller) instead of walking the
         // pool's tick ladder at a collapsing marginal price. Aggressive but
         // possible (cap < quote <= holdings): full commit, promise capped.
+        // Zero holdings are zero capacity here as on the split path, and for the
+        // same reason: this is the second consumer of the same question, and the
+        // split gate collapses a route onto the best single leg, so a skip here
+        // alone was enough to hand an empty book the whole order.
         uint256 legIn = amountIn;
         if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
             uint256 balOut = BPC.balanceOf(tOut, cand.pool);
-            if (balOut > 0) {
-                uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);
-                if (allowCut && out_ > balOut) {
-                    legIn = BPC.mulDiv(amountIn, cap, out_);
-                    out_ = cap;
-                    if (legIn == 0 || out_ == 0) return hop;
-                } else if (out_ > cap) {
-                    out_ = cap;
-                }
+            uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);
+            if (allowCut && out_ > balOut) {
+                legIn = BPC.mulDiv(amountIn, cap, out_);
+                out_ = cap;
+                if (legIn == 0 || out_ == 0) return hop;
+            } else if (out_ > cap) {
+                out_ = cap;
+                if (out_ == 0) return hop;
             }
         }
         Leg[] memory legs = new Leg[](1);
@@ -1186,6 +1201,49 @@ contract BlazePhoenixSolver {
             // off-chain reader truthful — issue #1 (NetGakarot).
             amountIn: legIn, expectedOut: out_, legs: legs
         });
+    }
+
+    /// @dev WRITES each leg's promise into its attestation and returns the hop's.
+    ///      A leg's `expectedOut` leaves `universalQuote` as a CAPACITY figure,
+    ///      unclamped on purpose (Core:1699) so a deeper venue reads as deeper;
+    ///      the hop's and the route's totals keep it, and ranking is untouched.
+    ///      The leg's own `expectedOut` is the other question: it travels to the
+    ///      Router and is the per-leg floor it enforces - the promise layer
+    ///      Core:1720 names. For a single-tick venue that is the figure the
+    ///      Router itself quotes, bounded at the current range's edge; every other
+    ///      family has no edge to cross and keeps its figure. A zero answer leaves
+    ///      the attestation alone: the absence of a promise is not a promise of zero.
+    ///      Written here, at assembly, because the Router cannot do it: an
+    ///      in-frame cap is a quote of the pool that EXECUTES, and it let a
+    ///      substituted pool set its own floor.
+    function _promiseLegs(Hop memory hop) private view returns (uint256 sum) {
+        address mgr;
+        uint256 n = hop.legs.length;
+        for (uint256 i; i < n; ) {
+            Leg memory lg = hop.legs[i];
+            uint256 one = lg.expectedOut;
+            if (BPC.kindHasAny(lg.kind, BPC.A_CONC_SING) && one != 0) {
+                if (mgr == address(0)) mgr = hub.v4PoolManager();
+                if (mgr != address(0)) {
+                    address other = address(uint160(uint256(lg.auxId)));
+                    if (other != address(0)) {
+                        (address q0, address q1) = BPC.sortTokens(
+                            lg.zeroForOne ? hop.tokenIn : other,
+                            lg.zeroForOne ? other : hop.tokenIn
+                        );
+                        uint256 p = BPC.v4LegOut(
+                            mgr,
+                            BPC.computeV4PoolId(q0, q1, lg.fee, lg.tickSpacing, lg.hooks),
+                            lg.amountIn, lg.fee, lg.tickSpacing, lg.zeroForOne
+                        );
+                        if (p != 0 && p < one) one = p;
+                    }
+                }
+                lg.expectedOut = one;
+            }
+            sum += one;
+            unchecked { ++i; }
+        }
     }
 
     /// @param dIn1 decimals of `tIn` +1, `dOt1` those of the other token +1 (0 =
@@ -1495,7 +1553,15 @@ contract BlazePhoenixSolver {
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, BPC.legShaveBps(hopIn, hopIn2), 0);
         // R-C: a protective threshold rounds UP, as the Router's does — the
         // other half of the same-number parity above.
-        uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);
+        // THE FLOOR IS A PROMISE, AND `expectedOut` IS A CAPACITY.
+        // `hop.expectedOut` comes from `universalQuote`, which Core:1699 keeps
+        // unclamped on purpose: it answers "which venue is deeper?" and it is
+        // what the preview publishes about capacity, so a pool 292x deeper reads
+        // as 292x deeper. A floor is the other question. Taking a fraction of the
+        // capacity figure asks a single-tick venue for more than it can pay once
+        // the swap leaves its range, and an integrator deriving `userMinOut` from
+        // the published floor then sets a bound the Router refuses.
+        uint256 floorOut = BPC.mulDivUp(_promiseLegs(hop), floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,
@@ -1589,7 +1655,26 @@ contract BlazePhoenixSolver {
         uint256 totalImpactBps = totalLegs > 0 ? weightedAcc / totalLegs : 0;
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, legShv, 0);
         // R-C: rounds UP like the single-hop twin and like the Router.
-        uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);
+        //
+        // THE PROMISE, NOT THE CAPACITY, CARRIED ALONG THE CHAIN - the multi-hop
+        // twin of the single-venue rule. Every hop's legs attest their promise,
+        // because the Router holds EACH leg to its own attestation and a
+        // single-tick leg in an earlier hop leaves its range as easily as one in
+        // the last. And the floor is not the last hop's promise alone: each later
+        // hop was SIZED on the ranking figure of the hop before it and can only
+        // count on that hop's promise, so it is scaled by what actually reaches
+        // it. Pro-rata is the conservative direction - every leg's output is
+        // concave in its input and zero at zero, so f(s*x) >= s*f(x) for s <= 1 -
+        // and a hop promised at least what it was sized on keeps its own figure.
+        // `finalOut` stays the ranking figure: it is the route's capacity.
+        uint256 carry = _promiseLegs(hops[0]);
+        for (uint256 h = 1; h < hops.length; ) {
+            uint256 sized = hops[h].amountIn;
+            uint256 own   = _promiseLegs(hops[h]);
+            carry = (sized != 0 && carry < sized) ? BPC.mulDiv(own, carry, sized) : own;
+            unchecked { ++h; }
+        }
+        uint256 floorOut = BPC.mulDivUp(carry, floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,

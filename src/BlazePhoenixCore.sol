@@ -1233,15 +1233,21 @@ library BlazePhoenixCore {
         // that `r` is always the position INSIDE the range (0 <= r < S).
         int256 r = int256(tick) % sp_;
         if (r < 0) r += sp_;
-        uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r);
-        // d == 0 happens only going DOWN from a tick that is itself a range
-        // boundary (r == 0): the price sits inside [tick, tick + 1), so the
-        // lower edge is less than one tick away, not a whole range. Treating
-        // the range below as "ahead" priced its liquidity with this range's
-        // figure and clamped a full spacing late. One tick keeps the promise
-        // continuous across the boundary (tick 0 promises no more than tick 1)
-        // and over-states the edge by at most 0.01 %. Going up, r == 0 gives
-        // d == S already: the whole range does lie ahead.
+        // The distance is counted from the PRICE, and the tick only says where
+        // the price's tick STARTS: the price may already sit most of a tick above
+        // it. Going down that is harmless (the edge is at least `r` ticks below
+        // any price inside the tick). Going up it is not: the top edge is
+        // `S - r` ticks above the tick's start, so from a price inside the tick
+        // it can be as little as `S - r - 1` ticks away. Counting `S - r` put the
+        // edge up to one tick too far and promised more than the range pays
+        // (1.030x with the price at 0.9 of tick 30, spacing 60 - the up twin of
+        // the down-arm defect V4-4 closed).
+        uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r - 1);
+        // d == 0 happens going DOWN from a tick that is itself a range boundary
+        // (r == 0), and going UP from the range's top tick (r == S - 1): either
+        // way the edge is less than one tick away, not a whole range. One tick
+        // keeps the promise continuous across the boundary and over-states the
+        // edge by at most that one tick (0.01 % in price).
         if (d == 0) d = 1;
         uint256 P = uint256(sqrtP);
         // THE TWO DIRECTIONS ARE NOT SYMMETRIC, and assuming so was a defect.
@@ -1279,6 +1285,21 @@ library BlazePhoenixCore {
         (bool ok, bytes memory ret) = pool.staticcall(abi.encodeWithSignature(
             "getAmountOut(uint256,address)", amountIn, tokenIn));
         if (ok && ret.length >= 32) out = abi.decode(ret, (uint256));
+    }
+
+    /// @notice What a Solidly pair is ASKED to pay for `amountIn` - the single producer the
+    ///         executor settles on and the quote channel promises. Its own `getAmountOut` less
+    ///         one wei, the rounding margin that keeps the pair's K check satisfied; on forks
+    ///         without the selector (an answer <= 1), the replicated curve at the live fee less
+    ///         200 bps, because the pool's K rounding cannot be observed there.
+    function solidlyAskOut(
+        address pool, uint256 amountIn, address tokenIn, bool zeroForOne, bool stable, uint256 cfgFee
+    ) public view returns (uint256 out) {
+        out = solidlyGetAmountOut(pool, amountIn, tokenIn);
+        if (out > 1) { unchecked { return out - 1; } }
+        (uint256 r0, uint256 r1) = getReserves(pool);
+        (uint256 rIn, uint256 rOut) = zeroForOne ? (r0, r1) : (r1, r0);
+        out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * 9800) / BPS;
     }
 
     function outSolidly(
@@ -1648,25 +1669,15 @@ library BlazePhoenixCore {
         if (k == KIND_SOLIDLY) {
             (uint256 r0, uint256 r1) = getReserves(c.pool);
             (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
-            // PRIMARY: ask the pool itself. Exact by construction — the same
-            // bytecode that enforces K at execution produced the number, so
-            // nothing is left behind in the pool and quote == execution.
-            out = solidlyGetAmountOut(c.pool, amountIn, c.tokenIn);
-            // `<= 1`, NOT `== 0`: the Router's quote channel aligned this
-            // trigger with the executor (`_execSolidlyAmt` treats <= 1 as "no
-            // answer") for the stated reason that a pool returning exactly 1
-            // made two symmetric channels take DIFFERENT branches. This copy —
-            // the Quoter's door — was the THIRD channel of the same fact and
-            // kept the old trigger; the fix had reached 2 of 3.
-            if (out <= 1) {
-                // FALLBACK (forks without getAmountOut only): replicate the
-                // curve with the live fee, then under-ask by 200 bps so the
-                // pool's K rounding — which we cannot observe — always has
-                // slack. The haircut is intentionally the pool's gain; it
-                // never applies when getAmountOut answered above.
-                out = solidlyCurveOut(c.pool, amountIn, rI, rO, c.stable, c.fee, c.tokenIn);
-                out = (out * 9800) / BPS;
-            }
+            // THE EXECUTOR'S ASK, from the executor's own producer. The pair is
+            // never asked for its whole `getAmountOut`: `_execPairAmt` asks one
+            // wei less, the rounding margin its K check needs, and on forks
+            // without the selector the replicated curve less 200 bps. This arm
+            // used to promise the pair's figure itself - one wei above every
+            // Solidly delivery - so a one-leg preview had no buffer to absorb it
+            // and published a netOut the Router refused as userMinOut (dex-13,
+            // ninth wave). One function now answers both questions.
+            out = solidlyAskOut(c.pool, amountIn, c.tokenIn, c.zeroForOne, c.stable, c.fee);
             depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
             return (out, depthWad);
         }
@@ -2036,6 +2047,101 @@ library BlazePhoenixCore {
         return uint32(uint256(swapCount) >> shift);
     }
 
+    // =========================================================================
+    //  REGISTRY PRODUCERS - what a registration door may write, measured once
+    // =========================================================================
+
+    /// @notice THE SHAPE DECIDES, THE CALLER PROPOSES. The one refutation every registration
+    ///         door applies to a declared family: the swap door since REG-01/REG-02, the
+    ///         operator's door since the ninth wave (dex-16). `ok` is false when the declaration
+    ///         contradicts the shape; `k` is the family the shape answers; `fee` is the registry
+    ///         fee that family carries. V4 kinds are authenticated by their pool id, not by a
+    ///         shape, and never reach this function.
+    function provenShape(address pool, uint8 kind) public view returns (bool ok, uint8 k, uint24 fee) {
+        (uint160 sp, , bool dynShape) = v3StateAndDynFee(pool);
+        bool declaredConc = kind == KIND_V3 || kind == KIND_ALGEBRA;
+        bool isConc = sp != 0;
+        // A declaration that contradicts the shape is refused outright rather than corrected:
+        // a V2 pair cannot answer slot0, and a concentrated pool has no reserves to read.
+        // Registering either on the caller's word would point the Solver at the wrong reader.
+        // Fail closed on the REGISTRY, which is the Hub's stated doctrine.
+        if (declaredConc != isConc) return (false, kind, 0);
+        k = kind;
+        // Within the concentrated families the shape decides, not calldata: Algebra prices with
+        // a dynamic fee it reports itself, V3 with a static tier, so persisting the wrong one
+        // poisons every later quote for this pool.
+        if (isConc) k = dynShape ? KIND_ALGEBRA : KIND_V3;
+        // The pair-shaped family gets the same treatment (review 2026-09-02): a Solidly pair
+        // answers stable(), a Uniswap-V2 pair does not. Declared V2 on a Solidly pool priced it
+        // with V2 math at 30 bps - a volatile pool with a higher fee then reverted every honest
+        // swap in its own K check while the Solver kept ranking it first; a stable pool was
+        // priced on the wrong curve; declared Solidly on a V2 pair paid the fallback haircut
+        // forever. Written as its own statement, not an `else`, so the concentrated line above
+        // keeps its mutant.
+        if (!isConc) k = isSolidlyShaped(pool) ? KIND_SOLIDLY : KIND_V2;
+        // The registry fee of a PAIR-shaped row is 0 (review 2026-09-02): `getV3Fee` reads the
+        // V3 `fee()` getter, whose unit is a V3 convention; a pair whose `fee()` answers in
+        // another unit (per-mille, ppm) poisoned its own row, and `effV2Fee` read the number as
+        // bps. 0 means "the house's single producer answers": effV2Fee(0) = 30 bps for V2, and
+        // Solidly's fee is measured live by readDynamicFee regardless.
+        fee = isConc ? (dynShape ? 0 : getV3Fee(pool)) : 0;
+        ok = true;
+    }
+
+    /// @notice The depth the registry records for a pool, in 18-decimal units: measured, never
+    ///         declared, and by ONE producer for every door that seals a row - the Router after
+    ///         a swap and the operator's door at seeding (dex-17). Pair shapes: reserves capped
+    ///         by the balances held (PROV-01). Single-tick (V4): the singleton's liquidity at its
+    ///         price, which `pid` names. Concentrated pools: liquidity at the price, capped by
+    ///         the mass the pool holds (ninth wave, Binod Bk).
+    function registryDepth18(
+        address pool, uint8 kind, address t0, address t1, address v4mgr, bytes32 pid
+    ) public view returns (uint256 depth) {
+        uint8 dc0 = decimalsOf(t0);
+        uint8 dc1 = decimalsOf(t1);
+        if (kindHas(kind, A_RESERVES)) {
+            // NORMALISE BEFORE THE `min`. This was the EIGHTH site of the same defect class: the
+            // raw `min(r0, r1)` picks the side with fewer UNITS, not the SHALLOWER side. A
+            // USDC(6)/WETH(18) pair holding 700M USDC gives 7e14 < 1e15 and falls into bucket 0 -
+            // and since `tickSlot` rewrites the bucket unconditionally, the first routed swap
+            // undid the correct bucket the registry already held (cured 2026-08-21).
+            (uint256 r0, uint256 r1) = getReserves(pool);
+            // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01): the registry's depth bucket ranks
+            // the funnel's top-K and decides evictions, and this was the pool's own word. Cap
+            // each declared reserve by the balance the pool physically holds - inert on an
+            // honest pair (reserves never exceed balances), binding on a synthetic one. The
+            // Solver applies the same cap to its live depth; this is the registry's copy.
+            uint256 h0 = balanceOf(t0, pool);
+            uint256 h1 = balanceOf(t1, pool);
+            if (h0 < r0) r0 = h0;
+            if (h1 < r1) r1 = h1;
+            return shortSide18(r0, dc0, r1, dc1);
+        }
+        if (kindHas(kind, A_CONC_SING)) {
+            // UNITS: token-denominated and NORMALISED by decimals, like every producer of a
+            // depth. Read from the Hub's canonical PoolManager under the poolId the swap used -
+            // never from a caller-named contract, so no mass cap applies.
+            (uint160 sp4, uint128 liq, , , ) = v4SqrtAndLiq(v4mgr, pid);
+            return depthFromL18(liq, sp4, dc0, dc1);
+        }
+        // V3/Algebra: raw L is in root-scale and is not comparable with the reserves a pair
+        // reports; converted at the price the ONE slot0 reader returns.
+        (uint160 spReg, , ) = v3StateAndDynFee(pool);
+        depth = depthFromL18(getLiquidity(pool), spReg, dc0, dc1);
+        // PROV-01 ON THE CONCENTRATED ARM: `liquidity()` is the pool's own word about itself, so
+        // the depth is capped by the tokens the pool physically holds. Holding both, the cap is
+        // the short side. Holding one, it is that side: a range with all of its liquidity on one
+        // side of the current tick legitimately holds ~zero of the other. Holding NEITHER, the
+        // mass is zero. An empty side used to switch the cap off, and a V3-shaped contract that
+        // paid out everything it held was stamped at the depth it declared (ninth wave, Binod Bk).
+        uint256 b0 = balanceOf(t0, pool);
+        uint256 b1 = balanceOf(t1, pool);
+        uint256 held = (b0 != 0 && b1 != 0)
+            ? shortSide18(b0, dc0, b1, dc1)
+            : to18(b0, dc0) + to18(b1, dc1);
+        if (held < depth) depth = held;
+    }
+
     /// @notice Update the slot after a swap. Increments swap count (from its currently-decayed
     ///         base, not the raw historical total), refreshes last-block, and (optionally)
     ///         re-buckets depth.
@@ -2140,12 +2246,16 @@ library BlazePhoenixCore {
 
     /// @notice Does the manager enter this hook during a SWAP at all? True when any
     ///         of BEFORE_SWAP (1<<7), AFTER_SWAP (1<<6) or the two swap-delta flags is
-    ///         set. A hook with none of them is invisible to swaps by construction
+    ///         set. A hook with none of them is never entered by its own pool's swap
     ///         (the manager dispatches on these bits, and they are immutable), so the
     ///         Router admits its pools by the bits alone: quote equals execution for
     ///         it exactly as for a hookless pool, and nothing an operator could judge
     ///         about its code can change a swap. Hooks that DO run in the swap keep
-    ///         the allow-list and the codehash pin.
+    ///         the allow-list and the codehash pin. These bits do not say whether a
+    ///         hook can be REACHED inside a swap: a hook that runs in it can call the
+    ///         manager on any pool and enter that pool's hooks. That is bounded by the
+    ///         manager's flash accounting and by admitting the hook that makes the
+    ///         call, never by the bits of the one it reaches.
     function hookRunsInSwap(address hook) internal pure returns (bool) {
         return (uint160(hook) & 0xCC) != 0;
     }

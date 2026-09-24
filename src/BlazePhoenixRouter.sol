@@ -1185,6 +1185,14 @@ contract BlazePhoenixRouter {
             uint256 hopGot;
             uint256 hopAttested;
             uint256 hopQuoted;
+            // NM-002's RESIDUAL. The fallback at the end of this loop fires only
+            // when the WHOLE hop went unquoted. A hop where ONE leg spends input
+            // without being measured still has `hopQuote != 0`, so the floor is
+            // built on the legs that could be priced and the blind leg's share is
+            // bounded by nothing - it is absent from both sides of the Layer 1
+            // comparison, which therefore compares the measured legs with their
+            // own attestations. This flag is what tells the two cases apart.
+            bool hopBlind;
             // ─── LAYER 2: canonical order — hookless BEFORE hooked ───
             // A hook gains EVM control during the swap and can touch ANY
             // contract — including the pool of a leg of this same route that has
@@ -1274,6 +1282,19 @@ contract BlazePhoenixRouter {
                 hopGot += legGot;
                 hopAttested += legAtt;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
+                // A leg that spent input and came back with no attestation was not
+                // measured at all.
+                //
+                // BLINDNESS IS "NOT MEASURED", NOT "NOT ATTESTED", and the two part
+                // company: a leg the caller left unattested is still measured when
+                // the frame could price it, and its delivery does reach the
+                // comparison. The condition below is the exact negation of the
+                // measurement guard in `_execScaled` - no attestation AND no in-frame
+                // quote - so it names the only leg that leaves no trace. A leg
+                // scaled to zero moved nothing and is not blindness.
+                if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {
+                    hopBlind = true;
+                }
                 unchecked { ++l; }
             }
             // ─── LAYER 1: shared per-hop budget (aggregate) ───
@@ -1323,8 +1344,21 @@ contract BlazePhoenixRouter {
             // quoted in-frame but did execute falls back to its attested figure, and nothing
             // reverts here, because two of the zero-quote paths are legitimately executable
             // pools (a 0-fee CL pool, a dynamic-fee V4 pool under a protocol fee).
+            //
+            // THE RESIDUAL, CLOSED. `hopQuote != 0` was read as "this hop was
+            // quoted", and it only means "at least one leg of it was". Where a leg
+            // spent input unmeasured, the hop's own attested figure is used when it
+            // is the larger of the two: it is the only number in scope that speaks
+            // for the WHOLE hop, the caller can only push it UP (R3), and a floor
+            // that moves up is the conservative direction. Still never reverts here
+            // - the two legitimately executable zero-quote paths above are
+            // unaffected, because neither of them leaves a leg unmeasured.
+            uint256 hopBase = hopQuote != 0 ? hopQuote : hopAttested;
+            if (hopBlind && route.hops[h].expectedOut > hopBase) {
+                hopBase = route.hops[h].expectedOut;
+            }
             if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)
-                finalHopQuote = hopQuote != 0 ? hopQuote : hopAttested;
+                finalHopQuote = hopBase;
             unchecked { ++h; }
         }
 
@@ -1620,6 +1654,16 @@ contract BlazePhoenixRouter {
                 ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)
                 : 0;
 
+            // THE ATTESTATION IS NEVER CAPPED BY THE FRAME. A single-tick leg whose
+            // swap leaves its range cannot pay the unclamped ranking figure, and
+            // the cure for that lives in the PLAN: the Solver attests the promise
+            // (Core:1720). Capping the bound here by `legQuote` instead was tried
+            // on 2026-09-22 and turned the attestation into a self-consistency
+            // check - the in-frame quote is of the pool that EXECUTES, so a
+            // substituted pool, or one moved before this call, sets its own
+            // floor. test_SubstitutedHook_HonestAttestation_IsRefusedByTheGate
+            // went green-to-red on it. The frame may only push this bound UP.
+
             // ─── COVERAGE GATE ───
             // Measurement does not REPLACE the attestation — it joins it as the second element of
             // a max. If the attestation plausibly covers the quote measured in-frame, the
@@ -1793,16 +1837,8 @@ contract BlazePhoenixRouter {
         if (isV2) {
             outAmt = BPC.outV2(askIn, rIn, rOut, BPC.effV2Fee(leg.fee));
         } else {
-            outAmt = BPC.solidlyGetAmountOut(leg.pool, askIn, tokenIn);
-            if (outAmt > 1) {
-                unchecked { outAmt -= 1; }
-            } else {
-                (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);
-                uint256 sIn  = leg.zeroForOne ? r0 : r1;
-                uint256 sOut = leg.zeroForOne ? r1 : r0;
-                outAmt = BPC.solidlyCurveOut(leg.pool, askIn, sIn, sOut, leg.stable, leg.fee, tokenIn);
-                outAmt = (outAmt * 9800) / BPC.BPS;
-            }
+            // The same producer the quote channel promises (Core.solidlyAskOut).
+            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee);
         }
         if (outAmt == 0) revert RouterE(8);
         uint256 a0 = leg.zeroForOne ? 0 : outAmt;
@@ -1840,8 +1876,14 @@ contract BlazePhoenixRouter {
             // listed is the caller's signed choice on this door, bounded like every
             // venue by the in-frame promise, the attestation gate and userMinOut;
             // the automatic door never proposes it (registry reads filter by
-            // isHookLive). A hook with no swap bit never runs in a swap and needs
-            // neither list nor pin.
+            // isHookLive). A hook with no swap bit is never entered by ITS pool's
+            // swap and needs neither list nor pin. It can still run inside this
+            // unlock through a nested PoolManager call made by a hook that does
+            // run here - a donate, a swap or a liquidity change on any pool reaches
+            // that pool's hooks. What bounds it is the manager's own flash
+            // accounting (a delta left unsettled reverts the whole unlock, measured
+            // on Base: test/fork/NestedHookSettlementFork.t.sol), the same floors,
+            // and the admission of the hook that makes the call.
             if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) revert RouterE(9);
         }
         // V4 has no pool address — leg.pool holds the truncated poolId, not a
@@ -2068,7 +2110,6 @@ contract BlazePhoenixRouter {
                 // calldata already determines it).
                 address t0 = leg.zeroForOne ? hop.tokenIn  : hop.tokenOut;
                 address t1 = leg.zeroForOne ? hop.tokenOut : hop.tokenIn;
-                uint256 depth;
                 // THE ROW THIS SWAP TICKS IS THE POOL THAT EXECUTED. For the pair and
                 // concentrated-pool families that is `leg.pool` itself - execution swaps against
                 // it, so the identity is confirmed by the swap. A V4 pool has no address:
@@ -2079,92 +2120,28 @@ contract BlazePhoenixRouter {
                 // registry receives a measurement under the identity it was measured on -
                 // which is what `_topKPools` ranks by and `_canInsert` evicts by.
                 address regPool = leg.pool;
-                if (BPC.kindHas(leg.kind, BPC.A_RESERVES)) {
-                    // NORMALISE BEFORE THE `min`. This was the EIGHTH site of
-                    // the same defect class: the raw `min(r0, r1)` picks the
-                    // side with fewer UNITS, not the SHALLOWER side. A
-                    // USDC(6)/WETH(18) pair holding 700M USDC gives 7e14 < 1e15
-                    // and falls into bucket 0 — and since `tickSlot` rewrites
-                    // the bucket unconditionally, the FIRST routed swap undid
-                    // the correct bucket the registry already held. On
-                    // stable-stable pairs EVERY V2/Solidly pool sat in bucket
-                    // 0, for ever, regardless of size.
-                    //
-                    // Measured consequences of bucket 0: `psi` degenerates, the
-                    // anti-dust defence in `_canInsert` goes INERT, and deep
-                    // V2/Solidly pools lose the funnel ranking against V3 on
-                    // the same pair.
-                    //
-                    // The other seven sites were cured on 2026-08-21 (Core
-                    // `to18`/`shortSide18`/`depthFromL18`, Router._recordHits,
-                    // Hub.claimV4). This one escaped because it lives on the
-                    // REGISTRY path and not the quoting one, and
-                    // `test/DepthBucketDecimals.t.sol` only exercises the Core
-                    // primitive.
-                    depth = _v2Depth18(leg.pool, t0, t1);
-                } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
-                    // leg.pool is the truncated poolId-as-address (no
-                    // bytecode): getLiquidity(leg.pool) would silently
-                    // staticcall a non-contract and read 0, so every V4 pool
-                    // was permanently scored at the bottom depth bucket.
-                    // Recompute the real bytes32 poolId from (t0, t1, fee,
-                    // tickSpacing, hooks) — t0/t1 above are already the
-                    // pool's real (currency0, currency1) ordering by
-                    // construction of zeroForOne — and read liquidity from
-                    // the PoolManager singleton directly. For a native pool
-                    // t0 is the WETH side by that same construction (the leg
-                    // executed, so _execV4Amt proved it), and the pool's real
-                    // currency0 is address(0) — substitute it, keeping this
-                    // pid identical to the one quote and execution used.
+                bytes32 pid;
+                if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
+                    // leg.pool is the truncated poolId-as-address (no bytecode). Recompute the
+                    // real bytes32 poolId from (t0, t1, fee, tickSpacing, hooks) - t0/t1 above are
+                    // already the pool's real (currency0, currency1) ordering by construction of
+                    // zeroForOne. For a native pool t0 is the WETH side by that same construction
+                    // (the leg executed, so _execV4Amt proved it), and the pool's real currency0
+                    // is address(0) - substitute it, keeping this pid identical to the one quote
+                    // and execution used.
                     if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
-                    bytes32 pid = leg.kind == BPC.KIND_V4_NATIVE
+                    pid = leg.kind == BPC.KIND_V4_NATIVE
                         ? BPC.computeV4PoolId(address(0), t1, leg.fee, leg.tickSpacing, leg.hooks)
                         : BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
-                    // UNITS: token-denominated, like the other three producers of depthWad
-                    // (universalQuote V3, universalQuote V4, Hub.claimV4). This was the FOURTH
-                    // site and the only one without the conversion — and it runs on EVERY
-                    // executed swap, so recordSwap's `tickSlot` rewrote the correct bucket that
-                    // claimV4 had stored, undoing that fix on the first routed swap.
-                    // The sqrtPrice was already read here and thrown away: converting is free.
-                    (uint160 sp4, uint128 liq, , , ) = BPC.v4SqrtAndLiq(v4mgr, pid);
-                    // NORMALISED by decimals: the Monoslot bucket is born HERE.
-                    // Without this, every pair with a 6/8-decimal side falls into bucket 0
-                    // and the billion-unit pool weighs the same as the dust one.
-                    depth = BPC.depthFromL18(liq, sp4,
-                        BPC.decimalsOf(t0), BPC.decimalsOf(t1));
                     // The pool that executed, not the pool that was named. Same `pid`
                     // the quote and the swap used, truncated the way the registry
                     // stores a V4 row everywhere else (`Hub.claimV4`, `_admitV4`).
                     regPool = address(uint160(uint256(pid)));
-                } else {
-                    // V3/Algebra: raw L is in root-scale and is not comparable with the min(r0,r1)
-                    // that V2 reports. One extra slot0 read on the registry path (which already
-                    // runs inside try/catch and off the swap's critical path).
-                    // v3StateAndDynFee is the ONE slot0 reader now — its twin
-                    // (getSqrtPriceX96) accepted a 32-byte globalState here while
-                    // the quote path demanded 96, so the register and the quote
-                    // could disagree about the same pool being alive.
-                    (uint160 spReg, , ) = BPC.v3StateAndDynFee(leg.pool);
-                    uint8 dc0 = BPC.decimalsOf(t0);
-                    uint8 dc1 = BPC.decimalsOf(t1);
-                    depth = BPC.depthFromL18(BPC.getLiquidity(leg.pool), spReg, dc0, dc1);
-                    // PROV-01 ON THE CONCENTRATED ARM: mass that costs nothing is not mass.
-                    // `liquidity()` is the pool's own word about itself; the depth recorded here
-                    // is capped by the tokens the pool physically holds, the same rule the pair
-                    // arm applies through `_v2Depth18`. The cap binds only when the pool holds
-                    // BOTH tokens: a concentrated range with all of its liquidity on one side of
-                    // the current tick legitimately holds ~zero of the other, and the suite pins
-                    // that such a book keeps its raw promise (`test_L799c2`). Inert on an honest
-                    // pool, binding on an inflated claim - which must now be backed by real mass
-                    // on both sides to be believed. V4 needs no cap: its liquidity is read from
-                    // the Hub's canonical PoolManager, not from a caller-named contract.
-                    uint256 b0 = BPC.balanceOf(t0, leg.pool);
-                    uint256 b1 = BPC.balanceOf(t1, leg.pool);
-                    if (b0 != 0 && b1 != 0) {
-                        uint256 held = BPC.shortSide18(b0, dc0, b1, dc1);
-                        if (held < depth) depth = held;
-                    }
                 }
+                // ONE PRODUCER of the depth every registry door seals (Core.registryDepth18):
+                // the operator's door measures with it too since the ninth wave (dex-17). The
+                // per-family rules, and the defects that shaped them, live with the code there.
+                uint256 depth = BPC.registryDepth18(leg.pool, leg.kind, t0, t1, v4mgr, pid);
                 // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
                 // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend
                 // after the protocol fee and after any capacity clamp. The quote is scaled by
@@ -2181,25 +2158,5 @@ contract BlazePhoenixRouter {
             }
             unchecked { ++h; }
         }
-    }
-
-    /// @dev Depth of a reserve pair, in 18-decimal units.
-    ///      Normalisation comes BEFORE the `min` — swapping the order is the defect.
-    function _v2Depth18(address pool, address t0, address t1)
-        private view returns (uint256)
-    {
-        (uint256 r0, uint256 r1) = BPC.getReserves(pool);
-        // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01): the registry's depth
-        // bucket ranks the funnel's top-K and decides evictions, and this was
-        // the pool's own word. Cap each declared reserve by the balance the
-        // pool physically holds — inert on an honest pair (reserves never
-        // exceed balances), binding on a synthetic one. The Solver applies
-        // the same cap to its live depth; this is the registry's copy of the
-        // rule, on the once-per-executed-leg path. Two staticcalls.
-        uint256 b0 = BPC.balanceOf(t0, pool);
-        uint256 b1 = BPC.balanceOf(t1, pool);
-        if (b0 < r0) r0 = b0;
-        if (b1 < r1) r1 = b1;
-        return BPC.shortSide18(r0, BPC.decimalsOf(t0), r1, BPC.decimalsOf(t1));
     }
 }
