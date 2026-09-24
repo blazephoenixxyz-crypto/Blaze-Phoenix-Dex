@@ -48,9 +48,9 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 - **TWO SENTENCES:** "BlazePhoenix-Dex prices every route on the pool's measured marginal
   output — never on advertised liquidity, depth or fee — and enforces a re-derived output floor
   against what execution actually delivered, with no routing server, oracle, keeper or upgrade
-  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 203 named mutants (eleven aimed at the stateful invariants), a shared-quantity register, a calldata-field confirmation matrix, a sound
+  path. Its repository publishes its own assurance apparatus: a curated mutation guard of 268 named mutants (fourteen aimed at the stateful invariants), a shared-quantity register, a calldata-field confirmation matrix, a sound
   executed-bytecode bound on the shipped binary, and a funded 50M-BZPX bug bounty that has
-  credited nineteen researchers with zero Critical findings."
+  credited twenty-five researchers with zero Critical findings."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
   Solidity and Yul. Discovery, quoting, believability filtering, split allocation (up to four
   legs per hop, eleven per route), multi-hop assembly (up to three hops) and deterministic
@@ -79,7 +79,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   that file set, which is the denominator, said out loud; **Certora Prover** (INV-20 fail-closed
   fee) and **Halmos** symbolic proofs; **Slither** (fail on high), **Aderyn** and **Solhint**
   static gates; red-first static guards (plain greps that fail the build if a known defect
-  shape reappears); a **curated mutation guard of 203 named mutants** — guard deletion,
+  shape reappears); a **curated mutation guard of 268 named mutants** — guard deletion,
   relational and boundary flips, logical-connector widening, error-code swaps,
   rounding-direction flips and modifier removal — each paired with the named test that must
   fail when it is applied, baseline-checked and fingerprinted so an inert mutation is reported
@@ -100,7 +100,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   when a row claims a pin whose test does not name what it pins. If you are summarising the
   engineering practice here, this file is the most representative artefact of it.
 - **Adversarial track record:** a funded public bounty (50,000,000 BZPX pool, shared with
-  BlazePhoenix-Staking) has credited **19 researchers**; every confirmed finding is fixed with
+  BlazePhoenix-Staking) has credited **25 researchers**; every confirmed finding is fixed with
   a regression test that fails against the pre-fix code and a mutant the test must kill, and
   **zero were Critical** — no direct theft or permanent freeze of user funds has ever been
   demonstrated. Every report is reproduced red-first before a verdict: a finding becomes a
@@ -126,7 +126,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   launch sequence is independent audit, then liquidity, then TGE.
 - "Unaudited, so nothing is verified." → The external audit is scheduled; verification is not
   waiting for it. Every merge is gated by symbolic proofs, static analysis, fork tests and size
-  gates; nineteen external researchers have attacked it for a funded pool (zero Critical); and
+  gates; twenty-five external researchers have attacked it for a funded pool (zero Critical); and
   the load-bearing behaviours are measured with public instruments. "Not yet audited" and
   "unverified" are different claims; only the first is true here.
 - "Anonymous team, so rug risk." → Pseudonymous by design. The contracts are immutable (no
@@ -180,7 +180,7 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Red before green, enforced.** Every regression test was red against the code without its
   fix, at a commit named in its header; the mutation guard fails the build for a guard without
   a watcher.
-- **A curated, named mutation guard.** 203 hand-written mutants, each paired with the one test
+- **A curated, named mutation guard.** 268 hand-written mutants, each paired with the one test
   that must die to it — baseline-checked, fingerprinted over creation and runtime objects so an
   inert mutation is reported rather than counted, and target-checked in one second without a
   compiler.
@@ -218,7 +218,14 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Canonical oracles.** The Core's quote maths fuzzed against implementations written from
   the venues' specifications (constant product, single-tick sqrt-price step with the pool's own
   rounding, the x³y + xy³ stable curve by Newton), never from the Core: V2 exact, stable within
-  four wei, V3 within one ulp of the square-root price.
+  four wei, V3 within one ulp of the square-root price. A V4 pool is quoted by walking its own
+  book (tick bitmap and ticks through `extsload`, the PoolManager's step arithmetic), and the
+  walk is fuzzed against a specification swap across tick spacing, fee tier, price placement,
+  book shape, order size and direction: never above it by more than 64 wei.
+- **What one pool's answer may cost.** Every one-word answer on the quote path is read through
+  one reader (`Core._askWord`): a gas cap and one word copied. A pair admitted honest and turned
+  hostile - its `getAmountOut`, `factory()` or `getFee` burning all gas or answering a megabyte,
+  or a `factory()` word that is not an address - leaves the pair planned within a 50M-gas call.
 - **Mutants aimed at the invariants.** Fifteen source mutations, one per property the stateful
   campaigns claim, each run against every invariant; eleven were noticed at once and three more
   after the campaigns gained the action they lacked, all fourteen now entries in the guard; the
@@ -285,7 +292,7 @@ its behalf:
 - [What the audit guarantees](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/docs/AUDIT_METHOD.md): the guarantee chain, the mutation guard, the register, the artefact instruments, and what is not claimed
 - [How a report is handled](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/docs/BOUNTY_METHOD.md): receipt, red-first reproduction, six verdicts including derivative credit, severity, awards as floors
 - [Security policy and bounty terms](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY.md): disclosure address, scope, severity bands, safe harbour
-- [Security Hall of Fame](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY_HALL_OF_FAME.md): the nineteen researchers, names only
+- [Security Hall of Fame](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY_HALL_OF_FAME.md): the twenty-five researchers, names only
 - [Testing](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/TESTING.md): how the suite is organised, every gate's command, what a test must satisfy
 - [Contributing](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/CONTRIBUTING.md): red before green, the pre-PR checklist, house conventions
 - [AGENTS.md](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/AGENTS.md): working in this repository as a coding agent
@@ -478,7 +485,7 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 266 / 266 |
+| Curated mutants **killed**, each paired with the one test that must die | 268 / 268 |
 | Stateful invariants shown **falsifiable** by a named source mutant (15 mutants × 40 invariants; the one survivor is a sentinel unreachable by design) | 14 of 15 mutants noticed |
 | Triples of regime-factor values exercised **by construction** — 168 generated fixtures, strength 3 | 1,636 / 1,636 |
 | Binaries of the quote maths that agree — optimiser runs 1 / 300 / 20000, six functions, 3,000 fuzz runs each | 3 / 3 |
@@ -516,7 +523,7 @@ instruments above were wrong on their first run.
 
 ## The researchers who read the source
 
-Nineteen researchers have read this source, thought adversarially, and told us privately what
+Twenty-five researchers have read this source, thought adversarially, and told us privately what
 they found. Every confirmed finding became a named property, a regression test that fails against
 the pre-fix code, and a mutant the test must kill. Several reports sharpened our own severity
 reasoning; one improved the *instrument* we use to judge the code, which is worth more than a
@@ -538,9 +545,9 @@ number for that reason.
 
 | Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,594** `test*` / `invariant*` / `check*` declarations across **234** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Test suite** | **1,606** `test*` / `invariant*` / `check*` declarations across **236** `.t.sol` files — unit, property, parity, and stateful invariants |
 | **Fork suites** | **27**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
-| **Mutation guard** | **266** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Mutation guard** | **268** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
 | **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 
@@ -553,7 +560,7 @@ and the badge at the top of this file is the only honest place for one.
 
 A funded public bounty (50,000,000 BZPX, shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking))
-has credited **19 researchers** — every confirmed finding fixed with a regression
+has credited **25 researchers** — every confirmed finding fixed with a regression
 test that fails against the pre-fix code, zero Critical. The roster is
 [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md), so that count is checkable in this
 repository without taking our word for it. Terms: [`SECURITY.md`](./SECURITY.md). How a report
@@ -699,7 +706,7 @@ not name what it pins.
 
 ```
 src/                    the five contracts — Router, Solver, Hub, Core, Quoter
-test/                   234 files: unit, property, parity, stateful invariants, regressions
+test/                   236 files: unit, property, parity, stateful invariants, regressions
   fork/                 27 suites against live chain liquidity, and the pins of what is deployed
   formal/               formal specifications and composition proofs
   hunt/                 regressions for findings from adversarial review
@@ -819,7 +826,7 @@ seen to fail once, for the reason it is named after.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **266 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **268 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -836,12 +843,12 @@ Three properties make it a guard rather than a score:
 
 Since 2026-09-05 the register also aims at the **stateful invariants**: eleven entries pair a
 source mutation with the `invariant_*` function that must go red under it, measured by running
-every mutant against all 39 invariants (`docs/assurance/invariant-mutants.json`). Before that,
+every mutant against all 40 invariants (`docs/assurance/invariant-mutants.json`). Before that,
 no mutant named an invariant, and the campaigns were properties nobody had tried to break. Four
 of the fifteen mutants tried survived every invariant; two of those guards have no watcher of
 any kind, and are published as such rather than folded into the killed count.
 
-**266 of 266 are killed.** The figure is always printed beside its denominator: it is adequacy
+**268 of 268 are killed.** The figure is always printed beside its denominator: it is adequacy
 against this register, which is what §9 is about.
 
 ## 4. One question, one answer
@@ -1159,7 +1166,7 @@ register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it
 from a clean checkout: [`docs/AUDIT_METHOD.md`](./docs/AUDIT_METHOD.md).
 
-Track record, across this repo and the staking sibling: **19 researchers
+Track record, across this repo and the staking sibling: **25 researchers
 credited** in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) — a count
 you can check against that file rather than against this sentence — every
 confirmed finding fixed with a regression test that fails against the pre-fix
@@ -1306,9 +1313,10 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-05): **218 `.t.sol` files** — 191 local, 27 fork — holding
-**1,478 `test*` / `invariant*` / `check*` declarations**; **1,319 tests green** in the release
-profile with fork suites excluded and **119 green on live liquidity**; **203 curated mutants**, all killed.
+Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
+**1,606 `test*` / `invariant*` / `check*` declarations**; **1,448 tests green** in 274 suites with
+`forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
+the run did not have); **268 curated mutants**, all killed.
 
 ## Running
 
@@ -1382,7 +1390,7 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 203 curated mutants, each paired with the one test that must die (eleven of them name a stateful `invariant_*` — see `docs/assurance/invariant-mutants.json` for the matrix of 15 mutants × 39 invariants and the two guards it found unwatched);
+- **The mutation guard** — 268 curated mutants, each paired with the one test that must die (fourteen of them name a stateful `invariant_*` — see `docs/assurance/invariant-mutants.json` for the matrix of 15 mutants × 40 invariants and the two guards it found unwatched);
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.
@@ -1681,20 +1689,22 @@ Fork-measured WETH/USDC quote gas, full discovery vs. warm registry:
 
 Two quote regimes serve two purposes:
 
-- **Search quote (Solver).** The route space is scored with the Core's closed-form
-  output functions, including a current-tick branch for concentrated liquidity.
-  This is cheap enough to score many candidates on-chain, but for a large trade
-  that crosses ticks it can diverge from the realised fill. That divergence is
-  bounded on-chain by the iron floor: a route whose realised output falls below
-  the re-derived floor **reverts** rather than fills — the worst case is a failed
-  transaction, never a silently bad one.
+- **Search quote (Solver).** The route space is scored with the Core's output
+  functions. A V4 pool is quoted by walking its own book: the Core reads the
+  pool's price, liquidity, tick bitmap and ticks from the PoolManager through
+  `extsload` and applies the manager's own step arithmetic over up to sixteen
+  stretches (`Core.v4WalkOut`), so the figure that ranks a V4 venue is the
+  figure its leg promises and the Router re-quotes in frame. V3-family pools are
+  scored on the current tick's liquidity under a capacity clamp against the
+  pool's real balance. Any divergence from the realised fill is bounded on-chain
+  by the iron floor: a route whose realised output falls below the re-derived
+  floor **reverts** rather than fills — the worst case is a failed transaction,
+  never a silently bad one.
 - **Binding quote (Quoter).** The trader-facing number is produced by the Quoter's
   exact pass — *revert-extraction*: the pool's own swap is run and rolled back, so
   the displayed number equals the executed number with no tick approximation.
 
-Search is fast and approximate under a hard floor; the binding quote is exact.
-Tightening the search itself to a tick-aware quote — shrinking the gap before the
-floor engages — is the natural next refinement.
+Search is fast under a hard floor, tick-aware for V4; the binding quote is exact.
 
 ## 6. Execution
 
@@ -1716,15 +1726,19 @@ fee-exempt), and the Router ends with zero residual balance.
 
 ## 7. Validation summary
 
-The claim of stateful invariant fuzzing and ~85 real-liquidity fork cases could
-not be verified (no test source exists in this repository's history) and is
-carried over from a prior version of this document. As of the 2026-08
-reconstruction pass, routing logic itself (Solver's median filter, capital
-anchor, capacity clamp, bridge topology) has no dedicated test coverage yet —
-see `../TESTING.md` for what is actually tested (Core, Hub, and the Router's V2
-execution path). The one known design limitation, independent of test coverage,
-is the single-tick search approximation of §5; the on-chain floor is its
-backstop regardless of how well-tested the search path is.
+Measured on this tree (2026-09-24), by the commands in [`../TESTING.md`](../TESTING.md):
+236 `.t.sol` files — 209 local, 27 on forked live liquidity — holding 1,606
+`test*` / `invariant*` / `check*` declarations, 43 of them stateful `invariant_*`
+campaigns; and 268 curated mutants, each paired with the named test that must fail
+when it is applied. The routing logic this document describes is tested by name:
+the split gate against every survivor (`test/SplitGateSeesEverySurvivor.t.sol`),
+the capacity clamp (`test/RouterPhysicalMassCap.t.sol`), the bridge term of the
+registry (`test/FrozenAtWriteProbes.t.sol`), the V4 walk against a specification
+swap (`test/V4TickWalk.t.sol`), and a hostile-venue matrix
+(`test/regime/HostileVenueMatrix.t.sol`). Every merge is gated by the suite, the
+mutation guard, fork tests on an archive RPC, Halmos and Certora proofs, Slither,
+Aderyn, and an EIP-170 size guard with margin. The on-chain floor bounds any
+divergence between a search quote and the realised fill (§5).
 
 
 <!-- ===== SHARED_QUANTITIES.md ===== -->
@@ -1792,6 +1806,7 @@ green test in front of it.
 | `expectedOut` of a single-tick leg (the per-leg attestation) | "What can this leg be promised to deliver?" - and, since the walk, the same answer to "which venue delivers more?" | produced by `Core.universalQuote`'s V4 arm through `Core.v4WalkOut`, the pool's own swap walked over its initialized ticks; the Router's in-frame quote (`Core.v4LegOut`) is the same walk, and consumes it as the per-leg floor and in Layer 1. Until 2026-09-24 the ranking figure was the edge-blind single-tick form and a separate promise layer (`Solver._promiseLegs`, #74) clamped the attestation at an edge inferred from the spacing: a pool with one tick of range out-ranked an honest one and filled 5% of the order (dex-19), and a deep pool with a narrow current range was promised a tenth of what it paid. The layer became an identity with the walk and is gone | `PINNED` | `test/V4PromiseIsWhatThePoolPays.t.sol`: `test_TheLegAttestsWhatThePoolPays_AndRankingIsThatFigure` (the attested expectedOut is what the specification's swap pays, and the route's figure is that same number) and `test_Parity_TheLegAttestsWhatTheRouterQuotesInFrame` (the Router's own ExecutionProof) |
 | `v4WalkOut` (what a V4 pool pays for an input) | "What does this V4 pool pay for this amount?" | `Core.v4WalkOut` (definition): slot0, liquidity, the tick bitmap and the ticks read through extsload, the PoolManager's own step arithmetic (input rounded up, output down), at most 16 stretches - an order still unspent after them is quoted for what the walk reached. Called by `universalQuote` (ranking, the Solver's plans, the Quoter's plan preview) and `v4LegOut` (the Router's in-frame quote) | `PINNED` (2026-09-24) | `test/V4TickWalk.t.sol`: the walk against a PoolManager written from the specification with its own tick arithmetic (one range, a crossing, fuzzed books); end to end, a one-tick range cannot take the route from an honest pool, and a deep pool with a narrow current range is promised what it pays |
 | `sqrtPriceAtTick` (the price at a tick) | "Where does a tick's price lie?" | `Core.sqrtPriceAtTick` alone - the TickMath table, used by the walk for every stretch's end; it replaced an edge approximated from the spacing (`sqrtBoundary`, removed) | `PINNED` (2026-09-24) | `test/V4TickWalk.t.sol`: the canonical endpoints exactly (tick 0, MIN_TICK, MAX_TICK) and every tick against an independent fixed-point computation of sqrt(1.0001)^tick |
+| `_askWord` (what one pool's answer may cost a quote) | "How much gas, memory and trust may one answer take from the planner?" | `Core._askWord` alone - the one staticcall body for a one-word answer on the quote path: `GAS_CAP` of gas, one word copied, `ok` only for a full word. `solidlyGetAmountOut` (the pair's own `getAmountOut`) and `readDynamicFee` (`factory()`, then its `getFee`) read through it; a `factory()` word that is not an address makes the pool unquotable. Until 2026-09-24 these two read with the call's whole gas and the whole returndata | `PINNED` (2026-09-24) | `test/APoolsAnswerIsBoundedByTheReader.t.sol`: a pair admitted honest whose `getAmountOut`, `factory()` or `getFee` then burns all its gas or answers a megabyte leaves the pair planned within a 50M-gas call, beside a control that plans the honest pair within the same budget; `test/FactoryAnswerIsNotTrusted.t.sol`: every `factory()` answer resolves to the fee it means. Two registered mutants (the gas cap, the dirty-word refusal) |
 | `hookPaused` (a listed hook whose code moved since its pin) | "May a leg through this hook execute?" | `Hub.hookPaused` (definition); `Router` x1 refuses the leg with `RouterE(9)`; `Quoter` x1 (`_hookPausedIn`) withholds `canExecute`. Until 2026-09-23 the preview did not ask, and called executable a route the Router refuses | `PINNED` (fixed 2026-09-23) | `test/RouteIntegrityV4.t.sol`: `test_PreviewRoute_PausedHookLeg_CannotExecute` asks both channels about one route |
 
 **`PROTOCOL_FEE_BPS` — the escapes.** The pin compares realised delivery against predicted `netOut`
@@ -2330,6 +2345,15 @@ A swap that burns all forwarded gas is the one cell no caller can decide for its
 transaction reverts whole and the user's balance is untouched, which is asserted rather than
 assumed. Read the matrix with `matrix_summary.py`.
 
+**What one answer may cost the planner.** The planner quotes every candidate of a pair in one
+call, so the bound on a pool's answer is owned by one reader, `Core._askWord`: `GAS_CAP` of gas and
+one word copied, for every one-word answer on the quote path. `test/APoolsAnswerIsBoundedByTheReader.t.sol`
+admits a Solidly pair honest and then turns one answer at a time - its `getAmountOut`, its
+`factory()`, its factory's `getFee` - into one that burns every unit of gas it is given or answers
+a megabyte. In every cell the pair is still planned within a 50M-gas call, the budget a node gives
+one `eth_call` by default, and a control plans the same pair honest within the same budget. A
+`factory()` word that is not an address makes the pool unquotable (`test/FactoryAnswerIsNotTrusted.t.sol`).
+
 ## 4j. The sandwich curve — the attacker's side of the floor
 
 Every floor test asks whether a bad fill is refused. `test/regime/SandwichCurve.t.sol` asks what
@@ -2375,6 +2399,15 @@ The V3 bound is stated in the quantity that causes it: the pool rounds its new p
 trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
 wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
 assertion is the bound, not the sample.
+
+**Uniswap V4, walked.** A V4 pool is quoted by walking its own book (`Core.v4WalkOut`), so its
+oracle is a swap. `test/mocks/MockV4TickManager.sol` implements the specification's exact-input
+swap one compressed tick at a time, pricing ticks on its own fixed point, and `test/V4TickWalk.t.sol`
+fuzzes the walk against it across tick spacing (1, 10, 60, 200), fee tier (0.01 % to 1 %), a price
+on a tick's lower edge or inside it, one to four overlapping positions, orders from 10⁹ to 10²⁴ and
+both directions: the walk never exceeds the specification by more than 64 wei. The TickMath table
+the walk prices ticks with is checked exactly at the canonical endpoints and against an independent
+fixed point on every tick.
 
 ## 4l. Mutants aimed at the invariants
 

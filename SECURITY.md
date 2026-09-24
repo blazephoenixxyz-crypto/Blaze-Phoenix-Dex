@@ -53,7 +53,7 @@ register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it
 from a clean checkout: [`docs/AUDIT_METHOD.md`](./docs/AUDIT_METHOD.md).
 
-Track record, across this repo and the staking sibling: **19 researchers
+Track record, across this repo and the staking sibling: **25 researchers
 credited** in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) — a count
 you can check against that file rather than against this sentence — every
 confirmed finding fixed with a regression test that fails against the pre-fix

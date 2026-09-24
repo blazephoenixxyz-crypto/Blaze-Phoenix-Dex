@@ -60,7 +60,7 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 266 / 266 |
+| Curated mutants **killed**, each paired with the one test that must die | 268 / 268 |
 | Stateful invariants shown **falsifiable** by a named source mutant (15 mutants × 40 invariants; the one survivor is a sentinel unreachable by design) | 14 of 15 mutants noticed |
 | Triples of regime-factor values exercised **by construction** — 168 generated fixtures, strength 3 | 1,636 / 1,636 |
 | Binaries of the quote maths that agree — optimiser runs 1 / 300 / 20000, six functions, 3,000 fuzz runs each | 3 / 3 |
@@ -98,7 +98,7 @@ instruments above were wrong on their first run.
 
 ## The researchers who read the source
 
-Nineteen researchers have read this source, thought adversarially, and told us privately what
+Twenty-five researchers have read this source, thought adversarially, and told us privately what
 they found. Every confirmed finding became a named property, a regression test that fails against
 the pre-fix code, and a mutant the test must kill. Several reports sharpened our own severity
 reasoning; one improved the *instrument* we use to judge the code, which is worth more than a
@@ -120,9 +120,9 @@ number for that reason.
 
 | Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,594** `test*` / `invariant*` / `check*` declarations across **234** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Test suite** | **1,606** `test*` / `invariant*` / `check*` declarations across **236** `.t.sol` files — unit, property, parity, and stateful invariants |
 | **Fork suites** | **27**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
-| **Mutation guard** | **266** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Mutation guard** | **268** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
 | **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 
@@ -135,7 +135,7 @@ and the badge at the top of this file is the only honest place for one.
 
 A funded public bounty (50,000,000 BZPX, shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking))
-has credited **19 researchers** — every confirmed finding fixed with a regression
+has credited **25 researchers** — every confirmed finding fixed with a regression
 test that fails against the pre-fix code, zero Critical. The roster is
 [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md), so that count is checkable in this
 repository without taking our word for it. Terms: [`SECURITY.md`](./SECURITY.md). How a report
@@ -281,7 +281,7 @@ not name what it pins.
 
 ```
 src/                    the five contracts — Router, Solver, Hub, Core, Quoter
-test/                   234 files: unit, property, parity, stateful invariants, regressions
+test/                   236 files: unit, property, parity, stateful invariants, regressions
   fork/                 27 suites against live chain liquidity, and the pins of what is deployed
   formal/               formal specifications and composition proofs
   hunt/                 regressions for findings from adversarial review

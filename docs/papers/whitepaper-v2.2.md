@@ -1304,6 +1304,15 @@ Applied after a hostile read of the 2026-09-06 text against `main 8949a9d`; the 
 16. §2.3, §15.11, §21 — instrument-calibration and defect-pattern counts replaced by the calibration rule itself.
 - §14.2, Layer 2 (2026-09-07, hook admission): the allow-list curates the automatic door and the codehash pin pauses a listed hook whose code moved, on every door. A hook whose address bits carry no swap permission never runs in a swap and needs neither list nor pin. A hook that runs in the swap and that nobody listed is accepted on the explicit door as the caller's signed choice, bounded like every venue by the in-frame promise, the attestation gate and `userMinOut`; it is never proposed by the automatic door. Registering a hooked pool admits and pins its hook, so a hooked pool is one operator step. The three layers stand; "default closed" describes the automatic door.
 
+## Errata (2026-09-24)
+
+Applied after the ninth bounty wave; the version line stays 2.2 and the DOI is unchanged.
+
+1. §4.2, and item 1 of the 2026-09-07 errata — closed. A V4 pool is quoted by walking its own book: its price, liquidity, tick bitmap and ticks, read through `extsload`, with the PoolManager's own step arithmetic, for ranking and for the promise alike (`Core.v4WalkOut`). The boundary clamp `sqrtBoundary` is retired. The statement that the dispatcher does not replicate tick-crossing arithmetic now holds for the V3 family only.
+2. §10.4, and item 2 of the 2026-09-07 errata — closed for the purpose it served: the walk counts only the liquidity the book holds in the ticks it crosses, so a V4 leg is bounded by what its own pool holds (`test_AOneTickRangeWithNothingBeyondPaysWhatItHolds`).
+3. Item 3 of the 2026-09-07 errata — closed: a static-fee key composes the manager's protocol fee with the key's LP fee in the swap's direction (`Core.effV4Fee`; `test_StaticKey_ProtocolFee_ReachesThePromise`).
+4. §4 — every one-word answer a pool gives on the quote path is read through one reader, `Core._askWord`: a gas cap and one word copied (`test/APoolsAnswerIsBoundedByTheReader.t.sol`).
+
 ## Appendix A · The primitive equations
 
 Every quantitative claim in this paper reduces to one of the following. Each is implemented once, in the contract named, and imported everywhere else. The numbering E1–E22 is stable from the previous edition; E23–E26 are new and appended.
