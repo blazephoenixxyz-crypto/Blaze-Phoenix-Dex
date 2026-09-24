@@ -454,7 +454,9 @@ jobs:
           # the artefacts this job just built and prints what each one executed. One opcode
           # mismatch, a never-called Router that ran, or a swap that did not cross the lock fails.
           # Last in the job, so the size gate and the release hashes are always reported first.
-          forge test --match-contract PcTraceProbe
+          # -vvv is not verbosity for its own sake: the debug-trace cheatcode needs the tracer it
+          # turns on, and refuses to record without it.
+          forge test --match-contract PcTraceProbe -vvv
           python3 .github/scripts/assurance/pc_trace.py --check
 
   formal:
