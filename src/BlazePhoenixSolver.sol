@@ -1203,49 +1203,6 @@ contract BlazePhoenixSolver {
         });
     }
 
-    /// @dev WRITES each leg's promise into its attestation and returns the hop's.
-    ///      A leg's `expectedOut` leaves `universalQuote` as a CAPACITY figure,
-    ///      unclamped on purpose (Core:1699) so a deeper venue reads as deeper;
-    ///      the hop's and the route's totals keep it, and ranking is untouched.
-    ///      The leg's own `expectedOut` is the other question: it travels to the
-    ///      Router and is the per-leg floor it enforces - the promise layer
-    ///      Core:1720 names. For a single-tick venue that is the figure the
-    ///      Router itself quotes, bounded at the current range's edge; every other
-    ///      family has no edge to cross and keeps its figure. A zero answer leaves
-    ///      the attestation alone: the absence of a promise is not a promise of zero.
-    ///      Written here, at assembly, because the Router cannot do it: an
-    ///      in-frame cap is a quote of the pool that EXECUTES, and it let a
-    ///      substituted pool set its own floor.
-    function _promiseLegs(Hop memory hop) private view returns (uint256 sum) {
-        address mgr;
-        uint256 n = hop.legs.length;
-        for (uint256 i; i < n; ) {
-            Leg memory lg = hop.legs[i];
-            uint256 one = lg.expectedOut;
-            if (BPC.kindHasAny(lg.kind, BPC.A_CONC_SING) && one != 0) {
-                if (mgr == address(0)) mgr = hub.v4PoolManager();
-                if (mgr != address(0)) {
-                    address other = address(uint160(uint256(lg.auxId)));
-                    if (other != address(0)) {
-                        (address q0, address q1) = BPC.sortTokens(
-                            lg.zeroForOne ? hop.tokenIn : other,
-                            lg.zeroForOne ? other : hop.tokenIn
-                        );
-                        uint256 p = BPC.v4LegOut(
-                            mgr,
-                            BPC.computeV4PoolId(q0, q1, lg.fee, lg.tickSpacing, lg.hooks),
-                            lg.amountIn, lg.fee, lg.tickSpacing, lg.zeroForOne
-                        );
-                        if (p != 0 && p < one) one = p;
-                    }
-                }
-                lg.expectedOut = one;
-            }
-            sum += one;
-            unchecked { ++i; }
-        }
-    }
-
     /// @param dIn1 decimals of `tIn` +1, `dOt1` those of the other token +1 (0 =
     ///        not filled -> the Core reads them). HOISTING: every candidate of a
     ///        pair has the SAME two tokens, only the orientation changes, so
@@ -1553,15 +1510,11 @@ contract BlazePhoenixSolver {
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, BPC.legShaveBps(hopIn, hopIn2), 0);
         // R-C: a protective threshold rounds UP, as the Router's does — the
         // other half of the same-number parity above.
-        // THE FLOOR IS A PROMISE, AND `expectedOut` IS A CAPACITY.
-        // `hop.expectedOut` comes from `universalQuote`, which Core:1699 keeps
-        // unclamped on purpose: it answers "which venue is deeper?" and it is
-        // what the preview publishes about capacity, so a pool 292x deeper reads
-        // as 292x deeper. A floor is the other question. Taking a fraction of the
-        // capacity figure asks a single-tick venue for more than it can pay once
-        // the swap leaves its range, and an integrator deriving `userMinOut` from
-        // the published floor then sets a bound the Router refuses.
-        uint256 floorOut = BPC.mulDivUp(_promiseLegs(hop), floorBps, BPC.BPS);
+        // ONE FIGURE. Since the ninth wave a V4 leg is quoted by walking the pool's own
+        // book (Core.v4WalkOut), so the figure that ranks a venue IS the figure it can pay:
+        // the separate promise layer the single-tick model needed (dex-14, #74) had become an
+        // identity, and is gone with the model. The floor is a fraction of that one figure.
+        uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,
@@ -1656,25 +1609,11 @@ contract BlazePhoenixSolver {
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, legShv, 0);
         // R-C: rounds UP like the single-hop twin and like the Router.
         //
-        // THE PROMISE, NOT THE CAPACITY, CARRIED ALONG THE CHAIN - the multi-hop
-        // twin of the single-venue rule. Every hop's legs attest their promise,
-        // because the Router holds EACH leg to its own attestation and a
-        // single-tick leg in an earlier hop leaves its range as easily as one in
-        // the last. And the floor is not the last hop's promise alone: each later
-        // hop was SIZED on the ranking figure of the hop before it and can only
-        // count on that hop's promise, so it is scaled by what actually reaches
-        // it. Pro-rata is the conservative direction - every leg's output is
-        // concave in its input and zero at zero, so f(s*x) >= s*f(x) for s <= 1 -
-        // and a hop promised at least what it was sized on keeps its own figure.
-        // `finalOut` stays the ranking figure: it is the route's capacity.
-        uint256 carry = _promiseLegs(hops[0]);
-        for (uint256 h = 1; h < hops.length; ) {
-            uint256 sized = hops[h].amountIn;
-            uint256 own   = _promiseLegs(hops[h]);
-            carry = (sized != 0 && carry < sized) ? BPC.mulDiv(own, carry, sized) : own;
-            unchecked { ++h; }
-        }
-        uint256 floorOut = BPC.mulDivUp(carry, floorBps, BPC.BPS);
+        // ONE FIGURE along the chain too: every hop's legs are quoted by the walk, so each
+        // later hop was sized on what the hop before it can pay, and the route's figure is
+        // the floor's base (the promise layer and its pro-rata chain, #74, are identities
+        // since the walk and are gone with the single-tick model).
+        uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,

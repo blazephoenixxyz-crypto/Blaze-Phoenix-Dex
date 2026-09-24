@@ -272,22 +272,6 @@ contract ConditionAdequacyCoreTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Core:1143  sqrtBoundary: `spacing <= 0 || sqrtP == 0` — `sqrtP == 0` arm
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// "No price" must mean "no limit" (0), never "limit at price 1 wei".
-    /// Neutralised, the zeroForOne fall-through computes dn = 0, trips
-    /// dn >= P (0 >= 0) and answers uint160(1) — a fabricated boundary out of
-    /// an absent measurement. The control pins that a real price still yields
-    /// a real boundary, so the zero reading is a reading, not a dead function.
-    function test_SqrtBoundary_NoPriceMeansNoLimitNotBoundaryOne() public pure {
-        assertEq(BPC.sqrtBoundary(0, 0, 60, true), 0,
-            "sqrtP == 0 must answer 'no limit', never a synthetic boundary");
-        assertGt(BPC.sqrtBoundary(SQRT_P_1, 0, 60, true), 0,
-            "control: a real price yields a real boundary");
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     //  Core:1188  solidlyGetAmountOut: `ok && ret.length >= 32`
     // ─────────────────────────────────────────────────────────────────────────
 

@@ -478,7 +478,7 @@ every commit, from a clean checkout, compiling nothing.
 | Calldata fields **confirmed against an observation** before they reach shared state | 14 confirmed · 5 steering · 4 declared, each with its reason |
 | Classes of published exploit answered by a **named guard** | 19 / 23 considered |
 | Shipped-shape instructions **proven executed** — a sound lower bound, verified against a ground-truth contract | 88.3 % |
-| Curated mutants **killed**, each paired with the one test that must die | 267 / 267 |
+| Curated mutants **killed**, each paired with the one test that must die | 265 / 265 |
 | Stateful invariants shown **falsifiable** by a named source mutant (15 mutants × 40 invariants; the one survivor is a sentinel unreachable by design) | 14 of 15 mutants noticed |
 | Triples of regime-factor values exercised **by construction** — 168 generated fixtures, strength 3 | 1,636 / 1,636 |
 | Binaries of the quote maths that agree — optimiser runs 1 / 300 / 20000, six functions, 3,000 fuzz runs each | 3 / 3 |
@@ -538,9 +538,9 @@ number for that reason.
 
 | Apparatus | Size, measured on this tree |
 |---|---|
-| **Test suite** | **1,590** `test*` / `invariant*` / `check*` declarations across **232** `.t.sol` files — unit, property, parity, and stateful invariants |
+| **Test suite** | **1,592** `test*` / `invariant*` / `check*` declarations across **233** `.t.sol` files — unit, property, parity, and stateful invariants |
 | **Fork suites** | **27**, against live chain liquidity on every network the SDK names, including the pins of what is deployed |
-| **Mutation guard** | **267** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
+| **Mutation guard** | **265** curated mutants, each paired with the named test that must catch it — baseline-checked, fingerprinted against inert mutations, target-checked without a compiler |
 | **Static guards** | red-first greps that fail the build if a known defect shape reappears, each with the incident that motivated it written above it |
 | **Assurance instruments** | **20**, recomputed per commit over the source and the compiled artefact — see [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) and [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) |
 
@@ -699,7 +699,7 @@ not name what it pins.
 
 ```
 src/                    the five contracts — Router, Solver, Hub, Core, Quoter
-test/                   232 files: unit, property, parity, stateful invariants, regressions
+test/                   233 files: unit, property, parity, stateful invariants, regressions
   fork/                 27 suites against live chain liquidity, and the pins of what is deployed
   formal/               formal specifications and composition proofs
   hunt/                 regressions for findings from adversarial review
@@ -819,7 +819,7 @@ seen to fail once, for the reason it is named after.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **267 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **265 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -841,7 +841,7 @@ no mutant named an invariant, and the campaigns were properties nobody had tried
 of the fifteen mutants tried survived every invariant; two of those guards have no watcher of
 any kind, and are published as such rather than folded into the killed count.
 
-**267 of 267 are killed.** The figure is always printed beside its denominator: it is adequacy
+**265 of 265 are killed.** The figure is always printed beside its denominator: it is adequacy
 against this register, which is what §9 is about.
 
 ## 4. One question, one answer
@@ -1789,8 +1789,9 @@ green test in front of it.
 | `PROTOCOL_FEE_BPS` | "How much does the protocol take?" | `Router._chargeHopFee` ×2, `Quoter._pack` ×1, `Quoter.previewPlanExact` ×1 (since 2026-09-03) | `WEAK` | `test/PreviewExecutionParity.t.sol` — behavioural, `assertApproxEqRel(…, 0.001e18)`; **does not name the constant**. `test/QuoterExactNetOut.t.sol` pins the exact pass: `exactOut` equals the view preview's after-fee figure to the wei, is a floor the Router honours, and its deduction is `_pack`'s (once, rounded up); mutants 154-155 |
 | `effV2Fee` / `quoteV3Fee` | "What fee does this pool actually charge?" | `Core` only — all other sites call it | `SINGLE` | CI job *Fee producer guard*; `test/FeeProducersSingle.t.sol` names both |
 | `ironFloorBps` **impact input** | "What is this route's price impact?" | `Solver` ×2 (`_assembleRoute`, `_assembleRouteMulti`), `Router` ×1 — the same aggregation since 2026-09-02: share-weighted per leg (`_wImp`), averaged over the route's total leg count, rounded up. PR #25 fixed the single-hop arm; the multi-hop arm followed the same evening after a review pass found it still summing unweighted per-hop means (and a comment asserting it was safe) | `PINNED` (fixed 2026-09-02) | `test/FloorParitySolverRouter.t.sol` — single-hop `singleOutFloor == floorUsed`, two-hop floor **rate** parity (hop-1 fee shifts the base); mutants 88-89 and 98-99 in `mutants.py` (was finding **FLOOR-01**) · `test/regime/RegimeHarness.sol` pins the second frame on every generated row: with the fee off the input the enforced floor sits in [attested × (1 − fee), attested], with the fee off the output it equals the attested floor |
-| `expectedOut` of a single-tick leg (the per-leg attestation) | "What can this leg be promised to deliver?" - not "which venue delivers more?", which is the ranking question the same field used to answer | produced by `Solver._promiseLegs` at assembly from `BPC.v4LegOut`, the boundary-clamped Core call `Router._v4LegQuote` makes in the executing frame; consumed by the Router's per-leg floor and by Layer 1, where the frame may only push the bound UP. The ranking figure (`universalQuote`, unclamped on purpose, Core:1699) stays in `hop.expectedOut`, `totalOut` and `singleOut` | `PINNED` | `test/V4PromiseIsNotRanking.t.sol`: `test_Parity_TheLegAttestsWhatTheRouterQuotesInFrame` compares the attestation with the Router's own `ExecutionProof.quoted` on one block; `test_TheLegAttestsThePromise_TheHopKeepsTheCapacity` holds the two figures apart; `test_TheMultiHopFloorFollowsTheChainOfPromises` carries the promise across hops, where each later hop was sized on the ranking figure of the one before. A cap on the Router side was tried on 2026-09-22 and refused: it quoted the pool that EXECUTES, so a substituted pool set its own floor (`test_SubstitutedHook_HonestAttestation_IsRefusedByTheGate` went red on it). Reported by acit aja with thirty measured cases on Base, and independently by mohaseenbasha, ninth wave. |
-| `sqrtBoundary` (where a single-tick leg's range ends) | "Up to which price may the promise count this range's liquidity?" | `Core.sqrtBoundary` (definition), consumed by `Core.v4LegOut` - the Solver's attestation and the Router's in-frame quote are that one call - and by the Quoter's range-bounded preview | `PINNED` (fixed 2026-09-23) | `test/V4PromiseBound.t.sol`: `test_Up_PriceInsideItsTick_PromiseNeverExceedsTheRangeOutput` and `testFuzz_ThePromiseNeverPricesBeyondItsRange` bound the promise by the range's content in closed form, computed outside the Core, across direction x spacing x tick x position inside the tick. The up arm counted the range from the start of the current tick; with the price inside that tick it promised 1.030x what the range holds |
+| `expectedOut` of a single-tick leg (the per-leg attestation) | "What can this leg be promised to deliver?" - and, since the walk, the same answer to "which venue delivers more?" | produced by `Core.universalQuote`'s V4 arm through `Core.v4WalkOut`, the pool's own swap walked over its initialized ticks; the Router's in-frame quote (`Core.v4LegOut`) is the same walk, and consumes it as the per-leg floor and in Layer 1. Until 2026-09-24 the ranking figure was the edge-blind single-tick form and a separate promise layer (`Solver._promiseLegs`, #74) clamped the attestation at an edge inferred from the spacing: a pool with one tick of range out-ranked an honest one and filled 5% of the order (dex-19), and a deep pool with a narrow current range was promised a tenth of what it paid. The layer became an identity with the walk and is gone | `PINNED` | `test/V4PromiseIsWhatThePoolPays.t.sol`: `test_TheLegAttestsWhatThePoolPays_AndRankingIsThatFigure` (the attested expectedOut is what the specification's swap pays, and the route's figure is that same number) and `test_Parity_TheLegAttestsWhatTheRouterQuotesInFrame` (the Router's own ExecutionProof) |
+| `v4WalkOut` (what a V4 pool pays for an input) | "What does this V4 pool pay for this amount?" | `Core.v4WalkOut` (definition): slot0, liquidity, the tick bitmap and the ticks read through extsload, the PoolManager's own step arithmetic (input rounded up, output down), at most 16 stretches - an order still unspent after them is quoted for what the walk reached. Called by `universalQuote` (ranking, the Solver's plans, the Quoter's plan preview) and `v4LegOut` (the Router's in-frame quote) | `PINNED` (2026-09-24) | `test/V4TickWalk.t.sol`: the walk against a PoolManager written from the specification with its own tick arithmetic (one range, a crossing, fuzzed books); end to end, a one-tick range cannot take the route from an honest pool, and a deep pool with a narrow current range is promised what it pays |
+| `sqrtPriceAtTick` (the price at a tick) | "Where does a tick's price lie?" | `Core.sqrtPriceAtTick` alone - the TickMath table, used by the walk for every stretch's end; it replaced an edge approximated from the spacing (`sqrtBoundary`, removed) | `PINNED` (2026-09-24) | `test/V4TickWalk.t.sol`: the canonical endpoints exactly (tick 0, MIN_TICK, MAX_TICK) and every tick against an independent fixed-point computation of sqrt(1.0001)^tick |
 | `hookPaused` (a listed hook whose code moved since its pin) | "May a leg through this hook execute?" | `Hub.hookPaused` (definition); `Router` x1 refuses the leg with `RouterE(9)`; `Quoter` x1 (`_hookPausedIn`) withholds `canExecute`. Until 2026-09-23 the preview did not ask, and called executable a route the Router refuses | `PINNED` (fixed 2026-09-23) | `test/RouteIntegrityV4.t.sol`: `test_PreviewRoute_PausedHookLeg_CannotExecute` asks both channels about one route |
 
 **`PROTOCOL_FEE_BPS` — the escapes.** The pin compares realised delivery against predicted `netOut`

@@ -1156,7 +1156,7 @@ library BlazePhoenixCore {
     ///
     ///         Fee is applied to the input as the canonical (1 − fee/1e6) ratio.
     /// @param sqrtLimit Price boundary where the swap is TRUNCATED, or 0 for no
-    ///        truncation. See `sqrtBoundary`: between initialized ticks `L` does
+    ///        truncation. Between initialized ticks `L` does
     ///        not change, so truncating at the current range's boundary gives
     ///        EXACT for what fits inside it and STRICTLY BELOW for the rest —
     ///        never above, whatever the liquidity distribution ahead. That is
@@ -1202,74 +1202,6 @@ library BlazePhoenixCore {
         }
     }
 
-
-    /// @notice `sqrtPrice` boundary of the current tick range, in the direction
-    ///         of the swap. Returns 0 (no limit) when `spacing` is 0.
-    ///
-    /// @dev WHY THIS IS A VALID LIMIT. A liquidity position can only start and
-    ///      end at multiples of `tickSpacing`, so the INITIALIZED ticks are
-    ///      exactly those multiples. Between two of them the active `L` does not
-    ///      change — which is precisely the hypothesis `outV3` assumes and that
-    ///      stops holding on a crossing. Truncating here makes the hypothesis
-    ///      true by construction.
-    ///
-    /// @dev THE APPROXIMATION, and its direction. The boundary `d` ticks away is
-    ///      at a ratio of `1.0001^(d/2)` in sqrtPrice. Exponentiating would cost
-    ///      a whole TickMath (~300-500 B and a loop); instead we use
-    ///      `1 + d/20000`. Since `e^x >= 1 + x`, the true ratio is ALWAYS larger
-    ///      than this one, so the computed boundary lands CLOSER than the real
-    ///      one: we clamp too early, never too late. For `spacing = 200` the
-    ///      difference is 0.005%.
-    ///
-    ///      If one day the cost in lost routes justifies exactness, the
-    ///      replacement is local: only this function changes.
-    function sqrtBoundary(uint160 sqrtP, int24 tick, int24 spacing, bool zeroForOne)
-        internal pure returns (uint160)
-    {
-        if (spacing <= 0 || sqrtP == 0) return 0;
-        int256 sp_ = int256(spacing);
-        // Distance in ticks to the boundary, in the swap's direction. Solidity's
-        // `%` truncates toward zero, so a negative tick needs a correction so
-        // that `r` is always the position INSIDE the range (0 <= r < S).
-        int256 r = int256(tick) % sp_;
-        if (r < 0) r += sp_;
-        // The distance is counted from the PRICE, and the tick only says where
-        // the price's tick STARTS: the price may already sit most of a tick above
-        // it. Going down that is harmless (the edge is at least `r` ticks below
-        // any price inside the tick). Going up it is not: the top edge is
-        // `S - r` ticks above the tick's start, so from a price inside the tick
-        // it can be as little as `S - r - 1` ticks away. Counting `S - r` put the
-        // edge up to one tick too far and promised more than the range pays
-        // (1.030x with the price at 0.9 of tick 30, spacing 60 - the up twin of
-        // the down-arm defect V4-4 closed).
-        uint256 d = zeroForOne ? uint256(r) : uint256(sp_ - r - 1);
-        // d == 0 happens going DOWN from a tick that is itself a range boundary
-        // (r == 0), and going UP from the range's top tick (r == S - 1): either
-        // way the edge is less than one tick away, not a whole range. One tick
-        // keeps the promise continuous across the boundary and over-states the
-        // edge by at most that one tick (0.01 % in price).
-        if (d == 0) d = 1;
-        uint256 P = uint256(sqrtP);
-        // THE TWO DIRECTIONS ARE NOT SYMMETRIC, and assuming so was a defect.
-        // The boundary `d` ticks away sits at `P * r` going up and `P / r` going
-        // down, with `r = 1.0001^(d/2)`. So the relative displacement is `r - 1`
-        // upward but `1 - 1/r = (r-1)/r` downward — SMALLER. Using the same
-        // delta on both sides let the price fall past the real boundary: it
-        // clamped LATE and over-estimated, which is exactly what this clamp
-        // exists to prevent.
-        //
-        // 20_001 and not 20_000: with 20_000 the linear approximation exceeds
-        // the true value at `d = 1` (by ~1e-9, which at this scale is ~1e20 wei,
-        // not one wei). Verified by sweeping d = 1 to 1000 in both directions:
-        // zero violations, and the extra conservatism stays below 0.5% at the
-        // canonical spacings (1, 10, 60, 200).
-        if (zeroForOne) {
-            uint256 dn = (P * d) / (20_001 + d);
-            return dn >= P ? uint160(1) : uint160(P - dn);
-        }
-        uint256 up = P + (P * d) / 20_001;
-        return up > type(uint160).max ? type(uint160).max : uint160(up);
-    }
 
     /// @notice Ask a Solidly-class pair for its own exact output. Same doctrine
     ///         as an ask-the-pool adapter (quote fn == exec fn => cannot diverge):
@@ -1688,8 +1620,8 @@ library BlazePhoenixCore {
             // pricing depends on whether a currency is native — only settlement
             // does, and settlement lives in the Router.
             //
-            // V4 quote: extsload state read + V3 concentrated-liquidity formula.
-            // Current-tick approximation (no tick-crossing, ignores hooks).
+            // V4 quote: the pool's own book walked through extsload, tick crossings
+            // included (hooks are not modelled).
             // Hook seam (INV-20): a dynamic-fee pool's hook can override the
             // fee per-swap in beforeSwap (needs only BEFORE_SWAP_FLAG — the
             // delta-flag reject does NOT gate it) or move it mid-block via
@@ -1700,39 +1632,19 @@ library BlazePhoenixCore {
             // to a revert or a within-slack shortfall — never a bad fill.
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
-            // The `tick` is left unread HERE on purpose: the boundary clamp
-            // belongs to the PROMISE layer and not to RANKING (see the long note
-            // on `outV3`). It is discarded with a hole rather than a name, so as
-            // not to leave a solc 2072 warning masking real warnings.
             (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
                 v4SqrtAndLiq(c.v4Manager, pid);
             if (sp == 0 || liq == 0) return (0, 0);
-            // NO BOUNDARY CLAMP HERE, and the reason is a measured lesson.
-            //
-            // `universalQuote` serves TWO different questions: "which pool
-            // delivers more?" (ranking) and "how much can I guarantee?"
-            // (promise). The tick-boundary clamp (`sqrtBoundary` plus the
-            // `sqrtLimit` parameter of `outV3`) answers the SECOND — it is an
-            // honest lower bound. Applying it here answers the first with the
-            // wrong tool.
-            //
-            // The damage is asymmetric and it was observed: V2 has no tick
-            // structure, so it is not clampable; clamping only the concentrated
-            // families makes the ranking compare quantities under different
-            // conventions, and a shallow V2 starts beating a deep V4 on any
-            // trade that leaves the current range. With `spacing = 60` that is
-            // ~0.6% of price — routine. It is the SAME class as the `depthBucket`
-            // defect (comparing without normalising), which already cost a session.
-            //
-            // And the measurement says the clamp would under-estimate: on the
-            // ENA/USDC pool at 1,000 USDC the REAL output was 14.5% above the
-            // model — there really was more liquidity beyond the boundary.
-            //
-            // The right place is the PROMISE layer: the `expectedOut` of the
-            // already-sized leg, the Preview's `netOut` and the `ironFloor`.
-            // There a lower bound is exactly what is wanted, and there is no
-            // cross-family comparison to bias.
-            out = outV3(amountIn, sp, liq, effV4Fee(c.fee, lpF, pF, c.zeroForOne), c.zeroForOne, 0);
+            // THE WALK, for ranking and for the promise alike. The single-tick form assumed
+            // the current liquidity went on for ever: it ranked a pool holding one tick of
+            // range as deep and let it take the whole route (dex-19, ninth wave), while its
+            // range-clamped twin, the promise, could not see the liquidity beyond a narrow
+            // range - on ENA/USDC at 1,000 USDC the real output was 14.5% above the model.
+            // `v4WalkOut` walks the pool's own initialized ticks, so both questions get the
+            // pool's own answer: a range with nothing beyond it is ranked for what it holds,
+            // and liquidity beyond the current range is counted where it is. V2 has no ticks
+            // to walk and needs none: its curve is its whole book.
+            out = v4WalkOut(c.v4Manager, pid, amountIn, effV4Fee(c.fee, lpF, pF, c.zeroForOne), c.tickSpacing, c.zeroForOne);
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
@@ -1750,11 +1662,8 @@ library BlazePhoenixCore {
     ///         StateView on a mainnet fork: base = keccak256(abi.encode(poolId,
     ///         6)); slot0 (offset 0) packs sqrtPriceX96 in its low 160 bits;
     ///         liquidity is at offset +3 (low 128 bits).
-    /// @dev The returned `tick` comes for FREE: it lives in the same slot0 word
-    ///      already read for `sqrtPriceX96`, bits [160,184). It is what lets
-    ///      `sqrtBoundary` know how far away the range boundary is — without it
-    ///      the only safe limit would be "zero distance", which would give a
-    ///      null output.
+    /// @dev The returned `tick` comes for free: it lives in the same slot0 word
+    ///      already read for `sqrtPriceX96`, bits [160,184).
     function v4SqrtAndLiq(address manager, bytes32 poolId)
         public view
         returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee, int24 tick)
@@ -1816,25 +1725,219 @@ library BlazePhoenixCore {
         return lpFee;                                 // dynamic: the measured slot0 fee
     }
 
-    /// @notice The in-frame PROMISE for a V4 leg: slot0 and liquidity read from
-    ///         the singleton, the fee resolved in the swap's direction, and the
-    ///         single-tick closed form TRUNCATED at the current range's boundary
-    ///         (`sqrtBoundary`) — exact for what fits inside the range and
-    ///         strictly below for the rest, never above. Ranking keeps the
-    ///         unclamped form (see universalQuote's V4 arm for why); this is the
-    ///         quantity the floor is derived from, where a lower bound is what
-    ///         is wanted. Public so the Router reaches it through the linked
-    ///         library instead of carrying the inlined mathematics.
+    /// @notice The in-frame PROMISE for a V4 leg: the fee resolved in the swap's direction,
+    ///         then the pool's own swap walked over its initialized ticks (`v4WalkOut`). It was
+    ///         the single-tick closed form truncated at the current range's edge - a lower bound
+    ///         that could not see the liquidity beyond the edge, beside a ranking figure that
+    ///         could not see its absence: a pool holding one tick of range and a large `L` then
+    ///         out-ranked an honest pool, took the whole order, filled 5% of it, and published a
+    ///         netOut twenty times its delivery (ninth wave, mohaseenbasha, dex-19). The walk
+    ///         answers both questions with the pool's own arithmetic. Public so the Router
+    ///         reaches it through the linked library instead of carrying the mathematics.
     function v4LegOut(
         address manager, bytes32 poolId, uint256 amountIn,
         uint24 keyFee, int24 tickSpacing, bool zeroForOne
     ) public view returns (uint256) {
-        (uint160 sp, uint128 lq, uint24 lpF, uint24 pF, int24 tick) = v4SqrtAndLiq(manager, poolId);
+        (uint160 sp, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);
         if (sp == 0 || lq == 0) return 0;
-        return outV3(
-            amountIn, sp, lq, effV4Fee(keyFee, lpF, pF, zeroForOne), zeroForOne,
-            sqrtBoundary(sp, tick, tickSpacing, zeroForOne)
-        );
+        return v4WalkOut(manager, poolId, amountIn, effV4Fee(keyFee, lpF, pF, zeroForOne), tickSpacing, zeroForOne);
+    }
+
+    // =========================================================================
+    //  THE V4 WALK - the PoolManager's swap loop, read-only, over extsload
+    // =========================================================================
+    //  Pool.State in the singleton (v4-core Pool.sol / StateLibrary): at
+    //  base = keccak256(poolId, 6): slot0 (+0), liquidity (+3), the ticks
+    //  mapping (+4: word 0 of a TickInfo packs liquidityGross low | liquidityNet
+    //  high) and the tick bitmap (+5: one word per 256 compressed ticks).
+    //  Every function below is the pool's own arithmetic with its own rounding -
+    //  input rounded up, output rounded down - so the walk can only understate a
+    //  delivery, and only where it stops early.
+
+    int24   internal constant V4_MIN_TICK = -887_272;
+    int24   internal constant V4_MAX_TICK =  887_272;
+    /// @dev Steps of the walk: each is one stretch between initialized ticks (or one
+    ///      bitmap word). An order still unspent after the last one is quoted for what
+    ///      the walk reached - an understatement, the safe side of a promise.
+    uint256 internal constant V4_WALK_MAX_STEPS = 16;
+
+    /// @dev One guarded extsload: a codeless or reverting manager reads as zero.
+    function _v4Load(address manager, bytes32 slot) private view returns (uint256 w) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x1e2eaeaf00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4), slot)
+            if staticcall(GAS_CAP, manager, m, 36, m, 32) {
+                if eq(returndatasize(), 32) { w := mload(m) }
+            }
+        }
+    }
+
+    /// @notice sqrt(1.0001^tick) * 2^96, rounded up - the TickMath table: each constant is
+    ///         2^128 / sqrt(1.0001)^(2^i), and the result is exact to the pool's own value.
+    function sqrtPriceAtTick(int24 tick) internal pure returns (uint160) {
+        uint256 a = tick < 0 ? uint256(-int256(tick)) : uint256(int256(tick));
+        require(a <= uint256(int256(V4_MAX_TICK)), "BPC:tick");
+        uint256 r = a & 0x1 != 0 ? 0xfffcb933bd6fad37aa2d162d1a594001 : 0x100000000000000000000000000000000;
+        if (a & 0x2 != 0) r = (r * 0xfff97272373d413259a46990580e213a) >> 128;
+        if (a & 0x4 != 0) r = (r * 0xfff2e50f5f656932ef12357cf3c7fdcc) >> 128;
+        if (a & 0x8 != 0) r = (r * 0xffe5caca7e10e4e61c3624eaa0941cd0) >> 128;
+        if (a & 0x10 != 0) r = (r * 0xffcb9843d60f6159c9db58835c926644) >> 128;
+        if (a & 0x20 != 0) r = (r * 0xff973b41fa98c081472e6896dfb254c0) >> 128;
+        if (a & 0x40 != 0) r = (r * 0xff2ea16466c96a3843ec78b326b52861) >> 128;
+        if (a & 0x80 != 0) r = (r * 0xfe5dee046a99a2a811c461f1969c3053) >> 128;
+        if (a & 0x100 != 0) r = (r * 0xfcbe86c7900a88aedcffc83b479aa3a4) >> 128;
+        if (a & 0x200 != 0) r = (r * 0xf987a7253ac413176f2b074cf7815e54) >> 128;
+        if (a & 0x400 != 0) r = (r * 0xf3392b0822b70005940c7a398e4b70f3) >> 128;
+        if (a & 0x800 != 0) r = (r * 0xe7159475a2c29b7443b29c7fa6e889d9) >> 128;
+        if (a & 0x1000 != 0) r = (r * 0xd097f3bdfd2022b8845ad8f792aa5825) >> 128;
+        if (a & 0x2000 != 0) r = (r * 0xa9f746462d870fdf8a65dc1f90e061e5) >> 128;
+        if (a & 0x4000 != 0) r = (r * 0x70d869a156d2a1b890bb3df62baf32f7) >> 128;
+        if (a & 0x8000 != 0) r = (r * 0x31be135f97d08fd981231505542fcfa6) >> 128;
+        if (a & 0x10000 != 0) r = (r * 0x9aa508b5b7a84e1c677de54f3e99bc9) >> 128;
+        if (a & 0x20000 != 0) r = (r * 0x5d6af8dedb81196699c329225ee604) >> 128;
+        if (a & 0x40000 != 0) r = (r * 0x2216e584f5fa1ea926041bedfe98) >> 128;
+        if (a & 0x80000 != 0) r = (r * 0x48a170391f7dc42444e8fa2) >> 128;
+        if (tick > 0) r = type(uint256).max / r;
+        return uint160((r >> 32) + (r % (1 << 32) == 0 ? 0 : 1));
+    }
+
+    /// @dev Index of the most significant set bit (x > 0).
+    function _msb(uint256 x) private pure returns (uint256 r) {
+        if (x >= 1 << 128) { x >>= 128; r += 128; }
+        if (x >= 1 << 64) { x >>= 64; r += 64; }
+        if (x >= 1 << 32) { x >>= 32; r += 32; }
+        if (x >= 1 << 16) { x >>= 16; r += 16; }
+        if (x >= 1 << 8) { x >>= 8; r += 8; }
+        if (x >= 1 << 4) { x >>= 4; r += 4; }
+        if (x >= 1 << 2) { x >>= 2; r += 2; }
+        if (x >= 1 << 1) r += 1;
+    }
+
+    /// @dev TickBitmap.nextInitializedTickWithinOneWord, read through extsload: the next
+    ///      initialized tick at or below `tick` (price falling) or strictly above it (price
+    ///      rising), or the edge of the current bitmap word when none is set in it.
+    function _v4NextTick(address manager, bytes32 bitmapSlot, int24 tick, int24 ts, bool lte)
+        private view returns (int24 next, bool initialized)
+    {
+        int24 c = tick / ts;
+        if (tick < 0 && tick % ts != 0) c--;              // floor, as `compress` does
+        if (!lte) c++;
+        int16 wordPos = int16(c >> 8);
+        uint256 bitPos = uint256(uint24(c)) & 0xff;
+        uint256 word = _v4Load(manager, keccak256(abi.encode(int256(wordPos), bitmapSlot)));
+        int256 n;
+        if (lte) {
+            uint256 masked = word & (type(uint256).max >> (255 - bitPos));
+            initialized = masked != 0;
+            n = (int256(c) - int256(initialized ? bitPos - _msb(masked) : bitPos)) * int256(ts);
+        } else {
+            uint256 masked = word & ~((uint256(1) << bitPos) - 1);
+            initialized = masked != 0;
+            n = (int256(c) + int256(initialized ? _msb(masked & (~masked + 1)) - bitPos : 255 - bitPos)) * int256(ts);
+        }
+        // In int256 and clamped here: near the extremes a wide spacing takes the product out
+        // of int24's range, and the pool's own loop clamps the result to the tick bounds too.
+        if (n < V4_MIN_TICK) n = V4_MIN_TICK;
+        if (n > V4_MAX_TICK) n = V4_MAX_TICK;
+        next = int24(n);
+    }
+
+    /// @dev SqrtPriceMath.getAmount0Delta for sqrtA < sqrtB.
+    function _amount0Delta(uint160 sqrtA, uint160 sqrtB, uint128 liq, bool roundUp) private pure returns (uint256) {
+        uint256 num1 = uint256(liq) << 96;
+        uint256 num2 = uint256(sqrtB) - uint256(sqrtA);
+        if (!roundUp) return mulDiv(num1, num2, sqrtB) / sqrtA;
+        uint256 q = mulDivUp(num1, num2, sqrtB);
+        return q / sqrtA + (q % sqrtA == 0 ? 0 : 1);
+    }
+
+    /// @dev SqrtPriceMath.getAmount1Delta for sqrtA < sqrtB.
+    function _amount1Delta(uint160 sqrtA, uint160 sqrtB, uint128 liq, bool roundUp) private pure returns (uint256) {
+        return roundUp
+            ? mulDivUp(liq, uint256(sqrtB) - uint256(sqrtA), Q96)
+            : mulDiv(liq, uint256(sqrtB) - uint256(sqrtA), Q96);
+    }
+
+    /// @dev SqrtPriceMath.getNextSqrtPriceFromInput: token0 in rounds the price up (it falls
+    ///      less), token1 in rounds it down (it rises less) - the pool's side either way.
+    function _nextSqrtFromInput(uint160 sp, uint128 liq, uint256 amt, bool zeroForOne) private pure returns (uint160) {
+        if (amt == 0) return sp;
+        if (zeroForOne) {
+            uint256 num1 = uint256(liq) << 96;
+            unchecked {
+                uint256 product = amt * sp;
+                if (product / amt == sp) {
+                    uint256 den = num1 + product;
+                    if (den >= num1) return uint160(mulDivUp(num1, sp, den));
+                }
+            }
+            uint256 d = num1 / sp + amt;
+            return uint160(num1 / d + (num1 % d == 0 ? 0 : 1));
+        }
+        uint256 q = amt <= type(uint160).max ? (amt << 96) / liq : mulDiv(amt, Q96, liq);
+        uint256 n = uint256(sp) + q;
+        return n > type(uint160).max ? type(uint160).max : uint160(n);
+    }
+
+    /// @dev SwapMath.computeSwapStep, exact input: from `sp` toward `target` with `liq`,
+    ///      spending at most `rem` (fee included). Returns the price reached, the input
+    ///      spent (fee included) and the output.
+    function _v4Step(uint160 sp, uint160 target, uint128 liq, uint256 rem, uint24 fee, bool zeroForOne)
+        private pure returns (uint160 next, uint256 used, uint256 out)
+    {
+        uint256 remLessFee = mulDiv(rem, 1_000_000 - fee, 1_000_000);
+        uint256 toTarget = zeroForOne ? _amount0Delta(target, sp, liq, true) : _amount1Delta(sp, target, liq, true);
+        if (remLessFee >= toTarget) {
+            next = target;
+            used = toTarget + mulDivUp(toTarget, fee, 1_000_000 - fee);
+        } else {
+            next = _nextSqrtFromInput(sp, liq, remLessFee, zeroForOne);
+            used = rem;
+        }
+        out = zeroForOne ? _amount1Delta(next, sp, liq, false) : _amount0Delta(sp, next, liq, false);
+    }
+
+    /// @notice What the pool pays for `amountIn`, walked over its initialized ticks the way
+    ///         the PoolManager's swap loop walks them, for at most V4_WALK_MAX_STEPS stretches.
+    ///         A range with nothing beyond it pays what it holds and no more; liquidity beyond
+    ///         the current range is counted where it is.
+    function v4WalkOut(
+        address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne
+    ) public view returns (uint256 out) {
+        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || manager == address(0)) return 0;
+        uint256 base = uint256(keccak256(abi.encode(poolId, uint256(6))));
+        uint256 w0 = _v4Load(manager, bytes32(base));
+        uint160 sp = uint160(w0);
+        if (sp == 0) return 0;
+        int24 tick = int24(uint24(w0 >> 160));
+        uint128 liq = uint128(_v4Load(manager, bytes32(base + 3)));
+        uint256 rem = amountIn;
+        for (uint256 i; i < V4_WALK_MAX_STEPS; ) {
+            (int24 nt, bool init) = _v4NextTick(manager, bytes32(base + 5), tick, tickSpacing, zeroForOne);
+            uint160 target = sqrtPriceAtTick(nt);
+            (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, fee, zeroForOne);
+            out += o;
+            rem -= used;
+            // A step that stops short of its target spends everything left, so an empty
+            // remainder is the only exit: the price reached the target whenever input remains.
+            if (rem == 0) break;
+            if (init) {
+                // liquidityNet, the high half of TickInfo's first word; crossing downward
+                // applies it negated. Saturating: an inconsistent state quotes zero past the
+                // crossing instead of reverting the whole plan.
+                int256 net = int256(int128(int256(_v4Load(manager, keccak256(abi.encode(int256(nt), bytes32(base + 4)))) >> 128)));
+                if (zeroForOne) net = -net;
+                uint256 l = uint256(liq);
+                if (net < 0) l = l > uint256(-net) ? l - uint256(-net) : 0;
+                else { l += uint256(net); if (l > type(uint128).max) l = type(uint128).max; }
+                liq = uint128(l);
+            }
+            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;
+            tick = zeroForOne ? nt - 1 : nt;
+            sp = target;
+            unchecked { ++i; }
+        }
     }
 
     /// @notice Batch slot0 read for many V4 poolIds in ONE staticcall via the
