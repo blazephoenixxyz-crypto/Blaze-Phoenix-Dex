@@ -50,8 +50,14 @@ keywords:
   - mev
 identifiers:
   - type: doi
+    value: 10.5281/zenodo.23084091
+    description: "Technical Whitepaper v2.3 — record version (2026-09-24)"
+  - type: doi
+    value: 10.5281/zenodo.23084090
+    description: "Technical Whitepaper v2.3 — concept DOI, resolves to the latest version of that record"
+  - type: doi
     value: 10.5281/zenodo.22526574
-    description: "Technical Whitepaper v2.2 — concept DOI, resolves to the latest record version"
+    description: "Technical Whitepaper v2.2 — concept DOI of the earlier record"
   - type: doi
     value: 10.5281/zenodo.22529654
     description: "Technical Whitepaper v2.2 — record version 2 (2026-09-06)"
@@ -64,9 +70,9 @@ preferred-citation:
   authors:
     - alias: Mitra
       affiliation: BlazePhoenix
-  version: "2.2"
-  doi: 10.5281/zenodo.22526574
-  date-released: "2026-09-06"
+  version: "2.3"
+  doi: 10.5281/zenodo.23084091
+  date-released: "2026-09-24"
   url: "https://blazephoenix.xyz/research/whitepaper/"
   license: CC-BY-4.0
-  notes: "Full text in Markdown at https://blazephoenix.xyz/whitepaper.md; archived at https://doi.org/10.5281/zenodo.22526574"
+  notes: "Full text in Markdown at https://blazephoenix.xyz/whitepaper.md; archived at https://doi.org/10.5281/zenodo.23084091"
