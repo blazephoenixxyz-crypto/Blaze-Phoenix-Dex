@@ -103,9 +103,9 @@ is given; the process, from receipt to Hall of Fame, is written down in
 
 ## Bounty programme
 
-**50,000,000 BZPX is allocated to security research** — 5% of a fixed
-1,000,000,000 supply, carved out of the token allocation for this and nothing
-else. The pool is shared with
+**130,000,000 BZPX is allocated to Airdrop & Bounties** — 13% of a fixed
+1,000,000,000 supply, carved out of the token allocation to pay the people who
+read the protocol hard and use it for real. The pool is shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking);
 a finding against either protocol draws from it.
 
