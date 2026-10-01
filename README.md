@@ -133,7 +133,7 @@ metrics do **not** establish is stated as carefully as what they do, in the same
 These are declaration counts at a named revision, not a pass count. A pass count belongs to a run,
 and the badge at the top of this file is the only honest place for one.
 
-A funded public bounty (50,000,000 BZPX, shared with
+A funded public bounty (the 130,000,000 BZPX Airdrop & Bounties allocation, shared with
 [BlazePhoenix-Staking](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking))
 has credited **25 researchers** — every confirmed finding fixed with a regression
 test that fails against the pre-fix code, zero Critical. The roster is
