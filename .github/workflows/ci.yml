@@ -265,17 +265,29 @@ jobs:
         run: python3 .github/scripts/mutants.py
 
       - name: Deeper invariant/fuzz pass (REPORT-ONLY — never gates)
-        # `|| true` is deliberate: this deep campaign is a search, not a bound,
+        # Report-only is deliberate: this deep campaign is a search, not a bound,
         # and its variance would make the gating job flaky. Labelled so nobody
         # reads a green tick here as a proof — the gate is the hermetic run
         # above plus the Halmos specs. If one of these ever starts discharging
-        # deterministically, promote it into the gate and drop the `|| true`.
+        # deterministically, promote it into the gate and let exit 1 fail too.
         # The glob was "test/*Invariant*", which is case-sensitive: it matched 13 of 33
         # invariants and MISSED the two that matter most - BlazePhoenixRouter.invariant.t.sol
         # (the fee campaign) and FullStackLoop.invariant.t.sol - both spelled with a lower-case
         # i. 20 of 33 were never run deeper than 50x50 anywhere. Dropping the first letter
         # matches both spellings.
-        run: forge test --match-path "test/*nvariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
+        # Foundry 1.8.x has no `--invariant-runs` / `--invariant-depth` (measured on 1.8.3 and
+        # 1.8.4): the old command exited 2 on the unknown flag in under a second, and `|| true`
+        # turned that into a green tick, so this pass ran nothing from at least 2026-09-23. The
+        # depth now comes from the environment, and only exit 1 (a failing test) stays
+        # report-only: exit 2 (an argument the CLI rejects) fails the job, so a pass that never
+        # started can no longer read as a pass that found nothing.
+        env:
+          FOUNDRY_INVARIANT_RUNS: 128
+          FOUNDRY_INVARIANT_DEPTH: 128
+        run: |
+          rc=0
+          forge test --match-path "test/*nvariant*" --fuzz-runs 512 -vv || rc=$?
+          [ "$rc" -le 1 ] || { echo "::error::deep invariant pass did not run (exit $rc)"; exit "$rc"; }
 
   fork-tests:
     name: fork tests (archive RPC)

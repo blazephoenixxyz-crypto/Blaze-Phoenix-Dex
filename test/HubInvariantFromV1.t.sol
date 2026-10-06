@@ -204,8 +204,8 @@ contract HubInvariantFromV1Test is StdInvariant, Test {
         // and would train people to ignore it. Gating on `inserts` keeps the
         // assertion honest in both places: it stays quiet when the search was
         // too shallow to have reached eviction, and it bites on a deep run
-        // (`forge test --match-contract Invariant --invariant-runs 256
-        // --invariant-depth 500`) where filling MUST happen. The gate counts
+        // (`FOUNDRY_INVARIANT_RUNS=256 FOUNDRY_INVARIANT_DEPTH=500 forge test
+        // --match-contract Invariant`) where filling MUST happen. The gate counts
         // DISTINCT pools offered, not calls made: a call that lands on an
         // already-registered pool ticks it rather than inserting, so call
         // count is not a proxy for variety and gating on it demands a fill the

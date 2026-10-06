@@ -1399,7 +1399,8 @@ The suite and the size gate run under the **same optimiser profile**; `profile_p
 asserts it. A number measured on one profile is not evidence about the other.
 
 Invariant campaigns run at a modest depth by default (see `[invariant]` in `foundry.toml`); raise
-`--invariant-runs` / `--invariant-depth` for a deeper search. Foundry persists a failing sequence
+`FOUNDRY_INVARIANT_RUNS` / `FOUNDRY_INVARIANT_DEPTH` for a deeper search (Foundry 1.8.x has no
+`--invariant-runs` / `--invariant-depth` flags). Foundry persists a failing sequence
 under `cache/invariant` and replays it on the next run — clear it when you change a handler, or a
 stale sequence can be scored as a fresh result.
 

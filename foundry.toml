@@ -34,7 +34,7 @@ seed = "0xb1a2ef00"
 # ptrace syscall-interception overhead per EVM call), so the stock Foundry
 # defaults (runs=256, depth=500 => ~128k calls) are impractically slow here.
 # Raise both on real CI/hardware for a deeper Monte Carlo search — e.g.
-# `forge test --match-contract Invariant --invariant-runs 256 --invariant-depth 500`.
+# `FOUNDRY_INVARIANT_RUNS=256 FOUNDRY_INVARIANT_DEPTH=500 forge test --match-contract Invariant`.
 runs = 50
 depth = 50
 fail_on_revert = false
