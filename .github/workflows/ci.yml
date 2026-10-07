@@ -13,8 +13,8 @@ jobs:
   test:
     name: build + test (fast profile)
     runs-on: ubuntu-latest
-    # The mutation guard runs inside this job and grows with every guarded fix:
-    # 231 mutants took ~50 minutes end to end (2026-09-22), and 236 crossed 60.
+    # The mutation guard and the deep invariant pass grew past this job's ceiling and run
+    # as their own jobs since 2026-10-07 (mutation-guard, deep-invariant).
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -248,6 +248,25 @@ jobs:
         # check is the one to run locally after ANY edit to src/.
         run: python3 .github/scripts/check_targets.py
 
+  mutation-guard:
+    name: mutation guard (shard ${{ matrix.shard }} of 4)
+    runs-on: ubuntu-latest
+    # Its own job since 2026-10-07, in four parallel shards. Inside `test` the guard took 80 of
+    # the job's 90 minutes at ~271 mutants and was cancelled (runs 37653877143, 37653884792);
+    # every guarded fix adds to it, so it cannot share a ceiling with the gate.
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
       - name: Mutation guard (os guardas tem de ter testes que os apanhem)
         # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
         # com testes mortos: a suite passava na mesma com o fix REMOVIDO. O caso mais recente
@@ -262,20 +281,57 @@ jobs:
         # O CONTRATO: acrescentar um guarda de seguranca ao protocolo implica acrescentar a sua
         # linha em .github/scripts/mutants.py. Se o alvo de um mutante deixar de existir, o job
         # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
+        env:
+          MUTANTS_SHARD: ${{ matrix.shard }}
+          MUTANTS_SHARDS: 4
         run: python3 .github/scripts/mutants.py
 
+  deep-invariant:
+    name: deep invariant pass (report-only)
+    runs-on: ubuntu-latest
+    # Its own job since 2026-10-07. Inside `test` the 128x128 campaign took the gate from
+    # 47-65 minutes to 87-90 of its 90 (the push run of d5cedff was cancelled at 90:28),
+    # so every new test or guarded mutant would have timed the gate out. Run in parallel,
+    # the gate keeps its margin and the campaign is no longer cut short.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Show versions
+        run: forge --version
+
       - name: Deeper invariant/fuzz pass (REPORT-ONLY — never gates)
-        # `|| true` is deliberate: this deep campaign is a search, not a bound,
+        # Report-only is deliberate: this deep campaign is a search, not a bound,
         # and its variance would make the gating job flaky. Labelled so nobody
         # reads a green tick here as a proof — the gate is the hermetic run
         # above plus the Halmos specs. If one of these ever starts discharging
-        # deterministically, promote it into the gate and drop the `|| true`.
+        # deterministically, promote it into the gate and let exit 1 fail too.
         # The glob was "test/*Invariant*", which is case-sensitive: it matched 13 of 33
         # invariants and MISSED the two that matter most - BlazePhoenixRouter.invariant.t.sol
         # (the fee campaign) and FullStackLoop.invariant.t.sol - both spelled with a lower-case
         # i. 20 of 33 were never run deeper than 50x50 anywhere. Dropping the first letter
-        # matches both spellings.
-        run: forge test --match-path "test/*nvariant*" --fuzz-runs 512 --invariant-runs 128 --invariant-depth 128 -vv || true
+        # matched both spellings - and still missed every invariant whose FILE name does not
+        # say so (RouterAdversarialMultiHopFromV1, RouterAdversarialV4FromV1,
+        # RouterStatefulConservationFromV1: 3 of 10 files). Since 2026-10-07 the pass selects by
+        # the function, `invariant_`, which is what makes a test an invariant.
+        # Foundry 1.8.x has no `--invariant-runs` / `--invariant-depth` (measured on 1.8.3 and
+        # 1.8.4): the old command exited 2 on the unknown flag in under a second, and `|| true`
+        # turned that into a green tick, so this pass ran nothing from at least 2026-09-23. The
+        # depth now comes from the environment, and only exit 1 (a failing test) stays
+        # report-only: exit 2 (an argument the CLI rejects) fails the job, so a pass that never
+        # started can no longer read as a pass that found nothing.
+        env:
+          FOUNDRY_INVARIANT_RUNS: 128
+          FOUNDRY_INVARIANT_DEPTH: 128
+        run: |
+          rc=0
+          forge test --match-test "invariant_" --no-match-path "test/fork/**" --fuzz-runs 512 -vv || rc=$?
+          [ "$rc" -le 1 ] || { echo "::error::deep invariant pass did not run (exit $rc)"; exit "$rc"; }
 
   fork-tests:
     name: fork tests (archive RPC)
