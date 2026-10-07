@@ -306,33 +306,13 @@ contract FeeEscapeViaBridgeResidualTest is Test {
         Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
 
-        // A volta circular A->B->A->C tem 3 hops: a fee sai no input do hop 1, que e o tB.
+        // 2026-10-07: a route visits its input token once, so the circular A -> B -> A -> C
+        // shape is refused before anything moves (RouterE(3)). The fee bound this test pinned
+        // for it no longer has a route to bound; no fee is charged because no swap happens.
         uint256 antes = tB.balanceOf(treasury1) + tB.balanceOf(treasury2);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         vm.prank(user);
         router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1);
-        uint256 cobrada = tB.balanceOf(treasury1) + tB.balanceOf(treasury2) - antes;
-
-        // O INCENTIVO VOLTOU A INVERTER-SE, E ESTA E A CONSEQUENCIA QUE MAIS IMPORTA.
-        //
-        // Com a fee POR HOP (21/08), uma volta circular de tres hops pagava TRES
-        // vezes: encher a rota de hops era uma forma de pagar MAIS, e o proprio
-        // ataque se auto-desencorajava.
-        //
-        // Com a fee UNICA na primeira ponte (22/08), acrescentar hops faz a fee
-        // descer — pelo impacto de preco do hop 0, e so por esse. Medido aqui:
-        // 2,7888 contra os 2,8000 que uma rota de 1 hop sem ponte no destino paga.
-        //
-        // O ATAQUE CONTINUA A NAO COMPENSAR, e e por isso que este teste passa a
-        // pinar o LIMITE em vez da igualdade: a volta circular paga ~28 bps do
-        // valor na ponte e devolve ao atacante menos do que ele meteu (duas
-        // travessias de curva). O desconto de 0,4% nao paga a perda de ~60 bps
-        // das duas passagens. Mas o desencorajamento deixou de ser ESTRUTURAL e
-        // passou a ser ECONOMICO — depende dos numeros do mercado, nao da forma
-        // do contrato.
-        emit log_named_decimal_uint("fee da volta circular (na ponte)", cobrada, 18);
-        assertLe(cobrada, FEE_ESPERADA, "nunca mais do que 28 bps da entrada");
-        assertGe(cobrada, FEE_ESPERADA - TOLERANCIA,
-            "o desconto tem de ficar dentro do impacto de UM hop - se descer mais, ha fuga nova");
-
+        assertEq(tB.balanceOf(treasury1) + tB.balanceOf(treasury2), antes, "no fee on a refused route");
     }
 }

@@ -142,25 +142,14 @@ contract FeeEscapeDustMidRouteTest is Test {
         Route memory r = Route({hops: hops, totalOut: qUW, singleOut: qUW, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
 
+        // 2026-10-07: a route that comes back for its input token is refused (RouterE(3)).
+        // The value anchor closed the escape this file was written for; the same U -> X -> U -> W
+        // shape opened another (Seavia Resources): hop 0 committed dust, the rest of the pull
+        // waited in the Router for the sweep, and hop 2 spent it fee-free. No honest route visits
+        // its input twice, so the whole shape is refused and no fee is ever computed for it.
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         vm.prank(atacante);
-        uint256 got = router.swapExactIn(r, AMT, 1, atacante, block.timestamp + 1);
-
-        uint256 feeU = tU.balanceOf(treasury1) + tU.balanceOf(treasury2);
-        uint256 feeW = tW.balanceOf(treasury1) + tW.balanceOf(treasury2);
-        uint256 feeX = tX.balanceOf(treasury1) + tX.balanceOf(treasury2);
-
-        emit log_named_decimal_uint("ATACANTE tW recebido", got, 18);
-        emit log_named_decimal_uint("fee em tU (valioso)", feeU, 18);
-        emit log_named_decimal_uint("fee em tW (valioso)", feeW, 18);
-        emit log_named_decimal_uint("fee em tX (po)", feeX, 18);
-
-        assertGt(feeU, 0, "a tesouraria TEM de receber tU: a ancora e por VALOR, nao por indice");
-        assertApproxEqRel(feeU, (AMT * 28) / 10_000, 0.02e18,
-            "e tem de ser a fee INTEIRA, nao um residuo");
-        
-        assertEq(feeX, 0, "nem um wei de po para a tesouraria");
-        uint256 recuperavel = tU.balanceOf(address(pairUX)) - poolUBefore;
-        emit log_named_decimal_uint("tU preso na pool DO ATACANTE (recuperavel: e o unico LP)", recuperavel, 18);
-        emit log_named_decimal_uint("tU do atacante devolvido (residuo)", tU.balanceOf(atacante), 18);
+        router.swapExactIn(r, AMT, 1, atacante, block.timestamp + 1);
+        assertEq(tU.balanceOf(address(pairUX)), poolUBefore, "nothing moved into the attacker's pool");
     }
 }

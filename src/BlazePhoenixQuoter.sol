@@ -394,19 +394,24 @@ contract BlazePhoenixQuoter {
         // hook runs in the swap while the Hub has it paused - revoked, or its code
         // moved since the pin - with RouterE(9). A preview that said `canExecute` for
         // such a route endorsed a swap the Router refuses (ninth wave, V4 campaign).
-        pv.canExecute = pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut && !_hookPausedIn(route);
+        // The Router's OTHER hook refusal is asked here too: a hook that alters deltas is
+        // refused by `_execV4Amt` unconditionally (RouterE(9)), and until 2026-10-07 the
+        // preview priced such a leg from the plan's own claim and called the route
+        // executable (Yudha Eka Saputra, bug bounty). Twin guards, one rigour.
+        pv.canExecute = pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut && !_hookRefusedIn(route);
         (pv.topology, pv.bridgeUsed) = _classify(route, feeHop);
     }
 
-    /// @dev True when any single-tick leg names a hook that runs in the swap and the
-    ///      Hub reports paused: exactly the condition the Router refuses on.
-    function _hookPausedIn(Route memory route) private view returns (bool) {
+    /// @dev True when any single-tick leg names a hook the Router refuses: one that
+    ///      alters deltas, or one that runs in the swap while the Hub reports it
+    ///      paused - exactly the two conditions `Router._execV4Amt` reverts on.
+    function _hookRefusedIn(Route memory route) private view returns (bool) {
         for (uint256 h; h < route.hops.length; ) {
             Leg[] memory legs = route.hops[h].legs;
             for (uint256 l; l < legs.length; ) {
                 address k = legs[l].hooks;
                 if (k != address(0) && BPC.kindHasAny(legs[l].kind, BPC.A_CONC_SING)
-                    && BPC.hookRunsInSwap(k) && hub.hookPaused(k)) return true;
+                    && (BPC.hookAltersDeltas(k) || (BPC.hookRunsInSwap(k) && hub.hookPaused(k)))) return true;
                 unchecked { ++l; }
             }
             unchecked { ++h; }

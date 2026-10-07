@@ -95,6 +95,22 @@ contract SolverHookAdmissibilityTest is Test {
     /// escolhida — e nao por estar a ser filtrada. Foi o teste de CONTROLO que apanhou isto:
     /// uma pool V4 acabada de registar tem psi 1 contra os 512 de uma V2 ja rodada, portanto os
     /// dois testes de filtro passavam VACUOS. Liquidez enorme E vitalidade acumulada.
+    /// @dev A hooked V4 pool SHALLOWER than the V2 pair (0.9M against 1M a side), so the
+    ///      deepest survivor - the one the split seats last, for the remainder - is hookless.
+    function _armShallowV4(address hook) private {
+        hub.allowHook(hook, true);
+        (address c0, address c1) = address(tA) < address(tB)
+            ? (address(tA), address(tB)) : (address(tB), address(tA));
+        bytes32 pid = BPC.computeV4PoolId(c0, c1, 3000, 60, hook);
+        v4mgr.arm(pid, SQRT_1_1, uint128(900_000e18), 3000);
+        hub.addV4(address(tA), address(tB), 3000, 60, hook);
+        address pAddr = address(uint160(uint256(pid)));
+        for (uint256 i; i < 40; i++) {
+            hub.recordSwap(pAddr, BPC.KIND_V4, 3000, hook,
+                address(tA), address(tB), 1e18, 1e18, 900_000e18);
+        }
+    }
+
     function _armV4(address hook) private returns (bytes32 pid) {
         hub.allowHook(hook, true);
         (address c0, address c1) = address(tA) < address(tB)
@@ -167,6 +183,24 @@ contract SolverHookAdmissibilityTest is Test {
             else assertFalse(viuHooked, "uma perna hookless apareceu DEPOIS de uma hooked");
         }
         assertTrue(viuHooked, "pre-condicao: TEM de haver uma perna hooked no plano");
+    }
+
+    /// The canonical order where it is the ONLY thing that can put the hookless leg first.
+    /// Since 2026-10-07 the split seats its deepest survivor last (it takes the remainder); with
+    /// the hooked pool the deepest, the hookless leg came first by that seat alone and the test
+    /// above stopped seeing the partition. Here the hookless V2 is the deepest, so before the
+    /// partition the hooked leg stands ahead of it.
+    function test_HooklessLegsComeFirst_WhenTheHookedPoolIsNotTheDeepest() public {
+        _armShallowV4(HOOK_INOCENTE);
+        RoutePlan memory p = solver.findBestRoutePlan(address(tA), address(tB), 400_000e18);
+        Leg[] memory legs = _legs(p);
+        assertGe(legs.length, 2, "premise: the route must split, or there is no order to test");
+        bool sawHooked;
+        for (uint256 i; i < legs.length; i++) {
+            if (legs[i].hooks != address(0)) sawHooked = true;
+            else assertFalse(sawHooked, "a hookless leg came after a hooked one");
+        }
+        assertTrue(sawHooked, "premise: the plan must carry a hooked leg");
     }
 
     /// A ORDENACAO SO PODE MEXER NA ORDEM. O que muda e a sequencia das pernas; o multiset

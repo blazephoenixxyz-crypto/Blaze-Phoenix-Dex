@@ -132,4 +132,26 @@ contract RouterPermit2OneStepTest is Test {
         router.swapExactInWithPermit2(route, amountIn, 1, user, block.timestamp + 1, _permitFor(amountIn), "");
         assertEq(tokenIn.balanceOf(user), 3_000e18, "no tokens moved");
     }
+
+    /// @notice A permit for a token other than the route's input is refused before the
+    ///         pull: the signature is bound to the route by construction (RouterE(3)), not
+    ///         by the balance measurement that follows it.
+    function test_OneStep_PermitForAnotherToken_RevertsBeforePull() public {
+        uint256 amountIn = 1_000e18;
+        Route memory route = _buildRoute(amountIn, 1);
+        tokenOut.mint(user, 3_000e18);
+        vm.prank(user);
+        tokenOut.approve(address(permit2), type(uint256).max);
+        IPermit2.PermitTransferFrom memory permit = IPermit2.PermitTransferFrom({
+            permitted: IPermit2.TokenPermissions({ token: address(tokenOut), amount: amountIn }),
+            nonce: 0,
+            deadline: block.timestamp + 60
+        });
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
+        router.swapExactInWithPermit2(route, amountIn, 1, user, block.timestamp + 1, permit, "");
+        assertEq(tokenOut.balanceOf(user), 3_000e18, "the permitted token did not move");
+        assertEq(tokenIn.balanceOf(user), 3_000e18, "nor did the route's input");
+    }
 }

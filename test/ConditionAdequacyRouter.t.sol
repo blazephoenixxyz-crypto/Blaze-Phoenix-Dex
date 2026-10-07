@@ -620,11 +620,14 @@ contract ConditionAdequacyRouterTest is Test {
         vm.prank(user);
         a.approve(address(router), type(uint256).max);
 
+        // Since 2026-10-07 a route visits its input token once: the circular shape this
+        // arm guarded is refused before anything moves (RouterE(3)), which is the stronger
+        // form of the same property - the mis-sent tokenIn is untouched.
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         vm.prank(user);
         router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
-
         assertEq(a.balanceOf(address(router)), PRESEED,
-            "mis-sent tokenIn must survive the bridge sweep of a circular route");
+            "mis-sent tokenIn must survive a circular route");
     }
 
     /// @dev Circular route A -> B -> A -> C over deep V2 pools; hop 1's output

@@ -19,9 +19,10 @@ import {Test} from "forge-std/Test.sol";
 ///         vm.readFile — fs_permissions already grants read on "./".)
 ///
 ///         WHAT IT HOLDS FIXED:
-///           1. `BPC.hookAltersDeltas(` has exactly FOUR call sites — Solver×2
-///              (the registry/discovery candidate merge), Quoter×1 (_simV4),
-///              Router×1 (_execV4Amt) — and ONE definition (Core). A fifth
+///           1. `BPC.hookAltersDeltas(` has exactly FIVE call sites — Solver×2
+///              (the registry/discovery candidate merge), Quoter×2 (_simV4, and
+///              _hookRefusedIn, the preview's canExecute, since 2026-10-07),
+///              Router×1 (_execV4Amt) — and ONE definition (Core). A sixth
 ///              copy is this codebase's own defect signature ("a fix applied
 ///              to one of two symmetric channels") and must reopen the
 ///              derivation, not slip in silently. A deleted copy likewise.
@@ -52,13 +53,13 @@ contract HookSieveCensusPinTest is Test {
     string internal constant HUB    = "src/BlazePhoenixHub.sol";
     string internal constant CORE   = "src/BlazePhoenixCore.sol";
 
-    // ─── 1. the census: four sieve sites, one definition ────────────────────
+    // ─── 1. the census: five sieve sites, one definition ────────────────────
 
     function test_A4_sieve_census_four_sites_one_definition() public view {
         assertEq(_count(_src(SOLVER), "BPC.hookAltersDeltas("), 2,
             "A4 pin: Solver sieve sites changed (expected 2, both in the candidate merge)");
-        assertEq(_count(_src(QUOTER), "BPC.hookAltersDeltas("), 1,
-            "A4 pin: Quoter sieve sites changed (expected 1, in _simV4)");
+        assertEq(_count(_src(QUOTER), "BPC.hookAltersDeltas("), 2,
+            "A4 pin: Quoter sieve sites changed (expected 2: _simV4, and _hookRefusedIn for canExecute)");
         assertEq(_count(_src(ROUTER), "BPC.hookAltersDeltas("), 1,
             "A4 pin: Router sieve sites changed (expected 1, in _execV4Amt)");
         assertEq(_count(_src(HUB), "BPC.hookAltersDeltas("), 0,
@@ -116,8 +117,13 @@ contract HookSieveCensusPinTest is Test {
         assertEq(_count(s, ").unlock("), 1,
             "A4 pin: a second unlock call appeared in the Quoter - a dry-run path outside _simV4");
         (uint256 a, uint256 b) = _fnSlice(s, "function _simV4");
-        uint256 sieve = _indexOf(s, bytes("BPC.hookAltersDeltas("), 0);
+        uint256 sieve = _indexOf(s, bytes("BPC.hookAltersDeltas("), a);
         uint256 unl   = _indexOf(s, bytes("IV4Q(mgr).unlock("), 0);
+        // The other Quoter site is the preview's own refusal, and it opens nothing.
+        (uint256 pa, uint256 pb) = _fnSlice(s, "function _hookRefusedIn");
+        uint256 pre = _indexOf(s, bytes("BPC.hookAltersDeltas("), 0);
+        assertTrue(pre != NF && pa < pre && pre < pb,
+            "A4 pin: the Quoter's second sieve site is not the preview's canExecute refusal");
         assertTrue(sieve != NF && a < sieve && sieve < b,
             "A4 pin: the Quoter sieve left _simV4");
         assertTrue(unl != NF && a < unl && unl < b,

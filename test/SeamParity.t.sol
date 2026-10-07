@@ -149,6 +149,25 @@ contract SeamParityTest is Test {
 
     /// One hop of `n` equal legs, each into its own fresh deep pool.
     /// Direction: aToB selects tokenIn/tokenOut and the legs' zeroForOne.
+    /// @dev `_fanHop` on any pair: n fresh deep V2 pools from `x` to `y`.
+    function _fanHopOn(MockERC20 x, MockERC20 y, uint256 n, uint256 hopIn)
+        internal returns (Hop memory hop, uint256 outSum)
+    {
+        Leg[] memory legs = new Leg[](n);
+        uint256 legIn = hopIn / n;
+        for (uint256 i; i < n; ++i) {
+            MockV2Pair p = new MockV2Pair(address(x), address(y));
+            x.mint(address(p), uint256(RESERVE_DEEP));
+            y.mint(address(p), uint256(RESERVE_DEEP));
+            p.setReserves(uint112(RESERVE_DEEP), uint112(RESERVE_DEEP));
+            uint256 legOut = BPC.outV2(legIn, RESERVE_DEEP, RESERVE_DEEP, 30);
+            legs[i] = _leg(address(p), BPC.KIND_V2, address(x) < address(y), legIn, legOut);
+            outSum += legOut;
+        }
+        hop = Hop({tokenIn: address(x), tokenOut: address(y), amountIn: legIn * n,
+                   expectedOut: outSum, legs: legs});
+    }
+
     function _fanHop(uint256 n, bool aToB, uint256 hopIn)
         internal returns (Hop memory hop, uint256 outSum)
     {
@@ -331,11 +350,14 @@ contract SeamParityTest is Test {
     // =========================================================================
 
     function test_Seam3_RouterHasNoGlobalLegCap_TwelveLegRouteExecutes() public {
-        // Three chained hops (A→B→A→B) of 4 legs each: 12 legs total, every
-        // hop individually inside the per-hop cap.
+        // Three chained hops (A→B→C→D) of 4 legs each: 12 legs total, every
+        // hop individually inside the per-hop cap. Through distinct tokens: since
+        // 2026-10-07 a route visits its input token once (RouterE(3)).
+        MockERC20 tokC = new MockERC20("C", "C");
+        MockERC20 tokD = new MockERC20("D", "D");
         (Hop memory h0, uint256 o0) = _fanHop(4, true, 4_000e18);
-        (Hop memory h1, uint256 o1) = _fanHop(4, false, o0);
-        (Hop memory h2, uint256 o2) = _fanHop(4, true, o1);
+        (Hop memory h1, uint256 o1) = _fanHopOn(tokB, tokC, 4, o0);
+        (Hop memory h2, uint256 o2) = _fanHopOn(tokC, tokD, 4, o1);
         Hop[] memory hops = new Hop[](3);
         hops[0] = h0; hops[1] = h1; hops[2] = h2;
 

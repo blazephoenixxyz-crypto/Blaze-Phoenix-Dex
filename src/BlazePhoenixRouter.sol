@@ -413,6 +413,11 @@ contract BlazePhoenixRouter {
         // still reverts RouterE(3) — now BEFORE tokens move, not after.)
         if (route.hops.length == 0) revert RouterE(3);
         address tokenIn = route.hops[0].tokenIn;
+        // The signed token IS the route's input, by construction. The pull below is measured on
+        // `tokenIn`, so a permit for any other token already credits nothing and reverts
+        // (RouterE(8)); this binds the signature to the route before anything moves, instead of
+        // through a balance side effect (hardening prompted by Karan Rathod, bug bounty).
+        if (permit.permitted.token != tokenIn) revert RouterE(3);
         uint256 balBefore = BPC.balanceOf(tokenIn, address(this));
         IPermit2(permit2).permitTransferFrom(
             permit,
@@ -1109,12 +1114,16 @@ contract BlazePhoenixRouter {
             // route.hops[h-1].tokenOut, which is that same token ONLY under
             // continuity. tokenIn/tokenOut-typed bridges carry bridgeBase==0, so use
             // their own entry baselines (baseIn / toutStart) instead.
+            // A ROUTE VISITS ITS INPUT ONCE. Hop 0's fee base is capped by what hop 0 commits
+            // (`_legSum`), and the part it does not commit waits in the Router for the sweep
+            // after the loop; that cap is the measured pull only while no later hop takes the
+            // route's input token again (INV-15; Seavia Resources, bug bounty). No honest route
+            // visits its input twice - the Solver's bridges are distinct from `tIn` - so the
+            // shape is refused rather than re-priced.
             uint256 foreignBase;
             if (h != 0) {
-                if (hop.tokenIn != route.hops[h - 1].tokenOut) revert RouterE(3);
-                foreignBase = hop.tokenIn == tokenIn
-                    ? baseIn
-                    : (hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1]);
+                if (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == tokenIn) revert RouterE(3);
+                foreignBase = hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1];
             }
             // One allocation per hop (MAX_LEGS_PER_HOP entries, memory, no storage). It carries
             // each leg's MEASURED quote through to the coverage gate in `_execScaled` — before,
@@ -1292,7 +1301,15 @@ contract BlazePhoenixRouter {
                 // measurement guard in `_execScaled` - no attestation AND no in-frame
                 // quote - so it names the only leg that leaves no trace. A leg
                 // scaled to zero moved nothing and is not blindness.
+                //
+                // OFF THE LAST HOP, A BLIND LEG IS REFUSED. The hop-level takeover below bounds
+                // a blind leg through the protocol floor, and the floor's base is the last hop's:
+                // an earlier hop's base is overwritten even when that hop also makes the route's
+                // output token, so on any earlier hop nothing would bound it, with or without a
+                // hop-level figure (Seavia Resources, bug bounty). The Solver never emits an
+                // unattested leg, and an attested leg is never blind.
                 if (scaledAmt != 0 && leg.expectedOut == 0 && legQuotes[l] == 0) {
+                    if (h + 1 != route.hops.length) revert RouterE(5);
                     hopBlind = true;
                 }
                 unchecked { ++l; }

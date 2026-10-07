@@ -85,6 +85,32 @@ contract RouteHopCeilingTest is Test {
     /// A route that bounces A -> B -> A -> ... through the SAME pool. Continuity
     /// holds at every seam (hops[h].tokenIn == hops[h-1].tokenOut), which is the
     /// only structural rule Router:1058 imposes between hops.
+    function _deepPair(MockERC20 x, MockERC20 y) internal returns (MockV2Pair p) {
+        p = new MockV2Pair(address(x), address(y));
+        x.mint(address(p), uint256(RESERVE));
+        y.mint(address(p), uint256(RESERVE));
+        p.setReserves(RESERVE, RESERVE);
+    }
+
+    /// @dev Three hops through distinct tokens: A -> B (the fixture's pool) -> C -> D.
+    function _chainRoute3() internal returns (Route memory r) {
+        MockERC20 tokenC = new MockERC20("C", "C");
+        MockERC20 tokenD = new MockERC20("D", "D");
+        MockV2Pair[3] memory ps = [pool, _deepPair(tokenB, tokenC), _deepPair(tokenC, tokenD)];
+        address[4] memory tk = [address(tokenA), address(tokenB), address(tokenC), address(tokenD)];
+        Hop[] memory hops = new Hop[](3);
+        for (uint256 h; h < 3; ++h) {
+            Leg[] memory legs = new Leg[](1);
+            legs[0] = Leg({pool: address(ps[h]), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+                tickSpacing: 0, zeroForOne: ps[h].token0() == tk[h], stable: false,
+                amountIn: AMT, expectedOut: 0, auxId: bytes32(0)});
+            hops[h] = Hop({tokenIn: tk[h], tokenOut: tk[h + 1], amountIn: AMT, expectedOut: 0, legs: legs});
+        }
+        r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+                   expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+                   hasSurplus: false, isV4Bundle: false});
+    }
+
     function _pingPongRoute(uint256 n) internal view returns (Route memory r) {
         Hop[] memory hops = new Hop[](n);
         for (uint256 h; h < n; ++h) {
@@ -120,6 +146,28 @@ contract RouteHopCeilingTest is Test {
         Route memory r = _pingPongRoute(HOPS);   // built before the cheatcodes (the builder calls token0())
         vm.prank(user);
         vm.expectRevert();
+        router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+    }
+
+    /// One hop past the ceiling, through DISTINCT tokens. Since 2026-10-07 a route also visits
+    /// its input token once (RouterE(3)), so a ping-pong route would be refused even without a
+    /// ceiling and could not tell the two guards apart; this chain can only be refused by the
+    /// ceiling.
+    function test_AChainOneHopPastTheCeilingIsRefused() public {
+        MockERC20[5] memory t = [tokenA, tokenB, new MockERC20("C", "C"), new MockERC20("D", "D"), new MockERC20("E", "E")];
+        Hop[] memory hops = new Hop[](4);
+        for (uint256 h; h < 4; ++h) {
+            MockV2Pair p = h == 0 ? pool : _deepPair(t[h], t[h + 1]);
+            Leg[] memory legs = new Leg[](1);
+            legs[0] = Leg({pool: address(p), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+                tickSpacing: 0, zeroForOne: p.token0() == address(t[h]), stable: false,
+                amountIn: AMT, expectedOut: 0, auxId: bytes32(0)});
+            hops[h] = Hop({tokenIn: address(t[h]), tokenOut: address(t[h + 1]), amountIn: AMT, expectedOut: 0, legs: legs});
+        }
+        Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
     }
 
@@ -159,7 +207,9 @@ contract RouteHopCeilingTest is Test {
     /// Whatever ceiling is chosen must leave the Solver's own topologies alone:
     /// three hops is the deepest route _planViaTwoBridges can build.
     function test_ThreeHopRoute_StillRoutes() public {
-        Route memory r = _pingPongRoute(3);
+        // Since 2026-10-07 a route visits its input token once (RouterE(3)), so the three
+        // hops chain through distinct tokens, A -> B -> C -> D, as the Solver's do.
+        Route memory r = _chainRoute3();
         vm.prank(user);
         uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
         assertGt(got, 0, "a 3-hop route is what the Solver builds and must keep working");

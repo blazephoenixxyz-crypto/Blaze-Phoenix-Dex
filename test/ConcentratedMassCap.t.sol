@@ -434,6 +434,47 @@ contract ConcentratedEmptyBookTest is Test {
         solver.findBestRoutePlan(address(tokenA), address(tokenC), ORDER);
     }
 
+    /// @dev Seats an empty book on (tokenA, out) through a dust swap, as the lone-book test does.
+    function _seatLoneBook(MockERC20 out) internal returns (PhantomBook bk) {
+        vm.prank(ATTACKER);
+        bk = new PhantomBook(address(tokenA), address(out), 3000);
+        bk.setState(Q96, DECLARED_L);
+        tokenA.mint(ATTACKER, DUST);
+        out.mint(address(bk), DUST);
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = Leg({
+            pool: address(bk), hooks: address(0), kind: BPC.KIND_V3,
+            fee: 3000, tickSpacing: 0,
+            zeroForOne: bk.token0() == address(tokenA), stable: false,
+            amountIn: DUST, expectedOut: DUST, auxId: bytes32(0)
+        });
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({tokenIn: address(tokenA), tokenOut: address(out), amountIn: DUST, expectedOut: DUST, legs: legs});
+        Route memory r = Route({
+            hops: hops, totalOut: DUST, singleOut: DUST, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
+        });
+        vm.startPrank(ATTACKER);
+        tokenA.approve(address(router), type(uint256).max);
+        router.swapExactIn(r, DUST, 1, ATTACKER, block.timestamp + 1);
+        vm.stopPrank();
+    }
+
+    /// @dev Since 2026-10-07 a concentrated book holding none of the output token has no
+    ///      weight in a split beside a pool that can pay (`Solver._seatTheSplit`), so the
+    ///      split clamp no longer decides that case. It still decides when EVERY survivor is
+    ///      such a book - no weight is zeroed then - and this is the witness for that arm:
+    ///      two empty books alone on a pair must leave it with no route.
+    function test_TwoEmptyBooksAloneOnAPairYieldNoRoute() public {
+        MockERC20 tokenC = new MockERC20("C", "C");
+        PhantomBook b1 = _seatLoneBook(tokenC);
+        PhantomBook b2 = _seatLoneBook(tokenC);
+        assertEq(hub.getPool(hub.keyOf(address(b1), address(tokenA), address(tokenC))), address(b1), "setup: book 1 seated");
+        assertEq(hub.getPool(hub.keyOf(address(b2), address(tokenA), address(tokenC))), address(b2), "setup: book 2 seated");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5)));
+        solver.findBestRoutePlan(address(tokenA), address(tokenC), ORDER);
+    }
+
     /// @dev Differential: the same door, same order, same block, with and without the
     ///      empty book seated. An empty book must never cost the user anything. It is
     ///      not asserted EQUAL, and the reason was measured: the book keeps the minimum
