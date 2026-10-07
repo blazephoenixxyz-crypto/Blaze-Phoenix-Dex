@@ -264,6 +264,25 @@ jobs:
         # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
         run: python3 .github/scripts/mutants.py
 
+  deep-invariant:
+    name: deep invariant pass (report-only)
+    runs-on: ubuntu-latest
+    # Its own job since 2026-10-07. Inside `test` the 128x128 campaign took the gate from
+    # 47-65 minutes to 87-90 of its 90 (the push run of d5cedff was cancelled at 90:28),
+    # so every new test or guarded mutant would have timed the gate out. Run in parallel,
+    # the gate keeps its margin and the campaign is no longer cut short.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Show versions
+        run: forge --version
+
       - name: Deeper invariant/fuzz pass (REPORT-ONLY — never gates)
         # Report-only is deliberate: this deep campaign is a search, not a bound,
         # and its variance would make the gating job flaky. Labelled so nobody
