@@ -293,7 +293,10 @@ jobs:
         # invariants and MISSED the two that matter most - BlazePhoenixRouter.invariant.t.sol
         # (the fee campaign) and FullStackLoop.invariant.t.sol - both spelled with a lower-case
         # i. 20 of 33 were never run deeper than 50x50 anywhere. Dropping the first letter
-        # matches both spellings.
+        # matched both spellings - and still missed every invariant whose FILE name does not
+        # say so (RouterAdversarialMultiHopFromV1, RouterAdversarialV4FromV1,
+        # RouterStatefulConservationFromV1: 3 of 10 files). Since 2026-10-07 the pass selects by
+        # the function, `invariant_`, which is what makes a test an invariant.
         # Foundry 1.8.x has no `--invariant-runs` / `--invariant-depth` (measured on 1.8.3 and
         # 1.8.4): the old command exited 2 on the unknown flag in under a second, and `|| true`
         # turned that into a green tick, so this pass ran nothing from at least 2026-09-23. The
@@ -305,7 +308,7 @@ jobs:
           FOUNDRY_INVARIANT_DEPTH: 128
         run: |
           rc=0
-          forge test --match-path "test/*nvariant*" --fuzz-runs 512 -vv || rc=$?
+          forge test --match-test "invariant_" --no-match-path "test/fork/**" --fuzz-runs 512 -vv || rc=$?
           [ "$rc" -le 1 ] || { echo "::error::deep invariant pass did not run (exit $rc)"; exit "$rc"; }
 
   fork-tests:
