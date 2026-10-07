@@ -1597,14 +1597,31 @@ def baseline():
     red = set(re.findall(r"\[FAIL[^\]]*\]\s+(\w+)", out))
     return green, red, out
 
+def shard():
+    """(k, n): run the mutants whose 1-based index i has (i - 1) % n == k.
+
+    The guard grows with every guarded fix - 231 mutants took ~50 minutes on 2026-09-22 and
+    ~271 crossed the 90-minute ceiling of the job they shared on 2026-10-07 - so CI runs it as n
+    parallel shards. Every shard checks its own mutants' targets and its own paired tests at
+    baseline, so the union of the shards is the whole list, checked exactly once."""
+    k = int(os.environ.get("MUTANTS_SHARD", "0"))
+    n = int(os.environ.get("MUTANTS_SHARDS", "1"))
+    if n < 1 or not 0 <= k < n:
+        sys.exit(f"MUTANTS_SHARD={k} MUTANTS_SHARDS={n}: need 0 <= shard < shards")
+    return k, n
+
+
 def main():
     falhas = []
+    k, n = shard()
+    mine = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % n == k]
+    paired = {m["teste"] for _, m in mine}
     green, red, _ = baseline()
     pristine = artefact_fingerprint()
     inert = []
-    unseen = {m["teste"] for m in M} - green - red
-    if red & {m["teste"] for m in M}:
-        for t in sorted(red & {m["teste"] for m in M}):
+    unseen = paired - green - red
+    if red & paired:
+        for t in sorted(red & paired):
             falhas.append(f"BASELINE RED: '{t}' already fails with no mutation, so every mutant "
                           f"paired with it scores as killed for free and proves nothing.")
             print(f"  BASELINE RED  {t}")
@@ -1613,7 +1630,7 @@ def main():
             falhas.append(f"BASELINE MISSING: '{t}' appeared as neither PASS nor FAIL in the "
                           f"baseline run, so whether it can fail at all is unknown.")
             print(f"  BASELINE ?    {t}")
-    for i, m in enumerate(M, 1):
+    for i, m in mine:
         src = open(m["f"]).read()
         if src.count(m["old"]) != 1:
             falhas.append(f"[{i}] {m['nome']}: o alvo do mutante nao existe (ou ha varios) em {m['f']}. "
@@ -1649,7 +1666,7 @@ def main():
     if falhas:
         print("GUARDAS SEM VIGIA:"); [print("  -", f) for f in falhas]
         sys.exit(1)
-    print(f"{len(M)}/{len(M)} guardas com teste que os apanha, "
+    print(f"{len(mine)}/{len(mine)} guardas com teste que os apanha (shard {k + 1}/{n} of {len(M)}), "
           f"all green at baseline ({len(green)} passing tests).")
 
 if __name__ == "__main__":
