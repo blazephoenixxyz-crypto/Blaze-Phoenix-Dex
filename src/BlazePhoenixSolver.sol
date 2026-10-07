@@ -785,7 +785,11 @@ contract BlazePhoenixSolver {
         // the top-`budget` survivors by WEIGHT (not discovery order), so a deep
         // late-listed pool displaces thin early-listed ones. Extracted to keep
         // this function's stack shallow.
+        // The cut PERMUTES: the survivors it drops stay at [budget, nBand), and the gate below
+        // still measures them (see the gate).
+        uint256 nBand = n;
         if (n > budget) (n, sumPsi) = _cutByWeight(cands, psis, balsOut, rates, budget, n);
+        sumPsi = _seatTheSplit(cands, psis, balsOut, rates, n, sumPsi);
         Leg[] memory tmpLegs = new Leg[](n);
         uint256 legCount;
         uint256 totalOut;
@@ -938,10 +942,14 @@ contract BlazePhoenixSolver {
             // size", and with three or more survivors that leg can be neither: a pool of middle
             // depth and middle price. Measured: a split that beat both representatives kept an
             // order 1.48% below the middle pool alone (test/SplitGateSeesEverySurvivor.t.sol).
-            // The set is the survivors of the band and the funnel - at most MAX_CANDIDATES -
-            // so the argmax is taken over the set it names.
+            // EVERY SURVIVOR OF THE BAND, NOT ONLY OF THE CUT (AnonSecure, bug bounty; found
+            // independently by our own economic review). The cut keeps the top `budget` by WEIGHT,
+            // which is depth; for a small order the best single leg is the best PRICED pool, which
+            // need not be deep, so MR-R1 ("split never worse than the best single pool") holds only
+            // if the gate measures every pool the band let through. The dropped survivors sit at
+            // [budget, nBand) - the cut permutes, it does not compact - so they are still here.
             Hop memory single = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
-            for (uint256 i = 1; i < n; ) {
+            for (uint256 i = 1; i < nBand; ) {
                 Hop memory alt = _singleLeg(tIn, tOut, amountIn, cands[i], allowCut);
                 if (alt.legs.length != 0 && alt.expectedOut > single.expectedOut) single = alt;
                 unchecked { ++i; }
@@ -959,6 +967,78 @@ contract BlazePhoenixSolver {
             tokenIn: tIn, tokenOut: tOut,
             amountIn: committedIn, expectedOut: totalOut, legs: legs
         });
+    }
+
+    /// @dev THE FUNNEL RANKS ON WHAT A POOL HOLDS NOW (Seavia Resources, bug bounty). A row's
+    ///      depth bucket is measured at a registry door inside a transaction its caller
+    ///      controls and persisted, so the cache records an instant. When the funnel has to cut,
+    ///      each row's bucket is capped by what the registry's one depth producer
+    ///      (`Core.registryDepth18`) reads now: psi is vitality times 2^bucket, so lowering the
+    ///      bucket from `b` to `lb` divides the rank by 2^(b - lb). A seat in the funnel costs
+    ///      mass kept in the pool, which is mass a trade can take. Read here rather than in the
+    ///      Hub: the ranking is the Solver's, and `PoolInfo` already names every V4 key field.
+    function _capByLiveDepth(PoolInfo[] memory rows, uint256[] memory ps, uint256 n) private view {
+        address mgr;
+        for (uint256 i; i < n; ) {
+            PoolInfo memory p = rows[i];
+            uint8 b = BPC.decodeBucket(hub.getSlot(hub.keyOf(p.pool, p.token0, p.token1)));
+            if (b != 0) {
+                bytes32 pid;
+                if (BPC.kindHas(p.kind, BPC.A_CONC_SING)) {
+                    if (mgr == address(0)) mgr = hub.v4PoolManager();
+                    pid = BPC.computeV4PoolId(p.kind == BPC.KIND_V4_NATIVE ? address(0) : p.token0,
+                        p.token1, p.fee, p.tickSpacing, p.hooks);
+                }
+                uint8 lb = BPC.depthBucket(BPC.registryDepth18(p.pool, p.kind, p.token0, p.token1, mgr, pid));
+                if (lb < b) ps[i] >>= (b - lb);
+            }
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev WHO TAKES WHAT THE SHARES LEAVE OVER, decided before anything is allocated.
+    ///      (1) A concentrated pool that holds none of the output token can pay nothing: the
+    ///      capacity clamp would cut its share to zero after the fact, and the input it held
+    ///      back had nowhere fair to go. Its weight is zeroed here instead, so the pools that
+    ///      can pay split the order exactly as they would without it. A singleton-held pool is
+    ///      untouched (its per-pool balance is zero by construction), and if every survivor is
+    ///      such a book nothing is zeroed.
+    ///      (2) THE REMAINDER IS SEATED BY DEPTH, NOT BY SCORE (INV-7; Seavia Resources, bug
+    ///      bounty). The last leg takes the rounding and every wei a clamp frees, so whoever
+    ///      sits last is paid more than its weight. The order reaching here is the funnel's,
+    ///      which ranks on psi, so the seat is chosen here instead: the deepest survivor by
+    ///      measured weight, ties to the lowest address. Swapped in lockstep with the same
+    ///      three arrays the funnel cut moves.
+    function _seatTheSplit(
+        PoolInfo[] memory cands, uint256[] memory w, uint256[] memory bals,
+        uint256[] memory rates, uint256 n, uint256 sum
+    ) private pure returns (uint256) {
+        uint256 cannotPay;
+        for (uint256 i; i < n; ) {
+            if (bals[i] == 0 && BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) cannotPay += w[i];
+            unchecked { ++i; }
+        }
+        if (cannotPay != 0 && cannotPay < sum) {
+            for (uint256 i; i < n; ) {
+                if (bals[i] == 0 && BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) w[i] = 0;
+                unchecked { ++i; }
+            }
+            sum -= cannotPay;
+        }
+        if (n < 2) return sum;
+        uint256 last = n - 1;
+        uint256 bi = last;
+        for (uint256 i; i < last; ) {
+            if (w[i] > w[bi] || (w[i] == w[bi] && cands[i].pool < cands[bi].pool)) bi = i;
+            unchecked { ++i; }
+        }
+        if (bi != last) {
+            (cands[bi], cands[last]) = (cands[last], cands[bi]);
+            (w[bi], w[last])         = (w[last], w[bi]);
+            (bals[bi], bals[last])   = (bals[last], bals[bi]);
+            (rates[bi], rates[last]) = (rates[last], rates[bi]);
+        }
+        return sum;
     }
 
     /// @dev Selection-sort the top-`budget` survivors by weight to the front of
@@ -1347,6 +1427,9 @@ contract BlazePhoenixSolver {
                 unchecked { ++i; }
             }
             ps = hub.psisOf(pls, t0s, t1s);
+            // More rows than the funnel keeps: the ranking decides who is cut, so every
+            // cached depth is capped by what the pool holds now.
+            if (n > keep) _capByLiveDepth(active, ps, n);
         }
         for (uint256 i; i < n; ) { if (ps[i] == 0) ps[i] = 1; unchecked { ++i; } }
         uint256 k = n < keep ? n : keep;
@@ -1469,10 +1552,8 @@ contract BlazePhoenixSolver {
         // The FLOOR keeps the MEAN, deliberately. ironFloorBps SUBTRACTS impact,
         // so a bigger number means a LOWER floor: feeding it the max would let a
         // single dust leg collapse the floor to its hard clamp, which is the
-        // padding attack made trivial rather than closed. (The mean is not right
-        // either — it is unweighted by leg size, which is its own finding — but
-        // it is strictly less permissive than the max, so it stays until the
-        // size-weighted replacement is decided.)
+        // padding attack made trivial rather than closed. The mean is weighted by
+        // each leg's share of the hop since 437d537 (see below).
         uint256 totalImpactBps;
         uint256 maxLegImpactBps;
         uint256 hopIn;

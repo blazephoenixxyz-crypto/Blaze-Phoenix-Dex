@@ -926,8 +926,12 @@ contract BlazePhoenixHub {
         (address r0, address r1) = nat ? BPC.sortTokens(w, c1) : (s0, s1);
         key = keyOf(poolAddr, r0, r1);
         $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
-        _register(key, poolAddr, nat ? BPC.KIND_V4_NATIVE : BPC.KIND_V4,
-                  fee, hooks, r0, r1, true);
+        // Measured in the pool's own currency order: a native pool's currency0 is the
+        // chain's coin, which WETH stands for (`r0`/`r1` are the WETH-sorted registry key,
+        // and would swap the decimals when the other token sorts below WETH).
+        uint8 kind4 = nat ? BPC.KIND_V4_NATIVE : BPC.KIND_V4;
+        _register(key, poolAddr, kind4, fee, hooks, r0, r1, true,
+                  BPC.registryDepth18(poolAddr, kind4, nat ? w : s0, s1, $.v4PoolManager, pid));
         // If sorting did not leave WETH in token0, mark the inversion so that
         // `_readPoolInfo` undoes it when reporting.
         if (nat && r0 != w) $.slot[key] = _markNativeSwapped($.slot[key], true);
@@ -1015,7 +1019,7 @@ contract BlazePhoenixHub {
             tickSpacing: tickSpacing, hooks: address(0)
         }));
         $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
-        _register(key, poolAddr, BPC.KIND_V4, fee, address(0), s0, s1, false);
+        _register(key, poolAddr, BPC.KIND_V4, fee, address(0), s0, s1, false, depthTok);
         // A4: persist the MEASURED depth bucket (mirrors recordSwap's new-pool
         // path) so a claimed pool is fitness-ranked on its real liquidity instead
         // of defaulting to bucket 0 (psi ~1) — otherwise the pool that just won
@@ -1849,7 +1853,7 @@ contract BlazePhoenixHub {
             (proven, kind, feeReg) = BPC.provenShape(pool, kind);
             if (!proven) return;
         }
-        _register(key, pool, kind, feeReg, address(0), t0, t1, false);
+        _register(key, pool, kind, feeReg, address(0), t0, t1, false, depthWad);
         // initial tick + stamp wall-clock activity time
         $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthWad, uint32(block.timestamp)));
         emit Volume(key, amtIn, amtOut);
@@ -1948,9 +1952,18 @@ contract BlazePhoenixHub {
         return _isRoutableBridge($, t0) || _isRoutableBridge($, t1);
     }
 
+    /// @dev EVERY ROW IS BORN AT A MEASURED DEPTH. `depth18` is not optional: a door
+    ///      that registers a row has to say what the pool holds, in the units of the one
+    ///      producer every door shares (`Core.registryDepth18`, or the depth the Router
+    ///      measured on the swap door). Until 2026-10-07 the bucket was written by each
+    ///      door after this call, and one door - the operator's V4 door - never wrote it:
+    ///      every `addV4` row was born at bucket 0, the funnel cut a deep pool below warm
+    ///      dust, and the only family `seedPool` refuses (native V4) had no door that
+    ///      measured it at all (Seavia Resources, bug bounty). Written here, a door that
+    ///      forgets the depth no longer compiles.
     function _register(
         bytes32 key, address pool, uint8 kind, uint24 fee, address hooks,
-        address t0, address t1, bool trusted
+        address t0, address t1, bool trusted, uint256 depth18
     ) private {
         HubStore storage $ = _store();
         bytes32[] storage ks = $.pairKeys[t0][t1];
@@ -1994,6 +2007,7 @@ contract BlazePhoenixHub {
             uint32(block.timestamp), 0, 0, 0,
             uint32(block.number), uint32(block.number)
         );
+        s = BPC.setBucket(s, BPC.depthBucket(depth18));
         // The bridge term of psi is no longer frozen here (BRIDGE-01, see
         // `_pairBridged`). What IS measured at this door and persisted is the
         // pool's own curve (SLOT-01): a Solidly-shaped pair answers `stable()`,
@@ -2053,14 +2067,12 @@ contract BlazePhoenixHub {
             kind = k;
             if (BPC.kindHas(k, BPC.A_CONC_POOL)) fee = f;
         }
-        _register(key, pool, kind, fee, hooks, t0, t1, true);
-        // BORN AT THE DEPTH MEASURED AT THIS DOOR (ninth wave, mohaseenbasha dex-17). The swap
-        // door seals a row at the depth the Router measured and the V4 claim door at the depth
-        // it reads; this door sealed depth bucket 0. A deep pool seeded cold then ranked below
-        // dust swapped twice, fell out of the funnel's top-K, and was never swapped to be
-        // corrected. The depth comes from the same producer the Router calls. Only the bucket
-        // is written: no swap happened here, so the swap count stays what it was.
-        $.slot[key] = BPC.setBucket($.slot[key],
-            BPC.depthBucket(BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid)));
+        // BORN AT THE DEPTH MEASURED AT THIS DOOR (ninth wave, mohaseenbasha dex-17). A deep
+        // pool seeded cold at bucket 0 ranked below dust swapped twice, fell out of the
+        // funnel's top-K, and was never swapped to be corrected. The depth comes from the same
+        // producer the Router calls, and `_register` writes it, so no door can skip it. Only the
+        // bucket is written: no swap happened here, so the swap count stays what it was.
+        _register(key, pool, kind, fee, hooks, t0, t1, true,
+                  BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid));
     }
 }
