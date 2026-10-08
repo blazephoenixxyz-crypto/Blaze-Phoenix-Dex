@@ -133,7 +133,7 @@ contract LegFloorBoundaryTest is Test {
         router.swapExactIn(r, a + b, 1, user, block.timestamp + 1);
     }
 
-    // ── auxiliares ──────────────────────────────────────────────────────────
+    // ── helpers ─────────────────────────────────────────────────────────────
 
     function _leg(MockV2Pair p, uint256 amt, uint256 bound) private view returns (Leg memory) {
         bool zfo = p.token0() == address(ta);
