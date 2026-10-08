@@ -136,7 +136,7 @@ contract Pin01LegCeilingTest is Test {
         assertGt(total, 0, "premise: the plan has at least one leg");
     }
 
-    // ── auxiliares ──────────────────────────────────────────────────────────
+    // ── helpers ─────────────────────────────────────────────────────────────
 
     function _leg(MockV2Pair p, address tIn, uint256 amt) private view returns (Leg memory) {
         (uint112 r0, uint112 r1, ) = p.getReserves();
