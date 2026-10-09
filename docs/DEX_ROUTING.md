@@ -139,9 +139,12 @@ dispatches each leg to the venue-appropriate primitive by kind:
   rejected up front.
 
 A bridge route's second stage is rescaled against the **actual** balance the first
-stage produced, not the quoted balance. After execution the floor is enforced on
-the realised output, the fee is charged (surplus above the attested quote is
-fee-exempt), and the Router ends with zero residual balance.
+stage produced, not the quoted balance. The fee is charged once, on the measured
+input of the first hop whose input is a registered bridge coin (or, on a direct
+swap into a bridge coin, on the realised output after the floor). The floor is
+enforced on the realised output, and the Router ends with zero residual balance
+in every token that moves the amount it is asked to move (the share-token bound
+is stated in `SHARED_QUANTITIES.md`, row "Router balance after settlement").
 
 ## 7. Validation summary
 
