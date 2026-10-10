@@ -29,7 +29,9 @@
     { "name": "operator",   "on": "\\.setOperator\\(",
       "why": "a seat that outlives renunciation, so what it can still do is bounded by nothing else" },
     { "name": "reserves-above-holdings", "on": "new FakePair\\(|new WideReservesPair\\(",
-      "why": "a pair whose declared reserves exceed what it holds: decides whether a reserve-shaped promise is bounded by the venue's holdings" }
+      "why": "a pair whose declared reserves exceed what it holds: decides whether a reserve-shaped promise is bounded by the venue's holdings" },
+    { "name": "foreign-revert", "on": "new BlobRevertConcPool\\(|new BlobRevertV4Manager\\(|new RefusingV3Pool\\(",
+      "why": "a venue that reverts with data of its own: decides whether a quote is read only from the Quoter's own tagged payload" }
   ],
   "shapes": [
     { "name": "multi-hop",

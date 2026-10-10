@@ -1818,6 +1818,16 @@ M = [
       old="            yes := and(and(ok, iszero(lt(returndatasize(), 32))), lt(mload(0x00), 2))",
       new="            yes := and(ok, iszero(lt(returndatasize(), 32)))",
       teste="test_NonCanonicalStableWord_IsNotSolidlyShaped"),
+ dict(nome='Quoter: a tagged payload of the wrong length is not read as deltas',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (reason.length != 68) return (0, 0);',
+      new='        // MUTANT',
+      teste='test_Conc_TaggedPayloadOfTheWrongLength_IsNoQuote'),
+ dict(nome='Quoter: revert data without the QuoteDeltas tag is not a quote',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (bytes4(reason) != QuoteDeltas.selector) return (0, 0);',
+      new='        // MUTANT',
+      teste='test_Conc_ForeignTwoWordError_IsNoQuote'),
 ]
 
 def run(t):
