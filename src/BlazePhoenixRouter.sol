@@ -1389,7 +1389,12 @@ contract BlazePhoenixRouter {
             if (hopBlind && route.hops[h].expectedOut > hopBase) {
                 hopBase = route.hops[h].expectedOut;
             }
-            if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)
+            // A last hop with no measured leg still anchors the floor: `hopBase` is then the
+            // hop's own declared figure, the only one in scope for it. Leaving `finalHopQuote`
+            // at zero there armed no protocol floor at all on a route the caller had priced.
+            // On such a hop the anchor only rises: a declared figure never replaces a larger
+            // anchor an earlier hop already set in the output token, so it cannot lower a floor.
+            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))
                 finalHopQuote = hopBase;
             unchecked { ++h; }
         }

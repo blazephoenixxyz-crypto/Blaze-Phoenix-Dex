@@ -1252,7 +1252,7 @@ M = [
  # mulDivUp(0, ...) removes the protocol floor entirely.
  dict(nome="FLOOR-01: the floor anchors on the last DECLARED hop instead of the last that moved",
       f="src/BlazePhoenixRouter.sol",
-      old="            if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)",
+      old="            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))",
       new="            if (h + 1 == route.hops.length)",
       teste="test_TrailingHopThatMovesNothingCannotZeroTheProtocolFloor"),
 
@@ -1828,6 +1828,16 @@ M = [
       old='        if (bytes4(reason) != QuoteDeltas.selector) return (0, 0);',
       new='        // MUTANT',
       teste='test_Conc_ForeignTwoWordError_IsNoQuote'),
+ dict(nome='floor anchor: a fully blind last hop anchors finalHopQuote on its declared figure',
+      f='src/BlazePhoenixRouter.sol',
+      old='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))',
+      new='            if (route.hops[h].tokenOut == tokenOut && hopGot != 0)',
+      teste='test_FullyBlindLastHop_FinalHopQuote_AnchorsTheFloor_ThinFillRefused'),
+ dict(nome='floor anchor: a blind last hop only raises the anchor, never lowers an earlier one',
+      f='src/BlazePhoenixRouter.sol',
+      old='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))',
+      new='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || hopBlind))',
+      teste='test_BlindLastHop_DeclaringNothing_CannotDisarmAnEarlierAnchor'),
 ]
 
 def run(t):
