@@ -66,7 +66,7 @@ BlazePhoenix has an entry point that takes six values: the two tokens, the amoun
 
 Because the route came from public state by public code, anyone can re-derive it; because the number that binds at settlement is re-derived by the same dispatcher, in the same frame, from the same live state, the quote and the execution are not two artefacts to reconcile but one computation. What separates a preview from a fill is time, not a second model.
 
-![LITE-1 — Who computes your price: the usual arrangement, where a server decides the route and the contract checks it, against this one, where the contract derives the route from public pool state inside the transaction that spends the money.](figs/lite-1.svg)
+*LITE-1 — Who computes your price: the usual arrangement, where a server decides the route and the contract checks it, against this one, where the contract derives the route from public pool state inside the transaction that spends the money. (figure in the PDF edition)*
 
 The machinery has five named parts. Each gets its plain meaning here and its precise definition in the whitepaper.
 
@@ -102,7 +102,7 @@ A delivery of 998.400 B settles. A delivery of 985 B is refused — the transact
 
 The floor never falls below 80 %, whatever the inputs. That is the whole shape of the rule: start at 96 %, loosen one-for-one with the impact the trade really caused and 200 bps per genuinely extra leg, and stop at 80 %.
 
-![FIG-7 — The Iron-Law floor: retention against measured impact for a single leg, two equal legs and four equal legs; the 80 % hard clamp; the point of Worked example 3 marked.](figs/fig-7.svg)
+*FIG-7 — The Iron-Law floor: retention against measured impact for a single leg, two equal legs and four equal legs; the 80 % hard clamp; the point of Worked example 3 marked. (figure in the PDF edition)*
 
 Two properties make this an enforcement rather than a decoration.
 
@@ -110,7 +110,7 @@ Two properties make this an enforcement rather than a decoration.
 
 **Every leg has its own floor as well as the route.** Each individual leg must return at least 80 % of what it was bound to, or the whole swap reverts, so a single manipulated pool fails the transaction immediately instead of hiding its loss inside a healthy total. And because a per-leg rule is local while an attacker holding one leg of many is not, each hop may lose at most what one *average* attested leg could legitimately lose — a rule that collapses exactly onto the per-leg one when a hop has a single leg.
 
-![LITE-2 — The three numbers under one trade, on one scale in the output token: the in-frame quote (1,000.000 B), the protocol's floor (933.600 B), the minimum you signed (990 B), and the amount delivered (998.400 B); the binding number is whichever floor is highest.](figs/lite-2.svg)
+*LITE-2 — The three numbers under one trade, on one scale in the output token: the in-frame quote (1,000.000 B), the protocol's floor (933.600 B), the minimum you signed (990 B), and the amount delivered (998.400 B); the binding number is whichever floor is highest. (figure in the PDF edition)*
 
 The one habit worth keeping from this document: set the minimum yourself, deliberately, every time. Derive it from your own expectation of the price, not from a field in a preview. It is the only protection in this system whose quality depends on nobody's competence but yours.
 
@@ -130,7 +130,7 @@ The reason to split one order across several pools is arithmetic, not cleverness
 
 The 20/80 split is not a guess. Weights are proportional to *measured* depth against the deepest candidate in the set: A weighs a quarter of B, so A takes 20 % of the order. The split beats the best single pool by 0.476 tokens — 48.9 bps of the order — and every row is checkable with a pocket calculator. This rule is deliberately simpler than the theoretical optimum for the problem [1]: it needs no iteration and no model of each venue's curvature, which makes it cheap in gas and hard to game.
 
-![FIG-6 — Output against the share sent to the deep pool for the two-pool example: a concave curve with its maximum near 80 %, the allocator's depth-proportional point marked.](figs/fig-6.svg)
+*FIG-6 — Output against the share sent to the deep pool for the two-pool example: a concave curve with its maximum near 80 %, the allocator's depth-proportional point marked. (figure in the PDF edition)*
 
 An extra leg costs real gas, so a split has to earn its second leg. The gate is a threshold: keep the split only if it beats the best single pool by at least 25 parts per million. In this example the threshold is 97.278 and the split returns 97.751, so it stands. The number 25 is itself a measurement: the true break-even between an extra leg's gas and its improvement measured 3 parts per million on Base — 320 bytes of extra calldata at 105.5 gas per byte — and the gate sits about eight times above it. Its history is on the record in the whitepaper: 20 bps, then 5, then 0.25, before anyone measured what it was supposed to be protecting.
 
@@ -163,7 +163,7 @@ The rate is a compile-time constant with no setter anywhere in the published cod
 
 *A route through no bridge coin at all, A → C → B.* No hop's input is a bridge coin, so there is no single place to anchor, and every hop pays 28 bps of its own measured input: 28 A at the first hop, then 5.6 C at the second, an effective rate of 55.9 bps. This is the **exhaustion regime**, and it is a deliberate rule rather than an oversight. Charging such a route only once, at the first hop, was tried inside the test suite on 2026-09-05 and immediately reopened the escape the rule exists to close — a worthless first hop carries the fee onto dust and the real hop pays nothing — and five pinned tests refused the change within the same run. There is no index at which to insert dust that escapes every hop. The Solver builds every multi-hop route through bridge coins, so a route this protocol plans for you always pays exactly once; the exhaustion regime is what you meet if you route around the registry yourself, and the preview models it, so what you are shown and what you are charged agree either way.
 
-![FIG-9 — The two fee regimes as the Router decides them: scan the hops for the first bridge-coin input; anchored routes pay once at that hop (or on the output of a direct route into a bridge coin); routes with no bridged input pay once per hop; the ledger counts and refuses zero, and refuses two on an anchored route.](figs/fig-9.svg)
+*FIG-9 — The two fee regimes as the Router decides them: scan the hops for the first bridge-coin input; anchored routes pay once at that hop (or on the output of a direct route into a bridge coin); routes with no bridged input pay once per hop; the ledger counts and refuses zero, and refuses two on an anchored route. (figure in the PDF edition)*
 
 **The Surplus Rule** is the alignment argument, stated as the code implements it: the take is 28 bps of one measured base, and *no term anywhere in settlement scales with the difference between what was quoted and what was delivered*. Where the base is an input — every multi-hop route, and every one-hop route not ending in a bridge coin — the output is untouched, so everything the pools deliver above the quote reaches you in full and the fee cannot rise because your fill came in favourable. Where the base is the output, the fee is 28 bps of the gross delivery and nothing more. The axis on which an aggregator is most tempted to skim is the gap between quote and fill; this design gives that gap no fee term at all, so the headline rate is the true and only rate.
 
@@ -189,7 +189,7 @@ The experiment takes a quote exactly the way an integrator does — one call ret
 | 1 – 5 s | 99 | 89 | 10 | 9,959 bps | 9,653 |
 | 6 – 10 s | 124 | 105 | 19 | 9,983 bps | 9,659 |
 
-![FIG-8 — How a quote ages: settled and refused samples by drift bucket, with the delivered/predicted ratio of every settled sample; the same 240 samples bucketed by delay show no trend.](figs/fig-8.svg)
+*FIG-8 — How a quote ages: settled and refused samples by drift bucket, with the delivered/predicted ratio of every settled sample; the same 240 samples bucketed by delay show no trend. (figure in the PDF edition)*
 
 Read plainly, in four sentences. **Time does not move a quote; other people's trades do** — the delay table has no trend and the drift table has a strong one. **A quote against a pool nobody disturbed delivers exactly what it predicted, 64 times out of 64, at every delay tested.** **Up to 1 % of adverse movement, every quote still fills, within 2 % of its prediction.** **Between 1 % and 3 %, the floor refuses roughly one in four rather than fill below what the preview attested, and the ones that do fill land within 3.5 % of the prediction.** There is no third outcome, and after the deadline had passed 20 of 20 were refused with the deadline's own code and none settled.
 
@@ -229,7 +229,7 @@ The bound was measured from the attacker's side. The victim trades 10,000 into a
 | 2 % | settles | 4.12 % | + 268.7 |
 | 3 % and beyond | **refused** | 0 | − 174.5 … − 544.9 |
 
-![FIG-12 — The sandwich curve from the attacker's side: the victim's loss against the quote and the attacker's round trip, by fraction of depth moved ahead of the victim; the refusal edge near 3 %, closed upward.](figs/fig-12.svg)
+*FIG-12 — The sandwich curve from the attacker's side: the victim's loss against the quote and the attacker's round trip, by fraction of depth moved ahead of the victim; the refusal edge near 3 %, closed upward. (figure in the PDF edition)*
 
 Two things are asserted at every point on that curve. A victim who settles never receives less than the floor attested when the quote was taken, so the loss is bounded by the distance between the attested quote and the attested floor. And the refusal region is closed upward: past the edge, *every* larger manipulation is refused and the attacker is left holding the price they moved, which is why the last column turns negative. The number worth quoting is the last settled row: on a trade of 1 % of a pool's depth, the floor caps what a sandwich can take at about 2.7 % of the trade, and turns the attacker's trade into a loss the moment it would take more. A quieter deterrent rides alongside: when the route is derived inside the executing transaction, there is no pre-published path to study, because the path does not exist until the block that executes it.
 
@@ -256,7 +256,7 @@ This repository holds **203 hand-written mutants, each paired with the single te
 | every pair | 63 | 258 of 258 | 53 | 4 | 6 | **0** |
 | every triple | 168 | 1,636 of 1,636 | 158 | 10 | 0 | **0** |
 
-![FIG-14 — Regime covering arrays: outcomes of every generated row at strength 2 (63 rows) and strength 3 (168 rows) — settled, refused with a selector of ours, not constructible, third way — over 5,184 combinations of ten factors.](figs/fig-14.svg)
+*FIG-14 — Regime covering arrays: outcomes of every generated row at strength 2 (63 rows) and strength 3 (168 rows) — settled, refused with a selector of ours, not constructible, third way — over 5,184 combinations of ten factors. (figure in the PDF edition)*
 
 Every row is judged by one rule: either the swap settles — delivered amount equal to the recipient's measured balance change, at least the floor the contract published, nothing left behind — or it is refused with a code belonging to this protocol. Anything else is a *third way*, and a third way fails the row. Zero occurred in either array. The six rows that cannot be built are printed by name and count against the denominator rather than being quietly dropped, as are the venue families the arrays do not cover.
 
@@ -322,7 +322,7 @@ What closes and what stays open is enumerated rather than summarised — the par
 - *Anyone to count the fee.* The Router refuses to settle without paying it.
 - *Anyone to keep serving you.* No routing service, no price feed, no solver network, no keeper, no upgradeable proxy — five zeros where the incumbent design has "required", "common" or "varies". The entry point takes six values a person can assemble by hand, so any script or competitor's front end can call it with no relationship to us of any kind.
 
-![LITE-4 — What must be running for your trade to settle: the usual dependency list — a routing service, a price feed, a solver auction, a keeper bot, an upgradeable proxy, a hosted interface — against this one, where the first five are absent and the sixth is a convenience.](figs/lite-4.svg)
+*LITE-4 — What must be running for your trade to settle: the usual dependency list — a routing service, a price feed, a solver auction, a keeper bot, an upgradeable proxy, a hosted interface — against this one, where the first five are absent and the sixth is a convenience. (figure in the PDF edition)*
 
 And one honest cost, stated as a choice rather than a confession. Immutability cuts both ways: a defect cannot be patched. That is the price of a contract you audit once, and it is why defects here are disclosed and bountied instead of quietly fixed.
 
@@ -345,7 +345,7 @@ Take the two-hop route of §4 — A to B by way of WETH — and suppose it settl
 
 Alongside it, one fee record: `Fee(WETH, 0.014, 0.0042, 0.0098)` — the token the fee was taken in, the amount, and the two treasury shares.
 
-![LITE-3 — One settlement receipt, annotated: quoted, delivered and floor on one line each, the gap between quoted and delivered named as the market's answer, the fee shown in the token it was actually taken in.](figs/lite-3.svg)
+*LITE-3 — One settlement receipt, annotated: quoted, delivered and floor on one line each, the gap between quoted and delivered named as the market's answer, the fee shown in the token it was actually taken in. (figure in the PDF edition)*
 
 Four readings, and the first is the one people get wrong.
 

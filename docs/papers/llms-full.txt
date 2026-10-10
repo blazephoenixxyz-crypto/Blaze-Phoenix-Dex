@@ -363,7 +363,7 @@ Here $\mathcal{R}_{\mathcal{D}}$ is the route space over pools located by the De
 
 The factorisation is deliberate. Ω answers *how much a pool returns*; Ψ answers *how much to trust it*; Φ answers *whether the route is admissible*; 𝒟 answers *where the pool lives*; Ξ answers *whether the route is safe to show*. The product form means a single failing leg collapses the route's score — a leg that quotes zero, or a pool with no standing, zeroes the product rather than discounting it — and the indicator hard-zeroes any route whose net output falls below the floor. No soft penalties, no tunable weights, no near-miss route sneaking through.
 
-![FIG-1 — The Meta-Equation as the Solver's pipeline: candidates from 𝒟 and the registry, ranked and truncated by Ψ, quoted by Ω, allocated across legs, checked against Φ and Ξ; the Router re-evaluates Ω and Φ in the executing frame.](figs/fig-1.svg)
+*FIG-1 — The Meta-Equation as the Solver's pipeline: candidates from 𝒟 and the registry, ranked and truncated by Ψ, quoted by Ω, allocated across legs, checked against Φ and Ξ; the Router re-evaluates Ω and Φ in the executing frame. (figure in the PDF edition)*
 
 On chain, the Solver realises the equation as a pipeline (`findBestRoutePlan`): candidates per pair are gathered by the registry and, when the registry is not fresh, by 𝒟; ranked and truncated by Ψ to `MAX_CANDIDATES = 8`; probed and quoted by Ω; filtered by a believability band; allocated across legs; and the assembled route carries the floor Φ attests. The Router then re-evaluates Ω and Φ on the amounts that actually arrived. The claim the equation makes — the one an auditor can hold the code to — is that no step of that pipeline consults anything outside the five operators. If a quantity is not an argument to one of the five, it cannot influence the route: no venue's marketing, no off-chain reputation, no operator preference.
 
@@ -490,7 +490,7 @@ The wrapped sibling of the same pair — $c_{0} = \mathtt{0x4200…0006}$ (WETH)
 
 The whole scan stops at `V4_CAP = 8` proven pools. Two properties fall out of the construction rather than from a check: a hooked pool can never be emitted by this scan — it derives *hookless* ids, and a hooked pool's hookless id does not exist in the manager, so it fails the liveness proof before any policy question is asked — and duplicate ids from different tier guesses collapse to one candidate, so one pool cannot saturate the funnel by aliasing. Probe order is itself a policy, because the cap is spent by whatever is probed first: a pair against the chain's native asset has two keys in V4, native and wrapped, and the native key was measured to be the deeper one on the chains served when the ordering was decided (3.76× on Base, 292× on Robinhood Chain), so it is probed first.
 
-![FIG-2 — The V4 derive-and-prove ladder: five rungs from the learned tier pattern to the bounded generator grid, each candidate id proven live against the manager's storage before it counts toward the cap of eight; hooked ids never exist on this path.](figs/fig-2.svg)
+*FIG-2 — The V4 derive-and-prove ladder: five rungs from the learned tier pattern to the bounded generator grid, each candidate id proven live against the manager's storage before it counts toward the cap of eight; hooked ids never exist on this path. (figure in the PDF edition)*
 
 **The permissionless door.** Anyone may call `claimV4(c0, c1, fee, tickSpacing)` and have a hookless pool admitted, because the claim carries its own proof: the id is recomputed from the submitted key and read back from the manager's storage, so a false claim resolves to zeros and admits nothing (`HubE(9)`). Three further conditions gate the door: one side of the pair must be a routable bridge coin, so that a seat in the capped registry is never spent on a pair the router can never cross; the effective fee must be quotable under the fee gate below; and the claim must clear the same admission margin a swap-driven registration clears (§9), with the pool's measured liquidity as its depth. The registry can be taught by the public and cannot be lied to by it.
 
@@ -538,7 +538,7 @@ $$
 
 Near the balance point this curve delivers almost the full input as output — minimal slippage exactly where stablecoin and liquid-staking flow clusters. Volatile Solidly pairs are constant product, and the Core's volatile arm *is* `outV2` — one producer, which metamorphic relation MR7 pins (§15).
 
-![FIG-3 — Output against input for a balanced stable pair: the Solidly quartic against constant product and the zero-slippage diagonal, from the Core's own formulas.](figs/fig-3.svg)
+*FIG-3 — Output against input for a balanced stable pair: the Solidly quartic against constant product and the zero-slippage diagonal, from the Core's own formulas. (figure in the PDF edition)*
 
 **Primary path: ask the pool.** `getAmountOut(amountIn, tokenIn)` is computed by the pair's own bytecode — live fee, curve and rounding included — so a swap requesting exactly that figure satisfies the pool's invariant check by construction, and no margin is needed. The trigger for the fallback is an answer of at most 1 wei, aligned across the three channels that ask (Solver, Router, Quoter) after a pool answering exactly 1 once sent two of them down different branches.
 
@@ -633,7 +633,7 @@ Storage is the dominant cost of doing anything on the EVM: a cold `SLOAD` is 2,1
 | 192–223 | `regBlk` | 32 | registration block |
 | 224–255 | `lastBlk` | 32 | last-touch block |
 
-![FIG-4 — Monoslot bit layout: one 256-bit word, fourteen named fields, the concentration field masked to twelve bits so it can never bleed into the depth bucket.](figs/fig-4.svg)
+*FIG-4 — Monoslot bit layout: one 256-bit word, fourteen named fields, the concentration field masked to twelve bits so it can never bleed into the depth bucket. (figure in the PDF edition)*
 
 The encoding is a sequence of shifts and ORs (`encodeSlot`):
 
@@ -682,7 +682,7 @@ $$
 
 The step is `VITALITY_DECAY_STEP_SECONDS = 24,576` — about 6.8 hours — and thirty-two halvings extinguish any score, so a silent pool reaches zero and full evictability after 786,432 s, about 9.1 days. A single swap revives it, and revival is honest: the count resumes from what the decay left standing, never from the pre-decay total, so one dust swap after a long silence cannot restore a pool's accumulated rank. The scorer keeps two zeros apart: a *dead* slot — empty, never ticked, or past the horizon — scores a true zero and drops from ranking, while a *live* slot whose small count merely rounded away under the shift is floored to one, so a real, recently touched pool never vanishes on a rounding artefact. The window is in wall-clock seconds deliberately: a block-counted window means a different real duration on every chain, and an earlier implementation that shifted every 16 blocks decayed to zero about 128× faster than documented.
 
-![FIG-5 — Vitality decay: a count of 4,096 halves every 24,576 s and reaches zero after 32 steps; a swap at day 4 revives from the decayed base, not from the historical total.](figs/fig-5.svg)
+*FIG-5 — Vitality decay: a count of 4,096 halves every 24,576 s and reaches zero after 32 steps; a swap at day 4 revives from the decayed base, not from the historical total. (figure in the PDF edition)*
 
 ### §9.3 Eviction
 
@@ -721,7 +721,7 @@ A constant-product pool prices by one rule: its two reserves, multiplied, may ne
 
 The 20 / 80 split is the allocator's own choice, not a guess: weights are proportional to measured depth against the deepest candidate — A weighs $1{,}000/4{,}000 = 2{,}500$ of 10,000, B weighs 10,000 — so A takes $2{,}500 / 12{,}500 = 20$ % of the order. The split beats the best single pool by 0.476 tokens, 48.9 bps of it. The split gate then asks whether that gain earns its second leg: the threshold is $97.275 \times (1 + 25 / 10^{6}) = 97.278$, and 97.751 clears it, so the split stands. Every row is checkable with a calculator, and it compounds: price impact is each pool's response to *its own* slice, so every admissible leg added to a route moves every pool less.
 
-![FIG-6 — Output against the share sent to the deep pool for the two-pool example: a concave curve with its maximum near 80 %, the allocator's depth-proportional point marked.](figs/fig-6.svg)
+*FIG-6 — Output against the share sent to the deep pool for the two-pool example: a concave curve with its maximum near 80 %, the allocator's depth-proportional point marked. (figure in the PDF edition)*
 
 ### §10.1 Route shapes and budgets
 
@@ -811,7 +811,7 @@ $$
 
 and its asymmetry is the point: caller-supplied fields can tighten protection and can never loosen it. The Solver attests `singleOutFloor` from the same `legShaveBps` and `ironFloorBpsShv` on the same amounts, so for a Solver-built route the attested floor and the enforced floor agree by construction (`test/FloorParitySolverRouter.t.sol`), and the regime harness of §15 pins the two frames on every generated row: with the fee off the input, the enforced floor sits in $[\mathrm{attested} \times (1 - \mathrm{fee}),\ \mathrm{attested}]$; with the fee off the output, it equals the attested floor.
 
-![FIG-7 — The Iron-Law floor: retention against measured impact for a single leg, two equal legs and four equal legs; the 80 % hard clamp; the point of Worked example 3 marked.](figs/fig-7.svg)
+*FIG-7 — The Iron-Law floor: retention against measured impact for a single leg, two equal legs and four equal legs; the 80 % hard clamp; the point of Worked example 3 marked. (figure in the PDF edition)*
 
 **Worked example 3 — the floor on a two-hop route.** A route A → WETH → B: hop 0 splits 600 A into pool P and 400 A into pool Q; hop 1 sends the WETH produced through one pool R. Measured in the frame: hop 0's legs show impacts of 100 and 60 bps, hop 1's leg 40 bps, and the share-weighted mean over the route is 80 bps. Hop 1's in-frame quote at the WETH amount that actually arrived is 1,000.000 B.
 
@@ -903,7 +903,7 @@ A quote is a promise about a future block. The study takes it the way an integra
 | 1 – 5 s | 99 | 89 | 10 | 9,959 bps | 9,653 |
 | 6 – 10 s | 124 | 105 | 19 | 9,983 bps | 9,659 |
 
-![FIG-8 — How a quote ages: settled and refused samples by drift bucket, with the delivered/predicted ratio of every settled sample; the same 240 samples bucketed by delay show no trend.](figs/fig-8.svg)
+*FIG-8 — How a quote ages: settled and refused samples by drift bucket, with the delivered/predicted ratio of every settled sample; the same 240 samples bucketed by delay show no trend. (figure in the PDF edition)*
 
 Time does not move a quote; drift does. Asserted on every sample: a drift-free quote settles at every delay and delivers exactly its prediction (64 of 64); a settlement never delivers below the floor the preview attested; there is no third outcome. After the deadline (`deadline = now + 5`, executed at `+10`) 20 of 20 are refused with the deadline's own code, `RouterE(4)`, and none settles. Under up to 1 % of adverse drift every quote still fills, within 2 % of its prediction; under 1–3 % the floor refuses one in four rather than fill it below the attested output, and the fills land within 3.5 % of the prediction — the sandwich curve of §14 seen from the quote's side.
 
@@ -933,7 +933,7 @@ The rule since 2026-08-22 is one sentence: **charge once, on the first bridge co
 
 The rule has a second regime the sentence did not name until 2026-09-05. A hand-built route through pools the registry would not hold, with no bridge coin as any hop's input, never finds a `feeHop`; the predicate that charges is then true for *every* hop, and each hop pays 28 bps on its own measured input. This is the **exhaustion regime**, and it is a deliberate rule, not an oversight: charging such a route once, on hop 0, was tried inside the suite on that date and reopened the escape the exhaustion policy exists to close — a value-less first hop carries the fee spot onto dust and the real hop pays nothing (`test/FeeEscapeViaJunkPrefix.t.sol`); five pinned tests refused the change within the run. There is no index at which to insert dust that escapes every hop, which is what "immunity by exhaustion" means. The Solver builds every multi-hop route through registered bridges, so a Solver-built route always pays exactly once; the exhaustion regime is what a caller meets when they route around the registry, and the Quoter models it (`_pack` charges `hops.length` times when no hop input is a bridge, once otherwise), so the preview and the delivery agree in both regimes (`test/ExhaustionRegimePreviewParity.t.sol`).
 
-![FIG-9 — The two fee regimes as the Router decides them: scan the hops for the first bridge-coin input; anchored routes pay once at that hop (or on the output of a direct route into a bridge coin); routes with no bridged input pay once per hop; the ledger counts and refuses zero, and refuses two on an anchored route.](figs/fig-9.svg)
+*FIG-9 — The two fee regimes as the Router decides them: scan the hops for the first bridge-coin input; anchored routes pay once at that hop (or on the output of a direct route into a bridge coin); routes with no bridged input pay once per hop; the ledger counts and refuses zero, and refuses two on an anchored route. (figure in the PDF edition)*
 
 ### §13.2 The commitment has one producer, and the contract counts
 
@@ -979,7 +979,7 @@ The **Surplus Rule** is the alignment argument of the fee design, stated as the 
 | belt: settlement without a fee no longer refused | 0/20 [0.00, 0.16] | 0/20 [0.00, 0.16] | no | no | no |
 | belt: anchored double payment no longer refused | 0/20 [0.00, 0.16] | 0/20 [0.00, 0.16] | no | no | no |
 
-![FIG-10 — Detection rate of each fee mutant by each test, as a heat map: kills over runs with the Wilson interval; the two belts are visible as the rows nothing sees.](figs/fig-10.svg)
+*FIG-10 — Detection rate of each fee mutant by each test, as a heat map: kills over runs with the Wilson interval; the two belts are visible as the rows nothing sees. (figure in the PDF edition)*
 
 Read across a row: which tests see this defect. Read down a column: what a test can and cannot see. The first measurement found the Router campaign blind to the exhaustion mutant that spares hop 0 and to the commitment producer, because it built direct one-leg routes only; the campaign was widened the same day to walk two hops and split hop 0 across two pools, with a bridge coin in the universe so one campaign holds every regime, and both are now seen 20 of 20. The covering array sees only the doubled fee, because its rows always cross a bridge. Twenty seeds at 20 of 20 bound a single campaign's miss probability at 15 %, which is why the mutation guard runs the named test and the campaign both.
 
@@ -1036,7 +1036,7 @@ No call into untrusted code, nothing to deceive, and evasion would require an ad
 
 **Layer 3 — the route is never even shown.** The projector Ξ removes any pool whose hook alters deltas from the Solver's candidate set before ranking (`_topKPools`), and the Hub's read channel serves only hooks that are live; a route touching an inadmissible hook does not participate in the maximisation. A route-shape rule completes it: canonical order, route-wide — no hookless leg ever executes after a hook has run (§11.4).
 
-![FIG-11 — Three layers against hostile hooks, cheapest first: the address bit-mask (no call into untrusted code), the allow-list with the codehash pin (default closed), the projector Ξ (route not representable). Each layer answers a different capability; the residual — a clean, listed hook that reverts to waste gas — is named.](figs/fig-11.svg)
+*FIG-11 — Three layers against hostile hooks, cheapest first: the address bit-mask (no call into untrusted code), the allow-list with the codehash pin (default closed), the projector Ξ (route not representable). Each layer answers a different capability; the residual — a clean, listed hook that reverts to waste gas — is named. (figure in the PDF edition)*
 
 Defeating the stack requires a hook that carries no delta bits, sits on the allow-list unchanged, and still subverts settlement — a combination Layer 1's appeal to V4's own immutable enforcement rules out for delta alteration; the fee-override residual of §5.4 remains, and the floor bounds it. The residual is stated in the table: an allow-listed, delta-free hook can still revert mid-swap and waste the gas of trying. And the sieve's single lever is named: the sieved hook binds the executed swap because the canonical PoolManager echoes unlock data verbatim and calls back only its unlock caller; the Hub's `setV4Manager`, a control power, is the one address that assumption rests on, and a dishonest manager collapses the measured output so the caller's own bound refuses the swap (`HostileV4Manager` campaign) — bounded, not absent.
 
@@ -1054,7 +1054,7 @@ The bound is measured from the attacker's side (`test/regime/SandwichCurve.t.sol
 | 2 % | settles | 4.12 % | +268.7 |
 | 3 % and beyond | **refused** | 0 | −174.5 … −544.9 |
 
-![FIG-12 — The sandwich curve from the attacker's side: the victim's loss against the quote and the attacker's round trip, by fraction of depth moved ahead of the victim; the refusal edge near 3 %, closed upward.](figs/fig-12.svg)
+*FIG-12 — The sandwich curve from the attacker's side: the victim's loss against the quote and the attacker's round trip, by fraction of depth moved ahead of the victim; the refusal edge near 3 %, closed upward. (figure in the PDF edition)*
 
 The guarantee asserted at every point: a settled victim never receives less than the floor attested at quote time, so the loss is bounded by the distance between the attested quote and the attested floor; and the refusal region is closed upward — past the edge every larger manipulation is refused and the attacker is left holding the price they moved. The number worth quoting is the last settled row: the floor caps what a sandwich can take from a 1 % trade at about 2.7 % of it, and turns the attacker's trade into a loss the moment it would take more. The in-frame route adds a quieter deterrent: there is no pre-published path for a searcher to study, because the path does not exist until the block that executes it. A wide minimum is an invitation; a tight one is the single most effective control in this section that belongs to you.
 
@@ -1128,7 +1128,7 @@ Until 2026-09-05 none of the curated mutants named a stateful invariant as the t
 | the output measurement ignores its baseline | stranded money | the same pair |
 | the post-fee `userMinOut` check is halved | — | survives, by design: a regression sentinel unreachable in campaign universes with no fee-on-transfer output token; two unit mutants watch it |
 
-![FIG-13 — Mutants aimed at the invariants: fifteen source mutations against forty-three stateful invariants, the invariants that went red per mutant, the three closed on 2026-09-05 by giving a campaign the action it lacked, and the one sentinel that survives by design.](figs/fig-13.svg)
+*FIG-13 — Mutants aimed at the invariants: fifteen source mutations against forty-three stateful invariants, the invariants that went red per mutant, the three closed on 2026-09-05 by giving a campaign the action it lacked, and the one sentinel that survives by design. (figure in the PDF edition)*
 
 Eleven of fifteen were noticed on the first measurement; twenty distinct invariant names went red at least once. Three of the four survivors were closed the same day by giving a campaign the action it lacked — foreign pools offered under the pair, a two-hop route over a pre-seeded intermediate balance, a whale moving the pool 0–8 % against a quoted route before the stale route executes — each verified red without its guard; two guards with no watcher of any kind was the number this measurement existed to print, and it is now zero. Fourteen of fifteen are noticed; the fourteen are guard entries paired with the invariant that dies to them. A green suite with an unwatched guard in it was the shape of both documented regressions in this codebase; the measurement that finds one now runs on every guard the campaigns claim.
 
@@ -1141,7 +1141,7 @@ Coverage criteria index the code; mutation indexes an injected fault; neither in
 | 2 | 63 | 258 pairs | 53 | 4 | 6 | 0 |
 | 3 | 168 | 1,636 triples | 158 | 10 — `SolverE(5)` ×7, `RouterE(13)` ×3 | 0 | 0 |
 
-![FIG-14 — Regime covering arrays: outcomes of every generated row at strength 2 (63 rows) and strength 3 (168 rows) — settled, refused with a selector of ours, not constructible, third way — over 5,184 combinations of ten factors.](figs/fig-14.svg)
+*FIG-14 — Regime covering arrays: outcomes of every generated row at strength 2 (63 rows) and strength 3 (168 rows) — settled, refused with a selector of ours, not constructible, third way — over 5,184 combinations of ten factors. (figure in the PDF edition)*
 
 The refusals are the planner having no bridged path to build and the executor declining a taxed token on a concentrated-only route; the six rows at strength 2 that cannot be built (the pull-only-taxed token has no six-decimal form) are printed by name and count against the denominator. The families not in the array — V4, native V4, Algebra, the native door, hooks — are stated in `regimes-covering.json`. The array's first run made a frame explicit that the parity tests had pinned only on one side: the floor the Router enforces equals the attested floor when the fee comes off the output, and sits inside $[\mathrm{attested} \times (1 - \mathrm{fee}), \mathrm{attested}]$ when it comes off the input — both frames are now asserted on every row. The generated file is checked against its generator in CI, so the array cannot drift from the factors it claims to cover.
 
@@ -1237,13 +1237,13 @@ We know of no other public DeFi codebase that publishes a curated, named mutatio
 | **Router** | admin, treasuries, `permit2`, `weth`, `paused`, `controlRenounced`, rescue queue; **no token balance at rest** | the input token, the pools of the route, the output token, the Hub (`isBridgeToken`, `isHookLive`, `recordSwap`), the Solver (`swapBestExactIn` only, `view`), WETH and the PoolManager for V4, Permit2 for its door, the treasuries, the recipient — never a caller-supplied target | its own configuration; the one external write per swap is `Hub.recordSwap` on the success path | 23,781 |
 | **Quoter** | nothing | the Solver (`view`), the Hub (`isBridgeToken`, read-only), pools for the Exact Pass dry-run (called and reverted) | never | 11,429 |
 
-![FIG-15 — Five-contract topology: the Core (pure mathematics: Ω · 𝒟 · Φ · Ψ) imported by Hub (registry, Ψ state, bridges, hook pins), Solver (route optimiser, view), Router (atomic execution, the only contract that moves funds) and Quoter (preview, view and dry-run). Arrows are calls; the one solid arrow into storage per swap is Router → Hub.recordSwap; every other arrow from Solver and Quoter is view-only.](figs/fig-15.svg)
+*FIG-15 — Five-contract topology: the Core (pure mathematics: Ω · 𝒟 · Φ · Ψ) imported by Hub (registry, Ψ state, bridges, hook pins), Solver (route optimiser, view), Router (atomic execution, the only contract that moves funds) and Quoter (preview, view and dry-run). Arrows are calls; the one solid arrow into storage per swap is Router → Hub.recordSwap; every other arrow from Solver and Quoter is view-only. (figure in the PDF edition)*
 
 Trust runs one way. The Hub trusts the Router to call `recordSwap` (`onlyRouter`) and no one else; the Router trusts the Hub for three facts a route needs — is this token a bridge, is this hook live, and the registration write — and for nothing that prices a trade. The Solver trusts the Hub's registry only as a list of coordinates to measure. The Quoter trusts the Solver's plan as advisory and re-prices concentrated legs against the pools themselves. Nothing trusts calldata: a route reaches the Router as a stranger's claim.
 
 ### §16.2 The life of one swap
 
-![FIG-16 — The life of one swap: `previewAndEncode` (view) → calldata → a door → `_execute` → venues → settlement, with the check at each step named by its refusal code: minimum and deadline at the door; hop shape and continuity; arrival measured; per hop, rescale, fee if this is the fee hop, per-leg floor and coverage gate, hop aggregate; sweeps; gross output; the route floor Φ; the output-side fee if any; delivery measured at the recipient; `userMinOut`; the fee ledger; `recordSwap` per executed leg; `ExecutionProof`.](figs/fig-16.svg)
+*FIG-16 — The life of one swap: `previewAndEncode` (view) → calldata → a door → `_execute` → venues → settlement, with the check at each step named by its refusal code: minimum and deadline at the door; hop shape and continuity; arrival measured; per hop, rescale, fee if this is the fee hop, per-leg floor and coverage gate, hop aggregate; sweeps; gross output; the route floor Φ; the output-side fee if any; delivery measured at the recipient; `userMinOut`; the fee ledger; `recordSwap` per executed leg; `ExecutionProof`. (figure in the PDF edition)*
 
 1. **Preview** (off-chain, free): `previewAndEncode` runs `findBestRoutePlan` — registry and, if not fresh, discovery; Ξ; Ψ ranking; probes; the band; allocation; the clamp; the split gate; the attested floor — and returns the `Preview` and the calldata. The trader sets `userMinOut` from their own price expectation.
 2. **The door**: `swapExactIn` (or a sibling) checks the deadline (`RouterE(4)`), refuses a zero minimum (`RouterE(10)`), pulls the input and measures the delta.
@@ -1264,7 +1264,7 @@ Trust runs one way. The Hub trusts the Router to call `recordSwap` (`onlyRouter`
 | Core | 6,442 | 17,558 | 18,134 |
 | Total | 84,986 | | |
 
-![FIG-17 — Runtime sizes of the five contracts against the project's 24,000-byte gate and the EIP-170 limit of 24,576 bytes, measured on the release profile; the deployed V1 router (14,624 bytes) for scale.](figs/fig-17.svg)
+*FIG-17 — Runtime sizes of the five contracts against the project's 24,000-byte gate and the EIP-170 limit of 24,576 bytes, measured on the release profile; the deployed V1 router (14,624 bytes) for scale. (figure in the PDF edition)*
 
 The gate is asserted inside the suite itself (`DeployedSizeGate`) on the same profile the suite runs under, which `profile_parity.py` keeps identical to the release profile — a suite that tested a binary the chain could not accept would be testing the wrong object. Size is measured, never estimated: a guard estimated at tens of bytes once measured at several hundred because the shape chosen extended a variable's live range. The Router and the Hub sit within a few hundred bytes of the wall, which is why the pair-proof of §9 costs 179 bytes and the stable-curve repair of §6 is 35 bytes *smaller* than the code it replaced: every byte added is paid for by a byte removed.
 
@@ -1351,7 +1351,7 @@ Every figure is traceable to a named harness, cold and warm reported separately.
 | via-bridge second hop | ≈ 59,000 gas | `LifecycleMetrics` (August 2026) |
 | `previewPlan` on live Base, cold / warm / cold after TTL | 1,524,221 / 1,414,633 / 1,359,925 gas | `test/fork/QuoterGasFork.t.sol` (§12.3) |
 
-![FIG-18 — What a quote costs through the ABI: `previewPlan` and `previewAndEncode` on mocks (discovery vs fresh registry, mean and spread over forty sizes) and on live Base (cold, warm, cold after the TTL).](figs/fig-18.svg)
+*FIG-18 — What a quote costs through the ABI: `previewPlan` and `previewAndEncode` on mocks (discovery vs fresh registry, mean and spread over forty sizes) and on live Base (cold, warm, cold after the TTL). (figure in the PDF edition)*
 
 Three structural readings hold without any measurement, because they follow from the architecture. The warm saving scales with the registry's breadth, not the trade's size: what the cold path pays for is sweeping factories, and the cached read that replaces the sweep is one `SLOAD` regardless. Legs are the unit of marginal cost, which is why the split gate exists (§10.4). And hops are the expensive dimension: a bridge route must win by enough at the pools to pay for itself at the pump. Callers choose their point on this surface per trade — solve in-frame and pay for the search, or supply a route and pay only for execution — and the freshness gate of §9.4 reserves the sweep for pairs the protocol does not yet know. The cost of a live quote is 1.4–1.5 million gas of *view* computation, paid by no one on chain.
 

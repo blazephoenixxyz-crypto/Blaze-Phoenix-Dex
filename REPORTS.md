@@ -78,7 +78,8 @@ Two data sources:
   WETH) afterward — the holds-nothing invariant verified against a real
   multi-venue path, not just mocks.
 
-### Ethereum mainnet Curve 3pool — `forge test --match-path "test/fork/EthereumCurveFork.t.sol"`
+### Ethereum mainnet Curve 3pool (historical)
+*Curve support, and this fork suite with it, was removed in August 2026; the record below describes the code as it stood before the excision.*
 - `curveResolveIndices` against the real 3pool (`0xbEbC...FF1C7`) correctly
   resolved USDC→index 1, DAI→index 0 (matches 3pool's real `coins()` order).
 - `curveGetDy` quote for 1,000 USDC → ~999.97 DAI (a live, balanced-pool
@@ -238,9 +239,9 @@ Then ran a real swap: impersonated a genuine external USDC holder (Base's
 first hitting a self-inflicted bug using the Aerodrome pool itself as the
 whale, which corrupted that pool's own reserve accounting before its own leg
 executed — see below) via `anvil_impersonateAccount` + `anvil_setBalance`,
-then broadcast a real `approve` + `swapExactIn` through
-`script/AnvilDemoSwap.s.sol` (takes Router/Quoter/whale addresses as env
-vars — no deploy-specific config baked in). Verified via `cast receipt`:
+then broadcast a real `approve` + `swapExactIn` through a one-off demo
+script (it took the Router/Quoter/whale addresses as environment variables,
+with no deploy-specific config baked in, and has since been retired from the tree). Verified via `cast receipt`:
 `status: 1 (success)`, `gasUsed: 1,052,440`, `to: <Router>`. 100 USDC in,
 0.0532305...  WETH out, Router held 0/0 afterward.
 
