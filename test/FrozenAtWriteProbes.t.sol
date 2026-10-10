@@ -328,6 +328,62 @@ contract FrozenAtWriteProbes is Test {
         assertEq(onForged, 0, "PROV-01: a pair with forged reserves and no capital captured the route");
     }
 
+    /// The same forged mass on a pair that took its seat while it held its reserves and
+    /// forged them afterwards. The swap door asks for held reserves on first registration;
+    /// from then on the Solver's physical cap is what keeps the forged depth out of the band.
+    function test_probe_forgedAfterSeating_cannotCaptureTheRouteWithoutCapital() public {
+        _v2(400_000e18, 400_000e18);
+        _v2(400_000e18, 400_000e18);
+        _v2(400_000e18, 400_000e18);
+
+        MockV2Pair forged = new MockV2Pair(address(tA), address(tB));
+        tA.mint(address(forged), 1e18);
+        tB.mint(address(forged), 1e18);
+        _setOriented(forged, uint112(1e18), uint112(1e18));   // seated while it holds what it reports
+        hub.recordSwap(address(forged), BPC.KIND_V2, 30, address(0),
+            address(tA), address(tB), 1e18, 1e18, 1e18);
+        assertEq(hub.getPool(_key(address(forged))), address(forged), "pre-condition: the pair took its seat");
+
+        _setOriented(forged, uint112(2e30), uint112(1e30));   // then says: 1 tA buys 0.5 tB
+        for (uint256 i; i < 4; i++) {
+            hub.recordSwap(address(forged), BPC.KIND_V2, 30, address(0),
+                address(tA), address(tB), 1e18, 1e18, 1e30);
+        }
+
+        (uint256 onForged, uint256 onHonest) = _legsOn(address(forged));
+        assertGt(onHonest, 0, "PROV-01: the honest pools were pushed out of the route");
+        assertEq(onForged, 0, "PROV-01: a pair with forged reserves and no capital captured the route");
+    }
+
+    /// The mirror of the probe above: seated while it held its reserves, then forged to say
+    /// 1 tA buys 2 tB. A leg promising more than the pair holds is already dropped, so the
+    /// forged pair cannot be paid; what the physical cap keeps is the honest route itself.
+    /// Without it the forged mass would set the base of the band on its own rate and push the
+    /// honest pools out, leaving a route made only of the leg that is then dropped.
+    function test_probe_forgedAfterSeating_aboveTheFairRate_cannotPushTheHonestPoolsOut() public {
+        _v2(400_000e18, 400_000e18);
+        _v2(400_000e18, 400_000e18);
+        _v2(400_000e18, 400_000e18);
+
+        MockV2Pair forged = new MockV2Pair(address(tA), address(tB));
+        tA.mint(address(forged), 1e18);
+        tB.mint(address(forged), 1e18);
+        _setOriented(forged, uint112(1e18), uint112(1e18));
+        hub.recordSwap(address(forged), BPC.KIND_V2, 30, address(0),
+            address(tA), address(tB), 1e18, 1e18, 1e18);
+        assertEq(hub.getPool(_key(address(forged))), address(forged), "pre-condition: the pair took its seat");
+
+        _setOriented(forged, uint112(1e30), uint112(2e30));   // then says: 1 tA buys 2 tB
+        for (uint256 i; i < 4; i++) {
+            hub.recordSwap(address(forged), BPC.KIND_V2, 30, address(0),
+                address(tA), address(tB), 1e18, 1e18, 1e30);
+        }
+
+        (uint256 onForged, uint256 onHonest) = _legsOn(address(forged));
+        assertGt(onHonest, 0, "PROV-01: forged mass pushed the honest pools out of the route");
+        assertEq(onForged, 0, "PROV-01: a pair promising more than it holds was routed");
+    }
+
     /// Control: the same bad price with TRUE small mass is kept out. Without
     /// this, the probe above could pass because nobody was routed at all.
     function test_control_trueSmallMass_atABadPrice_isKeptOut() public {

@@ -151,7 +151,7 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       old="            if (acc >= metade) return r[i];",
       new="            if (acc >= metade) return r[m - 1]; // MUTANTE: um so sensor captura a base",
-      teste="test_UmaPoolFundaNaoCapturaABanda"),
+      teste="test_ADeepPoolAboveTheFairRate_CannotCaptureTheBand"),
  dict(nome="solver: o peso do split vem da profundidade, nao do saldo (T2)",
       f="src/BlazePhoenixSolver.sol",
       old="            uint256 w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10_000, mx);",
@@ -881,7 +881,7 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       old="                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;",
       new="                    physical; // MUTANT",
-      teste="test_probe_forgedMass_cannotCaptureTheRouteWithoutCapital"),
+      teste="test_probe_forgedAfterSeating_cannotCaptureTheRouteWithoutCapital"),
  # ── the book that holds nothing (ninth wave, Binod Bk) ────────────────────
  # A V3-shaped contract that ends every swap empty switched the mass cap off at
  # every producer. One mutant per producer, and the registry watched in both

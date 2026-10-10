@@ -77,6 +77,20 @@ contract BandBaseBreakdownPointTest is Test {
         }
     }
 
+    /// The band's own claim checked FIRST, the split precondition after it. A captured base
+    /// leaves one leg, on the attacker; with the precondition first the test would die on
+    /// "the route must split" and never say which guard failed (masking, axis M).
+    function _assertBandHolds(string memory onAttackerMsg, string memory honestMsg) private {
+        RoutePlan memory p = solver.findBestRoutePlan(address(tA), address(tB), ORDER);
+        assertGt(p.best.hops.length, 0, "pre-condition: there must be a route");
+        Leg[] memory legs = p.best.hops[0].legs;
+        uint256 onAttacker;
+        for (uint256 i; i < legs.length; i++) if (legs[i].pool == address(atacante)) onAttacker++;
+        assertEq(onAttacker, 0, onAttackerMsg);
+        assertGt(legs.length - onAttacker, 0, honestMsg);
+        assertGe(legs.length, 2, "pre-condition: the route must split, or the band decides nothing");
+    }
+
     /// A PROVA. Uma pool com preco MAU (1:0,5 — metade do justo) e mais funda que QUALQUER honesta
     /// isolada, mas com menos de metade da massa total. Com o estimador antigo capturava a base e
     /// expulsava as tres honestas; com a mediana ponderada nao chega perto.
@@ -88,6 +102,27 @@ contract BandBaseBreakdownPointTest is Test {
         (uint256 honestas, uint256 daAtacante) = _pools();
         assertGt(honestas, 0, "as pools honestas nao podem ser expulsas por UMA pool funda");
         assertEq(daAtacante, 0, "a pool de preco mau nao pode entrar no split");
+    }
+
+    /// The same deep minority pool on the other side of fair: it holds what it reports and
+    /// quotes 1 tA for 2 tB, the highest rate on the pair. The base follows the weighted
+    /// median of the mass, not the highest rate, so the honest pools keep the band.
+    function test_ADeepPoolAboveTheFairRate_CannotCaptureTheBand() public {
+        atacante = _pool(300_000e18, 600_000e18);
+
+        _assertBandHolds("a pool far above the fair rate is outside the band",
+            "one deep pool cannot push the honest pools out of the band");
+    }
+
+    /// The breakdown point from below: a pool above the fair rate holding just short of half the
+    /// mass. V2 depth is the short side, so it weighs 1.15M against the honest 1.2M (48.9%); the
+    /// walk up the sorted rates reaches half the mass (1.175M) on the third honest pool, and the
+    /// base stays honest. Together with `test_MaioriaDaMassaMandaMesmo` this brackets the 50%.
+    function test_JustShortOfHalfTheMass_AboveTheFairRate_CannotCaptureTheBand() public {
+        atacante = _pool(1_150_000e18, 2_300_000e18);
+
+        _assertBandHolds("a minority of the mass does not set the base, however close to half",
+            "a pool short of half the mass cannot push the honest pools out");
     }
 
     /// CONTROLO: sem ela, o teste acima passaria mesmo que o Solver nunca escolhesse ninguem.
