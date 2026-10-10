@@ -26,7 +26,7 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **duxun**
 - **AmanDara1**
 - **amitbhakar**
-- **auditor_1b3f2c**
+- **eveeyrp**
 - **siam siddik**
 - **Thomas**
 - **llen**
@@ -46,6 +46,23 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **M2000 Slash**
 - **Binod Bk**
 - **CHARIR ABDELHAMID**
+- **[Charan](https://github.com/chinnuy935)**
+- **Ashish Prajapati**
+- **rety6363**
+- **Cico Agung**
+- **Amir**
+- **Marcin Sikora**
+- **Monster Dev**
+- **Fersdoven Josua**
+- **Ade Putra Hermawan**
+- **sbekk**
+- **satu hack**
+- **[OxHulk](https://x.com/OxHulk)**
+- **Mansor**
+- **Malik Werkudhara**
+- **Yudha Eka Saputra**
+- **Pavan Baile**
+- **Garin**
 - **Anonymous**
 
 ---

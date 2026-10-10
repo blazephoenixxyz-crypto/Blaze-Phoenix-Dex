@@ -59,6 +59,11 @@ jobs:
         # copy is a stale claim wearing the clothes of a current one.
         run: python3 .github/scripts/llms_full.py --check
 
+      - name: README and llms.txt figures are current
+        # Every count in the README and in llms.txt is generated from the tree; a number typed by
+        # hand is true on the day it is written and silently false after.
+        run: python3 .github/scripts/readme_stats.py --check
+
       - name: regime covering array is current
         # The generated rows must be the rows the generator produces for the declared factors.
         run: python3 .github/scripts/assurance/covering_array.py --check
