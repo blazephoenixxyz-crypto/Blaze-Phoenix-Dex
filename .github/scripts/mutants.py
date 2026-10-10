@@ -1798,6 +1798,11 @@ M = [
       old="            if (zfo) qIn = address(0); else other = address(0);",
       new="            zfo; // MUTANT",
       teste="test_ANativeLegAttestsWhatItsNativePoolPays"),
+ dict(nome="holds-nothing (R1): the input sweep is dropped - an uncommitted remainder stays in the Router",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);",
+      new="            residIn; // MUTANT",
+      teste="test_RouterBalanceAfterSettlement_PlainToken_PartialCommitment_IsZero"),
 ]
 
 def run(t):

@@ -15,8 +15,16 @@
 //
 //  WHAT THIS CONTRACT GUARANTEES
 //      R1  IT HOLDS NOTHING. At the end of any call the Router's balance in any
-//          token, and in native, is zero. Four stateful invariants asserted in
-//          the suite defend this; it is invariant M2 of the meta-equation.
+//          token that moves the amount it is asked to move, and in native, is
+//          zero. Four stateful invariants asserted in the suite defend this; it
+//          is invariant M2 of the meta-equation. The one stated bound: a token
+//          that keeps balances as shares and rounds each transfer down to whole
+//          shares leaves fewer than k + d/n shares after k outbound transfers of
+//          it in one settlement (d/n = shares per unit of balance), so at most
+//          one share per outbound transfer while a share is worth at least one
+//          unit. Every payout is measured against the balance at entry, so such
+//          a crumb is never paid to a later swap. Register row: "Router balance
+//          after settlement" in SHARED_QUANTITIES.md.
 //      R2  IT GRANTS NO ALLOWANCE. No `approve` anywhere. The venues that
 //          required one left the protocol — and with them left the only class
 //          of residual-allowance bug this contract has ever had.
@@ -26,8 +34,9 @@
 //          against a deflated value returns the deflated value, which is exactly
 //          the attack. An earlier design stated "measurement wins" and chose the
 //          operator that guarantees the opposite.
-//      R4  Authorisation is single-use. Classic, Permit2 and EIP-7702 enter
-//          through separate doors and none of them leaves power behind.
+//      R4  Authorisation is single-use. Classic and Permit2 enter through
+//          separate doors (an EIP-7702 account uses the classic one) and none of
+//          them leaves power behind.
 //
 //  WHAT THIS CONTRACT DELIBERATELY DOES NOT DO
 //      It does not trust the `route.totalOut` that reaches it in calldata — it
@@ -40,12 +49,16 @@
 //  interaction shape, and the calldata is built by a single dispatcher
 //  rather than per-DEX functions. The Router consists of:
 //
-//      • one entry per auth scheme: classic, Permit2, EIP-7702
+//      • four entries: classic pull, Permit2, native ETH (wrapped once at
+//        entry), and swapBestExactIn, which plans on-chain and pulls like the
+//        classic entry
 //      • one swap-callback fallback that handles every V3-shaped DEX
 //      • one V4 unlock-and-settle sequence for PoolManager singletons
-//      • a 0.28% protocol fee on the quoted output, split 30/70 between two
-//        treasuries; any output above the quoted amount (surplus) is paid in
-//        full to the user and is fee-exempt.
+//      • a 0.28% protocol fee, charged once per route on the first registered
+//        bridge coin the Router holds: the measured input of the first hop
+//        whose input is a bridge, or the realised output of a direct swap into
+//        a bridge. A route with no bridge input pays on every hop's measured
+//        input. The fee is split 30/70 between two treasuries.
 //
 //  Each leg's output is computed via the Core quote dispatcher before the
 //  on-chain swap, and the received amount is checked against the output
@@ -384,9 +397,9 @@ contract BlazePhoenixRouter {
         return _checkedSwap(route, amountIn, userMinOut, recipient, deadline);
     }
 
-    /// @dev Shared entry checks + core swap — one body for the classic and
-    ///      7702 entry points (they are deliberately identical; folding them
-    ///      keeps the Router inside the EIP-170 safety margin).
+    /// @dev Shared entry checks + core swap for the classic entry, which an
+    ///      EIP-7702 account also uses (the former 7702 alias was folded into it
+    ///      to keep the Router inside the EIP-170 safety margin).
     function _checkedSwap(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
@@ -451,14 +464,16 @@ contract BlazePhoenixRouter {
     /// @notice Native-ETH entry: wraps `msg.value` into the chain's canonical
     ///         WETH and routes it, so a user never has to pre-wrap.
     ///
-    /// @dev    Why this does NOT reopen the msg.value double-spend the missing
-    ///         receive() guards against: the value is wrapped EXACTLY ONCE, at
+    /// @dev    Why this does NOT reopen the msg.value double-spend a closed ETH
+    ///         surface guards against: the value is wrapped EXACTLY ONCE, at
     ///         entry, into a measured WETH balance, and everything downstream
     ///         works on that ERC20 amount — msg.value is never read again, and
     ///         this Router exposes no multicall/batch surface that could replay
-    ///         a single msg.value across several swaps. The fallback still
-    ///         rejects bare ETH (RouterE(3)) and there is still no receive(),
-    ///         so ETH can only ever enter through this one accounted path.
+    ///         a single msg.value across several swaps. The fallback rejects
+    ///         bare ETH (RouterE(3)), and receive() accepts ETH only from the
+    ///         one address a native-V4 unlock arms for that instant (see
+    ///         receive()), so a user's ETH can only ever enter through this one
+    ///         accounted path.
     ///         Fail-closed when `weth` was never wired (RouterE(3)).
     ///         Native OUTPUT is deliberately not implemented: the recipient
     ///         receives WETH, which no swap path can silently trap.
