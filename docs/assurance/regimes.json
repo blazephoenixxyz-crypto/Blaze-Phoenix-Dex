@@ -35,7 +35,9 @@
     { "name": "unpriced-venue", "on": "setState\\([A-Za-z0-9_]+, 0\\)",
       "why": "a pool that swaps but cannot be priced in frame: decides what the floor anchors on when a hop measured nothing" },
     { "name": "weight-tie", "on": "_pools\\(\\[",
-      "why": "band survivors of equal measured weight: decides whether the funnel cut is settled by the pool or by the order the score delivered" }
+      "why": "band survivors of equal measured weight: decides whether the funnel cut is settled by the pool or by the order the score delivered" },
+    { "name": "taxed-token", "on": "setFeeOnTransferBps\\(",
+      "why": "a token that cuts its own transfers: decides whether every published amount is in the units actually delivered" }
   ],
   "shapes": [
     { "name": "multi-hop",

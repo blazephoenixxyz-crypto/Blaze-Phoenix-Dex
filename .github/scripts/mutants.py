@@ -1848,6 +1848,11 @@ M = [
       old='                    || (rates[j] == rates[bi] && cands[j].pool < cands[bi].pool)))) bi = j;',
       new='                    ))) bi = j;',
       teste='test_FunnelCut_DoubleTie_PlanSetDoesNotReadThePsiOrder'),
+ dict(nome='ExecutionProof: floorUsed is published in the units of what was delivered',
+      f='src/BlazePhoenixRouter.sol',
+      old='        protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net);',
+      new='        // MUTANT',
+      teste='test_TaxedTokenOut_ExecutionProof_FloorUsedNeverAboveRealized'),
 ]
 
 def run(t):
