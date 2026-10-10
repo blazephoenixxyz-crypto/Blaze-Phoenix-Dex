@@ -33,7 +33,9 @@
     { "name": "foreign-revert", "on": "new BlobRevertConcPool\\(|new BlobRevertV4Manager\\(|new RefusingV3Pool\\(",
       "why": "a venue that reverts with data of its own: decides whether a quote is read only from the Quoter's own tagged payload" },
     { "name": "unpriced-venue", "on": "setState\\([A-Za-z0-9_]+, 0\\)",
-      "why": "a pool that swaps but cannot be priced in frame: decides what the floor anchors on when a hop measured nothing" }
+      "why": "a pool that swaps but cannot be priced in frame: decides what the floor anchors on when a hop measured nothing" },
+    { "name": "weight-tie", "on": "_pools\\(\\[",
+      "why": "band survivors of equal measured weight: decides whether the funnel cut is settled by the pool or by the order the score delivered" }
   ],
   "shapes": [
     { "name": "multi-hop",

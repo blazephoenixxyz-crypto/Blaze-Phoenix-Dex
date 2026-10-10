@@ -1056,7 +1056,11 @@ contract BlazePhoenixSolver {
         for (uint256 ki; ki < budget; ) {
             uint256 bi = ki;
             for (uint256 j = ki + 1; j < n; ) {
-                if (psis[j] > psis[bi]) bi = j;
+                // A weight tie is settled by the pool, never by the index: the index is the
+                // psi order the candidates arrived in (INV-7). Better marginal rate first,
+                // then the lower address, the same last resort `_seatTheSplit` uses.
+                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]
+                    || (rates[j] == rates[bi] && cands[j].pool < cands[bi].pool)))) bi = j;
                 unchecked { ++j; }
             }
             if (bi != ki) {

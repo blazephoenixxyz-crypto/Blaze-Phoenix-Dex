@@ -1838,6 +1838,16 @@ M = [
       old='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))',
       new='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || hopBlind))',
       teste='test_BlindLastHop_DeclaringNothing_CannotDisarmAnEarlierAnchor'),
+ dict(nome='funnel cut: a weight tie keeps the better marginal rate',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]',
+      new='                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (false',
+      teste='test_FunnelCut_WeightTie_KeepsTheBetterPricedPool'),
+ dict(nome='funnel cut: a weight and rate tie is settled by the pool address, not the index',
+      f='src/BlazePhoenixSolver.sol',
+      old='                    || (rates[j] == rates[bi] && cands[j].pool < cands[bi].pool)))) bi = j;',
+      new='                    ))) bi = j;',
+      teste='test_FunnelCut_DoubleTie_PlanSetDoesNotReadThePsiOrder'),
 ]
 
 def run(t):
