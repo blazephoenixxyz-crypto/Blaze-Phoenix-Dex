@@ -2256,16 +2256,19 @@ library BlazePhoenixCore {
         (uint160 spReg, , ) = v3StateAndDynFee(pool);
         depth = depthFromL18(getLiquidity(pool), spReg, dc0, dc1);
         // PROV-01 ON THE CONCENTRATED ARM: `liquidity()` is the pool's own word about itself, so
-        // the depth is capped by the tokens the pool physically holds. Holding both, the cap is
-        // the short side. Holding one, it is that side: a range with all of its liquidity on one
-        // side of the current tick legitimately holds ~zero of the other. Holding NEITHER, the
-        // mass is zero. An empty side used to switch the cap off, and a V3-shaped contract that
-        // paid out everything it held was stamped at the depth it declared (ninth wave, Binod Bk).
-        uint256 b0 = balanceOf(t0, pool);
-        uint256 b1 = balanceOf(t1, pool);
-        uint256 held = (b0 != 0 && b1 != 0)
-            ? shortSide18(b0, dc0, b1, dc1)
-            : to18(b0, dc0) + to18(b1, dc1);
+        // the depth is capped by the tokens the pool physically holds: the larger of its two
+        // holdings, normalised. A range with all of its liquidity on one side of the current tick
+        // legitimately holds ~zero of the other, so with one side empty the cap is the other
+        // side's mass; and a donation must never lower the cap. Any cap that rises in both
+        // holdings with f(a, 0) = a and f(0, b) = b has f(a, b) >= f(a, 0) = a and
+        // f(a, b) >= f(0, b) = b, so f(a, b) >= max(a, b): the short side, which one wei donated
+        // to the empty side collapsed to one wei, is not such a cap, and max is the least one.
+        // Holding NEITHER, the mass is zero. An empty side used to switch the cap off, and a
+        // V3-shaped contract that paid out everything it held was stamped at the depth it
+        // declared (ninth wave, Binod Bk).
+        uint256 n0 = to18(balanceOf(t0, pool), dc0);
+        uint256 n1 = to18(balanceOf(t1, pool), dc1);
+        uint256 held = n0 > n1 ? n0 : n1;
         if (held < depth) depth = held;
     }
 

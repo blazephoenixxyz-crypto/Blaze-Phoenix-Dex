@@ -37,7 +37,9 @@
     { "name": "weight-tie", "on": "_pools\\(\\[",
       "why": "band survivors of equal measured weight: decides whether the funnel cut is settled by the pool or by the order the score delivered" },
     { "name": "taxed-token", "on": "setFeeOnTransferBps\\(",
-      "why": "a token that cuts its own transfers: decides whether every published amount is in the units actually delivered" }
+      "why": "a token that cuts its own transfers: decides whether every published amount is in the units actually delivered" },
+    { "name": "declared-above-held", "on": "setState\\(Q96, uint128\\(1e30\\)\\)",
+      "why": "a concentrated pool declaring far more liquidity than it holds: decides whether the holdings cap is monotone in what the pool holds" }
   ],
   "shapes": [
     { "name": "multi-hop",

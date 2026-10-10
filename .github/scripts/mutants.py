@@ -907,12 +907,12 @@ M = [
  dict(nome="empty book: an empty side switches the registry's mass cap off again",
       f="src/BlazePhoenixCore.sol",
       old="        if (held < depth) depth = held;",
-      new="        if (held < depth && b0 != 0 && b1 != 0) depth = held; // MUTANT",
+      new="        if (held < depth && n0 != 0 && n1 != 0) depth = held; // MUTANT",
       teste="test_AnEmptyBookIsSeatedAtTheMassItHolds_WhichIsNone"),
  dict(nome="empty book: a one-sided book is zeroed (over-tight: a range wholly on one side holds real tokens)",
       f="src/BlazePhoenixCore.sol",
-      old="            : to18(b0, dc0) + to18(b1, dc1);",
-      new="            : 0; // MUTANT",
+      old="        uint256 held = n0 > n1 ? n0 : n1;",
+      new="        uint256 held = (n0 != 0 && n1 != 0) ? (n0 > n1 ? n0 : n1) : 0; // MUTANT",
       teste="test_AOneSidedBookKeepsTheMassOfTheSideItHolds"),
  # ── the multi-hop twin of the floor (found by the review pass after PR #25) ──
  dict(nome="floor, multi-hop: a leg's impact stops being weighted by its share",
@@ -1853,6 +1853,11 @@ M = [
       old='        protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net);',
       new='        // MUTANT',
       teste='test_TaxedTokenOut_ExecutionProof_FloorUsedNeverAboveRealized'),
+ dict(nome='registryDepth18: the concentrated holdings cap never falls when the pool holds more',
+      f='src/BlazePhoenixCore.sol',
+      old='        uint256 held = n0 > n1 ? n0 : n1;',
+      new='        uint256 held = (n0 != 0 && n1 != 0) ? (n0 < n1 ? n0 : n1) : n0 + n1;',
+      teste='test_RegistryDepth18_OneWeiDonation_NeverLowersTheDepth'),
 ]
 
 def run(t):

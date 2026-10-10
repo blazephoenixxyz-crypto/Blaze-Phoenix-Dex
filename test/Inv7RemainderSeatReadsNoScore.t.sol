@@ -96,7 +96,10 @@ contract Inv7RemainderSeatReadsNoScoreTest is Test {
         uint256 sp = address(X) < address(Y)
             ? _sqrt(2000 << 192)
             : _sqrt((uint256(1) << 192) / 2000);
-        V.setState(uint160(sp), 1e25);
+        // V declares the liquidity of what it holds on its short side, 5 X at 2000 Y/X
+        // (L = 5e18 * sqrt(2000)), so its registry depth is that short side and the
+        // holdings cap is inert on it.
+        V.setState(uint160(sp), 223_606_797_749_978_969_640);
         X.mint(address(V), 5e18);
         Y.mint(address(V), 10_000e18);
         hub.seedPool(address(V), BPC.KIND_V3, 500, address(0), address(X), address(Y));
