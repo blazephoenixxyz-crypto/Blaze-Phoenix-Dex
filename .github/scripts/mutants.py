@@ -1883,6 +1883,34 @@ M = [
       old='                if (bound < covered) bound = covered;',
       new='                if (bound < covered) bound = qs; // MUTANT',
       teste='test_LegFloor_LowerAttestation_NeverRefusedWhereAHigherOneSettles'),
+ # ── guards with a watcher and no mutant (coverage census, 2026-10-10) ──────
+ # Each of these had a test that drives it and expects its exact error, and no
+ # mutant proving the test can fail. One mutant per arm of the condition.
+ dict(nome='rescue: an unqueued rescue (eta == 0) is refused',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (eta == 0 || block.timestamp < eta) revert RouterE(14);',
+      new='        if (block.timestamp < eta) revert RouterE(14); // MUTANT',
+      teste='test_Rescue_RevertsBeforeQueue'),
+ dict(nome='rescue: a queued rescue is refused inside the timelock',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (eta == 0 || block.timestamp < eta) revert RouterE(14);',
+      new='        if (eta == 0) revert RouterE(14); // MUTANT',
+      teste='test_Rescue_RevertsInsideTimelock'),
+ dict(nome='safeTransfer: a transfer that returns false is not a payment',
+      f='src/BlazePhoenixCore.sol',
+      old='        require(ok, "BPC:transfer");',
+      new='        ok; // MUTANT',
+      teste='test_SafeTransfer_FalseReturnIsRefused'),
+ dict(nome='safeTransferFrom: a codeless or false-returning token is not a pull',
+      f='src/BlazePhoenixCore.sol',
+      old='        require(ok, "BPC:transferFrom");',
+      new='        ok; // MUTANT',
+      teste='test_SafeTransferFrom_CodelessAndFalseReturnAreRefused'),
+ dict(nome='pair leg: a leg whose pool math pays nothing is refused before the swap',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (outAmt == 0) revert RouterE(8);',
+      new='        outAmt; // MUTANT',
+      teste='test_LegDeliveringNothing_IsRefusedBeforeTheFloorMatters'),
 ]
 
 def run(t):
