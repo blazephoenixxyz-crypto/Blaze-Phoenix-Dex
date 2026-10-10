@@ -94,8 +94,8 @@ M = [
       teste="test_Native_DeliveryBelowInFrameFloorIsRefused"),
  dict(nome="portao-de-cobertura: elevacao para a quote medida",
       f="src/BlazePhoenixRouter.sol",
-      old="                if (bound < BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)) bound = qs;",
-      new="                qs; // MUTANTE",
+      old="                if (bound < covered) bound = covered;",
+      new="                covered; // MUTANTE",
       teste="test_BleedingLegHiddenInAHealthyTotalIsCaught"),
  dict(nome="portao-de-cobertura: o piso por perna",
       f="src/BlazePhoenixRouter.sol",
@@ -1878,6 +1878,11 @@ M = [
       old='        if (!kindHas(kind, A_RESERVES)) return true;\n        (uint256 r0, uint256 r1) = getReserves(pool);',
       new='        (uint256 r0, uint256 r1) = getReserves(pool);',
       teste='test_ConcentratedPool_AnsweringReserves_StillRegisters'),
+ dict(nome='coverage gate: the bound is lifted to the threshold, not the whole quote (monotone in the attestation)',
+      f='src/BlazePhoenixRouter.sol',
+      old='                if (bound < covered) bound = covered;',
+      new='                if (bound < covered) bound = qs; // MUTANT',
+      teste='test_LegFloor_LowerAttestation_NeverRefusedWhereAHigherOneSettles'),
 ]
 
 def run(t):

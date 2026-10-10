@@ -1714,7 +1714,15 @@ contract BlazePhoenixRouter {
             // a max. If the attestation plausibly covers the quote measured in-frame, the
             // attestation is used and behaviour is byte-for-byte what it is today on honest routes
             // (coverage ~100%). If it does not cover it, the caller deflated itself and the floor
-            // comes to rest on the measurement.
+            // comes to rest on the covered share of the measurement: the bound is
+            // max(attested, qs * MIN_QUOTE_COVERAGE_BPS / BPS).
+            //
+            // MONOTONE IN THE ATTESTATION. The gate used to lift a deflated bound to the WHOLE
+            // measurement, so an attestation just below the threshold read a floor of `qs` and
+            // one just above it a floor of half of that: attesting more lowered the floor. With
+            // the bound lifted to the threshold itself, attesting more never lowers it, and the
+            // lowest floor a caller can reach is unchanged - attesting exactly at the threshold
+            // reached it before.
             //
             // MAX, NOT MIN. On a FLOOR, `min(claimed, measured)` with a deflated claim returns the
             // deflated one — that is, it RELAXES, exactly the attack this is meant to close. For
@@ -1738,7 +1746,8 @@ contract BlazePhoenixRouter {
             // is not a precision drift, it is deliberate deflation. Zero new constants.
             if (legQuote != 0 && legAmt != 0) {
                 uint256 qs = BPC.mulDiv(legQuote, amt, legAmt);
-                if (bound < BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)) bound = qs;
+                uint256 covered = BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
+                if (bound < covered) bound = covered;
             }
 
             // ─── RE-PRICE BY THE FoT MEASUREMENT ───

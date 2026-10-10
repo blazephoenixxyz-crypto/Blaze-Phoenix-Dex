@@ -41,7 +41,9 @@
     { "name": "declared-above-held", "on": "setState\\(Q96, uint128\\(1e30\\)\\)",
       "why": "a concentrated pool declaring far more liquidity than it holds: decides whether the holdings cap is monotone in what the pool holds" },
     { "name": "forged-registration", "on": "new ForgeablePair\\(",
-      "why": "a pair whose reserves may exceed what it holds, swapped through the real door: decides whether the registry seats a pool on mass nobody deposited" }
+      "why": "a pair whose reserves may exceed what it holds, swapped through the real door: decides whether the registry seats a pool on mass nobody deposited" },
+    { "name": "deflated-attestation", "on": "setSwapLiquidity\\(uint128\\(818e18\\)\\)",
+      "why": "a leg attested well below its in-frame quote: decides whether the coverage gate keeps the floor monotone in the attestation" }
   ],
   "shapes": [
     { "name": "multi-hop",
