@@ -555,7 +555,8 @@ library BlazePhoenixCore {
             let p := mload(0x40)
             mstore(p, 0x22be3de100000000000000000000000000000000000000000000000000000000)
             let ok := staticcall(GAS_CAP, pool, p, 0x04, 0x00, 0x20)
-            yes := and(ok, iszero(lt(returndatasize(), 32)))
+            // The answer must be an ABI bool: a word above 1 is not a shape answer.
+            yes := and(and(ok, iszero(lt(returndatasize(), 32))), lt(mload(0x00), 2))
         }
     }
 
@@ -805,9 +806,12 @@ library BlazePhoenixCore {
             // would read stale memory as reserves. >= (not ==) because a real
             // getReserves() returns 96 bytes (uint112,uint112,uint32).
             if staticcall(GAS_CAP, pool, m, 4, m, 64) {
+                // A word wider than the uint112 the interface promises is not a
+                // reserve: masking it read 2^112 + x as x. Unreadable = no reserves.
                 if iszero(lt(returndatasize(), 64)) {
-                    r0 := and(mload(m), 0xffffffffffffffffffffffffffff)
-                    r1 := and(mload(add(m, 32)), 0xffffffffffffffffffffffffffff)
+                    r0 := mload(m)
+                    r1 := mload(add(m, 32))
+                    if shr(112, or(r0, r1)) { r0 := 0 r1 := 0 }
                 }
             }
         }

@@ -1803,6 +1803,21 @@ M = [
       old="            if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);",
       new="            residIn; // MUTANT",
       teste="test_RouterBalanceAfterSettlement_PlainToken_PartialCommitment_IsZero"),
+ dict(nome="forged reserves: a reserve-shaped split leg promising more than its holdings is dropped",
+      f="src/BlazePhoenixSolver.sol",
+      old="            if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES) && outL > balsOut[i]) outL = 0;",
+      new="            // MUTANT",
+      teste="test_ForgedReservesVenue_IsNeverQuotedAboveItsHoldings"),
+ dict(nome="getReserves: a word wider than uint112 reads as no reserves, never truncated",
+      f="src/BlazePhoenixCore.sol",
+      old="                    if shr(112, or(r0, r1)) { r0 := 0 r1 := 0 }",
+      new="                    r0 := and(r0, 0xffffffffffffffffffffffffffff) r1 := and(r1, 0xffffffffffffffffffffffffffff)",
+      teste="test_ReserveWordAbove112Bits_ReadsAsNoReserves"),
+ dict(nome="isSolidlyShaped: a stable() word above 1 is not a shape answer",
+      f="src/BlazePhoenixCore.sol",
+      old="            yes := and(and(ok, iszero(lt(returndatasize(), 32))), lt(mload(0x00), 2))",
+      new="            yes := and(ok, iszero(lt(returndatasize(), 32)))",
+      teste="test_NonCanonicalStableWord_IsNotSolidlyShaped"),
 ]
 
 def run(t):

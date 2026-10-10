@@ -808,6 +808,10 @@ contract BlazePhoenixSolver {
             allocated += share;
             if (share == 0) { unchecked { ++i; } continue; }
             uint256 outL = _quote(cands[i], tIn, share);
+            // A reserve-shaped pool can never pay more than it holds (out < reserveOut <=
+            // balance on an honest pair), so a promise above its tokenOut holdings comes
+            // from forged reserves: the leg is dropped (balsOut is already read above).
+            if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES) && outL > balsOut[i]) outL = 0;
             if (outL == 0) { unchecked { ++i; } continue; }
             // ─── Capacity clamp (see MAX_CONC_DRAIN_BPS) ───
             // A single-tick concentrated quote is capped at a fraction of the pool's REAL

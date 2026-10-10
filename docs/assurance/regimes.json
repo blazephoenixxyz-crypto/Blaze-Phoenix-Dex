@@ -27,7 +27,9 @@
     { "name": "native",     "on": "\\.setWeth\\(",
       "why": "the wrap/unwrap bijection is the only place value changes representation" },
     { "name": "operator",   "on": "\\.setOperator\\(",
-      "why": "a seat that outlives renunciation, so what it can still do is bounded by nothing else" }
+      "why": "a seat that outlives renunciation, so what it can still do is bounded by nothing else" },
+    { "name": "reserves-above-holdings", "on": "new FakePair\\(|new WideReservesPair\\(",
+      "why": "a pair whose declared reserves exceed what it holds: decides whether a reserve-shaped promise is bounded by the venue's holdings" }
   ],
   "shapes": [
     { "name": "multi-hop",
