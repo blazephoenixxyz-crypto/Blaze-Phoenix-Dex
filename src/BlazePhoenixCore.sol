@@ -2215,6 +2215,19 @@ library BlazePhoenixCore {
         ok = true;
     }
 
+    /// @notice Does a reserve-shaped pool hold the reserves it reports? An honest pair never
+    ///         reports more than it holds: sync copies balances into reserves, and a donation
+    ///         only raises the balance (PROV-01). A pair whose reserves exceed its holdings on
+    ///         either side reports liquidity nobody deposited (duxun D1). The swap door asks
+    ///         this after the swap and skips the registration when the answer is no. Other
+    ///         kinds answer true: their mass is capped where their depth is read. `t0`/`t1`
+    ///         are the pool's own token0/token1, already proven by the caller.
+    function reservesHeld(address pool, uint8 kind, address t0, address t1) public view returns (bool) {
+        if (!kindHas(kind, A_RESERVES)) return true;
+        (uint256 r0, uint256 r1) = getReserves(pool);
+        return r0 <= balanceOf(t0, pool) && r1 <= balanceOf(t1, pool);
+    }
+
     /// @notice The depth the registry records for a pool, in 18-decimal units: measured, never
     ///         declared, and by ONE producer for every door that seals a row - the Router after
     ///         a swap and the operator's door at seeding (dex-17). Pair shapes: reserves capped

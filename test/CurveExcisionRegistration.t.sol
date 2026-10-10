@@ -38,6 +38,7 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract CurveExcisionRegistrationTest is Test {
@@ -111,8 +112,13 @@ contract CurveExcisionRegistrationTest is Test {
     /// decisao de registo. Por isso a assercao e sobre o ESTADO, nao sobre um revert — e por isso
     /// e que este caso precisava de um teste proprio em vez de caber no padrao dos outros.
     function test_RecordSwapRejectsExcisedKind() public {
-        MockV2Pair p = new MockV2Pair(address(0xAAA1), address(0xBBB2));
+        MockERC20 a = new MockERC20("A", "A");
+        MockERC20 b = new MockERC20("B", "B");
+        MockV2Pair p = new MockV2Pair(address(a), address(b));
         (address t0, address t1) = (p.token0(), p.token1());
+        // O par detem as reservas que reporta: a porta do recordSwap nao regista outro.
+        a.mint(address(p), 1e21);
+        b.mint(address(p), 1e21);
         p.setReserves(1e21, 1e21);
 
         // Lapide: o registo tem de ficar INTACTO.

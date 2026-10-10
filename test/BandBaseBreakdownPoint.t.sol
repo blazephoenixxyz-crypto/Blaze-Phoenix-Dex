@@ -56,7 +56,9 @@ contract BandBaseBreakdownPointTest is Test {
         p = new MockV2Pair(address(tA), address(tB));
         tA.mint(address(p), rA);
         tB.mint(address(p), rB);
-        p.setReserves(rA, rB);
+        // reserves in the pair's own token order, so each side reports what it holds
+        (uint112 r0, uint112 r1) = p.token0() == address(tA) ? (rA, rB) : (rB, rA);
+        p.setReserves(r0, r1);
         for (uint256 i; i < 4; i++) {
             hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0),
                 address(tA), address(tB), 1e18, 1e18, rA < rB ? rA : rB);

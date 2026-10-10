@@ -20,23 +20,28 @@ interface IERC20 {
     function approve(address, uint256) external returns (bool);
 }
 
-/// A hostile venue's venue: honest token0/token1, forged reserves at the honest
-/// price ratio, pays only what it physically holds.
+/// A hostile venue: honest token0/token1, honest reserves until it has a seat on the pair
+/// (the swap door registers no pair reporting more than it holds), then forged reserves at
+/// the honest price ratio. Pays only what it physically holds.
 contract FakePair {
     address public immutable token0;
     address public immutable token1;
     uint112 public constant FAKE_R0 = uint112(1e24);
     uint112 public constant FAKE_R1 = uint112(1e24);
     bool public payNothing;
+    bool public forged;
 
     constructor(address a, address b) {
         token0 = a < b ? a : b;
         token1 = a < b ? b : a;
     }
 
-    function getReserves() external pure returns (uint112, uint112, uint32) {
-        return (FAKE_R0, FAKE_R1, uint32(0));
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        if (forged) return (FAKE_R0, FAKE_R1, uint32(0));
+        return (uint112(IERC20(token0).balanceOf(address(this))), uint112(IERC20(token1).balanceOf(address(this))), 0);
     }
+
+    function forge() external { forged = true; }
 
     function setPayNothing(bool b) external { payNothing = b; }
 
@@ -119,9 +124,11 @@ contract ForgedReservesCannotOutquoteHoldings is Test {
     function test_ForgedReservesVenue_IsNeverQuotedAboveItsHoldings() public {
         vm.prank(attacker);
         router.swapExactIn(_route(address(honest), 1e6), 1e6, 1, attacker, block.timestamp + 1);
+        MockERC20(t0).mint(address(fake), 1e12); // an honest-looking book on both sides
         vm.prank(attacker);
         router.swapExactIn(_route(address(fake), 1e6), 1e6, 1, attacker, block.timestamp + 1);
         assertEq(hub.getActivePools(t0, t1).length, 2, "fixture: both venues reached the registry");
+        fake.forge(); // seated while honest, forged from here on
 
         (BlazePhoenixQuoter.Preview memory pv, , ) = quoter.previewPlan(t0, t1, 1e18);
         assertTrue(pv.canExecute, "control: the honest venue still routes the order");
