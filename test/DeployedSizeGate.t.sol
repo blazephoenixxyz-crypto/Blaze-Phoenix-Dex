@@ -7,6 +7,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 
+// A size limit that only runs when someone remembers it is a size hope.
 /// @notice The size limit, checked where nothing can stop it running.
 ///
 ///         This repository already had a size guard: a CI job that parses `forge build --sizes`

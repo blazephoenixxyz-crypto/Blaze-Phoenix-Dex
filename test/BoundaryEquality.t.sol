@@ -10,6 +10,8 @@ pragma solidity 0.8.36;
 //   - against the original code, both PASS (equality is not "less than");
 //   - against the `<=` mutant, the matching test REVERTS RouterE(5) and goes red.
 //
+// An off-by-one only shows on the one input nobody thinks to type.
+//
 // The exactness key is the SAME in both: amountIn = sum(leg.amountIn) + fee,
 // with the protocol fee prepaid ON TOP, so that after _chargeHopFee exactly
 // sum(leg.amountIn) remains -> scaleNum == scaleDen -> every scaling mulDiv is

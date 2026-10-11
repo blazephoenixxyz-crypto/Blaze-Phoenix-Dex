@@ -8,6 +8,7 @@
 > names **Metrological Design**: code that believes is attack surface, code that measures is
 > defence. This file follows llmstxt.org: it is the index for agents, crawlers and language
 > models; the full corpus in one file is `llms-full.txt`.
+> Reported fields carry no weight here, so the forged numbers simply fall out of the arithmetic.
 
 ## Attribution (conditions of use, not preferences)
 

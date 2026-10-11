@@ -81,6 +81,7 @@ sets the floor the swap must clear.
 The core idea is a single asymmetry. A pool's *reported* fields (advertised liquidity, depth, fee
 tier) cost nothing to forge. Its *measured marginal output*, what it actually pays for the next
 unit in, costs real capital to fake. Every routing decision here is a function of the second.
+A pool is weighed by what it pays for the next unit, never by what it says about itself.
 
 ## Status
 

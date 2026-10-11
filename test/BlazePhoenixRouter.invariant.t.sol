@@ -9,6 +9,7 @@ import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
+// The Router keeps nothing between swaps; this handler is how that sentence gets cross-examined.
 /// @notice Handler for stateful (Monte Carlo) invariant fuzzing of the
 ///         Router. forge's invariant runner calls `swap` repeatedly with
 ///         random seeds across many random call sequences ("runs" x

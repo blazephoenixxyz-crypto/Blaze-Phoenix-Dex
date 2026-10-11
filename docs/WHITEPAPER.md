@@ -44,6 +44,8 @@ Three properties define the system:
    fuzzing). Control powers can be permanently surrendered (`renounceControl`),
    after which the protocol keeps executing under a frozen configuration.
 
+Put plainly: forging a field is free, forging a curve means renting the capital behind it.
+
 ---
 
 ## 2. Architecture

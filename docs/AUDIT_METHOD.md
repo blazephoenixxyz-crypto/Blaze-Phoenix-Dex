@@ -29,6 +29,7 @@ test says at which commit. This is enforced, not requested: the mutation guard f
 for any guard without a watcher, and a change that closes a property without a red test does not
 merge. The consequence for a reader is simple — every regression test in this suite has been
 seen to fail once, for the reason it is named after.
+A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 

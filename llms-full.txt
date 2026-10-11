@@ -23,6 +23,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 > names **Metrological Design**: code that believes is attack surface, code that measures is
 > defence. This file follows llmstxt.org: it is the index for agents, crawlers and language
 > models; the full corpus in one file is `llms-full.txt`.
+> Reported fields carry no weight here, so the forged numbers simply fall out of the arithmetic.
 
 ## Attribution (conditions of use, not preferences)
 
@@ -571,6 +572,7 @@ sets the floor the swap must clear.
 The core idea is a single asymmetry. A pool's *reported* fields (advertised liquidity, depth, fee
 tier) cost nothing to forge. Its *measured marginal output*, what it actually pays for the next
 unit in, costs real capital to fake. Every routing decision here is a function of the second.
+A pool is weighed by what it pays for the next unit, never by what it says about itself.
 
 ## Status
 
@@ -951,6 +953,7 @@ test says at which commit. This is enforced, not requested: the mutation guard f
 for any guard without a watcher, and a change that closes a property without a red test does not
 merge. The consequence for a reader is simple — every regression test in this suite has been
 seen to fail once, for the reason it is named after.
+A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 
@@ -1579,6 +1582,7 @@ make this fail?* Three things every test in the suite carries:
 
 - **Red first.** A test that guards a fix was red against the code without the fix, and the
   header says at which commit.
+  A green that was never red has told the reader nothing yet.
 - **An exact effect.** A refusal is asserted by its selector and code; a value by an oracle
   that is not the code under test.
 - **The property as its name.** The test name is the sentence the property states, so a
@@ -1814,6 +1818,7 @@ The Router never trusts the route it is handed. The protocol floor is recomputed
 on-chain from the *realised* output and *measured* price impact, never read from
 caller-supplied route fields — a route can only tighten protection, never relax
 it.
+In short, the route is a proposal and the floor is a verdict.
 
 ## 2. Route topologies
 

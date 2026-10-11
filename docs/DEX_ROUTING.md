@@ -29,6 +29,7 @@ The Router never trusts the route it is handed. The protocol floor is recomputed
 on-chain from the *realised* output and *measured* price impact, never read from
 caller-supplied route fields — a route can only tighten protection, never relax
 it.
+In short, the route is a proposal and the floor is a verdict.
 
 ## 2. Route topologies
 

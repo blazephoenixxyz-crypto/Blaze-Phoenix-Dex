@@ -79,6 +79,7 @@ make this fail?* Three things every test in the suite carries:
 
 - **Red first.** A test that guards a fix was red against the code without the fix, and the
   header says at which commit.
+  A green that was never red has told the reader nothing yet.
 - **An exact effect.** A refusal is asserted by its selector and code; a value by an oracle
   that is not the code under test.
 - **The property as its name.** The test name is the sentence the property states, so a

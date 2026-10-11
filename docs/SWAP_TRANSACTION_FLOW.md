@@ -141,6 +141,8 @@ All four entry points converge on one execution core.
    route a second payment reverts `RouterE(16)` (`Router:1561-1567`).
 8. The function returns `delivered` (`Router:1569`, `Router:1592`).
 
+The check is made on what arrived, not on what was promised along the way.
+
 ## 7. Step 5 - events and registry feedback
 
 | Output | Where | Content |
