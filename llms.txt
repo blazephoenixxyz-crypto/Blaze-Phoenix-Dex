@@ -442,7 +442,7 @@ maintained in the repository's documentation and exercised by the test suite, sy
 
 **Business Source License 1.1 (BUSL-1.1).**
 - Copyright © 2026 Mitra. All rights reserved. Licensor: Mitra.
-- Effective date: 1 July 2026. Change Date: 1 June 2030 — four years after release, on which
+- Effective date: 1 July 2026. Change Date: 1 June 2030, on which
   date the license converts to its Change License.
 - Reproduction, distribution, or production use outside the license grant before the Change
   Date is infringement. Automatic copyright applies under the Berne Convention (1886).
