@@ -1852,6 +1852,10 @@ contract BlazePhoenixHub {
             bool proven;
             (proven, kind, feeReg) = BPC.provenShape(pool, kind);
             if (!proven) return;
+            // WHAT IT HOLDS, NOT WHAT IT SAYS (duxun D1). Read after the swap the pool has just
+            // executed: a reserve-shaped pool whose reserves exceed its holdings reports mass
+            // nobody deposited, and it does not take a seat on the pair. The swap is unaffected.
+            if (!BPC.reservesHeld(pool, kind, t0, t1)) return;
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false, depthWad);
         // initial tick + stamp wall-clock activity time

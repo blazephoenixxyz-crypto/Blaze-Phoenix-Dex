@@ -93,6 +93,12 @@ contract KindIsDerivedNotDeclaredTest is Test {
         tokB = new MockERC20("B", "B");
     }
 
+    /// A pair holds the reserves it reports (the swap door registers nothing else).
+    function _hold(address p) internal {
+        tokA.mint(p, 1_000e18);
+        tokB.mint(p, 1_000e18);
+    }
+
     function _kindOf(address pool, address t0, address t1) internal view returns (uint8) {
         PoolInfo[] memory ps = hub.getActivePools(t0, t1);
         for (uint256 i; i < ps.length; ++i) {
@@ -151,6 +157,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// stable(); a Uniswap-V2 pair does not. RED before the fix.
     function test_SolidlyShapedPool_MustNotPersistAsV2() public {
         MockSolidlyPair p = new MockSolidlyPair(address(tokA), address(tokB), false);
+        _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
         hub.recordSwap(
@@ -166,6 +173,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// haircut (200 bps) on every quote, forever. RED before the fix.
     function test_V2Pair_MustNotPersistAsSolidly() public {
         MockV2Pair p = new MockV2Pair(address(tokA), address(tokB));
+        _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
         hub.recordSwap(
@@ -181,6 +189,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// as Solidly (the probe agrees with the calldata).
     function test_Control_HonestSolidlyRegisters() public {
         MockSolidlyPair p = new MockSolidlyPair(address(tokA), address(tokB), true);
+        _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
         hub.recordSwap(
@@ -201,6 +210,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// producer answers). RED before the fix: the row carried 3.
     function test_V2PairWithForeignFeeGetter_RowFeeIsZero() public {
         V2PairWithFeeGetter p = new V2PairWithFeeGetter(address(tokA), address(tokB));
+        _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
         hub.recordSwap(

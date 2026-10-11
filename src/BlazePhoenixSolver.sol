@@ -808,6 +808,10 @@ contract BlazePhoenixSolver {
             allocated += share;
             if (share == 0) { unchecked { ++i; } continue; }
             uint256 outL = _quote(cands[i], tIn, share);
+            // A reserve-shaped pool can never pay more than it holds (out < reserveOut <=
+            // balance on an honest pair), so a promise above its tokenOut holdings comes
+            // from forged reserves: the leg is dropped (balsOut is already read above).
+            if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES) && outL > balsOut[i]) outL = 0;
             if (outL == 0) { unchecked { ++i; } continue; }
             // ─── Capacity clamp (see MAX_CONC_DRAIN_BPS) ───
             // A single-tick concentrated quote is capped at a fraction of the pool's REAL
@@ -1052,7 +1056,11 @@ contract BlazePhoenixSolver {
         for (uint256 ki; ki < budget; ) {
             uint256 bi = ki;
             for (uint256 j = ki + 1; j < n; ) {
-                if (psis[j] > psis[bi]) bi = j;
+                // A weight tie is settled by the pool, never by the index: the index is the
+                // psi order the candidates arrived in (INV-7). Better marginal rate first,
+                // then the lower address, the same last resort `_seatTheSplit` uses.
+                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]
+                    || (rates[j] == rates[bi] && cands[j].pool < cands[bi].pool)))) bi = j;
                 unchecked { ++j; }
             }
             if (bi != ki) {

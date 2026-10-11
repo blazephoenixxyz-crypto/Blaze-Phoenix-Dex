@@ -75,10 +75,10 @@ contract PlanStubSolver {
 }
 
 /// @notice A V3-shaped pool that refuses the dry-run with a string revert.
-///         Error("SPL") encodes to 100 bytes, so _simConc's `length != 64`
-///         guard maps it to 0 — the realistic way Quoter.sol:497 is reached
+///         Error("SPL") is not the Quoter's tagged delta payload, so
+///         _simConc maps it to 0 — the realistic way Quoter.sol:497 is reached
 ///         (zero-liquidity "SPL", locked or paused pools all revert with
-///         strings, not with the Quoter's 64-byte delta payload).
+///         strings, not with the Quoter's QuoteDeltas payload).
 contract RefusingV3Pool {
     function swap(address, bool, int256, uint160, bytes calldata)
         external pure returns (int256, int256)

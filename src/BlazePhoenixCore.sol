@@ -555,7 +555,8 @@ library BlazePhoenixCore {
             let p := mload(0x40)
             mstore(p, 0x22be3de100000000000000000000000000000000000000000000000000000000)
             let ok := staticcall(GAS_CAP, pool, p, 0x04, 0x00, 0x20)
-            yes := and(ok, iszero(lt(returndatasize(), 32)))
+            // The answer must be an ABI bool: a word above 1 is not a shape answer.
+            yes := and(and(ok, iszero(lt(returndatasize(), 32))), lt(mload(0x00), 2))
         }
     }
 
@@ -805,9 +806,12 @@ library BlazePhoenixCore {
             // would read stale memory as reserves. >= (not ==) because a real
             // getReserves() returns 96 bytes (uint112,uint112,uint32).
             if staticcall(GAS_CAP, pool, m, 4, m, 64) {
+                // A word wider than the uint112 the interface promises is not a
+                // reserve: masking it read 2^112 + x as x. Unreadable = no reserves.
                 if iszero(lt(returndatasize(), 64)) {
-                    r0 := and(mload(m), 0xffffffffffffffffffffffffffff)
-                    r1 := and(mload(add(m, 32)), 0xffffffffffffffffffffffffffff)
+                    r0 := mload(m)
+                    r1 := mload(add(m, 32))
+                    if shr(112, or(r0, r1)) { r0 := 0 r1 := 0 }
                 }
             }
         }
@@ -2211,6 +2215,19 @@ library BlazePhoenixCore {
         ok = true;
     }
 
+    /// @notice Does a reserve-shaped pool hold the reserves it reports? An honest pair never
+    ///         reports more than it holds: sync copies balances into reserves, and a donation
+    ///         only raises the balance (PROV-01). A pair whose reserves exceed its holdings on
+    ///         either side reports liquidity nobody deposited (duxun D1). The swap door asks
+    ///         this after the swap and skips the registration when the answer is no. Other
+    ///         kinds answer true: their mass is capped where their depth is read. `t0`/`t1`
+    ///         are the pool's own token0/token1, already proven by the caller.
+    function reservesHeld(address pool, uint8 kind, address t0, address t1) public view returns (bool) {
+        if (!kindHas(kind, A_RESERVES)) return true;
+        (uint256 r0, uint256 r1) = getReserves(pool);
+        return r0 <= balanceOf(t0, pool) && r1 <= balanceOf(t1, pool);
+    }
+
     /// @notice The depth the registry records for a pool, in 18-decimal units: measured, never
     ///         declared, and by ONE producer for every door that seals a row - the Router after
     ///         a swap and the operator's door at seeding (dex-17). Pair shapes: reserves capped
@@ -2252,16 +2269,19 @@ library BlazePhoenixCore {
         (uint160 spReg, , ) = v3StateAndDynFee(pool);
         depth = depthFromL18(getLiquidity(pool), spReg, dc0, dc1);
         // PROV-01 ON THE CONCENTRATED ARM: `liquidity()` is the pool's own word about itself, so
-        // the depth is capped by the tokens the pool physically holds. Holding both, the cap is
-        // the short side. Holding one, it is that side: a range with all of its liquidity on one
-        // side of the current tick legitimately holds ~zero of the other. Holding NEITHER, the
-        // mass is zero. An empty side used to switch the cap off, and a V3-shaped contract that
-        // paid out everything it held was stamped at the depth it declared (ninth wave, Binod Bk).
-        uint256 b0 = balanceOf(t0, pool);
-        uint256 b1 = balanceOf(t1, pool);
-        uint256 held = (b0 != 0 && b1 != 0)
-            ? shortSide18(b0, dc0, b1, dc1)
-            : to18(b0, dc0) + to18(b1, dc1);
+        // the depth is capped by the tokens the pool physically holds: the larger of its two
+        // holdings, normalised. A range with all of its liquidity on one side of the current tick
+        // legitimately holds ~zero of the other, so with one side empty the cap is the other
+        // side's mass; and a donation must never lower the cap. Any cap that rises in both
+        // holdings with f(a, 0) = a and f(0, b) = b has f(a, b) >= f(a, 0) = a and
+        // f(a, b) >= f(0, b) = b, so f(a, b) >= max(a, b): the short side, which one wei donated
+        // to the empty side collapsed to one wei, is not such a cap, and max is the least one.
+        // Holding NEITHER, the mass is zero. An empty side used to switch the cap off, and a
+        // V3-shaped contract that paid out everything it held was stamped at the depth it
+        // declared (ninth wave, Binod Bk).
+        uint256 n0 = to18(balanceOf(t0, pool), dc0);
+        uint256 n1 = to18(balanceOf(t1, pool), dc1);
+        uint256 held = n0 > n1 ? n0 : n1;
         if (held < depth) depth = held;
     }
 

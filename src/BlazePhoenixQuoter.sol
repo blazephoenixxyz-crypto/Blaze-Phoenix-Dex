@@ -151,6 +151,9 @@ contract BlazePhoenixQuoter {
     IHubQ    public immutable hub;
 
     error QuoterE(uint16 code);
+    /// @dev The payload both quote callbacks revert with. Tagged, so a venue's own
+    ///      revert data can never be read as a quote, whatever its length.
+    error QuoteDeltas(int256 d0, int256 d1);
 
     constructor(address hub_, address solver_) {
         if (hub_ == address(0) || solver_ == address(0)) revert QuoterE(3);
@@ -471,8 +474,17 @@ contract BlazePhoenixQuoter {
         if (msg.data.length < 4 + 64) revert QuoterE(6);
         int256 a0; int256 a1;
         assembly { a0 := calldataload(4) a1 := calldataload(36) }
-        bytes memory payload = abi.encode(a0, a1);
-        assembly { revert(add(payload, 32), mload(payload)) }
+        revert QuoteDeltas(a0, a1);
+    }
+
+    /// @dev The deltas a quote callback reverted with, or (0, 0) when `reason` is not that
+    ///      payload. The tag tells our payload apart from a pool's own revert data; it does
+    ///      not authenticate the pool, which can call the callback with any deltas (the
+    ///      QuoterV2 trust model). (0, 0) is no quote under both callers' sign checks.
+    function _ownDeltas(bytes memory reason) private pure returns (int256 d0, int256 d1) {
+        if (reason.length != 68) return (0, 0);
+        if (bytes4(reason) != QuoteDeltas.selector) return (0, 0);
+        assembly { d0 := mload(add(reason, 36)) d1 := mload(add(reason, 68)) }
     }
 
     /// @notice Exact-in dry-run on a concentrated pool (V3/Algebra family).
@@ -488,8 +500,7 @@ contract BlazePhoenixQuoter {
         {
             return 0; // cannot happen: we never pay; treat as no-quote
         } catch (bytes memory reason) {
-            if (reason.length != 64) return 0; // pool-side revert, not our payload
-            (int256 a0, int256 a1) = abi.decode(reason, (int256, int256));
+            (int256 a0, int256 a1) = _ownDeltas(reason); // (0, 0) unless it is our payload
             int256 recv = zfo ? a1 : a0;
             if (recv >= 0) return 0;
             out = uint256(-recv);
@@ -515,8 +526,7 @@ contract BlazePhoenixQuoter {
         int256 bd = IV4Q(mgr).swap(key, p, "");
         int256 d0 = int256(int128(bd >> 128));
         int256 d1 = int256(int128(bd));
-        bytes memory payload = abi.encode(d0, d1);
-        assembly { revert(add(payload, 32), mload(payload)) }
+        revert QuoteDeltas(d0, d1);
     }
 
     /// @notice Exact-in dry-run on a V4 pool via unlock+revert. Mirrors the
@@ -561,8 +571,7 @@ contract BlazePhoenixQuoter {
         {
             return 0;
         } catch (bytes memory reason) {
-            if (reason.length != 64) return 0;
-            (int256 d0, int256 d1) = abi.decode(reason, (int256, int256));
+            (int256 d0, int256 d1) = _ownDeltas(reason);
             int256 rv = leg.zeroForOne ? d1 : d0;
             if (rv <= 0) return 0;
             out = uint256(rv);

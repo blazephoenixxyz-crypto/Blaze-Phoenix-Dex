@@ -257,11 +257,12 @@ contract BlazePhoenixRouter {
     ///           a multi-hop route the comparison with `realized` is in the right units but does
     ///           NOT measure the quality of the earlier hops. This proves the last leg; it does
     ///           not prove the route.
-    ///         · `realized` is what was delivered, MEASURED at the recipient. Since the fee began
-    ///           being charged per hop in each hop's token, there is NO cut on the output side:
-    ///           `realized` is no longer "net of the fee" — the fee left earlier, in other tokens
-    ///           (see the Fee event, now emitted once per hop).
-    ///         · `floorUsed` is the floor that had to be beaten.
+    ///         · `realized` is what was delivered, MEASURED at the recipient, after anything cut
+    ///           on the way out (the output-side fee where it applies, a transfer tax).
+    ///         · `floorUsed` is the floor that had to be beaten, checked before those cuts and
+    ///           published net of a transfer tax on tokenOut (scaled by realized / amount sent).
+    ///           With no output-side fee it never exceeds `realized` on a settled swap; where
+    ///           that fee applies it stays in the units the Solver attests the floor in.
     event ExecutionProof(
         address indexed user, address indexed tokenOut,
         uint256 quoted, uint256 realized, uint256 floorUsed, uint256 blockNumber
@@ -1389,7 +1390,12 @@ contract BlazePhoenixRouter {
             if (hopBlind && route.hops[h].expectedOut > hopBase) {
                 hopBase = route.hops[h].expectedOut;
             }
-            if (hopGot != 0 && route.hops[h].tokenOut == tokenOut)
+            // A last hop with no measured leg still anchors the floor: `hopBase` is then the
+            // hop's own declared figure, the only one in scope for it. Leaving `finalHopQuote`
+            // at zero there armed no protocol floor at all on a route the caller had priced.
+            // On such a hop the anchor only rises: a declared figure never replaces a larger
+            // anchor an earlier hop already set in the output token, so it cannot lower a floor.
+            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))
                 finalHopQuote = hopBase;
             unchecked { ++h; }
         }
@@ -1581,6 +1587,13 @@ contract BlazePhoenixRouter {
             assembly { tstore(sFee, 0) }
         }
 
+        // The floor was checked against `amountOut`, before the transfer to the recipient; a
+        // token that taxes that transfer delivers less than `net`. The floor is published net
+        // of that tax, by the ratio measured at the recipient, so a taxed tokenOut never shows
+        // a met floor the tax already took. Identity on an untaxed token, so the published floor
+        // stays the floor the Solver attests (the output-side fee is a known cut and is not
+        // re-expressed); rounds down. `net` is non-zero: amountOut >= effMin > 0 and fOut < amountOut.
+        protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net);
         amountOut = delivered;
         _recordHits(route, executedMask, hopScale);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
@@ -1701,7 +1714,15 @@ contract BlazePhoenixRouter {
             // a max. If the attestation plausibly covers the quote measured in-frame, the
             // attestation is used and behaviour is byte-for-byte what it is today on honest routes
             // (coverage ~100%). If it does not cover it, the caller deflated itself and the floor
-            // comes to rest on the measurement.
+            // comes to rest on the covered share of the measurement: the bound is
+            // max(attested, qs * MIN_QUOTE_COVERAGE_BPS / BPS).
+            //
+            // MONOTONE IN THE ATTESTATION. The gate used to lift a deflated bound to the WHOLE
+            // measurement, so an attestation just below the threshold read a floor of `qs` and
+            // one just above it a floor of half of that: attesting more lowered the floor. With
+            // the bound lifted to the threshold itself, attesting more never lowers it, and the
+            // lowest floor a caller can reach is unchanged - attesting exactly at the threshold
+            // reached it before.
             //
             // MAX, NOT MIN. On a FLOOR, `min(claimed, measured)` with a deflated claim returns the
             // deflated one — that is, it RELAXES, exactly the attack this is meant to close. For
@@ -1725,7 +1746,8 @@ contract BlazePhoenixRouter {
             // is not a precision drift, it is deliberate deflation. Zero new constants.
             if (legQuote != 0 && legAmt != 0) {
                 uint256 qs = BPC.mulDiv(legQuote, amt, legAmt);
-                if (bound < BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS)) bound = qs;
+                uint256 covered = BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
+                if (bound < covered) bound = covered;
             }
 
             // ─── RE-PRICE BY THE FoT MEASUREMENT ───

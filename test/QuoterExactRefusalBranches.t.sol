@@ -175,9 +175,9 @@ contract MockV4ManagerQ {
 }
 
 /// @dev Concentrated-pool stand-in for the _simConc refusal variants. It
-///      reverts with a crafted payload directly (a real pool produces the
-///      payload by calling the Quoter's fallback; MockV3Pool does that in the
-///      genuine round-trip test).
+///      answers a swap the way a real pool does: it calls the Quoter back
+///      with crafted deltas and bubbles the payload the Quoter reverts with.
+///      The short-revert mode reverts on its own, without calling back.
 contract EchoConcPool {
     uint8 public constant MODE_ECHO         = 0; // 2-word payload, out side = -quoteOut
     uint8 public constant MODE_SHORT_REVERT = 1; // 32-byte revert (see V4M note above)
@@ -191,7 +191,7 @@ contract EchoConcPool {
     function setQuoteOut(int256 q) external { quoteOut = q; }
 
     function swap(address, bool zeroForOne, int256 amountSpecified, uint160, bytes calldata)
-        external view returns (int256, int256)
+        external returns (int256, int256)
     {
         if (mode == MODE_SHORT_REVERT) {
             bytes memory s = abi.encode(uint256(0xBAD));
@@ -203,7 +203,8 @@ contract EchoConcPool {
         if (mode == MODE_NON_NEGATIVE) { a0 = int256(3); a1 = int256(5); }
         else if (zeroForOne)           { a0 = amountSpecified; a1 = -quoteOut; }
         else                           { a0 = -quoteOut; a1 = amountSpecified; }
-        bytes memory p = abi.encode(a0, a1);
+        (, bytes memory p) = msg.sender.call(
+            abi.encodeWithSignature("uniswapV3SwapCallback(int256,int256,bytes)", a0, a1, bytes("")));
         assembly { revert(add(p, 32), mload(p)) }
     }
 }
@@ -465,7 +466,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     }
 
     /// BRANCH Quoter:381. Taken by: a pool-side revert whose data is not the
-    /// Quoter's 2-word payload (here 32 bytes — see the mock's note on why a
+    /// Quoter's tagged delta payload (here 32 bytes — see the mock's note on why a
     /// short payload and not an Error(string)). Observable: refusal ->
     /// fallback decoy.
     /// FAILS IF DELETED: yes — abi.decode of 32 bytes as (int256,int256)
@@ -478,7 +479,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         assertEq(exactOut, DECOY_OUT, "a pool-side revert is a refusal, answered by the fallback");
     }
 
-    /// BRANCH Quoter:384. Taken by: a 64-byte revert payload whose
+    /// BRANCH Quoter:384. Taken by: a delta payload of the Quoter's own whose
     /// receive-side delta is NON-NEGATIVE — a "swap" that claims the Quoter
     /// receives nothing or owes on both sides. Observable: refusal ->
     /// fallback decoy.

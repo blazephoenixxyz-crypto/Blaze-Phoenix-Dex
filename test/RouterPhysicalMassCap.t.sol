@@ -328,14 +328,16 @@ contract RouterPhysicalMassCapTest is Test {
     }
 
     // =========================================================================
-    //  4. THE COLD PATH. The forged pair is NOT seeded: it registers itself
-    //     through the swap, which is the shape SHARED_QUANTITIES.md names ("a
-    //     forged pair still enters the registry through a self-swap"). The
-    //     bucket it is BORN with must already be the physical one - the cap has
-    //     to bind on _register + the first tick, not only on later ticks.
+    //  4. THE COLD PATH. The forged pair is NOT seeded and tries to register
+    //     itself through the swap. The swap door reads the pair after the swap
+    //     it has just executed and seats only a pair that holds the reserves it
+    //     reports (Core.reservesHeld, duxun D1): the forged pair settles its
+    //     swap and takes no row at all, so there is no declared bucket for the
+    //     cap to correct. The seeded probes above still pin the cap on the
+    //     ticks of a row that exists.
     // =========================================================================
 
-    function test_probe_forgedReserves_coldRegistrationIsBornAtThePhysicalBucket() public {
+    function test_probe_forgedReserves_coldSelfSwapTakesNoRow() public {
         _fund(s0, SHALLOW);
         _fund(s1, SHALLOW);
         pair.setReserves(FORGED, FORGED);
@@ -346,12 +348,9 @@ contract RouterPhysicalMassCapTest is Test {
         uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
 
         assertGt(got, 0, "the swap must really have executed");
-        assertEq(hub.getPool(_key()), address(pair),
-            "pre-condition: the self-swap registered the pair, so there is a bucket to read");
-        assertEq(BPC.decodeKind(hub.getSlot(_key())), BPC.KIND_V2,
-            "pre-condition: the row is the pair-shaped one whose depth registryDepth18 produced");
-        assertEq(_bucket(), B_PHYSICAL,
-            "PROV-01 (Router): a self-registering forged pair was born in the declared bucket");
+        assertEq(hub.getPool(_key()), address(0),
+            "PROV-01 (Router): a pair reporting reserves it does not hold took a row through its self-swap");
+        assertEq(hub.getSlot(_key()), 0, "and no slot was written for it");
     }
 
     // =========================================================================
