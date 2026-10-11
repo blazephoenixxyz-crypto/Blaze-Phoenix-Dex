@@ -54,7 +54,7 @@ stale sequence can be scored as a fresh result.
 |---|---|
 | `test/*.t.sol` | unit, property and **parity** tests — one file per property or per finding, named for the property it pins |
 | `test/*.invariant.t.sol` | stateful campaigns driven by handler contracts; every campaign counts its own non-vacuity (a witness that the interesting state was reached) |
-| `test/fork/` | 25 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
+| `test/fork/` | 27 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
 | `test/formal/` | Halmos specifications for the fail-closed arithmetic (iron floor, impact, V3 fail-closed, `effV4Fee`) |
 | `test/hunt/` | regressions from adversarial review campaigns |
 | `test/regime/` | the **regime covering array** (`RegimeHarness.sol`, one fixture builder, one assertion; the generated `RegimeCoverage.t.sol` — 63 rows holding every pair of values of ten regime factors) and the **hostile-venue matrix** (`HostileVenues.sol`, `HostileVenueMatrix.t.sol` — ten venue pathologies × two doors under the same rule); `Outcomes.sol` is the one classifier of a refusal both use |
@@ -86,7 +86,7 @@ make this fail?* Three things every test in the suite carries:
 
 ## What the suite is measured by
 
-- **The mutation guard** — 268 curated mutants, each paired with the one test that must die (fourteen of them name a stateful `invariant_*` — see `docs/assurance/invariant-mutants.json` for the matrix of 15 mutants × 40 invariants and the two guards it found unwatched);
+- **The mutation guard** — the curated mutants listed in `.github/scripts/mutants.py`, each paired with the one test that must die (fourteen of them name a stateful `invariant_*` — see `docs/assurance/invariant-mutants.json` for the matrix of 15 mutants × 40 invariants and the two guards it found unwatched);
   baseline-checked, fingerprinted against inert mutations, target-checked without a compiler.
 - **The MC/DC census** — every sub-condition of every compound decision neutralised one at a
   time and judged by whether a named test notices.
