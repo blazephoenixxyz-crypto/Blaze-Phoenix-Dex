@@ -706,9 +706,10 @@ contract BlazePhoenixSolver {
             // anchor with a donation, center the band on their bad rate, and filter
             // the honest deep pool OUT (~75% user loss, preview gamed identically).
             // depths[] is getReserves (V2/Solidly) / getLiquidity (V3), which a
-            // donation cannot move; V4 depth is its measured liquidity. Falls back
-            // to the median only when no candidate reports depth.
-            uint256 base = _depthWeightedMedian(rates, depths, n);
+            // donation cannot move; V4 depth is its measured liquidity, capped for
+            // the vote by what its book holds (`_heldShare`). Falls back to the
+            // median only when no candidate reports depth.
+            uint256 base = _depthWeightedMedian(rates, depths, n, cands, tIn);
             // Zero-base guard (devil's-advocate): a live candidate can have
             // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
             // depth/capital anchor could set base=0 and collapse the band to
@@ -1121,6 +1122,35 @@ contract BlazePhoenixSolver {
     }
 
 
+    /// @dev THE MASS A SINGLETON BOOK VOTES WITH IS THE SHARE OF ITS DEPTH IT HOLDS. A V4
+    ///      depth is `depthFromL18(L, P)`: the virtual reserves of the current L as if it
+    ///      spanned every price, which a range of a few ticks declares for a small fraction of
+    ///      the tokens. Inside one stretch between initialized ticks the most the book pays is
+    ///      its real reserve on the output side (Uniswap v3 whitepaper, 6.2): L*(sqrtP - sqrtPa)
+    ///      of token1 going down, L*(1/sqrtP - 1/sqrtPb) of token0 going up, against the
+    ///      virtual L*sqrtP and L/sqrtP. `v4WalkOut` with an unbounded input and no fee reaches
+    ///      every target, so it returns that real output summed over the stretches it walks
+    ///      (`held`), in the same raw unit as the virtual output side (`vOut`). The vote is the
+    ///      depth scaled by held/vOut - the depth of a full-range book paying what this one
+    ///      holds, so it stays in the unit every other family votes in. It only lowers a vote
+    ///      (the walk stops early, never late) and binds where L is narrow; the ratio tends to
+    ///      one as the walked stretches cover the book (at tickSpacing 60 the walk spans more
+    ///      than 245,000 ticks). The other kinds are already capped by the tokens they hold
+    ///      (`_buildHop`), and the allocation keeps `depths` unchanged: the scale is applied to
+    ///      the median's own copy (`_depthWeightedMedian`).
+    function _heldShare(PoolInfo memory p, uint256 d, address tIn) private view returns (uint256) {
+        address mgr = hub.v4PoolManager();
+        bool zfo = p.token0 == tIn;
+        bytes32 pid = BPC.computeV4PoolId(p.kind == BPC.KIND_V4_NATIVE ? address(0) : p.token0,
+            p.token1, p.fee, p.tickSpacing, p.hooks);
+        (uint160 sp, uint128 liq, , , ) = BPC.v4SqrtAndLiq(mgr, pid);
+        uint256 vOut = BPC.mulDiv(liq, zfo ? sp : BPC.Q96, zfo ? BPC.Q96 : sp);
+        uint256 held = BPC.v4WalkOut(mgr, pid, type(uint256).max, 0, p.tickSpacing, zfo);
+        if (held >= vOut) return d;
+        d = BPC.mulDiv(d, held, vOut);
+        return d == 0 ? 1 : d;
+    }
+
     /// @dev THE DEPTH-WEIGHTED MEDIAN of the rates. It is the base of the band.
     ///
     ///      WHAT IT REPLACES, AND WHY. The base was the rate of the SINGLE deepest pool
@@ -1146,8 +1176,9 @@ contract BlazePhoenixSolver {
     ///      DEGENERATES WELL: a pool that alone holds >50% of the mass returns its own rate,
     ///      which is the old behaviour — and correct, because then it IS the market. With equal
     ///      weights, it is the plain median.
-    function _depthWeightedMedian(uint256[] memory rates, uint256[] memory depths, uint256 n)
-        private pure returns (uint256)
+    function _depthWeightedMedian(
+        uint256[] memory rates, uint256[] memory depths, uint256 n, PoolInfo[] memory cands, address tIn
+    ) private view returns (uint256)
     {
         uint256[] memory r = new uint256[](n);
         uint256[] memory d = new uint256[](n);
@@ -1156,9 +1187,11 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < n; ) {
             // Dead pools (rate 0) do not vote: they have no opinion on the price.
             if (rates[i] > 0) {
+                uint256 w = depths[i];
+                if (w > 1 && BPC.kindHas(cands[i].kind, BPC.A_CONC_SING)) w = _heldShare(cands[i], w, tIn);
                 r[m] = rates[i];
-                d[m] = depths[i];
-                massa += depths[i];
+                d[m] = w;
+                massa += w;
                 unchecked { ++m; }
             }
             unchecked { ++i; }
