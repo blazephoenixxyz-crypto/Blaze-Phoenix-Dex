@@ -1911,6 +1911,16 @@ M = [
       old='        if (outAmt == 0) revert RouterE(8);',
       new='        outAmt; // MUTANT',
       teste='test_LegDeliveringNothing_IsRefusedBeforeTheFloorMatters'),
+ dict(nome='median mass: a singleton book votes with its virtual depth again, not the share of it it holds',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (held >= vOut) return d;',
+      new='        return d; // MUTANT',
+      teste='test_aNarrowRangeVotesWithTheOutputItHolds_notWithItsVirtualDepth'),
+ dict(nome='median mass: the virtual output side is read on the wrong token',
+      f='src/BlazePhoenixSolver.sol',
+      old='        uint256 vOut = BPC.mulDiv(liq, zfo ? sp : BPC.Q96, zfo ? BPC.Q96 : sp);',
+      new='        uint256 vOut = BPC.mulDiv(liq, zfo ? BPC.Q96 : sp, zfo ? sp : BPC.Q96); // MUTANT',
+      teste='test_aNarrowRangeVoteKeepsTheDepthUnit_tokenOneIn'),
 ]
 
 def run(t):

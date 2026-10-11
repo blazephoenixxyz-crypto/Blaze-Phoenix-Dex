@@ -43,7 +43,9 @@
     { "name": "forged-registration", "on": "new ForgeablePair\\(",
       "why": "a pair whose reserves may exceed what it holds, swapped through the real door: decides whether the registry seats a pool on mass nobody deposited" },
     { "name": "deflated-attestation", "on": "setSwapLiquidity\\(uint128\\(818e18\\)\\)",
-      "why": "a leg attested well below its in-frame quote: decides whether the coverage gate keeps the floor monotone in the attestation" }
+      "why": "a leg attested well below its in-frame quote: decides whether the coverage gate keeps the floor monotone in the attestation" },
+    { "name": "narrow-singleton-range", "on": "addPosition\\(pid, base \\+ N_LO, base \\+ N_HI, ",
+      "why": "a V4 book whose liquidity spans a few ticks: decides whether the band's median weighs a singleton book by the output it holds or by the virtual depth of its current liquidity" }
   ],
   "shapes": [
     { "name": "multi-hop",
