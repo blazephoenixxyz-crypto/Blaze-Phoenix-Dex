@@ -6,7 +6,7 @@ WHY THIS EXISTS. On 2026-09-03 a rename inside `_assembleRouteMulti`
 Nothing noticed, because the session that made the rename ran only the SUBSET of
 mutants it had just added. A subset run cannot see a lost target in an entry it
 does not run, and a lost target is not a failing test - it is a guard that
-stopped being watched, reported as `ALVO PERDIDO` only when the full list runs.
+stopped being watched, reported as `TARGET LOST` only when the full list runs.
 
 This check costs a second, needs no compiler and no CI box, and is the thing to
 run after ANY edit to src/. It answers one question: does every mutant still

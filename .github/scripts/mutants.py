@@ -1,78 +1,77 @@
 #!/usr/bin/env python3
-"""Guarda de mutacao — prova que os guardas que ja existem TEM testes que os vigiam.
+"""Mutation guard - proves that the guards that already exist HAVE tests watching them.
 
-PORQUE ISTO EXISTE. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou com testes
-mortos: a suite passava na mesma com o fix REMOVIDO. O caso mais recente passou 5/5 com o portao
-de cobertura arrancado — o revert que o teste apanhava vinha de OUTRA verificacao com o MESMO
-codigo de erro. Um revert com o codigo certo nao prova que a verificacao certa disparou.
+WHY THIS EXISTS. In this codebase, on TWO documented occasions, a live fix was left with dead
+tests: the suite passed all the same with the fix REMOVED. The most recent case passed 5/5 with
+the coverage gate ripped out - the revert the test caught came from ANOTHER check with the SAME
+error code. A revert with the right code does not prove that the right check fired.
 
-NAO E UMA FERRAMENTA DE MUTACAO GENERICA, de proposito. E uma lista FIXA e VERSIONADA de mutantes,
-cada um emparelhado com o teste nomeado que TEM de o apanhar. Corre em segundos, nao precisa de
-framework, e falha de forma legivel: diz que guarda ficou sem vigia.
+THIS IS NOT A GENERIC MUTATION TOOL, on purpose. It is a FIXED, VERSIONED list of mutants, each
+paired with the named test that MUST catch it. It runs in seconds, needs no framework, and fails
+legibly: it says which guard was left unwatched.
 
-O CONTRATO: aplicar o mutante -> o teste nomeado tem de ficar VERMELHO. Se ficar verde, o guarda
-esta desprotegido e o CI para. Adicionar um guarda de seguranca ao protocolo implica adicionar a
-sua linha aqui.
+THE CONTRACT: apply the mutant -> the named test must go RED. If it stays green, the guard is
+unprotected and CI stops. Adding a security guard to the protocol implies adding its line here.
 """
 import re, subprocess, sys, shutil, os, tempfile, json, hashlib
 
 M = [
- dict(nome="rota V4: leg.pool tem de derivar da chave que executa (BPX-2026-009)",
+ dict(nome="V4 route: leg.pool must derive from the key that executes (BPX-2026-009)",
       f="src/BlazePhoenixRouter.sol",
       old="        if (leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks))))) revert RouterE(11);",
       new="        // MUTANTE",
       teste="test_SubstitutedHook_RouteNamesPoolA_IsRefused"),
- dict(nome="rota V4: o Quoter recusa a perna cujo pool nomeado nao deriva da chave (BPX-2026-009)",
+ dict(nome="V4 route: the Quoter refuses the leg whose named pool does not derive from the key (BPX-2026-009)",
       f="src/BlazePhoenixQuoter.sol",
       old="        if (leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks))))) return 0;",
       new="        // MUTANTE",
       teste="test_Quoter_MismatchedLeg_IsNotPricedOnTheSubstitutedPool"),
- dict(nome="rota V4: a direccao da perna tem de ser a direccao dos seus tokens (BPX-2026-009, follow-up)",
+ dict(nome="V4 route: the leg direction must be the direction of its tokens (BPX-2026-009, follow-up)",
       f="src/BlazePhoenixRouter.sol",
       old="        if (leg.zeroForOne != (tokenIn == c0)) revert RouterE(11);",
       new="        // MUTANTE",
       teste="test_V4_FlippedDirection_IsRefused"),
- dict(nome="rota V4: o Quoter recusa a perna com a direccao trocada (BPX-2026-009, follow-up)",
+ dict(nome="V4 route: the Quoter refuses the leg with the direction flipped (BPX-2026-009, follow-up)",
       f="src/BlazePhoenixQuoter.sol",
       old="        if (leg.zeroForOne != (tokenIn == c0)) return 0;",
       new="        // MUTANTE",
       teste="test_Quoter_FlippedDirection_IsNotPriced"),
- dict(nome="INV-8: a evicao escolhe a linha mais fraca (comparador invertido evicta a primeira)",
+ dict(nome="INV-8: eviction picks the weakest row (an inverted comparator evicts the first)",
       f="src/BlazePhoenixHub.sol",
       old="                    if (v < worst) { worst = v; worstIdx = i; }",
       new="                    if (v > worst || worstIdx == 0 && i == 0) { worst = v; worstIdx = i; } // MUTANTE",
       teste="test_RecordSwap_EvictsTheWeakest_NotTheFirstInserted"),
- dict(nome="INV-8: a margem de 25% da admissao cai",
+ dict(nome="INV-8: the 25% admission margin is dropped",
       f="src/BlazePhoenixHub.sol",
       old="        return newcomerPsi > worstPsi + (worstPsi / 4);",
       new="        return newcomerPsi > worstPsi; // MUTANTE",
       teste="test_RecordSwap_RejectsNewcomerAboveWeakestButInsideTheMargin"),
- dict(nome="INV-15: a base do hop passa a ser o input declarado, nao o medido",
+ dict(nome="INV-15: the hop base becomes the declared input, not the measured one",
       f="src/BlazePhoenixRouter.sol",
       old="            if (c < baseH) baseH = c;",
       new="            baseH = c; // MUTANTE",
       teste="test_FeeBase_IgnoresOverDeclaredLegInput"),
- dict(nome="hooks: a allow-list volta a exigir-se a um hook que nunca corre no swap (admissao por bits perdida)",
+ dict(nome="hooks: the allow-list is required again of a hook that never runs in the swap (bit-based admission lost)",
       f="src/BlazePhoenixRouter.sol",
       old="            if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) revert RouterE(9);",
       new="            if (!hub.isHookLive(leg.hooks)) revert RouterE(9); // MUTANTE",
       teste="test_SwapInvisibleHook_Unlisted_Settles"),
- dict(nome="hooks: a porta explicita volta a exigir a lista a um hook que corre no swap (P2 perdido)",
+ dict(nome="hooks: the explicit door requires the list again of a hook that runs in the swap (P2 lost)",
       f="src/BlazePhoenixRouter.sol",
       old="            if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) revert RouterE(9);",
       new="            if (BPC.hookRunsInSwap(leg.hooks) && !hub.isHookLive(leg.hooks)) revert RouterE(9); // MUTANTE",
       teste="test_BeforeSwapHook_Unlisted_ExplicitDoor_Settles"),
- dict(nome="hooks: um hook revogado deixa de contar como pausado",
+ dict(nome="hooks: a revoked hook stops counting as paused",
       f="src/BlazePhoenixHub.sol",
       old="        return $.hookAllowed[h] ? h.codehash != pin : pin == HOOK_REVOKED;",
       new="        return $.hookAllowed[h] ? h.codehash != pin : false; // MUTANTE",
       teste="test_RevokedHook_ExplicitDoor_IsRefused"),
- dict(nome="hooks: registar um pool deixa de admitir o seu hook (dois passos outra vez)",
+ dict(nome="hooks: registering a pool no longer admits its hook (two steps again)",
       f="src/BlazePhoenixHub.sol",
       old="        if (hooks == address(0) || $.hookAllowed[hooks]) return;",
       new="        if (hooks == address(0) || $.hookAllowed[hooks]) return; revert HubE(8); // MUTANTE",
       teste="test_AddV4_AdmitsAndPinsTheHookItRegisters"),
- dict(nome="hooks: a allow-list deixa de se exigir a um hook que corre no swap",
+ dict(nome="hooks: the allow-list is no longer required of a hook that runs in the swap",
       f="src/BlazePhoenixRouter.sol",
       old="            if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) revert RouterE(9);",
       new="            // MUTANTE",
@@ -82,32 +81,32 @@ M = [
       old="        return v4WalkOut(manager, poolId, amountIn, effV4Fee(keyFee, lpF, pF, zeroForOne), tickSpacing, zeroForOne);",
       new="        return outV3(amountIn, sp, lq, effV4Fee(keyFee, lpF, pF, zeroForOne), zeroForOne, 0); // MUTANT",
       teste="test_RangeExit_PromiseIsTruncatedAtTheBoundary"),
- dict(nome="V4: chave estatica compoe a protocol fee do manager por direcao",
+ dict(nome="V4: a static key composes the manager protocol fee per direction",
       f="src/BlazePhoenixCore.sol",
       old="            if (pf == 0) return keyFee;",
       new="            return keyFee; // MUTANTE",
       teste="test_StaticFee_ComposesProtocolFee_PerDirection"),
- dict(nome="V4: o Router cota a perna pela promessa ligada do Core",
+ dict(nome="V4: the Router quotes the leg by the Core promise it is bound to",
       f="src/BlazePhoenixRouter.sol",
       old="        quote = BPC.v4LegOut(v4mgr, pid, legAmt, leg.fee, leg.tickSpacing, leg.zeroForOne);",
       new="        quote = 0; // MUTANTE",
       teste="test_Native_DeliveryBelowInFrameFloorIsRefused"),
- dict(nome="portao-de-cobertura: elevacao para a quote medida",
+ dict(nome="coverage-gate: lift to the measured quote",
       f="src/BlazePhoenixRouter.sol",
       old="                if (bound < covered) bound = covered;",
       new="                covered; // MUTANTE",
       teste="test_BleedingLegHiddenInAHealthyTotalIsCaught"),
- dict(nome="portao-de-cobertura: o piso por perna",
+ dict(nome="coverage-gate: the per-leg floor",
       f="src/BlazePhoenixRouter.sol",
       old="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);",
       new="            bound; // MUTANTE",
       teste="test_BleedingLegHiddenInAHealthyTotalIsCaught"),
- dict(nome="FoT: a re-escala do piso pela medicao",
+ dict(nome="FoT: rescaling the floor by the measurement",
       f="src/BlazePhoenixRouter.sol",
       old="                    if (legNet < BPC.BPS) bound = BPC.mulDiv(bound, legNet, BPC.BPS);",
       new="                    legNet; // MUTANTE",
       teste="test_EntryTax25_OneLeg_MustSettle"),
- dict(nome="FoT: o fix-buraco (anular o piso em vez de o re-precar)",
+ dict(nome="FoT: the hole-patch fix (zeroing the floor instead of re-pricing it)",
       f="src/BlazePhoenixRouter.sol",
       old="""                if (fotAfter != fotBefore && bound != 0) {
                     uint256 legNet = fotBefore == 0
@@ -117,91 +116,91 @@ M = [
                 }""",
       new="                if (fotAfter != fotBefore) { bound = 0; } // MUTANTE",
       teste="test_FotIsNotAnExcuseToBleed"),
- dict(nome="theta: um bit da tabela de atributos",
+ dict(nome="theta: one bit of the attribute table",
       f="src/BlazePhoenixCore.sol",
       old="    uint256 internal constant THETA_ATTR = 0x040A9400A9;",
       new="    uint256 internal constant THETA_ATTR = 0x040A9400A8; // MUTANTE",
       teste="test_Parity_Reserves"),
- dict(nome="solidly: re-cegar os decimais na primitiva unica",
+ dict(nome="solidly: re-blinding the decimals in the single primitive",
       f="src/BlazePhoenixCore.sol",
       old="        return outSolidlyStable(ain, rIn, rOut, liveFee, _decimalsOf(tokenIn), _decimalsOf(other));",
       new="        other; return outSolidlyStable(ain, rIn, rOut, liveFee, 0, 0); // MUTANTE",
       teste="test_FallbackPath_UnequalDecimals_MustStillSettle"),
- dict(nome="depthFromL18: repor o L cru quando nao ha preco",
+ dict(nome="depthFromL18: restore the raw L when there is no price",
       f="src/BlazePhoenixCore.sol",
       old="    function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)\n        internal pure returns (uint256)\n    {\n        if (sp == 0) return 0;",
       new="    function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)\n        internal pure returns (uint256)\n    {\n        if (sp == 0) return uint256(liq); // MUTANTE",
       teste="test_NoPriceMeansNoDepth"),
- dict(nome="fee: a cobranca por hop (a fuga pelo prefixo de po)",
+ dict(nome="fee: the per-hop charge (the leak through the dust prefix)",
       f="src/BlazePhoenixRouter.sol",
       old="            amountIn = _chargeHopFee(hop, h, amountIn, foreignBase);",
       new="            foreignBase; // MUTANTE",
       teste="test_JUIZ_PrefixoSemValorEscapaAFee"),
- dict(nome="fee: so no hop 0 (a fuga que a ancora na entrada tinha)",
+ dict(nome="fee: hop 0 only (the leak the anchor at the entry had)",
       f="src/BlazePhoenixRouter.sol",
       old="        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
       new="        uint256 feeH = h == 0 ? BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS) : 0; // MUTANTE",
       teste="test_JUIZ_PrefixoSemValorEscapaAFee"),
- dict(nome="fee: a baseline do sweep recalculada tarde (holds-nothing)",
+ dict(nome="fee: the sweep baseline recomputed late (holds-nothing)",
       f="src/BlazePhoenixRouter.sol",
       old="        uint256 baseIn = tinStart > amountIn ? tinStart - amountIn : 0;",
       new="        uint256 baseIn = tinStart; // MUTANTE",
       teste="test_Refund_BestExactIn_ResidualGoesToPayer_NotRouter"),
- dict(nome="solver: a base da banda e a mediana PONDERADA (ponto de rutura 0 -> 50%)",
+ dict(nome="solver: the band base is the WEIGHTED median (breakdown point 0 -> 50%)",
       f="src/BlazePhoenixSolver.sol",
       old="            if (acc >= metade) return r[i];",
       new="            if (acc >= metade) return r[m - 1]; // MUTANTE: um so sensor captura a base",
       teste="test_ADeepPoolAboveTheFairRate_CannotCaptureTheBand"),
- dict(nome="solver: o peso do split vem da profundidade, nao do saldo (T2)",
+ dict(nome="solver: the split weight comes from depth, not from balance (T2)",
       f="src/BlazePhoenixSolver.sol",
       old="            uint256 w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10_000, mx);",
       new="            uint256 w = mx == 0 ? 1 : BPC.mulDiv(bals[i], 10_000, mx); // MUTANTE",
       teste="test_DoacaoNaoCompraFatiaDoSplit"),
- dict(nome="router: a bijecao WETH nativa colapsada num produtor",
+ dict(nome="router: the native/WETH bijection collapsed into one producer",
       f="src/BlazePhoenixCore.sol",
       old="        if (tokenOther == weth)  return (tokenIn, address(0));",
       new="        if (tokenOther == weth)  return (tokenIn, tokenOther); // MUTANTE",
       teste="test_LadoDoOutro"),
- dict(nome="router: eventos atribuidos ao pagador, nao ao msg.sender",
+ dict(nome="router: events attributed to the payer, not to msg.sender",
       f="src/BlazePhoenixRouter.sol",
       old="        emit ExecutionProof(payer, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number);",
       new="        emit ExecutionProof(msg.sender, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number); // MUTANTE",
       teste="test_SwapBest_EventosAtribuidosAoUtilizador"),
- dict(nome="quoter: a fee do preview compoe por hop",
+ dict(nome="quoter: the preview fee composes per hop",
       f="src/BlazePhoenixQuoter.sol",
       old="        afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
       new="        afterFee -= 0; // MUTANTE",
       teste="test_DoisHops_PreviewBateComAEntrega"),
- dict(nome="solver: o filtro de hooks que alteram deltas",
+ dict(nome="solver: the filter for delta-altering hooks",
       f="src/BlazePhoenixSolver.sol",
       old="            if (!BPC.hookAltersDeltas(reg[i].hooks)) { merged[n] = reg[i]; unchecked { ++n; } }",
       new="            { merged[n] = reg[i]; unchecked { ++n; } } // MUTANTE",
       teste="test_DeltaAlteringHookIsNeverRouted"),
- dict(nome="solver: a ordem canonica hookless-antes-de-hooked",
+ dict(nome="solver: the canonical hookless-before-hooked order",
       f="src/BlazePhoenixSolver.sol",
       old="        _orderLegs(hop);",
       new="        // MUTANTE",
       teste="test_HooklessLegsComeFirst_WhenTheHookedPoolIsNotTheDeepest"),
- dict(nome="hub: a mascara de prova de par perde um kind vivo",
+ dict(nome="hub: the pair-proof mask loses a live kind",
       f="src/BlazePhoenixHub.sol",
       old="        | (uint256(1) << BPC.KIND_SOLIDLY) | (uint256(1) << BPC.KIND_ALGEBRA);",
       new="        | (uint256(1) << BPC.KIND_SOLIDLY); // MUTANTE",
       teste="test_PairProofMaskMatchesTheta"),
- dict(nome="hub: o portao de kinds na SEGUNDA porta de registo",
+ dict(nome="hub: the kinds gate on the SECOND registration door",
       f="src/BlazePhoenixHub.sol",
       old="        if (((KINDS_EXECUTABLE >> kind) & 1) == 0) return;",
       new="        // MUTANTE",
       teste="test_RecordSwapRejectsExcisedKind"),
- # ── guardas da vaga de selagem 2026-08-31/09-01 ────────────────────────────
- # O CONTRATO deste ficheiro em accao: nove commits acrescentaram guardas e a
- # lista nao foi actualizada. Foi ele proprio que o apanhou, com tres ALVO
- # PERDIDO — os tres alvos que a selagem tinha movido de mulDiv para mulDivUp.
- dict(nome="balanceOf: uma leitura falhada volta a ser saldo zero",
+ # ── guards of the sealing wave 2026-08-31/09-01 ────────────────────────────
+ # THE CONTRACT of this file in action: nine commits added guards and the
+ # list was not updated. It caught that itself, with three TARGET
+ # LOST - the three targets the sealing had moved from mulDiv to mulDivUp.
+ dict(nome="balanceOf: a failed read becomes a zero balance again",
       f="src/BlazePhoenixCore.sol",
       old='        require(ok, "BPC:balanceOf");',
       new="        ok; // MUTANTE",
       teste="test_FailedRead_IsReportedAsZeroBalance"),
- dict(nome="bridges: sem guarda de duplicados os dois produtores voltam a discordar",
+ dict(nome="bridges: without the duplicate guard the two producers disagree again",
       f="src/BlazePhoenixHub.sol",
       old="        if ($.isBridge[t]) return;",
       new="        // MUTANTE",
@@ -211,90 +210,89 @@ M = [
 # Hub with inM == 0 and is refused there, so that mutant was decorative (CI, 2026-09-08). The
 # reported defect credited the declared leg at its DECLARED amount; the mutant restores that
 # shape - the skipped leg is credited at full scale - so the test observes the Router's guard.
- dict(nome="registo: creditar legs declaradas em vez das executadas, pela quantia declarada (a leg fantasma)",
+ dict(nome="registry: crediting declared legs instead of executed ones, at the declared amount (the phantom leg)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (!ran) { unchecked { ++l; } continue; }",
       new="                if (!ran) { hopScale[h] = 1e18; } // MUTANTE",
       teste="test_PhantomLeg_NotCreditedToRegistry"),
- dict(nome="V4: o grid volta a ser suprimido por um codigo aprendido",
+ dict(nome="V4: the grid is suppressed again by a learned code",
       f="src/BlazePhoenixHub.sol",
       old="        if (kf >> 128 == kfBeforeOwnProbes) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf);",
       new="        if (kf >> 128 == 0) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf); // MUTANTE",
       teste="test_LearnedCode_DoesNotSuppressGridDiscovery"),
- dict(nome="kind: aceitar a declaracao da calldata contra a forma medida",
+ dict(nome="kind: accepting the calldata declaration over the measured shape",
       f="src/BlazePhoenixCore.sol",
       old="        if (declaredConc != isConc) return (false, kind, 0);",
       new="        declaredConc; isConc; // MUTANTE",
       teste="test_ConcentratedPool_MustNotPersistAsV2"),
- dict(nome="kind: nao derivar a familia concentrada da forma da pool",
+ dict(nome="kind: not deriving the concentrated family from the pool shape",
       f="src/BlazePhoenixCore.sol",
       old="        if (isConc) k = dynShape ? KIND_ALGEBRA : KIND_V3;",
       new="        isConc; // MUTANTE",
       teste="test_AlgebraShapedPool_MustNotPersistAsV3"),
- # NOTA: a distincao media-vs-maximo NAO e alcancavel pela API do Solver — ele
- # escolhe sempre a melhor pool e nunca oferece uma leg destruidora, logo todas
- # as rotas deste par sao de UMA leg, onde media == maximo. O mutante abaixo
- # vigia o que E alcancavel: que o tecto continua ligado e a recusar.
- dict(nome="impacto: o tecto do Solver deixa de recusar (media ou maximo)",
+ # NOTE: the mean-vs-maximum distinction is NOT reachable through the Solver API - it
+ # always picks the best pool and never offers a destructive leg, so every
+ # route of this pair is a ONE-leg route, where mean == maximum. The mutant below
+ # watches what IS reachable: that the ceiling stays wired and keeps refusing.
+ dict(nome="impact: the Solver ceiling stops refusing (mean or maximum)",
       f="src/BlazePhoenixSolver.sol",
       old="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;",
       new="        maxLegImpactBps; // MUTANTE",
       teste="test_ShallowPool_RouteIsRefused"),
- dict(nome="psi: bucketWeight deixa de dobrar, e a histerese desaparece em silencio",
+ dict(nome="psi: bucketWeight stops doubling, and the hysteresis silently disappears",
       f="src/BlazePhoenixCore.sol",
       old="    function bucketWeight(uint8 b) internal pure returns (uint256) {\n        return uint256(1) << b;",
       new="    function bucketWeight(uint8 b) internal pure returns (uint256) {\n        return uint256(1) + b; // MUTANTE",
       teste="test_AdmissionMargin_IsNotRedundantWithQuantisation"),
- # ── pontos cegos apanhados a auditar a propria guarda (2026-09-01) ─────────
- # Os 27 cobriam a leg fantasma, o grid V4, o kind derivado, o desync das
- # bridges e o balanceOf. NAO cobriam os fixes de ARITMETICA da mesma vaga: o
- # sentido do arredondamento da fee, o sentinela da curva estavel, os dois
- # clamps do preview e a ponderacao do impacto. Um teste que corrige um bug
- # sem mutante a apontar-lhe nao esta provado a apanhar a regressao que existe
- # para impedir.
- dict(nome="fee: o arredondamento volta a ser para BAIXO (a fee que desaparece no po)",
+ # ── blind spots found by auditing the guard itself (2026-09-01) ─────────
+ # The first 27 covered the phantom leg, the V4 grid, the derived kind, the bridges
+ # desync and balanceOf. They did NOT cover the ARITHMETIC fixes of the same wave: the
+ # rounding direction of the fee, the stable-curve sentinel, the two preview
+ # clamps and the impact weighting. A test that fixes a bug with no mutant aimed
+ # at it is not proven to catch the regression it exists to prevent.
+ dict(nome="fee: rounding goes DOWN again (the fee that vanishes in dust)",
       f="src/BlazePhoenixRouter.sol",
       old="        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
       new="        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
       teste="test_DustSwap_PaysAProtocolFee"),
- dict(nome="solidly: o sentinela volta a vigiar as reservas em vez do resultado",
+ dict(nome="solidly: the sentinel watches the reserves again instead of the result",
       f="src/BlazePhoenixCore.sol",
       old="        if (!_solKFits(X + A, Y)) return 0;",
       new="        // MUTANTE",
       teste="test_ReservesInsideTheWindow_MustNotRevert"),
- dict(nome="quoter: a leg Solidly volta a re-escalar em vez de medir na pool",
+ dict(nome="quoter: the Solidly leg rescales again instead of measuring on the pool",
       f="src/BlazePhoenixQuoter.sol",
       old="                    (legOut, ) = BPC.universalQuote(sc, legIn);",
       new="                    legOut = BPC.mulDiv(leg.expectedOut, legIn, base); // MUTANTE",
       teste="test_RED_SolidlyLeg_UpscaledQuoteExceedsPoolTruth"),
- dict(nome="quoter: o clamp do fallback concentrado extrapola outra vez pela tangente",
+ dict(nome="quoter: the concentrated fallback clamp extrapolates along the tangent again",
       f="src/BlazePhoenixQuoter.sol",
       old="                    // may keep the plan's own claim, never exceed it.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(\n                            leg.expectedOut, legIn > base ? base : legIn, base);",
       new="                    // may keep the plan's own claim, never exceed it.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base); // MUTANTE",
       teste="test_RED_ConcFallback_NeverScalesAbovePlan"),
- dict(nome="quoter: o clamp do fallback V4 extrapola outra vez pela tangente",
+ dict(nome="quoter: the V4 fallback clamp extrapolates along the tangent again",
       f="src/BlazePhoenixQuoter.sol",
       old="                    // plan's point upward along the tangent.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(\n                            leg.expectedOut, legIn > base ? base : legIn, base);",
       new="                    // plan's point upward along the tangent.\n                    if (legOut == 0)\n                        legOut = BPC.mulDiv(leg.expectedOut, legIn, base); // MUTANTE",
       teste="test_RED_V4Fallback_NeverScalesAbovePlan"),
- dict(nome="impacto: o termo deixa de ser ponderado pelo tamanho da leg (o po volta a votar)",
+ dict(nome="impact: the term stops being weighted by leg size (dust votes again)",
       f="src/BlazePhoenixRouter.sol",
       old="        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);",
       new="        return imp; // MUTANTE",
       teste="test_DustPadding_MustNotCollapseTheFloor"),
- dict(nome="callback: a porta de autenticacao v3 aceita quem nao e a pool esperada",
+ dict(nome="callback: the v3 authentication door accepts a caller that is not the expected pool",
       f="src/BlazePhoenixRouter.sol",
       old="        if (msg.sender != expected || expected == address(0)) revert RouterE(6);",
       new="        if (expected == address(0)) revert RouterE(6); // MUTANTE",
       teste="test_ImpostorCallingTheCallbackMidSwapIsNeverPaid"),
- dict(nome="callback: o unlockCallback V4 aceita quem nao e o PoolManager",
+ dict(nome="callback: the V4 unlockCallback accepts a caller that is not the PoolManager",
       f="src/BlazePhoenixRouter.sol",
       old="        if (msg.sender != mgr) revert RouterE(6);",
       new="        mgr; // MUTANTE",
       # Re-watched 2026-09-23: the old test sent an empty payload and the mutant died in
       # abi.decode, not here. The guard only decides while the transient context is live.
       teste="test_V4ImpostorCallingUnlockCallbackMidSwapIsNeverPaid"),
- dict(nome="renounce: o Router volta a poder ossificar pausado (estado terminal)",
+ dict(nome="renounce: the Router can ossify while paused again (terminal state)",
       f="src/BlazePhoenixRouter.sol",
       old="        if (paused) revert RouterE(2);\n        controlRenounced = true;",
       new="        controlRenounced = true; // MUTANTE",
@@ -462,31 +460,31 @@ M = [
       old="            if ($.controlRenounced\n                && ($.factoryCodehash[factory] != factory.codehash\n                    || kind != f.kind\n                    || mode != f.mode\n                    || initHash != f.initHash\n                    || !_sameExtras(f, fees, spacings)))",
       new="            if ($.controlRenounced) // MUTANTE",
       teste="test_RenouncedRowStillAcceptsAnIdenticalReAdd"),
- dict(nome="renounce: o Hub volta a poder ossificar pausado (registo surdo p/ sempre)",
+ dict(nome="renounce: the Hub can ossify while paused again (registry deaf for ever)",
       f="src/BlazePhoenixHub.sol",
       old="        if (_store().paused) revert HubE(2);\n        _store().controlRenounced = true;",
       new="        _store().controlRenounced = true; // MUTANTE",
       teste="test_Composition_HubPauseThenRenounce_IsRefused"),
- # ── operadores ausentes: relacional, &&/||, codigo de erro (2026-09-01) ───
- # A auditoria da PROPRIA lista encontrou a distribuicao coxa: ~14 mutantes de
- # delecao e ZERO de substituicao relacional, ZERO de troca de conector logico,
- # ZERO de troca de codigo de erro — ironico, porque o cabecalho deste ficheiro
- # nomeia "revert com o codigo certo da verificacao errada" como a assinatura
- # da casa. Tambem sem vigia: os guardas de entrada (deadline, minOut==0), o
- # whenLive das portas, e a APLICACAO do piso final (os mutantes existentes
- # vigiavam como o piso e CONSTRUIDO, nenhum vigiava a comparacao que o aplica).
- # Cada entrada abaixo foi verificada a matar o seu teste no box a 2026-09-01.
- dict(nome="piso aplicado: < vira <= na comparacao final delivered/userMinOut",
+ # ── missing operators: relational, &&/||, error code (2026-09-01) ───
+ # The audit of the list ITSELF found a lopsided distribution: ~14 deletion mutants
+ # and ZERO relational substitutions, ZERO logical-connector swaps,
+ # ZERO error-code swaps - ironic, because the header of this file
+ # names "a revert with the right code from the wrong check" as the house
+ # signature. Also unwatched: the entry guards (deadline, minOut==0), the
+ # doors' whenLive, and the ENFORCEMENT of the final floor (the existing mutants
+ # watched how the floor is BUILT, none watched the comparison that enforces it).
+ # Each entry below was verified on the box to kill its test on 2026-09-01.
+ dict(nome="floor enforcement: < becomes <= in the final delivered/userMinOut comparison",
       f="src/BlazePhoenixRouter.sol",
       old="        if (delivered < userMinOut) revert RouterE(5);",
       new="        if (delivered <= userMinOut) revert RouterE(5); // MUTANTE",
       teste="test_MinOut_Boundary_ExactNetDelivers"),
- dict(nome="piso aplicado: um wei de folga na comparacao final",
+ dict(nome="floor enforcement: one wei of slack in the final comparison",
       f="src/BlazePhoenixRouter.sol",
       old="        if (delivered < userMinOut) revert RouterE(5);",
       new="        if (delivered + 1 < userMinOut) revert RouterE(5); // MUTANTE",
       teste="test_MinOut_DeliveredShortfallIsRefused"),
- dict(nome="deadline: > vira >= na porta classica (a fronteira do prazo)",
+ dict(nome="deadline: > becomes >= on the classic door (the deadline boundary)",
       f="src/BlazePhoenixRouter.sol",
       old="""        if (block.timestamp > deadline) revert RouterE(4);
         if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
@@ -495,46 +493,46 @@ M = [
         if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
         address tokenIn  = route.hops[0].tokenIn;""",
       teste="test_Deadline_ExpiredRefusedAndBoundaryHolds"),
- dict(nome="fee-no-output: >= vira > (a fee que consome o output inteiro passa)",
+ dict(nome="fee-no-output: >= becomes > (the fee that consumes the whole output passes)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (fOut >= amountOut) revert RouterE(8);",
       new="                if (fOut > amountOut) revert RouterE(8); // MUTANTE",
       teste="test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused"),
- dict(nome="orcamento por hop: a folga atestada dobra (limite estrito vira frouxo)",
+ dict(nome="per-hop budget: the attested slack doubles (a strict limit becomes loose)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (hopGot + slack < hopAttested) revert RouterE(5);",
       new="                if (hopGot + slack + slack < hopAttested) revert RouterE(5); // MUTANTE",
       teste="test_TwoBleedingLegs_RevertOnHopBudget"),
- dict(nome="entrada: && vira || no guarda de minOut zero (a condicao inverte o alcance)",
+ dict(nome="entry: && becomes || in the zero-minOut guard (the condition inverts its reach)",
       f="src/BlazePhoenixRouter.sol",
       old="""        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);""",
       new="""        if (amountIn > 0 || userMinOut == 0) revert RouterE(10); // MUTANTE
         return _swap(route, amountIn, userMinOut, recipient, deadline);""",
       teste="test_INV6_zeroAmountIsNotTreatedAsAZeroMinOutSwap"),
- dict(nome="callback v3: || vira && na autenticacao (impostor com expected vivo passa)",
+ dict(nome="callback v3: || becomes && in authentication (an impostor with a live expected passes)",
       f="src/BlazePhoenixRouter.sol",
       old="        if (msg.sender != expected || expected == address(0)) revert RouterE(6);",
       new="        if (msg.sender != expected && expected == address(0)) revert RouterE(6); // MUTANTE",
       teste="test_ImpostorCallingTheCallbackMidSwapIsNeverPaid"),
- dict(nome="onlyControl: || vira && (um estranho passa enquanto nao houver renounce)",
+ dict(nome="onlyControl: || becomes && (a stranger passes until there is a renounce)",
       f="src/BlazePhoenixRouter.sol",
       old="    modifier onlyControl() { if (msg.sender != admin || controlRenounced) revert RouterE(1); _; }",
       new="    modifier onlyControl() { if (msg.sender != admin && controlRenounced) revert RouterE(1); _; } // MUTANTE",
       teste="test_Control_EveryControlDoorRefusesAStranger"),
- dict(nome="codigo de erro: fee-consome-output troca 8 por 5 (o selector e a unica testemunha)",
+ dict(nome="error code: fee-consumes-output swaps 8 for 5 (the selector is the only witness)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (fOut >= amountOut) revert RouterE(8);",
       new="                if (fOut >= amountOut) revert RouterE(5); // MUTANTE",
       teste="test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused"),
- dict(nome="codigo de erro: minOut zero troca 10 por 3",
+ dict(nome="error code: zero minOut swaps 10 for 3",
       f="src/BlazePhoenixRouter.sol",
       old="""        if (amountIn > 0 && userMinOut == 0) revert RouterE(10);
         return _swap(route, amountIn, userMinOut, recipient, deadline);""",
       new="""        if (amountIn > 0 && userMinOut == 0) revert RouterE(3); // MUTANTE
         return _swap(route, amountIn, userMinOut, recipient, deadline);""",
       teste="test_INV6_swapExactIn_rejectsZeroMinOut"),
- dict(nome="whenLive: o modificador cai da porta classica (pausado deixa de travar)",
+ dict(nome="whenLive: the modifier is dropped from the classic door (paused stops blocking)",
       f="src/BlazePhoenixRouter.sol",
       old="""    function swapExactIn(
         Route calldata route, uint256 amountIn, uint256 userMinOut,
@@ -545,115 +543,115 @@ M = [
         address recipient, uint256 deadline
     ) external nrEntrant returns (uint256) { // MUTANTE""",
       teste="test_SetPaused_BlocksSwaps"),
- dict(nome="fee-no-output: mulDivUp vira mulDiv (a fee de 1 wei desaparece no po)",
+ dict(nome="fee-no-output: mulDivUp becomes mulDiv (the 1 wei fee vanishes in dust)",
       f="src/BlazePhoenixRouter.sol",
       old="            uint256 fOut = BPC.mulDivUp(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
       new="            uint256 fOut = BPC.mulDiv(amountOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
       teste="test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused"),
- dict(nome="constante: MAX_LEGS_PER_HOP empurrada de 5 para 4 (a fronteira, nao a remocao)",
+ dict(nome="constant: MAX_LEGS_PER_HOP pushed from 5 to 4 (the boundary, not the removal)",
       f="src/BlazePhoenixRouter.sol",
       old="    uint8   internal constant MAX_LEGS_PER_HOP  = 5;",
       new="    uint8   internal constant MAX_LEGS_PER_HOP  = 4; // MUTANTE",
       teste="test_G8_FiveLegs_BoundaryPasses"),
- # ── as duas fronteiras exatas antes REJEITADAS (2026-09-01) ────────────────
- # Os dois flips < -> <= abaixo tinham ficado FORA da lista por falta de teste
- # que pousasse na igualdade (os testes do orcamento viviam a 82%/85%; o do
- # minOut controlava delivered, nao amountOut). Provado que NAO sao
- # equivalentes: a fronteira e alcancavel para QUALQUER quote G — no caso do
- # orcamento com hopAttested = S = 10*floor(2G/9) + (2G mod 9) (a funcao
- # S - floor(S/10) percorre todos os inteiros), no caso do piso com
- # singleOutFloor = amountOut (identidade de calldata). A chave de exatidao em
- # ambos: amountIn = soma(leg.amountIn) + fee pre-paga -> scaleNum == scaleDen
- # -> os mulDiv de escala sao identidades. Kill verificado no box 2026-09-01:
- # cada teste PASSA limpo e FALHA RouterE(5) com o seu mutante, com o vizinho
- # verde (atribuicao de sitio limpa nos dois sentidos).
- dict(nome="orcamento por hop: < vira <= (a fronteira exata, nao a folga dobrada)",
+ # ── the two exact boundaries previously REJECTED (2026-09-01) ────────────────
+ # The two < -> <= flips below had been left OFF the list for lack of a test
+ # that landed on equality (the budget tests lived at 82%/85%; the
+ # minOut one controlled delivered, not amountOut). Proven NOT
+ # equivalent: the boundary is reachable for ANY quote G - in the budget case
+ # with hopAttested = S = 10*floor(2G/9) + (2G mod 9) (the function
+ # S - floor(S/10) covers every integer), in the floor case with
+ # singleOutFloor = amountOut (calldata identity). The key to exactness in
+ # both: amountIn = sum(leg.amountIn) + prepaid fee -> scaleNum == scaleDen
+ # -> the scaling mulDivs are identities. Kill verified on the box 2026-09-01:
+ # each test PASSES clean and FAILS RouterE(5) with its mutant, with the neighbour
+ # green (site attribution clean in both directions).
+ dict(nome="per-hop budget: < becomes <= (the exact boundary, not the doubled slack)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (hopGot + slack < hopAttested) revert RouterE(5);",
       new="                if (hopGot + slack <= hopAttested) revert RouterE(5); // MUTANTE",
       teste="test_HopBudget_ExactBoundaryDelivers"),
- dict(nome="piso agregado: < vira <= na comparacao amountOut/effMin",
+ dict(nome="aggregate floor: < becomes <= in the amountOut/effMin comparison",
       f="src/BlazePhoenixRouter.sol",
       old="        if (amountOut < effMin) revert RouterE(5);",
       new="        if (amountOut <= effMin) revert RouterE(5); // MUTANTE",
       teste="test_AggregateFloor_ExactBoundaryDelivers"),
- # ── as doze guardas que nunca tinham disparado (2026-09-01) ────────────────
- # Um inventario classificou 29 sitios de recusa como conduzidos de um so lado.
- # Doze eram ALCANCAVEIS e tinham testemunha derivada; o test/GuardsNeverFired
- # faz cada uma disparar com o codigo EXATO. Metade partilha o codigo de erro
- # com uma guarda vizinha, e por isso um expectRevert nu passaria na errada.
- dict(nome="hook: o pin de codehash na EXECUCAO (Layer 3) deixa de pausar",
+ # ── the twelve guards that had never fired (2026-09-01) ────────────────
+ # An inventory classified 29 refusal sites as driven from one side only.
+ # Twelve were REACHABLE and had a derived witness; test/GuardsNeverFired
+ # makes each one fire with the EXACT code. Half share their error code
+ # with a neighbouring guard, so a bare expectRevert would pass on the wrong one.
+ dict(nome="hook: the codehash pin at EXECUTION (Layer 3) stops pausing",
       f="src/BlazePhoenixRouter.sol",
       old="            if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) revert RouterE(9);",
       new="            // MUTANTE",
       teste="test_W1_FireB_MutatedHookCode_Reverts9"),
- dict(nome="deadline: a verificacao das portas pre-pulled cai",
+ dict(nome="deadline: the check on the pre-pulled doors is dropped",
       f="src/BlazePhoenixRouter.sol",
       old="        address recipient, uint256 deadline, address payer\n    ) private returns (uint256) {\n        if (block.timestamp > deadline) revert RouterE(4);",
       new="        address recipient, uint256 deadline, address payer\n    ) private returns (uint256) {\n        deadline; // MUTANTE",
       teste="test_W2_Permit2Door_DeadlinePassed_Reverts4"),
- dict(nome="solver hostil: o fail-closed antes do pull cai",
+ dict(nome="hostile solver: the fail-closed before the pull is dropped",
       f="src/BlazePhoenixRouter.sol",
       old="        if (\n            plan.best.hops.length == 0 || plan.best.hops[0].tokenIn != tokenIn\n                || plan.best.hops[plan.best.hops.length - 1].tokenOut != tokenOut\n        ) revert RouterE(3); // fail-closed",
       new="        // MUTANTE",
       teste="test_W3_FireB_TokenInMismatchPlan_Reverts3_BeforeAnyPull"),
- dict(nome="V4: o portao auxId==0 cai (o vizinho com o mesmo codigo 8 nao o cobre)",
+ dict(nome="V4: the auxId==0 gate is dropped (the neighbour with the same code 8 does not cover it)",
       f="src/BlazePhoenixRouter.sol",
       old="        address tokenOther = address(uint160(uint256(leg.auxId)));\n        if (tokenOther == address(0)) revert RouterE(8);",
       new="        address tokenOther = address(uint160(uint256(leg.auxId)));\n        // MUTANTE",
       teste="test_W4_Fire_V4LegAuxIdZero_Reverts8"),
- dict(nome="mulDiv: a require da reducao 512->256 cai",
+ dict(nome="mulDiv: the require on the 512->256 reduction is dropped",
       f="src/BlazePhoenixCore.sol",
       old='            require(d > prod1, "BPC:mulDiv");',
       new="            // MUTANTE",
       teste="test_W5_Fire_MulDivResultOverflows_Reverts"),
- dict(nome="claimV4: c0==c1 cai na porta permissionless",
+ dict(nome="claimV4: c0==c1 is dropped on the permissionless door",
       f="src/BlazePhoenixHub.sol",
       old="        _ne0(c0); _ne0(c1);                 // native currency (address(0)) rejected\n        if (c0 == c1) revert HubE(4);",
       new="        _ne0(c0); _ne0(c1);                 // native currency (address(0)) rejected\n        // MUTANTE",
       teste="test_W6_Fire_ClaimV4EqualCurrencies_Reverts4"),
- dict(nome="addFactory: o emparelhamento fees/spacings do modo 9 cai",
+ dict(nome="addFactory: the fees/spacings pairing of mode 9 is dropped",
       f="src/BlazePhoenixHub.sol",
       old="            if (fees.length != spacings.length) revert HubE(5);",
       new="            // MUTANTE",
       teste="test_W7_Fire_Mode9UnpairedFees_Reverts5"),
- dict(nome="porta nativa: a recusa de rota vazia cai (vira Panic 0x32)",
+ dict(nome="native door: the empty-route refusal is dropped (becomes Panic 0x32)",
       f="src/BlazePhoenixRouter.sol",
       old="        if (route.hops.length == 0) revert RouterE(3);\n        if (route.hops[0].tokenIn != w) revert RouterE(3);   // route must start in WETH",
       new="        if (route.hops[0].tokenIn != w) revert RouterE(3);   // route must start in WETH // MUTANTE",
       teste="test_W8_Fire_NativeDoorEmptyRoute_Reverts3"),
- dict(nome="rescue: o destino zero passa a poder ser posto em fila",
+ dict(nome="rescue: a zero destination can now be queued",
       f="src/BlazePhoenixRouter.sol",
       old="    function queueRescue(address token, address to) external onlyControl {\n        if (to == address(0)) revert RouterE(3);",
       new="    function queueRescue(address token, address to) external onlyControl {\n        // MUTANTE",
       teste="test_W9_Fire_QueueRescueZeroTo_Reverts3"),
- dict(nome="addV4: c0==c1 cai na porta do operador",
+ dict(nome="addV4: c0==c1 is dropped on the operator door",
       f="src/BlazePhoenixHub.sol",
       old="        _ne0(c1);\n        if (c0 == c1) revert HubE(4);",
       new="        _ne0(c1);\n        // MUTANTE",
       teste="test_W10_Fire_AddV4EqualCurrencies_Reverts4"),
- dict(nome="construtor do Router: os tres bracos zero deixam de recusar",
+ dict(nome="Router constructor: the three zero arms stop refusing",
       f="src/BlazePhoenixRouter.sol",
       old="        if (hub_ == address(0) || solver_ == address(0) || admin_ == address(0)) revert RouterE(3);",
       new="        // MUTANTE",
       teste="test_W11_FireA_CtorZeroHub_Reverts3"),
- dict(nome="construtor do Solver: o hub zero deixa de recusar",
+ dict(nome="Solver constructor: the zero hub stops refusing",
       f="src/BlazePhoenixSolver.sol",
       old='        require(hub_ != address(0), "Solver:hub0");',
       new="        // MUTANTE",
       teste="test_W12_Fire_SolverCtorZeroHub_Reverts"),
- # ── o cadeado de reentrancia, que nao tinha vigia nenhuma ──────────────────
- # O `invariant_reentrancyBlocked` contava como cobertura e era uma TAUTOLOGIA:
- # o sentinela so virava se uma chamada aninhada REGRESSASSE, e a carga dele era
- # uma rota vazia — que reverte RouterE(3) com cadeado e sem cadeado. Estava
- # preso ao valor seguro em todas as versoes possiveis do contrato. Duas
- # maneiras distintas de o cadeado falhar, dois vectores, dois testes.
- dict(nome="reentrancia: a verificacao do cadeado deixa de recusar (regiao V4 bloqueada)",
+ # ── the reentrancy lock, which had no watcher at all ──────────────────
+ # `invariant_reentrancyBlocked` counted as coverage and was a TAUTOLOGY:
+ # the sentinel only flipped if a nested call REGRESSED, and its payload was
+ # an empty route - which reverts RouterE(3) with the lock and without it. It was
+ # pinned to the safe value in every possible version of the contract. Two
+ # distinct ways for the lock to fail, two vectors, two tests.
+ dict(nome="reentrancy: the lock check stops refusing (V4 region blocked)",
       f="src/BlazePhoenixRouter.sol",
       old="        if (v != 0) revert RouterE(7);",
       new="        v; // MUTANTE",
       teste="test_NestedReentryDuringV4Settle_BlockedByExactLockCode"),
- dict(nome="reentrancia: o cadeado nunca chega a ser armado (a puxada de tokens)",
+ dict(nome="reentrancy: the lock is never armed (the token pull)",
       f="src/BlazePhoenixRouter.sol",
       old="        assembly { tstore(s, 1) }",
       new="        // MUTANTE",
@@ -1412,34 +1410,34 @@ M = [
 
  # ─── N-VERSION LANE FINDING (2026-09-05): the stable curve failed OPEN (revert) on dust pools.
  # Three mutants over the two fit tests, each with the test that dies without it. See ASSURANCE §4n.
- dict(nome="curva estavel: o teste de caber (palavra alta < WAD) trocado pelo antigo max*WAD/b, que rebenta em po",
+ dict(nome="stable curve: the fit test (high word < WAD) swapped for the old max*WAD/b, which blows up on dust",
       f="src/BlazePhoenixCore.sol",
       old="        unchecked { return mm - p0 - (mm < p0 ? 1 : 0) < WAD; }",
       new="        unchecked { mm; p0; return a <= mulDiv(type(uint256).max, WAD, b); } // MUTANTE",
       teste="test_DustStablePool_QuoteIsZeroNotRevert"),
- dict(nome="curva estavel: o derivado (baleia contra po) deixa de ser verificado",
+ dict(nome="stable curve: the derived check (whale against dust) is no longer verified",
       f="src/BlazePhoenixCore.sol",
       old="        return _mulFitsWad(a, b) && _mulFitsWad(x, b + 2 * yy);",
       new="        return _mulFitsWad(a, b); // MUTANTE",
       teste="test_WhaleVsDustStablePool_QuoteIsZeroNotRevert"),
- dict(nome="curva estavel: o fit-check do K deixa de ser consultado",
+ dict(nome="stable curve: the K fit-check is no longer consulted",
       f="src/BlazePhoenixCore.sol",
       old="        if (!_solKFits(X + A, Y)) return 0;",
       new="        // MUTANTE",
       teste="testFuzz_StableQuoteNeverReverts"),
  # ─── THE FEE RULE, BOTH REGIMES (2026-09-05). The ledger's own checks are belts — unobservable
  # in isolation, measured as such in docs/assurance/fee-seal-detection.json — and are NOT here.
- dict(nome="fee: regime de exaustao cobra so no hop 0 (reabre a fuga do prefixo sem valor)",
+ dict(nome="fee: exhaustion regime charges at hop 0 only (reopens the valueless-prefix leak)",
       f="src/BlazePhoenixRouter.sol",
       old="            if (!feeOnOut && (feeHop == type(uint256).max || h == feeHop)) {",
       new="            if (!feeOnOut && (feeHop == type(uint256).max ? h == 0 : h == feeHop)) { // MUTANTE",
       teste="test_JUIZ_PrefixoSemValorEscapaAFee"),
- dict(nome="fee: regime de exaustao cobra em todos os hops MENOS o primeiro",
+ dict(nome="fee: exhaustion regime charges at every hop EXCEPT the first",
       f="src/BlazePhoenixRouter.sol",
       old="            if (!feeOnOut && (feeHop == type(uint256).max || h == feeHop)) {",
       new="            if (!feeOnOut && (feeHop == type(uint256).max ? h != 0 : h == feeHop)) { // MUTANTE",
       teste="test_NoBridgeThreeHops_PaysOnEveryHop_ImmunityByExhaustion"),
- dict(nome="fee: o produtor unico do compromisso do hop conta so a primeira perna",
+ dict(nome="fee: the single producer of the hop commitment counts only the first leg",
       f="src/BlazePhoenixRouter.sol",
       old="        for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }\n    }",
       new="        c = hop.legs[0].amountIn; // MUTANTE\n    }",
@@ -2011,9 +2009,9 @@ def main():
     for i, m in mine:
         src = open(m["f"]).read()
         if src.count(m["old"]) != 1:
-            falhas.append(f"[{i}] {m['nome']}: o alvo do mutante nao existe (ou ha varios) em {m['f']}. "
-                          f"O codigo mudou e esta lista nao foi atualizada.")
-            print(f"  [{i}] ALVO PERDIDO  {m['nome']}"); continue
+            falhas.append(f"[{i}] {m['nome']}: the mutant target does not exist (or there are several) in {m['f']}. "
+                          f"The code changed and this list was not updated.")
+            print(f"  [{i}] TARGET LOST  {m['nome']}"); continue
         bak = src
         try:
             open(m["f"],"w").write(src.replace(m["old"], m["new"]))
@@ -2026,12 +2024,12 @@ def main():
                              f"to pristine, so this mutant exercises nothing.")
                 print(f"  [{i}] INERT        {m['nome']}  (artefact unchanged)")
             elif ok:
-                falhas.append(f"[{i}] {m['nome']}: o teste '{m['teste']}' PASSOU com o guarda mutado. "
-                              f"O guarda esta sem vigia — o teste e decorativo.")
-                print(f"  [{i}] DECORATIVO   {m['nome']}  ({m['teste']} passou mutado)")
+                falhas.append(f"[{i}] {m['nome']}: the test '{m['teste']}' PASSED with the guard mutated. "
+                              f"The guard is unwatched - the test is decorative.")
+                print(f"  [{i}] DECORATIVE   {m['nome']}  ({m['teste']} passou mutado)")
             elif "No tests match" in out or "Compiler run failed" in out:
-                falhas.append(f"[{i}] {m['nome']}: o teste '{m['teste']}' nao existe.")
-                print(f"  [{i}] TESTE AUSENTE {m['nome']}")
+                falhas.append(f"[{i}] {m['nome']}: the test '{m['teste']}' does not exist.")
+                print(f"  [{i}] TEST MISSING {m['nome']}")
             else:
                 print(f"  [{i}] ok           {m['nome']}")
         finally:
@@ -2042,9 +2040,9 @@ def main():
         for f in inert: print("  -", f)
         falhas.extend(inert)
     if falhas:
-        print("GUARDAS SEM VIGIA:"); [print("  -", f) for f in falhas]
+        print("UNWATCHED GUARDS:"); [print("  -", f) for f in falhas]
         sys.exit(1)
-    print(f"{len(mine)}/{len(mine)} guardas com teste que os apanha (shard {k + 1}/{n} of {len(M)}), "
+    print(f"{len(mine)}/{len(mine)} guards with a test that catches them (shard {k + 1}/{n} of {len(M)}), "
           f"all green at baseline ({len(green)} passing tests).")
 
 if __name__ == "__main__":

@@ -108,7 +108,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   `SECURITY_HALL_OF_FAME.md`):
 
 <!-- researchers:begin -->
-[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · [Charan](https://github.com/chinnuy935) · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Anonymous
+[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · Charan · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Anonymous
 <!-- researchers:end -->
 
   Technical detail for each report stays in the verified source and in private records, never
@@ -801,7 +801,7 @@ code, and a mutant the test must kill; nothing is closed by argument alone. With
 researchers who read the source, thought adversarially and told us privately what they found:
 
 <!-- researchers:begin -->
-[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · [Charan](https://github.com/chinnuy935) · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Anonymous
+[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · Charan · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Anonymous
 <!-- researchers:end -->
 
 Technical detail stays in the verified source and our private records, never on a credits page.
@@ -1434,7 +1434,7 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **M2000 Slash**
 - **Binod Bk**
 - **CHARIR ABDELHAMID**
-- **[Charan](https://github.com/chinnuy935)**
+- **Charan**
 - **Ashish Prajapati**
 - **rety6363**
 - **Cico Agung**
@@ -2599,14 +2599,14 @@ fixed point on every tick.
 ## 4l. Mutants aimed at the invariants
 
 Until 2026-09-05 none of the 183 curated mutants named a stateful invariant as the test that must
-die to it. The 39 `invariant_*` functions across 14 campaigns were green, and nothing had ever
+die to it. The 40 `invariant_*` functions across 14 campaigns were green, and nothing had ever
 asked whether any of them could go red: a campaign whose handler never reaches the state a
 property protects certifies that property over an empty universe, and looks identical from the
 outside to one that reaches it. The measurement is the same one the guard makes for unit tests,
 pointed at the campaigns: alter one guard in the source, run every invariant, and record which
 ones notice.
 
-Fifteen mutants, one per property the campaigns claim, each run against all 39 invariants on the
+Fifteen mutants, one per property the campaigns claim, each run against all 40 invariants on the
 same seed (`docs/assurance/invariant-mutants.json` holds the full matrix, with the exact edit):
 
 | mutant | what it removes | noticed by |

@@ -93,7 +93,7 @@
   `SECURITY_HALL_OF_FAME.md`):
 
 <!-- researchers:begin -->
-[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · [Charan](https://github.com/chinnuy935) · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Anonymous
+[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · Charan · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Anonymous
 <!-- researchers:end -->
 
   Technical detail for each report stays in the verified source and in private records, never

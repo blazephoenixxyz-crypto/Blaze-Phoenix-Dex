@@ -502,14 +502,14 @@ fixed point on every tick.
 ## 4l. Mutants aimed at the invariants
 
 Until 2026-09-05 none of the 183 curated mutants named a stateful invariant as the test that must
-die to it. The 39 `invariant_*` functions across 14 campaigns were green, and nothing had ever
+die to it. The 40 `invariant_*` functions across 14 campaigns were green, and nothing had ever
 asked whether any of them could go red: a campaign whose handler never reaches the state a
 property protects certifies that property over an empty universe, and looks identical from the
 outside to one that reaches it. The measurement is the same one the guard makes for unit tests,
 pointed at the campaigns: alter one guard in the source, run every invariant, and record which
 ones notice.
 
-Fifteen mutants, one per property the campaigns claim, each run against all 39 invariants on the
+Fifteen mutants, one per property the campaigns claim, each run against all 40 invariants on the
 same seed (`docs/assurance/invariant-mutants.json` holds the full matrix, with the exact edit):
 
 | mutant | what it removes | noticed by |
