@@ -136,7 +136,43 @@ contract Pin01LegCeilingTest is Test {
         assertGt(total, 0, "premise: the plan has at least one leg");
     }
 
+    /// The same on a bridge route: six venues on each stage and no direct pool, so the
+    /// order can only go through the bridge. The bridge planner hands every stage the legs
+    /// the global budget leaves it, and that share must still be cut to the per-stage budget.
+    function test_Solver_NeverBuildsABridgeStageWiderThanItsStageBudget() public {
+        MockERC20 tc = new MockERC20("C", "C");
+        MockERC20 td = new MockERC20("D", "D");
+        MockERC20 br = new MockERC20("BR", "BR");
+        hub.addBridge(address(br));
+        _venues(tc, br);
+        _venues(br, td);
+
+        RoutePlan memory plan = solver.findBestRoutePlan(address(tc), address(td), AMT);
+        uint8 cap = solver.stageLegs();
+
+        assertEq(plan.best.hops.length, 2, "premise: the order goes through the bridge");
+        uint256 widest;
+        for (uint256 h; h < 2; ++h) {
+            uint256 legs = plan.best.hops[h].legs.length;
+            if (legs > widest) widest = legs;
+            assertLe(legs, cap, "the Solver built a bridge stage wider than MAX_LEGS_PER_STAGE");
+        }
+        assertEq(widest, cap, "premise: the per-stage budget binds on a stage");
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
+
+    /// Six V2 venues of unequal depth on `a`/`b`, as in setUp.
+    function _venues(MockERC20 a, MockERC20 b) private {
+        for (uint256 i; i < 6; ++i) {
+            MockV2Pair p = new MockV2Pair(address(a), address(b));
+            uint112 r = uint112(uint256(RESERVE) / (i + 1));
+            a.mint(address(p), r);
+            b.mint(address(p), r);
+            p.setReserves(r, r);
+            hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(a), address(b));
+        }
+    }
 
     function _leg(MockV2Pair p, address tIn, uint256 amt) private view returns (Leg memory) {
         (uint112 r0, uint112 r1, ) = p.getReserves();

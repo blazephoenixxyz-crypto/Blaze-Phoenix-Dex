@@ -153,7 +153,7 @@ contract BlazePhoenixRouter {
     ///      none of them theft — `executedMask` silently stops crediting past
     ///      leg 255, the exhaustion-regime fee compounds once per hop with no
     ///      ceiling, and `bridgeBase` is sized by the caller. Three is the
-    ///      deepest topology the Solver builds (`_planViaTwoBridges`).
+    ///      deepest topology the Solver builds (`_planViaBridges`, two bridges).
     uint8   internal constant MAX_HOPS          = 3;
 
     /// @notice Per-leg output floor, in BPS of the leg's pro-rata attested
@@ -1265,8 +1265,8 @@ contract BlazePhoenixRouter {
                 // IT DOES NOT KILL `bridge collapsing`. That justification (the
                 // `_legTokens` docstring) rests on the claim "the Solver collapses
                 // bridge routes into a single hop", which `Quoter._classify`
-                // already documents as FALSE since 2026-08-22: `_planViaBridge`
-                // has always returned `new Hop[](2)`. And the Solver builds each
+                // already documents as FALSE since 2026-08-22: `_planViaBridges`
+                // has always returned one hop per stage (two over one bridge). And the Solver builds each
                 // leg from `getActivePools(tIn, tOut)` with
                 // `zeroForOne: cands[i].token0 == tIn` — every leg the planner
                 // produces trades the hop's exact pair. The guard is a no-op for

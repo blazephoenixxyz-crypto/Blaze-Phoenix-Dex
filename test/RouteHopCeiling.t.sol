@@ -205,7 +205,7 @@ contract RouteHopCeilingTest is Test {
     // ─── CONTROLS ────────────────────────────────────────────────────────────
 
     /// Whatever ceiling is chosen must leave the Solver's own topologies alone:
-    /// three hops is the deepest route _planViaTwoBridges can build.
+    /// three hops is the deepest route _planViaBridges can build.
     function test_ThreeHopRoute_StillRoutes() public {
         // Since 2026-10-07 a route visits its input token once (RouterE(3)), so the three
         // hops chain through distinct tokens, A -> B -> C -> D, as the Solver's do.

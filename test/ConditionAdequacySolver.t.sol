@@ -119,7 +119,7 @@ contract CAZeroSlotArms is CABase {
         f.setPair(address(0), address(tokenB), address(p0B));
     }
 
-    /// Slot 0 empty. Neutralised, _planViaBridge(..., address(0)) finds the
+    /// Slot 0 empty. Neutralised, _planViaBridges(..., address(0), ...) finds the
     /// (0,A) and (0,B) books and returns a live 2-hop route instead of SolverE(5).
     function test_L289c1_EmptySlot0MustNotBecomeABridge() public {
         _fresh();
