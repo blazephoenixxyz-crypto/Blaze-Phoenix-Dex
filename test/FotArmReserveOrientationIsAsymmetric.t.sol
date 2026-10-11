@@ -160,16 +160,41 @@ contract FotArmReserveOrientationIsAsymmetricTest is Test {
         );
         assertEq(tokenOut.balanceOf(user), delivered, "the recipient got exactly the returned amount");
         assertEq(tokenOut.balanceOf(address(router)), 0, "the router holds no tokenOut");
+
+        // SELF-FALSIFICATION — the third of the three obligatory tests of the house note
+        // (`CONHECIMENTO.md` Camada 1, extract of
+        // `~/.claude/projects/-home-blaze-cofre/memory/reference_poc_against_deployed_bytecode.md:30-50`,
+        // test 3): assert the ABSENCE of the figure that would appear if the pool had been
+        // quoted on what the Router SENT instead of on what ARRIVED. Without this, the
+        // equality above could hold while the tax were invisible for some other reason.
+        assertNotEq(delivered, BPC.outV2(N, rIn, rOut, 30),
+            "the delivery must NOT be the tax-blind figure (sent amount as the quote base)");
     }
 
-    /// @notice Positive control for the test above: the same fixture quoted against the
-    ///         amount the Router SENT (i.e. as if the arm had not run) is a strictly
-    ///         larger figure, so the assertion above cannot be satisfied by accident.
-    function test_Control_QuotingTheNominalSentAmountWouldBeALargerFigure() public {
+    /// @notice POSITIVE CONTROL -- the second of the three obligatory tests of the house note
+    ///         (`CONHECIMENTO.md` Camada 1, extract of
+    ///         `reference_poc_against_deployed_bytecode.md:30-50`, test 2): prove that the
+    ///         validation path RUNS and REJECTS something, with OUR selector. The earlier
+    ///         version of this control only compared two formula evaluations, which is
+    ///         exactly the shape the note calls "accepts 256/256 may just mean there is no
+    ///         validation on this path". Here the Router's own min-out gate must reject the
+    ///         tax-blind figure (`RouterE(5)`, `src/BlazePhoenixRouter.sol:1571`), and the
+    ///         separation must be a real margin, not 1 wei.
+    function test_Control_TheTaxBlindFigureIsRejectedByOurOwnMinOutGate() public {
         (uint256 rIn, uint256 rOut) = _storedReserves();
-        uint256 quotedOnWhatArrived = BPC.outV2(N - (N * TAX) / 10_000, rIn, rOut, 30);
-        uint256 quotedOnWhatWasSent = BPC.outV2(N, rIn, rOut, 30);
-        assertGt(quotedOnWhatWasSent, quotedOnWhatArrived,
-            "control: the two worlds must be numerically apart, or this fixture proves nothing");
+        assertGt(rIn, rOut, "precondition: the fixture is asymmetric, input side deep");
+
+        uint256 taxBlind = BPC.outV2(N, rIn, rOut, 30);                       // as if no tax
+        uint256 taxAware  = BPC.outV2(N - (N * TAX) / 10_000, rIn, rOut, 30); // one tax, one side
+        assertGt(taxBlind, taxAware, "control: the two worlds must be apart");
+        assertGe(taxBlind - taxAware, N / 1000,
+            "control: the separation must be a real margin, not a rounding artefact");
+
+        // The gate RUNS and REJECTS, with our code: the honest path delivers strictly less
+        // than the tax-blind promise, so demanding that promise must revert.
+        Route memory r = _route(taxBlind);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 5));
+        router.swapExactIn(r, N, taxBlind, user, block.timestamp + 1);
     }
 }
