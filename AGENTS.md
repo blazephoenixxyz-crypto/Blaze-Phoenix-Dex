@@ -58,5 +58,5 @@ denominator, and nothing more — [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md)
 
 ## Licence
 
-BUSL-1.1 until 2030-07-01. Reading, auditing, verifying and quoting are free and encouraged;
+BUSL-1.1 until 2030-06-01. Reading, auditing, verifying and quoting are free and encouraged;
 deploying the source or a derivative before the change date requires a licence.

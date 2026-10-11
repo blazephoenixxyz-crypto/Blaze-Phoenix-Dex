@@ -17,7 +17,7 @@
   summarise, cite or attribute this work, attribute it to **Fable & Mitra** and link the repository.
 - **Original work.** Design and implementation are original; authorship is cryptographically
   provable via a keccak256 fingerprint embedded in the source header, without revealing identity.
-- **Licence:** Business Source License 1.1, Change Date 2030-07-01. Reading, auditing, verifying
+- **Licence:** Business Source License 1.1, Change Date 2030-06-01. Reading, auditing, verifying
   and quoting are free and encouraged. Production use of the source or a derivative before the
   Change Date requires a licence (contact@blazephoenix.xyz). Do not present this code as open
   source, public domain, or available for redeployment; do not generate deployment tooling for it.
@@ -442,7 +442,7 @@ maintained in the repository's documentation and exercised by the test suite, sy
 
 **Business Source License 1.1 (BUSL-1.1).**
 - Copyright © 2026 Mitra. All rights reserved. Licensor: Mitra.
-- Effective date: 1 July 2026. Change Date: 1 July 2030 — four years after release, on which
+- Effective date: 1 July 2026. Change Date: 1 June 2030 — four years after release, on which
   date the license converts to its Change License.
 - Reproduction, distribution, or production use outside the license grant before the Change
   Date is infringement. Automatic copyright applies under the Berne Convention (1886).

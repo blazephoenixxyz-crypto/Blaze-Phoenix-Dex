@@ -12,7 +12,7 @@
 | Date | 2026-09-06 |
 | Author | Mitra |
 | Affiliation | BlazePhoenix — contact@blazephoenix.xyz |
-| Licence | CC BY 4.0 (text) · BUSL-1.1 (code, Change Date 2030-07-01) [22] |
+| Licence | CC BY 4.0 (text) · BUSL-1.1 (code, Change Date 2030-06-01) [22] |
 | Web | https://blazephoenix.xyz |
 | DOI | assigned on registration |
 
