@@ -46,7 +46,7 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **M2000 Slash**
 - **Binod Bk**
 - **CHARIR ABDELHAMID**
-- **[Charan](https://github.com/chinnuy935)**
+- **Charan**
 - **Ashish Prajapati**
 - **rety6363**
 - **Cico Agung**
