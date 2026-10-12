@@ -425,7 +425,7 @@ contract BlazePhoenixQuoter {
     /// @dev A REAL CLASSIFIER since 2026-08-22. It used to be dead: it always
     ///      returned `(0, address(0))` and justified itself with "the Solver
     ///      collapses bridge routes into a single hop". **That is false** —
-    ///      `_planViaBridge` has always returned `new Hop[](2)`, and there are
+    ///      the bridge planner has always returned two hops over one bridge, and there are
     ///      now three-hop routes as well. Consequence: `pv.topology` was ALWAYS 0
     ///      and `pv.bridgeUsed` ALWAYS zero, so any reader (the UI, a metrics
     ///      sweep) using them was reading a constant, not a measurement.

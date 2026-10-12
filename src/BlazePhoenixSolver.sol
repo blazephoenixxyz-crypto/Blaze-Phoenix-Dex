@@ -285,15 +285,15 @@ contract BlazePhoenixSolver {
         // the constant over there — and vice versa.
         address b0 = hub.bridge(0);
         if (b0 != address(0) && b0 != tIn && b0 != tOut) {
-            _planViaBridge(m, tIn, tOut, amountIn, b0);
+            _planViaBridges(m, tIn, tOut, amountIn, b0, address(0));
         }
         address b1 = hub.bridge(1);
         if (b1 != address(0) && b1 != tIn && b1 != tOut) {
-            _planViaBridge(m, tIn, tOut, amountIn, b1);
+            _planViaBridges(m, tIn, tOut, amountIn, b1, address(0));
         }
         address b2 = hub.bridge(2);
         if (b2 != address(0) && b2 != tIn && b2 != tOut) {
-            _planViaBridge(m, tIn, tOut, amountIn, b2);
+            _planViaBridges(m, tIn, tOut, amountIn, b2, address(0));
         }
 
         Route memory best;
@@ -320,7 +320,7 @@ contract BlazePhoenixSolver {
                 for (uint256 j; j < 3; ) {
                     address y = bs[j];
                     if (j != i && y != address(0) && y != tIn && y != tOut && y != x) {
-                        _planViaTwoBridges(m, tIn, tOut, amountIn, x, y);
+                        _planViaBridges(m, tIn, tOut, amountIn, x, y);
                     }
                     unchecked { ++j; }
                 }
@@ -365,9 +365,10 @@ contract BlazePhoenixSolver {
     }
 
     /// @dev S2 (V4 fragmentation, reported by Seavia Resources): the judgement is by `u`, the
-    ///      route's RANKING figure - `totalOut` plus `up`, what the deep walk resolved above the
-    ///      sixteen-stretch promise on the last hop (`_buildHop`). On an untruncated route the two
-    ///      are the same number. `totalOut` stays the promise in the plan; `u` only orders.
+    ///      route's RANKING figure - `totalOut` plus `up`, what the deep walks resolved above the
+    ///      sixteen-stretch promise (`_buildHop`; on a bridge route the rank carried stage by
+    ///      stage, `_planViaBridges`). On an untruncated route the two are the same number.
+    ///      `totalOut` stays the promise in the plan; `u` only orders.
     function _considera(Melhores memory m, Route memory r, uint256 up) private pure {
         uint256 u = r.totalOut;
         if (u == 0) return;   // an assembly that refused the route
@@ -394,109 +395,78 @@ contract BlazePhoenixSolver {
         _considera(m, route, up);
     }
 
-    function _planViaBridge(
-        Melhores memory m, address tIn, address tOut, uint256 amountIn, address bridge_
-    ) private view {
-        // Stage A: tIn → bridge, budget = MAX_LEGS_PER_STAGE. The funnel probes
-        // the full candidate width; _buildHop cuts to the stage budget by weight.
-        PoolInfo[] memory candsA = _topKPools(tIn, bridge_, MAX_CANDIDATES);
-        if (candsA.length == 0) return;
-        (Hop memory hopA, ) = _buildHop(tIn, bridge_, amountIn, candsA, MAX_LEGS_PER_STAGE, true);
-        if (hopA.expectedOut == 0 || hopA.legs.length == 0) return;
-
-        // Stage B: bridge → tOut, budget = MAX_LEGS - legs(A)
-        uint256 legsA = hopA.legs.length;
-        if (legsA >= MAX_LEGS) return;   // stage A used the whole budget
-        uint8 budgetB = uint8(MAX_LEGS - legsA);
-        if (budgetB > MAX_LEGS_PER_STAGE) budgetB = MAX_LEGS_PER_STAGE;
-        if (budgetB == 0) return;
-        PoolInfo[] memory candsB = _topKPools(bridge_, tOut, MAX_CANDIDATES);
-        if (candsB.length == 0) return;
-        // Stage B may NOT input-cut: the Router rescales its legs against the
-        // REAL bridge balance produced by stage A (scale = realIn / sum of
-        // quoted leg inputs), so a cut leg would be scaled straight back up —
-        // past its cut promise and into a per-leg floor revert (observed: a
-        // 2-hop route that filled at 74bps floor-rejected once its stage-B
-        // leg was cut). Stage B keeps the promise-only clamp; the input-side
-        // cut protects hop 0 / single-hop, where amounts execute as built.
-        (Hop memory hopB, uint256 up) = _buildHop(bridge_, tOut, hopA.expectedOut, candsB, budgetB, false);
-        if (hopB.expectedOut == 0 || hopB.legs.length == 0) return;
-
-        // Two-hop route: stage A (tIn→bridge) and stage B (bridge→tOut)
-        // are kept as SEPARATE hops. The Router executes hop A, measures
-        // the actual bridge balance received, then rescales hop B's legs
-        // proportionally to the real bridge amount. This makes the route
-        // robust to stage-A slippage: stage B always spends exactly what
-        // stage A produced, never a stale quoted figure.
-        uint256 totalLegs = hopA.legs.length + hopB.legs.length;
-        if (totalLegs > MAX_LEGS) return;
-
-        Hop[] memory hops = new Hop[](2);
-        hops[0] = hopA;
-        hops[1] = hopB;
-
-        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, hopB.expectedOut);
-        _considera(m, route, up);
-    }
-
-    /// @notice THREE HOPS over TWO bridges: tIn -> bA -> bB -> tOut.
+    /// @notice BRIDGE ROUTES: tIn -> bA -> tOut, or THREE HOPS over TWO bridges
+    ///         (tIn -> bA -> bB -> tOut) when `bB` is set. One planner for both.
     ///
-    /// @dev WHY IT EXISTS, and why it does not make routes longer by default.
-    ///      `_rank` compares `totalOut` — the output BUILT and measured for each
-    ///      topology. A 3-hop route only wins if it delivers more, and a direct
-    ///      route still wins whenever it is the best. Adding this topology does
-    ///      NOT lengthen routes: it adds a candidate to the judgement that already
-    ///      exists.
+    /// @dev WHY THREE HOPS EXIST, and why they do not make routes longer by default.
+    ///      `_considera` judges the route BUILT and measured for each topology. A 3-hop route
+    ///      only wins if it delivers more, and a direct route still wins whenever it is the
+    ///      best. Adding the topology does NOT lengthen routes: it adds a candidate to the
+    ///      judgement that already exists.
     ///
-    ///      THE COST FALLS WHERE IT DOES NOT MATTER. It is three more `_buildHop`
-    ///      per bridge pair, and that is paid in the SOLVE — which at entry point A
-    ///      runs over `eth_call`, for free. At entry point B it is paid in gas, so
-    ///      this topology only pays off where data dominates. See the corpus (the four entry points).
+    ///      THE COST FALLS WHERE IT DOES NOT MATTER. It is three more `_buildHop` per bridge
+    ///      pair, and that is paid in the SOLVE - which at entry point A runs over `eth_call`,
+    ///      for free. At entry point B it is paid in gas, so this topology only pays off where
+    ///      data dominates. See the corpus (the four entry points).
     ///
-    ///      LEG BUDGET. `MAX_LEGS = 5` in total. Stage A may cut on the input
-    ///      (it executes as it was built); B and C may NOT — the Router
-    ///      rescales them against the REAL measured balance of the prior stage, and a
-    ///      cut leg would be scaled straight back up, past its
-    ///      promise and into a per-leg floor revert. Each downstream stage
-    ///      reserves at least one leg for the ones that follow.
-    function _planViaTwoBridges(
+    ///      STAGES ARE SEPARATE HOPS. The Router executes each stage, measures the balance it
+    ///      really produced and rescales the next stage's legs to it, so a stage always spends
+    ///      exactly what the one before produced, never a stale quoted figure.
+    ///
+    ///      LEG BUDGET. `MAX_LEGS` in total, `MAX_LEGS_PER_STAGE` per stage, and every stage
+    ///      leaves at least one leg for each stage after it. Stage A may cut on the input (it
+    ///      executes as it was built); the later stages may NOT - the Router rescales them
+    ///      against the REAL balance of the stage before, and a cut leg would be scaled
+    ///      straight back up, past its cut promise and into a per-leg floor revert (observed:
+    ///      a 2-hop route that filled at 74bps floor-rejected once its stage-B leg was cut).
+    ///
+    ///      S2 (V4 fragmentation) ON THE EARLIER STAGES. Each stage is built on the PROMISE of
+    ///      the stage before, which dust can cut. `r` carries the RANK along the path instead:
+    ///      when a stage's deep walk resolved above its promise, the next stage is quoted again
+    ///      on that rank, for the judgement only. A stage's rank is the larger of its two lower
+    ///      bounds (its own deep walk on the promise, and the quote on the rank before), so it
+    ///      never exceeds what the stage delivers on what the stage before really produced. The
+    ///      legs, the promise and the floor stay as built.
+    function _planViaBridges(
         Melhores memory m, address tIn, address tOut, uint256 amountIn, address bA, address bB
     ) private view {
-        // Stage A: tIn -> bA. Reserves 2 legs (one for B, one for C).
-        PoolInfo[] memory candsA = _topKPools(tIn, bA, MAX_CANDIDATES);
-        if (candsA.length == 0) return;
-        uint8 budgetA = MAX_LEGS_PER_STAGE;
-        if (budgetA > MAX_LEGS - 2) budgetA = uint8(MAX_LEGS - 2);   // reserve 1 for B and 1 for C
-        (Hop memory hopA, ) = _buildHop(tIn, bA, amountIn, candsA, budgetA, true);
-        if (hopA.expectedOut == 0 || hopA.legs.length == 0) return;
-
-        // Stage B: bA -> bB. Reserves 1 leg for C.
-        uint256 usadas = hopA.legs.length;
-        if (usadas + 2 > MAX_LEGS) return;
-        PoolInfo[] memory candsB = _topKPools(bA, bB, MAX_CANDIDATES);
-        if (candsB.length == 0) return;
-        uint8 budB = uint8(MAX_LEGS - usadas - 1);                    // reserve 1 for C
-        if (budB > MAX_LEGS_PER_STAGE) budB = MAX_LEGS_PER_STAGE;
-        (Hop memory hopB, ) = _buildHop(bA, bB, hopA.expectedOut, candsB, budB, false);
-        if (hopB.expectedOut == 0 || hopB.legs.length == 0) return;
-
-        // Stage C: bB -> tOut, with whatever is left over.
-        usadas += hopB.legs.length;
-        if (usadas >= MAX_LEGS) return;
-        PoolInfo[] memory candsC = _topKPools(bB, tOut, MAX_CANDIDATES);
-        if (candsC.length == 0) return;
-        uint8 budC = uint8(MAX_LEGS - usadas);
-        if (budC > MAX_LEGS_PER_STAGE) budC = MAX_LEGS_PER_STAGE;
-        (Hop memory hopC, uint256 up) = _buildHop(bB, tOut, hopB.expectedOut, candsC, budC, false);
-        if (hopC.expectedOut == 0 || hopC.legs.length == 0) return;
-        if (usadas + hopC.legs.length > MAX_LEGS) return;
-
-        Hop[] memory hops = new Hop[](3);
-        hops[0] = hopA;
-        hops[1] = hopB;
-        hops[2] = hopC;
-        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, hopC.expectedOut);
-        _considera(m, route, up);
+        uint256 n = bB == address(0) ? 2 : 3;
+        address[4] memory path = [tIn, bA, bB, tOut];
+        if (n == 2) path[2] = tOut;
+        Hop[] memory hops = new Hop[](n);
+        uint256 used;           // legs spent by the stages built so far
+        uint256 p = amountIn;   // the PROMISE carried into the stage
+        uint256 r;              // its RANK (0 into stage A: the input is exact there)
+        for (uint256 i; i < n; ) {
+            uint256 room = MAX_LEGS + i + 1 - n;   // one leg left for every stage after this one
+            if (used >= room) return;
+            uint256 budget = room - used;
+            if (budget > MAX_LEGS_PER_STAGE) budget = MAX_LEGS_PER_STAGE;
+            PoolInfo[] memory cands = _topKPools(path[i], path[i + 1], MAX_CANDIDATES);
+            if (cands.length == 0) return;
+            // Pass 0 builds the stage on the promise. Pass 1 runs only when the stage before
+            // ranked above its promise: it quotes this stage again on that rank, for the
+            // judgement alone. The stage's rank is the larger of the two lower bounds.
+            uint256 rk;
+            for (uint256 k; ; ) {
+                (Hop memory h, uint256 up) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), i == 0);
+                if (k == 0) {
+                    if (h.expectedOut == 0 || h.legs.length == 0) return;
+                    hops[i] = h;
+                    used += h.legs.length;
+                }
+                up += h.expectedOut;
+                if (up > rk) rk = up;
+                if (k != 0 || r <= p) break;
+                k = 1;
+            }
+            r = rk;
+            p = hops[i].expectedOut;
+            unchecked { ++i; }
+        }
+        if (used > MAX_LEGS) return;
+        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, p);
+        _considera(m, route, r - p);
     }
 
     // =========================================================================

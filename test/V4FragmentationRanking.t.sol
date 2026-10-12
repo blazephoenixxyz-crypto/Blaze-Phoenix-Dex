@@ -14,6 +14,12 @@ pragma solidity 0.8.36;
 //   Q2i  the split gate: a quote still truncated after the deep walk keeps the split instead
 //        of collapsing onto a rival (the `hMax` ceiling check).
 //   Q2j  the probe: dust inside the probe's reach must not price the honest pool out of the band.
+//   Q2k  `_considera` on a bridge route's FIRST hop: dust there must not cost the route the order
+//        (stage B is re-quoted on stage A's rank for the judgement). Red on f87364e.
+//   Q2l  ...and that re-quote replaces the promise in the judgement, never adds to it: a better
+//        direct route keeps the order. Green on f87364e too: it guards the fix.
+//   Q2m/Q2n  the same on a two-bridge route, dust on its first stage and on its middle one (the
+//        rank is carried stage by stage). Red on f87364e.
 //   ceiling  `v4WalkRank` stops at sixteen only when the rest cannot carry the quote past the
 //        bar, and never below the truth.
 //   B1   the ceiling never saturates under the walk's own figure: on a book whose output
@@ -149,6 +155,144 @@ contract V4FragmentationRankingTest is Test {
         assertGt(clean, 9e21, "control: the direct V4 route fills near par");
         assertLe(clean > dirty ? clean - dirty : 0, 1e18, "fragmentation moved the order to the bridge route");
     }
+
+    /// An honest V4 book between `a` and `b` (either orientation) and its pool id.
+    function _honestV4Between(address a, address b) internal returns (bytes32 pid) {
+        (address c0, address c1) = a < b ? (a, b) : (b, a);
+        pid = BPC.computeV4PoolId(c0, c1, FEE, TS, address(0));
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
+        mgr.addPosition(pid, -20_000, 20_000, TS, L);
+        hub.addV4(c0, c1, FEE, TS, address(0));
+    }
+
+    /// The dust an outsider puts on the twenty ticks an `a -> b` order walks first.
+    function _fragmentPath(bytes32 pid, address a, address b) internal {
+        if (a < b) _fragment(pid, -20, 0);
+        else       _fragment(pid, 0, 20);
+    }
+
+    /// The Q2k book: an honest V4 book on t0 -> bridge, a deep V2 pair on bridge -> t1, and a
+    /// shallower V2 pair on t0 -> t1 as the only direct candidate.
+    function _bridgeBook(address bridge) internal returns (bytes32 pid) {
+        pid = _honestV4Between(t0, bridge);
+        _v2(bridge, t1, 1e24, 1e24);
+        _v2(t0, t1, 5e22, 5e22);
+    }
+
+    /// Q2k. `_considera` on the FIRST hop of a bridge route. The bridge route runs through an
+    /// honest V4 book (t0 -> bridge) and a deep V2 pair (bridge -> t1) and delivers ~9.8e21; the
+    /// only direct candidate is a V2 pair that delivers ~8.3e21. Dust on the first hop cuts its
+    /// sixteen-stretch promise under 1e21, and the second hop is quoted on that promise, so a
+    /// judgement by the promise alone hands the order to the worse direct pair.
+    function test_Q2k_FragmentedBridgeFirstHopKeepsTheBridgeRoute() public {
+        address bridge = address(new MockERC20("BR", "BR"));
+        MockERC20(bridge).mint(address(mgr), 1e30);
+        hub.addBridge(bridge);
+        uint256 snap = vm.snapshotState();
+        _bridgeBook(bridge);
+        uint256 clean = _swap();
+        vm.revertToState(snap);
+        bytes32 pid = _bridgeBook(bridge);
+        _fragmentPath(pid, t0, bridge);
+        (uint256 lo, uint256 rank, ) = BPC.v4WalkRank(address(mgr), pid, ORDER, FEE, TS, t0 < bridge, 0);
+        uint256 dirty = _swap();
+        _report(clean, dirty);
+        assertLt(lo * 10, ORDER, "precondition: the first hop's promise is cut more than tenfold");
+        assertGt(rank, ORDER * 98 / 100, "precondition: the deep walk reads the book");
+        assertGt(clean, 9.5e21, "control: the bridge route fills near par");
+        assertLe(clean > dirty ? clean - dirty : 0, 1e18, "fragmentation of the first hop moved the order off the bridge route");
+    }
+
+    /// Q2l. The other side of Q2k: the first hop's rank must not be counted on top of the promise
+    /// it re-quotes. The direct V2 pair here (priced 2% above par) pays ~1.007e22 and beats the
+    /// bridge route (~9.8e21) on a clean book and on a fragmented one; a judgement that added the
+    /// re-quoted stage B to the promise instead of replacing it would rank the bridge route at
+    /// ~1.05e22 and hand it the order. Green on f87364e too: it guards the fix, not the bug.
+    function test_Q2l_FragmentedBridgeFirstHopDoesNotOutrankABetterDirectRoute() public {
+        address bridge = address(new MockERC20("BR", "BR"));
+        MockERC20(bridge).mint(address(mgr), 1e30);
+        hub.addBridge(bridge);
+        uint256 snap = vm.snapshotState();
+        _honestV4Between(t0, bridge);
+        _v2(bridge, t1, 1e24, 1e24);
+        _v2(t0, t1, 1e24, 1.02e24);
+        uint256 clean = _swap();
+        vm.revertToState(snap);
+        bytes32 pid = _honestV4Between(t0, bridge);
+        _v2(bridge, t1, 1e24, 1e24);
+        _v2(t0, t1, 1e24, 1.02e24);
+        _fragmentPath(pid, t0, bridge);
+        uint256 dirty = _swap();
+        _report(clean, dirty);
+        assertGt(clean, 1e22, "control: the direct pair fills above par");
+        assertLe(clean > dirty ? clean - dirty : 0, 1e18, "the bridge route out-ranked a better direct route");
+    }
+
+    /// Q2k regression, one bridge: on a clean book the plan and the fill are what they were
+    /// before the first hop's rank entered the judgement. Pinned values read on f87364e.
+    function test_Q2k_CleanBridgeRouteUnchanged() public {
+        address bridge = address(new MockERC20("BR", "BR"));
+        MockERC20(bridge).mint(address(mgr), 1e30);
+        hub.addBridge(bridge);
+        _bridgeBook(bridge);
+        uint256 promised = solver.findBestRoutePlan(t0, t1, ORDER).best.totalOut;
+        uint256 got = _swap();
+        assertEq(promised, 9773838954436299115942, "the clean bridge route's promise moved");
+        assertEq(got, 9746738941922775479386, "the clean bridge route's fill moved");
+    }
+
+    /// Q2k regression, two bridges: t0 -> b1 on an honest V4 book, b1 -> b2 and b2 -> t1 on V2
+    /// pairs, no shorter route. Pinned values read on f87364e.
+    function test_Q2k_CleanTwoBridgeRouteUnchanged() public {
+        address b1 = address(new MockERC20("B1", "B1"));
+        address b2 = address(new MockERC20("B2", "B2"));
+        MockERC20(b1).mint(address(mgr), 1e30);
+        hub.addBridge(b1);
+        hub.addBridge(b2);
+        _honestV4Between(t0, b1);
+        _v2(b1, b2, 1e24, 1e24);
+        _v2(b2, t1, 1e24, 1e24);
+        uint256 promised = solver.findBestRoutePlan(t0, t1, ORDER).best.totalOut;
+        uint256 got = _swap();
+        assertEq(promised, 9650478184622023178868, "the clean two-bridge route's promise moved");
+        assertEq(got, 9623977733739036085623, "the clean two-bridge route's fill moved");
+    }
+
+    /// The Q2m/Q2n book: t0 -> b1 -> b2 -> t1, with the V4 book on stage `v4Stage` (0 or 1) and
+    /// deep V2 pairs on the other two, beside a shallower V2 pair on t0 -> t1 (~8.3e21).
+    function _twoBridgeBook(address b1, address b2, uint256 v4Stage) internal returns (bytes32 pid) {
+        if (v4Stage == 0) { pid = _honestV4Between(t0, b1); _v2(b1, b2, 1e24, 1e24); }
+        else              { _v2(t0, b1, 1e24, 1e24); pid = _honestV4Between(b1, b2); }
+        _v2(b2, t1, 1e24, 1e24);
+        _v2(t0, t1, 5e22, 5e22);
+    }
+
+    function _twoBridgeAttack(uint256 v4Stage) internal {
+        address b1 = address(new MockERC20("B1", "B1"));
+        address b2 = address(new MockERC20("B2", "B2"));
+        MockERC20(b1).mint(address(mgr), 1e30);
+        MockERC20(b2).mint(address(mgr), 1e30);
+        hub.addBridge(b1);
+        hub.addBridge(b2);
+        uint256 snap = vm.snapshotState();
+        _twoBridgeBook(b1, b2, v4Stage);
+        uint256 clean = _swap();
+        vm.revertToState(snap);
+        bytes32 pid = _twoBridgeBook(b1, b2, v4Stage);
+        (address a, address b) = v4Stage == 0 ? (t0, b1) : (b1, b2);
+        _fragmentPath(pid, a, b);
+        uint256 dirty = _swap();
+        _report(clean, dirty);
+        assertGt(clean, 9.5e21, "control: the two-bridge route fills near par");
+        assertLe(clean > dirty ? clean - dirty : 0, 1e18, "fragmentation moved the order off the two-bridge route");
+    }
+
+    /// Q2m. Q2k on a two-bridge route: dust on its FIRST stage (t0 -> b1).
+    function test_Q2m_FragmentedTwoBridgeFirstStageKeepsTheRoute() public { _twoBridgeAttack(0); }
+
+    /// Q2n. Q2k on a two-bridge route: dust on its MIDDLE stage (b1 -> b2), so the rank has to
+    /// be carried into the last stage from a stage that was itself quoted on a promise.
+    function test_Q2n_FragmentedTwoBridgeMiddleStageKeepsTheRoute() public { _twoBridgeAttack(1); }
 
     /// Q2h. The held vote: a thin V2 pair priced ~5.6% above the honest pool at the probe. Clean,
     /// the honest pool's depth sets the band and the thin pair falls out of it. Fragmented, the

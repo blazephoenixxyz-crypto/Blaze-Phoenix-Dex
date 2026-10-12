@@ -417,7 +417,7 @@ contract BlazePhoenixSolverTest is Test {
     //  PORQUE ESTES DOIS TESTES EXISTEM. O `test/ThreeHopRanking.t.sol` que os
     //  precedeu declarava um `struct M` e um `_considera` DENTRO do proprio
     //  teste e nunca instanciava o Solver: pinava a aritmetica de um acumulador
-    //  COPIADO. Apagar o `_planViaTwoBridges` inteiro deixava-o verde. A
+    //  COPIADO. Apagar o `_planViaTwoBridges` inteiro (hoje `_planViaBridges`) deixava-o verde. A
     //  DESCOBERTA de rotas de tres hops nao tinha uma unica linha de cobertura.
     //  (A EXECUCAO tinha — FeeEscapeViaBridgeResidual monta a rota a mao.)
     //
