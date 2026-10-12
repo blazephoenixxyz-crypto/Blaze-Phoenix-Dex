@@ -1975,8 +1975,10 @@ library BlazePhoenixCore {
     ///         always, and a quote is settled against a rival `r` once `hi <= r` or `rank > r`.
     ///         When the walk stopped at sixteen because the rest could not carry it above
     ///         `bar`, `hi <= bar` and `rank == lo`. With `bar = type(uint256).max` a quote cut at
-    ///         sixteen returns `hi` = 2^128 - 1 (not asked); one that finished inside them returns
-    ///         `hi == rank == lo`.
+    ///         sixteen returns `hi` = max(rank, 2^128 - 1) (not asked); one that finished inside
+    ///         them returns `hi == rank == lo`. On every return `lo <= rank <= hi`: the Solver
+    ///         subtracts `lo` from `hi` unchecked by design, so a ceiling under the walk's own
+    ///         figure would revert the whole plan (B1).
     /// @dev    `bar = type(uint256).max` is the promise alone (`v4WalkOut`); `bar = 0` resolves
     ///         every truncated quote. The continuation is the same loop, not a second walk: a
     ///         quote that finishes inside sixteen stretches reads the same slots, in the same
@@ -2016,19 +2018,25 @@ library BlazePhoenixCore {
     ///      stopped. Rounded up, against the pool's own rounding down. Hooks are not modelled,
     ///      as everywhere in this walk.
     ///      No overflow: with x <= 2^128 and MIN_SQRT_PRICE <= sp < 2^160 every intermediate is
-    ///      below 2^256. The ceiling saturates at 2^128 - 1, still sound: a V4 swap settles its
-    ///      deltas in int128, so no swap pays more - and a sum of a few ceilings cannot overflow.
+    ///      below 2^256. The ceiling saturates at max(out, 2^128 - 1), still sound: a V4 swap
+    ///      settles its deltas in int128, so no swap pays more than 2^128 - 1. It never
+    ///      saturates UNDER `out` (B1): the walk's own figure is uncapped (a book holding more
+    ///      than ~3.4e38 raw units of tokenOut can show one above 2^128 - 1), and a ceiling under
+    ///      it broke `rank <= hi` and underflowed the Solver's `hi - lo`. `out` is a sum of at
+    ///      most V4_WALK_DEEP_STEPS step outputs, each below 2^192, so `c + out` cannot overflow.
     function _v4Ceil(uint256 out, uint256 rem, uint24 fee, uint160 sp, bool zeroForOne)
         private pure returns (uint256)
     {
+        uint256 m = type(uint128).max;
+        if (out > m) m = out;
         uint256 x = mulDivUp(rem, 1_000_000 - fee, 1_000_000);
-        if (x > type(uint128).max) return type(uint128).max;
+        if (x > type(uint128).max) return m;
         uint256 c = zeroForOne
             ? mulDivUp(mulDivUp(x, sp, Q96), sp, Q96)
             : mulDivUp(mulDivUp(x, Q96, sp), Q96, sp);
-        if (c >= type(uint128).max) return type(uint128).max;
+        if (c >= type(uint128).max) return m;
         c += out;
-        return c > type(uint128).max ? type(uint128).max : c;
+        return c > m ? m : c;
     }
 
     function _v4Walk(
@@ -2069,7 +2077,7 @@ library BlazePhoenixCore {
             // carry the quote above `bar` (see `_v4Ceil`).
             if (i == V4_WALK_MAX_STEPS - 1) {
                 lo = out;
-                if (bar == type(uint256).max) return (lo, out, type(uint128).max);
+                if (bar == type(uint256).max) return (lo, out, out > type(uint128).max ? out : type(uint128).max);
                 hi = _v4Ceil(out, rem, fee, target, zeroForOne);
                 if (hi <= bar) return (lo, out, hi);
             }

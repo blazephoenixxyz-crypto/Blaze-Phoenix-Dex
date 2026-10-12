@@ -132,7 +132,7 @@
       "status": "blocked",
       "guard": "v4WalkRank",
       "test": "test_Reach_NoOperator_FragmentationDoesNotMoveTheOrder",
-      "note": "Reported by Seavia Resources. One-wei positions on the ticks in a V4 pool's path cut the sixteen-stretch walk short. That walk stays the promise (a floor is safe); every ranking consumer (the probe rate, the held vote, the split gate, the route comparison) orders by the deep walk instead, which runs only while the rest of the input could still change the outcome, and a quote still truncated after the deep walk keeps the split rather than collapsing on a guess."
+      "note": "Reported by Seavia Resources. One-wei positions on the ticks in a V4 pool's path cut the sixteen-stretch walk short. That walk stays the promise (a floor is safe); every ranking consumer (the probe rate, the held vote, the split gate, the route comparison) orders by the deep walk instead, which runs only while the rest of the input could still change the outcome, and a quote still truncated after the deep walk keeps the split rather than collapsing on a guess. The ceiling saturates at the larger of the rank and 2^128 - 1, never under the rank, so lo <= rank <= hi holds on every return and the Solver's unchecked hi - lo cannot wrap (B1, test_B1_TruncatedDeepWalkDoesNotRevertThePlan)."
     },
     {
       "id": "SOK-HOOK",

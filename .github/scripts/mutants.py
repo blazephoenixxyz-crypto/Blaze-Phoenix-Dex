@@ -1961,6 +1961,16 @@ M = [
       old='            (, uint256 d, uint256 o, ) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_, 0);',
       new='            (uint256 o, uint256 d, , ) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_, 0); // MUTANT',
       teste='test_Q2j_FragmentedProbeKeepsTheHonestPoolInTheBand'),
+ dict(nome='S2 B1: the ceiling saturates at 2^128 - 1 even under the rank (the plan reverts on hi - lo)',
+      f='src/BlazePhoenixCore.sol',
+      old='        if (out > m) m = out;',
+      new='        // MUTANT',
+      teste='test_B1_TruncatedDeepWalkDoesNotRevertThePlan'),
+ dict(nome='S2 B1: the promise-alone ceiling at sixteen is 2^128 - 1 even under the rank',
+      f='src/BlazePhoenixCore.sol',
+      old='                if (bar == type(uint256).max) return (lo, out, out > type(uint128).max ? out : type(uint128).max);',
+      new='                if (bar == type(uint256).max) return (lo, out, type(uint128).max); // MUTANT',
+      teste='test_B1_SixteenStretchCeilingNeverUnderTheRank'),
 ]
 
 def run(t):

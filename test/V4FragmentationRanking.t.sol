@@ -16,6 +16,9 @@ pragma solidity 0.8.36;
 //   Q2j  the probe: dust inside the probe's reach must not price the honest pool out of the band.
 //   ceiling  `v4WalkRank` stops at sixteen only when the rest cannot carry the quote past the
 //        bar, and never below the truth.
+//   B1   the ceiling never saturates under the walk's own figure: on a book whose output
+//        passes 2^128 - 1, a ceiling capped there fell under `rank` (and under `lo`), and the
+//        Solver's `hi - lo` reverted the whole plan.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
@@ -258,5 +261,116 @@ contract V4FragmentationRankingTest is Test {
         if (truth == 0) return;
         (, uint256 r, ) = BPC.v4WalkRank(address(mgr), pid, amt, f, TS, true, bound(b, 0, truth - 1));
         assertEq(r, truth, "settled below the truth");
+    }
+
+    // ── B1: the ceiling never saturates under the walk's own figure ─────────────────────────
+
+    int24   constant HIGH  = 800_000;            // ~2^115 token1 per token0
+    uint128 constant L_BIG = uint128(1) << 100;
+    uint256 constant ORDER_BIG = 1e12;           // ~2^28 of input crosses one dusted tick
+
+    /// A book whose output passes 2^128 - 1 within a few stretches: tick 800,000 and 2^100 of
+    /// liquidity, one-wei dust on the `n` ticks under the price so every stretch is one tick.
+    /// Only a pool holding more than ~3.4e38 raw units of tokenOut reaches this.
+    function _hugeBook(uint256 n) internal returns (bytes32 pid) {
+        pid = _pid(FEE);
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(HIGH), HIGH, FEE);
+        mgr.addPosition(pid, HIGH - 20_000, HIGH + 20_000, TS, L_BIG);
+        _fragment(pid, HIGH - int24(uint24(n)), HIGH);
+    }
+
+    /// B1, at sixteen. Both ways a quote is cut there - `bar` the maximum (the promise alone)
+    /// and a bar the saturated ceiling sits under - must return a ceiling at or above the rank.
+    function test_B1_SixteenStretchCeilingNeverUnderTheRank() public {
+        bytes32 pid = _hugeBook(40);
+        (uint256 lo, uint256 rank, uint256 hi) =
+            BPC.v4WalkRank(address(mgr), pid, ORDER_BIG, FEE, TS, true, type(uint256).max);
+        assertGt(lo, type(uint128).max, "precondition: sixteen stretches pay more than 2^128 - 1");
+        assertEq(rank, lo, "the promise alone is not walked deep");
+        assertGe(hi, rank, "bar = max: the ceiling fell under the rank");
+        (lo, rank, hi) = BPC.v4WalkRank(address(mgr), pid, ORDER_BIG, FEE, TS, true, type(uint256).max - 1);
+        assertEq(rank, lo, "precondition: the saturated ceiling settled the quote at sixteen");
+        assertGe(hi, rank, "settled at sixteen: the ceiling fell under the rank");
+        // An unspent rest above 2^128 (the net-input saturation).
+        (lo, rank, hi) = BPC.v4WalkRank(address(mgr), pid, uint256(1) << 130, FEE, TS, true, type(uint256).max - 1);
+        assertEq(rank, lo, "precondition: settled at sixteen with the rest above 2^128");
+        assertGe(hi, rank, "rest above 2^128: the ceiling fell under the rank");
+        // An ordinary book cut at sixteen keeps the documented 2^128 - 1 when the promise is all
+        // that is asked: the floor of the ceiling is still 2^128 - 1, not the rank.
+        bytes32 small = _pid(3000);
+        mgr.initialize(small, BPC.sqrtPriceAtTick(0), 0, 3000);
+        mgr.addPosition(small, -20_000, 20_000, TS, L);
+        _fragment(small, -20, 0);
+        (, rank, ) = BPC.v4WalkRank(address(mgr), small, ORDER, 3000, TS, true, 0);
+        (lo, , hi) = BPC.v4WalkRank(address(mgr), small, ORDER, 3000, TS, true, type(uint256).max);
+        assertLt(lo, rank, "precondition: truncated");
+        assertEq(hi, type(uint128).max, "bar = max on an ordinary book: 2^128 - 1");
+    }
+
+    /// B1, a small unspent rest: the ceiling's own `c + out` saturation. 2^83 of liquidity at
+    /// tick 800,000 makes sixteen stretches pay ~2^130 while a rest of a few thousand wei is
+    /// priced under 2^128; the sweep puts the rest left at sixteen across that window.
+    function test_B1_SmallRestCeilingNeverUnderTheRank() public {
+        bytes32 pid = _pid(FEE);
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(HIGH), HIGH, FEE);
+        mgr.addPosition(pid, HIGH - 20_000, HIGH + 20_000, TS, uint128(1) << 83);
+        _fragment(pid, HIGH - 40, HIGH);
+        uint256 past;
+        for (uint256 a = 20_000; a <= 60_000; a += 2_000) {
+            (uint256 lo, uint256 rank, uint256 hi) =
+                BPC.v4WalkRank(address(mgr), pid, a, FEE, TS, true, type(uint256).max - 1);
+            if (lo > type(uint128).max) ++past;
+            assertLe(lo, rank, "lo above the rank");
+            assertGe(hi, rank, "small rest: the ceiling fell under the rank");
+        }
+        assertGt(past, 0, "precondition: some promise passes 2^128 - 1");
+    }
+
+    /// B1, at the deep limit, through the whole plan. Dust on 300 ticks: the deep walk ends at
+    /// 256 stretches with input unspent, `_v4Ceil` saturated at 2^128 - 1 under the promise,
+    /// and `_singleLeg`'s `hi -= out_` underflowed - `findBestRoutePlan` reverted.
+    function test_B1_TruncatedDeepWalkDoesNotRevertThePlan() public {
+        bytes32 pid = _hugeBook(300);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        (uint256 lo, uint256 rank, uint256 hi) = BPC.v4WalkRank(address(mgr), pid, ORDER_BIG, FEE, TS, true, 0);
+        (, uint256 spec, , , ) = mgr.specSwap(pid, ORDER_BIG, FEE, TS, true);
+        assertGt(lo, type(uint128).max, "precondition: the promise passes 2^128 - 1");
+        assertLt(rank, spec, "precondition: the deep walk is still truncated");
+        solver.findBestRoutePlan(t0, t1, ORDER_BIG);
+        assertLe(lo, rank, "lo above the rank");
+        assertGe(hi, rank, "deep limit: the ceiling fell under the rank");
+    }
+
+    /// B1, the invariant: `lo <= rank <= hi` on every return of the walk - every bar class
+    /// (the maximum, zero, any), both directions, prices up to ~2^115 and liquidity up to 2^110.
+    /// Half the runs (`dust` >= 128) are drawn where the output passes 2^128 - 1 with the walk
+    /// cut: a price at least 2^86 in the trade's favour, deep liquidity and more dust ticks than
+    /// sixteen stretches cross - the region the bug lived in, which a uniform draw rarely hits.
+    function testFuzz_B1_WalkKeepsLoRankHiOrdered(
+        uint256 amt, uint24 f, uint8 dust, uint256 bar, int24 tick, uint8 lShift, bool zfo
+    ) public {
+        amt = bound(amt, 1, type(uint128).max);
+        f = uint24(bound(f, 0, 200_000));
+        uint128 liq;
+        if (dust >= 128) {
+            dust = uint8(bound(dust, 17, 40));
+            tick = int24(bound(tick, 600_000, 800_000));
+            if (!zfo) tick = -tick;
+            liq = uint128(1) << uint8(bound(lShift, 80, 110));
+        } else {
+            dust = uint8(bound(dust, 0, 40));
+            tick = int24(bound(tick, -800_000, 800_000));
+            liq = uint128(1) << uint8(bound(lShift, 0, 110));
+        }
+        if (bar % 3 == 0) bar = type(uint256).max;
+        else if (bar % 3 == 1) bar = 0;
+        bytes32 pid = _pid(f);
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(tick), tick, f);
+        mgr.addPosition(pid, tick - 20_000, tick + 20_000, TS, liq);
+        if (zfo) _fragment(pid, tick - int24(uint24(dust)), tick);
+        else _fragment(pid, tick + 1, tick + 1 + int24(uint24(dust)));
+        (uint256 lo, uint256 rank, uint256 hi) = BPC.v4WalkRank(address(mgr), pid, amt, f, TS, zfo, bar);
+        assertLe(lo, rank, "lo above the rank");
+        assertLe(rank, hi, "the ceiling fell under the rank");
     }
 }
