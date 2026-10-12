@@ -54,7 +54,7 @@ stale sequence can be scored as a fresh result.
 |---|---|
 | `test/*.t.sol` | unit, property and **parity** tests — one file per property or per finding, named for the property it pins |
 | `test/*.invariant.t.sol` | stateful campaigns driven by handler contracts; every campaign counts its own non-vacuity (a witness that the interesting state was reached) |
-| `test/fork/` | 27 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
+| `test/fork/` | 28 suites against live liquidity: end-to-end swaps, discovery censuses per factory, preview-versus-execution parity, and the pins of what is deployed (`DeployedCodehashPin`, `DeployedParity`) |
 | `test/formal/` | Halmos specifications for the fail-closed arithmetic (iron floor, impact, V3 fail-closed, `effV4Fee`) |
 | `test/hunt/` | regressions from adversarial review campaigns |
 | `test/regime/` | the **regime covering array** (`RegimeHarness.sol`, one fixture builder, one assertion; the generated `RegimeCoverage.t.sol` — 63 rows holding every pair of values of ten regime factors) and the **hostile-venue matrix** (`HostileVenues.sol`, `HostileVenueMatrix.t.sol` — ten venue pathologies × two doors under the same rule); `Outcomes.sol` is the one classifier of a refusal both use |

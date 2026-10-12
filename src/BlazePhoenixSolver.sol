@@ -261,10 +261,8 @@ contract BlazePhoenixSolver {
         if (tIn == address(0) || tOut == address(0) || tIn == tOut || amountIn == 0)
             revert SolverE(4);
 
-        Route memory direct = _planDirect(tIn, tOut, amountIn);
-        Route memory viaB1;
-        Route memory viaB2;
-        Route memory viaB3;
+        Melhores memory m;
+        _planDirect(m, tIn, tOut, amountIn);
         // The `bridgeCount()` that used to be here was REDUNDANT. The slots above the counter are
         // ALWAYS address(0) — `addBridge` fills in sequence and `removeBridge` compacts and
         // zeroes the leftover — and both guards already tested `!= address(0)`. It was a traversal of
@@ -287,15 +285,15 @@ contract BlazePhoenixSolver {
         // the constant over there — and vice versa.
         address b0 = hub.bridge(0);
         if (b0 != address(0) && b0 != tIn && b0 != tOut) {
-            viaB1 = _planViaBridge(tIn, tOut, amountIn, b0);
+            _planViaBridge(m, tIn, tOut, amountIn, b0);
         }
         address b1 = hub.bridge(1);
         if (b1 != address(0) && b1 != tIn && b1 != tOut) {
-            viaB2 = _planViaBridge(tIn, tOut, amountIn, b1);
+            _planViaBridge(m, tIn, tOut, amountIn, b1);
         }
         address b2 = hub.bridge(2);
         if (b2 != address(0) && b2 != tIn && b2 != tOut) {
-            viaB3 = _planViaBridge(tIn, tOut, amountIn, b2);
+            _planViaBridge(m, tIn, tOut, amountIn, b2);
         }
 
         Route memory best;
@@ -303,11 +301,6 @@ contract BlazePhoenixSolver {
         uint256 bestU;
         uint256 secondU;
 
-        Melhores memory m;
-        _considera(m, direct);
-        _considera(m, viaB1);
-        _considera(m, viaB2);
-        _considera(m, viaB3);
         // THREE HOPS over TWO bridges: tIn -> bX -> bY -> tOut.
         //
         // NO `bridgeCount()`: the three values are already in hand (b0/b1/b2,
@@ -327,7 +320,7 @@ contract BlazePhoenixSolver {
                 for (uint256 j; j < 3; ) {
                     address y = bs[j];
                     if (j != i && y != address(0) && y != tIn && y != tOut && y != x) {
-                        _considera(m, _planViaTwoBridges(tIn, tOut, amountIn, x, y));
+                        _planViaTwoBridges(m, tIn, tOut, amountIn, x, y);
                     }
                     unchecked { ++j; }
                 }
@@ -371,9 +364,14 @@ contract BlazePhoenixSolver {
         Route      secR;
     }
 
-    function _considera(Melhores memory m, Route memory r) private pure {
+    /// @dev S2 (V4 fragmentation, reported by Seavia Resources): the judgement is by `u`, the
+    ///      route's RANKING figure - `totalOut` plus `up`, what the deep walk resolved above the
+    ///      sixteen-stretch promise on the last hop (`_buildHop`). On an untruncated route the two
+    ///      are the same number. `totalOut` stays the promise in the plan; `u` only orders.
+    function _considera(Melhores memory m, Route memory r, uint256 up) private pure {
         uint256 u = r.totalOut;
-        if (u == 0) return;
+        if (u == 0) return;   // an assembly that refused the route
+        u += up;
         if (u > m.bestU) { m.secU = m.bestU; m.secR = m.bestR; m.bestU = u; m.bestR = r; }
         else if (u > m.secU) { m.secU = u; m.secR = r; }
     }
@@ -382,37 +380,38 @@ contract BlazePhoenixSolver {
     //  TOPOLOGY PLANNERS
     // =========================================================================
 
-    function _planDirect(address tIn, address tOut, uint256 amountIn)
-        private view returns (Route memory route)
+    function _planDirect(Melhores memory m, address tIn, address tOut, uint256 amountIn)
+        private view
     {
         PoolInfo[] memory cands = _topKPools(tIn, tOut, MAX_CANDIDATES);
-        if (cands.length == 0) return route;
+        if (cands.length == 0) return;
         // PER-HOP CEILING, not the global one: a direct route is ONE hop, and
         // the 4-legs-per-hop limit applies to it like to any other. It used to
         // use MAX_LEGS and could spend the entire budget on a single hop.
-        Hop memory hop = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, true);
-        if (hop.expectedOut == 0) return route;
-        return _assembleRoute(hop);
+        (Hop memory hop, uint256 up) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, true);
+        if (hop.expectedOut == 0) return;
+        Route memory route = _assembleRoute(hop);
+        _considera(m, route, up);
     }
 
     function _planViaBridge(
-        address tIn, address tOut, uint256 amountIn, address bridge_
-    ) private view returns (Route memory route) {
+        Melhores memory m, address tIn, address tOut, uint256 amountIn, address bridge_
+    ) private view {
         // Stage A: tIn → bridge, budget = MAX_LEGS_PER_STAGE. The funnel probes
         // the full candidate width; _buildHop cuts to the stage budget by weight.
         PoolInfo[] memory candsA = _topKPools(tIn, bridge_, MAX_CANDIDATES);
-        if (candsA.length == 0) return route;
-        Hop memory hopA = _buildHop(tIn, bridge_, amountIn, candsA, MAX_LEGS_PER_STAGE, true);
-        if (hopA.expectedOut == 0 || hopA.legs.length == 0) return route;
+        if (candsA.length == 0) return;
+        (Hop memory hopA, ) = _buildHop(tIn, bridge_, amountIn, candsA, MAX_LEGS_PER_STAGE, true);
+        if (hopA.expectedOut == 0 || hopA.legs.length == 0) return;
 
         // Stage B: bridge → tOut, budget = MAX_LEGS - legs(A)
         uint256 legsA = hopA.legs.length;
-        if (legsA >= MAX_LEGS) return route;   // stage A used the whole budget
+        if (legsA >= MAX_LEGS) return;   // stage A used the whole budget
         uint8 budgetB = uint8(MAX_LEGS - legsA);
         if (budgetB > MAX_LEGS_PER_STAGE) budgetB = MAX_LEGS_PER_STAGE;
-        if (budgetB == 0) return route;
+        if (budgetB == 0) return;
         PoolInfo[] memory candsB = _topKPools(bridge_, tOut, MAX_CANDIDATES);
-        if (candsB.length == 0) return route;
+        if (candsB.length == 0) return;
         // Stage B may NOT input-cut: the Router rescales its legs against the
         // REAL bridge balance produced by stage A (scale = realIn / sum of
         // quoted leg inputs), so a cut leg would be scaled straight back up —
@@ -420,8 +419,8 @@ contract BlazePhoenixSolver {
         // 2-hop route that filled at 74bps floor-rejected once its stage-B
         // leg was cut). Stage B keeps the promise-only clamp; the input-side
         // cut protects hop 0 / single-hop, where amounts execute as built.
-        Hop memory hopB = _buildHop(bridge_, tOut, hopA.expectedOut, candsB, budgetB, false);
-        if (hopB.expectedOut == 0 || hopB.legs.length == 0) return route;
+        (Hop memory hopB, uint256 up) = _buildHop(bridge_, tOut, hopA.expectedOut, candsB, budgetB, false);
+        if (hopB.expectedOut == 0 || hopB.legs.length == 0) return;
 
         // Two-hop route: stage A (tIn→bridge) and stage B (bridge→tOut)
         // are kept as SEPARATE hops. The Router executes hop A, measures
@@ -430,13 +429,14 @@ contract BlazePhoenixSolver {
         // robust to stage-A slippage: stage B always spends exactly what
         // stage A produced, never a stale quoted figure.
         uint256 totalLegs = hopA.legs.length + hopB.legs.length;
-        if (totalLegs > MAX_LEGS) return route;
+        if (totalLegs > MAX_LEGS) return;
 
         Hop[] memory hops = new Hop[](2);
         hops[0] = hopA;
         hops[1] = hopB;
 
-        return _assembleRouteMulti(hops, tIn, tOut, amountIn, hopB.expectedOut);
+        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, hopB.expectedOut);
+        _considera(m, route, up);
     }
 
     /// @notice THREE HOPS over TWO bridges: tIn -> bA -> bB -> tOut.
@@ -460,42 +460,43 @@ contract BlazePhoenixSolver {
     ///      promise and into a per-leg floor revert. Each downstream stage
     ///      reserves at least one leg for the ones that follow.
     function _planViaTwoBridges(
-        address tIn, address tOut, uint256 amountIn, address bA, address bB
-    ) private view returns (Route memory route) {
+        Melhores memory m, address tIn, address tOut, uint256 amountIn, address bA, address bB
+    ) private view {
         // Stage A: tIn -> bA. Reserves 2 legs (one for B, one for C).
         PoolInfo[] memory candsA = _topKPools(tIn, bA, MAX_CANDIDATES);
-        if (candsA.length == 0) return route;
+        if (candsA.length == 0) return;
         uint8 budgetA = MAX_LEGS_PER_STAGE;
         if (budgetA > MAX_LEGS - 2) budgetA = uint8(MAX_LEGS - 2);   // reserve 1 for B and 1 for C
-        Hop memory hopA = _buildHop(tIn, bA, amountIn, candsA, budgetA, true);
-        if (hopA.expectedOut == 0 || hopA.legs.length == 0) return route;
+        (Hop memory hopA, ) = _buildHop(tIn, bA, amountIn, candsA, budgetA, true);
+        if (hopA.expectedOut == 0 || hopA.legs.length == 0) return;
 
         // Stage B: bA -> bB. Reserves 1 leg for C.
         uint256 usadas = hopA.legs.length;
-        if (usadas + 2 > MAX_LEGS) return route;
+        if (usadas + 2 > MAX_LEGS) return;
         PoolInfo[] memory candsB = _topKPools(bA, bB, MAX_CANDIDATES);
-        if (candsB.length == 0) return route;
+        if (candsB.length == 0) return;
         uint8 budB = uint8(MAX_LEGS - usadas - 1);                    // reserve 1 for C
         if (budB > MAX_LEGS_PER_STAGE) budB = MAX_LEGS_PER_STAGE;
-        Hop memory hopB = _buildHop(bA, bB, hopA.expectedOut, candsB, budB, false);
-        if (hopB.expectedOut == 0 || hopB.legs.length == 0) return route;
+        (Hop memory hopB, ) = _buildHop(bA, bB, hopA.expectedOut, candsB, budB, false);
+        if (hopB.expectedOut == 0 || hopB.legs.length == 0) return;
 
         // Stage C: bB -> tOut, with whatever is left over.
         usadas += hopB.legs.length;
-        if (usadas >= MAX_LEGS) return route;
+        if (usadas >= MAX_LEGS) return;
         PoolInfo[] memory candsC = _topKPools(bB, tOut, MAX_CANDIDATES);
-        if (candsC.length == 0) return route;
+        if (candsC.length == 0) return;
         uint8 budC = uint8(MAX_LEGS - usadas);
         if (budC > MAX_LEGS_PER_STAGE) budC = MAX_LEGS_PER_STAGE;
-        Hop memory hopC = _buildHop(bB, tOut, hopB.expectedOut, candsC, budC, false);
-        if (hopC.expectedOut == 0 || hopC.legs.length == 0) return route;
-        if (usadas + hopC.legs.length > MAX_LEGS) return route;
+        (Hop memory hopC, uint256 up) = _buildHop(bB, tOut, hopB.expectedOut, candsC, budC, false);
+        if (hopC.expectedOut == 0 || hopC.legs.length == 0) return;
+        if (usadas + hopC.legs.length > MAX_LEGS) return;
 
         Hop[] memory hops = new Hop[](3);
         hops[0] = hopA;
         hops[1] = hopB;
         hops[2] = hopC;
-        return _assembleRouteMulti(hops, tIn, tOut, amountIn, hopC.expectedOut);
+        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, hopC.expectedOut);
+        _considera(m, route, up);
     }
 
     // =========================================================================
@@ -505,13 +506,13 @@ contract BlazePhoenixSolver {
     function _buildHop(
         address tIn, address tOut, uint256 amountIn,
         PoolInfo[] memory cands, uint8 budget, bool allowCut
-    ) private view returns (Hop memory hop) {
+    ) private view returns (Hop memory hop, uint256 up) {
         uint256 n = cands.length;
-        if (n == 0) return hop;
+        if (n == 0) return (hop, 0);
         // No blind pre-trim: every candidate is probed (rate + depth + real
         // holdings), and the cut to `budget` happens after weighting — see the
         // FUNNEL CUT below. Discovery order can no longer starve a deep venue.
-        if (n == 1) return _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
+        if (n == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut, 0); return (hop, up); }
 
         // =========================================================================
         //  STAGE 1 — MARGINAL-RATE MEDIAN FILTER  (single probe pass)
@@ -599,7 +600,9 @@ contract BlazePhoenixSolver {
         // arrays, probe and the index stay live across iterations.
         uint256[] memory balsOut = new uint256[](n);
         for (uint256 i; i < n; ) {
-            (uint256 o, uint256 d) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_);
+            // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
+            // sixteen-stretch promise that dust inside the probe's reach can cut.
+            (, uint256 d, uint256 o, ) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_, 0);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
@@ -647,10 +650,9 @@ contract BlazePhoenixSolver {
             unchecked { ++i; }
         }
 
-        // Median + band bounds, scoped so only hi/lo survive into the filter
+        // Median + band, scoped so only the band's bitmask survives into the filter
         // (the sort machinery and the anchor die with the block — stack).
-        uint256 hi;
-        uint256 lo;
+        uint256 kept;
         {
             // Median of the non-zero rates. We sort a COPY of `rates` (insertion
             // sort — n ≤ 8 so cost is negligible) so the per-index association in
@@ -674,11 +676,11 @@ contract BlazePhoenixSolver {
             while (firstNonZero < n && sortedRates[firstNonZero] == 0) {
                 unchecked { ++firstNonZero; }
             }
-            if (firstNonZero == n) return hop;
+            if (firstNonZero == n) return (hop, 0);
             uint256 medianIdx = firstNonZero + ((n - firstNonZero) / 2);
             if (medianIdx >= n) medianIdx = n - 1;  // guard: never index past end
             uint256 median = sortedRates[medianIdx];
-            if (median == 0) return hop;
+            if (median == 0) return (hop, 0);
 
             // Band base: the CAPITAL ANCHOR when one exists (any candidate
             // holds a non-zero real tokenOut balance); plain median only as
@@ -716,8 +718,7 @@ contract BlazePhoenixSolver {
             // hi=lo=0, killing an otherwise routable hop. median is guaranteed
             // non-zero here (the median==0 early-return above), so fall back to it.
             if (base == 0) base = median;
-            hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
-            lo = BPC.mulDiv(base, BPC.BPS - MEDIAN_FILTER_BPS, BPC.BPS);
+            kept = _inBand(rates, n, base);   // the band itself: one producer (S2 check too)
         }
 
         // Band filter reuses the cached probe rates — no second probe quote.
@@ -731,8 +732,7 @@ contract BlazePhoenixSolver {
             // into this function and every surviving stack slot counts.
             uint256 nKept;
             for (uint256 i; i < n; ) {
-                uint256 r = rates[i];
-                if (r > 0 && r >= lo && r <= hi) {
+                if (kept & (1 << i) != 0) {
                     if (nKept != i) {
                         cands[nKept]   = cands[i];
                         depths[nKept]  = depths[i];
@@ -750,8 +750,8 @@ contract BlazePhoenixSolver {
                 }
                 unchecked { ++i; }
             }
-            if (nKept == 0) return hop;
-            if (nKept == 1) return _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
+            if (nKept == 0) return (hop, 0);
+            if (nKept == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut, 0); return (hop, up); }
             n = nKept;
         }
 
@@ -808,7 +808,11 @@ contract BlazePhoenixSolver {
             }
             allocated += share;
             if (share == 0) { unchecked { ++i; } continue; }
-            uint256 outL = _quote(cands[i], tIn, share);
+            // S2: bar 0 resolves a truncated V4 walk; `rL - outL` is what it found above the
+            // promise, summed into the hop's rank (`up`) at once - only a V4 leg has any, and a
+            // V4 leg is dropped below only when `outL` is zero. `outL` stays the promise.
+            (uint256 outL, uint256 rL, ) = _quote(cands[i], tIn, share, 0);
+            if (outL != 0) up += rL - outL;
             // A reserve-shaped pool can never pay more than it holds (out < reserveOut <=
             // balance on an honest pair), so a promise above its tokenOut holdings comes
             // from forged reserves: the leg is dropped (balsOut is already read above).
@@ -891,7 +895,7 @@ contract BlazePhoenixSolver {
             totalOut += outL;
             unchecked { ++legCount; ++i; }
         }
-        if (legCount == 0) return hop;
+        if (legCount == 0) return (hop, 0);
 
         Leg[] memory legs = new Leg[](legCount);
         // Σ of the COMMITTED (post-clamp) leg inputs — the honest hop.amountIn.
@@ -953,19 +957,34 @@ contract BlazePhoenixSolver {
             // need not be deep, so MR-R1 ("split never worse than the best single pool") holds only
             // if the gate measures every pool the band let through. The dropped survivors sit at
             // [budget, nBand) - the cut permutes, it does not compact - so they are still here.
-            Hop memory single = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut);
-            for (uint256 i = 1; i < nBand; ) {
-                Hop memory alt = _singleLeg(tIn, tOut, amountIn, cands[i], allowCut);
-                if (alt.legs.length != 0 && alt.expectedOut > single.expectedOut) single = alt;
+            // S2 (Seavia Resources): the singles are compared by RANK, not by the sixteen-stretch
+            // promise - a fragmented book must not lose on a figure an outsider can cut. Each rival
+            // walks deep only while it could still beat the best so far (`bar = sR`). The
+            // collapse needs the judgement SETTLED: `hMax`, the highest ceiling among the singles
+            // (the chosen one included), must not exceed the chosen rank - no single can still
+            // beat it, and it is itself exact. A quote still truncated after the deep walk thus
+            // keeps the split (the honest pool kept by weight) instead of collapsing on a guess;
+            // a book that simply ends (a mirror pool with dust and nothing beyond) has a low
+            // ceiling and settles. Untruncated, `hMax == sR` and `up == 0`: the old gate exactly.
+            // One call site for every single, the first included (its bar is the empty `sR`, 0).
+            Hop memory single;
+            uint256 sR;
+            uint256 hMax;
+            for (uint256 i; i < nBand; ) {
+                (Hop memory alt, uint256 aR, uint256 aH) = _singleLeg(tIn, tOut, amountIn, cands[i], allowCut, sR);
+                aR += alt.expectedOut;
+                aH += alt.expectedOut;
+                if (aH > hMax) hMax = aH;
+                if (aR > sR) { single = alt; sR = aR; }   // an empty single ranks 0
                 unchecked { ++i; }
             }
             if (
-                single.legs.length != 0 && single.expectedOut > 0 &&
-                totalOut < BPC.mulDiv(
-                    single.expectedOut, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000
+                hMax <= sR &&   // no single chosen: sR == 0 and the bound below fails
+                totalOut + up < BPC.mulDiv(
+                    sR, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000
                 )
             ) {
-                return single;
+                return (single, sR - single.expectedOut);
             }
         }
         hop = Hop({
@@ -1138,17 +1157,14 @@ contract BlazePhoenixSolver {
     ///      than 245,000 ticks). The other kinds are already capped by the tokens they hold
     ///      (`_buildHop`), and the allocation keeps `depths` unchanged: the scale is applied to
     ///      the median's own copy (`_depthWeightedMedian`).
-    function _heldShare(PoolInfo memory p, uint256 d, address tIn) private view returns (uint256) {
+    ///      S2: `bar` is the walk's ranking gate - `type(uint256).max` reads the sixteen-stretch
+    ///      held (the vote as it always was), `0` the deep one (`_depthWeightedMedian`).
+    function _heldShare(PoolInfo memory p, uint256 d, address tIn, uint256 bar) private view returns (uint256) {
         address mgr = hub.v4PoolManager();
         bool zfo = p.token0 == tIn;
         bytes32 pid = BPC.computeV4PoolId(p.kind == BPC.KIND_V4_NATIVE ? address(0) : p.token0,
             p.token1, p.fee, p.tickSpacing, p.hooks);
-        (uint160 sp, uint128 liq, , , ) = BPC.v4SqrtAndLiq(mgr, pid);
-        uint256 vOut = BPC.mulDiv(liq, zfo ? sp : BPC.Q96, zfo ? BPC.Q96 : sp);
-        uint256 held = BPC.v4WalkOut(mgr, pid, type(uint256).max, 0, p.tickSpacing, zfo);
-        if (held >= vOut) return d;
-        d = BPC.mulDiv(d, held, vOut);
-        return d == 0 ? 1 : d;
+        return BPC.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core (size)
     }
 
     /// @dev THE DEPTH-WEIGHTED MEDIAN of the rates. It is the base of the band.
@@ -1176,10 +1192,65 @@ contract BlazePhoenixSolver {
     ///      DEGENERATES WELL: a pool that alone holds >50% of the mass returns its own rate,
     ///      which is the old behaviour — and correct, because then it IS the market. With equal
     ///      weights, it is the plain median.
+    ///
+    ///      S2 (V4 fragmentation, reported by Seavia Resources): the held vote reads a sixteen-
+    ///      stretch walk, and an outsider can cut it with one-wei positions on the ticks in its
+    ///      path - the vote drops and the honest book falls out of the band. The cut votes are
+    ///      therefore checked against the uncut ones: if the two bands keep the same pools, no
+    ///      held figure can change the filter's outcome. Only when they differ is each cut vote
+    ///      re-read with the deep walk (`V4_WALK_DEEP_STEPS`) and the median taken again.
     function _depthWeightedMedian(
         uint256[] memory rates, uint256[] memory depths, uint256 n, PoolInfo[] memory cands, address tIn
-    ) private view returns (uint256)
+    ) private view returns (uint256 base)
     {
+        uint256[] memory w = new uint256[](n);
+        uint256 cut;     // bit i: candidate i's sixteen-stretch vote is under its depth
+        uint256 first;   // the median under the sixteen-stretch votes
+        // Pass 0: the sixteen-stretch votes (the vote as it always was). Pass 1: the uncut
+        // depths. Pass 2: the cut votes re-read deep. One call site each: the Solver is the
+        // contract closest to EIP-170.
+        for (uint256 pass; ; ) {
+            for (uint256 i; i < n; ) {
+                uint256 d = depths[i];
+                if (pass == 0
+                    ? rates[i] > 0 && d > 1 && BPC.kindHas(cands[i].kind, BPC.A_CONC_SING)
+                    : pass == 2 && cut & (1 << i) != 0)
+                {
+                    uint256 h = _heldShare(cands[i], d, tIn, pass == 0 ? type(uint256).max : 0);
+                    if (h < d) cut |= 1 << i;
+                    d = h;
+                }
+                w[i] = d;
+                unchecked { ++i; }
+            }
+            base = _wMedian(rates, w, n);
+            if (pass == 0) {
+                if (cut == 0) return base;
+                first = base;
+            } else if (pass == 1) {
+                if (_inBand(rates, n, base) == _inBand(rates, n, first)) return first;
+            } else {
+                return base;
+            }
+            unchecked { ++pass; }
+        }
+    }
+
+    /// @dev The band around `base` (+-MEDIAN_FILTER_BPS): bit i set = candidate i's rate is live
+    ///      and inside it (n <= MAX_CANDIDATES = 8). One producer for the filter in `_buildHop`
+    ///      and for the S2 check above.
+    function _inBand(uint256[] memory rates, uint256 n, uint256 base) private pure returns (uint256 set) {
+        uint256 hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
+        uint256 lo = BPC.mulDiv(base, BPC.BPS - MEDIAN_FILTER_BPS, BPC.BPS);
+        for (uint256 i; i < n; ) {
+            uint256 r = rates[i];
+            if (r > 0 && r >= lo && r <= hi) set |= 1 << i;
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev The weighted median itself: rates with their votes `w`, dead pools excluded.
+    function _wMedian(uint256[] memory rates, uint256[] memory w, uint256 n) private pure returns (uint256) {
         uint256[] memory r = new uint256[](n);
         uint256[] memory d = new uint256[](n);
         uint256 m;
@@ -1187,11 +1258,9 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < n; ) {
             // Dead pools (rate 0) do not vote: they have no opinion on the price.
             if (rates[i] > 0) {
-                uint256 w = depths[i];
-                if (w > 1 && BPC.kindHas(cands[i].kind, BPC.A_CONC_SING)) w = _heldShare(cands[i], w, tIn);
                 r[m] = rates[i];
-                d[m] = w;
-                massa += w;
+                d[m] = w[i];
+                massa += w[i];
                 unchecked { ++m; }
             }
             unchecked { ++i; }
@@ -1275,10 +1344,15 @@ contract BlazePhoenixSolver {
     }
 
     function _singleLeg(
-        address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, bool allowCut
-    ) private view returns (Hop memory hop) {
-        uint256 out_ = _quote(cand, tIn, amountIn);
-        if (out_ == 0) return hop;
+        address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, bool allowCut, uint256 bar
+    ) private view returns (Hop memory hop, uint256 up, uint256 hi) {
+        // S2: `up` is the rank above the promise and `hi` the ceiling above it (deep V4 walk,
+        // gated by `bar`, `v4WalkRank`; both zero elsewhere). They only order, never promise.
+        uint256 out_;
+        (out_, up, hi) = _quote(cand, tIn, amountIn, bar);
+        up -= out_;
+        hi -= out_;
+        if (out_ == 0) return (hop, 0, 0);
         // Capacity clamp — same two-tier doctrine as the split path (see
         // MAX_CONC_DRAIN_BPS). Quote > the pool's WHOLE holdings: physically
         // impossible, so the committed input is cut in the promise's ratio and
@@ -1297,10 +1371,10 @@ contract BlazePhoenixSolver {
             if (allowCut && out_ > balOut) {
                 legIn = BPC.mulDiv(amountIn, cap, out_);
                 out_ = cap;
-                if (legIn == 0 || out_ == 0) return hop;
+                if (legIn == 0 || out_ == 0) return (hop, 0, 0);
             } else if (out_ > cap) {
                 out_ = cap;
-                if (out_ == 0) return hop;
+                if (out_ == 0) return (hop, 0, 0);
             }
         }
         Leg[] memory legs = new Leg[](1);
@@ -1332,8 +1406,8 @@ contract BlazePhoenixSolver {
     ///        EIP-2929 does not make it free (USDC is a proxy with delegatecall
     ///        inside). With 16 candidates: +2.2% -> +0.7% of the solve.
     function _quoteWithDepth(
-        PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1
-    ) private view returns (uint256 out, uint256 depth) {
+        PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
+    ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
         bool zfo = cand.token0 == tIn;
         address qIn = tIn;
         address other = zfo ? cand.token1 : cand.token0;
@@ -1368,7 +1442,7 @@ contract BlazePhoenixSolver {
             decIn1:      dIn1,
             decOther1:   dOt1
         });
-        (out, depth) = BPC.universalQuote(c, amt);
+        (out, depth, rank, hi) = BPC.universalQuoteRank(c, amt, bar);
     }
 
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than
@@ -1386,10 +1460,10 @@ contract BlazePhoenixSolver {
     ///      the one closest to the EIP-170 ceiling, so a duplicated call site is a duplicated
     ///      quote engine. R5, "one implementation per published quantity" — deduplication is a
     ///      size measure here, not a style preference.
-    function _quote(PoolInfo memory cand, address tIn, uint256 amt)
-        private view returns (uint256 out)
+    function _quote(PoolInfo memory cand, address tIn, uint256 amt, uint256 bar)
+        private view returns (uint256 out, uint256 rank, uint256 hi)
     {
-        (out, ) = _quoteWithDepth(cand, tIn, amt, 0, 0);   // single path: hoisting not worth it
+        (out, , rank, hi) = _quoteWithDepth(cand, tIn, amt, 0, 0, bar);   // single path: hoisting not worth it
     }
 
     // =========================================================================

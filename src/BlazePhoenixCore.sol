@@ -1654,11 +1654,36 @@ library BlazePhoenixCore {
             // hook allow-list (admission) and the Router's iron floor re-derived
             // from realised output (execution), which bound a hostile override
             // to a revert or a within-slack shortfall — never a bad fill.
+            (out, depthWad, , ) = _v4Quote(c, amountIn, type(uint256).max);
+            return (out, depthWad);
+        }
+    }
+
+    /// @notice `universalQuote` for RANKING (S2, Seavia Resources): the same `(out, depthWad)`,
+    ///         plus `rank` and `hi` from `v4WalkRank`. `out` stays the promise - the figure a
+    ///         leg is attested with and the Router re-measures; `rank` is the figure a comparison
+    ///         between venues may read, and only differs from `out` on a V4 quote whose sixteen
+    ///         stretches left input unspent and whose rest could still carry it above `bar`.
+    ///         Every other kind returns `rank == hi == out`.
+    function universalQuoteRank(QuoteCtx memory c, uint256 amountIn, uint256 bar)
+        public view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
+    {
+        if (amountIn != 0 && (c.kind == KIND_V4 || c.kind == KIND_V4_NATIVE)) return _v4Quote(c, amountIn, bar);
+        (out, depthWad) = universalQuote(c, amountIn);
+        rank = out;
+        hi = out;
+    }
+
+    /// @dev The V4 arm of `universalQuote`, the one producer for both entry points.
+    function _v4Quote(QuoteCtx memory c, uint256 amountIn, uint256 bar)
+        private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
+    {
+        {
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
             (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
                 v4SqrtAndLiq(c.v4Manager, pid);
-            if (sp == 0 || liq == 0) return (0, 0);
+            if (sp == 0 || liq == 0) return (0, 0, 0, 0);
             // THE WALK, for ranking and for the promise alike. The single-tick form assumed
             // the current liquidity went on for ever: it ranked a pool holding one tick of
             // range as deep and let it take the whole route (dex-19, ninth wave), while its
@@ -1668,7 +1693,7 @@ library BlazePhoenixCore {
             // pool's own answer: a range with nothing beyond it is ranked for what it holds,
             // and liquidity beyond the current range is counted where it is. V2 has no ticks
             // to walk and needs none: its curve is its whole book.
-            out = v4WalkOut(c.v4Manager, pid, amountIn, effV4Fee(c.fee, lpF, pF, c.zeroForOne), c.tickSpacing, c.zeroForOne);
+            (out, rank, hi) = _v4Walk(c.v4Manager, pid, amountIn, effV4Fee(c.fee, lpF, pF, c.zeroForOne), c.tickSpacing, c.zeroForOne, bar);
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
@@ -1677,7 +1702,6 @@ library BlazePhoenixCore {
             uint8 dOt4 = _decOther(c);
             (uint8 a0, uint8 a1) = c.zeroForOne ? (dIn4, dOt4) : (dOt4, dIn4);
             depthWad = depthFromL18(liq, sp, a0, a1);
-            return (out, depthWad);
         }
     }
 
@@ -1784,6 +1808,16 @@ library BlazePhoenixCore {
     ///      bitmap word). An order still unspent after the last one is quoted for what
     ///      the walk reached - an understatement, the safe side of a promise.
     uint256 internal constant V4_WALK_MAX_STEPS = 16;
+    /// @dev Steps of the DEEP walk, for RANKING only (S2, Seavia Resources). Sixteen stretches
+    ///      are a safe PROMISE and an unsafe RANKING: anyone may mint one-wei positions on the
+    ///      ticks beneath an honest pool's price (`modifyLiquidity` has no access control), and
+    ///      twenty of them made the sixteen-stretch walk quote a deep pool at a tenth of what it
+    ///      pays, so a worse venue took the order. The attacker cannot raise a figure, only
+    ///      lower a rival's, and only with ticks INSIDE the order's own price path - a quote
+    ///      walks no further than its input carries it. 256 stretches cover an order that moves
+    ///      the price 256 tick spacings even when every one is initialized (1.0001^256 - 1, about
+    ///      2.6%, at spacing 1), so up to there the deep walk is the pool's exact answer; beyond it the figure is a lower bound, and is treated as one.
+    uint256 internal constant V4_WALK_DEEP_STEPS = 256;
 
     /// @dev One guarded extsload: a codeless or reverting manager reads as zero.
     function _v4Load(address manager, bytes32 slot) private view returns (uint256 w) {
@@ -1929,15 +1963,96 @@ library BlazePhoenixCore {
     function v4WalkOut(
         address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne
     ) public view returns (uint256 out) {
-        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || manager == address(0)) return 0;
+        (out, , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, type(uint256).max);
+    }
+
+    /// @notice The same walk, for RANKING. `lo` is `v4WalkOut` - the sixteen-stretch figure, the
+    ///         promise. When those sixteen stretches leave input unspent, the walk asks whether
+    ///         the rest could still carry the quote above `bar`; only if it could does it go on,
+    ///         up to V4_WALK_DEEP_STEPS, and `rank` is where it ends. `hi` is a sound CEILING on
+    ///         what the whole input pays: `rank` itself when the walk finished, otherwise
+    ///         `rank` plus the most the unspent rest can pay (`_v4Ceil`). So `rank <= truth <= hi`
+    ///         always, and a quote is settled against a rival `r` once `hi <= r` or `rank > r`.
+    ///         When the walk stopped at sixteen because the rest could not carry it above
+    ///         `bar`, `hi <= bar` and `rank == lo`. With `bar = type(uint256).max` a quote cut at
+    ///         sixteen returns `hi` = max(rank, 2^128 - 1) (not asked); one that finished inside
+    ///         them returns `hi == rank == lo`. On every return `lo <= rank <= hi`: the Solver
+    ///         subtracts `lo` from `hi` unchecked by design, so a ceiling under the walk's own
+    ///         figure would revert the whole plan (B1).
+    /// @dev    `bar = type(uint256).max` is the promise alone (`v4WalkOut`); `bar = 0` resolves
+    ///         every truncated quote. The continuation is the same loop, not a second walk: a
+    ///         quote that finishes inside sixteen stretches reads the same slots, in the same
+    ///         order, and returns `rank == lo`.
+    function v4WalkRank(
+        address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
+        uint256 bar
+    ) public view returns (uint256 lo, uint256 rank, uint256 hi) {
+        return _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, bar);
+    }
+
+    /// @notice A singleton book's vote in the Solver's depth-weighted median (`Solver._heldShare`
+    ///         carries the full rationale): the depth `d` scaled by held/vOut, where `held` is the
+    ///         output the book holds over the stretches the walk reads and `vOut` the virtual
+    ///         output side at the current price, both raw units of tokenOut. Only ever lowers `d`,
+    ///         never to zero. `bar` is the walk's ranking gate (`v4WalkRank`): the maximum reads
+    ///         the sixteen-stretch held, `0` the deep one (S2).
+    /// @dev    Here, not in the Solver, for size: one library call instead of two.
+    function v4HeldShare(
+        address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar
+    ) public view returns (uint256) {
+        (uint160 sp, uint128 liq, , , ) = v4SqrtAndLiq(manager, poolId);
+        uint256 vOut = mulDiv(liq, zeroForOne ? sp : Q96, zeroForOne ? Q96 : sp);
+        (, uint256 held, ) = _v4Walk(manager, poolId, type(uint256).max, 0, tickSpacing, zeroForOne, bar);
+        if (held >= vOut) return d;
+        d = mulDiv(d, held, vOut);
+        return d == 0 ? 1 : d;
+    }
+
+    /// @dev The most a quote of `out`, with `rem` still unspent at `sp`, can pay. The ceiling
+    ///      on what the rest pays is `rem·(1−fee)·P_stop` going down (token1 per token0) and
+    ///      `rem·(1−fee)/P_stop` going up. Derivation: in a V3/V4 swap the price moves one way
+    ///      only and is continuous across tick crossings (liquidity sets the SPEED of the move,
+    ///      not the price), and the marginal output per unit of net input is the price itself
+    ///      (`P`, or `1/P` the other way), so it never rises during the swap; what the rest pays
+    ///      is therefore at most the remaining net input times the price where the walk
+    ///      stopped. Rounded up, against the pool's own rounding down. Hooks are not modelled,
+    ///      as everywhere in this walk.
+    ///      No overflow: with x <= 2^128 and MIN_SQRT_PRICE <= sp < 2^160 every intermediate is
+    ///      below 2^256. The ceiling saturates at max(out, 2^128 - 1), still sound: a V4 swap
+    ///      settles its deltas in int128, so no swap pays more than 2^128 - 1. It never
+    ///      saturates UNDER `out` (B1): the walk's own figure is uncapped (a book holding more
+    ///      than ~3.4e38 raw units of tokenOut can show one above 2^128 - 1), and a ceiling under
+    ///      it broke `rank <= hi` and underflowed the Solver's `hi - lo`. `out` is a sum of at
+    ///      most V4_WALK_DEEP_STEPS step outputs, each below 2^192, so `c + out` cannot overflow.
+    function _v4Ceil(uint256 out, uint256 rem, uint24 fee, uint160 sp, bool zeroForOne)
+        private pure returns (uint256)
+    {
+        uint256 m = type(uint128).max;
+        if (out > m) m = out;
+        uint256 x = mulDivUp(rem, 1_000_000 - fee, 1_000_000);
+        if (x > type(uint128).max) return m;
+        uint256 c = zeroForOne
+            ? mulDivUp(mulDivUp(x, sp, Q96), sp, Q96)
+            : mulDivUp(mulDivUp(x, Q96, sp), Q96, sp);
+        if (c >= type(uint128).max) return m;
+        c += out;
+        return c > m ? m : c;
+    }
+
+    function _v4Walk(
+        address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
+        uint256 bar
+    ) private view returns (uint256 lo, uint256 out, uint256 hi) {
+        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || manager == address(0)) return (0, 0, 0);
         uint256 base = uint256(keccak256(abi.encode(poolId, uint256(6))));
         uint256 w0 = _v4Load(manager, bytes32(base));
         uint160 sp = uint160(w0);
-        if (sp == 0) return 0;
+        if (sp == 0) return (0, 0, 0);
         int24 tick = int24(uint24(w0 >> 160));
         uint128 liq = uint128(_v4Load(manager, bytes32(base + 3)));
         uint256 rem = amountIn;
-        for (uint256 i; i < V4_WALK_MAX_STEPS; ) {
+        uint256 i;
+        for (; i < V4_WALK_DEEP_STEPS; ) {
             (int24 nt, bool init) = _v4NextTick(manager, bytes32(base + 5), tick, tickSpacing, zeroForOne);
             uint160 target = sqrtPriceAtTick(nt);
             (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, fee, zeroForOne);
@@ -1958,10 +2073,23 @@ library BlazePhoenixCore {
                 liq = uint128(l);
             }
             if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;
+            // The promise ends here. The ranking goes on only if the input still unspent could
+            // carry the quote above `bar` (see `_v4Ceil`).
+            if (i == V4_WALK_MAX_STEPS - 1) {
+                lo = out;
+                if (bar == type(uint256).max) return (lo, out, out > type(uint128).max ? out : type(uint128).max);
+                hi = _v4Ceil(out, rem, fee, target, zeroForOne);
+                if (hi <= bar) return (lo, out, hi);
+            }
             tick = zeroForOne ? nt - 1 : nt;
             sp = target;
             unchecked { ++i; }
         }
+        // Out of the loop before the sixteenth stretch closed: the quote finished (or the book
+        // ended), so the promise and the ranking are one number. Out of it at the deep limit:
+        // input is still unspent, and the ranking figure is only a lower bound under `hi`.
+        if (i < V4_WALK_MAX_STEPS) lo = out;
+        hi = i == V4_WALK_DEEP_STEPS ? _v4Ceil(out, rem, fee, sp, zeroForOne) : out;
     }
 
     /// @notice Batch slot0 read for many V4 poolIds in ONE staticcall via the

@@ -45,7 +45,9 @@
     { "name": "deflated-attestation", "on": "setSwapLiquidity\\(uint128\\(818e18\\)\\)",
       "why": "a leg attested well below its in-frame quote: decides whether the coverage gate keeps the floor monotone in the attestation" },
     { "name": "narrow-singleton-range", "on": "addPosition\\(pid, base \\+ N_LO, base \\+ N_HI, ",
-      "why": "a V4 book whose liquidity spans a few ticks: decides whether the band's median weighs a singleton book by the output it holds or by the virtual depth of its current liquidity" }
+      "why": "a V4 book whose liquidity spans a few ticks: decides whether the band's median weighs a singleton book by the output it holds or by the virtual depth of its current liquidity" },
+    { "name": "fragmented-v4-book", "on": "_fragment\\(",
+      "why": "one-wei positions on the ticks in a V4 book's path, minted by a stranger: decides whether the sixteen-stretch walk, which stays the promise, is also what the routes, the split gate and the median vote are ranked by" }
   ],
   "shapes": [
     { "name": "multi-hop",
