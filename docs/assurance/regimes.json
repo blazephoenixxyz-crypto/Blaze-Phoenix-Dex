@@ -47,7 +47,9 @@
     { "name": "narrow-singleton-range", "on": "addPosition\\(pid, base \\+ N_LO, base \\+ N_HI, ",
       "why": "a V4 book whose liquidity spans a few ticks: decides whether the band's median weighs a singleton book by the output it holds or by the virtual depth of its current liquidity" },
     { "name": "fragmented-v4-book", "on": "_fragment\\(",
-      "why": "one-wei positions on the ticks in a V4 book's path, minted by a stranger: decides whether the sixteen-stretch walk, which stays the promise, is also what the routes, the split gate and the median vote are ranked by" }
+      "why": "one-wei positions on the ticks in a V4 book's path, minted by a stranger: decides whether the sixteen-stretch walk, which stays the promise, is also what the routes, the split gate and the median vote are ranked by" },
+    { "name": "solve-over-budget", "on": "_bridge4x3\\(",
+      "why": "a book fragmented across two bridges so the in-transaction search needs more than SOLVE_GAS: decides whether swapBestExactIn stops early with RouterE(17), inside the per-transaction gas cap and with no balance moved, or runs the whole transaction out of gas" }
   ],
   "shapes": [
     { "name": "multi-hop",

@@ -172,6 +172,7 @@ All four entry points converge on one execution core.
 | 14 | rescue not queued or still inside the 48 hour timelock |
 | 15 | a swap settled without paying the protocol fee |
 | 16 | the fee was paid twice on an anchored route |
+| 17 | the in-transaction search of `swapBestExactIn` ran out of its fixed budget (`SOLVE_GAS`) |
 
 ## 9. Where block time and chain state enter
 

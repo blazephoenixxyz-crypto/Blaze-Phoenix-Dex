@@ -9,6 +9,9 @@ pragma solidity 0.8.36;
 // (`vm.cool`), so the figures are cold-storage figures, not the warm ones a test's own setup
 // leaves behind. The swap figure also carries the mock pool manager's own execution, which is
 // not a model of the PoolManager's cost; the plan figure is the one that measures the planner.
+// Where the plan needs more than SOLVE_GAS, `swapBestExactIn` refuses the search with
+// RouterE(17) by design (EntryBSolveBudget); the row then records the refusal and checks that
+// the plan really was over the budget, so the door never refuses a search that fits.
 //
 // Book: L = 1e24 over [-20,000, 20,000] at tickSpacing 1, one-wei positions on every tick of
 // the order's path (600 of them, past the deep walk's reach). Order 1e22 crosses ~200 ticks.
@@ -42,6 +45,8 @@ contract V4FragmentationGasTest is Test {
     uint256 constant ORDER = 1e22;
     /// The plan must stay quotable in one ordinary `eth_call`.
     uint256 constant PLAN_GAS_CEILING = 30_000_000;
+    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`.
+    uint256 constant SOLVE_GAS = 12_000_000;
 
     function setUp() public {
         mgr = new MockV4TickManager();
@@ -117,11 +122,21 @@ contract V4FragmentationGasTest is Test {
         _cool();
         vm.prank(user);
         g0 = gasleft();
-        router.swapBestExactIn(t0, t1, order, 1, user, block.timestamp + 1);
+        (bool ok, bytes memory ret) = address(router).call(
+            abi.encodeCall(router.swapBestExactIn, (t0, t1, order, 1, user, block.timestamp + 1))
+        );
         gSwap = g0 - gasleft();
         emit log_named_string("row ", row);
         emit log_named_uint("  plan gas", gPlan);
-        emit log_named_uint("  swap gas", gSwap);
+        if (ok) {
+            emit log_named_uint("  swap gas", gSwap);
+        } else {
+            // Entry B's search budget: only RouterE(17), and only for a plan over SOLVE_GAS.
+            emit log_named_uint("  swap refused, RouterE(17), gas", gSwap);
+            assertEq(ret, abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(17)),
+                "entry B failed for a reason other than its search budget");
+            assertGt(gPlan, SOLVE_GAS, "entry B refused a search that fits in SOLVE_GAS");
+        }
         assertLt(gPlan, PLAN_GAS_CEILING, "a fragmented book pushed the plan past its gas ceiling");
     }
 
