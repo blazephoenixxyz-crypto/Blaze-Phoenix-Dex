@@ -1213,6 +1213,7 @@ contract BlazePhoenixSolver {
         uint256[] memory w = new uint256[](n);
         uint256 cut;     // bit i: candidate i's sixteen-stretch vote is under its depth
         uint256 first;   // the median under the sixteen-stretch votes
+        uint256 mute = _mutedVotes(rates, n, cands);
         // Pass 0: the sixteen-stretch votes (the vote as it always was). Pass 1: the uncut
         // depths. Pass 2: the cut votes re-read deep. One call site each: the Solver is the
         // contract closest to EIP-170.
@@ -1227,7 +1228,7 @@ contract BlazePhoenixSolver {
                     if (h < d) cut |= 1 << i;
                     d = h;
                 }
-                w[i] = d;
+                w[i] = mute & (1 << i) != 0 ? 0 : d;
                 unchecked { ++i; }
             }
             base = _wMedian(rates, w, n);
@@ -1241,6 +1242,32 @@ contract BlazePhoenixSolver {
             }
             unchecked { ++pass; }
         }
+    }
+
+    /// @dev MASS THAT NOBODY VOUCHES FOR DOES NOT VOTE (bounty #85, Remember Me). Bit i set =
+    ///      candidate i is live, pair- or concentrated-shaped, its row was written by whoever
+    ///      swapped first (tier != 0) and no registered factory vouches for it (`active`, set in
+    ///      `_topKPools`). Its depth is the contract's own word capped by what it holds, and what
+    ///      it holds can be a recoverable donation: thirteen million parked on a synthetic pair
+    ///      outvoted twelve million of honest mass and moved the band 6 % off fair. Muted, it
+    ///      still quotes, still sits in the band if its rate is fair, and still executes; only
+    ///      its mass stops choosing the base. V4 rows are not muted: their book lives in the
+    ///      PoolManager, whose code nobody swaps. A set where nobody may vote keeps the vote it
+    ///      always had (mask 0): a pair with no curated and no factory-born venue is no worse.
+    function _mutedVotes(uint256[] memory rates, uint256 n, PoolInfo[] memory cands)
+        private view returns (uint256 mute)
+    {
+        uint256 voters;
+        for (uint256 i; i < n; ) {
+            if (rates[i] > 0) {
+                PoolInfo memory p = cands[i];
+                if (!p.active && BPC.kindHasAny(p.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)
+                    && BPC.decodeTier(hub.getSlot(hub.keyOf(p.pool, p.token0, p.token1))) != 0) mute |= 1 << i;
+                else voters = 1;
+            }
+            unchecked { ++i; }
+        }
+        if (voters == 0) mute = 0;
     }
 
     /// @dev The band around `base` (+-MEDIAN_FILTER_BPS): bit i set = candidate i's rate is live
@@ -1523,13 +1550,20 @@ contract BlazePhoenixSolver {
         // the `n` that already exists.
         //
         // ZERO COST in calls: `hookAltersDeltas` reads bits of the hook address itself.
+        //
+        // WHO MAY VOTE (bounty #85, Remember Me). From here on, inside the Solver, a candidate's
+        // `active` bit means "a registered factory vouches for this pool": the Hub answers
+        // `true` for every row it returns and nothing downstream read the bit. A discovery hit
+        // keeps it; a registry row loses it unless the same sweep found the same pool.
+        // `_depthWeightedMedian` reads it to decide whose mass may vote the band.
         for (uint256 i; i < rn; ) {
+            reg[i].active = false;
             if (!BPC.hookAltersDeltas(reg[i].hooks)) { merged[n] = reg[i]; unchecked { ++n; } }
             unchecked { ++i; }
         }
         for (uint256 i; i < dn; ) {
             bool dup;
-            for (uint256 j; j < rn; ) { if (dis[i].pool == reg[j].pool) { dup = true; break; } unchecked { ++j; } }
+            for (uint256 j; j < rn; ) { if (dis[i].pool == reg[j].pool) { dup = true; reg[j].active = true; break; } unchecked { ++j; } }
             if (!dup && !BPC.hookAltersDeltas(dis[i].hooks)) { merged[n] = dis[i]; unchecked { ++n; } }
             unchecked { ++i; }
         }

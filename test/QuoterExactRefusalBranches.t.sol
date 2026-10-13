@@ -247,6 +247,20 @@ contract QuoterExactRefusalBranchesTest is Test {
     address constant HOOK_DELTA = address(uint160(0xBEEF0000 + (1 << 3)));
     address constant HOOK_CLEAN = address(uint160(0x77770000)); // low 14 bits clear
 
+    /// @dev Backs a pair's declared reserves with balances. Since bounty #85 a pair that
+    ///      declares more than it holds is a dead pool at every door, the Router's included;
+    ///      this fixture's pools were quote-only bookkeeping and now hold what they declare.
+    function _held(address p) internal {
+        (uint112 r0, uint112 r1, ) = MockV2Pair(p).getReserves();
+        _topUp85(MockV2Pair(p).token0(), p, r0);
+        _topUp85(MockV2Pair(p).token1(), p, r1);
+    }
+
+    function _topUp85(address t, address p, uint256 r) internal {
+        uint256 b = MockERC20(t).balanceOf(p);
+        if (b < r) MockERC20(t).mint(p, r - b);
+    }
+
     function setUp() public {
         tokA = new MockERC20("A", "A");
         tokB = new MockERC20("B", "B");
@@ -724,6 +738,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         bool aIs0 = pair.token0() == address(tokA);
         if (aIs0) pair.setReserves(1_000e18, 500e18);
         else      pair.setReserves(500e18, 1_000e18);
+        _held(address(pair));
 
         Leg memory l = _leg(BPC.KIND_V2, address(pair), AMT, DECOY_OUT);
         l.fee = 0;          // the sentinel: universalQuote applies effV2Fee's 30 bps
@@ -735,6 +750,9 @@ contract QuoterExactRefusalBranchesTest is Test {
         qc.pool       = address(pair);
         qc.zeroForOne = aIs0;
         qc.fee        = 0;
+        // Bounty #85: the dispatcher checks the pair holds its reserves, by token.
+        qc.tokenIn    = address(tokA);
+        qc.tokenOther = address(tokB);
         (uint256 producerOut, ) = BPC.universalQuote(qc, AMT);
 
         assertGt(producerOut, 0, "sanity: the pair prices this order");
@@ -756,6 +774,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     function test_Exact_SolidlyLegExactAtScaleOne() public {
         MockSolidlyPair pair = new MockSolidlyPair(address(tokA), address(tokB), false);
         pair.setReserves(1_000e18, 1_000e18);
+        _held(address(pair));
         uint256 honest = pair.getAmountOut(AMT, address(tokA));
         assertGt(honest, 0, "sanity: the pair prices this order");
 
@@ -791,6 +810,7 @@ contract QuoterExactRefusalBranchesTest is Test {
 
         MockSolidlyPair pair = new MockSolidlyPair(address(tokB), address(tokC), false);
         pair.setReserves(1_000e18, 1_000e18);
+        _held(address(pair));
         uint256 honestBase = pair.getAmountOut(P1, address(tokB));
 
         Leg[] memory l0 = new Leg[](1);

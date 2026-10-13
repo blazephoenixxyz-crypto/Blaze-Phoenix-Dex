@@ -70,6 +70,20 @@ contract HardeningR3HopForeignBalanceTest is Test {
     uint256 constant FOREIGN  = 5_000e18;  // pre-swap bridge balance on Router
     uint256 constant STRANDED = 7_500e18;  // mis-sent T balance on Router
 
+    /// @dev Backs a pair's declared reserves with balances. Since bounty #85 a pair that
+    ///      declares more than it holds is a dead pool at every door, the Router's included;
+    ///      this fixture's pools were quote-only bookkeeping and now hold what they declare.
+    function _held(address p) internal {
+        (uint112 r0, uint112 r1, ) = MockV2Pair(p).getReserves();
+        _topUp85(MockV2Pair(p).token0(), p, r0);
+        _topUp85(MockV2Pair(p).token1(), p, r1);
+    }
+
+    function _topUp85(address t, address p, uint256 r) internal {
+        uint256 b = MockERC20(t).balanceOf(p);
+        if (b < r) MockERC20(t).mint(p, r - b);
+    }
+
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
@@ -94,6 +108,7 @@ contract HardeningR3HopForeignBalanceTest is Test {
         pCB2.setReserves(RESERVE, RESERVE);
         pTB.setReserves(RESERVE, RESERVE);
         pAB.setReserves(RESERVE, RESERVE);
+        _held(address(pAC1)); _held(address(pCB1)); _held(address(pAC2)); _held(address(pCB2)); _held(address(pTB)); _held(address(pAB));
 
         A.mint(user, 10 * AMT);
         vm.prank(user);

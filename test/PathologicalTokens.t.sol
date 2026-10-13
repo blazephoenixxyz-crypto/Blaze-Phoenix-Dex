@@ -209,11 +209,13 @@ contract PathologicalTokensTest is Test {
         uint256 userBefore = P1.balanceOf(user);
 
         // The Router measured 100e18 a moment ago and now holds ~49.8e18.
-        // The last-leg clamp stops it pushing more than it holds (so no leg is
-        // ever stranded), and the protocol floor — 96% of the quote priced on
-        // the PRE-rebase amount — rejects the halved fill: RouterE(5).
+        // The rebase halved the PAIR's P1 too, so the pair now declares twice
+        // what it holds: since bounty #85 the Router's in-frame quote refuses a
+        // leg on a pair holding less than its reserves, RouterE(8), before the
+        // protocol floor (RouterE(5), which refused the halved fill until then)
+        // is reached. Either way the swap unwinds whole, which is what this pins.
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 5));
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
         router.swapExactIn(_oneHop(IN), IN, 1, recip, block.timestamp + 1);
 
         // Fully atomic: the pull, the fee, the half-push all unwound.
@@ -242,19 +244,20 @@ contract PathologicalTokensTest is Test {
     function test_NegativeRebase_MidRoute_Hop2Remeasures_NothingStranded() public {
         P2.setRebaseOnTransferTo(T1, 1, 2);
 
-        // Control first (fresh state per test makes this a separate run; here
-        // we just pin the expected unmutated magnitude from the control test).
+        // Until bounty #85 hop 2 re-measured its real bridge balance and
+        // delivered ~half of the control's ~99e18. The rebase halves EVERY P2
+        // balance, pair23's included, so pair23 now declares twice the P2 it
+        // holds, and the Router refuses a leg on a pair holding less than its
+        // reserves (RouterE(8)): the route is lost until someone syncs the pair.
+        // A Uniswap V2 pair in that state refuses most swaps by itself (its
+        // input is measured as balance minus reserve). What still holds is the
+        // point of this test: nothing is stranded, the whole swap unwinds.
+        uint256 userBefore = P1.balanceOf(user);
         vm.prank(user);
-        uint256 got = router.swapExactIn(_twoHop(IN), IN, 1, recip, block.timestamp + 1);
-        console2.log("mid-route negative rebase delivered", got);
-
-        // Hop 2 re-measured its REAL bridge balance (realIn = bal - foreignBase)
-        // and rescaled: it spends what exists, never what hop 1 promised.
-        // ~half of the control's ~99e18 arrives; the rest evaporated in the
-        // rebase — the token's doing, not the Router's.
-        assertGt(got, 40e18, "delivered the post-rebase value");
-        assertLt(got, 60e18, "cannot deliver more than the rebased bridge bought");
-        assertEq(P3.balanceOf(recip), got, "recipient credited exactly");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
+        router.swapExactIn(_twoHop(IN), IN, 1, recip, block.timestamp + 1);
+        assertEq(P1.balanceOf(user), userBefore, "user funds untouched after revert");
+        assertEq(P3.balanceOf(recip), 0, "nothing delivered");
         _routerHoldsNothing();
     }
 

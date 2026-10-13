@@ -1581,6 +1581,13 @@ library BlazePhoenixCore {
         if (k == KIND_V2) {
             (uint256 r0, uint256 r1) = getReserves(c.pool);
             (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
+            // A PAIR THAT DECLARES MORE THAN IT HOLDS IS NOT QUOTED (bounty #85, Remember Me).
+            // `reservesHeld` was asked only at registration; a synthetic pair registered
+            // honest, then forged `getReserves`, and the Solver's mass vote collapsed to a
+            // recoverable donation of tokenOut that captured the band. Asked here, every
+            // consumer of this dispatcher (probe, split, single leg, Quoter) sees the lie as a
+            // dead pool. Inert on an honest pair: reserves never exceed balances.
+            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0);
             // UniV2/Sushi charge 0.30%. fee==0 (no fee list) -> 30 bps default,
             // so the quote matches the pool's x*y=k (else "K" revert on exec).
             uint24 v2fee = effV2Fee(c.fee);
@@ -1626,6 +1633,8 @@ library BlazePhoenixCore {
         if (k == KIND_SOLIDLY) {
             (uint256 r0, uint256 r1) = getReserves(c.pool);
             (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
+            // Same door as the V2 arm (bounty #85): a pair holding less than it declares is dead.
+            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0);
             // THE EXECUTOR'S ASK, from the executor's own producer. The pair is
             // never asked for its whole `getAmountOut`: `_execPairAmt` asks one
             // wei less, the rounding margin its K check needs, and on forks
@@ -2212,7 +2221,9 @@ library BlazePhoenixCore {
     /// @dev Risk tier, bits [47:40]: 0 = CURATED (seedPool by an operator),
     ///      2 = permissionless (recordSwap, claimV4). Written once by
     ///      Hub._register (`trusted ? 0 : 2`); read by the Solver's
-    ///      discovery-freshness gate, which only lets curated rows vouch.
+    ///      discovery-freshness gate, which only lets curated rows vouch,
+    ///      and by its band vote (`_mutedVotes`, bounty #85): a tier-2
+    ///      pair or concentrated row no factory vouches for does not vote.
     function decodeTier(uint256 s)      internal pure returns (uint8)   { return uint8(s >> 40); }
     function decodeBucket(uint256 s)    internal pure returns (uint8)   { return uint8((s >> 60) & 0xF); }
 
@@ -2354,7 +2365,17 @@ library BlazePhoenixCore {
     function reservesHeld(address pool, uint8 kind, address t0, address t1) public view returns (bool) {
         if (!kindHas(kind, A_RESERVES)) return true;
         (uint256 r0, uint256 r1) = getReserves(pool);
-        return r0 <= balanceOf(t0, pool) && r1 <= balanceOf(t1, pool);
+        return heldBy(pool, t0, r0, t1, r1);
+    }
+
+    /// @dev THE COMPARISON behind `reservesHeld`, one producer for every door that reads a
+    ///      pair's declared reserves (bounty #85, Remember Me): the registration door above,
+    ///      the quote dispatcher (`universalQuote`) and the registry depth (`registryDepth18`).
+    ///      The registration door alone was not enough: a pair proves itself once, at its
+    ///      first swap, and its `getReserves` is its own code's answer every read after that.
+    ///      `ra`/`rb` are reserves already read, oriented like `ta`/`tb`.
+    function heldBy(address pool, address ta, uint256 ra, address tb, uint256 rb) internal view returns (bool) {
+        return ra <= balanceOf(ta, pool) && rb <= balanceOf(tb, pool);
     }
 
     /// @notice The depth the registry records for a pool, in 18-decimal units: measured, never
@@ -2376,14 +2397,13 @@ library BlazePhoenixCore {
             // undid the correct bucket the registry already held (cured 2026-08-21).
             (uint256 r0, uint256 r1) = getReserves(pool);
             // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01): the registry's depth bucket ranks
-            // the funnel's top-K and decides evictions, and this was the pool's own word. Cap
-            // each declared reserve by the balance the pool physically holds - inert on an
-            // honest pair (reserves never exceed balances), binding on a synthetic one. The
-            // Solver applies the same cap to its live depth; this is the registry's copy.
-            uint256 h0 = balanceOf(t0, pool);
-            uint256 h1 = balanceOf(t1, pool);
-            if (h0 < r0) r0 = h0;
-            if (h1 < r1) r1 = h1;
+            // the funnel's top-K and decides evictions, and this was the pool's own word. A pair
+            // whose declared reserves exceed what it holds on either side is not capped but
+            // zeroed: an honest pair never reports more than it holds (sync copies balances into
+            // reserves; a donation only raises the balance), so the excess is a lie, and a liar's
+            // word carries no mass at all (bounty #85, Remember Me: the cap alone left the
+            // reserve standing on the side a recoverable donation had filled).
+            if (!heldBy(pool, t0, r0, t1, r1)) return 0;
             return shortSide18(r0, dc0, r1, dc1);
         }
         if (kindHas(kind, A_CONC_SING)) {

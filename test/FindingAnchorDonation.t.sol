@@ -27,6 +27,9 @@ contract FindingAnchorDonationTest is Test {
         _setReserves(attacker, 1000e18, 500e18);
         tokenB.mint(address(honest), 1000e18);
         tokenB.mint(address(attacker), 500e18);
+        // Both sides held (bounty #85: a pair declaring more than it holds is a dead pool).
+        tokenA.mint(address(honest), 1000e18);
+        tokenA.mint(address(attacker), 1000e18);
         hub.seedPool(address(honest), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
         hub.seedPool(address(attacker), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
     }

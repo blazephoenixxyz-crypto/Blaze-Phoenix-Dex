@@ -1699,6 +1699,15 @@ contract BlazePhoenixHub {
         HubStore storage $ = _store();
         uint256 s = $.slot[key];
         if (s != 0) {
+            // A ROW THAT LIES IS NOT REFRESHED (bounty #85, Remember Me). The door below asks
+            // `reservesHeld` once, at the first swap, and a pair is its own code's answer every
+            // read after that: refreshing the row of a pair that now declares more than it holds
+            // kept a liar's seat warm. The row's own kind is asked, never calldata's. Every read
+            // door already prices such a pair as dead (`universalQuote`, `registryDepth18`), so
+            // the row only has to stop ageing in: unticked, its psi decays and `_canInsert` takes
+            // the seat back. Evicting it here was measured at +431 B of runtime, past this
+            // contract's gate. The swap itself already executed and is unaffected.
+            if (!BPC.reservesHeld(pool, BPC.decodeKind(s), t0, t1)) return;
             // existing pool — tick + stamp wall-clock activity time
             uint256 newSlot = BPC.tickSlot(s, uint32(block.number), depthWad, uint32(block.timestamp));
             $.slot[key] = _stampTs(newSlot);

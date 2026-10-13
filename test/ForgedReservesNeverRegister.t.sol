@@ -6,6 +6,9 @@ pragma solidity 0.8.36;
 // the reserves it declared (duxun D1). The swap door now reads the pair after the swap and
 // registers a reserve-shaped pool only when neither reserve exceeds what it holds
 // (Core.reservesHeld). The swap itself is never refused over a registry decision.
+// Since bounty #85 (Remember Me, 2026-10-13) the Router also refuses a leg on such a pair
+// (RouterE(8)), so a forged swap no longer settles; the tests below ask the registration
+// door directly where the Router stops the swap first.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg, PoolInfo} from "src/BlazePhoenixCore.sol";
@@ -115,6 +118,21 @@ contract ForgedReservesNeverRegisterTest is Test {
         got = MockERC20(t1).balanceOf(user) - b;
     }
 
+    /// Since bounty #85 (Remember Me) the Router refuses a leg on a pair holding less than its
+    /// reserves (RouterE(8)), so a forged pair's swap no longer settles. The registration door
+    /// is then asked as the Router asks it after a swap, directly, so this file keeps pinning
+    /// the Hub's own check and not only the Router's.
+    function _refusedThenRecorded(address pool, uint8 kind, uint24 fee) internal {
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = _hop(pool, kind, fee, t0, t1, 1e6);
+        Route memory r = _route(hops);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
+        router.swapExactIn(r, 1e6, 1, user, block.timestamp + 1);
+        vm.prank(address(router));
+        hub.recordSwap(pool, kind, fee, address(0), t0, t1, 1e6, 1, 0);
+    }
+
     function _registered(address pool) internal view returns (bool) {
         PoolInfo[] memory a = hub.getActivePools(t0, t1);
         for (uint256 i; i < a.length; i++) if (a[i].pool == pool) return true;
@@ -123,19 +141,19 @@ contract ForgedReservesNeverRegisterTest is Test {
 
     function test_ForgedReserves_SwapSettles_PairNeverRegisters() public {
         ForgeablePair p = _pair(1e24, 1e24);
-        assertGt(_swap(address(p), BPC.KIND_V2, 30), 0, "the swap itself settles");
+        _refusedThenRecorded(address(p), BPC.KIND_V2, 30);
         assertFalse(_registered(address(p)), "a pair reporting reserves it does not hold was registered");
     }
 
     function test_ForgedOnSideZeroOnly_NeverRegisters() public {
         ForgeablePair p = _pair(1, 0);
-        assertGt(_swap(address(p), BPC.KIND_V2, 30), 0, "the swap itself settles");
+        _refusedThenRecorded(address(p), BPC.KIND_V2, 30);
         assertFalse(_registered(address(p)), "one wei of reserve0 above holdings was registered");
     }
 
     function test_ForgedOnSideOneOnly_NeverRegisters() public {
         ForgeablePair p = _pair(0, 1);
-        assertGt(_swap(address(p), BPC.KIND_V2, 30), 0, "the swap itself settles");
+        _refusedThenRecorded(address(p), BPC.KIND_V2, 30);
         assertFalse(_registered(address(p)), "one wei of reserve1 above holdings was registered");
     }
 
@@ -164,7 +182,7 @@ contract ForgedReservesNeverRegisterTest is Test {
 
     function test_SolidlyDeclared_ForgedReserves_NeverRegisters() public {
         ForgeablePair p = _pair(1e24, 1e24);
-        _swap(address(p), BPC.KIND_SOLIDLY, 30); // the shape answers V2; the rule is the same
+        _refusedThenRecorded(address(p), BPC.KIND_SOLIDLY, 30); // the shape answers V2; the rule is the same
         assertFalse(_registered(address(p)), "a forged pair declared Solidly was registered");
     }
 
@@ -188,10 +206,16 @@ contract ForgedReservesNeverRegisterTest is Test {
         hops[0] = _hop(address(h), BPC.KIND_V2, 30, t0, t1, 1e6);
         hops[1] = _hop(address(f), BPC.KIND_V2, 30, t1, t0, 1e6); // scaled to what hop 0 delivered
         Route memory r = _route(hops);
-        uint256 b = MockERC20(t0).balanceOf(user);
+        // Since bounty #85 the Router refuses the forged second hop and the whole route
+        // unwinds: neither hop registers in that transaction. The honest hop then settles on
+        // its own and registers; the forged one, reported by the Router, still does not.
         vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
         router.swapExactIn(r, 1e6, 1, user, block.timestamp + 1);
-        assertGt(MockERC20(t0).balanceOf(user) + 1e6, b, "the route settles");
+        assertFalse(_registered(address(h)), "a reverted route registered its honest hop");
+        _swap(address(h), BPC.KIND_V2, 30);
+        vm.prank(address(router));
+        hub.recordSwap(address(f), BPC.KIND_V2, 30, address(0), t1, t0, 1e6, 1, 0);
         assertTrue(_registered(address(h)), "the honest hop was refused");
         assertFalse(_registered(address(f)), "the forged hop was registered");
     }
@@ -201,7 +225,9 @@ contract ForgedReservesNeverRegisterTest is Test {
         o0 = bound(o0, -1e20, 1e20);
         o1 = bound(o1, -1e20, 1e20);
         ForgeablePair p = _pair(o0, o1);
-        _swap(address(p), BPC.KIND_V2, 30);
-        assertEq(_registered(address(p)), o0 <= 0 && o1 <= 0, "registration must follow the holdings");
+        bool held = o0 <= 0 && o1 <= 0;
+        if (held) _swap(address(p), BPC.KIND_V2, 30);
+        else _refusedThenRecorded(address(p), BPC.KIND_V2, 30);
+        assertEq(_registered(address(p)), held, "registration must follow the holdings");
     }
 }

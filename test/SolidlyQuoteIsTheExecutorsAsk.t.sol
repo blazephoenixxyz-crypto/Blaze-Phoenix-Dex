@@ -148,6 +148,9 @@ contract SolidlyQuoteIsTheExecutorsAskTest is Test {
             bool fwd = cell & 4 == 4;
             MockSolidlyPair p = new MockSolidlyPair(address(tokenIn), address(bridgeOut), st);
             p.setReserves(RESERVE, RESERVE * 3 / 2);
+            // Held (bounty #85: a pair declaring more than it holds quotes as a dead pool).
+            MockERC20(p.token0()).mint(address(p), RESERVE);
+            MockERC20(p.token1()).mint(address(p), RESERVE * 3 / 2);
             p.setHideGetAmountOut(hidden);
             (address tIn, address tOut) = fwd
                 ? (address(tokenIn), address(bridgeOut)) : (address(bridgeOut), address(tokenIn));

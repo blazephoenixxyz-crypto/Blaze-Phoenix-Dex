@@ -846,6 +846,12 @@ contract BlazePhoenixRouter {
                 (uint256 ir0, uint256 ir1) = BPC.getReserves(leg.pool);
                 uint256 rIn  = leg.zeroForOne ? ir0 : ir1;
                 uint256 rOut = leg.zeroForOne ? ir1 : ir0;
+                // THE FRAME'S COPY OF THE QUOTE DOOR (bounty #85, Remember Me). The Core's
+                // dispatcher quotes a pair that declares more than it holds as dead; this copy
+                // priced the same lie, and the floor it anchors then matched what the liar paid.
+                // A leg on such a pair is refused with the dead-leg code: fail closed. Inert on an
+                // honest pair, whose reserves never exceed its balances before the push.
+                if (!BPC.heldBy(leg.pool, hop.tokenIn, rIn, hop.tokenOut, rOut)) revert RouterE(8);
                 if (rIn != 0) {
                     impactAcc += _wImp(BPC.impactV2Bps(legAmt, rIn), leg.amountIn, legs, scaleDen);
                     if (leg.kind == BPC.KIND_V2) {

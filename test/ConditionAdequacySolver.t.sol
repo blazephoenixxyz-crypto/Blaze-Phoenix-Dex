@@ -630,10 +630,12 @@ contract CATopK is CABase {
         for (uint256 i; i < 8; ++i) {
             _seedV2(address(tokenA), address(tokenB), 100_000e18, 50_000e18); // rate ~0.5 junk
         }
-        MockV2Pair deep = new MockV2Pair(address(tokenA), address(tokenB));
-        tokenA.mint(address(deep), 1_000_000e18);
-        tokenB.mint(address(deep), 1_000_000e18);
-        deep.setReserves(uint112(1_000_000e18), uint112(1_000_000e18));
+        // CURATED, still registered NINTH (bounty #85, Remember Me): only mass somebody vouches
+        // for votes the band. A deep pool whose row a swap wrote (tier 2) and no registered
+        // factory finds no longer outvotes eight curated books, and the band would sit on the
+        // junk (measured: 4 junk legs, 497 out against 996 from the deep pool). The guard under
+        // test is the funnel's fitness order, so the deep book is seeded like the others.
+        MockV2Pair deep = _seedV2(address(tokenA), address(tokenB), 1_000_000e18, 1_000_000e18);
         for (uint256 i; i < 8; ++i) {
             hub.recordSwap(address(deep), BPC.KIND_V2, 30, address(0),
                 address(tokenA), address(tokenB), 1e18, 1e18, 1_000_000e18);

@@ -105,6 +105,10 @@ contract RouterAdversarialMultiHopFromV1Test is StdInvariant, Test {
         C = new MockERC20("C", "C");
         ab = new MockV2Pair(address(A), address(B));
         ab.setReserves(1e27, 1e27);
+        // The pair holds what it declares (bounty #85: the Router refuses a leg on a pair
+        // holding less than its reserves). The conservation sums count this seed below.
+        A.mint(address(ab), 1e27);
+        B.mint(address(ab), 1e27);
         bc = new HostileV3Pool(address(B), address(C));
         adv = new MHAdversary(router, A, B, C, ab, bc);
         targetContract(address(adv));
@@ -116,8 +120,8 @@ contract RouterAdversarialMultiHopFromV1Test is StdInvariant, Test {
              + t.balanceOf(treasury1) + t.balanceOf(treasury2);
     }
 
-    function invariant_conservationA() public view { assertEq(_sum(A), adv.mintedA(), "A not conserved"); }
-    function invariant_conservationB() public view { assertEq(_sum(B), adv.mintedB(), "B not conserved"); }
+    function invariant_conservationA() public view { assertEq(_sum(A), adv.mintedA() + 1e27, "A not conserved"); }
+    function invariant_conservationB() public view { assertEq(_sum(B), adv.mintedB() + 1e27, "B not conserved"); }
     function invariant_conservationC() public view { assertEq(_sum(C), adv.mintedC(), "C not conserved"); }
 
     /// The bridge token B is the one at risk: does holds-nothing cover it?
