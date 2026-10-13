@@ -622,8 +622,8 @@ contract BlazePhoenixQuoter {
         // #44 (babayagaleet): on a multi-hop route the Router charges the fee on the INPUT of
         // the anchor hop (`Router:_execute`, same scan as `_pack`), and the next pool rounds on
         // the reduced amount; one deduction off the gross output over-promised by a wei. The
-        // fee is modelled where it is charged. A single hop keeps the output deduction below
-        // (no registry read: `test/QuoterAssumedFeeMargin.t.sol`).
+        // fee is modelled where it is charged. A single hop takes the output deduction below,
+        // bounded by `_fundedOut` where the Router charges that hop on its input.
         uint256 feeHop = type(uint256).max;
         if (route.hops.length > 1) {
             for (uint256 fi; fi < route.hops.length; fi++) {
@@ -649,77 +649,9 @@ contract BlazePhoenixQuoter {
             uint256 hopOut;
             for (uint256 l; l < route.hops[h].legs.length; l++) {
                 Leg memory leg = route.hops[h].legs[l];
-                uint256 base   = leg.amountIn == 0 ? 1 : leg.amountIn;
                 uint256 legIn  = plannedIn == 0
                     ? 0 : BPC.mulDiv(leg.amountIn, carry, plannedIn);
-                uint256 legOut;
-                if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
-                    legOut = _simConc(leg.pool, leg.zeroForOne, legIn);
-                    // FALLBACK DIRECTION (Q1): the pool refused the dry-run, so
-                    // the only known point is the plan's (amountIn, expectedOut).
-                    // AMM output is concave: the linear rescale is the chord
-                    // BELOW that point (understates — safe) and the tangent
-                    // ABOVE it (overstates). Cap the ratio at 1: a refused leg
-                    // may keep the plan's own claim, never exceed it.
-                    if (legOut == 0)
-                        legOut = BPC.mulDiv(
-                            leg.expectedOut, legIn > base ? base : legIn, base);
-                } else if (leg.kind == BPC.KIND_V2) {
-                    // DEDUP BP-14/P4: price via the ONE Core dispatcher — the
-                    // same deployed library bytecode the Solver links — not a
-                    // local re-implementation of the V2 branch. The 0 -> 30
-                    // bps fee default now lives in universalQuote alone
-                    // (parity pinned by test/CoreV2QuoteParity.t.sol). The
-                    // ctx carries coordinates only; the KIND_V2 branch reads
-                    // pool/zeroForOne/fee and nothing else. NOTE: structural
-                    // quote==exec coherence holds for Solver<->Quoter here;
-                    // the Router keeps its own inlined copies (gas/stack) —
-                    // compile-time coherence, registered in the Seam Register.
-                    QuoteCtx memory qc;
-                    qc.kind       = BPC.KIND_V2;
-                    qc.pool       = leg.pool;
-                    qc.zeroForOne = leg.zeroForOne;
-                    qc.fee        = leg.fee;
-                    (legOut, ) = BPC.universalQuote(qc, legIn);
-                } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
-                    legOut = _simV4(leg, route.hops[h].tokenIn, legIn);
-                    // Same clamp as the A_CONC_POOL fallback above: the
-                    // singleton could not price the leg (no manager, hook
-                    // fail-closed, oversize amount), so never extrapolate the
-                    // plan's point upward along the tangent.
-                    if (legOut == 0)
-                        legOut = BPC.mulDiv(
-                            leg.expectedOut, legIn > base ? base : legIn, base);
-                } else {
-                    // SOLIDLY — priced via the ONE Core dispatcher, exactly like
-                    // the V2 branch above (DEDUP BP-14/P4). universalQuote's
-                    // KIND_SOLIDLY arm asks the pool itself first, through the
-                    // executor's own producer (solidlyAskOut: the pair's number
-                    // less the wei the executor leaves it, so quote == execution
-                    // by construction); a fork without the selector
-                    // falls to the replicated curve at the live fee with a
-                    // 200 bps under-ask; a pool that answers nothing quotes 0.
-                    // Every arm lands AT or BELOW execution truth. The previous
-                    // linear rescale walked the TANGENT of a concave curve and
-                    // OVERSTATED whenever carry outgrew the plan (reported at up
-                    // to ~907 bps on a thin pool) — pinned RED-first by
-                    // test/QuoterOverQuote.t.sol. Tombstone kinds also land here
-                    // and now quote 0 (universalQuote's fail-closed default)
-                    // instead of a rescaled ghost. NOTE: a FRESH ctx — the `qc`
-                    // above is PINNED to KIND_V2, and reusing it would price
-                    // Solidly on the constant-product arm. tokenIn is REQUIRED
-                    // (getAmountOut is direction-keyed on it); tokenOther only
-                    // feeds the depth read, which is discarded here.
-                    QuoteCtx memory sc;
-                    sc.kind       = BPC.KIND_SOLIDLY;
-                    sc.pool       = leg.pool;
-                    sc.zeroForOne = leg.zeroForOne;
-                    sc.fee        = leg.fee;
-                    sc.stable     = leg.stable;
-                    sc.tokenIn    = route.hops[h].tokenIn;
-                    sc.tokenOther = route.hops[h].tokenOut;
-                    (legOut, ) = BPC.universalQuote(sc, legIn);
-                }
+                uint256 legOut = _priceLeg(leg, route.hops[h].tokenIn, route.hops[h].tokenOut, legIn);
                 route.hops[h].legs[l].amountIn    = legIn;
                 route.hops[h].legs[l].expectedOut = legOut;
                 hopOut += legOut;
@@ -748,7 +680,8 @@ contract BlazePhoenixQuoter {
         // a wei more than delivery.
         //
         // WHERE the fee is taken follows the Router (bounty #44, superseding FEE_01's
-        // "one deduction on the output"): a single hop pays on its output; a multi-hop
+        // "one deduction on the output"): a single hop is deducted on its output here and
+        // bounded by `_fundedOut` below; a multi-hop
         // route pays on the INPUT of its anchor hop - the first whose input is a
         // bridge - or on every hop when none is. Taken on the output instead, the
         // fee was priced through the later hops' curves and the preview could
@@ -756,6 +689,128 @@ contract BlazePhoenixQuoter {
         exactOut = route.hops.length > 1
             ? gross // the fee was taken inside the loop, at the hop the Router takes it (#44)
             : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // A SINGLE HOP IS NOT ALWAYS CHARGED ON ITS OUTPUT (2026-10-13). The Router takes the fee
+        // off the output only on a direct route INTO a bridge; a direct route whose input is a
+        // bridge, or that touches none, pays on its INPUT (`_chargeHopFee`, rounded up) and the
+        // venue prices what is left. A venue's output is an integer step function of its input:
+        // the wei the round-up removes, and the sqrt-price quantum, can leave delivery a few wei
+        // under the output deduction above, and a userMinOut taken from it is then refused.
+        // `_fundedOut` funds the returned route exactly as the Router will and prices it on the
+        // venues; the scalar is the lower of the two, so it is a floor in every regime and
+        // unchanged wherever the deduction above was already the lower one.
+        uint256 funded = _fundedOut(route, amountIn);
+        if (funded < exactOut) exactOut = funded;
+    }
+
+    /// @dev What the Router delivers for `route` when it charges the protocol fee on an input:
+    ///      the same scan as `Router._execute` (`feeOnOut` for a direct route into a bridge,
+    ///      else the first hop whose input is a bridge, else every hop), the same base
+    ///      (hop 0: the order capped by the committed legs; later hops: what arrived), the same
+    ///      round-up, the same pro-rata funding of the legs. `type(uint256).max` when the fee is
+    ///      taken off the output, where the caller's deduction is already the Router's.
+    function _fundedOut(Route memory route, uint256 amountIn) private returns (uint256 carry) {
+        uint256 n = route.hops.length;
+        if (n == 1 && hub.isBridgeToken(route.hops[0].tokenOut)) return type(uint256).max;
+        uint256 feeHop = type(uint256).max;
+        for (uint256 fi; fi < n; ) {
+            if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
+            unchecked { ++fi; }
+        }
+        carry = amountIn;
+        for (uint256 h; h < n; h++) {
+            Hop memory hop = route.hops[h];
+            uint256 legSum;
+            for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
+            if (feeHop == type(uint256).max || h == feeHop) {
+                uint256 feeBase = h == 0 && carry > legSum ? legSum : carry;
+                uint256 fee = BPC.mulDivUp(feeBase, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+                if (fee >= carry) return 0;
+                carry -= fee;
+            }
+            if (h == 0 && carry > legSum) carry = legSum;
+            uint256 hopOut;
+            for (uint256 l; l < hop.legs.length; l++) {
+                uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(hop.legs[l].amountIn, carry, legSum);
+                hopOut += _priceLeg(hop.legs[l], hop.tokenIn, hop.tokenOut, legIn);
+            }
+            carry = hopOut;
+        }
+    }
+
+    /// @dev One leg priced at `legIn`, through the venue itself where it can be asked. The
+    ///      single pricing step of `previewPlanExact`, shared by its two passes (the plan as
+    ///      committed, and the plan as the Router will fund it once the fee is taken).
+    function _priceLeg(Leg memory leg, address tIn, address tOut, uint256 legIn)
+        private returns (uint256 legOut)
+    {
+        uint256 base = leg.amountIn == 0 ? 1 : leg.amountIn;
+        if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
+            legOut = _simConc(leg.pool, leg.zeroForOne, legIn);
+            // FALLBACK DIRECTION (Q1): the pool refused the dry-run, so
+            // the only known point is the plan's (amountIn, expectedOut).
+            // AMM output is concave: the linear rescale is the chord
+            // BELOW that point (understates — safe) and the tangent
+            // ABOVE it (overstates). Cap the ratio at 1: a refused leg
+            // may keep the plan's own claim, never exceed it.
+            if (legOut == 0)
+                legOut = BPC.mulDiv(
+                    leg.expectedOut, legIn > base ? base : legIn, base);
+        } else if (leg.kind == BPC.KIND_V2) {
+            // DEDUP BP-14/P4: price via the ONE Core dispatcher — the
+            // same deployed library bytecode the Solver links — not a
+            // local re-implementation of the V2 branch. The 0 -> 30
+            // bps fee default now lives in universalQuote alone
+            // (parity pinned by test/CoreV2QuoteParity.t.sol). The
+            // ctx carries coordinates only; the KIND_V2 branch reads
+            // pool/zeroForOne/fee and nothing else. NOTE: structural
+            // quote==exec coherence holds for Solver<->Quoter here;
+            // the Router keeps its own inlined copies (gas/stack) —
+            // compile-time coherence, registered in the Seam Register.
+            QuoteCtx memory qc;
+            qc.kind       = BPC.KIND_V2;
+            qc.pool       = leg.pool;
+            qc.zeroForOne = leg.zeroForOne;
+            qc.fee        = leg.fee;
+            (legOut, ) = BPC.universalQuote(qc, legIn);
+        } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
+            legOut = _simV4(leg, tIn, legIn);
+            // Same clamp as the A_CONC_POOL fallback above: the
+            // singleton could not price the leg (no manager, hook
+            // fail-closed, oversize amount), so never extrapolate the
+            // plan's point upward along the tangent.
+            if (legOut == 0)
+                legOut = BPC.mulDiv(
+                    leg.expectedOut, legIn > base ? base : legIn, base);
+        } else {
+            // SOLIDLY — priced via the ONE Core dispatcher, exactly like
+            // the V2 branch above (DEDUP BP-14/P4). universalQuote's
+            // KIND_SOLIDLY arm asks the pool itself first, through the
+            // executor's own producer (solidlyAskOut: the pair's number
+            // less the wei the executor leaves it, so quote == execution
+            // by construction); a fork without the selector
+            // falls to the replicated curve at the live fee with a
+            // 200 bps under-ask; a pool that answers nothing quotes 0.
+            // Every arm lands AT or BELOW execution truth. The previous
+            // linear rescale walked the TANGENT of a concave curve and
+            // OVERSTATED whenever carry outgrew the plan (reported at up
+            // to ~907 bps on a thin pool) — pinned RED-first by
+            // test/QuoterOverQuote.t.sol. Tombstone kinds also land here
+            // and now quote 0 (universalQuote's fail-closed default)
+            // instead of a rescaled ghost. NOTE: a FRESH ctx — the `qc`
+            // above is PINNED to KIND_V2, and reusing it would price
+            // Solidly on the constant-product arm. tokenIn is REQUIRED
+            // (getAmountOut is direction-keyed on it); tokenOther only
+            // feeds the depth read, which is discarded here.
+            QuoteCtx memory sc;
+            sc.kind       = BPC.KIND_SOLIDLY;
+            sc.pool       = leg.pool;
+            sc.zeroForOne = leg.zeroForOne;
+            sc.fee        = leg.fee;
+            sc.stable     = leg.stable;
+            sc.tokenIn    = tIn;
+            sc.tokenOther = tOut;
+            (legOut, ) = BPC.universalQuote(sc, legIn);
+        }
     }
 
     function bridgeAt(uint8 i) external view returns (address) { return hub.bridge(i); }

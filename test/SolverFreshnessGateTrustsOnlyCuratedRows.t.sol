@@ -141,4 +141,47 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
         vm.warp(block.timestamp + 3_601);
         assertTrue(_planUsesHonestPool(), "quiet registry: the sweep runs again");
     }
+
+    /// THE TWIN OF THE GUARD ABOVE, ONE DOOR FURTHER — and the only test that
+    /// exercises the REFRESH. "Curated and recent" is not the age of the seed:
+    /// `recordSwap`'s existing-row branch ticks the row and re-stamps its
+    /// wall-clock activity time, so a pair that keeps being
+    /// routed through keeps vouching for coverage past the TTL of its own seed.
+    /// The whole refresh is ONE line, `Hub._stampTs` — the
+    /// `ts` argument `tickSlot` receives is contractually IGNORED, which the
+    /// Monoslot suite pins as algebra (`DiscoveryRefreshMonoslot`,
+    /// TICK_LICENSE = {swapCount, lastBlk, bucket}: `lastUpdateTs` is not in it).
+    /// Nothing else in `test/` reaches this path: the suite that pins the
+    /// freshness gate only ever warps AWAY from activity, never back into it.
+    /// FALSIFIER: neutralise `_stampTs` (`return s`) and this test goes red
+    /// while its four siblings stay green.
+    function test_CuratedRowsKeptFreshByActivity_StillSkipDiscovery() public {
+        MockV2Pair[3] memory seeded;
+        for (uint256 i; i < 3; ) {
+            seeded[i] = _pair(10_000e18, 10_000e18);
+            hub.seedPool(address(seeded[i]), BPC.KIND_V2, 30, address(0),
+                         address(tokenA), address(tokenB));
+            unchecked { ++i; }
+        }
+        vm.warp(block.timestamp + 3_601);
+        assertTrue(_planUsesHonestPool(),
+            "premise: past the seed's TTL and with no activity, the sweep runs");
+
+        // The registry does not go quiet while the pair is being routed through:
+        // one swap per curated row. A curated seed enters with no swap counted,
+        // so the assertion is the delta, not a hardcoded value.
+        for (uint256 i; i < 3; ) {
+            bytes32 key = hub.keyOf(address(seeded[i]), address(tokenA), address(tokenB));
+            uint256 before = BPC.decodeSwapCount(hub.getSlot(key));
+            hub.recordSwap(address(seeded[i]), BPC.KIND_V2, 30, address(0),
+                           address(tokenA), address(tokenB), 1, 1, 1e18);
+            uint256 nowSlot = hub.getSlot(key);
+            assertEq(uint8(nowSlot >> 40), 0, "activity must re-stamp a curated row without re-tiering it");
+            assertEq(BPC.decodeSwapCount(nowSlot), before + 1, "the tick counted the swap");
+            unchecked { ++i; }
+        }
+
+        assertFalse(_planUsesHonestPool(),
+            "a curated row ticked within the TTL vouches again: the sweep is skipped, as designed");
+    }
 }

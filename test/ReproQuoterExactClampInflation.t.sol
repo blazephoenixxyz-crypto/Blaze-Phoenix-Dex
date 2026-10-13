@@ -2,16 +2,17 @@
 pragma solidity 0.8.36;
 
 // Recovered from adversarial audit workflow wf_8e3fd5d8 (2026-08-18); re-derived as red-first.
-// previewPlanExact (BlazePhoenixQuoter.sol:352) starts carry = amountIn (the caller's FULL order)
+// previewPlanExact (BlazePhoenixQuoter.sol) starts carry = amountIn (the caller's FULL order)
 // and rescales every leg by carry/plannedIn. When the Solver's capacity clamp fired (hop.amountIn =
 // committed leg < amountIn), that ratio > 1 reconstructs the PRE-CLAMP order and dry-runs the pool
 // with it, overstating the "execution-grade" quote by up to ~166x — reintroducing the NetGakarot bug
-// the Router caps at BlazePhoenixRouter.sol:514 (`if (h==0 && scaleNum>scaleDen) scaleNum=scaleDen`).
+// the Router caps at BlazePhoenixRouter.sol (`if (h==0 && scaleNum>scaleDen) scaleNum=scaleDen`).
 // Setup mirrors RouterUndoesSolverCapacityClamp.t.sol.
 //
-// RED-FIRST: the exact quote and the route it returns must be deliverable/executable. Present code
-// overstates and returns an unexecutable route -> these tests FAIL today, and pass once the exact
-// path caps hop-0 spend at the committed sum the way the Router already does.
+// RED-FIRST: the exact quote and the route it returns must be deliverable/executable. The cap this
+// asked for has landed: BlazePhoenixQuoter.sol is `if (h == 0 && carry > plannedIn) carry = plannedIn;`,
+// the quote-side twin of the Router's cap. The tests below now also assert WHAT the route delivers,
+// not only that it does not revert.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
@@ -29,6 +30,7 @@ contract ReproQuoterExactClampInflationTest is Test {
     BlazePhoenixQuoter quoter;
     MockERC20 tokenA;
     MockERC20 tokenB;
+    MockV3Pool pool;
 
     address treasury1 = address(0xFEE1);
     address treasury2 = address(0xFEE2);
@@ -49,10 +51,10 @@ contract ReproQuoterExactClampInflationTest is Test {
         );
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
 
-        MockV3Pool p = new MockV3Pool(address(tokenA), address(tokenB), 100);
-        p.setState(uint160(BPC.Q96), DEEP_L);
-        tokenB.mint(address(p), POOL_HOLDING_B);
-        hub.seedPool(address(p), BPC.KIND_V3, 100, address(0), address(tokenA), address(tokenB));
+        pool = new MockV3Pool(address(tokenA), address(tokenB), 100);
+        pool.setState(uint160(BPC.Q96), DEEP_L);
+        tokenB.mint(address(pool), POOL_HOLDING_B);
+        hub.seedPool(address(pool), BPC.KIND_V3, 100, address(0), address(tokenA), address(tokenB));
 
         tokenA.mint(user, ORDER);
         vm.prank(user);
@@ -80,14 +82,36 @@ contract ReproQuoterExactClampInflationTest is Test {
         (, uint256 exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), ORDER);
         uint256 userMinOut = BPC.mulDiv(exactOut, 9_500, BPC.BPS); // 95% of the "exact" quote
         vm.prank(user);
-        router.swapBestExactIn(address(tokenA), address(tokenB), ORDER, userMinOut, user, block.timestamp + 1);
+        uint256 got = router.swapBestExactIn(
+            address(tokenA), address(tokenB), ORDER, userMinOut, user, block.timestamp + 1
+        );
+        // Without an assertion this only proved the swap does not revert.
+        assertGe(got, userMinOut, "the 95% minOut implied by the exact quote must be achievable");
     }
 
     // RED-FIRST: the exact route the quoter returns must be executable as-is. Present code returns
     // legs carrying the FULL order into a pool holding 1k B with an inflated singleOutFloor -> revert.
     function test_ReturnedExactRouteMustExecute() public {
-        (Route memory exactRoute, ) = quoter.previewPlanExact(address(tokenA), address(tokenB), ORDER);
+        (Route memory exactRoute, uint256 exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), ORDER);
+
+        // What the route COMMITS is what the Router may spend on hop 0 (under-declaring only
+        // shrinks the trade: `scaleNum` is capped at `scaleDen`).
+        uint256 committed;
+        for (uint256 l; l < exactRoute.hops[0].legs.length; l++) {
+            committed += exactRoute.hops[0].legs[l].amountIn;
+        }
+        uint256 poolAbefore = tokenA.balanceOf(address(pool));
+
         vm.prank(user);
-        router.swapExactIn(exactRoute, ORDER, 1, user, block.timestamp + 1);
+        uint256 delivered = router.swapExactIn(exactRoute, ORDER, 1, user, block.timestamp + 1);
+
+        // The same anti-force-feed check as RouterUndoesSolverCapacityClamp.t.sol, now on the
+        // route the Quoter itself returned.
+        uint256 poolAin = tokenA.balanceOf(address(pool)) - poolAbefore;
+        assertLe(poolAin, committed + 1, "pool must not be fed past the committed legs");
+        assertLt(poolAin, ORDER / 10, "pool must not be force-fed the full order");
+        // And the promise in the title: the exact route executes and does not overstate delivery.
+        assertGt(delivered, 0, "the exact route the Quoter returned must deliver output");
+        assertLe(exactOut, delivered, "previewPlanExact must not overstate its own route's delivery");
     }
 }
