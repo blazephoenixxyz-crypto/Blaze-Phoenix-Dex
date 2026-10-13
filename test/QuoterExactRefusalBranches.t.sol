@@ -95,7 +95,13 @@ contract MockHubQ {
     function setV4PoolManager(address m) external { v4PoolManager = m; }
     function bridgeCount() external pure returns (uint8) { return 0; }
     function bridge(uint8) external pure returns (address) { return address(0); }
-    function isBridgeToken(address) external pure returns (bool) { return false; }
+    /// The one bridge is the routes' OUTPUT token (set in `setUp`): a direct route into a
+    /// bridge is the regime where the Router takes the fee off the output, so the exact
+    /// scalar is the plain deduction and each branch below is observed through one dry run.
+    /// The input-charged regime has its own suite (QuoterExactFloorHoldsWhenTheFeeIsChargedOnTheInput).
+    address public outBridge;
+    function setOutBridge(address t) external { outBridge = t; }
+    function isBridgeToken(address t) external view returns (bool) { return t != address(0) && t == outBridge; }
 }
 
 /// @dev V4 PoolManager stand-in running the REAL quote round trip:
@@ -251,6 +257,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         mgrMock    = new MockV4ManagerQ();
         hubMock.setV4PoolManager(address(mgrMock));
         mgrMock.setQuoteOut(int256(Q_OUT));
+        hubMock.setOutBridge(address(tokB));
 
         quoter = new BlazePhoenixQuoter(address(hubMock), address(solverMock));
     }

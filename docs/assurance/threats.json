@@ -121,6 +121,14 @@
       "note": "Parity between the published quote and the realised delivery is asserted in both fee regimes."
     },
     {
+      "id": "SOK-QUOTE-FLOOR",
+      "class": "Execution-grade quote that execution cannot honour as a minimum output",
+      "status": "blocked",
+      "guard": "_fundedOut",
+      "test": "test_InputChargedRouteSettlesAtExactOut",
+      "note": "previewPlanExact publishes the figure an integrator turns into userMinOut. Where the Router takes the protocol fee off an input, the venue prices the reduced input and its output is an integer step function of it, so a deduction off the gross output can sit a few wei above delivery. The exact pass funds the returned route as the Router will and publishes the lower figure; the stateful twin is invariant_exactOutIsAFloorTheRouterHonours."
+    },
+    {
       "id": "SOK-V4-DERIVE",
       "class": "Deterministic pool derivation steered to an attacker address",
       "status": "blocked",
