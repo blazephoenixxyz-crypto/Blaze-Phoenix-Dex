@@ -155,6 +155,22 @@ contract BlazePhoenixRouter {
     ///      ceiling, and `bridgeBase` is sized by the caller. Three is the
     ///      deepest topology the Solver builds (`_planViaBridges`, two bridges).
     uint8   internal constant MAX_HOPS          = 3;
+    /// @dev The gas `swapBestExactIn` hands the Solver for the in-transaction
+    ///      search (review 2026-10-12). The search's cost is set by third
+    ///      parties: one-wei V4 positions are permissionless, every fragmented
+    ///      pool on the plan's reach costs at least one deep walk, and how many
+    ///      are fragmented is the attacker's choice. No estimate made before
+    ///      the search bounds that; a fixed budget that fails closed does.
+    ///      Past it the door reverts RouterE(17): no funds move, and
+    ///      `swapExactIn` with a plan quoted off-chain is unaffected. The
+    ///      budget is not meant to choose the plan: nothing on the solve path
+    ///      reads gasleft(), and a quote starved inside an exhausted search
+    ///      leaves its frame at most 1/64 of the gas, so finishing on a thinner
+    ///      plan would need the rest of the search to fit in what the parent
+    ///      frames kept; the fuzz at and below the threshold
+    ///      (EntryBSolveBudget) finds no such budget. 2^24 (EIP-7825) less
+    ///      ~4.7M for the pull, the execution and the self-call.
+    uint256 internal constant SOLVE_GAS         = 12_000_000;
 
     /// @notice Per-leg output floor, in BPS of the leg's pro-rata attested
     ///         quote. Bounds the damage any single manipulated / sandwiched
@@ -281,7 +297,8 @@ contract BlazePhoenixRouter {
     // 11 = a V4 leg's fields disagree: its direction is not the direction of its tokens, or the pool it names (leg.pool) is not the pool its key derives to (BPX-2026-009),
     // 13 = FoT token on a V3-only route (route-where-natural), 14 = rescue
     // not queued or still inside the 48h timelock, 15 = a swap settled without
-    // paying the protocol fee, 16 = the fee was paid twice on an anchored route
+    // paying the protocol fee, 16 = the fee was paid twice on an anchored route,
+    // 17 = the in-transaction search of swapBestExactIn ran out of SOLVE_GAS
 
     // Every privileged door in this contract is gated by onlyControl, so all
     // administrative power ends permanently at renounceControl(). Keep it that
@@ -539,7 +556,7 @@ contract BlazePhoenixRouter {
         if (userMinOut == 0) revert RouterE(10);
         // deadline + empty-route re-checked inside _swapPrePulled — not here
         // (dedupe law: same tx, same state, never pay twice — in bytecode too).
-        RoutePlan memory plan = ISolverR(solver).findBestRoutePlan(tokenIn, tokenOut, amountIn);
+        RoutePlan memory plan = _solve(tokenIn, tokenOut, amountIn);
         // Both ends of the plan are checked (review 2026-09-02): the input end
         // guarded the pull; the OUTPUT end guards what the recipient receives
         // and the units `userMinOut` is compared in. The Solver is immutable
@@ -572,6 +589,24 @@ contract BlazePhoenixRouter {
         // TSLOT_FOT is TRANSIENT storage on the Router's account, so it survives
         // the external self-call below (same transaction, same account).
         return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);
+    }
+
+    /// @dev The search of `swapBestExactIn`, on a fixed budget (SOLVE_GAS).
+    ///      Empty revert data is the out-of-gas signature: the Solver, Core
+    ///      and Hub never revert without data, so it reads as RouterE(17).
+    ///      Every other revert passes through with its bytes unchanged.
+    function _solve(address tokenIn, address tokenOut, uint256 amountIn)
+        private view returns (RoutePlan memory plan)
+    {
+        try ISolverR(solver).findBestRoutePlan{gas: SOLVE_GAS}(tokenIn, tokenOut, amountIn) returns (RoutePlan memory p) {
+            plan = p;
+        } catch (bytes memory e) {
+            if (e.length == 0) revert RouterE(17);
+            // memory-safe: only reads the revert data Solidity just copied
+            // into `e`, then leaves the frame. Without the annotation the
+            // compiler drops its memory guard for the whole contract.
+            assembly ("memory-safe") { revert(add(e, 32), mload(e)) }
+        }
     }
 
     /// @notice memory→calldata bridge for `swapBestExactIn`. Self-only

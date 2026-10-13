@@ -242,6 +242,22 @@
       "guard": "_mutedVotes",
       "test": "test_ForgedPairDoesNotCaptureTheBand",
       "note": "Bounty #85 (Remember Me). The Solver's band base is a depth-weighted median, and a synthetic pair registered honest by its own dust swap (tier 2) voted with min(forged depth, tokenOut balance), a balance a recoverable donation filled: 13M donated against three honest pools of 4M moved the median 6 % off fair and the victim was filled 548 bps under honest routing. Option (b): mass no curated row and no registered factory vouches for does not vote (it still quotes and executes). Alone it left a liar inside the band (93 bps) and a forged pair where nobody may vote (521 bps); with heldBy in the same tree both measure 0. Measured, pinned: a pair with no vouched mass and a contract that HOLDS what it declares still captures (588 bps, test_limit_NoVouchedMassAndAParkedHeldPairStillCaptures); a deep permissionless pool from an unregistered factory no longer sets the band against a shallow curated one (2451 bps, test_cost_ShallowCuratedPoolOutvotesADeepPermissionlessOne)."
+    },
+    {
+      "id": "SOK-SOLVE-GAS",
+      "class": "An in-transaction route search whose cost a third party sets: permissionless dust positions multiply the ticks the solve walks until the transaction runs out of gas",
+      "status": "blocked",
+      "guard": "SOLVE_GAS",
+      "test": "test_EntryB_OverBudgetRevertsCleanUnderTheTxCap",
+      "note": "Registered 2026-10-12. swapBestExactIn hands the Solver a fixed SOLVE_GAS (12,000,000) and reverts RouterE(17) when the search needs more: fail-closed, no funds move, and swapExactIn (which takes a route computed off-chain) is unaffected. Nothing on the solve path reads gasleft(), and the fuzz tests testFuzz_SolveGasCapNeverDegradesThePlan_NearTheThreshold and _AnyBudget assert that a capped search returns the uncapped plan or reverts. Three layers bound the solve: 100,000 gas per venue quote (GAS_CAP), SOLVE_GAS per search, and the network's per-transaction cap (2^24 under EIP-7825; 32,000,000 on Arbitrum)."
+    },
+    {
+      "id": "SOK-SOLVE-LIVENESS",
+      "class": "Fragmented liquidity that pushes the off-chain route computation past the gas an RPC node allows for a call",
+      "status": "out-of-scope",
+      "rationale": "The cost of computing a plan grows with the number of initialized ticks a deep walk crosses, and anyone can mint one-wei positions; across two bridges the computation can exceed the per-transaction and per-call gas limits of the network or of an RPC node. The effect is liveness only: a caller who cannot compute a plan does not swap, and no funds are at risk, because every executed route is still checked against the caller's floors. A fixed cap on the off-chain computation would trade liveness on one route for a degraded plan, which the in-transaction cap (SOK-SOLVE-GAS) refuses by design. test_EntryB_OverBudgetRevertsCleanUnderTheTxCap asserts that the fragmented fixture's search costs more than SOLVE_GAS.",
+      "test": "test_EntryB_OverBudgetRevertsCleanUnderTheTxCap",
+      "note": "Registered 2026-10-12. A caller can compute the plan on a node with a higher call gas limit, or quote a route that avoids the fragmented pools and pass it to swapExactIn."
     }
   ]
 }
