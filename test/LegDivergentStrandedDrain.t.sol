@@ -59,6 +59,20 @@ contract LegDivergentStrandedDrainTest is Test {
     uint256 constant AMT      = 1_000e18; // ordem do atacante
     uint256 constant STRANDED =   100e18; // < legAmt, para o clamp levar TUDO
 
+    /// @dev Backs a pair's declared reserves with balances. Since bounty #85 a pair that
+    ///      declares more than it holds is a dead pool at every door, the Router's included;
+    ///      this fixture's pools were quote-only bookkeeping and now hold what they declare.
+    function _held(address p) internal {
+        (uint112 r0, uint112 r1, ) = MockV2Pair(p).getReserves();
+        _topUp85(MockV2Pair(p).token0(), p, r0);
+        _topUp85(MockV2Pair(p).token1(), p, r1);
+    }
+
+    function _topUp85(address t, address p, uint256 r) internal {
+        uint256 b = MockERC20(t).balanceOf(p);
+        if (b < r) MockERC20(t).mint(p, r - b);
+    }
+
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
@@ -74,6 +88,12 @@ contract LegDivergentStrandedDrainTest is Test {
         pTB = new MockV2Pair(address(T), address(B));
         pAB.setReserves(RESERVE, RESERVE);
         pTB.setReserves(RESERVE, RESERVE);
+        _held(address(pAB)); _held(address(pTB));
+        // Bounty #85: the Router's in-frame quote checks the leg's pair against the HOP's tokens
+        // (A -> B) and refuses a pair holding less than it declares with RouterE(8), which runs
+        // before the leg-continuity check. A balance of A on pTB keeps that refusal out of the
+        // way, so the attack below still reaches - and pins - the RouterE(3) continuity guard.
+        A.mint(address(pTB), RESERVE);
 
         A.mint(user, 10 * AMT);
         vm.prank(user);
@@ -149,7 +169,7 @@ contract LegDivergentStrandedDrainTest is Test {
             "o saldo parado de T foi gasto por um swap que nao o possui"
         );
         assertEq(
-            T.balanceOf(address(pTB)), 0,
+            T.balanceOf(address(pTB)), RESERVE, // bounty #85: setUp backs pTB's declared T reserve
             "o T parado acabou na pool nomeada pela rota"
         );
     }
@@ -189,7 +209,7 @@ contract LegDivergentStrandedDrainTest is Test {
             "saldo parado de T gasto por um swap que nao o possui"
         );
         assertEq(
-            T.balanceOf(address(pTB)), 0,
+            T.balanceOf(address(pTB)), RESERVE, // bounty #85: setUp backs pTB's declared T reserve
             "o T parado acabou na pool nomeada pela rota"
         );
     }

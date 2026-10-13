@@ -34,6 +34,21 @@ contract CoreV2QuoteParityTest is Test {
         qc.pool       = address(pair);
         qc.zeroForOne = zfo;
         qc.fee        = fee;
+        // Both tokens: the dispatcher compares the reserves with what the pair holds (bounty #85).
+        (qc.tokenIn, qc.tokenOther) = zfo ? (pair.token0(), pair.token1()) : (pair.token1(), pair.token0());
+    }
+
+    /// @dev Reserves the pair HOLDS. Since bounty #85 the dispatcher prices a pair that declares
+    ///      more than it holds as a dead pool, so the fixture backs every reserve with a balance.
+    function _setHeld(uint112 r0, uint112 r1) private {
+        _topUp(pair.token0(), r0);
+        _topUp(pair.token1(), r1);
+        pair.setReserves(r0, r1);
+    }
+
+    function _topUp(address t, uint256 r) private {
+        uint256 b = MockERC20(t).balanceOf(address(pair));
+        if (b < r) MockERC20(t).mint(address(pair), r - b);
     }
 
     /// @notice Fuzz pin: inside the sane domain (non-zero reserves, fee <
@@ -60,7 +75,7 @@ contract CoreV2QuoteParityTest is Test {
         r0  = uint112(bound(uint256(r0), 1, type(uint112).max));
         r1  = uint112(bound(uint256(r1), 1, type(uint112).max));
         fee = uint24(bound(uint256(fee), 0, BPC.BPS - 1));
-        pair.setReserves(r0, r1);
+        _setHeld(r0, r1);
 
         (uint256 out, uint256 depth) = BPC.universalQuote(_ctx(fee, zfo), ain);
 
@@ -78,7 +93,7 @@ contract CoreV2QuoteParityTest is Test {
     ///         the literal formula — outside the fuzz domain the formula
     ///         reverts where outV2 fail-softs to 0).
     function test_V2Branch_EdgeGuards() public {
-        pair.setReserves(uint112(1e24), uint112(2e24));
+        _setHeld(uint112(1e24), uint112(2e24));
         // fee == 0 -> the 30 bps default lives in the dispatcher alone.
         (uint256 outDefault, ) = BPC.universalQuote(_ctx(0, true), 1e18);
         assertEq(outDefault, BPC.outV2(1e18, 1e24, 2e24, 30), "fee=0 must default to 30 bps");
@@ -102,7 +117,7 @@ contract CoreV2QuoteParityTest is Test {
         (uint256 outZeroIn, ) = BPC.universalQuote(_ctx(30, true), 0);
         assertEq(outZeroIn, 0);
         // Zero reserve (either side) -> 0.
-        pair.setReserves(0, uint112(2e24));
+        _setHeld(0, uint112(2e24));
         (uint256 outZeroR, ) = BPC.universalQuote(_ctx(30, true), 1e18);
         assertEq(outZeroR, 0, "zero reserves must fail-soft to 0");
     }

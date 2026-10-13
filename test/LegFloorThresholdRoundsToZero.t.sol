@@ -111,6 +111,20 @@ contract LegFloorThresholdRoundsToZeroTest is Test {
 
     bool zfo;
 
+    /// @dev Backs a pair's declared reserves with balances. Since bounty #85 a pair that
+    ///      declares more than it holds is a dead pool at every door, the Router's included;
+    ///      this fixture's pools were quote-only bookkeeping and now hold what they declare.
+    function _held(address p) internal {
+        (uint112 r0, uint112 r1, ) = QuotesOneDeliversNothing(p).getReserves();
+        _topUp85(QuotesOneDeliversNothing(p).token0(), p, r0);
+        _topUp85(QuotesOneDeliversNothing(p).token1(), p, r1);
+    }
+
+    function _topUp85(address t, address p, uint256 r) internal {
+        uint256 b = MockERC20(t).balanceOf(p);
+        if (b < r) MockERC20(t).mint(p, r - b);
+    }
+
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
@@ -133,6 +147,7 @@ contract LegFloorThresholdRoundsToZeroTest is Test {
         hostile = new QuotesOneDeliversNothing(address(tokA), address(tokB));
         tokB.mint(address(hostile), 1_000e18);
         hostile.setReserves(1_000e18, 1_000e18);
+        _held(address(hostile));
         hub.seedPool(address(hostile), BPC.KIND_V2, 30, address(0), address(tokA), address(tokB));
 
         zfo = honest.token0() == address(tokA);

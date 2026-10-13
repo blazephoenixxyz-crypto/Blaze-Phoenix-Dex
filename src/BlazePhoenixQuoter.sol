@@ -761,16 +761,22 @@ contract BlazePhoenixQuoter {
             // local re-implementation of the V2 branch. The 0 -> 30
             // bps fee default now lives in universalQuote alone
             // (parity pinned by test/CoreV2QuoteParity.t.sol). The
-            // ctx carries coordinates only; the KIND_V2 branch reads
-            // pool/zeroForOne/fee and nothing else. NOTE: structural
+            // ctx carries coordinates only. NOTE: structural
             // quote==exec coherence holds for Solver<->Quoter here;
             // the Router keeps its own inlined copies (gas/stack) —
             // compile-time coherence, registered in the Seam Register.
+            // THE TWO TOKENS ARE COORDINATES NOW (bounty #85, Remember
+            // Me): the KIND_V2 arm asks whether the pair holds the
+            // reserves it declares, and that question reads both
+            // balances. Left at address(0) they read as zero holdings,
+            // and every honest V2 leg of a preview would quote 0.
             QuoteCtx memory qc;
             qc.kind       = BPC.KIND_V2;
             qc.pool       = leg.pool;
             qc.zeroForOne = leg.zeroForOne;
             qc.fee        = leg.fee;
+            qc.tokenIn    = tIn;
+            qc.tokenOther = tOut;
             (legOut, ) = BPC.universalQuote(qc, legIn);
         } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
             legOut = _simV4(leg, tIn, legIn);
@@ -799,8 +805,9 @@ contract BlazePhoenixQuoter {
             // instead of a rescaled ghost. NOTE: a FRESH ctx — the `qc`
             // above is PINNED to KIND_V2, and reusing it would price
             // Solidly on the constant-product arm. tokenIn is REQUIRED
-            // (getAmountOut is direction-keyed on it); tokenOther only
-            // feeds the depth read, which is discarded here.
+            // (getAmountOut is direction-keyed on it); tokenOther feeds
+            // the depth read (discarded here) and, with tokenIn, the
+            // held-reserves check of bounty #85.
             QuoteCtx memory sc;
             sc.kind       = BPC.KIND_SOLIDLY;
             sc.pool       = leg.pool;

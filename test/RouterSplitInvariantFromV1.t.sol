@@ -108,6 +108,10 @@ contract RouterSplitInvariantFromV1Test is StdInvariant, Test {
         p2 = new MockV2Pair(address(A), address(B));
         p1.setReserves(1e30, 1e30); // quote-only bookkeeping; the handler funds real payouts per-call
         p2.setReserves(1e30, 1e30);
+        // Both pairs hold what they declare (bounty #85: the Router refuses a leg on a pair
+        // holding less than its reserves). The conservation sums count this seed below.
+        A.mint(address(p1), 1e30); B.mint(address(p1), 1e30);
+        A.mint(address(p2), 1e30); B.mint(address(p2), 1e30);
 
         handler = new SplitHandler(router, A, B, p1, p2, recipient);
         targetContract(address(handler));
@@ -125,8 +129,8 @@ contract RouterSplitInvariantFromV1Test is StdInvariant, Test {
             + t.balanceOf(recipient) + t.balanceOf(treasury1) + t.balanceOf(treasury2);
     }
 
-    function invariant_conservationA() public view { assertEq(_sum(A), handler.mintedA(), "A not conserved"); }
-    function invariant_conservationB() public view { assertEq(_sum(B), handler.mintedB(), "B not conserved"); }
+    function invariant_conservationA() public view { assertEq(_sum(A), handler.mintedA() + 2e30, "A not conserved"); }
+    function invariant_conservationB() public view { assertEq(_sum(B), handler.mintedB() + 2e30, "B not conserved"); }
 
     /// @dev Guards against a vacuous pass (see RouterMultiHopInvariantFromV1.t.sol for why this
     ///      must be afterInvariant, not a plain invariant_ function).

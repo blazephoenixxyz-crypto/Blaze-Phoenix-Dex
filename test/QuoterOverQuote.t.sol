@@ -113,6 +113,20 @@ contract QuoterOverQuoteTest is Test {
     uint256 constant X_IN    = 100e18;
     uint24  constant SOL_FEE = 30;   // BPS-scaled; matches MockSolidlyPair.feeBps
 
+    /// @dev Backs a pair's declared reserves with balances. Since bounty #85 a pair that
+    ///      declares more than it holds is a dead pool at every door, the Router's included;
+    ///      this fixture's pools were quote-only bookkeeping and now hold what they declare.
+    function _held(address p) internal {
+        (uint112 r0, uint112 r1, ) = MockSolidlyPair(p).getReserves();
+        _topUp85(MockSolidlyPair(p).token0(), p, r0);
+        _topUp85(MockSolidlyPair(p).token1(), p, r1);
+    }
+
+    function _topUp85(address t, address p, uint256 r) internal {
+        uint256 b = MockERC20(t).balanceOf(p);
+        if (b < r) MockERC20(t).mint(p, r - b);
+    }
+
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         // v4PoolManager stays address(0): _simV4 must answer 0 so the V4
@@ -129,6 +143,7 @@ contract QuoterOverQuoteTest is Test {
         pairAB.setReserves(R_AB, R_AB);
         pairBC = new MockSolidlyPair(address(tokenB), address(tokenC), false);
         pairBC.setReserves(R_BC, R_BC);
+        _held(address(pairAB)); _held(address(pairBC));
 
         deadPool = new RefusingV3Pool();
     }

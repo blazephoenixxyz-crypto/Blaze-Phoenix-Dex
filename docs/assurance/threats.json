@@ -151,6 +151,14 @@
       "note": "Bounty #82 (root: dex-12). psi multiplies a swap count that costs one dust swap per unit by a depth weight that doubles per decade, so eight shallow pools pumped a few times each took every funnel seat. The funnel now measures every row it cuts with Core.registryDepth18 and always seats the deepest; taking that seat costs more mass than the deepest venue holds, in a pool whose price a trade can take."
     },
     {
+      "id": "SOK-FORGED-RESERVES-BAND",
+      "class": "A pair registered honest forges its reserves afterwards and a recoverable donation buys the band",
+      "status": "blocked",
+      "guard": "heldBy",
+      "test": "test_ForgedPairDoesNotCaptureTheBand",
+      "note": "Bounty #85 (Remember Me). reservesHeld was asked only at a pair's first swap; a synthetic pair registered honest, then forged getReserves, and the Solver's vote min(declared depth, tokenOut balance) collapsed to a balance a recoverable donation filled. 13M donated against three honest pools of 4M moved the depth-weighted median 6 % off fair and the victim was filled 548 bps under honest routing. Core.heldBy is now asked at every door that reads a pair's declaration: the quote dispatcher (V2 and Solidly arms quote a lie as dead), registryDepth18 (a lie has depth 0), the Router's in-frame quote (RouterE(8) before a wei moves) and the Hub's tick (a lying row is not refreshed). Measured residual: a contract that HOLDS what it declares (a parked pair, a V3-shaped contract with a donation) still votes; holding is not risking (test_limit_ParkedHeldPairStillVotes, test_limit_ConcentratedShapeStillVotesWithItsDonation)."
+    },
+    {
       "id": "SOK-HOOK",
       "class": "Malicious hook on a hooked venue",
       "status": "blocked",

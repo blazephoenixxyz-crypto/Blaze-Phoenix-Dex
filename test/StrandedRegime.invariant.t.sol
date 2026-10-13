@@ -259,6 +259,10 @@ contract MetaStrandedRegimeInvariantTest is StdInvariant, Test {
         poolTB = new MockV2Pair(address(T), address(B));
         poolAB.setReserves(1e27, 1e27);
         poolTB.setReserves(1e27, 1e27);
+        // Both pairs hold what they declare (bounty #85: the Router refuses a leg on a pair
+        // holding less than its reserves).
+        A.mint(address(poolAB), 1e27); B.mint(address(poolAB), 1e27);
+        T.mint(address(poolTB), 1e27); B.mint(address(poolTB), 1e27);
 
         A.mint(address(router), SEED_A);
         B.mint(address(router), SEED_B);
@@ -311,7 +315,7 @@ contract MetaStrandedRegimeInvariantTest is StdInvariant, Test {
             + A.balanceOf(address(router)) + A.balanceOf(recipient)
             + A.balanceOf(treasury1) + A.balanceOf(treasury2)
             + A.balanceOf(treasury3) + A.balanceOf(treasury4);
-        assertEq(sum, handler.mintedA() + SEED_A, "token A not conserved");
+        assertEq(sum, handler.mintedA() + SEED_A + 1e27, "token A not conserved"); // + poolAB's seed
     }
 
     function invariant_LedgerConservationT() public view {
@@ -319,7 +323,7 @@ contract MetaStrandedRegimeInvariantTest is StdInvariant, Test {
             + T.balanceOf(address(router)) + T.balanceOf(recipient)
             + T.balanceOf(treasury1) + T.balanceOf(treasury2)
             + T.balanceOf(treasury3) + T.balanceOf(treasury4);
-        assertEq(sum, handler.mintedT() + SEED_T, "token T not conserved");
+        assertEq(sum, handler.mintedT() + SEED_T + 1e27, "token T not conserved"); // + poolTB's seed
     }
 
     /// ANTI-VACUITY, and one rung deeper than the campaigns it is modelled on.

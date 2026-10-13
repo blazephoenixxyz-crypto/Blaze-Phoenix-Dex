@@ -115,8 +115,11 @@ contract Bounty1013SingleLegBoundedByHoldingsTest is Test {
     }
 
     function test_ForgedReservesSingleLegIsDropped() public {
-        // (1) forge the reserves, then register the pair with a dust swap
-        _setReserves(FAKE_R_IN, FAKE_R_OUT);
+        // (1) register the pair with a dust swap. Since bounty #85 (Remember Me)
+        //     the Router refuses a leg whose pair declares more than it holds
+        //     (RouterE(8)), so the seat is taken while the pair is honest and
+        //     the forgery comes after.
+        _setReserves(1e18, 1e18);
         Route memory dust = _dustRoute(1e6);
         vm.prank(user);
         router.swapExactIn(dust, 1e6, 1, user, block.timestamp + 1);

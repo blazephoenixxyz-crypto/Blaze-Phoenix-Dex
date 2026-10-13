@@ -36,6 +36,14 @@ pragma solidity 0.8.36;
 //  make these tests load-bearing - each one deletes one arm of the cap and must
 //  turn its named test RED.
 //
+//  BOUNTY #85 (Remember Me). The cap above was a per-side clamp: a pair that
+//  declared more than it held still entered the registry at its physical mass
+//  and still settled the swap. Since #85 the declaration is no longer clamped,
+//  it is REFUSED: Core.registryDepth18 returns 0 for a pair whose declared
+//  reserves exceed either balance (Core.heldBy), and the Router's in-frame
+//  quote refuses the leg with RouterE(8) before a wei moves. The probes below
+//  pin that refusal per arm (B_DEAD, and a revert instead of a fill).
+//
 //  WHY THE TESTS ARE NOT VACUOUS. Three independent guards:
 //    1. test_arith_TheTwoAnswersReallyDiffer pins, as pure arithmetic, that the
 //       DECLARED reserves and the PHYSICAL ones land in DIFFERENT buckets at
@@ -137,6 +145,8 @@ contract RouterPhysicalMassCapTest is Test {
     uint8 constant B_DECLARED = 15;
     uint8 constant B_PHYSICAL = 6;
     uint8 constant B_DEEP     = 9;
+    // Bounty #85: a liar's registry depth is 0, and depthBucket(0) = 0.
+    uint8 constant B_DEAD     = 0;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -257,19 +267,11 @@ contract RouterPhysicalMassCapTest is Test {
         _fund(s1, SHALLOW);
         pair.setReserves(FORGED, FORGED);
         _seed();
-        // The operator's door measures with the same producer since the ninth wave (dex-17):
-        // it seals the physical mass too. The swap below must keep it there.
-        assertEq(_bucket(), B_PHYSICAL, "pre-condition: seedPool seals the physical mass");
-        assertEq(_swapCount(), 0, "pre-condition: the row has never been ticked");
-
-        Route memory r = _routeFromSlot(0);
-        vm.prank(user);
-        uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
-
-        assertGt(got, 0, "the swap must really have executed");
-        assertEq(_swapCount(), 1, "the row must have been ticked by THIS swap");
-        assertEq(_bucket(), B_PHYSICAL,
+        // The operator's door measures with the same producer since the ninth wave (dex-17).
+        // Since bounty #85 that producer prices a liar as dead: no physical mass, no mass at all.
+        assertEq(_bucket(), B_DEAD,
             "PROV-01 (Router): the registry bucket followed the pool's own declaration");
+        _refused(0);
     }
 
     // =========================================================================
@@ -289,16 +291,9 @@ contract RouterPhysicalMassCapTest is Test {
         _fund(s1, DEEP);
         pair.setReserves(FORGED, uint112(DEEP));   // r1 honest: equal to the balance
         _seed();
-        assertEq(_swapCount(), 0, "pre-condition: the row has never been ticked");
-
-        Route memory r = _routeFromSlot(0);        // spend the slot-0 token
-        vm.prank(user);
-        uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
-
-        assertGt(got, 0, "the swap must really have executed");
-        assertEq(_swapCount(), 1, "the row must have been ticked by THIS swap");
-        assertEq(_bucket(), B_PHYSICAL,
+        assertEq(_bucket(), B_DEAD,
             "PROV-01 (Router): reserve0 was believed over the pair's token0 balance");
+        _refused(0);                               // spend the slot-0 token
     }
 
     // =========================================================================
@@ -315,16 +310,9 @@ contract RouterPhysicalMassCapTest is Test {
         _fund(s1, SHALLOW);
         pair.setReserves(uint112(DEEP), FORGED);   // r0 honest: equal to the balance
         _seed();
-        assertEq(_swapCount(), 0, "pre-condition: the row has never been ticked");
-
-        Route memory r = _routeFromSlot(1);        // spend the slot-1 token
-        vm.prank(user);
-        uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
-
-        assertGt(got, 0, "the swap must really have executed");
-        assertEq(_swapCount(), 1, "the row must have been ticked by THIS swap");
-        assertEq(_bucket(), B_PHYSICAL,
+        assertEq(_bucket(), B_DEAD,
             "PROV-01 (Router): reserve1 was believed over the pair's token1 balance");
+        _refused(1);                               // spend the slot-1 token
     }
 
     // =========================================================================
@@ -343,11 +331,9 @@ contract RouterPhysicalMassCapTest is Test {
         pair.setReserves(FORGED, FORGED);
         assertEq(hub.getPool(_key()), address(0), "pre-condition: the pair is unknown to the registry");
 
-        Route memory r = _routeFromSlot(0);
-        vm.prank(user);
-        uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
-
-        assertGt(got, 0, "the swap must really have executed");
+        // Bounty #85: the Router now refuses the leg before the swap, so the pair
+        // never reaches the registration door at all.
+        _refused(0);
         assertEq(hub.getPool(_key()), address(0),
             "PROV-01 (Router): a pair reporting reserves it does not hold took a row through its self-swap");
         assertEq(hub.getSlot(_key()), 0, "and no slot was written for it");
@@ -364,8 +350,11 @@ contract RouterPhysicalMassCapTest is Test {
 
     function test_control_honestPair_capIsInertAndTheBucketIsTheDeclaredOne() public {
         _fund(s0, DEEP);
-        _fund(s1, DEEP);
-        pair.setReserves(uint112(DEEP), uint112(DEEP));   // declaration == holdings
+        // ForgedReservePair never re-syncs: without this margin the swap below
+        // leaves reserve1 above the token1 balance, and since bounty #85 a row
+        // that declares more than it holds is not refreshed.
+        _fund(s1, DEEP + AMT);
+        pair.setReserves(uint112(DEEP), uint112(DEEP));   // declaration <= holdings
         _seed();
 
         Route memory r = _routeFromSlot(0);
@@ -379,28 +368,35 @@ contract RouterPhysicalMassCapTest is Test {
     }
 
     // =========================================================================
-    //  6. CONTROL - the cap is a REGISTRY rule, not an execution rule.
-    //     The forged pair still trades: the cap must never reject a swap, only
-    //     refuse to believe the mass afterwards. If a future fix reverts here
-    //     instead of capping, the user's already-executed swap starts failing
-    //     over a registry decision - which Hub.recordSwap's own doctrine
-    //     forbids ("skips registration, does NOT revert").
+    //  6. BOUNTY #85 (Remember Me) - the refusal is an EXECUTION rule now.
+    //     Before #85 the forged pair still traded and only its mass was
+    //     clamped. A clamp leaves the lie in the median's band (the #85
+    //     capture), so the Router's in-frame quote refuses the leg instead:
+    //     RouterE(8) BEFORE any transfer, the user's balances unchanged. This
+    //     is not Hub.recordSwap reverting over a registry decision: the
+    //     registry door still skips, and the refusal happens at the quote.
     // =========================================================================
 
-    function test_control_theForgedPairStillSettlesTheSwap() public {
+    function test_control_theForgedPairIsRefusedBeforeItSettles() public {
         _fund(s0, SHALLOW);
         _fund(s1, SHALLOW);
         pair.setReserves(FORGED, FORGED);
         _seed();
 
-        uint256 before = tokenBalance(s1, user);
-        Route memory r = _routeFromSlot(0);
-        vm.prank(user);
-        uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        uint256 a0 = tokenBalance(s0, user);
+        uint256 a1 = tokenBalance(s1, user);
+        _refused(0);
+        assertEq(tokenBalance(s0, user), a0, "the refusal moved no input");
+        assertEq(tokenBalance(s1, user), a1, "the refusal paid no output");
+    }
 
-        assertEq(tokenBalance(s1, user) - before, got,
-            "control: the delivered amount is what the recipient actually received");
-        assertGt(got, 0, "control: capping the registry must not refuse the trade");
+    /// @dev Bounty #85: a leg on a pair that declares more than it holds is
+    ///      dead at the Router's in-frame quote (RouterE(8)).
+    function _refused(uint8 slotIn) internal {
+        Route memory r = _routeFromSlot(slotIn);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
+        vm.prank(user);
+        router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
     }
 
     function tokenBalance(address token, address who) internal view returns (uint256) {

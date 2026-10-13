@@ -60,6 +60,10 @@ contract GasReportTest is Test {
     ///      addresses, which is easy to get backwards by accident.
     function _setReservesInTokenInOutTerms(MockV2Pair pool, uint256 rTokenIn, uint256 rTokenOut) internal {
         bool tokenInIsToken0 = pool.token0() == address(tokenIn);
+        // The intervening trade's input arrives with it: a pair holds its reserves (bounty #85,
+        // a pair declaring more than it holds is a dead pool at every door).
+        uint256 held = tokenIn.balanceOf(address(pool));
+        if (held < rTokenIn) tokenIn.mint(address(pool), rTokenIn - held);
         pool.setReserves(
             uint112(tokenInIsToken0 ? rTokenIn : rTokenOut),
             uint112(tokenInIsToken0 ? rTokenOut : rTokenIn)
