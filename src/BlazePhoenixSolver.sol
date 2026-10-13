@@ -971,23 +971,60 @@ contract BlazePhoenixSolver {
     ///      bucket from `b` to `lb` divides the rank by 2^(b - lb). A seat in the funnel costs
     ///      mass kept in the pool, which is mass a trade can take. Read here rather than in the
     ///      Hub: the ranking is the Solver's, and `PoolInfo` already names every V4 key field.
-    function _capByLiveDepth(PoolInfo[] memory rows, uint256[] memory ps, uint256 n) private view {
+    ///
+    ///      IT ALSO NAMES THE DEEPEST ROW (bounty #82, Ronksok Gaming; root in mohaseenbasha
+    ///      dex-12). The cap above only LOWERS a score; it cannot stop a score that is honest
+    ///      about depth and cheap about activity. psi multiplies the swap count, which costs one
+    ///      dust swap per unit, by 2^bucket, where a whole DECADE of mass buys one doubling: eight
+    ///      pools holding 1/100 of the honest venue's mass out-rank it after a handful of dust
+    ///      swaps each, take all eight seats, and the honest venue is cut before it is quoted.
+    ///      No cap on the count closes that (at cap c >= 2 a pool one decade shallower still
+    ///      wins), so the funnel instead guarantees one seat to the row holding the most mass
+    ///      NOW, measured by the same producer, and `_seatDeepest` gives it that seat. Every row
+    ///      is measured here, not only the bucketed ones: a discovered row has no slot, and it
+    ///      is exactly the one the score cannot see.
+    function _capByLiveDepth(PoolInfo[] memory rows, uint256[] memory ps, uint256 n)
+        private view returns (PoolInfo memory deepest)
+    {
         address mgr;
+        uint256 most;
         for (uint256 i; i < n; ) {
             PoolInfo memory p = rows[i];
+            bytes32 pid;
+            if (BPC.kindHas(p.kind, BPC.A_CONC_SING)) {
+                if (mgr == address(0)) mgr = hub.v4PoolManager();
+                pid = BPC.computeV4PoolId(p.kind == BPC.KIND_V4_NATIVE ? address(0) : p.token0,
+                    p.token1, p.fee, p.tickSpacing, p.hooks);
+            }
+            uint256 d = BPC.registryDepth18(p.pool, p.kind, p.token0, p.token1, mgr, pid);
+            // Strict: an equal mass does not displace the earlier row, so the choice is a
+            // function of the measured set and the merge order only.
+            if (d > most) { most = d; deepest = p; }
             uint8 b = BPC.decodeBucket(hub.getSlot(hub.keyOf(p.pool, p.token0, p.token1)));
             if (b != 0) {
-                bytes32 pid;
-                if (BPC.kindHas(p.kind, BPC.A_CONC_SING)) {
-                    if (mgr == address(0)) mgr = hub.v4PoolManager();
-                    pid = BPC.computeV4PoolId(p.kind == BPC.KIND_V4_NATIVE ? address(0) : p.token0,
-                        p.token1, p.fee, p.tickSpacing, p.hooks);
-                }
-                uint8 lb = BPC.depthBucket(BPC.registryDepth18(p.pool, p.kind, p.token0, p.token1, mgr, pid));
+                uint8 lb = BPC.depthBucket(d);
                 if (lb < b) ps[i] >>= (b - lb);
             }
             unchecked { ++i; }
         }
+    }
+
+    /// @dev THE DEEPEST MEASURED ROW IS ALWAYS QUOTED (bounty #82). If the score order left it
+    ///      outside the funnel, it takes the LAST seat — the row the score ranked weakest of
+    ///      those kept — and nothing else moves. If it is already seated, or the funnel did not
+    ///      cut (`deep.pool == 0`), the funnel is exactly what the score chose. A seat is a
+    ///      chance to be QUOTED, not a share: `_buildHop` still prices every seated row, so an
+    ///      honest venue seated here wins the order only by paying more. To take this seat an
+    ///      attacker must hold more mass than the deepest venue, in a pool whose price a trade
+    ///      (or an arbitrageur) can then take.
+    function _seatDeepest(PoolInfo[] memory out, PoolInfo memory deep) private pure {
+        uint256 k = out.length;
+        if (k == 0 || deep.pool == address(0)) return;
+        for (uint256 i; i < k; ) {
+            if (out[i].pool == deep.pool) return;
+            unchecked { ++i; }
+        }
+        out[k - 1] = deep;
     }
 
     /// @dev WHO TAKES WHAT THE SHARES LEAVE OVER, decided before anything is allocated.
@@ -1323,6 +1360,10 @@ contract BlazePhoenixSolver {
         up -= out_;
         hi -= out_;
         if (out_ == 0) return (hop, 0, 0);
+        // Same rule as the split path: a reserve-shaped promise above the pool's tokenOut
+        // holdings comes from forged reserves, so the candidate is dropped, not clamped
+        // (bounty #43, babayagaleet).
+        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ > BPC.balanceOf(tOut, cand.pool)) return (hop, 0, 0);
         // Capacity clamp — same two-tier doctrine as the split path (see
         // MAX_CONC_DRAIN_BPS). Quote > the pool's WHOLE holdings: physically
         // impossible, so the committed input is cut in the promise's ratio and
@@ -1501,6 +1542,7 @@ contract BlazePhoenixSolver {
         // ONE batched external call for the whole candidate set (previously
         // keyOf + getPsi per candidate = 2n calls): pure view-path saving.
         uint256[] memory ps;
+        PoolInfo memory deep;   // set only when the funnel cuts; see _seatDeepest
         {
             address[] memory pls = new address[](n);
             address[] memory t0s = new address[](n);
@@ -1514,7 +1556,7 @@ contract BlazePhoenixSolver {
             ps = hub.psisOf(pls, t0s, t1s);
             // More rows than the funnel keeps: the ranking decides who is cut, so every
             // cached depth is capped by what the pool holds now.
-            if (n > keep) _capByLiveDepth(active, ps, n);
+            if (n > keep) deep = _capByLiveDepth(active, ps, n);
         }
         for (uint256 i; i < n; ) { if (ps[i] == 0) ps[i] = 1; unchecked { ++i; } }
         uint256 k = n < keep ? n : keep;
@@ -1548,6 +1590,7 @@ contract BlazePhoenixSolver {
             out[ki] = active[ki];
             unchecked { ++ki; }
         }
+        _seatDeepest(out, deep);
     }
 
     /// @notice True when the pair's registered set is rich and recent enough to

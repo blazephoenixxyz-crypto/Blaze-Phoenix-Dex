@@ -312,4 +312,39 @@ contract RouteIntegrityV4Test is Test {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(9)));
         router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
     }
+
+    /// Preview and execution ask the same key question (bounty #52, ridhahmuh): a leg
+    /// whose tick spacing or direction no longer derives the pool it names is refused by
+    /// the Router with RouterE(11), and the preview must not call that route executable.
+    function _keyMismatchIsNotExecutable(Route memory route) internal {
+        uint256 amt = route.hops[0].amountIn;
+        BlazePhoenixQuoter q = new BlazePhoenixQuoter(address(hub), address(new FixedPlanSolver()));
+        assertFalse(q.previewRoute(route, 1).canExecute, "the preview endorsed a route the Router refuses");
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(11)));
+        router.swapExactIn(route, amt, 1, user, block.timestamp + 1);
+    }
+
+    function test_PreviewRoute_SwappedTickSpacing_CannotExecute() public {
+        uint256 amt = 1e18;
+        Route memory route = _route(pidA, address(0), amt, _quote(pidA, amt));
+        route.hops[0].legs[0].tickSpacing = 10;
+        _keyMismatchIsNotExecutable(route);
+    }
+
+    function test_PreviewRoute_FlippedDirection_CannotExecute() public {
+        uint256 amt = 1e18;
+        Route memory route = _route(pidA, address(0), amt, _quote(pidA, amt));
+        route.hops[0].legs[0].zeroForOne = false;
+        _keyMismatchIsNotExecutable(route);
+    }
+
+    function test_PreviewRoute_ConsistentKey_CanExecute() public {
+        uint256 amt = 1e18;
+        Route memory route = _route(pidA, address(0), amt, _quote(pidA, amt));
+        BlazePhoenixQuoter q = new BlazePhoenixQuoter(address(hub), address(new FixedPlanSolver()));
+        assertTrue(q.previewRoute(route, 1).canExecute, "a consistent route is executable");
+        vm.prank(user);
+        assertGt(router.swapExactIn(route, amt, 1, user, block.timestamp + 1), 0, "and executes");
+    }
 }
