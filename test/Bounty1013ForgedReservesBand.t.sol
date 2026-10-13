@@ -348,12 +348,13 @@ contract Bounty1013ForgedReservesBandTest is Test {
         assertApproxEqRel(exactOut, plan.best.totalOut, 0.01e18, "preview within 1 % of the plan");
     }
 
-    // ── what option (a) does not close, measured ─────────────────
+    // ── what holdings alone do not close, closed by the band vote ─
 
     /// @notice A V3-shaped contract has no reserves to compare with its holdings. Declared
     ///         liquidity is capped by its tokenOut balance, and a recoverable donation fills
-    ///         that balance: the band is captured exactly as in the report.
-    function test_limit_ConcentratedShapeStillVotesWithItsDonation() public {
+    ///         that balance. Holdings alone measured 522 bps here; its row is tier 2 and no
+    ///         factory vouches for it, so it does not vote and the band stays on fair.
+    function test_ConcentratedShapeWithADonationDoesNotVote() public {
         uint256 honestOut = _honestFill();
         MockV3Pool c = _hostileConc();
         c.setState(_sqrtAt(c, 0.94e18), type(uint128).max / 4);
@@ -361,13 +362,14 @@ contract Bounty1013ForgedReservesBandTest is Test {
         RoutePlan memory plan = _plan();
         uint256 got = _victim(plan);
         emit log_named_uint("loss vs honest routing (bps)", _lossBps(honestOut, got));
-        assertTrue(_uses(plan, address(c)), "measured: the hostile concentrated pool is routed");
-        assertGt(_lossBps(honestOut, got), 300, "measured: victim loses more than 3 %");
+        assertFalse(_uses(plan, address(c)), "the hostile concentrated pool is out of band");
+        assertGe(got, (honestOut * 9_990) / 10_000, "honest fill");
     }
 
     /// @notice A pair whose reserves ARE held - both sides parked, recoverable by its owner,
     ///         and a pool that need not trade the arbitrage direction - passes `reservesHeld`.
-    function test_limit_ParkedHeldPairStillVotes() public {
+    ///         Holdings alone measured 588 bps here; unvouched, it does not vote.
+    function test_ParkedHeldPairDoesNotVote() public {
         uint256 honestOut = _honestFill();
         LyingPair85 atk = _lyingPair();
         uint256 inSide = 14_000_000e18;
@@ -381,8 +383,8 @@ contract Bounty1013ForgedReservesBandTest is Test {
         RoutePlan memory plan = _plan();
         uint256 got = _victim(plan);
         emit log_named_uint("loss vs honest routing (bps)", _lossBps(honestOut, got));
-        assertTrue(_uses(plan, address(atk)), "measured: a held, parked pair is routed");
-        assertGt(_lossBps(honestOut, got), 300, "measured: victim loses more than 3 %");
+        assertFalse(_uses(plan, address(atk)), "a parked pair is out of band");
+        assertGe(got, (honestOut * 9_990) / 10_000, "honest fill");
     }
 
     /// @notice What option (a) gives up: an honest pair whose balance fell under its reserves

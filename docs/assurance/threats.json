@@ -156,7 +156,7 @@
       "status": "blocked",
       "guard": "heldBy",
       "test": "test_ForgedPairDoesNotCaptureTheBand",
-      "note": "Bounty #85 (Remember Me). reservesHeld was asked only at a pair's first swap; a synthetic pair registered honest, then forged getReserves, and the Solver's vote min(declared depth, tokenOut balance) collapsed to a balance a recoverable donation filled. 13M donated against three honest pools of 4M moved the depth-weighted median 6 % off fair and the victim was filled 548 bps under honest routing. Core.heldBy is now asked at every door that reads a pair's declaration: the quote dispatcher (V2 and Solidly arms quote a lie as dead), registryDepth18 (a lie has depth 0), the Router's in-frame quote (RouterE(8) before a wei moves) and the Hub's tick (a lying row is not refreshed). Measured residual: a contract that HOLDS what it declares (a parked pair, a V3-shaped contract with a donation) still votes; holding is not risking (test_limit_ParkedHeldPairStillVotes, test_limit_ConcentratedShapeStillVotesWithItsDonation)."
+      "note": "Bounty #85 (Remember Me). reservesHeld was asked only at a pair's first swap; a synthetic pair registered honest, then forged getReserves, and the Solver's vote min(declared depth, tokenOut balance) collapsed to a balance a recoverable donation filled. 13M donated against three honest pools of 4M moved the depth-weighted median 6 % off fair and the victim was filled 548 bps under honest routing. Core.heldBy is now asked at every door that reads a pair's declaration: the quote dispatcher (V2 and Solidly arms quote a lie as dead), registryDepth18 (a lie has depth 0), the Router's in-frame quote (RouterE(8) before a wei moves) and the Hub's tick (a lying row is not refreshed). Alone it left a contract that HOLDS what it declares (a parked pair, a V3-shaped contract with a donation) voting, 588 and 522 bps; with the band vote of SOK-FORGED-RESERVES-BAND-VOTE in the same tree both measure 0 (test_ParkedHeldPairDoesNotVote, test_ConcentratedShapeWithADonationDoesNotVote)."
     },
     {
       "id": "SOK-HOOK",
@@ -234,6 +234,14 @@
       "rationale": "Under a non-zero protocol fee the Router cannot price a dynamic-fee key in-frame, so effV4Fee fails closed and the leg carries no in-frame promise; the floor is then the caller's attestation (80 % of the Quoter's dry run) and userMinOut, and the registry refuses to claim such keys. The class is bounded by the caller's own signed floors rather than refused by a guard, which is why it is recorded as a scope decision. Refusing the leg outright is an owner decision recorded as open. test_DynamicFeeKey_UnderProtocolFee_PromisesZero pins the zero promise.",
       "test": "test_DynamicFeeKey_UnderProtocolFee_PromisesZero",
       "note": "Registered 2026-09-07 from the hook-admission review. An honest attestation from the Quoter's dry run keeps the gate; lowering it is the caller's signed intent."
+    },
+    {
+      "id": "SOK-FORGED-RESERVES-BAND-VOTE",
+      "class": "A pair registered honest forges its reserves afterwards and a recoverable donation buys the band",
+      "status": "blocked",
+      "guard": "_mutedVotes",
+      "test": "test_ForgedPairDoesNotCaptureTheBand",
+      "note": "Bounty #85 (Remember Me). The Solver's band base is a depth-weighted median, and a synthetic pair registered honest by its own dust swap (tier 2) voted with min(forged depth, tokenOut balance), a balance a recoverable donation filled: 13M donated against three honest pools of 4M moved the median 6 % off fair and the victim was filled 548 bps under honest routing. Option (b): mass no curated row and no registered factory vouches for does not vote (it still quotes and executes). Alone it left a liar inside the band (93 bps) and a forged pair where nobody may vote (521 bps); with heldBy in the same tree both measure 0. Measured, pinned: a pair with no vouched mass and a contract that HOLDS what it declares still captures (588 bps, test_limit_NoVouchedMassAndAParkedHeldPairStillCaptures); a deep permissionless pool from an unregistered factory no longer sets the band against a shallow curated one (2451 bps, test_cost_ShallowCuratedPoolOutvotesADeepPermissionlessOne)."
     }
   ]
 }

@@ -2221,7 +2221,9 @@ library BlazePhoenixCore {
     /// @dev Risk tier, bits [47:40]: 0 = CURATED (seedPool by an operator),
     ///      2 = permissionless (recordSwap, claimV4). Written once by
     ///      Hub._register (`trusted ? 0 : 2`); read by the Solver's
-    ///      discovery-freshness gate, which only lets curated rows vouch.
+    ///      discovery-freshness gate, which only lets curated rows vouch,
+    ///      and by its band vote (`_mutedVotes`, bounty #85): a tier-2
+    ///      pair or concentrated row no factory vouches for does not vote.
     function decodeTier(uint256 s)      internal pure returns (uint8)   { return uint8(s >> 40); }
     function decodeBucket(uint256 s)    internal pure returns (uint8)   { return uint8((s >> 60) & 0xF); }
 
