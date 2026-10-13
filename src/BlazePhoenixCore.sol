@@ -4,7 +4,7 @@
 //  Version    : 2.0.0
 //  Copyright  : (c) July 2026 – July 2030 BlazePhoenix Protocol
 //  License    : Business Source License 1.1 (BUSL-1.1)
-//               Change Date    : 2030-07-01
+//               Change Date    : 2030-06-01
 //               Change License : GPL-2.0-or-later
 //  Fingerprint : 0x0cdf3cc72daa3ca37778f5f6974830edc0020f42cb5c3dc875fe510ea0e3202c
 //  Build ref   : 0x5a4c8fb3318679ccd8afce8752c8d272b447abeff6f412a8fc800087b3f9eead
@@ -574,7 +574,8 @@ library BlazePhoenixCore {
             let p := mload(0x40)
             mstore(p, 0x22be3de100000000000000000000000000000000000000000000000000000000)
             let ok := staticcall(GAS_CAP, pool, p, 0x04, 0x00, 0x20)
-            yes := and(and(ok, iszero(lt(returndatasize(), 32))), iszero(iszero(mload(0x00))))
+            // Same ABI-bool policy as the shape read: only the word 1 is "stable" (bounty #42).
+            yes := and(and(ok, iszero(lt(returndatasize(), 32))), eq(mload(0x00), 1))
         }
     }
 

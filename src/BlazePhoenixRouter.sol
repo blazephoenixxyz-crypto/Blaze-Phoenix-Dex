@@ -316,6 +316,16 @@ contract BlazePhoenixRouter {
         if (t1==address(0)||t2==address(0)) revert RouterE(3);
         treasury1=t1; treasury2=t2; emit Cfg(1,t1); emit Cfg(2,t2);
     }
+    /// @dev A treasury moves its own slot, also after renounceControl. Every swap whose
+    ///      fee token blacklists a treasury reverts in `_payFee`, and with control
+    ///      renounced nobody else could move it (bounty #55, mastermindran). The payee
+    ///      only ever redirects its own share; one address in both slots moves t1 first.
+    function moveTreasury(address to) external {
+        if (to==address(0)) revert RouterE(3);
+        if (msg.sender==treasury1) { treasury1=to; emit Cfg(1,to); }
+        else if (msg.sender==treasury2) { treasury2=to; emit Cfg(2,to); }
+        else revert RouterE(1);
+    }
     function setPermit2(address p)          external onlyControl { permit2=p; emit Cfg(3,p); }
     function setWeth(address w)             external onlyControl { weth=w; emit Cfg(4,w); }
     function setPaused(bool b)              external onlyControl { paused=b; emit PausedSet(b); }
@@ -450,7 +460,11 @@ contract BlazePhoenixRouter {
         // produced from `received`. The honest swap died in RouterE(5).
         // (On a token that taxes EVERY transfer the loop already caught it —
         // which is why the defect is of this subclass, not of all FoT.)
-        if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
+        // #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
+        // restating balances the Router already held (rebase/reflection inside transferFrom),
+        // and counting it as received would sweep that foreign balance to the payer.
+        if (received > amountIn) received = amountIn;
+        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
         // Tokens are now on the Router; skip the user-pull in the core path.
         return _swapPrePulled(route, received, userMinOut, recipient, deadline, msg.sender);
     }
@@ -550,7 +564,11 @@ contract BlazePhoenixRouter {
         // produced from `received`. The honest swap died in RouterE(5).
         // (On a token that taxes EVERY transfer the loop already caught it —
         // which is why the defect is of this subclass, not of all FoT.)
-        if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
+        // #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
+        // restating balances the Router already held (rebase/reflection inside transferFrom),
+        // and counting it as received would sweep that foreign balance to the payer.
+        if (received > amountIn) received = amountIn;
+        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
         // TSLOT_FOT is TRANSIENT storage on the Router's account, so it survives
         // the external self-call below (same transaction, same account).
         return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);
@@ -596,7 +614,11 @@ contract BlazePhoenixRouter {
         // produced from `received`. The honest swap died in RouterE(5).
         // (On a token that taxes EVERY transfer the loop already caught it —
         // which is why the defect is of this subclass, not of all FoT.)
-        if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
+        // #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
+        // restating balances the Router already held (rebase/reflection inside transferFrom),
+        // and counting it as received would sweep that foreign balance to the payer.
+        if (received > amountIn) received = amountIn;
+        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
         return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);
     }
 

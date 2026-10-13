@@ -135,6 +135,14 @@
       "note": "Reported by Seavia Resources. One-wei positions on the ticks in a V4 pool's path cut the sixteen-stretch walk short. That walk stays the promise (a floor is safe); every ranking consumer (the probe rate, the held vote, the split gate, the route comparison) orders by the deep walk instead, which runs only while the rest of the input could still change the outcome, and a quote still truncated after the deep walk keeps the split rather than collapsing on a guess. The ceiling saturates at the larger of the rank and 2^128 - 1, never under the rank, so lo <= rank <= hi holds on every return and the Solver's unchecked hi - lo cannot wrap (B1, test_B1_TruncatedDeepWalkDoesNotRevertThePlan)."
     },
     {
+      "id": "SOK-FUNNEL-DUST-PSI",
+      "class": "Cheap activity pumps the ranking score and cuts the deepest venue before it is quoted",
+      "status": "blocked",
+      "guard": "_seatDeepest",
+      "test": "test_SeededHonestVenueSurvivesTenDustSwapsPerPool",
+      "note": "Bounty #82 (root: dex-12). psi multiplies a swap count that costs one dust swap per unit by a depth weight that doubles per decade, so eight shallow pools pumped a few times each took every funnel seat. The funnel now measures every row it cuts with Core.registryDepth18 and always seats the deepest; taking that seat costs more mass than the deepest venue holds, in a pool whose price a trade can take."
+    },
+    {
       "id": "SOK-HOOK",
       "class": "Malicious hook on a hooked venue",
       "status": "blocked",

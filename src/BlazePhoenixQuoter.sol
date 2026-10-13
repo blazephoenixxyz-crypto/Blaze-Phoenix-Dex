@@ -408,13 +408,32 @@ contract BlazePhoenixQuoter {
     /// @dev True when any single-tick leg names a hook the Router refuses: one that
     ///      alters deltas, or one that runs in the swap while the Hub reports it
     ///      paused - exactly the two conditions `Router._execV4Amt` reverts on.
+    ///      Also true when the leg's key does not hold together - its direction is
+    ///      not the direction of its tokens, or its poolId does not derive from
+    ///      (currencies, fee, tickSpacing, hooks) - which `_execV4Amt` refuses with
+    ///      RouterE(11). `_simV4` already asked this, but the plan preview prices
+    ///      from the plan and never reaches it (bounty #52, ridhahmuh). The native
+    ///      side is derived as `_simV4` derives it, from zeroForOne.
     function _hookRefusedIn(Route memory route) private view returns (bool) {
         for (uint256 h; h < route.hops.length; ) {
             Leg[] memory legs = route.hops[h].legs;
             for (uint256 l; l < legs.length; ) {
-                address k = legs[l].hooks;
-                if (k != address(0) && BPC.kindHasAny(legs[l].kind, BPC.A_CONC_SING)
-                    && (BPC.hookAltersDeltas(k) || (BPC.hookRunsInSwap(k) && hub.hookPaused(k)))) return true;
+                Leg memory leg = legs[l];
+                address k = leg.hooks;
+                if (BPC.kindHasAny(leg.kind, BPC.A_CONC_SING)) {
+                    if (k != address(0)
+                        && (BPC.hookAltersDeltas(k) || (BPC.hookRunsInSwap(k) && hub.hookPaused(k)))) return true;
+                    address tIn = route.hops[h].tokenIn;
+                    address tOther = address(uint160(uint256(leg.auxId)));
+                    if (leg.kind == BPC.KIND_V4_NATIVE) {
+                        if (leg.zeroForOne) tIn = address(0);
+                        else tOther = address(0);
+                    }
+                    (address c0, address c1) = BPC.sortTokens(tIn, tOther);
+                    if (leg.zeroForOne != (tIn == c0)
+                        || leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, k)))))
+                        return true;
+                }
                 unchecked { ++l; }
             }
             unchecked { ++h; }
@@ -582,8 +601,9 @@ contract BlazePhoenixQuoter {
     ///         then re-price the chosen route by dry-running every
     ///         concentrated leg on the pool itself, propagating exact
     ///         amounts across hops. `exactOut` is the execution-grade NET
-    ///         output: the dry-run total less the protocol fee, deducted once
-    ///         and rounded up exactly as `_pack` and the Router do, so it is
+    ///         output: the dry-run total less the protocol fee, taken where the
+    ///         Router takes it (anchor-hop input on a multi-hop route, the
+    ///         output on a single hop) and rounded up as the Router does, so it is
     ///         the floor the Router honours in this block — derive userMinOut
     ///         from it. The returned `route` keeps the pool-math attestation
     ///         (totalOut/singleOut gross) that the Router compares against;
@@ -599,6 +619,17 @@ contract BlazePhoenixQuoter {
         route = plan.best;
         if (route.hops.length == 0) return (route, 0);
         uint256 carry = amountIn; // exact input entering the current hop
+        // #44 (babayagaleet): on a multi-hop route the Router charges the fee on the INPUT of
+        // the anchor hop (`Router:_execute`, same scan as `_pack`), and the next pool rounds on
+        // the reduced amount; one deduction off the gross output over-promised by a wei. The
+        // fee is modelled where it is charged. A single hop keeps the output deduction below
+        // (no registry read: `test/QuoterAssumedFeeMargin.t.sol`).
+        uint256 feeHop = type(uint256).max;
+        if (route.hops.length > 1) {
+            for (uint256 fi; fi < route.hops.length; fi++) {
+                if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
+            }
+        }
         for (uint256 h; h < route.hops.length; h++) {
             uint256 plannedIn = route.hops[h].amountIn == 0
                 ? carry : route.hops[h].amountIn;
@@ -613,6 +644,8 @@ contract BlazePhoenixQuoter {
             // hop 0; the quote must not price more than the Router spends.
             // Later hops legitimately scale: their carry is a real output.
             if (h == 0 && carry > plannedIn) carry = plannedIn;
+            if (route.hops.length > 1 && (feeHop == type(uint256).max || h == feeHop))
+                carry -= BPC.mulDivUp(carry, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
             uint256 hopOut;
             for (uint256 l; l < route.hops[h].legs.length; l++) {
                 Leg memory leg = route.hops[h].legs[l];
@@ -708,24 +741,21 @@ contract BlazePhoenixQuoter {
         route.hasSurplus     = gross > floorExact;
         // FEE-02 (register row PROTOCOL_FEE_BPS; PoC in the eighth disclosure
         // round, closed 2026-09-03). The scalar an integrator turns into
-        // `userMinOut` must be NET: the Router charges PROTOCOL_FEE_BPS on the
-        // output of every route, so a dry-run total returned as "execution-
-        // grade" over-promised by exactly the fee, and a minOut derived from it
-        // with a buffer under 28 bps died in RouterE(5) every time. One
-        // deduction, rounded UP — so the preview never promises a wei more than
-        // delivery.
+        // `userMinOut` must be NET: the Router charges PROTOCOL_FEE_BPS on
+        // every route, so a dry-run total returned as "execution-grade" over-promised by
+        // exactly the fee, and a minOut derived from it with a buffer under 28 bps
+        // died in RouterE(5) every time. Rounded UP, so the preview never promises
+        // a wei more than delivery.
         //
-        // ONE DEDUCTION IS CORRECT HERE FOR A REASON THIS LINE DOES NOT STATE, so it is
-        // stated now (review 2026-09-04, FEE_01). `_pack` no longer deducts unconditionally:
-        // it asks whether the route touches a bridge, because `Router:1111` charges EVERY hop
-        // when none does. This entry point takes no Route — only (tIn, tOut, amountIn) — so the
-        // route is the Solver's, and the Solver composes multi-hop only through registered
-        // bridges. The exhaustion regime is therefore unreachable from here.
-        //
-        // That is safety by CONSTRUCTION OF THE INPUT, not by this function's own logic. The
-        // day the Solver composes a bridgeless multi-hop route, this line is wrong and nothing
-        // here will say so. If that day comes, this must borrow `_pack`'s scan.
-        exactOut = gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // WHERE the fee is taken follows the Router (bounty #44, superseding FEE_01's
+        // "one deduction on the output"): a single hop pays on its output; a multi-hop
+        // route pays on the INPUT of its anchor hop - the first whose input is a
+        // bridge - or on every hop when none is. Taken on the output instead, the
+        // fee was priced through the later hops' curves and the preview could
+        // promise more than delivery. The multi-hop deduction happens in the loop.
+        exactOut = route.hops.length > 1
+            ? gross // the fee was taken inside the loop, at the hop the Router takes it (#44)
+            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 
     function bridgeAt(uint8 i) external view returns (address) { return hub.bridge(i); }

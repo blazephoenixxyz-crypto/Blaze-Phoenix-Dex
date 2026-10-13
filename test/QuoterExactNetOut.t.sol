@@ -18,9 +18,9 @@ pragma solidity 0.8.36;
 //  THE PIN. Three arms, on the harness of test/PreviewExecutionParity.t.sol
 //  (two 1:1 V2 pairs, tB registered as the bridge, so the Solver plans the
 //  two-hop A -> B -> C route and the one-hop A -> B route):
-//    1. the two previews agree on the same route in the same block — on V2
-//       legs the dry-run and the estimate are the same closed form, so the
-//       only thing that can separate them is the fee;
+//    1. on the two-hop route `exactOut` is pinned by value to the Router's
+//       model - the fee off the anchor hop's input (bounty #44) - and the view
+//       estimate, which takes it off the output, stays at or below it;
 //    2. `exactOut` is a floor the Router honours: `userMinOut = exactOut`
 //       executes and delivers at least that much;
 //    3. the deduction is the one `_pack` and both Router sites make — once,
@@ -102,13 +102,14 @@ contract QuoterExactNetOutTest is Test {
         return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 
-    /// ARM 1. Same route, same block: the estimate and the dry-run agree once
-    /// both have taken the fee out. `netOut` is packed as after-fee MINUS the
-    /// safety buffer (test/PreviewExecutionParity.t.sol measures delivery
-    /// against `netOut + safetyBuffer` for the same reason), so the after-fee
-    /// figure of the view preview is `netOut + safetyBuffer`. The tolerance is
-    /// one wei of rounding — the fee is 28 bps, so a missing deduction is
-    /// 2.8e17 wei away from it.
+    /// ARM 1. Same route, same block. The Router charges the fee on the INPUT of
+    /// the anchor hop - here hop 1, whose input tB is the bridge - so the exact
+    /// pass is pinned by value to that model: hop 0 at full input, the fee off
+    /// its output, hop 1 on the remainder (bounty #44; FEE-02's single deduction
+    /// off the final output is superseded). `netOut + safetyBuffer` is the view
+    /// preview's after-fee figure (test/PreviewExecutionParity.t.sol), and it
+    /// takes the fee off the output, after hop 1's curve: on a concave curve that
+    /// is never above the fee taken before it, so the estimate stays a floor.
     function test_ExactOut_AgreesWithNetOut_OnTheSameRouteAndBlock() public {
         (BlazePhoenixQuoter.Preview memory pv, , ) =
             quoter.previewPlan(address(tA), address(tC), AMOUNT_IN);
@@ -120,8 +121,13 @@ contract QuoterExactNetOutTest is Test {
         assertEq(route.hops.length, 2, "premise: the exact pass re-prices the same two-hop route");
         assertGt(exactOut, 0, "premise: the dry-run quotes");
 
-        assertApproxEqAbs(exactOut, pv.netOut + pv.safetyBuffer, 1,
-            "exactOut must be the NET output: the dry-run total minus the protocol fee, like netOut");
+        uint256 hop0 = BPC.outV2(AMOUNT_IN, RESERVE, RESERVE, 30);
+        assertEq(exactOut, BPC.outV2(_afterFee(hop0), RESERVE, RESERVE, 30),
+            "exactOut must be the NET output with the fee taken at the anchor hop's input, as the Router takes it");
+        assertLe(pv.netOut + pv.safetyBuffer, exactOut,
+            "the view estimate (fee off the output) must never promise more than the exact pass");
+        assertApproxEqRel(exactOut, pv.netOut + pv.safetyBuffer, 0.0001e18,
+            "and the two previews differ only by the curvature of one fee's worth of input");
         assertGt(pv.netOut + pv.safetyBuffer, pv.netOut, "premise: the view preview carries a safety buffer");
         assertLt(exactOut, pv.grossOut,
             "exactOut must sit below the pool-math ceiling by the fee, never on it");
