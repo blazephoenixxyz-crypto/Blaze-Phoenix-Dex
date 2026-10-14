@@ -1646,6 +1646,12 @@ contract BlazePhoenixHub {
     ///         only — never a routing weight (INV-16).
     function v4CodeOf(address token) external view returns (uint256) { return _store().v4CodeOf[token]; }
 
+    /// One call site for the `reservesHeld` library delegatecall: two inline sites each carried
+    /// their own ABI encoding and pushed this contract past EIP-170 (measured 24,647 B at f9d3c77).
+    function _held(address pool, uint8 kind, address t0, address t1) private view returns (bool) {
+        return BPC.reservesHeld(pool, kind, t0, t1);
+    }
+
     function keyOf(address pool, address tA, address tB) public pure returns (bytes32) {
         (address s0, address s1) = BPC.sortTokens(tA, tB);
         return keccak256(abi.encodePacked(pool, s0, s1));
@@ -1707,7 +1713,7 @@ contract BlazePhoenixHub {
             // the row only has to stop ageing in: unticked, its psi decays and `_canInsert` takes
             // the seat back. Evicting it here was measured at +431 B of runtime, past this
             // contract's gate. The swap itself already executed and is unaffected.
-            if (!BPC.reservesHeld(pool, BPC.decodeKind(s), t0, t1)) return;
+            if (!_held(pool, BPC.decodeKind(s), t0, t1)) return;
             // existing pool — tick + stamp wall-clock activity time
             uint256 newSlot = BPC.tickSlot(s, uint32(block.number), depthWad, uint32(block.timestamp));
             $.slot[key] = _stampTs(newSlot);
@@ -1864,7 +1870,7 @@ contract BlazePhoenixHub {
             // WHAT IT HOLDS, NOT WHAT IT SAYS (duxun D1). Read after the swap the pool has just
             // executed: a reserve-shaped pool whose reserves exceed its holdings reports mass
             // nobody deposited, and it does not take a seat on the pair. The swap is unaffected.
-            if (!BPC.reservesHeld(pool, kind, t0, t1)) return;
+            if (!_held(pool, kind, t0, t1)) return;
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false, depthWad);
         // initial tick + stamp wall-clock activity time
