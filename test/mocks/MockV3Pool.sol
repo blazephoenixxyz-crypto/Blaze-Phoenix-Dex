@@ -62,9 +62,20 @@ contract MockV3Pool {
 
     function swap(
         address recipient, bool zeroForOne, int256 amountSpecified,
-        uint160 /*sqrtPriceLimitX96*/, bytes calldata data
+        uint160 sqrtPriceLimitX96, bytes calldata data
     ) external returns (int256 amount0, int256 amount1) {
         require(amountSpecified > 0, "MockV3Pool: exact-out unsupported");
+        // The price limit, checked as UniswapV3Pool.swap checks it ('SPL'): on the side the swap
+        // moves the price to, and strictly inside TickMath's domain. Before this, the mock ignored
+        // the 4th argument, so a Router or Quoter that passed the limit of the other direction
+        // (a pool that would refuse every swap on chain) stayed green here.
+        require(
+            zeroForOne
+                ? sqrtPriceLimitX96 < sqrtPriceX96 && sqrtPriceLimitX96 > 4295128739
+                : sqrtPriceLimitX96 > sqrtPriceX96
+                    && sqrtPriceLimitX96 < 1461446703485210103287273052203988822378723970342,
+            "SPL"
+        );
         uint256 amtIn = uint256(amountSpecified);
         uint128 execL = swapLiquidity != 0 ? swapLiquidity : liquidity;
         uint256 amtOut = BPC.outV3(amtIn, sqrtPriceX96, execL, fee, zeroForOne, 0);

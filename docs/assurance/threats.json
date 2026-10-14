@@ -191,7 +191,7 @@
       "id": "SOK-GOV",
       "class": "Governance capture",
       "status": "out-of-scope",
-      "rationale": "There is no governance: no token vote, no timelock, no upgradeable proxy. The only privileged powers are venue admission and pausing, and both can be renounced permanently. Nothing can move user funds."
+      "rationale": "There is no governance: no token vote, no timelock, no upgradeable proxy. The Hub and the Router each have one admin address. Their control powers (pausing, the role and configuration setters, removing a bridge, revoking a hook, and the Router's 48-hour rescue of tokens sent to it by mistake) end permanently when that contract's renounceControl is called. Venue admission is not renounceable: it outlives renunciation by design (addFactory, addBridge and allowHook for the Hub admin; addV4 and seedPool also for operators seated before renunciation). Admission only grows the registry; a listed venue is still validated at quote and execution and bounded by the per-leg floor and the caller's userMinOut. Nothing can move user funds."
     },
     {
       "id": "SOK-UPGRADE",
@@ -223,7 +223,7 @@
       "id": "SOK-ROUTE-AUTHOR",
       "class": "An interface that authors both the route and the caller's minimum (the caller signs a venue and a floor they did not choose)",
       "status": "out-of-scope",
-      "rationale": "A route that is consistent in every field is the caller's signed intent: the venue named in the leg is the venue that executes, and userMinOut is the only absolute floor (RouterE(5)); every other floor is relative to the venue the route names. The Router cannot refuse a venue the caller chose, so the class sits outside the scope line in SECURITY.md (a defect is in scope where the measured floor or the caller's own minimum can be bypassed). test_ConsistentRoute_PoolB_Settles_ByDesign pins that boundary.",
+      "rationale": "A route that is consistent in every field is the caller's signed intent: the venue named in the leg is the venue that executes. The absolute floors are the caller's own: userMinOut and, when the caller sets it, route.singleOutFloor (dropped on a route where a fee-on-transfer token was measured), both enforced as RouterE(5); every other floor is relative to the venue the route names. The Router does refuse some venues the caller chose (a V4 pool whose hook alters deltas, or whose in-swap hook is paused, reverts RouterE(9)), but it does not refuse a consistent venue for being a worse price than another, so the class sits outside the scope line in SECURITY.md (a defect is in scope where the measured floor or the caller's own minimum can be bypassed). test_ConsistentRoute_PoolB_Settles_ByDesign pins that boundary.",
       "test": "test_ConsistentRoute_PoolB_Settles_ByDesign",
       "note": "Registered 2026-09-07. leg.pool always equals the executed pool id, so a wallet or a route verifier reading the calldata sees the venue that will execute."
     },

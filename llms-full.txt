@@ -177,7 +177,7 @@ declaration counts, not pass counts.
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 47 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 388 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 391 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -747,7 +747,7 @@ above is the place for it.
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 47 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 388 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 391 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -957,7 +957,7 @@ A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **268 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **391 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -979,8 +979,10 @@ no mutant named an invariant, and the campaigns were properties nobody had tried
 of the fifteen mutants tried survived every invariant; two of those guards have no watcher of
 any kind, and are published as such rather than folded into the killed count.
 
-**268 of 268 are killed.** The figure is always printed beside its denominator: it is adequacy
-against this register, which is what §9 is about.
+**Every mutant names the test that must kill it.** `check_targets.py` confirms on every change
+that each one still points at exactly one source line; a killed count is published only from a
+full run, always beside its denominator. It is adequacy against this register, which is what §9
+is about.
 
 ## 4. One question, one answer
 
@@ -1509,7 +1511,8 @@ counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](doc
 Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
 **1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
 `forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
-the run did not have); **268 curated mutants**, all killed.
+the run did not have). The mutant register holds **391 curated mutants** today
+(`.github/scripts/check_targets.py`), each paired with the test that must kill it.
 
 Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
 with one, where none is skipped; the five N-version checks run in their own lane, at other code

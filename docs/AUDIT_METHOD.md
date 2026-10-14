@@ -33,7 +33,7 @@ A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **268 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **391 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -55,8 +55,10 @@ no mutant named an invariant, and the campaigns were properties nobody had tried
 of the fifteen mutants tried survived every invariant; two of those guards have no watcher of
 any kind, and are published as such rather than folded into the killed count.
 
-**268 of 268 are killed.** The figure is always printed beside its denominator: it is adequacy
-against this register, which is what §9 is about.
+**Every mutant names the test that must kill it.** `check_targets.py` confirms on every change
+that each one still points at exactly one source line; a killed count is published only from a
+full run, always beside its denominator. It is adequacy against this register, which is what §9
+is about.
 
 ## 4. One question, one answer
 
