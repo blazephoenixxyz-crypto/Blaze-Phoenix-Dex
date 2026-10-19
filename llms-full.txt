@@ -172,12 +172,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 5 | `src/*.sol` |
-| Test declarations | 1,998 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 317 | `test/**/*.t.sol` |
+| Test declarations | 2,005 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 318 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 47 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 421 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 424 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -742,12 +742,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 5 | `src/*.sol` |
-| Test declarations | 1,998 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 317 | `test/**/*.t.sol` |
+| Test declarations | 2,005 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 318 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 47 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 421 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 424 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -957,7 +957,7 @@ A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **391 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **424 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -1511,7 +1511,7 @@ counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](doc
 Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
 **1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
 `forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
-the run did not have). The mutant register holds **391 curated mutants** today
+the run did not have). The mutant register holds **424 curated mutants** today
 (`.github/scripts/check_targets.py`), each paired with the test that must kill it.
 
 Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane

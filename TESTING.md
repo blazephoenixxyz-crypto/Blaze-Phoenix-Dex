@@ -6,7 +6,7 @@ counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](doc
 Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
 **1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
 `forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
-the run did not have). The mutant register holds **391 curated mutants** today
+the run did not have). The mutant register holds **424 curated mutants** today
 (`.github/scripts/check_targets.py`), each paired with the test that must kill it.
 
 Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
