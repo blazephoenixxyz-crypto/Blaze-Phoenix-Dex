@@ -172,12 +172,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 5 | `src/*.sol` |
-| Test declarations | 2,005 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 318 | `test/**/*.t.sol` |
+| Test declarations | 2,015 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 319 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 47 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 424 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 425 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -742,12 +742,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 5 | `src/*.sol` |
-| Test declarations | 2,005 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 318 | `test/**/*.t.sol` |
+| Test declarations | 2,015 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 319 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 47 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 424 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 425 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -957,7 +957,7 @@ A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **424 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **425 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -1511,7 +1511,7 @@ counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](doc
 Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
 **1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
 `forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
-the run did not have). The mutant register holds **424 curated mutants** today
+the run did not have). The mutant register holds **425 curated mutants** today
 (`.github/scripts/check_targets.py`), each paired with the test that must kill it.
 
 Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
@@ -2116,6 +2116,7 @@ hop count.
 | `factories[]` row ↔ `factoryCodehash` / `factoryDeployer` (keyed by address) | "Is this factory already admitted, and which row is it?" | the array holds the rows, the mappings are keyed by address; `addFactory` pushed one row per call, so a single address could own several rows (and, with no `removeFactory`, exhaust the sixteen seats for ever) while its mappings held one value | `SINGLE` (fixed 2026-09-03) | `addFactory` scans the seats and refreshes a known address in place — after renunciation only if its code did not move, the twin of the `allowHook` guard. Pins: `test/RenouncedFactoryRearm.t.sol` (one row per address, one address cannot exhaust the table, a mutated factory cannot be re-armed after renunciation, a new factory is still admitted, a live admin may re-attest); mutants 140-142. Was cluster **C3** |
 | `factories[row].initHash` (the CREATE2 derivation input of a live row) | "Which address does discovery derive for this factory?" | written by `Hub.addFactory` on both arms — the fresh push and the in-place refresh of a known row; read by `Core`'s CREATE2 derivation on every scan | `SINGLE`, and **fixed after renunciation** | `test_RenouncedRowRefusesInitHashRewrite` (RenouncedRowDerivationFreeze.t.sol), with `test_RenouncedRowStillAcceptsAnIdenticalReAdd` as the twin that keeps the guard from becoming a blind refusal. The codehash pin answers for the factory's runtime and cannot answer for an input that lives in the row. |
 | `finalHopQuote` (the figure the output floor is a fraction of) | "What should this hop have delivered?" | produced in `Router._execute` from `hopQuote` (the sum over legs the frame could price), with `hopAttested` as the fallback when none could be; consumed by the protocol floor and published in `ExecutionProof.quoted` | `SINGLE`, and **complete since 2026-09-22** | NM-002 (external report, 2026-09-02) closed the case where the WHOLE hop went unquoted. Its residual was that `hopQuote != 0` was read as "this hop was quoted" when it only means "at least one leg of it was": a leg that spent input without being measured was absent from both sides of the Layer 1 comparison, so the hop was compared with itself. The hop's own attested figure now takes over when a leg went blind. That base is the last hop's, so **since 2026-10-07 a blind leg on any earlier hop is refused (`RouterE(5)`)** (Seavia Resources; `test/BlindLegOffTheAnchorHop.t.sol`). Pinned by `test_Probe_ABlindLegThatEatsItsHalf` (BlindLegReachability.t.sol), which sweeps the blind leg's delivery and asserts the floors hold the 25% the entry docstring promises; Blindness is "not measured", not "not attested": the flag is the exact negation of the measurement guard in `_execScaled`. Two controls keep it off honest routes - `test_Control_AZeroInputLegIsNotBlindness` (a leg scaled to zero moved nothing) and `test_Control_AnOverStatedHopTotalDoesNotRaiseTheFloor` (a measured leg never hands the floor to the caller's hop total). The first control written, `test_Control_TwoHonestLegsSettle`, was measured decorative by the mutation guard and is kept as a plain regression, not as a watcher. Reported by Seavia Resources, ninth wave. |
+| `SELF` (the account the Router code executes as) | "Whose balances does this swap measure and move?" | two producers of one answer: `address(this)`, which under an EIP-7702 delegation is the delegating EOA, and the deployment address, fixed in the code as the immutable `SELF`. Consumers: every balance measurement and transfer of `Router._execute` (`tinStart`, `toutStart`, `bridgeBase`, the residual sweep) and the doors' pulls into `address(this)`. Until 2026-10-20 nothing bound them, so Router code delegated to by an EOA measured and moved the EOA's balances (the V1 drain shapes; 2.0.0's deltas held them, `test/Fix1019H11.t.sol`). Nothing in 2.0.0 needs the delegated frame: a 7702 account CALLS `swapExactIn` at the Router's address | `PINNED` (added 2026-10-20) | `test/Fix1020SelfGuard.t.sol` - `test_SELF_1020_ClassicDoorRefusesADelegatedFrame`, `test_SELF_1020_Permit2DoorRefusesADelegatedFrame`, `test_SELF_1020_NativeDoorRefusesADelegatedFrame`, `test_SELF_1020_BestDoorRefusesADelegatedFrame`: a real EIP-7702 delegation to the Router is refused `RouterE(18)` at the top of `_execute`, through every door (the best door via its self-call); twins `..._StillSettlesAtTheRouter` settle at the Router's own address. Mutant `self-1020` (the check removed). Not pinned: the callbacks, `receive` and `fallback` in a delegated frame (not swap doors; they do not reach `_execute`) |
 
 ### Transient state
 

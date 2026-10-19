@@ -235,6 +235,10 @@ contract BlazePhoenixRouter {
 
     IHubW public immutable hub;
     address public immutable solver;
+    /// @dev The address this code was deployed at. Immutables live in the code, so an EOA that
+    ///      delegates to the Router (EIP-7702) reads the Router's address here while
+    ///      address(this) is the EOA; `_execute` refuses that frame (RouterE(18)).
+    address private immutable SELF = address(this);
 
     address public admin;
     address public treasury1;
@@ -298,7 +302,8 @@ contract BlazePhoenixRouter {
     // 13 = FoT token on a V3-only route (route-where-natural), 14 = rescue
     // not queued or still inside the 48h timelock, 15 = a swap settled without
     // paying the protocol fee, 16 = the fee was paid twice on an anchored route,
-    // 17 = the in-transaction search of swapBestExactIn ran out of SOLVE_GAS
+    // 17 = the in-transaction search of swapBestExactIn ran out of SOLVE_GAS,
+    // 18 = the swap executes at an address other than the Router's own (an EIP-7702 delegation)
 
     // Every privileged door in this contract is gated by onlyControl, so all
     // administrative power ends permanently at renounceControl(). Keep it that
@@ -1053,6 +1058,10 @@ contract BlazePhoenixRouter {
         Route calldata route, uint256 amountIn, uint256 userMinOut,
         address recipient, address tokenIn, address payer
     ) private returns (uint256 amountOut) {
+        // Every door reaches here (including swapBestExactIn's self-call). Under an EIP-7702
+        // delegation address(this) is the EOA and every balance below would be the EOA's;
+        // nothing in this contract needs to run there (7702 accounts CALL the Router).
+        if (address(this) != SELF) revert RouterE(18);
         if (route.hops.length > MAX_HOPS) revert RouterE(3);
         address tokenOut = route.hops[route.hops.length - 1].tokenOut;
         // Input-token balance at entry (the input is already in the Router).

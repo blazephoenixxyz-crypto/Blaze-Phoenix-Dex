@@ -274,6 +274,14 @@
       "rationale": "The cost of computing a plan grows with the number of initialized ticks a deep walk crosses, and anyone can mint one-wei positions; across two bridges the computation can exceed the per-transaction and per-call gas limits of the network or of an RPC node. The effect is liveness only: a caller who cannot compute a plan does not swap, and no funds are at risk, because every executed route is still checked against the caller's floors. A fixed cap on the off-chain computation would trade liveness on one route for a degraded plan, which the in-transaction cap (SOK-SOLVE-GAS) refuses by design. test_EntryB_OverBudgetRevertsCleanUnderTheTxCap asserts that the fragmented fixture's search costs more than SOLVE_GAS.",
       "test": "test_EntryB_OverBudgetRevertsCleanUnderTheTxCap",
       "note": "Registered 2026-10-12. A caller can compute the plan on a node with a higher call gas limit, or quote a route that avoids the fragmented pools and pass it to swapExactIn."
+    },
+    {
+      "id": "SOK-7702-DELEGATED-ROUTER-FRAME",
+      "class": "An EOA delegates to the Router (EIP-7702), so the Router code runs with address(this) == the EOA and every balance the swap measures and moves is the account's",
+      "status": "blocked",
+      "guard": "SELF",
+      "test": "test_SELF_1020_ClassicDoorRefusesADelegatedFrame",
+      "note": "Defence in depth, added 2026-10-20 after H11 (the V1 drain shapes through a delegated account; 2.0.0's deltas already held them, test/Fix1019H11.t.sol). The deployment address is an immutable (SELF) and _execute, which every door reaches, refuses RouterE(18) anywhere else; the four doors are pinned in test/Fix1020SelfGuard.t.sol. A 7702 account calling swapExactIn at the Router's address is unaffected. Not covered: the callbacks, receive and fallback in a delegated frame (they do not reach _execute)."
     }
   ]
 }

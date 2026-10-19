@@ -19,14 +19,19 @@ pragma solidity 0.8.36;
 //      intermediate token to the payer. 2.0.0 sweeps only rb - bridgeBase[h].
 //
 // Each property has an honest case (a normal swap through the same account delivers) and an
-// adversarial case that asserts the invariant on balances before and after. The adversarial
-// cases SUCCEED on the guarded tree - they are not greens produced by a revert - and each one has
-// a registered mutant in .github/scripts/mutants.py ("h11-1019") that turns it red on an assert.
+// adversarial case that asserts the invariant on balances before and after. Since the SELF guard
+// (20/10, test/Fix1020SelfGuard.t.sol) the Router code refuses to execute anywhere but at its own
+// address, so a delegated EOA can no longer be that account: the honest and adversarial cases run
+// on the Router itself holding the prior balance (the same mechanism - address(this) holds money
+// the swap must not touch - without the delegation), and each delegated case is kept as a test
+// that the delegated call is refused RouterE(18) and moves nothing. The Router cases SUCCEED -
+// they are not greens produced by a revert - and each property has a registered mutant in
+// .github/scripts/mutants.py ("h11-1019") that turns its Router case red on an assert,
+// independently of the SELF guard.
 //
 // Delegated execution is real EIP-7702: the designator is etched and the EVM is switched to
-// prague, and _delegate() proves the Router code answers at the EOA. In that context the
-// treasuries read the EOA's empty storage (address(0)); MockERC20 accepts to == address(0), so a
-// token that refuses it cannot turn the attack into a revert and fake a green.
+// prague, and _delegate() proves the Router code answers at the EOA. MockERC20 accepts
+// to == address(0), so a token that refuses it cannot turn an attack into a revert and fake a green.
 //
 // forge test --match-path test/Fix1019H11.t.sol -vv
 
@@ -137,107 +142,138 @@ contract Fix1019H11Test is Test {
         tA.approve(target, X);
     }
 
-    // ─── I1 (P1): a third party cannot spend the delegated account's tokenIn ───────────────────
+    function _err18() private pure returns (bytes memory) {
+        return abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(18));
+    }
 
-    function test_H11_1019_I1_HonestThirdPartySwapThroughDelegatedAccountDelivers() public {
-        _delegate();
-        tA.mint(victim, PRIOR_A);
-        _pay(attacker, victim);
+    /// A delegated call is refused by the SELF guard before it can touch the account: RouterE(18),
+    /// and neither the account nor the third party has moved a unit.
+    function _refusedWhenDelegated(Route memory r) private {
+        uint256 victimA0 = tA.balanceOf(victim);
+        uint256 victimB0 = tB.balanceOf(victim);
+        uint256 victimX0 = tX.balanceOf(victim);
+        uint256 attackerA0 = tA.balanceOf(attacker);
+        BlazePhoenixRouter target = BlazePhoenixRouter(payable(victim));
+
+        vm.prank(attacker);
+        vm.expectRevert(_err18());
+        target.swapExactIn(r, X, 1, attacker, block.timestamp + 1);
+
+        assertEq(tA.balanceOf(victim), victimA0, "the account's tokenIn moved");
+        assertEq(tB.balanceOf(victim), victimB0, "the account's tokenOut moved");
+        assertEq(tX.balanceOf(victim), victimX0, "the account's bridge token moved");
+        assertEq(tA.balanceOf(attacker), attackerA0, "the third party paid for a refused swap");
+    }
+
+    // ─── I1 (P1): a third party cannot spend the account's tokenIn ────────────────────────────
+
+    function test_H11_1019_I1_HonestThirdPartySwapThroughRouterHoldingTokenInDelivers() public {
+        tA.mint(address(router), PRIOR_A);
+        _pay(attacker, address(router));
         Route memory r = _routeAB(X);
         uint256 pairOut0 = tB.balanceOf(address(pairAB));
 
         vm.prank(attacker);
-        uint256 out = BlazePhoenixRouter(payable(victim)).swapExactIn(r, X, 1, attacker, block.timestamp + 1);
+        uint256 out = router.swapExactIn(r, X, 1, attacker, block.timestamp + 1);
 
         assertGt(out, 0, "the honest swap delivers");
         assertEq(tB.balanceOf(attacker), pairOut0 - tB.balanceOf(address(pairAB)),
             "the recipient gets what the pool produced");
-        assertEq(tA.balanceOf(victim), PRIOR_A, "the account's tokenIn is untouched");
+        assertEq(tA.balanceOf(address(router)), PRIOR_A, "the account's tokenIn is untouched");
     }
 
-    function test_H11_1019_I1_DelegatedAccountTokenInNeverPaysForAThirdParty() public {
-        _delegate();
-        tA.mint(victim, PRIOR_A);
-        _pay(attacker, victim);
+    function test_H11_1019_I1_RouterStrandedTokenInNeverPaysForAThirdParty() public {
+        tA.mint(address(router), PRIOR_A);
+        _pay(attacker, address(router));
         // The V1 lever: pay X, declare X/2 + the account's whole balance on hop 0.
         Route memory r = _routeAB(PRIOR_A + X / 2);
         uint256 attackerA0 = tA.balanceOf(attacker);
         uint256 pairIn0 = tA.balanceOf(address(pairAB));
-        uint256 victimA0 = tA.balanceOf(victim);
+        uint256 routerA0 = tA.balanceOf(address(router));
 
         vm.prank(attacker);
-        BlazePhoenixRouter(payable(victim)).swapExactIn(r, X, 1, attacker, block.timestamp + 1);
+        router.swapExactIn(r, X, 1, attacker, block.timestamp + 1);
 
         uint256 paid = attackerA0 - tA.balanceOf(attacker);
         assertLe(paid, X, "the third party pays at most amountIn");
         assertLe(tA.balanceOf(address(pairAB)) - pairIn0, paid,
             "the pool received more tokenIn than the third party paid");
-        assertGe(tA.balanceOf(victim), victimA0,
-            "the delegated account's own tokenIn paid for a third party's swap");
+        assertGe(tA.balanceOf(address(router)), routerA0,
+            "the account's own tokenIn paid for a third party's swap");
+    }
+
+    function test_H11_1019_I1_DelegatedAccountSwapIsRefusedRouterE18() public {
+        _delegate();
+        tA.mint(victim, PRIOR_A);
+        _pay(attacker, victim);
+        _refusedWhenDelegated(_routeAB(PRIOR_A + X / 2));
     }
 
     // ─── I2 (P2): the recipient gets only this swap's output; the account's tokenOut stays ─────
 
-    function test_H11_1019_I2_HonestSwapPaysExactlyItsOwnOutput() public {
-        _delegate();
-        _pay(attacker, victim);
+    function test_H11_1019_I2_HonestSwapThroughRouterPaysExactlyItsOwnOutput() public {
+        _pay(attacker, address(router));
         Route memory r = _routeAB(X);
         uint256 pairOut0 = tB.balanceOf(address(pairAB));
 
         vm.prank(attacker);
-        uint256 out = BlazePhoenixRouter(payable(victim)).swapExactIn(r, X, 1, attacker, block.timestamp + 1);
+        uint256 out = router.swapExactIn(r, X, 1, attacker, block.timestamp + 1);
 
         uint256 produced = pairOut0 - tB.balanceOf(address(pairAB));
         assertGt(out, 0, "the honest swap delivers");
         assertEq(tB.balanceOf(attacker), produced, "the recipient gets the swap's output");
-        assertEq(tB.balanceOf(victim), 0, "nothing stays behind");
+        assertEq(tB.balanceOf(address(router)), 0, "nothing stays behind");
     }
 
-    function test_H11_1019_I2_DelegatedAccountTokenOutIsNeverPaidOut() public {
-        _delegate();
-        tB.mint(victim, PRIOR_B);
-        _pay(attacker, victim);
+    function test_H11_1019_I2_RouterStrandedTokenOutIsNeverPaidOut() public {
+        tB.mint(address(router), PRIOR_B);
+        _pay(attacker, address(router));
         Route memory r = _routeAB(X); // an HONEST route: the lever is the account's tokenOut
         uint256 pairOut0 = tB.balanceOf(address(pairAB));
-        uint256 victimB0 = tB.balanceOf(victim);
+        uint256 routerB0 = tB.balanceOf(address(router));
 
         vm.prank(attacker);
-        BlazePhoenixRouter(payable(victim)).swapExactIn(r, X, 1, attacker, block.timestamp + 1);
+        router.swapExactIn(r, X, 1, attacker, block.timestamp + 1);
 
         uint256 produced = pairOut0 - tB.balanceOf(address(pairAB));
         assertLe(tB.balanceOf(attacker), produced,
             "the recipient received more than the swap produced");
-        assertGe(tB.balanceOf(victim), victimB0,
-            "the delegated account's prior tokenOut was paid to a third party");
+        assertGe(tB.balanceOf(address(router)), routerB0,
+            "the account's prior tokenOut was paid to a third party");
+    }
+
+    function test_H11_1019_I2_DelegatedAccountSwapIsRefusedRouterE18() public {
+        _delegate();
+        tB.mint(victim, PRIOR_B);
+        _pay(attacker, victim);
+        _refusedWhenDelegated(_routeAB(X));
     }
 
     // ─── I3 (P3): a declared intermediate token never moves the pre-existing balance ──────────
 
-    function _i3(address target, address payer) private {
-        tX.mint(target, STRANDED);
-        _pay(payer, target);
+    function test_H11_1019_I3_RouterStrandedBridgeBalanceIsNotSwept() public {
+        tX.mint(address(router), STRANDED);
+        _pay(user, address(router));
         Route memory r = _routeAXC();
-        uint256 payerC0 = tC.balanceOf(payer);
+        uint256 userC0 = tC.balanceOf(user);
         uint256 pairC0 = tC.balanceOf(address(pairXC));
 
-        vm.prank(payer);
-        uint256 out = BlazePhoenixRouter(payable(target)).swapExactIn(r, X, 1, payer, block.timestamp + 1);
+        vm.prank(user);
+        uint256 out = router.swapExactIn(r, X, 1, user, block.timestamp + 1);
 
         assertGt(out, 0, "the two-hop swap delivers");
-        assertEq(tC.balanceOf(payer) - payerC0, pairC0 - tC.balanceOf(address(pairXC)),
+        assertEq(tC.balanceOf(user) - userC0, pairC0 - tC.balanceOf(address(pairXC)),
             "the payer gets the final hop's output");
-        assertGe(tX.balanceOf(target), STRANDED,
+        assertGe(tX.balanceOf(address(router)), STRANDED,
             "the bridge sweep moved the target's pre-existing balance of the declared token");
-        assertLe(tX.balanceOf(payer), 1e18, "the payer got more than a rounding residual of tX");
+        assertLe(tX.balanceOf(user), 1e18, "the payer got more than a rounding residual of tX");
     }
 
-    function test_H11_1019_I3_RouterStrandedBridgeBalanceIsNotSwept() public {
-        _i3(address(router), user);
-    }
-
-    function test_H11_1019_I3_DelegatedAccountBridgeBalanceIsNotSwept() public {
+    function test_H11_1019_I3_DelegatedAccountSwapIsRefusedRouterE18() public {
         _delegate();
-        _i3(victim, attacker);
+        tX.mint(victim, STRANDED);
+        _pay(attacker, victim);
+        _refusedWhenDelegated(_routeAXC());
     }
 
     /// The declaration alone cannot aim the sweep: hops[0] names tX as the bridge but its leg

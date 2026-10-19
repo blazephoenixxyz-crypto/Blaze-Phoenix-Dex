@@ -2216,23 +2216,23 @@ M = [
     # ---- fix-1019 round E (matrix 0000): pins and red-first guards, one mutant each ----
  dict(nome="fix-1019 H2: the explicit door stops passing the caller's userMinOut (the floor an honest caller signs)",
       f='src/BlazePhoenixRouter.sol',
-      old='    ) private returns (uint256 amountOut) {\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
-      new='    ) private returns (uint256 amountOut) {\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      old='        if (address(this) != SELF) revert RouterE(18);\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      new='        if (address(this) != SELF) revert RouterE(18);\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
       teste='test_H2_BlindLastLeg_HonestUserMinOut_RevertsRouterE5'),
  dict(nome='fix-1019 N2: userMinOut dropped - the only bound on a caller-supplied unregistered V2 pool',
       f='src/BlazePhoenixRouter.sol',
-      old='    ) private returns (uint256 amountOut) {\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
-      new='    ) private returns (uint256 amountOut) {\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      old='        if (address(this) != SELF) revert RouterE(18);\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      new='        if (address(this) != SELF) revert RouterE(18);\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
       teste='test_N2_UnregisteredOffMarketPool_HonestUserMinOut_RevertsRouterE5'),
  dict(nome='fix-1019 H12: userMinOut dropped - the bound on a beforeSwap fee override inside the floor slack',
       f='src/BlazePhoenixRouter.sol',
-      old='    ) private returns (uint256 amountOut) {\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
-      new='    ) private returns (uint256 amountOut) {\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      old='        if (address(this) != SELF) revert RouterE(18);\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      new='        if (address(this) != SELF) revert RouterE(18);\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
       teste='test_H12_ExplicitDoor_OverrideInsideSlack_HonestUserMinOut_RevertsRouterE5'),
  dict(nome='fix-1019 H15: userMinOut dropped - the bound on the claimV4 JIT live window',
       f='src/BlazePhoenixRouter.sol',
-      old='    ) private returns (uint256 amountOut) {\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
-      new='    ) private returns (uint256 amountOut) {\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      old='        if (address(this) != SELF) revert RouterE(18);\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      new='        if (address(this) != SELF) revert RouterE(18);\n        userMinOut = 1; // MUTANT m1\n        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
       teste='test_H15_LiveWindow_HonestUserMinOut_RevertsOnBestDoor_FixedRouteSettles'),
  dict(nome='fix-1019 H4b: the delivered-vs-userMinOut check is dropped (only an output tax tells it from the pre-push check)',
       f='src/BlazePhoenixRouter.sol',
@@ -2328,21 +2328,30 @@ M = [
  # (test/Fix1019H11.t.sol). P1: deleting the hop-0 clamp alone is NOT this guard - without it
  # hop 0 still spends realIn = the measured pull (sum of legAmt = realIn), so I1 holds. The V1
  # defect was hop 0 spending the DECLARED sum; the mutant below restores exactly that.
+ # Since the SELF guard (2026-10-20) a delegated frame is refused before these lines, so P1-P3
+ # are paired with the Router-holds-the-balance shape, which needs no delegation.
  dict(nome="h11-1019 P1: hop 0 spends the declared leg.amountIn instead of the measured pull (V1 momonom shape)",
       f="src/BlazePhoenixRouter.sol",
       old="            if (h == 0 && scaleNum > scaleDen) scaleNum = scaleDen;",
       new="            if (h == 0) scaleNum = scaleDen; // MUTANT",
-      teste="test_H11_1019_I1_DelegatedAccountTokenInNeverPaysForAThirdParty"),
+      teste="test_H11_1019_I1_RouterStrandedTokenInNeverPaysForAThirdParty"),
  dict(nome="h11-1019 P2: the tokenOut baseline is zero, so the account's prior tokenOut is paid out (V1 Tarun 3084 shape)",
       f="src/BlazePhoenixRouter.sol",
       old="        uint256 toutStart = tokenIn == tokenOut ? baseIn : BPC.balanceOf(tokenOut, address(this));",
       new="        uint256 toutStart = tokenIn == tokenOut ? baseIn : 0; // MUTANT",
-      teste="test_H11_1019_I2_DelegatedAccountTokenOutIsNeverPaidOut"),
+      teste="test_H11_1019_I2_RouterStrandedTokenOutIsNeverPaidOut"),
  dict(nome="h11-1019 P3: the bridge sweep ignores bridgeBase and pays the raw balance (V1 Tarun 3086 shape)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);",
       new="                if (rb > 0) BPC.safeTransfer(bridge, payer, rb); // MUTANT",
       teste="test_H11_1019_I3_RouterStrandedBridgeBalanceIsNotSwept"),
+ # ─── SELF (2026-10-20): the Router code executes a swap only at its own address
+ # (test/Fix1020SelfGuard.t.sol). Removing the check lets a delegated EOA run _execute again.
+ dict(nome="self-1020: the SELF guard is removed, so a swap executes in an EIP-7702-delegated frame",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (address(this) != SELF) revert RouterE(18);",
+      new="        // MUTANT self-1020: SELF guard removed",
+      teste="test_SELF_1020_ClassicDoorRefusesADelegatedFrame"),
 ]
 
 def run(t):
