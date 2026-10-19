@@ -551,7 +551,8 @@ contract BlazePhoenixQuoter {
     /// @notice Exact-in dry-run on a V4 pool via unlock+revert. Mirrors the
     ///         Router execution exactly: same key construction (sortTokens of
     ///         hop tokenIn and auxId counterpart), same fail-closed policy
-    ///         for delta-altering hooks. Returns 0 when the dry-run cannot
+    ///         for delta-altering hooks and for paused hooks that run in the
+    ///         swap. Returns 0 when the dry-run cannot
     ///         speak (caller falls back to the plan-time approximation).
     function _simV4(Leg memory leg, address tokenIn, uint256 amtIn)
         internal returns (uint256 out)
@@ -560,6 +561,9 @@ contract BlazePhoenixQuoter {
         address mgr = hub.v4PoolManager();
         if (mgr == address(0)) return 0;
         if (leg.hooks != address(0) && BPC.hookAltersDeltas(leg.hooks)) return 0;
+        // The sieve's second arm, as Router._execV4Amt asks it (RouterE(9)): a hook that
+        // runs in the swap and that the Hub holds paused is refused, not dry-run (H13).
+        if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) return 0;
         address tokenOther = address(uint160(uint256(leg.auxId)));
         if (tokenOther == address(0)) return 0;
         if (leg.kind == BPC.KIND_V4_NATIVE) {

@@ -2,8 +2,7 @@
 pragma solidity 0.8.36;
 
 // =============================================================================
-//  INV-20 live, end-to-end: a REAL dynamic-fee V4 pool on Base must be
-//  admissible, quotable, routable and executable through the full stack.
+//  INV-20 live, end-to-end, against a REAL dynamic-fee V4 pool on Base.
 //  Target (verified 2026-08-11, on-chain binding proven): aeon/WETH, Doppler
 //  DecayMulticurve hook 0xbB77...1Adc0 — permission bits 0x2DC0, both
 //  RETURNS_DELTA bits CLEAR (admissible by our delta-flag policy), ~$661k
@@ -11,10 +10,21 @@ pragma solidity 0.8.36;
 //  The key-reconstruction test also CLOSES the research gap: fee=0x800000 and
 //  tickSpacing=200 were not read from raw Initialize bytes — reproducing the
 //  published poolId from those params proves them by construction.
+//
+//  SINCE H12 (2026-10-19) THIS POOL IS EXCLUDED FROM THE QUOTE, BY DESIGN.
+//  The house rule is quote = execution. The hook carries BEFORE_SWAP_FLAG
+//  (1 << 7, set in 0x2DC0) on a dynamic-fee key, so the PoolManager charges
+//  the LP fee the hook RETURNS from beforeSwap (v4-core Pool.swap: the
+//  override wins over slot0's lpFee). Nothing a quote can read sees that
+//  figure: the price may move between the quote and the swap. `_v4Quote`
+//  therefore answers such a key as a dead pool, and these tests assert the
+//  exclusion on the live pool instead of the route they asserted before.
+//  A caller-built leg on the explicit doors still executes, bounded by the
+//  Router's floors and userMinOut (test/V4DynamicFeeBeforeSwapHookQuote.t.sol).
 // =============================================================================
 
 import {Test, console2} from "forge-std/Test.sol";
-import {BlazePhoenixCore as BPC, QuoteCtx} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, QuoteCtx, Route} from "../../src/BlazePhoenixCore.sol";
 import {BaseTestDeploy} from "./BaseTestDeploy.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
@@ -64,12 +74,19 @@ contract V4DynamicDiscoveryTest is Test {
         );
     }
 
-    /// @notice INV-20 on a LIVE dynamic-fee pool: the sentinel key must not
-    ///         zero the quote — slot0's lpFee prices it.
-    function test_DynamicFeePool_QuotesLive() public view {
+    /// @notice H12 on the live pool: the pool is live (the Router's in-frame
+    ///         promise, which reads slot0, prices it), yet the shared quote
+    ///         producer answers 0 — a dynamic key whose hook runs beforeSwap
+    ///         is unquotable, and keeps no depth vote either.
+    function test_DynamicFeeBeforeSwapPool_IsExcludedFromTheQuote() public view {
+        assertTrue(uint160(HOOK) & 0x80 != 0, "premise: the hook runs beforeSwap (bit 7)");
+        bool zeroForOne = BASE_WETH < AEON;
+        uint256 promise_ = BPC.v4LegOut(V4_MGR, POOL_ID, 0.05 ether, DYN, TS, zeroForOne);
+        assertGt(promise_, 0, "premise: the pool is live and slot0 prices it");
+
         QuoteCtx memory c;
         c.kind        = BPC.KIND_V4;
-        c.zeroForOne  = BASE_WETH < AEON;
+        c.zeroForOne  = zeroForOne;
         c.fee         = DYN;
         c.tickSpacing = TS;
         c.tokenIn     = BASE_WETH;
@@ -77,45 +94,58 @@ contract V4DynamicDiscoveryTest is Test {
         c.hooks       = HOOK;
         c.v4Manager   = V4_MGR;
         (uint256 out, uint256 depth) = BPC.universalQuote(c, 0.05 ether);
-        console2.log("aeon dyn-fee quote out/depth:", out, depth);
-        assertGt(depth, 0, "pool must be initialized");
-        assertGt(out, 0, "dynamic-fee pool must quote non-zero (INV-20)");
+        console2.log("aeon in-frame promise / quote out / depth:", promise_, out, depth);
+        assertEq(out, 0, "a dynamic key with a beforeSwap hook must not be quoted (H12)");
+        assertEq(depth, 0, "an unquotable V4 key must not keep a depth vote");
     }
 
-    /// @notice Discovery + routing: with the pool admitted (allowHook + addV4),
-    ///         previewPlan must find a WETH->aeon route — the V4 dynamic-fee
-    ///         pool is the token's home venue.
-    function test_Discovery_RoutesThroughDynamicFeePool() public {
-        (BlazePhoenixQuoter.Preview memory pv, , ) =
-            quoter.previewPlan(BASE_WETH, AEON, 0.05 ether);
-        console2.log("preview grossOut (aeon):", pv.grossOut);
-        console2.log("legs/hops:", pv.legs, pv.hops);
-        assertGt(pv.grossOut, 0, "must route to the dynamic-fee V4 pool");
-        assertTrue(pv.canExecute);
+    /// @notice Discovery: with the pool admitted (allowHook + addV4), no plan
+    ///         the preview returns may cross it. Either no route exists
+    ///         (SolverE(5): the pool was the token's home venue) or the route
+    ///         found goes through another venue.
+    function test_Discovery_NeverRoutesThroughTheBeforeSwapPool() public {
+        try quoter.previewPlan(BASE_WETH, AEON, 0.05 ether) returns (
+            BlazePhoenixQuoter.Preview memory pv, Route memory fallbackRoute, bool hasFallback
+        ) {
+            console2.log("preview grossOut (aeon), via another venue:", pv.grossOut);
+            _assertAvoidsHook(pv.route);
+            if (hasFallback) _assertAvoidsHook(fallbackRoute);
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5)),
+                "the only refusal expected is no route (SolverE(5))");
+        }
     }
 
-    /// @notice Full e2e: real execution WETH->aeon through the Router against
-    ///         the live pool (delta-free hook passes isHookLive).
-    function test_Execute_WETHtoAeon() public {
+    /// @notice Execution: the best door never swaps through the pool. The
+    ///         PoolManager's aeon balance is the witness — a swap through the
+    ///         pool pays aeon out of it; no other registered venue touches it.
+    function test_Execute_BestDoorNeverSwapsThroughTheBeforeSwapPool() public {
         address user = address(0xBEEF);
         uint256 amountIn = 0.05 ether;
         deal(BASE_WETH, user, amountIn);
-        uint256 aeonBefore = IERC20Dyn(AEON).balanceOf(user);
-
         vm.prank(user);
         IERC20Dyn(BASE_WETH).approve(address(router), amountIn);
-
-        (BlazePhoenixQuoter.Preview memory pv, , ) =
-            quoter.previewPlan(BASE_WETH, AEON, amountIn);
-        assertGt(pv.grossOut, 0, "precondition: route must exist");
+        uint256 mgrAeon = IERC20Dyn(AEON).balanceOf(V4_MGR);
+        uint256 deadline = block.timestamp + 60;
 
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(pv.route, amountIn, 1, user, block.timestamp + 60);
-
-        console2.log("delivered (aeon):", delivered);
-        assertGt(delivered, 0);
-        assertEq(IERC20Dyn(AEON).balanceOf(user) - aeonBefore, delivered);
+        try router.swapBestExactIn(BASE_WETH, AEON, amountIn, 1, user, deadline) returns (uint256 delivered) {
+            console2.log("delivered (aeon), via another venue:", delivered);
+            assertGt(delivered, 0);
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5)),
+                "the only refusal expected is no route (SolverE(5))");
+        }
+        assertEq(IERC20Dyn(AEON).balanceOf(V4_MGR), mgrAeon, "the best door swapped through the beforeSwap pool");
         assertEq(IERC20Dyn(BASE_WETH).balanceOf(address(router)), 0);
         assertEq(IERC20Dyn(AEON).balanceOf(address(router)), 0);
+    }
+
+    function _assertAvoidsHook(Route memory r) private pure {
+        for (uint256 h; h < r.hops.length; ++h) {
+            for (uint256 l; l < r.hops[h].legs.length; ++l) {
+                assertTrue(r.hops[h].legs[l].hooks != HOOK, "a route crossed the beforeSwap pool");
+            }
+        }
     }
 }

@@ -673,16 +673,14 @@ contract ConditionAdequacyRouterTest is Test {
     /// legOut == 0 (line 1428) requires legOutRaw == the hop's tokenIn, i.e. a
     /// SAME-TOKEN hop — reachable only through a degenerate pair whose two
     /// sides are the same token (MockV2Pair(A, A) sorts to token0 == token1),
-    /// which passes the 1147 homogeneity guard for a hop A -> A. No suite
-    /// test ever builds it.
-    /// kills: real code leaves the per-leg floor OFF for the same-token leg
-    /// (fails open to the aggregate floors) and the swap settles, delivering
-    /// ~99.4% of the input back in A. Neutralise `legOut != 0` (the guard's
-    /// other conjuncts are true: amt != 0, legQuote != 0) and the floor block
-    /// runs against balanceOf(address(0)) — a codeless read that returns 0 —
-    /// so got == 0 against a nonzero coverage bound and the whole swap
-    /// reverts RouterE(5): the delivered assertion can never run.
-    function test_L1433_legOut_sameTokenHop_settlesWithFloorOff() public {
+    /// which passes the 1147 homogeneity guard for a hop A -> A.
+    /// SINCE 2026-10-19 (H3, oc-1018) a hop with tokenIn == tokenOut is refused
+    /// with RouterE(3) at the top of the hop loop, before any leg runs, so this
+    /// same-token hop no longer reaches the `legOut != 0` conjunct at all: the
+    /// test now pins the refusal. It used to pin the fail-open (the swap
+    /// settled with ~99.4% of the input back in A). The conjunct has no
+    /// route-reachable witness left (test/RouterSelfHopRefused.t.sol).
+    function test_L1433_legOut_sameTokenHop_isRefusedBeforeTheFloor() public {
         MockERC20 a = new MockERC20("Aa", "Aa");
         MockV2Pair aa = new MockV2Pair(address(a), address(a));   // token0 == token1 == a
         a.mint(address(aa), DEEP);
@@ -702,10 +700,10 @@ contract ConditionAdequacyRouterTest is Test {
         Hop[] memory hops = new Hop[](1);
         hops[0] = Hop({ tokenIn: address(a), tokenOut: address(a), amountIn: amt, expectedOut: 0, legs: legs });
 
+        Route memory r = _wrap(hops);
         vm.prank(user);
-        uint256 delivered = router.swapExactIn(_wrap(hops), amt, 1, user, block.timestamp + 1);
-
-        assertGt(delivered, 90e18, "same-token hop must settle with the per-leg floor failed open");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
+        router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
     }
 
     /// @dev Shared harness for the two disjunct arms of 1433: a hop where two

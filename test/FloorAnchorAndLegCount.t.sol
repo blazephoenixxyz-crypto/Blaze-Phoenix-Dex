@@ -165,19 +165,31 @@ contract FloorAnchorAndLegCountTest is Test {
 
         Leg[] memory l0 = new Leg[](1);
         l0[0] = _leg(amt);
-        // A concentrated-single leg: `_legTokens` returns early for that family, so the token
+        // Concentrated-single legs: `_legTokens` returns early for that family, so the token
         // gate is satisfied by auxId alone and no pool has to exist for the hop to be accepted.
+        // The no-op tail goes out through `mid` and back into tOut: since 2026-10-19 a self-hop
+        // tOut -> tOut is refused outright (RouterE(3), H3), and this is the shape left that
+        // still ends the route on a hop that moved nothing.
+        MockERC20 mid = new MockERC20("Mid", "MID");
         Leg[] memory l1 = new Leg[](1);
         l1[0] = Leg({pool: address(uint160(uint256(keccak256("nowhere")))), hooks: address(0),
                      kind: 4, fee: 500, tickSpacing: 10,
-                     zeroForOne: address(tIn) < address(tOut), stable: false,
+                     zeroForOne: address(tOut) < address(mid), stable: false,
+                     amountIn: 0, expectedOut: 0,
+                     auxId: bytes32(uint256(uint160(address(mid))))});
+        Leg[] memory l2 = new Leg[](1);
+        l2[0] = Leg({pool: address(uint160(uint256(keccak256("nowhere2")))), hooks: address(0),
+                     kind: 4, fee: 500, tickSpacing: 10,
+                     zeroForOne: address(mid) < address(tOut), stable: false,
                      amountIn: 0, expectedOut: 0,
                      auxId: bytes32(uint256(uint160(address(tOut))))});
-        Hop[] memory hops = new Hop[](2);
+        Hop[] memory hops = new Hop[](3);
         hops[0] = Hop({tokenIn: address(tIn), tokenOut: address(tOut),
                        amountIn: amt, expectedOut: 0, legs: l0});
-        hops[1] = Hop({tokenIn: address(tOut), tokenOut: address(tOut),
+        hops[1] = Hop({tokenIn: address(tOut), tokenOut: address(mid),
                        amountIn: 0, expectedOut: 0, legs: l1});
+        hops[2] = Hop({tokenIn: address(mid), tokenOut: address(tOut),
+                       amountIn: 0, expectedOut: 0, legs: l2});
         Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
                                 expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
                                 hasSurplus: false, isV4Bundle: false});

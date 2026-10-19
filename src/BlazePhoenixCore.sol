@@ -1660,10 +1660,12 @@ library BlazePhoenixCore {
             // fee per-swap in beforeSwap (needs only BEFORE_SWAP_FLAG — the
             // delta-flag reject does NOT gate it) or move it mid-block via
             // updateDynamicLPFee, so slot0's lpFee is the stored fee, not
-            // necessarily the executed one. The defenses are the Hub's manual
-            // hook allow-list (admission) and the Router's iron floor re-derived
-            // from realised output (execution), which bound a hostile override
-            // to a revert or a within-slack shortfall — never a bad fill.
+            // necessarily the executed one. The beforeSwap override is refused
+            // in `_v4Quote` (H12: such a key quotes 0, so the Solver and the
+            // Quoter never promise it); a fee moved by updateDynamicLPFee is in
+            // slot0 when this reads it. A caller-built leg on the explicit door
+            // stays bounded by the Router's iron floor re-derived from realised
+            // output and by userMinOut.
             (out, depthWad, , ) = _v4Quote(c, amountIn, type(uint256).max);
             return (out, depthWad);
         }
@@ -1688,6 +1690,15 @@ library BlazePhoenixCore {
     function _v4Quote(QuoteCtx memory c, uint256 amountIn, uint256 bar)
         private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
     {
+        // H12 (2026-10-19). On a dynamic-fee key the hook with BEFORE_SWAP_FLAG (1 << 7)
+        // sets the swap's LP fee by what it RETURNS (v4-core Pool.swap: the override wins
+        // over slot0's lpFee), and nothing read here can see it: unquotable, the shape of a
+        // dead pool. Without bit 7 the fee moves only by updateDynamicLPFee outside the
+        // pool's own swap, so slot0 is the fee charged. The Router's in-frame promise
+        // (`v4LegOut`) is untouched: a caller-built leg keeps its floors and userMinOut.
+        if (c.fee == 0x800000) {
+            if (uint160(c.hooks) & 0x80 != 0) return (0, 0, 0, 0);
+        }
         {
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);

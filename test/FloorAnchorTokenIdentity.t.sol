@@ -79,6 +79,28 @@ contract FloorAnchorTokenIdentityTest is Test {
                    hasSurplus: false, isV4Bundle: false});
     }
 
+    /// @dev The control arm's route: the same real hop, then a no-op tail of ghost legs that
+    ///      goes out through `mid` and back into tOut. Since 2026-10-19 a self-hop tOut -> tOut
+    ///      is refused outright (RouterE(3), H3), and this is the shape left that still ends the
+    ///      route on a hop naming the real output while moving nothing.
+    function _noOpTailBackToOut(uint256 amt) private returns (Route memory r) {
+        MockERC20 mid = new MockERC20("Mid", "MID");
+        Leg[] memory l0 = new Leg[](1); l0[0] = _realLeg(amt);
+        Leg[] memory l1 = new Leg[](1); l1[0] = _ghostLeg(address(mid));
+        Leg[] memory l2 = new Leg[](1); l2[0] = _ghostLeg(address(tOut));
+        l2[0].pool = address(uint160(uint256(keccak256("nowhere2"))));
+        Hop[] memory hops = new Hop[](3);
+        hops[0] = Hop({tokenIn: address(tIn), tokenOut: address(tOut),
+                       amountIn: amt, expectedOut: 0, legs: l0});
+        hops[1] = Hop({tokenIn: address(tOut), tokenOut: address(mid),
+                       amountIn: 0, expectedOut: 0, legs: l1});
+        hops[2] = Hop({tokenIn: address(mid), tokenOut: address(tOut),
+                       amountIn: 0, expectedOut: 0, legs: l2});
+        r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+                   expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+                   hasSurplus: false, isV4Bundle: false});
+    }
+
     function _floorFromProof() private returns (uint256 quoted, uint256 floorUsed) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sig = keccak256("ExecutionProof(address,address,uint256,uint256,uint256,uint256)");
@@ -104,10 +126,10 @@ contract FloorAnchorTokenIdentityTest is Test {
     ///         construction is malformed rather than that the gate holds.
     function test_TrailingHopNamingTheRealOutputLeavesTheFloorStanding() public {
         uint256 amt = 100e18;
+        Route memory r = _noOpTailBackToOut(amt); // deploys `mid`: built before the prank
         vm.recordLogs();
         vm.prank(user);
-        uint256 got = router.swapExactIn(
-            _twoHop(amt, address(tOut)), amt, 1, user, block.timestamp + 1);
+        uint256 got = router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
         (uint256 quoted, uint256 floorUsed) = _floorFromProof();
 
         assertGt(got, 0, "premise: the route must settle, or the floor below is not being tested");

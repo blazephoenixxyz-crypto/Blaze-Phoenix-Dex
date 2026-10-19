@@ -1179,7 +1179,11 @@ contract BlazePhoenixRouter {
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
-            if (legs == 0 || legs > MAX_LEGS_PER_HOP) revert RouterE(3);
+            // A hop trades two DIFFERENT tokens (H3, oc-1018). A self-hop passes the pair guard
+            // only through a pool answering token0() == token1(), whose leg the per-leg floor
+            // reads as `legOut == tokenIn` and fails open. No factory pool and no Solver route
+            // has that shape.
+            if (legs == 0 || legs > MAX_LEGS_PER_HOP || hop.tokenIn == hop.tokenOut) revert RouterE(3);
 
             // Real-balance-ratio scaling for EVERY hop, not just h>0, AND
             // this hop's real impact/on-chain quote — all in one call (see
@@ -1203,6 +1207,17 @@ contract BlazePhoenixRouter {
             if (h != 0) {
                 if (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == tokenIn) revert RouterE(3);
                 foreignBase = hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1];
+                // A CYCLIC ROUTE (tokenIn == tokenOut) RETURNS HOP 0'S UNSPENT INPUT HERE, to the
+                // payer the docstring above names as its owner (H9, oc-1018). After the loop the
+                // residual and the output are the same token and can no longer be told apart, so
+                // the sweep there skips this shape - and the residual rode out to the RECIPIENT as
+                // output, counted towards userMinOut. Here the split is exact: hop 0 cannot deliver
+                // into tokenIn (hop 1 would re-enter it, refused just above) and its fee has already
+                // left the Router, so the balance above baseIn IS hop 0's residual.
+                if (h == 1 && tokenIn == tokenOut) {
+                    uint256 resid0 = BPC.balanceOf(tokenIn, address(this));
+                    if (resid0 > baseIn) BPC.safeTransfer(tokenIn, payer, resid0 - baseIn);
+                }
             }
             // One allocation per hop (MAX_LEGS_PER_HOP entries, memory, no storage). It carries
             // each leg's MEASURED quote through to the coverage gate in `_execScaled` — before,
@@ -1474,7 +1489,7 @@ contract BlazePhoenixRouter {
         // (baseIn, normally zero since the Router holds nothing at rest) is
         // left untouched so a caller can never sweep prior funds. tokenOut is
         // excluded (it is paid out below), as is the degenerate
-        // tokenIn == tokenOut case.
+        // tokenIn == tokenOut case, whose residual left at the start of hop 1.
         if (tokenIn != tokenOut) {
             uint256 residIn = BPC.balanceOf(tokenIn, address(this));
             if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);

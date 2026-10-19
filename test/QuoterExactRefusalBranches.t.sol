@@ -102,6 +102,10 @@ contract MockHubQ {
     address public outBridge;
     function setOutBridge(address t) external { outBridge = t; }
     function isBridgeToken(address t) external view returns (bool) { return t != address(0) && t == outBridge; }
+    /// The pause arm of the hook sieve (`Router._execV4Amt`, RouterE(9)); `_simV4` asks it
+    /// for a hook that runs in the swap (H13, 2026-10-19).
+    mapping(address => bool) public hookPaused;
+    function setHookPaused(address h, bool p) external { hookPaused[h] = p; }
 }
 
 /// @dev V4 PoolManager stand-in running the REAL quote round trip:
@@ -246,6 +250,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     // are the RETURNS_DELTA flags hookAltersDeltas() checks.
     address constant HOOK_DELTA = address(uint160(0xBEEF0000 + (1 << 3)));
     address constant HOOK_CLEAN = address(uint160(0x77770000)); // low 14 bits clear
+    address constant HOOK_SWAP  = address(uint160(0xBEEF0000 + (1 << 7))); // BEFORE_SWAP only: runs in the swap, alters no delta
 
     /// @dev Backs a pair's declared reserves with balances. Since bounty #85 a pair that
     ///      declares more than it holds is a dead pool at every door, the Router's included;
@@ -599,6 +604,38 @@ contract QuoterExactRefusalBranchesTest is Test {
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, DECOY_OUT,
             "a delta-altering hook is unquotable even when the manager would answer");
+    }
+
+    /// BRANCH Quoter `_simV4` pause arm (H13, oc-1018 m2, 2026-10-19). Taken by: a hook that
+    /// runs in the swap and that the Hub holds PAUSED - the second arm of the Router's sieve
+    /// (`_execV4Amt`: `hookRunsInSwap && hub.hookPaused` -> RouterE(9)). Observable: the
+    /// fallback decoy, as for the delta arm above, with the manager primed to answer the key.
+    /// FAILS IF DELETED: yes - the key matches, the manager answers Q_OUT for a leg the Router
+    /// refuses, and Q_OUT replaces the decoy.
+    function test_Exact_V4_PausedSwapHookUnquotable() public {
+        assertTrue(BPC.hookRunsInSwap(HOOK_SWAP), "pinned: bit 7 runs in the swap");
+        assertFalse(BPC.hookAltersDeltas(HOOK_SWAP), "pinned: and alters no delta, so only the pause arm can refuse");
+        Leg memory l = _swapHookLeg();
+        hubMock.setHookPaused(HOOK_SWAP, true);
+        uint256 exactOut = _v4Exact(l, AMT);
+        assertEq(exactOut, DECOY_OUT,
+            "the exact pass priced a leg whose hook is paused, which the Router refuses with RouterE(9)");
+    }
+
+    /// Control for the arm above: the same hook, NOT paused, is priced by the pool. Red under
+    /// a pause arm that refuses every swap-running hook without asking the Hub.
+    function test_Exact_V4_LiveSwapHookIsPricedByThePool() public {
+        Leg memory l = _swapHookLeg();
+        uint256 exactOut = _v4Exact(l, AMT);
+        assertEq(exactOut, Q_OUT, "a live swap-running hook must be dry-run on the pool");
+    }
+
+    function _swapHookLeg() internal returns (Leg memory l) {
+        (address c0, address c1) = BPC.sortTokens(address(tokA), address(tokB));
+        mgrMock.setExpectedKey(c0, c1, POOL_FEE, TICK_SP, HOOK_SWAP);
+        l = _v4Leg(AMT);
+        l.hooks = HOOK_SWAP;
+        _repool(l);   // well-formed for THIS key, so only the hook arms can refuse
     }
 
     /// BRANCH Quoter:425. Taken by: auxId == 0 — the leg names no counter

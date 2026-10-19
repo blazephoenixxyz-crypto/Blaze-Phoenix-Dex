@@ -236,6 +236,22 @@
       "note": "Registered 2026-09-07 from the hook-admission review. An honest attestation from the Quoter's dry run keeps the gate; lowering it is the caller's signed intent."
     },
     {
+      "id": "SOK-DYNFEE-BEFORESWAP-OVERRIDE",
+      "class": "A dynamic-fee key whose hook runs beforeSwap returns a fee above slot0's lpFee: the quote prices slot0, the swap pays the override",
+      "status": "blocked",
+      "guard": "_v4Quote",
+      "test": "test_H12_DynamicFeeKeyWithBeforeSwapHook_QuoteFailsClosed",
+      "note": "H12, oc-1018 m2 (Low), fixed 2026-10-19. The shared V4 quote producer fails a key with fee 0x800000 and BEFORE_SWAP_FLAG (1 << 7) closed, so swapBestExactIn and the Quoter's preview never promise it. The explicit doors keep the Router's in-frame promise v4LegOut, which still reads slot0; a caller-built leg there is bounded by the iron floor re-derived from realised output and by userMinOut."
+    },
+    {
+      "id": "SOK-QUOTER-EXACT-PAUSED-HOOK",
+      "class": "The preview's exact pass dry-runs a leg whose swap-running hook the Hub holds paused, which the Router refuses",
+      "status": "blocked",
+      "guard": "_simV4",
+      "test": "test_Exact_V4_PausedSwapHookUnquotable",
+      "note": "H13, oc-1018 m2 (hardening), fixed 2026-10-19. _simV4 asks the sieve's pause arm as Router._execV4Amt does (RouterE(9)) and falls back to the plan's claim, as for a delta hook. canExecute was already withheld by _hookRefusedIn."
+    },
+    {
       "id": "SOK-FORGED-RESERVES-BAND-VOTE",
       "class": "A pair registered honest forges its reserves afterwards and a recoverable donation buys the band",
       "status": "blocked",
