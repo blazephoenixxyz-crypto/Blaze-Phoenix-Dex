@@ -116,7 +116,7 @@ eyes rather than discover the terms after doing the work:
    liquid at the time of writing, so the value of an award at the moment it is
    granted is not something we can promise. What we can promise is the quantity
    and the schedule.
-2. **Payouts begin after December 2026.** Reports are accepted, triaged and
+2. **Payouts begin after the 15 December 2026 launch.** Reports are accepted, triaged and
    acknowledged from now; settlement of awards starts after that date. If that
    timing does not work for you, it is entirely reasonable to wait — the scope
    is not going anywhere.

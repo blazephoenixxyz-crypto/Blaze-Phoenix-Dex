@@ -1230,7 +1230,7 @@ Before this project had a research programme worth the name, independent researc
 | Medium — griefing, temporary denial of service, recoverable residue | 125,000 – 625,000 BZPX |
 | Low — demonstrated impact below the above | up to 125,000 BZPX |
 
-Awards are paid in BZPX — quantity and schedule promised, market value not — with payouts beginning after December 2026 and reports triaged now. One clause is deliberate: a report need not break a conservation law to be Critical — a redistribution that systematically pays the wrong party while the books balance is priced like a theft, because that is the class only hostile readers catch.
+Awards are paid in BZPX — quantity and schedule promised, market value not — with payouts beginning after the 15 December 2026 launch and reports triaged now. One clause is deliberate: a report need not break a conservation law to be Critical — a redistribution that systematically pays the wrong party while the books balance is priced like a theft, because that is the class only hostile readers catch.
 
 **What the record contains, by class.** Every confirmed finding became a named property, a regression test that fails against the pre-fix code, and a mutant the test must kill; the classes, one sentence each, by reference to the register:
 
