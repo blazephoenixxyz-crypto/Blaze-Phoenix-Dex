@@ -2165,6 +2165,25 @@ M = [
       old="                ? (row == n || !$.controlRenounced)",
       new="                ? true // MUTANT",
       teste="test_C4_S1_ZeroFirstAttestation_FreezesLikeAnyOther"),
+ # ─── H11 (2026-10-19): the three V1 drain shapes through an EIP-7702-delegated account
+ # (test/Fix1019H11.t.sol). P1: deleting the hop-0 clamp alone is NOT this guard - without it
+ # hop 0 still spends realIn = the measured pull (sum of legAmt = realIn), so I1 holds. The V1
+ # defect was hop 0 spending the DECLARED sum; the mutant below restores exactly that.
+ dict(nome="h11-1019 P1: hop 0 spends the declared leg.amountIn instead of the measured pull (V1 momonom shape)",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (h == 0 && scaleNum > scaleDen) scaleNum = scaleDen;",
+      new="            if (h == 0) scaleNum = scaleDen; // MUTANT",
+      teste="test_H11_1019_I1_DelegatedAccountTokenInNeverPaysForAThirdParty"),
+ dict(nome="h11-1019 P2: the tokenOut baseline is zero, so the account's prior tokenOut is paid out (V1 Tarun 3084 shape)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        uint256 toutStart = tokenIn == tokenOut ? baseIn : BPC.balanceOf(tokenOut, address(this));",
+      new="        uint256 toutStart = tokenIn == tokenOut ? baseIn : 0; // MUTANT",
+      teste="test_H11_1019_I2_DelegatedAccountTokenOutIsNeverPaidOut"),
+ dict(nome="h11-1019 P3: the bridge sweep ignores bridgeBase and pays the raw balance (V1 Tarun 3086 shape)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);",
+      new="                if (rb > 0) BPC.safeTransfer(bridge, payer, rb); // MUTANT",
+      teste="test_H11_1019_I3_RouterStrandedBridgeBalanceIsNotSwept"),
 ]
 
 def run(t):
