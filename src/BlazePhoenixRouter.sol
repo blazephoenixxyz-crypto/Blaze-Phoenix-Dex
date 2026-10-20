@@ -882,109 +882,13 @@ contract BlazePhoenixRouter {
             Leg calldata leg = hop.legs[l];
             uint256 legAmt = BPC.mulDiv(leg.amountIn, scaleNum, scaleDen);
 
-            if (BPC.kindHas(leg.kind, BPC.A_RESERVES)) {
-                (uint256 ir0, uint256 ir1) = BPC.getReserves(leg.pool);
-                uint256 rIn  = leg.zeroForOne ? ir0 : ir1;
-                uint256 rOut = leg.zeroForOne ? ir1 : ir0;
-                // THE FRAME'S COPY OF THE QUOTE DOOR (bounty #85, Remember Me). The Core's
-                // dispatcher quotes a pair that declares more than it holds as dead; this copy
-                // priced the same lie, and the floor it anchors then matched what the liar paid.
-                // A leg on such a pair is refused with the dead-leg code: fail closed. Inert on an
-                // honest pair, whose reserves never exceed its balances before the push.
-                if (!BPC.heldBy(leg.pool, hop.tokenIn, rIn, hop.tokenOut, rOut)) revert RouterE(8);
-                if (rIn != 0) {
-                    impactAcc += _wImp(BPC.impactV2Bps(legAmt, rIn), leg.amountIn, legs, scaleDen);
-                    if (leg.kind == BPC.KIND_V2) {
-                        uint24 v2fee = BPC.effV2Fee(leg.fee);
-                        uint256 q_ = BPC.outV2(legAmt, rIn, rOut, v2fee);
-                        legQuotes[l] = q_; quoteAcc += q_;
-                    } else {
-                        uint256 q_ = _solidlyLegQuote(leg, hop.tokenIn, legAmt, rIn, rOut);
-                        legQuotes[l] = q_; quoteAcc += q_;
-                    }
-                } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
-            } else if (BPC.kindHas(leg.kind, BPC.A_CONC_POOL)) {
-                // Real concentrated-liquidity impact, matching the Solver's
-                // plan-time computation (Core.impactV3Bps). A dead read
-                // (sp/liq == 0) falls back to the conservative constant.
-                // Price AND live fee in the SAME read: v3StateAndDynFee does slot0() and, if that
-                // fails, Algebra's globalState() — which returns price, tick and fee together. The
-                // getSqrtPriceX96 that used to be here already did that fallback but THREW AWAY
-                // the fee word that came in the same response (the same waste v4SqrtAndLiq had in
-                // _recordHits). For an Algebra pool this goes from three staticcalls to two.
-                (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(leg.pool);
-                uint128 lq = BPC.getLiquidity(leg.pool);
-                if (legAmt != 0 && sp != 0 && lq != 0) {
-                    // A1/C1b/T1 + INV-20: the fee base has to price with the fee EXECUTION charges
-                    // (the pool's own), NEVER the caller's leg.fee — a partial forgery (leg.fee in
-                    // [50%,100%) of coverage) shrinks the base and evades up to half of the
-                    // protocol fee.
-                    //
-                    // WHAT WAS WRONG, and it was the sibling of the line next door: the same failed
-                    // `rf` had TWO different fallbacks on consecutive lines — the quote fell to
-                    // 0xFFFFFF (fail-closed, the T1 fix) and the impact fell to `leg.fee`, that is
-                    // CALLDATA. And the impact feeds avgImpact -> ironFloorBps -> protocolFloorOut:
-                    // the fee the caller wrote ended up defining the PROTOCOL's floor.
-                    //
-                    // And underneath that a HIGH: Algebra pools do not expose fee(), so getV3Fee
-                    // returned 0, the quote fell into the sentinel and the Router's arm quoted ZERO
-                    // for the whole Algebra family — INV-20's unmeasured sibling, on this side.
-                    //
-                    // MEASURED PRECEDENCE, one single fee for both consumers: a measured static fee
-                    // (V3) wins; failing that the measured dynamic one (Algebra); failing that
-                    // fail-closed with a sentinel >= 1e6, which makes outV3 return 0 and impactV3Bps
-                    // return BPS (the maximum, conservative). Calldata enters no branch.
-                    // THE HOIST HAS TO BE INSIDE THE BRANCH. The ternary evaluated `getV3Fee` TWICE
-                    // — the predicate tested call #1 and the value used was #2's, two identical
-                    // staticcalls to the same pool where one is enough. But lifting the call ABOVE
-                    // the ternary, which is the obvious correction, makes it unconditional and adds
-                    // a staticcall to EVERY Algebra leg, where today it is not called at all — it
-                    // regressed gas on the very family this block was written for.
-                    // THE LIVE-FEE JUDGEMENT HAS ONE PRODUCER, AND IT IS THE CORE'S `quoteV3Fee`.
-                    // What was here was a hand-written copy, and it DIVERGED in the case the Core
-                    // documents out loud: `if (dyn) return measured;  // 0% is legal`. The copy did
-                    // `dynFee != 0 ? dynFee : 0xFFFFFF`, that is, it treated a SUCCESSFULLY MEASURED
-                    // 0% as a measurement failure. An Algebra pool with a genuinely 0% fee was
-                    // quoted at ZERO by this arm (the sentinel >= 1e6 makes outV3 return 0) and fell
-                    // out of routing — legitimate liquidity thrown away in silence, with the Core
-                    // saying the opposite about the same pool.
-                    //
-                    // `test_ZeroDynamicFeeStillQuotes` existed and passed — by way of the
-                    // `universalQuote` path. A fix applied and tested on one of two symmetric
-                    // channels: the house signature, with the test serving as an alibi.
-                    //
-                    // The distinction the copy lost: `v3StateAndDynFee`'s `dyn` is a READ-SUCCESS
-                    // flag. With `dyn == true` the read worked, so `dynFee == 0` means a 0% fee and
-                    // not an error. `getV3Fee`, by contrast, returns 0 both for "failed" and for
-                    // "really is zero", which is why the non-dyn path still fails closed: a 0
-                    // read is unmeasurable inside `quoteV3Fee` and returns the killing sentinel.
-                    //
-                    // `leg.fee` enters neither branch: the protocol's fee base never comes from
-                    // calldata (see the A1/C1b/T1 note above) — hence the literal 0 as cfgFee.
-                    // Same producer as the quote/impact channels now (was a hand-built ternary
-                    // over effV3Fee, semantically identical, proved branch-by-branch).
-                    uint24 live = BPC.quoteV3Fee(leg.pool, 0, dynFee, dyn);
-                    // THE CURVE RUNS ONCE. These two lines used to be in the reverse order and
-                    // `impactV3Bps` ran `outV3` inside itself with BYTE-IDENTICAL arguments to the
-                    // next line's — the whole curve is one delegatecall too many, per concentrated
-                    // leg, at all four doors. Quoting first and deriving the impact from the number
-                    // already obtained gives the SAME value: `impactV3Bps` does nothing else (see
-                    // the `impactV3FromOut` note in the Core).
-                    uint256 q_ = BPC.outV3(legAmt, sp, lq, live, leg.zeroForOne, 0);
-                    // DIRECTION OF A FALLBACK, JUDGED PER CONSUMER (review
-                    // 2026-09-02). `impactV3FromOut(0, ..)` answers BPS, which is
-                    // the conservative answer for the Solver's RANKING and the
-                    // permissive one for this FLOOR: `ironFloorBps` SUBTRACTS
-                    // impact, so a leg that is unquotable (fee sentinel, dust vs
-                    // price) but still executes collapsed the whole route's
-                    // floor to the 80% clamp. The two sibling arms below charge
-                    // DEFAULT_IMPACT_BPS in the same situation; this one now does
-                    // too. Three arms, one direction.
-                    impactAcc += _wImp(
-                        q_ == 0 ? BPC.DEFAULT_IMPACT_BPS : BPC.impactV3FromOut(q_, legAmt, sp, leg.zeroForOne),
-                        leg.amountIn, legs, scaleDen);
-                    legQuotes[l] = q_; quoteAcc += q_;
-                } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
+            if (BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {
+                // K2 (2026-10-21): the pair-shaped and concentrated arms are ONE Core call
+                // (`legQuoteImpact`), same reads and numbers; their history is written there.
+                (uint256 q_, uint256 imp, bool held) = BPC.legQuoteImpact(leg, hop.tokenIn, hop.tokenOut, legAmt);
+                if (!held) revert RouterE(8);
+                impactAcc += _wImp(imp, leg.amountIn, legs, scaleDen);
+                legQuotes[l] = q_; quoteAcc += q_;
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
@@ -994,33 +898,6 @@ contract BlazePhoenixRouter {
             unchecked { ++l; }
         }
     }
-
-    /// @dev Solidly leg reference quote. Prefers the pool's own getAmountOut —
-    ///      decimal-agnostic and identical to what _execSolidlyAmt settles — so a
-    ///      stable pair with mismatched decimals (e.g. DOLA-18 / USDC-6) prices
-    ///      correctly instead of hitting outSolidly's equal-decimals fast path,
-    ///      which corrupted the fee base and protocol floor. Falls back to the
-    ///      replicated curve only on forks that do not expose getAmountOut (the
-    ///      pre-existing conservative path, unchanged). Extracted for the same
-    ///      via-IR stack-depth reason as _stableLegQuote / _v4LegQuote.
-    function _solidlyLegQuote(
-        Leg calldata leg, address tokenIn, uint256 legAmt, uint256 rIn, uint256 rOut
-    ) private view returns (uint256 quote) {
-        quote = BPC.solidlyGetAmountOut(leg.pool, legAmt, tokenIn);
-        // TRIGGER ALIGNED WITH THE EXECUTOR. The sibling (`_execSolidlyAmt`) treats `<= 1` as "no
-        // answer" and falls back; this one treated `1` as a valid answer. With a pool returning
-        // exactly 1, the two channels took DIFFERENT branches — the house defect signature in
-        // miniature. The executor's `-1` does NOT travel here: it is rounding margin on a REQUEST,
-        // and this number is a FLOOR.
-        if (quote <= 1) {
-            // NO HAIRCUT, on purpose: the executor's 200 bps are slack for the pool's K, not a
-            // property of the curve. Applying them here would deflate `qs` at the coverage gate,
-            // the fee base and `hopAttested` — relaxing three guards through a semantic
-            // confusion.
-            quote = BPC.solidlyCurveOut(leg.pool, legAmt, rIn, rOut, leg.stable, leg.fee, tokenIn);
-        }
-    }
-
 
     /// @dev Extracted from _hopScaleImpactAndQuote for the same stack-depth reason
     ///      as _stableLegQuote — the V4 branch's locals (tokenOther, t0, t1,

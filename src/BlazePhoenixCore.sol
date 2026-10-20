@@ -2419,6 +2419,56 @@ library BlazePhoenixCore {
         return ra <= balanceOf(ta, pool) && rb <= balanceOf(tb, pool);
     }
 
+    /// @notice The Router's IN-FRAME quote and raw impact (bps) of a pair-shaped or concentrated
+    ///         leg, for `legAmt` of `tokenIn` (K2, 2026-10-21). These were the two inline arms of
+    ///         `_hopScaleImpactAndQuote`; they moved here WHOLE, behind one delegatecall, so their
+    ///         helpers stop being compiled into the Router. Same reads, same order, same numbers.
+    ///         `held == false` is the dead-leg answer, which the Router turns into RouterE(8) (the
+    ///         library raises no Router error). `q == 0` where the arm quotes nothing; `imp` is
+    ///         the leg's raw impact, weighted by the Router.
+    function legQuoteImpact(Leg calldata leg, address tokenIn, address tokenOut, uint256 legAmt)
+        public view returns (uint256 q, uint256 imp, bool held)
+    {
+        held = true;
+        imp = DEFAULT_IMPACT_BPS;
+        if (kindHas(leg.kind, A_RESERVES)) {
+            (uint256 ir0, uint256 ir1) = getReserves(leg.pool);
+            uint256 rIn  = leg.zeroForOne ? ir0 : ir1;
+            uint256 rOut = leg.zeroForOne ? ir1 : ir0;
+            // THE FRAME'S COPY OF THE QUOTE DOOR (bounty #85, Remember Me). The dispatcher quotes
+            // a pair that declares more than it holds as dead; this copy priced the same lie, and
+            // the floor it anchors then matched what the liar paid. Fail closed. Inert on an
+            // honest pair, whose reserves never exceed its balances before the push.
+            if (!heldBy(leg.pool, tokenIn, rIn, tokenOut, rOut)) return (0, 0, false);
+            if (rIn != 0) {
+                imp = impactV2Bps(legAmt, rIn);
+                if (leg.kind == KIND_V2) {
+                    q = outV2(legAmt, rIn, rOut, effV2Fee(leg.fee));
+                } else {
+                    // Solidly: the pool's own getAmountOut - decimal-agnostic and what the
+                    // executor settles. Trigger aligned with the executor (`<= 1` is "no answer").
+                    // NO HAIRCUT here: the executor's 200 bps are slack for the pool's K, and
+                    // this number is a FLOOR (coverage gate, fee base, hopAttested).
+                    q = solidlyGetAmountOut(leg.pool, legAmt, tokenIn);
+                    if (q <= 1) q = solidlyCurveOut(leg.pool, legAmt, rIn, rOut, leg.stable, leg.fee, tokenIn);
+                }
+            }
+        } else if (kindHas(leg.kind, A_CONC_POOL)) {
+            // Price AND live fee in ONE read (slot0, or Algebra's globalState). The fee base is
+            // the pool's own fee, never calldata's `leg.fee` (A1/C1b/T1 + INV-20), through the
+            // ONE live-fee producer `quoteV3Fee`, whose `dyn` is a read-success flag (a measured
+            // 0% is legal). The curve runs ONCE: the impact is derived from the quote. An
+            // unquotable leg charges DEFAULT_IMPACT_BPS, like its sibling arms: the floor
+            // SUBTRACTS impact, so BPS here would be the permissive direction (review 2026-09-02).
+            (uint160 sp, uint24 dynFee, bool dyn) = v3StateAndDynFee(leg.pool);
+            uint128 lq = getLiquidity(leg.pool);
+            if (legAmt != 0 && sp != 0 && lq != 0) {
+                q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, dynFee, dyn), leg.zeroForOne, 0);
+                imp = q == 0 ? DEFAULT_IMPACT_BPS : impactV3FromOut(q, legAmt, sp, leg.zeroForOne);
+            }
+        }
+    }
+
     /// @notice The depth the registry records for a pool, in 18-decimal units: measured, never
     ///         declared, and by ONE producer for every door that seals a row - the Router after
     ///         a swap and the operator's door at seeding (dex-17). Pair shapes: reserves capped
