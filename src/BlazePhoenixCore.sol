@@ -1595,7 +1595,7 @@ library BlazePhoenixCore {
             depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
             return (out, depthWad);
         }
-        if (k == KIND_V3 || k == KIND_ALGEBRA) {
+        if (kindHas(k, A_CONC_POOL)) {
             // One read yields the price AND, for a dynamic-fee (Algebra) pool,
             // the live fee — measured, never the Hub's 0 sentinel. See
             // v3StateAndDynFee / quoteV3Fee: the INV-20 "measure, don't take the
@@ -1647,7 +1647,7 @@ library BlazePhoenixCore {
             depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
             return (out, depthWad);
         }
-        if (k == KIND_V4 || k == KIND_V4_NATIVE) {
+        if (kindHasAny(k, A_CONC_SING)) {
             // Both V4 kinds quote identically and deliberately share this branch:
             // the pool id is derived from the two sorted currencies, and a native
             // currency is just address(0), which sorts first. Nothing in the
@@ -1680,7 +1680,7 @@ library BlazePhoenixCore {
     function universalQuoteRank(QuoteCtx memory c, uint256 amountIn, uint256 bar)
         public view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
     {
-        if (amountIn != 0 && (c.kind == KIND_V4 || c.kind == KIND_V4_NATIVE)) return _v4Quote(c, amountIn, bar);
+        if (amountIn != 0 && kindHasAny(c.kind, A_CONC_SING)) return _v4Quote(c, amountIn, bar);
         (out, depthWad) = universalQuote(c, amountIn);
         rank = out;
         hi = out;
@@ -2337,7 +2337,7 @@ library BlazePhoenixCore {
     ///         shape, and never reach this function.
     function provenShape(address pool, uint8 kind) public view returns (bool ok, uint8 k, uint24 fee) {
         (uint160 sp, , bool dynShape) = v3StateAndDynFee(pool);
-        bool declaredConc = kind == KIND_V3 || kind == KIND_ALGEBRA;
+        bool declaredConc = kindHas(kind, A_CONC_POOL);
         bool isConc = sp != 0;
         // A declaration that contradicts the shape is refused outright rather than corrected:
         // a V2 pair cannot answer slot0, and a concentrated pool has no reserves to read.

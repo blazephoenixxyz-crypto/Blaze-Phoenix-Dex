@@ -1510,7 +1510,7 @@ contract BlazePhoenixHub {
                 // A V4 pool whose hook is paused (code changed since admission,
                 // or de-listed) stays in the registry (read-only) but is not a
                 // routable candidate — resumes automatically once re-admitted.
-                if ((pi.kind != BPC.KIND_V4 && pi.kind != BPC.KIND_V4_NATIVE)
+                if (!BPC.kindHasAny(pi.kind, BPC.A_CONC_SING)
                     || pi.hooks == address(0) || isHookLive(pi.hooks)) {
                     out[w] = pi;
                     unchecked { ++w; }
@@ -1860,7 +1860,7 @@ contract BlazePhoenixHub {
         // the pool ANSWERED as concentrated (slot0 or globalState), and
         // `dynShape` says which family answered.
         uint24 feeReg = fee;
-        if (kind != BPC.KIND_V4 && kind != BPC.KIND_V4_NATIVE) {
+        if (!BPC.kindHasAny(kind, BPC.A_CONC_SING)) {
             // The refutation lives in the Core (`provenShape`), where the operator's door asks
             // the same question: one producer of "what family is this pool, and what fee does
             // its row carry". Skips registration on a contradiction, as above.
