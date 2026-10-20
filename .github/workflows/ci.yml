@@ -229,6 +229,22 @@ jobs:
         # bridge sweep were a balance read with no baseline; this makes the absence a tested fact.
         run: python3 .github/scripts/frame_custody_guard.py
 
+      - name: Theta membership guard (a class of kinds is asked once, of theta)
+        # A hand-written chain such as `k == KIND_V4 || k == KIND_V4_NATIVE` is a second channel
+        # for a question Core.kindHas / kindHasAny already answers from THETA_ATTR; the next kind
+        # to join the class has to be added to every chain. Fails on a new chain over KIND_*
+        # constants, on a pinned identity chain that is gone, and on any read of THETA_ATTR or
+        # copy of the predicate outside the Core.
+        run: python3 .github/scripts/theta_membership_guard.py
+
+      - name: Door prologue census (every value door opens the same way)
+        # M7: the Router's four value doors each carry whenLive+nrEntrant, the uint128 cap and the
+        # zero-minOut refusal before the pull, the zero-received refusal and the #45 clamp after
+        # it, and reach _execute only through the two helpers that open with the deadline check.
+        # Fails on a door that loses a clause, a new door that takes a deadline, or a fourth
+        # copy of the clamp.
+        run: python3 .github/scripts/door_prologue_guard.py
+
       - name: Curve/Balancer excisado (decisao do dono 2026-08-20)
         # Removidos por decisao: quase nenhuma L2 os tem, e custavam bytecode em cinco contratos.
         # O corte apaga tres superficies que eram cada uma a UNICA da sua classe: o unico approve
