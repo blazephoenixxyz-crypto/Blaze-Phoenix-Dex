@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
+import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @notice AS TRES INVARIANTES QUE FALTAVAM: o contrato do Monoslot, a segunda
 ///         porta de registo como caminho de REFRESH, e a vitalidade a decidir.
@@ -129,6 +130,19 @@ contract DiscoveryRefreshTest is Test {
         hub.setRoles(address(this), address(this), address(this));
     }
 
+    /// rizki-3107: a porta fria so senta uma pool que uma fabrica ligada deriva. Os pares que
+    /// estes testes sentam nascem TODOS numa fabrica V3 com um tier de fee por par: cabem 17
+    /// pools do mesmo par, e o MAX_FACTORIES (16) nao chegaria a uma fabrica por pool. O tier e
+    /// so a chave do lookup da fabrica; a fee do slot continua a ser a medida no pool (500).
+    MockOriginFactory origem;
+    uint24 tier;
+
+    function _pair() internal returns (MockPair p) {
+        if (address(origem) == address(0)) origem = Origin.tiers(hub, KIND_V3, 17);
+        p = new MockPair(TA, TB);
+        origem.list(address(p), TA, TB, ++tier, false);
+    }
+
     function _rec(address pool, uint8 kind, uint256 depth) internal {
         hub.recordSwap(pool, kind, 500, address(0), TA, TB, 1e18, 1e18, depth);
     }
@@ -141,7 +155,7 @@ contract DiscoveryRefreshTest is Test {
     /// (calldata nunca e base de fee). Por isso a calldata leva 9999 aqui:
     /// se alguem um dia "simplificar" para confiar nela, isto fica vermelho.
     function test_PortaFria_InsereComVitalidadeUm_EFeeMedida() public {
-        MockPair p = new MockPair(TA, TB);
+        MockPair p = _pair();
         hub.recordSwap(address(p), KIND_V3, 9999, address(0), TA, TB, 1e18, 1e18, DEPTH_RASA);
         bytes32 key = hub.keyOf(address(p), TA, TB);
         uint256 s = hub.getSlot(key);
@@ -158,7 +172,7 @@ contract DiscoveryRefreshTest is Test {
     /// o lastBlk e RE-BUCKETA com a profundidade nova — a liquidez mudou, o
     /// registo acompanha. Um unico vm.roll, callsite unico (stale-cache).
     function test_PortaQuente_RefrescaContagemEBalde() public {
-        MockPair p = new MockPair(TA, TB);
+        MockPair p = _pair();
         _rec(address(p), KIND_V3, DEPTH_RASA);
         vm.roll(block.number + 7);
         _rec(address(p), KIND_V3, DEPTH_FUNDA);
@@ -195,10 +209,10 @@ contract DiscoveryRefreshTest is Test {
     /// E a propriedade anti-griefing documentada no _canInsert.
     function test_PoNaoSeguraAs16Cadeiras() public {
         for (uint256 i; i < 16; ++i) {
-            MockPair raso = new MockPair(TA, TB);
+            MockPair raso = _pair();
             _rec(address(raso), KIND_V3, DEPTH_RASA);
         }
-        MockPair fundo = new MockPair(TA, TB);
+        MockPair fundo = _pair();
         _rec(address(fundo), KIND_V3, DEPTH_FUNDA);
         assertGt(hub.getSlot(hub.keyOf(address(fundo), TA, TB)), 0,
             "pool funda barrada por 16 cadeiras de po: o anti-griefing do _canInsert quebrou");
@@ -213,8 +227,8 @@ contract DiscoveryRefreshTest is Test {
     /// superar. O chao e deliberado; o teste pina-o tambem. Um unico vm.warp
     /// (bug do stale-cache deste forge).
     function test_Vitalidade_RefrescadoSuperaEstagnado() public {
-        MockPair a = new MockPair(TA, TB);
-        MockPair b = new MockPair(TA, TB);
+        MockPair a = _pair();
+        MockPair b = _pair();
         _rec(address(a), KIND_V3, DEPTH_RASA);
         _rec(address(b), KIND_V3, DEPTH_RASA);
         vm.warp(block.timestamp + 3 * DECAY_STEP);

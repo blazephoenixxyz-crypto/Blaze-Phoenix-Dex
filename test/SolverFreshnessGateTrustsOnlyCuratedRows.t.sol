@@ -29,6 +29,7 @@ import {BlazePhoenixCore as BPC, PoolInfo, RoutePlan} from "../src/BlazePhoenixC
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
     BlazePhoenixHub hub;
@@ -76,6 +77,11 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
     function _attackerRegistersThreeDustPairs() private {
         for (uint256 i; i < 3; ) {
             dust[i] = _pair(1e6, 1e6);
+            // rizki-3107: the swap door seats only a pool a wired factory derives, so the
+            // attacker left is one who deploys each dust pair on a permissionless venue the
+            // Hub has wired (three forks' factories). Its rows still carry tier 2, and the
+            // gate must still not count them.
+            Origin.wire(hub, address(dust[i]), address(tokenA), address(tokenB), BPC.KIND_V2, 30);
             hub.recordSwap(address(dust[i]), BPC.KIND_V2, 30, address(0),
                            address(tokenA), address(tokenB), 1, 1, 1e18);
             unchecked { ++i; }

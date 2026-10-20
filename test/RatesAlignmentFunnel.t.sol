@@ -11,6 +11,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC, RoutePlan, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract RatesAlignmentFunnelTest is Test {
     BlazePhoenixHub hub;
@@ -39,6 +40,9 @@ contract RatesAlignmentFunnelTest is Test {
 
     function _pool(uint256 resIn, uint256 resOut, uint256 swaps) private returns (MockV2Pair p) {
         p = new MockV2Pair(address(tA), address(tB));
+        // rizki-3107: the swap door seats only a pool a wired factory derives. All five are
+        // listed, so all five vote, as before the fix (none was listed, so none was muted).
+        Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(p), resIn);
         tB.mint(address(p), resOut);
         if (address(tA) < address(tB)) p.setReserves(uint112(resIn), uint112(resOut));

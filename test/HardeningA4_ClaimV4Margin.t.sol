@@ -38,6 +38,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @dev Minimal V4 PoolManager state mock: exactly the single-slot extsload
 ///      read claimV4's on-chain proof (BPC.v4SqrtAndLiq) performs. Mirrors the
@@ -103,8 +104,12 @@ contract HardeningA4ClaimV4MarginTest is Test {
     ///      below, the 1000x claim still clears by a wide margin.
     function _fillPair() private returns (address[] memory pools) {
         pools = new address[](16);
+        // rizki-3107: the swap door seats only a pool a wired factory derives. The 16
+        // incumbents are born in ONE V2-family factory, a fee tier each (MAX_FACTORIES is 16).
+        MockOriginFactory origin = Origin.tiers(hub, BPC.KIND_V2, 16);
         for (uint256 i; i < 16; ++i) {
             pools[i] = address(new MockV2Pair(bridgeTok, tokenB));
+            origin.list(pools[i], bridgeTok, tokenB, uint24(i + 1), false);
             hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), bridgeTok, tokenB, 1e18, 1e18, 1e18);
         }
         assertEq(hub.getActivePools(bridgeTok, tokenB).length, 16, "pair must start full");

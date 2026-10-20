@@ -61,6 +61,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract HubAuthorityLayerTest is Test {
     BlazePhoenixHub hub;
@@ -220,6 +221,7 @@ contract HubAuthorityLayerTest is Test {
     /// KILLED BY: mutant "onlyControl: the whole guard is gone".
     function test_Authority_OnlyControl_StrangerCannotSetPaused() public {
         address pool = address(new MockV2Pair(TOK_A, TOK_B));
+        Origin.wire(hub, pool, TOK_A, TOK_B, BPC.KIND_V2, 30);   // rizki-3107: the swap door seats only a derived pool
         bytes32 key  = hub.keyOf(pool, TOK_A, TOK_B);
         bytes memory e1 = _e(1);
 
@@ -275,6 +277,7 @@ contract HubAuthorityLayerTest is Test {
     /// pool.
     function test_Authority_WhenLive_UnpausingRestoresRecording() public {
         address pool = address(new MockV2Pair(TOK_A, TOK_B));
+        Origin.wire(hub, pool, TOK_A, TOK_B, BPC.KIND_V2, 30);   // rizki-3107: the swap door seats only a derived pool
         bytes32 key  = hub.keyOf(pool, TOK_A, TOK_B);
 
         hub.setPaused(true);

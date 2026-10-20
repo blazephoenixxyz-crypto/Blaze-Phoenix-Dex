@@ -27,6 +27,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC, RoutePlan} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @dev The single-slot extsload state `BPC.v4SqrtAndLiq` reads, as in
 ///      test/HardeningA4_ClaimV4Margin.t.sol.
@@ -274,6 +275,7 @@ contract RegistryDoorsMeasureWhatTheyWriteTest is Test {
 
         // the swap door: a row it creates carries the depth the Router measured
         MockV2Pair pSwap = _v2(RIVAL_R);
+        Origin.wire(hub, address(pSwap), address(A), address(B), BPC.KIND_V2, 30);   // rizki-3107: derived
         hub.recordSwap(address(pSwap), BPC.KIND_V2, 30, address(0),
                        address(A), address(B), 1, 1, uint256(DEEP_LIQ));
         assertEq(_bucketOf(address(pSwap), address(A), address(B)), deep, "recordSwap, new row");

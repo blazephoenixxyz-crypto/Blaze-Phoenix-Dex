@@ -37,6 +37,25 @@ contract PairStub {
     constructor(address a, address b) { token0 = a; token1 = b; }
 }
 
+/// @dev The wired origin of the honest stubs (rizki-3107: a pool takes a seat through the swap
+///      door only if a wired factory derives it). Mode 1 asks getPool(t0, t1, fee) once per fee
+///      on the factory row, so one factory answers every stub, one fee per stub.
+contract StubFactory {
+    mapping(uint24 => address) public poolOf;
+    function set(uint24 fee, address p) external { poolOf[fee] = p; }
+    function getPool(address, address, uint24 fee) external view returns (address) { return poolOf[fee]; }
+}
+
+/// @dev A CREATE2 origin whose init code does NOT bind the salt's tokens: it deploys a stub on
+///      (x, y) at the (t0, t1) salt, so the derivation lists a pool trading other tokens and only
+///      recordSwap's pair proof (token0()/token1()) can refuse it.
+contract ForeignDeployer {
+    address public pool;
+    constructor(address t0, address t1, address x, address y) {
+        pool = address(new PairStub{salt: keccak256(abi.encodePacked(t0, t1))}(x, y));
+    }
+}
+
 contract HubInvariantHandler is Test {
     BlazePhoenixHub public hub;
     address public immutable t0;
@@ -62,19 +81,30 @@ contract HubInvariantHandler is Test {
     mapping(address => bool) private _seen;
     mapping(address => bool) public isForeign;
 
+    StubFactory public factory;
+    ForeignDeployer[] public foreignOrigins;
+
     /// @param n How many distinct stubs to stand up. MUST exceed MAX_SLOTS so
     ///           the pair can fill and eviction actually runs; at exactly
     ///           MAX_SLOTS the campaign tops out without ever evicting.
+
     constructor(BlazePhoenixHub h, address a, address b, uint256 n) {
         hub = h; t0 = a; t1 = b;
-        for (uint256 i; i < n; ++i) poolsList.push(address(new PairStub(a, b)));
+        factory = new StubFactory();
+        for (uint256 i; i < n; ++i) {
+            poolsList.push(address(new PairStub(a, b)));
+            factory.set(uint24(i + 1), poolsList[i]);
+        }
         // the same shapes, on other tokens: a pool that trades (x, y) offered as if it traded
         // (a, b), a pool with the pair reversed, and a pool sharing one token only
         address x = address(uint160(uint256(keccak256("foreign-x"))));
         address y = address(uint160(uint256(keccak256("foreign-y"))));
-        foreignList.push(address(new PairStub(x, y)));
-        foreignList.push(address(new PairStub(b, a)));
-        foreignList.push(address(new PairStub(a, y)));
+        // Each foreign stub has a wired CREATE2 origin for (a, b) (`a < b` here), so the
+        // derivation lists it and the pair proof is the only check that refuses it.
+        foreignOrigins.push(new ForeignDeployer(a, b, x, y));
+        foreignOrigins.push(new ForeignDeployer(a, b, b, a));
+        foreignOrigins.push(new ForeignDeployer(a, b, a, y));
+        for (uint256 i; i < foreignOrigins.length; ++i) foreignList.push(foreignOrigins[i].pool());
         for (uint256 i; i < foreignList.length; ++i) isForeign[foreignList[i]] = true;
     }
 
@@ -134,6 +164,22 @@ contract HubInvariantFromV1Test is StdInvariant, Test {
         // for eviction to be exercised, which is this suite's stated purpose.
         handler = new HubInvariantHandler(hub, T0, T1, 24);
         hub.setRoles(address(handler), address(0x5), address(0x6)); // router = handler
+        // THE ORIGINS (rizki-3107). One mode-1 factory answers each honest stub at its own fee,
+        // and each foreign stub has a CREATE2 origin whose derivation lists it under the pair.
+        uint24[] memory fees = new uint24[](24);
+        for (uint256 i; i < 24; ++i) fees[i] = uint24(i + 1);
+        StubFactory f = handler.factory();
+        hub.addFactory(address(f), 0, 1, bytes32(0), fees, new int24[](0));
+        for (uint256 i; i < 3; ++i) {
+            address o = address(handler.foreignOrigins(i));
+            bytes32 ih = keccak256(abi.encodePacked(type(PairStub).creationCode,
+                abi.encode(PairStub(handler.foreignList(i)).token0(), PairStub(handler.foreignList(i)).token1())));
+            hub.addFactory(o, 0, 4, ih, new uint24[](0), new int24[](0));
+            PoolInfo[] memory hits = hub.discoverFor(T0, T1);
+            bool listed;
+            for (uint256 j; j < hits.length; ++j) if (hits[j].pool == handler.foreignList(i)) listed = true;
+            require(listed, "fixture: a foreign stub's CREATE2 origin must list it under the pair");
+        }
         targetContract(address(handler));
         // SPEND THE CALL BUDGET ON THE HUB, NOT ON forge-std. The handler
         // inherits Test, which inherits StdInvariant, which carries a dozen

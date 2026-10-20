@@ -43,6 +43,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @dev Algebra-shaped pool: it does NOT answer slot0(), only globalState(),
 ///      which is exactly how the probe tells the two families apart.
@@ -99,6 +100,13 @@ contract KindIsDerivedNotDeclaredTest is Test {
         tokB.mint(p, 1_000e18);
     }
 
+    /// rizki-3107: the swap door seats only a pool a wired factory derives. Every pool here
+    /// gets the factory of its TRUE family, so a refusal or a rewritten kind is the shape
+    /// probe's doing, never the origin check's.
+    function _origin(address p, uint8 trueKind, uint24 fee, bool stable) internal {
+        Origin.wire(hub, p, address(tokA), address(tokB), trueKind, fee, stable);
+    }
+
     function _kindOf(address pool, address t0, address t1) internal view returns (uint8) {
         PoolInfo[] memory ps = hub.getActivePools(t0, t1);
         for (uint256 i; i < ps.length; ++i) {
@@ -115,6 +123,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// and no honest swap can correct it.
     function test_AlgebraShapedPool_MustNotPersistAsV3() public {
         AlgebraShapedPool p = new AlgebraShapedPool(address(tokA), address(tokB), SQRT_P_1, 500);
+        _origin(address(p), BPC.KIND_ALGEBRA, 0, false);
 
         hub.recordSwap(
             address(p), BPC.KIND_V3, POOL_FEE, address(0),
@@ -133,6 +142,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     function test_ConcentratedPool_MustNotPersistAsV2() public {
         MockV3Pool p = new MockV3Pool(address(tokA), address(tokB), POOL_FEE);
         p.setState(SQRT_P_1, LIQ);
+        _origin(address(p), BPC.KIND_V3, POOL_FEE, false);
 
         hub.recordSwap(
             address(p), BPC.KIND_V2, 30, address(0),
@@ -157,6 +167,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// stable(); a Uniswap-V2 pair does not. RED before the fix.
     function test_SolidlyShapedPool_MustNotPersistAsV2() public {
         MockSolidlyPair p = new MockSolidlyPair(address(tokA), address(tokB), false);
+        _origin(address(p), BPC.KIND_SOLIDLY, 0, false);
         _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
@@ -173,6 +184,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// haircut (200 bps) on every quote, forever. RED before the fix.
     function test_V2Pair_MustNotPersistAsSolidly() public {
         MockV2Pair p = new MockV2Pair(address(tokA), address(tokB));
+        _origin(address(p), BPC.KIND_V2, 0, false);
         _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
@@ -189,6 +201,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// as Solidly (the probe agrees with the calldata).
     function test_Control_HonestSolidlyRegisters() public {
         MockSolidlyPair p = new MockSolidlyPair(address(tokA), address(tokB), true);
+        _origin(address(p), BPC.KIND_SOLIDLY, 0, true);
         _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
@@ -210,6 +223,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     /// producer answers). RED before the fix: the row carried 3.
     function test_V2PairWithForeignFeeGetter_RowFeeIsZero() public {
         V2PairWithFeeGetter p = new V2PairWithFeeGetter(address(tokA), address(tokB));
+        _origin(address(p), BPC.KIND_V2, 0, false);
         _hold(address(p));
         p.setReserves(1_000e18, 1_000e18);
 
@@ -219,6 +233,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
         );
 
         uint256 s = hub.getSlot(hub.keyOf(address(p), address(tokA), address(tokB)));
+        assertTrue(s != 0, "the row must exist, or fee 0 proves nothing");
         assertEq(BPC.decodeFee(s), 0, "a pair-shaped row carries fee 0, whatever its fee() getter says");
     }
 
@@ -226,6 +241,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
 
     function test_Control_HonestV2Registers() public {
         MockV2Pair p = new MockV2Pair(address(tokA), address(tokB));
+        _origin(address(p), BPC.KIND_V2, 0, false);
         tokA.mint(address(p), 1_000e18);
         tokB.mint(address(p), 1_000e18);
         p.setReserves(1_000e18, 1_000e18);
@@ -242,6 +258,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     function test_Control_HonestV3Registers() public {
         MockV3Pool p = new MockV3Pool(address(tokA), address(tokB), POOL_FEE);
         p.setState(SQRT_P_1, LIQ);
+        _origin(address(p), BPC.KIND_V3, POOL_FEE, false);
 
         hub.recordSwap(
             address(p), BPC.KIND_V3, POOL_FEE, address(0),

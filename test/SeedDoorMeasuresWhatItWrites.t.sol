@@ -33,6 +33,7 @@ import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 import {MockAlgebraPool} from "./mocks/MockAlgebraPool.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract SeedDoorMeasuresWhatItWritesTest is Test {
     BlazePhoenixHub hub;
@@ -122,6 +123,9 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
         // A newcomer at depth bucket 3 (weight 8). With the term on both sides it scores 10
         // against a bar of 7 + 7/4 = 8; without it on its own side, 8 against 8.
         MockV2Pair newcomer = _v2(5e18);
+        // rizki-3107: the swap door seats only a pool a wired factory derives; derived, the
+        // newcomer is refused or seated by the score alone.
+        Origin.wire(hub, address(newcomer), address(A), address(B), BPC.KIND_V2, 30);
         hub.recordSwap(address(newcomer), BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, 5e18);
         assertEq(hub.getPool(_key(address(newcomer))), address(newcomer),
             "the newcomer was refused by a bridge term only its rivals were scored with");

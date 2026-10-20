@@ -23,6 +23,7 @@ import {BlazePhoenixCore as BPC, Route, Hop, Leg, PoolInfo, RoutePlan} from "../
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 abstract contract F19H15Base is Test {
     BlazePhoenixHub    hub;
@@ -339,10 +340,21 @@ abstract contract F19H15Base is Test {
     function _recordPair(H17World memory w, MockV2Pair p) internal {
         uint256 d = BPC.registryDepth18(
             address(p), BPC.KIND_V2, p.token0(), p.token1(), address(0), bytes32(0));
+        // rizki-3107: a swap seats only a pool a wired factory derives. Each squatter is
+        // born in its own permissionless V2 factory, as an attacker's pair would be.
+        this.wireV2(w.hub, p);
         w.hub.setRoles(address(this), address(w.solver), address(this));
         w.hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0),
                          p.token0(), p.token1(), 1, 1, d);
         w.hub.setRoles(address(w.router), address(w.solver), address(this));
+    }
+
+    /// @dev An external self-call, so the optimiser cannot inline it: inlined into
+    ///      `_recordPair`, the wiring overflows `_liveWorld`'s stack by one slot. The Hub sees
+    ///      this contract, its admin, as the caller either way.
+    function wireV2(BlazePhoenixHub hub, MockV2Pair p) external {
+        require(msg.sender == address(this), "self only");
+        Origin.wire(hub, address(p), p.token0(), p.token1(), BPC.KIND_V2, 30);
     }
 
     function _kPair(H17World memory w, MockV2Pair p) internal view returns (bytes32) {

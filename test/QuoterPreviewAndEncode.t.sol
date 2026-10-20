@@ -9,6 +9,7 @@ import {BlazePhoenixQuoter, IRouterExec} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC, Route} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @notice `previewAndEncode`: one call returns the preview AND the calldata that executes it.
 ///
@@ -36,6 +37,8 @@ contract QuoterPreviewAndEncodeTest is Test {
 
         tA = new MockERC20("A", "A"); tB = new MockERC20("B", "B"); tC = new MockERC20("C", "C");
         pair = new MockV2Pair(address(tA), address(tB));
+        // rizki-3107: the swap door seats only a pool a wired factory derives.
+        Origin.wire(hub, address(pair), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(pair), 1_000_000e18); tB.mint(address(pair), 1_000_000e18);
         pair.setReserves(uint112(1_000_000e18), uint112(1_000_000e18));
 

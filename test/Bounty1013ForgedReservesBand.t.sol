@@ -30,6 +30,7 @@ import {MockERC20} from "../test/mocks/MockERC20.sol";
 import {MockV2Pair} from "../test/mocks/MockV2Pair.sol";
 import {MockV3Pool} from "../test/mocks/MockV3Pool.sol";
 import {MockSolidlyPair} from "../test/mocks/MockSolidlyPair.sol";
+import {Origin} from "../test/mocks/MockOriginFactory.sol";
 
 interface IERC20Min85 {
     function transfer(address to, uint256 amt) external returns (bool);
@@ -151,6 +152,10 @@ contract Bounty1013ForgedReservesBandTest is Test {
     function _lyingPair() internal returns (LyingPair85 atk) {
         vm.prank(attacker);
         atk = new LyingPair85(address(tA), address(tB));
+        // rizki-3107: the swap door seats only a pool a wired factory derives, so the liar gets
+        // the origin it needs. The pair keeps three fresh curated rows, so the Solver skips
+        // discovery here and nothing vouches for the tier-2 row: it still does not vote.
+        Origin.wire(hub, address(atk), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(atk), 2_000e18);
         tB.mint(address(atk), 2_000e18);
         atk.syncHonest();
@@ -171,6 +176,7 @@ contract Bounty1013ForgedReservesBandTest is Test {
     ///      what its own state quotes). Registered honest by a dust swap, then repriced.
     function _hostileConc() internal returns (MockV3Pool c) {
         c = new MockV3Pool(address(tA), address(tB), 3000);
+        Origin.wire(hub, address(c), address(tA), address(tB), BPC.KIND_V3, 3000);   // as `_lyingPair`
         c.setState(uint160(1 << 96), uint128(2_000e18));
         tA.mint(address(c), 2_000e18);
         tB.mint(address(c), 2_000e18);

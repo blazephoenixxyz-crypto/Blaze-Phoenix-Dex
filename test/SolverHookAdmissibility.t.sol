@@ -34,6 +34,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC, RoutePlan, Route, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @notice PoolManager V4 minimo mas COTAVEL: responde a `extsload` com um slot0 e uma
 ///         liquidez plausiveis, que e o que o `v4SqrtAndLiq` do Core le. Sem isto a pool
@@ -82,6 +83,9 @@ contract SolverHookAdmissibilityTest is Test {
         tA.mint(address(v2pair), 1_000_000e18);
         tB.mint(address(v2pair), 1_000_000e18);
         v2pair.setReserves(1_000_000e18, 1_000_000e18);
+        // rizki-3107: the swap door seats only a pool a wired factory derives (V4 rows are
+        // the operator's, `addV4`, and carry their own proof).
+        Origin.wire(hub, address(v2pair), address(tA), address(tB), BPC.KIND_V2, 30);
         // A V2 tambem tem de ter historia: se uma pool domina a outra por ordens de grandeza, o
         // Solver escolhe UMA perna e nao ha ordem nenhuma a testar. Foi assim que a primeira
         // versao destes testes ficou vacua — e so a pre-condicao explicita o revelou.

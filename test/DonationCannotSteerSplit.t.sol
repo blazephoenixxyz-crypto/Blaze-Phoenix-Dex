@@ -31,6 +31,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC, RoutePlan, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract DonationCannotSteerSplitTest is Test {
     BlazePhoenixHub hub;
@@ -60,6 +61,10 @@ contract DonationCannotSteerSplitTest is Test {
         tA.mint(address(fina), 50_000e18);
         tB.mint(address(fina), 50_000e18);
         fina.setReserves(uint112(50_000e18), uint112(50_000e18));
+        // rizki-3107: the swap door seats only a pool a wired factory derives; each pair is
+        // born in its own V2 factory.
+        Origin.wire(hub, address(funda), address(tA), address(tB), BPC.KIND_V2, 30);
+        Origin.wire(hub, address(fina), address(tA), address(tB), BPC.KIND_V2, 30);
 
         for (uint256 i; i < 5; i++) {
             hub.recordSwap(address(funda), BPC.KIND_V2, 30, address(0),
