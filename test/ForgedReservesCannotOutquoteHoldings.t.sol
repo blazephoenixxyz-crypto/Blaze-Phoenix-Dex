@@ -13,6 +13,7 @@ import {BlazePhoenixRouter} from "src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "src/BlazePhoenixQuoter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 interface IERC20 {
     function balanceOf(address) external view returns (uint256);
@@ -88,6 +89,11 @@ contract ForgedReservesCannotOutquoteHoldings is Test {
 
         fake = new FakePair(t0, t1);
         MockERC20(t1).mint(address(fake), 1e12); // dust inventory
+        // rizki-3107: a swap seats only a pool a wired factory derives. Each venue gets its own
+        // origin, so the forged one is a VOUCHED venue that lies later: the holdings bound below
+        // is what still stands when the origin proof passed.
+        Origin.wire(hub, address(honest), t0, t1, BPC.KIND_V2, 0);
+        Origin.wire(hub, address(fake), t0, t1, BPC.KIND_V2, 0);
 
         MockERC20(t0).mint(attacker, 1e9);
         MockERC20(t0).mint(victim, 10e18);

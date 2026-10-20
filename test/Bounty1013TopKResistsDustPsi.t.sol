@@ -20,6 +20,7 @@ import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan} from "../src/BlazeP
 import {MockERC20} from "../test/mocks/MockERC20.sol";
 import {MockV2Pair} from "../test/mocks/MockV2Pair.sol";
 import {MockV2Factory} from "../test/mocks/MockV2Factory.sol";
+import {MockOriginFactory, Origin} from "../test/mocks/MockOriginFactory.sol";
 
 contract Bounty1013TopKResistsDustPsiTest is Test {
     BlazePhoenixHub hub;
@@ -53,6 +54,17 @@ contract Bounty1013TopKResistsDustPsiTest is Test {
     }
 
     /// The honest venue, curated (seedPool) or only discoverable through a factory.
+    /// An attacker pool a wired factory vouches for (rizki-3107: a swap seats only a derived
+    /// pool). One origin with a fee tier per pool, as on a permissionless factory: the pump
+    /// below is then run by venues that passed the origin proof, which is the case left open.
+    MockOriginFactory internal origin;
+    uint24 internal nextTier;
+    function _vouched(uint256 a, uint256 b) internal returns (MockV2Pair p) {
+        p = _pool(a, b);
+        if (address(origin) == address(0)) origin = Origin.tiers(hub, BPC.KIND_V2, 16);
+        origin.list(address(p), address(tA), address(tB), ++nextTier, false);
+    }
+
     function _honest(uint256 a, uint256 b, bool seeded) internal returns (MockV2Pair h) {
         h = _pool(a, b);
         if (seeded) {
@@ -108,7 +120,7 @@ contract Bounty1013TopKResistsDustPsiTest is Test {
     function _attack(bool seeded, uint256 pumps, uint256 atkA, uint256 atkB) internal {
         MockV2Pair h = _honest(1_000_000e18, 1_000_000e18, seeded);
         MockV2Pair[8] memory a;
-        for (uint256 i; i < 8; ++i) a[i] = _pool(atkA, atkB);
+        for (uint256 i; i < 8; ++i) a[i] = _vouched(atkA, atkB);
         RoutePlan memory p0 = solver.findBestRoutePlan(address(tA), address(tB), ORDER);
         assertTrue(_routes(p0.best, address(h)), "setup: the honest venue routes before the pump");
         for (uint256 i; i < 8; ++i) for (uint256 k; k < pumps; ++k) _dust(a[i]);
@@ -170,7 +182,7 @@ contract Bounty1013TopKResistsDustPsiTest is Test {
         _honest(2_000_000e18, 2_000_000e18, true);
         MockV2Pair h2 = _honest(1_000_000e18, 1_020_000e18, true);
         for (uint256 i; i < 8; ++i) {
-            MockV2Pair d = _pool(5_000_000e18, 5_000_000e18);
+            MockV2Pair d = _vouched(5_000_000e18, 5_000_000e18);
             _dust(d); _dust(d);
             (uint112 r0, uint112 r1, ) = d.getReserves();
             d.swap(uint256(r0) - 5_000e18, uint256(r1) - 5_000e18, atk, "");
