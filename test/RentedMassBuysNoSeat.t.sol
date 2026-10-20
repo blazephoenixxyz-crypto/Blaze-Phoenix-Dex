@@ -33,6 +33,7 @@ import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 interface IERC20B {
     function transfer(address to, uint256 amount) external returns (bool);
@@ -199,6 +200,10 @@ contract RentedMassBuysNoSeatTest is Test {
         Renter renter = _renter();
         vm.prank(address(renter));
         RentedBook book = new RentedBook(address(tokenA), address(tokenB), 3000);
+        // rizki-3107: the swap door seats only a pool a wired factory derives. The rent is
+        // about the instant `balanceOf` is read, not about who wrote the code, so each book
+        // gets its own origin (one factory per venue) and the seat is bought as before.
+        Origin.wire(hub, address(book), address(tokenA), address(tokenB), BPC.KIND_V3, 3000);
         book.setState(Q96, DECLARED_L);
         book.setPayBps(0);                   // pays every tokenB it holds
 
@@ -216,6 +221,7 @@ contract RentedMassBuysNoSeatTest is Test {
         // sqrt(0.7) * 2^96, or its reciprocal, depending on token order.
         uint256 r = 836_660_026_534;                       // sqrt(0.7) * 1e12
         g = new RentedBook(address(tokenA), address(tokenB), 3000);
+        Origin.wire(hub, address(g), address(tokenA), address(tokenB), BPC.KIND_V3, 3000);   // as above
         g.setState(address(tokenA) < address(tokenB)
             ? uint160(uint256(Q96) * r / 1e12)
             : uint160(uint256(Q96) * 1e12 / r), DECLARED_L);

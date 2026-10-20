@@ -172,12 +172,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 5 | `src/*.sol` |
-| Test declarations | 2,024 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 321 | `test/**/*.t.sol` |
+| Test declarations | 2,033 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 322 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 460 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 470 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -742,12 +742,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 5 | `src/*.sol` |
-| Test declarations | 2,024 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 321 | `test/**/*.t.sol` |
+| Test declarations | 2,033 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 322 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 28 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 460 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 470 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
@@ -957,7 +957,7 @@ A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **425 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **434 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -1005,6 +1005,39 @@ authenticated by construction — a Uniswap V4 pool id derives from its own fee 
 is the proof; everywhere else, the contract reads the pool. Discovery applies the same rule to
 what a factory answers: an asked pool proves its own pair before it is listed, so a pool the
 executor would refuse is never planned.
+
+## 5a. Admission requires proof of origin
+
+A venue enters the registry only when a wired factory derives its address: a CREATE2 derivation
+over the factory's attested init-code hash, a Uniswap V4 pool id recomputed from its key, or the
+answer of a codehash-pinned factory that the pool then confirms. What a venue says about itself
+— its tokens, its shape, its reserves, its fee, its mass — is a measurement of the venue, never
+proof of where it came from. A contract written by an attacker can answer every view truthfully
+and still refuse at execution.
+
+Six findings share this root. Each closed one thing a self-chosen venue could say: a fee and
+hooks read from calldata (REG-01/02), reserves above holdings (duxun D1), a row forged after
+registration (bounty #85, Remember Me), concentrated mass the pool does not hold (Binod Bk),
+mass lent for one transaction (Seavia Resources). The seventh (rizki-3107, Rizki Armando) told
+no lie at all: a pair holding real, withdrawable mass was seated by one dust swap, took a share
+of the pair's Solver plans and reverted them. Closing views one at a time cannot end the class;
+closing the door can. The swap door's first registration now asks the one producer of "where do
+the pools of this pair live" (`Hub.discoverFor`) and seats only what it lists; operator rows
+(`seedPool`, `addV4`) are their own proof. The proof of origin is added to the checks of what
+the pool is, never swapped for them: a CREATE2 derivation proves who deployed a pool and with
+which salt, not which tokens the deployed code trades, so the pool's own `token0()`/`token1()`
+check stays, and a test shows a derived pool on other tokens is refused only by it. A pool no wired factory derives can still be traded
+through a caller-built route, at the caller's risk; it is never ranked, planned or voted with on
+anyone else's behalf. Pinned by `test/Rizki3107FakePairSeat.t.sol`, beside a positive control for an
+asked factory and one for a CREATE2 derivation.
+
+CI guard: "Identity guard (a venue is derived, never declared)", `.github/scripts/identity-guard.sh`.
+It fails if `recordSwap` calls `_register` with no `_derivedByFactory` line before it, if
+`_derivedByFactory` stops asking `discoverFor` or reads the pool's own `token0Of`/`token1Of`, or if a
+function outside the four known doors (`recordSwap`, `addV4`, `claimV4`, `seedPool`) calls
+`_register`. It is green on today's Hub. It is red on four scratch copies, one per violation
+(proof line removed; proof line replaced by the token comparison; the proof answering from the
+pool's tokens; a fifth door), and red on the unfixed Hub of a591f97.
 
 ## 6. Every refusal reads what it decides on
 
@@ -1511,7 +1544,7 @@ counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](doc
 Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
 **1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
 `forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
-the run did not have). The mutant register holds **425 curated mutants** today
+the run did not have). The mutant register holds **434 curated mutants** today
 (`.github/scripts/check_targets.py`), each paired with the test that must kill it.
 
 Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
@@ -2037,6 +2070,7 @@ green test in front of it.
 | `ExecutionProof.floorUsed` against `realized` | "Which floor did this settlement meet, in the units it delivered?" | `Router.swapExactIn`: `protocolFloorOut` is checked against the Router's own balance delta, before the output-side fee and any transfer tax; it is published net of a transfer tax on tokenOut (scaled by delivered / amount sent), next to `realized` measured at the recipient. The output-side fee is not re-expressed, so on an untaxed token the published floor is the floor the Solver attests (`test/FloorParitySolverRouter.t.sol`). Off-chain readers of the proof are the consumers | `PINNED` | `test/ExecutionProofFloorInDeliveredUnits.t.sol` - `testFuzz_TaxedTokenOut_ExecutionProof_FloorUsedNeverAboveRealized`: for any output tax a settlement publishes a floorUsed at or below realized, and never collapsed below the taxed hard floor |
 | concentrated holdings cap (`registryDepth18`, concentrated arm) | "How much mass does a concentrated pool hold?" | `Core.registryDepth18` (one producer; read by `Router._recordHits`, `Hub.seedPool`, `Hub.claimV4` and `Solver._capByLiveDepth`): the larger of the two normalised holdings caps the depth `liquidity()` declares. Rises in each holding, so a donation never lowers it; one side empty, it is the other side; holding neither, zero. The short side it replaced fell to one wei when one wei was donated to the empty side of a one-sided range | `PINNED` (2026-10-10) | `test/RegistryDepthMonotoneInHoldings.t.sol` - `test_RegistryDepth18_OneWeiDonation_NeverLowersTheDepth`, `testFuzz_RegistryDepth18_MonotoneInHoldings` |
 | `reservesHeld` / `heldBy` (does a reserve-shaped pool hold what it reports) | "May anything believe this pair's reserves?" | `Core.heldBy` (the one comparison: each declared reserve at most the balance of its token). Asked by `Core.reservesHeld` (`Hub.recordSwap`: a pair that lies takes no seat, and since bounty #85 an existing row that lies is not refreshed), by `Core.universalQuote`'s V2 and Solidly arms (a lie quotes `(0, 0)`: Solver probe, split, single leg, Quoter), by `Core.registryDepth18` (a lie has depth 0: top-K, `seedPool`, `_capByLiveDepth`) and by `Router._hopScaleImpactAndQuote` (a leg on a lying pair is refused, `RouterE(8)`, before a wei moves). Other kinds answer true. Bounty #85 (Remember Me): asked only at registration, a pair registered honest and forged afterwards; its vote collapsed to a recoverable donation and captured the band | `PINNED` | `test/Bounty1013ForgedReservesBand.t.sol` - `test_ForgedPairDoesNotCaptureTheBand`, `test_EveryDoorSeesTheLieAsADeadPool`, `test_HubDoesNotRefreshTheLyingRow`, `test_DispatcherPricesBothPairArmsDeadOneWeiOverTheLimit`; `test/ForgedReservesNeverRegister.t.sol` - `test_HonestPair_AtTheLimit_Registers`, `test_DonatedPair_Registers`: the honest neighbours still do; `testFuzz_RegisteredIffReservesHeld`. Escape, measured: a contract that HOLDS what it declares (a parked pair, a V3-shaped contract with a donation) still votes (`test_limit_*`) |
+| `_derivedByFactory` (admission requires proof of origin) | "May this pool take a seat through the swap door?" | `Hub.discoverFor` (the one producer of "where do the pools of this pair live": CREATE2 over a wired factory's attested init-code hash, or a codehash-pinned factory's answer that `_probe` makes prove its pair); asked by `Hub._derivedByFactory` at the cold first registration of `Hub.recordSwap` for the pair-proof kinds, after `provenShape` and `reservesHeld`, so a pool takes a seat by swap only if discovery would list it. Operator rows (`seedPool`, `addV4`) are their own proof; V4 and native V4 prove by `computeV4PoolId`. The common root of REG-01/02 (fee and hooks from calldata), duxun D1 (reserves above holdings), bounty #85 (a row forged after registration), Binod Bk (concentrated mass not held), Seavia (mass lent for one transaction) and rizki-3107 (Rizki Armando: a pair written by the attacker, honest in every view, refusing at execution, seated by one dust swap): each closed one thing a self-chosen venue could say, and the derivation closes the door. It does not subsume the pool's own `token0()`/`token1()` check, which stays: a CREATE2 hit proves the deployer and the salt, not the tokens the deployed code trades. CI guard: "Identity guard (a venue is derived, never declared)" (`.github/scripts/identity-guard.sh`) fails if `recordSwap` seats without `_derivedByFactory`, if the proof reads the pool's own tokens, or if a fifth door calls `_register` | `PINNED` | `test/Rizki3107FakePairSeat.t.sol` - `test_TrapPairWithoutFactoryOrigin_TakesNoSeat`, `test_TrapPairWithoutFactoryOrigin_SolverDoorSettles`, `test_TrapPairWithoutFactoryOrigin_ShortPayLeaksNothing`, `test_RightTokensButNotDerived_IsRefused`, `test_Create2HitOnOtherTokens_IsRefusedByThePairCheck`; the positive controls `test_FactoryCallPool_StillRegistersThroughTheSwapDoor` (mode 0) and `test_Create2DerivedPool_StillRegistersThroughTheSwapDoor` (mode 4). Not derivable, so never seated by swap (fail-closed, the swap unaffected): a fee tier or spacing not on the factory row, a second init-code hash, a non-standard deployer or salt, an unwired factory. Escape, stated: a pool no wired factory derives is still tradable on a caller-built route, at the caller's risk |
 | per-leg floor bound (`_execScaled` coverage gate) | "What does a leg's floor rest on when its attestation is low?" | `Router._execScaled`: `bound = max(attested, qs * MIN_QUOTE_COVERAGE_BPS / BPS)` where `qs` is the in-frame quote rescaled to the executed amount; the leg is held to `LEG_FLOOR_BPS` of `bound`. Monotone in the attestation: attesting more never lowers the floor, and the lowest floor a caller reaches is the coverage threshold | `PINNED` | `test/LegFloorMonotoneInAttestation.t.sol` - `test_LegFloor_LowerAttestation_NeverRefusedWhereAHigherOneSettles` and its fuzz: a lower attestation is never refused where a higher one settles; the coverage gate itself stays pinned by `test_BleedingLegHiddenInAHealthyTotalIsCaught` |
 | `residIn` (the route input the legs did not spend) | "Whose is the input that no leg consumed?" | two producers in `Router._execute`, one per route shape: the post-loop sweep (`tokenIn != tokenOut`) and, for a CYCLIC route (`tokenIn == tokenOut`), the refund at the start of hop 1 - after the loop residual and output are the same token and can no longer be told apart. Both pay `payer` (the `_execute` docstring) and only `balance - baseIn`, never the pre-swap balance. Consumer it must never reach: `totalReceived` (the output paid to the recipient and held against userMinOut) | `PINNED` (fixed 2026-10-19) | `test/RouterCyclicResidualToPayer.t.sol` - `test_residIn_Cyclic_RecipientNotPayer_RefundedToPayer` (payer nets only the routed amount, recipient gets exactly the pool-state oracle), `test_residIn_Cyclic_DoesNotCountTowardsUserMinOut`, `test_residIn_Cyclic_StrayBalanceUntouched` (the `- baseIn`), control `test_residIn_Acyclic_RecipientNotPayer_SweptToPayer` (the other producer). Before the fix the cyclic branch skipped the sweep and the residual rode out to the recipient as output (H9, oc-1018, Info; only reachable through a caller-built route, the Solver refuses `tIn == tOut`). |
 | `legOutRaw` (the token a leg delivers into) | "Which token does this leg produce?" | produced once per leg by `Router._legTokens` (one snapshot of the pool's pair); consumed by the pair guard in `_execute` (must equal `hop.tokenOut`) and by `_execScaled` (equal to the leg's own input -> per-leg floor fails open). A pool answering `token0() == token1()` satisfied both inside a self-hop `B -> B` and switched the per-leg floor off, even over the caller's attestation | `PINNED` (hardened 2026-10-19) | `test/RouterSelfHopRefused.t.sol` - `test_legOutRaw_MidRouteSelfHop_IsRefused`, `test_legOutRaw_AttestedSelfHop_IsRefused`, `test_legOutRaw_SingleSelfHop_IsRefused`: `hop.tokenIn == hop.tokenOut` is refused with `RouterE(3)` at the top of the hop loop, so a leg that passes the pair guard always has `legOutRaw != legIn`. Control `test_legOutRaw_Control_SelfPairInNormalHop_PairGuard`. The Solver never emits a self-hop (H3, oc-1018, Info). |

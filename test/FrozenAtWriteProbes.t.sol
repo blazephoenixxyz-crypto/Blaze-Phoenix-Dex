@@ -36,6 +36,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @dev A concentrated pool that also answers `stable()`: its shape makes it a V3 row, and the
 ///      kind arm of the stable-bit write is all that keeps the bit off it.
@@ -71,6 +72,9 @@ contract FrozenAtWriteProbes is Test {
     ///      the +25% bridge bonus is exact).
     function _v2(uint112 rA, uint112 rB) private returns (MockV2Pair p) {
         p = new MockV2Pair(address(tA), address(tB));
+        // rizki-3107: the swap door seats only a pool a wired factory derives; each pair is
+        // born in its own V2 factory.
+        Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(p), rA);
         tB.mint(address(p), rB);
         _setOriented(p, rA, rB);
@@ -314,6 +318,8 @@ contract FrozenAtWriteProbes is Test {
         _v2(400_000e18, 400_000e18);
 
         MockV2Pair forged = new MockV2Pair(address(tA), address(tB));
+        // Derived too, so what keeps it out is the holdings check and the Solver, not the origin.
+        Origin.wire(hub, address(forged), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(forged), 1e18);
         tB.mint(address(forged), 1e18);
         _setOriented(forged, uint112(2e30), uint112(1e30));   // says: 1 tA buys 0.5 tB
@@ -337,6 +343,8 @@ contract FrozenAtWriteProbes is Test {
         _v2(400_000e18, 400_000e18);
 
         MockV2Pair forged = new MockV2Pair(address(tA), address(tB));
+        // Derived too, so what keeps it out is the holdings check and the Solver, not the origin.
+        Origin.wire(hub, address(forged), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(forged), 1e18);
         tB.mint(address(forged), 1e18);
         _setOriented(forged, uint112(1e18), uint112(1e18));   // seated while it holds what it reports
@@ -366,6 +374,8 @@ contract FrozenAtWriteProbes is Test {
         _v2(400_000e18, 400_000e18);
 
         MockV2Pair forged = new MockV2Pair(address(tA), address(tB));
+        // Derived too, so what keeps it out is the holdings check and the Solver, not the origin.
+        Origin.wire(hub, address(forged), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(forged), 1e18);
         tB.mint(address(forged), 1e18);
         _setOriented(forged, uint112(1e18), uint112(1e18));

@@ -34,6 +34,7 @@ import {MockERC20} from "../test/mocks/MockERC20.sol";
 import {MockV2Pair} from "../test/mocks/MockV2Pair.sol";
 import {MockV3Pool} from "../test/mocks/MockV3Pool.sol";
 import {MockV2Factory} from "../test/mocks/MockV2Factory.sol";
+import {MockOriginFactory, Origin} from "../test/mocks/MockOriginFactory.sol";
 
 interface IERC20Min85 {
     function transfer(address to, uint256 amt) external returns (bool);
@@ -95,6 +96,20 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
     address attacker = address(0xA77AC);
     address user     = address(0xBEEF);
 
+    // rizki-3107: the swap door seats only a pool a wired factory derives, so every pool these
+    // fixtures seat by a swap gets its own origin. Where a test needs a row NO factory vouches
+    // for, the origin forgets it after the seat: since the fix, a row the swap door wrote is
+    // unvouched only when discovery no longer lists it or does not run. On the default pair
+    // (three fresh curated rows) the Solver skips discovery, so a tier-2 row is unvouched with
+    // its origin still listing it.
+    MockOriginFactory liarOrigin;
+    MockOriginFactory[] permissionlessOrigins;
+
+    function _forgetEveryOrigin() internal {
+        if (address(liarOrigin) != address(0)) liarOrigin.forget();
+        for (uint256 i; i < permissionlessOrigins.length; ++i) permissionlessOrigins[i].forget();
+    }
+
     uint256 constant HONEST_SIDE = 4_000_000e18;   // three honest pools, 4M a side
     uint256 constant DONATION    = 13_000_000e18;  // more than half of the 12M honest mass
     uint256 constant ORDER       = 100_000e18;
@@ -155,6 +170,7 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
     function _lyingPair() internal returns (LyingPair85Vote atk) {
         vm.prank(attacker);
         atk = new LyingPair85Vote(address(tA), address(tB));
+        liarOrigin = Origin.wire(hub, address(atk), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(atk), 2_000e18);
         tB.mint(address(atk), 2_000e18);
         atk.syncHonest();
@@ -175,6 +191,7 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
     ///      what its own state quotes). Registered honest by a dust swap, then repriced.
     function _hostileConc() internal returns (MockV3Pool c) {
         c = new MockV3Pool(address(tA), address(tB), 3000);
+        Origin.wire(hub, address(c), address(tA), address(tB), BPC.KIND_V3, 3000);
         c.setState(uint160(1 << 96), uint128(2_000e18));
         tA.mint(address(c), 2_000e18);
         tB.mint(address(c), 2_000e18);
@@ -237,6 +254,7 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
     ///      a dust swap: a permissionless (tier 2) row.
     function _permissionlessPool(uint256 sideA, uint256 rate) internal returns (MockV2Pair p) {
         p = _heldPool(sideA, rate);
+        permissionlessOrigins.push(Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V2, 30));
         _dustSwap(address(p), BPC.KIND_V2, 30, p.token0() == address(tA), 1);
     }
 
@@ -313,6 +331,7 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
         _dustSwap(address(honest), BPC.KIND_V2, 30, honest.token0() == address(tA), 1);
         uint256 honestOut = _honestFill();
         LyingPair85Vote atk = _lyingPair();
+        liarOrigin.forget();                 // seated, then listed by no factory
         _forge(atk, 0.94e18);
         tB.mint(address(atk), DONATION);
         RoutePlan memory plan = _plan();
@@ -336,6 +355,7 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
         _dustSwap(address(honest), BPC.KIND_V2, 30, honest.token0() == address(tA), 1);
         uint256 honestOut = _honestFill();
         LyingPair85Vote atk = _lyingPair();
+        liarOrigin.forget();                 // seated, then listed by no factory
         uint256 inSide = 14_000_000e18;
         uint256 outSide = 13_160_000e18;   // 0.94 x inSide
         tA.mint(address(atk), inSide);
@@ -397,8 +417,10 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
     function test_NoVouchedMassAndAForgedPairFillsHonestly() public {
         _freshTokens();
         for (uint256 i; i < 3; ++i) _permissionlessPool(HONEST_SIDE, 1e18);
+        _forgetEveryOrigin();                // every row seated, none listed: nobody may vote
         uint256 honestOut = _honestFill();
         LyingPair85Vote atk = _lyingPair();
+        _forgetEveryOrigin();
         _forge(atk, 0.94e18);
         tB.mint(address(atk), DONATION);
         RoutePlan memory plan = _plan();
@@ -415,8 +437,10 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
     function test_limit_NoVouchedMassAndAParkedHeldPairStillCaptures() public {
         _freshTokens();
         for (uint256 i; i < 3; ++i) _permissionlessPool(HONEST_SIDE, 1e18);
+        _forgetEveryOrigin();                // every row seated, none listed: nobody may vote
         uint256 honestOut = _honestFill();
         LyingPair85Vote atk = _lyingPair();
+        _forgetEveryOrigin();
         uint256 inSide = 14_000_000e18;
         uint256 outSide = 13_160_000e18;   // 0.94 x inSide
         tA.mint(address(atk), inSide);
@@ -443,6 +467,7 @@ contract Bounty1013BandVoteIsVouchedTest is Test {
     function test_cost_ShallowCuratedPoolOutvotesADeepPermissionlessOne() public {
         _freshTokens();
         MockV2Pair deep = _permissionlessPool(12_000_000e18, 1e18);
+        _forgetEveryOrigin();                // seated, then listed by no factory
         MockV2Pair shallow = _heldPool(500_000e18, 0.9e18);
         hub.seedPool(address(shallow), BPC.KIND_V2, 30, address(0), address(tA), address(tB));
         (uint256 rIn, uint256 rOut) = _oriented(deep);

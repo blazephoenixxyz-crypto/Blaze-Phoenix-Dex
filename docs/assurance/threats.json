@@ -282,6 +282,14 @@
       "guard": "SELF",
       "test": "test_SELF_1020_ClassicDoorRefusesADelegatedFrame",
       "note": "Defence in depth, added 2026-10-20 after H11 (the V1 drain shapes through a delegated account; 2.0.0's deltas already held them, test/Fix1019H11.t.sol). The deployment address is an immutable (SELF) and _execute, which every door reaches, refuses RouterE(18) anywhere else; the four doors are pinned in test/Fix1020SelfGuard.t.sol. A 7702 account calling swapExactIn at the Router's address is unaffected. Not covered: the callbacks, receive and fallback in a delegated frame (they do not reach _execute)."
+    },
+    {
+      "id": "REG-SELF-CHOSEN-VENUE-SEAT",
+      "class": "A contract written by the attacker under a real pair, honest in every view (tokens, shape, reserves equal to live balances), refusing or short-paying at execution, takes a registry seat through one dust swap and is then planned for everyone on the pair",
+      "status": "blocked",
+      "guard": "_derivedByFactory",
+      "test": "test_TrapPairWithoutFactoryOrigin_TakesNoSeat",
+      "note": "rizki-3107 (Rizki Armando), 2026-10-20. Admission requires proof of origin: the swap door seats a pair-shaped or concentrated pool only if Hub.discoverFor (the derivation from the wired factories) lists it; the pool's own token0()/token1() check stays beside it, because a CREATE2 hit proves the deployer and salt, not the tokens (test_Create2HitOnOtherTokens_IsRefusedByThePairCheck). An unproven pool stays tradable on a caller-built route, at the caller's risk."
     }
   ]
 }

@@ -52,6 +52,7 @@ import {BlazePhoenixRouter, IPermit2} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 import {MockPermit2} from "./mocks/MockPermit2.sol";
 import {MockWETH} from "./RouterNativeEntry.t.sol";
 
@@ -67,6 +68,7 @@ contract OssificationIsNotDeathTest is Test {
     MockERC20 tokenB;
     MockV2Pair pairAB; // seeded in the Hub: the Solver/Quoter route over it
     MockV2Pair wpair;  // WETH/tokenB, unseeded (mirrors RouterNativeEntry)
+    MockOriginFactory venue; // a V2 venue wired before renounce; it deploys pairX/Y after it
 
     address treasury1 = address(0xFEE1);
     address treasury2 = address(0xFEE2);
@@ -90,6 +92,10 @@ contract OssificationIsNotDeathTest is Test {
         router.setPermit2(address(permit2));
         wethT = new MockWETH();
         router.setWeth(address(wethT));
+        // rizki-3107: the swap door seats only a pool a wired factory derives, and after
+        // renounce no factory can be wired. A venue wired HERE keeps feeding the registry
+        // with the pairs it deploys later: ossification freezes the venues, not the learning.
+        venue = Origin.open(hub, BPC.KIND_V2, 30);
 
         tokenA = new MockERC20("A", "A");
         tokenB = new MockERC20("B", "B");
@@ -388,6 +394,7 @@ contract OssificationIsNotDeathTest is Test {
         MockERC20 tX = new MockERC20("X", "X");
         MockERC20 tY = new MockERC20("Y", "Y");
         MockV2Pair pairXY = _newPair(address(tX), address(tY));
+        venue.list(address(pairXY), address(tX), address(tY), 30, false);   // deployed by the venue
         tX.mint(user, 1_000e18);
         vm.prank(user);
         tX.approve(address(router), type(uint256).max);

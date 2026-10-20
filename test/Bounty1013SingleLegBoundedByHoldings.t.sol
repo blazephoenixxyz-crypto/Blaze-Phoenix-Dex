@@ -37,6 +37,7 @@ import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "../test/mocks/MockERC20.sol";
 import {MockV2Pair} from "../test/mocks/MockV2Pair.sol";
+import {Origin} from "../test/mocks/MockOriginFactory.sol";
 
 contract Bounty1013SingleLegBoundedByHoldingsTest is Test {
     BlazePhoenixHub hub;
@@ -69,6 +70,11 @@ contract Bounty1013SingleLegBoundedByHoldingsTest is Test {
         inTok  = new MockERC20("IN", "IN");
         outTok = new MockERC20("OUT", "OUT");
         pair = new MockV2Pair(address(inTok), address(outTok));
+        // rizki-3107: the swap door now seats only a pool a wired factory derives, so a
+        // contract that forges its reserves takes no seat unless a wired factory deployed it.
+        // The pair is given that origin: what is measured here is the Solver's own bound,
+        // kept as defence in depth behind the origin proof.
+        Origin.wire(hub, address(pair), address(inTok), address(outTok), BPC.KIND_V2, 30);
 
         inTok.mint(address(pair),  1e18);
         outTok.mint(address(pair), 1e18);

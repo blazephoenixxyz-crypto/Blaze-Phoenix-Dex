@@ -1871,6 +1871,24 @@ contract BlazePhoenixHub {
             // executed: a reserve-shaped pool whose reserves exceed its holdings reports mass
             // nobody deposited, and it does not take a seat on the pair. The swap is unaffected.
             if (!_held(pool, kind, t0, t1)) return;
+            // ADMISSION REQUIRES PROOF OF ORIGIN (rizki-3107, Rizki Armando). Every check above
+            // asks the pool about itself - its tokens, its shape, its reserves against its
+            // balances - and a contract the attacker wrote answers all of them truthfully while
+            // its swap() refuses everyone else: seated by one dust swap, it took a split of the
+            // pair's Solver plans and reverted them, with no removal path. What the pool says
+            // about itself is never proof of where it came from. The proof is the one producer
+            // of "where do the pools of (t0, t1) live": `discoverFor`, the derivation from the
+            // wired factories (CREATE2 over the attested init-code hash, or the codehash-pinned
+            // factory's own answer). A pool it does not list does not take a seat; operator
+            // rows (`seedPool`, `addV4`) are their own proof. Cold first-registration path only.
+            // Skips registration, never reverts: the swap has already executed.
+            // It does NOT replace the pair check above: a CREATE2 derivation proves who deployed
+            // the pool and with which salt, not which tokens the deployed code trades, and a
+            // wired factory whose init code does not bind them yields a listed pool on other
+            // tokens (measured: test_Create2HitOnOtherTokens_IsRefusedByThePairCheck). Asked
+            // last, after the cheap reads: the scan is the costly one, and every check here only
+            // skips, so the order changes the gas, never the answer.
+            if (!_derivedByFactory(pool, t0, t1)) return;
         }
         _register(key, pool, kind, feeReg, address(0), t0, t1, false, depthWad);
         // initial tick + stamp wall-clock activity time
@@ -1891,6 +1909,18 @@ contract BlazePhoenixHub {
     ///      belongs to the owner.
     function _stampTs(uint256 s) private view returns (uint256) {
         return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);
+    }
+
+    /// @dev True iff a wired factory derives `pool` for (t0, t1): it is among `discoverFor`'s
+    ///      hits. Reusing the discovery scan, not a second derivation, keeps one producer of the
+    ///      answer, so admission by swap can never accept a pool discovery would not list.
+    function _derivedByFactory(address pool, address t0, address t1) private view returns (bool) {
+        PoolInfo[] memory hits = discoverFor(t0, t1);
+        for (uint256 i; i < hits.length; ) {
+            if (hits[i].pool == pool) return true;
+            unchecked { ++i; }
+        }
+        return false;
     }
 
     function _canInsert(bytes32[] storage ks, uint256 newDepth, bool bridged) private view returns (bool) {
@@ -2000,11 +2030,17 @@ contract BlazePhoenixHub {
                 // Evict the lowest-scoring slot (rank by fitness, not vitality,
                 // consistent with _canInsert so the pool we admit is the pool we
                 // chose to make room for).
+                // TIES BREAK BY DEPTH, NOT BY INDEX (rizki-3107). When every row has
+                // aged to psi 0 the fitness says nothing, and the strict `<` below
+                // used to evict the lowest index whatever its depth: a 3M pool left
+                // before fifteen 1k rows (measured). The 4-bit depth bucket rides under psi, so equal
+                // psi evicts the shallowest row; unequal psi still decides alone.
                 uint256 worstIdx;
                 uint256 worst = type(uint256).max;
                 bool bridged = _pairBridged($, t0, t1);
                 for (uint256 i; i < ks.length; ) {
-                    uint256 v = _psiOfSlot($.slot[ks[i]], bridged);
+                    uint256 sv = $.slot[ks[i]];
+                    uint256 v = (_psiOfSlot(sv, bridged) << 4) | BPC.decodeBucket(sv);
                     if (v < worst) { worst = v; worstIdx = i; }
                     unchecked { ++i; }
                 }

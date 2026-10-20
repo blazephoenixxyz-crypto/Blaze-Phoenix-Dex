@@ -16,6 +16,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract DimensionsTimeTest is Test {
     BlazePhoenixHub hub;
@@ -30,6 +31,8 @@ contract DimensionsTimeTest is Test {
         // Real pair mock: recordSwap gates first registration on token0()/token1()
         // matching the pair since fa6c847 (a codeless address is silently skipped).
         pool = address(new MockV2Pair(tokenA, tokenB));
+        // and, since rizki-3107, on a wired factory deriving it.
+        Origin.wire(hub, pool, tokenA, tokenB, BPC.KIND_V2, 30);
     }
 
     /// @notice R3 regression: tickSlot() used to increment the RAW stored swapCount forever and

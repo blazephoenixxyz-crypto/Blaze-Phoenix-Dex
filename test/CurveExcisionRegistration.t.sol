@@ -40,6 +40,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract CurveExcisionRegistrationTest is Test {
     BlazePhoenixHub hub;
@@ -120,6 +121,9 @@ contract CurveExcisionRegistrationTest is Test {
         a.mint(address(p), 1e21);
         b.mint(address(p), 1e21);
         p.setReserves(1e21, 1e21);
+        // rizki-3107: a porta do recordSwap so senta uma pool que uma fabrica ligada deriva. Com a
+        // origem ligada, a recusa da lapide e da guarda de kind, nao da prova de origem.
+        Origin.wire(hub, address(p), t0, t1, BPC.KIND_V2, 30);
 
         // Lapide: o registo tem de ficar INTACTO.
         hub.recordSwap(address(p), 2 /* lapide */, 30, address(0), t0, t1, 1e18, 1e18, 1e21);

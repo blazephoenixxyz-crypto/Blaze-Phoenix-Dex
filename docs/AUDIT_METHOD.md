@@ -33,7 +33,7 @@ A test that has never been seen red is a statement of hope, not a guard.
 
 ## 3. The curated mutation guard
 
-`.github/scripts/mutants.py` holds **425 hand-written mutants**, each pairing one exact line of
+`.github/scripts/mutants.py` holds **434 hand-written mutants**, each pairing one exact line of
 source with the single test that must fail once that line is altered. The operator classes are
 the shapes a real regression takes: a guard deleted, a comparison flipped at the bound that
 decides a refusal, an authorisation condition widened, an error code swapped with its
@@ -81,6 +81,39 @@ authenticated by construction — a Uniswap V4 pool id derives from its own fee 
 is the proof; everywhere else, the contract reads the pool. Discovery applies the same rule to
 what a factory answers: an asked pool proves its own pair before it is listed, so a pool the
 executor would refuse is never planned.
+
+## 5a. Admission requires proof of origin
+
+A venue enters the registry only when a wired factory derives its address: a CREATE2 derivation
+over the factory's attested init-code hash, a Uniswap V4 pool id recomputed from its key, or the
+answer of a codehash-pinned factory that the pool then confirms. What a venue says about itself
+— its tokens, its shape, its reserves, its fee, its mass — is a measurement of the venue, never
+proof of where it came from. A contract written by an attacker can answer every view truthfully
+and still refuse at execution.
+
+Six findings share this root. Each closed one thing a self-chosen venue could say: a fee and
+hooks read from calldata (REG-01/02), reserves above holdings (duxun D1), a row forged after
+registration (bounty #85, Remember Me), concentrated mass the pool does not hold (Binod Bk),
+mass lent for one transaction (Seavia Resources). The seventh (rizki-3107, Rizki Armando) told
+no lie at all: a pair holding real, withdrawable mass was seated by one dust swap, took a share
+of the pair's Solver plans and reverted them. Closing views one at a time cannot end the class;
+closing the door can. The swap door's first registration now asks the one producer of "where do
+the pools of this pair live" (`Hub.discoverFor`) and seats only what it lists; operator rows
+(`seedPool`, `addV4`) are their own proof. The proof of origin is added to the checks of what
+the pool is, never swapped for them: a CREATE2 derivation proves who deployed a pool and with
+which salt, not which tokens the deployed code trades, so the pool's own `token0()`/`token1()`
+check stays, and a test shows a derived pool on other tokens is refused only by it. A pool no wired factory derives can still be traded
+through a caller-built route, at the caller's risk; it is never ranked, planned or voted with on
+anyone else's behalf. Pinned by `test/Rizki3107FakePairSeat.t.sol`, beside a positive control for an
+asked factory and one for a CREATE2 derivation.
+
+CI guard: "Identity guard (a venue is derived, never declared)", `.github/scripts/identity-guard.sh`.
+It fails if `recordSwap` calls `_register` with no `_derivedByFactory` line before it, if
+`_derivedByFactory` stops asking `discoverFor` or reads the pool's own `token0Of`/`token1Of`, or if a
+function outside the four known doors (`recordSwap`, `addV4`, `claimV4`, `seedPool`) calls
+`_register`. It is green on today's Hub. It is red on four scratch copies, one per violation
+(proof line removed; proof line replaced by the token comparison; the proof answering from the
+pool's tokens; a fifth door), and red on the unfixed Hub of a591f97.
 
 ## 6. Every refusal reads what it decides on
 

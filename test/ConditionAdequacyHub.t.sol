@@ -36,6 +36,7 @@ import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
 import {MockAlgebraPool} from "./mocks/MockAlgebraPool.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 import {MockV4DeriveManager} from "./V4LearnedCodeSuppressesGrid.t.sol";
 
 /// @dev Solidly factory-call mock: mode 2's canonical selector
@@ -819,6 +820,7 @@ contract ConditionAdequacyHubTest is Test {
     /// ticks vitality — swapCount moves from 1 to 2 and the equality fails.
     function test_L1437_ZeroAmountIn_DoesNotTickVitality() public {
         address pool = address(new MockV2Pair(tokenA, tokenB));
+        Origin.wire(hub, pool, tokenA, tokenB, BPC.KIND_V2, 30);   // rizki-3107: derived
         hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         bytes32 key = hub.keyOf(pool, tokenA, tokenB);
         assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1, "state pin: registered with one tick");
@@ -862,11 +864,26 @@ contract ConditionAdequacyHubTest is Test {
     //  together. A pool lying about exactly ONE token isolates each arm.
     // =========================================================================
 
+    /// rizki-3107: the swap door also asks for proof of origin, and a factory-call origin
+    /// (modes 0-3) never lists a pool on other tokens (`_probe` re-reads them). Only a CREATE2
+    /// derivation can list one: here the test contract is a wired mode-4 deployer whose init
+    /// code does not bind the salt's tokens, deploying the x/y liar at the tokenA/tokenB salt.
+    /// Discovery lists it, so the refusal below is the pair proof's alone.
+    function _create2Liar(address x, address y) internal returns (address liar) {
+        bytes32 initHash = keccak256(abi.encodePacked(type(MockV2Pair).creationCode, abi.encode(x, y)));
+        hub.addFactory(address(this), BPC.KIND_V2, 4, initHash, new uint24[](0), new int24[](0));
+        liar = address(new MockV2Pair{salt: keccak256(abi.encodePacked(tokenA, tokenB))}(x, y));
+        PoolInfo[] memory hits = hub.discoverFor(tokenA, tokenB);
+        bool listed;
+        for (uint256 i; i < hits.length; ++i) if (hits[i].pool == liar) listed = true;
+        assertTrue(listed, "non-vacuity: the CREATE2 derivation lists the liar for tokenA/tokenB");
+    }
+
     /// `token0Of(pool) != t0` neutralised (forced false): this pool answers
     /// the RIGHT token1 and a WRONG token0, so the token1 arm is false and
     /// the whole proof collapses — the liar registers and the slot moves.
     function test_L1494_PoolLyingAboutToken0_IsRefused() public {
-        address liar = address(new MockV2Pair(tokenLow, tokenB)); // token0 = tokenLow != tokenA
+        address liar = _create2Liar(tokenLow, tokenB); // token0 = tokenLow != tokenA
         hub.recordSwap(liar, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         assertEq(hub.getSlot(hub.keyOf(liar, tokenA, tokenB)), 0,
             "a pool lying about token0 alone must be refused");
@@ -876,7 +893,7 @@ contract ConditionAdequacyHubTest is Test {
     /// `token1Of(pool) != t1` neutralised (forced false): right token0, wrong
     /// token1 — symmetric single-arm liar.
     function test_L1494_PoolLyingAboutToken1_IsRefused() public {
-        address liar = address(new MockV2Pair(tokenA, tokenC)); // token1 = tokenC != tokenB
+        address liar = _create2Liar(tokenA, tokenC); // token1 = tokenC != tokenB
         hub.recordSwap(liar, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         assertEq(hub.getSlot(hub.keyOf(liar, tokenA, tokenB)), 0,
             "a pool lying about token1 alone must be refused");
@@ -927,6 +944,7 @@ contract ConditionAdequacyHubTest is Test {
     function test_L1610_HonestAlgebraRegistration_IsAdmitted() public {
         MockAlgebraPool pool = new MockAlgebraPool(tokenA, tokenB, 3000);
         pool.setState(uint160(BPC.Q96), 1e24);
+        Origin.wire(hub, address(pool), tokenA, tokenB, BPC.KIND_ALGEBRA, 0);   // rizki-3107: derived
         // Calldata fee 777 on purpose: the registered fee must be the measured
         // dynamic sentinel 0, never the caller's number.
         hub.recordSwap(address(pool), BPC.KIND_ALGEBRA, 777, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);

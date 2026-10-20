@@ -70,6 +70,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @dev The Router's registry-feedback shape, reproduced exactly: Router:2032
 ///      calls `hub.recordSwap(...)` inside `try {} catch {}`, so a refusal never
@@ -115,6 +116,10 @@ contract HubRenounceThenSetRolesTest is Test {
         hub.setRoles(address(this), address(this), address(this));
         pairEarly = new MockV2Pair(tokenA, tokenB);
         pairLate  = new MockV2Pair(tokenA, tokenB);
+        // rizki-3107: the swap door seats only a pool a wired factory derives. Both pairs are
+        // born in factories wired while control is alive (two V2 forks, one pair each).
+        Origin.wire(hub, address(pairEarly), tokenA, tokenB, BPC.KIND_V2, 30);
+        Origin.wire(hub, address(pairLate), tokenA, tokenB, BPC.KIND_V2, 30);
         successorRouter = new SilentRecorderStub(address(hub));
     }
 

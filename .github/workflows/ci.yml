@@ -176,6 +176,14 @@ jobs:
             exit 1
           fi
 
+      - name: Identity guard (a venue is derived, never declared)
+        # rizki-3107 (AUDIT_METHOD §5a): a pool's own token0()/token1() declare its pair; they
+        # do not prove its origin. The swap door seats a pair-shaped pool only if a wired
+        # factory derives it (Hub._derivedByFactory -> discoverFor). Fails if recordSwap seats
+        # without that proof, if the proof reads the pool's own tokens, or if a function that
+        # is not a known door (recordSwap, addV4, claimV4, seedPool) calls _register.
+        run: bash .github/scripts/identity-guard.sh
+
       - name: Producer copy guard (one producer per registry answer)
         # SHARED_QUANTITIES.md rows collapsed to SINGLE on 2026-09-02, each with the copy
         # that used to disagree with the producer:

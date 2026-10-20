@@ -18,6 +18,7 @@ import {BlazePhoenixRouter} from "src/BlazePhoenixRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 interface IERC20Bal {
     function balanceOf(address) external view returns (uint256);
@@ -88,6 +89,9 @@ contract ForgedReservesNeverRegisterTest is Test {
 
     function _pair(int256 o0, int256 o1) internal returns (ForgeablePair p) {
         p = new ForgeablePair(t0, t1);
+        // rizki-3107: every pair here has a wired origin, so a refusal below is the holdings
+        // check's and not the origin proof's (the origin is asked after it).
+        Origin.wire(hub, address(p), t0, t1, BPC.KIND_V2, 30);
         MockERC20(t0).mint(address(p), HOLD);
         MockERC20(t1).mint(address(p), HOLD);
         p.setOffsets(o0, o1);
@@ -173,6 +177,7 @@ contract ForgedReservesNeverRegisterTest is Test {
 
     function test_SyncingMockPair_Registers() public {
         MockV2Pair p = new MockV2Pair(t0, t1);
+        Origin.wire(hub, address(p), t0, t1, BPC.KIND_V2, 30);
         MockERC20(t0).mint(address(p), HOLD);
         MockERC20(t1).mint(address(p), HOLD);
         p.setReserves(uint112(HOLD), uint112(HOLD));
@@ -190,6 +195,7 @@ contract ForgedReservesNeverRegisterTest is Test {
     /// above its holdings is judged where its depth is read, not here.
     function test_ConcentratedPool_AnsweringReserves_StillRegisters() public {
         ConcWithReserves c = new ConcWithReserves(t0, t1, 3000);
+        Origin.wire(hub, address(c), t0, t1, BPC.KIND_V3, 3000);
         c.setState(uint160(uint256(1) << 96), uint128(1e24));
         MockERC20(t0).mint(address(c), HOLD);
         MockERC20(t1).mint(address(c), HOLD);

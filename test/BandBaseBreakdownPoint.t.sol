@@ -22,6 +22,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC, RoutePlan, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract BandBaseBreakdownPointTest is Test {
     BlazePhoenixHub hub;
@@ -59,6 +60,10 @@ contract BandBaseBreakdownPointTest is Test {
         // reserves in the pair's own token order, so each side reports what it holds
         (uint112 r0, uint112 r1) = p.token0() == address(tA) ? (rA, rB) : (rB, rA);
         p.setReserves(r0, r1);
+        // rizki-3107: the swap door seats only a pool a wired factory derives; each pool is
+        // born in its own V2 factory, honest or not. Every row is then listed, so every row
+        // votes, as before the fix (when none was listed and the vote was not muted at all).
+        Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V2, 30);
         for (uint256 i; i < 4; i++) {
             hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0),
                 address(tA), address(tB), 1e18, 1e18, rA < rB ? rA : rB);

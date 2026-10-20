@@ -29,6 +29,7 @@ import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract VolumeOutFidelityRouterTest is Test {
     BlazePhoenixHub hub;
@@ -57,6 +58,8 @@ contract VolumeOutFidelityRouterTest is Test {
         tA = new MockERC20("A", "A");
         tB = new MockERC20("B", "B");
         ab = new MockV2Pair(address(tA), address(tB));
+        // rizki-3107: the swap door seats only a pool a wired factory derives.
+        Origin.wire(hub, address(ab), address(tA), address(tB), BPC.KIND_V2, 30);
         tA.mint(address(ab), RESERVE);
         tB.mint(address(ab), RESERVE);
         ab.setReserves(uint112(RESERVE), uint112(RESERVE));

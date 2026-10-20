@@ -7,6 +7,7 @@ import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 
 contract BlazePhoenixHubTest is Test {
     BlazePhoenixHub hub;
@@ -226,6 +227,18 @@ contract BlazePhoenixHubTest is Test {
     //  recordSwap — access control, ticking, eviction
     // =========================================================================
 
+    /// rizki-3107: the swap door seats only a pool a wired factory derives. Every pair these
+    /// tests seat is born in ONE V2-family factory, a fee tier per pair: up to 18 pairs of one
+    /// token pair must fit, and `MAX_FACTORIES` (16) would not hold one factory per pair.
+    MockOriginFactory origin;
+    uint24 tier;
+
+    function _pair() internal returns (address p) {
+        if (address(origin) == address(0)) origin = Origin.tiers(hub, BPC.KIND_V2, 18);
+        p = address(new MockV2Pair(tokenA, tokenB));
+        origin.list(p, tokenA, tokenB, ++tier, false);
+    }
+
     function test_RecordSwap_OnlyRouter() public {
         hub.setRoles(address(0xF00D), address(this), address(this));
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, 1));
@@ -241,8 +254,9 @@ contract BlazePhoenixHubTest is Test {
     function test_RecordSwap_NewPoolRegistersThenTicksOnNextCall() public {
         // A real pair mock is required since fa6c847: recordSwap gates first
         // registration on token0()/token1() matching the pair (a codeless bare
-        // address returns address(0) and is silently skipped, by design).
-        address pool = address(new MockV2Pair(tokenA, tokenB));
+        // address returns address(0) and is silently skipped, by design), and since
+        // rizki-3107 on a wired factory deriving it (`_pair`).
+        address pool = _pair();
         hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         bytes32 key = hub.keyOf(pool, tokenA, tokenB);
         assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1);
@@ -259,13 +273,13 @@ contract BlazePhoenixHubTest is Test {
         // (equal psi ties resolve to the lowest index in _register's strict `<`).
         address[] memory pools = new address[](16);
         for (uint256 i; i < 16; ++i) {
-            pools[i] = address(new MockV2Pair(tokenA, tokenB));
+            pools[i] = _pair();
             hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         }
         assertEq(hub.getActivePools(tokenA, tokenB).length, 16);
 
         // A vastly deeper newcomer (1000x) clears the 25% margin and must evict the weakest.
-        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        address newcomer = _pair();
         hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e21);
 
         PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);
@@ -286,11 +300,11 @@ contract BlazePhoenixHubTest is Test {
     function test_RecordSwap_EvictsTheWeakest_NotTheFirstInserted() public {
         address[] memory pools = new address[](16);
         for (uint256 i; i < 16; ++i) {
-            pools[i] = address(new MockV2Pair(tokenA, tokenB));
+            pools[i] = _pair();
             uint256 depth = i == 9 ? 1e18 : 1e20;              // bucket 3 versus bucket 5
             hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, depth);
         }
-        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        address newcomer = _pair();
         hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e23);
         PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);
         assertEq(active.length, 16, "count stays capped");
@@ -313,20 +327,20 @@ contract BlazePhoenixHubTest is Test {
     function test_RecordSwap_RejectsNewcomerAboveWeakestButInsideTheMargin() public {
         address[] memory pools = new address[](16);
         for (uint256 i; i < 16; ++i) {
-            pools[i] = address(new MockV2Pair(tokenA, tokenB));
+            pools[i] = _pair();
             for (uint256 k; k < 7; ++k) {
                 hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
             }
         }
         assertEq(hub.getActivePools(tokenA, tokenB).length, 16);
-        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        address newcomer = _pair();
         hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e21);
         PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);
         for (uint256 i; i < active.length; ++i) {
             assertTrue(active[i].pool != newcomer, "above the weakest but inside the margin: refused");
         }
         // and the same newcomer clears the margin once it is deep enough (bucket 7, psi 128)
-        address deeper = address(new MockV2Pair(tokenA, tokenB));
+        address deeper = _pair();
         hub.recordSwap(deeper, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e22);
         active = hub.getActivePools(tokenA, tokenB);
         bool sawDeeper;
@@ -336,11 +350,11 @@ contract BlazePhoenixHubTest is Test {
 
     function test_RecordSwap_RejectsInsertWhenMarginNotCleared() public {
         for (uint256 i; i < 16; ++i) {
-            hub.recordSwap(address(new MockV2Pair(tokenA, tokenB)), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+            hub.recordSwap(_pair(), BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         }
         assertEq(hub.getActivePools(tokenA, tokenB).length, 16);
         // Same depth as incumbents -> fails the strict 25% margin -> rejected.
-        address newcomer = address(new MockV2Pair(tokenA, tokenB));
+        address newcomer = _pair();
         hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
 
         PoolInfo[] memory active = hub.getActivePools(tokenA, tokenB);

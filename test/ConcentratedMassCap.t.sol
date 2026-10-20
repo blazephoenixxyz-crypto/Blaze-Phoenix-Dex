@@ -29,6 +29,7 @@ import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan} from "../src/BlazeP
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin, MockOriginFactory} from "./mocks/MockOriginFactory.sol";
 
 contract ConcentratedMassCapTest is Test {
     BlazePhoenixHub    hub;
@@ -66,6 +67,9 @@ contract ConcentratedMassCapTest is Test {
         tokenB = new MockERC20("B", "B");
         pool   = new MockV3Pool(address(tokenA), address(tokenB), 3000);
         pool.setState(Q96, FORGED_L);
+        // rizki-3107: the swap door seats only a pool a wired factory derives. What is measured
+        // here is the mass a pool declares against the mass it holds, so the pool gets an origin.
+        Origin.wire(hub, address(pool), address(tokenA), address(tokenB), BPC.KIND_V3, 3000);
         s0 = pool.token0();
         s1 = pool.token1();
 
@@ -271,6 +275,7 @@ contract ConcentratedEmptyBookTest is Test {
     MockERC20   tokenB;
     MockV2Pair  honest;
     PhantomBook book;
+    MockOriginFactory bookOrigin;
 
     address constant USER     = address(0xBEEF);
     address constant ATTACKER = address(0xBAD);
@@ -300,6 +305,9 @@ contract ConcentratedEmptyBookTest is Test {
 
         vm.prank(ATTACKER);
         book = new PhantomBook(address(tokenA), address(tokenB), 3000);
+        // rizki-3107: the book gets the origin the swap door asks for (one factory per venue);
+        // the defect measured below is the mass it holds, not who wrote its code.
+        bookOrigin = Origin.wire(hub, address(book), address(tokenA), address(tokenB), BPC.KIND_V3, 3000);
         book.setState(Q96, DECLARED_L);
 
         tokenA.mint(USER, 10_000e18);
@@ -405,6 +413,7 @@ contract ConcentratedEmptyBookTest is Test {
         MockERC20 tokenC = new MockERC20("C", "C");
         vm.prank(ATTACKER);
         PhantomBook lone = new PhantomBook(address(tokenA), address(tokenC), 3000);
+        Origin.wire(hub, address(lone), address(tokenA), address(tokenC), BPC.KIND_V3, 3000);
         lone.setState(Q96, DECLARED_L);
 
         tokenA.mint(ATTACKER, DUST);
@@ -438,6 +447,7 @@ contract ConcentratedEmptyBookTest is Test {
     function _seatLoneBook(MockERC20 out) internal returns (PhantomBook bk) {
         vm.prank(ATTACKER);
         bk = new PhantomBook(address(tokenA), address(out), 3000);
+        Origin.wire(hub, address(bk), address(tokenA), address(out), BPC.KIND_V3, 3000);
         bk.setState(Q96, DECLARED_L);
         tokenA.mint(ATTACKER, DUST);
         out.mint(address(bk), DUST);
@@ -492,6 +502,9 @@ contract ConcentratedEmptyBookTest is Test {
         honest2.setReserves(DEEP, DEEP);
         hub.seedPool(address(honest2), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
         uint256 snap = vm.snapshotState();
+        // rizki-3107: the book's factory lists it from birth, so the sweep finds it even unseated.
+        // The world without the book is the one where no factory lists it either.
+        bookOrigin.forget();
         uint256 before = tokenB.balanceOf(USER);
         vm.prank(USER);
         router.swapBestExactIn(address(tokenA), address(tokenB), ORDER, 1, USER, block.timestamp + 1);

@@ -36,6 +36,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract RegistryFeeFromCalldataTest is Test {
     BlazePhoenixHub hub;
@@ -57,6 +58,9 @@ contract RegistryFeeFromCalldataTest is Test {
         tB = new MockERC20("B", "B");
         pool = new MockV3Pool(address(tA), address(tB), FEE_REAL);
         pool.setState(uint160(1 << 96), 1e21);
+        // rizki-3107: the swap door seats only a pool a wired factory derives. The pool's origin
+        // is a V3 factory at its own fee tier: the forged fee is a calldata lie, not a second pool.
+        Origin.wire(hub, address(pool), address(tA), address(tB), BPC.KIND_V3, FEE_REAL);
     }
 
     function _slotFee() internal view returns (uint24) {

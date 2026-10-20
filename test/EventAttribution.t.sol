@@ -26,6 +26,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract EventAttributionTest is Test {
     BlazePhoenixHub hub;
@@ -55,6 +56,8 @@ contract EventAttributionTest is Test {
         tA.mint(address(pair), 1_000_000e18);
         tB.mint(address(pair), 1_000_000e18);
         pair.setReserves(1_000_000e18, 1_000_000e18);
+        // rizki-3107: a porta do recordSwap so senta uma pool que uma fabrica ligada deriva.
+        Origin.wire(hub, address(pair), address(tA), address(tB), BPC.KIND_V2, 30);
         for (uint256 i; i < 5; i++) {
             hub.recordSwap(address(pair), BPC.KIND_V2, 30, address(0),
                 address(tA), address(tB), 1e18, 1e18, 1_000_000e18);

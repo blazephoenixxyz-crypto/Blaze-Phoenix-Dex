@@ -6,6 +6,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract MockERC20Simple {
     mapping(address => uint256) public balanceOf;
@@ -227,6 +228,8 @@ contract V4LegPoolIdentityTest is Test {
         A.mint(address(pair), 5_000_000e18);
         B.mint(address(pair), 5_000_000e18);
         pair.setReserves(uint112(5_000_000e18), uint112(5_000_000e18));
+        // rizki-3107: the swap door seats only a pool a wired factory derives.
+        Origin.wire(hub, address(pair), address(A), address(B), BPC.KIND_V2, 30);
 
         _v2Swap(address(pair), 1e18);
         bytes32 keyPair = hub.keyOf(address(pair), address(A), address(B));
