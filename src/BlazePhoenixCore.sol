@@ -217,6 +217,14 @@ library BlazePhoenixCore {
     ///         chain-agnostic — it is the same on every EVM chain, so a native
     ///         route depends on no per-chain configuration at all.
     uint8   internal constant KIND_V4_NATIVE   = 8;
+    /// @notice A venue reached through a BlazePhoenixGate wrapper: a V3-shaped facade
+    ///         (`swap` + `uniswapV3SwapCallback`) in front of a curated, code-pinned adapter.
+    /// @dev    theta field 0x0 ON PURPOSE: the Core has no reader for its state (no reserves,
+    ///         no slot0), so every attribute question answers "no" and every reader fails
+    ///         closed. The Router executes it by IDENTITY (`_execV3Amt`), the Hub admits it
+    ///         only as a MODE_CREATE2_V3 factory row (the Gate), and it is outside
+    ///         KINDS_EXECUTABLE until the Core carries a depth and quote producer for it.
+    uint8   internal constant KIND_EXTERNAL    = 9;
 
     // ─── θ — the taxonomy as DATA ──────────────────────────────────────
     //
@@ -453,7 +461,7 @@ library BlazePhoenixCore {
         if      (sub == 0) salt = keccak256(abi.encodePacked(t0, t1));
         else if (sub == 1) salt = isAlgebra
                                     ? algebraSalt(t0, t1)
-                                    : keccak256(abi.encode(t0, t1, fee));
+                                    : v3Salt(t0, t1, fee);
         else if (sub == 2) salt = keccak256(abi.encodePacked(t0, t1, stable));
         else               salt = keccak256(abi.encode(t0, t1, tickSpacing));
 
@@ -510,6 +518,13 @@ library BlazePhoenixCore {
     ///      producer, shared with the Hub's attested derive. Requires t0 < t1.
     ///      Scratch space only. Addresses are masked before the store: inline
     ///      assembly makes no promise about the bits above a narrow type.
+    /// @dev The Uniswap-V3 salt: keccak(abi.encode(t0, t1, fee)). Single producer, shared by
+    ///      deriveAddress (sub-mode 1, non-zero fee) and the Gate, which deploys its wrappers
+    ///      under it so the Hub's derive finds them by the same formula. Requires t0 < t1.
+    function v3Salt(address t0, address t1, uint24 fee) internal pure returns (bytes32) {
+        return keccak256(abi.encode(t0, t1, fee));
+    }
+
     function algebraSalt(address t0, address t1) internal pure returns (bytes32 s) {
         assembly ("memory-safe") {
             mstore(0x00, and(t0, 0xffffffffffffffffffffffffffffffffffffffff))
@@ -2378,6 +2393,10 @@ library BlazePhoenixCore {
     ///         fee that family carries. V4 kinds are authenticated by their pool id, not by a
     ///         shape, and never reach this function.
     function provenShape(address pool, uint8 kind) public view returns (bool ok, uint8 k, uint24 fee) {
+        // A kind with no shape this Core can read (tombstones, KIND_EXTERNAL) is refused, not
+        // re-labelled: below, a pool without slot0 is re-written to V2 or Solidly, so a declared
+        // kind 9 left this function as a pair the Solver would price on reserves it never had.
+        if (!kindHasAny(kind, A_RESERVES | A_CONC_POOL)) return (false, kind, 0);
         (uint160 sp, , bool dynShape) = v3StateAndDynFee(pool);
         bool declaredConc = kindHas(kind, A_CONC_POOL);
         bool isConc = sp != 0;
@@ -2516,6 +2535,10 @@ library BlazePhoenixCore {
             (uint160 sp4, uint128 liq, , , ) = v4SqrtAndLiq(v4mgr, pid);
             return depthFromL18(liq, sp4, dc0, dc1);
         }
+        // Only a pool-read concentrated kind reaches the L reader below. Any other kind (the
+        // tombstones, KIND_EXTERNAL) measures 0 instead of being read as V3: a wrapper that
+        // answers slot0/liquidity would otherwise seal a depth no Core reader produced.
+        if (!kindHas(kind, A_CONC_POOL)) return 0;
         // V3/Algebra: raw L is in root-scale and is not comparable with the reserves a pair
         // reports; converted at the price the ONE slot0 reader returns.
         (uint160 spReg, , ) = v3StateAndDynFee(pool);

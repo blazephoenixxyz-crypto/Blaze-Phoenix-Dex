@@ -163,6 +163,9 @@ contract BlazePhoenixHub {
     ///                                             The number stays burned; see the Core.
     ///           bit 8 (V4_NATIVE)               — never registered by factory: they derive from
     ///                                             the singleton. Never had a bit, never will.
+    ///           bit 9 (EXTERNAL)                — the Gate's wrappers, only through a
+    ///                                             MODE_CREATE2_V3 row (KINDS_V3_SALT). Outside
+    ///                                             KINDS_EXECUTABLE: no Core reader yet.
     ///
     ///         THE NUMBERS ARE NEVER REUSED. `decodeKind` reads the kind from the Monoslot bits:
     ///         giving 2 to a new venue would reinterpret already-written pools as that venue. A
@@ -172,7 +175,8 @@ contract BlazePhoenixHub {
         | (uint256(1) << BPC.KIND_V3)      // 1 — concentrated
         | (uint256(1) << BPC.KIND_V4)      // 4 — singleton, via MODE_V4_DERIVE
         | (uint256(1) << BPC.KIND_SOLIDLY) // 5 — stable/volatile pairs
-        | (uint256(1) << BPC.KIND_ALGEBRA);// 6 — concentrated, dynamic fee
+        | (uint256(1) << BPC.KIND_ALGEBRA)  // 6 — concentrated, dynamic fee
+        | (uint256(1) << BPC.KIND_EXTERNAL);// 9 — Gate wrappers, via MODE_CREATE2_V3 only
 
     /// @notice The kinds the Router KNOWS HOW TO EXECUTE — the legitimate set at the
     ///         `recordSwap` door, which runs after the leg has already executed.
@@ -228,6 +232,10 @@ contract BlazePhoenixHub {
     // 4-7 are CREATE2 salt families (V2 salt, V3 salt, EIP-1167 clone, V3-CL).
     uint8   internal constant MODE_CREATE2_V2        = 4;
     uint8   internal constant MODE_CREATE2_V3        = 5;
+    /// @dev Kinds whose factory deploys under the V3 salt slot (Core.v3Salt / algebraSalt).
+    ///      A salt-ABI identity, kept as a set so the Gate joins it as one data bit.
+    uint256 internal constant KINDS_V3_SALT =
+          (uint256(1) << BPC.KIND_V3) | (uint256(1) << BPC.KIND_ALGEBRA) | (uint256(1) << BPC.KIND_EXTERNAL);
     uint8   internal constant MODE_CREATE2_CLONE     = 6;
     // Live, but dispatched by arithmetic (`sub = mode - 4`) inside BPC.deriveAddress rather than
     // by name, so a naive "unreferenced identifier" scan will flag it as dead. It is not: mode 7
@@ -719,9 +727,13 @@ contract BlazePhoenixHub {
         // 3) salt-slot ↔ kind coherence
         if (mode == MODE_CREATE2_V2 && kind != BPC.KIND_V2)      revert HubE(5);
         if (mode == MODE_CREATE2_CLONE && kind != BPC.KIND_SOLIDLY) revert HubE(5);
+        // Kind 9 is the Gate's CREATE2 and nothing else: a lookup row would trust a getPool
+        // answer for it, and a V3-CL row derives by spacing, a salt the Gate never uses.
+        if (kind == BPC.KIND_EXTERNAL && mode != MODE_CREATE2_V3) revert HubE(5);
         if (mode == MODE_CREATE2_V3) {
-            // V3 salt slot accepts V3 or Algebra only
-            if (kind != BPC.KIND_V3 && kind != BPC.KIND_ALGEBRA) revert HubE(5);
+            // V3 salt slot accepts V3, Algebra, or the Gate (KIND_EXTERNAL): the three
+            // families that deploy under keccak(abi.encode(t0, t1, fee)) or its Algebra sibling.
+            if (((KINDS_V3_SALT >> kind) & 1) == 0) revert HubE(5);
             // Algebra is dynamic-fee: every declared fee must be the 0 sentinel (R2)
             if (kind == BPC.KIND_ALGEBRA) {
                 for (uint256 i; i < fees.length; ) {

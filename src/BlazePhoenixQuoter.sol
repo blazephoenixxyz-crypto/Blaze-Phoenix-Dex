@@ -804,16 +804,18 @@ contract BlazePhoenixQuoter {
             // linear rescale walked the TANGENT of a concave curve and
             // OVERSTATED whenever carry outgrew the plan (reported at up
             // to ~907 bps on a thin pool) — pinned RED-first by
-            // test/QuoterOverQuote.t.sol. Tombstone kinds also land here
-            // and now quote 0 (universalQuote's fail-closed default)
-            // instead of a rescaled ghost. NOTE: a FRESH ctx — the `qc`
+            // test/QuoterOverQuote.t.sol. Tombstone kinds and KIND_EXTERNAL
+            // also land here and quote 0 (universalQuote's fail-closed
+            // default) because the ctx carries the LEG's kind: it used to be
+            // forced to KIND_SOLIDLY, which priced any unknown kind on the
+            // Solidly arm. NOTE: a FRESH ctx — the `qc`
             // above is PINNED to KIND_V2, and reusing it would price
             // Solidly on the constant-product arm. tokenIn is REQUIRED
             // (getAmountOut is direction-keyed on it); tokenOther feeds
             // the depth read (discarded here) and, with tokenIn, the
             // held-reserves check of bounty #85.
             QuoteCtx memory sc;
-            sc.kind       = BPC.KIND_SOLIDLY;
+            sc.kind       = leg.kind;
             sc.pool       = leg.pool;
             sc.zeroForOne = leg.zeroForOne;
             sc.fee        = leg.fee;

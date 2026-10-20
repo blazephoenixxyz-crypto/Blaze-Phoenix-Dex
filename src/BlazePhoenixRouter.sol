@@ -1712,7 +1712,10 @@ contract BlazePhoenixRouter {
         // reverts directly — same result, fewer bytes.
         if (BPC.kindHas(k, BPC.A_RESERVES)) {
             _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
-        } else if (BPC.kindHas(k, BPC.A_CONC_POOL)) {
+        } else if (BPC.kindHas(k, BPC.A_CONC_POOL) || k == BPC.KIND_EXTERNAL) {
+            // KIND_EXTERNAL is an IDENTITY, not an attribute: a Gate wrapper speaks the V3
+            // swap/callback ABI, so it settles through the same callback and the same
+            // measured delta. It has no theta bit, so no reader treats it as a V3 pool.
             _execV3Amt(leg, tokenIn, amt);
         } else if (BPC.kindHas(k, BPC.A_CONC_SING)) {
             _execV4Amt(leg, tokenIn, amt);

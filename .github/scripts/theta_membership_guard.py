@@ -31,11 +31,8 @@ CORE = "BlazePhoenixCore.sol"
 
 # (file, function, chain with whitespace collapsed) -> why it is an identity, not a membership
 CENSUS = {
-    ("BlazePhoenixHub.sol", "addFactory", "kind != BPC.KIND_V3 && kind != BPC.KIND_ALGEBRA"):
-        "salt-slot identity: the V3 CREATE2 salt slot is shared by exactly these two families "
-        "(Core.deriveAddress sub == 1, Algebra told apart by its zero fee). The question is about "
-        "the factory's salt ABI, not an attribute: a future pool-read concentrated kind would not "
-        "inherit that salt.",
+    # 2026-10-21 (gate-1021): the one pinned chain, Hub addFactory's V3-salt slot test, became
+    # the KINDS_V3_SALT mask when KIND_EXTERNAL (the Gate) joined it; the census is empty.
 }
 
 OPERAND = r"[A-Za-z_][\w.]*(?:\[[^\]]*\])?(?:\.[A-Za-z_]\w*)*"
