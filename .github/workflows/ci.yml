@@ -214,6 +214,13 @@ jobs:
             exit 1
           fi
 
+      - name: Custody and delegated-frame guard (the Router moves only this call's delta)
+        # Property 2 of 2026-10-20: every read of the Router's own balance is pinned per function
+        # with the baseline that makes it a delta, and _execute opens with the SELF check, so no
+        # baseline is ever measured at an EIP-7702 delegated account. H11 vector T and the 3086
+        # bridge sweep were a balance read with no baseline; this makes the absence a tested fact.
+        run: python3 .github/scripts/frame_custody_guard.py
+
       - name: Curve/Balancer excisado (decisao do dono 2026-08-20)
         # Removidos por decisao: quase nenhuma L2 os tem, e custavam bytecode em cinco contratos.
         # O corte apaga tres superficies que eram cada uma a UNICA da sua classe: o unico approve
