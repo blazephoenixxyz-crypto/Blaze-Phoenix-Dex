@@ -27,6 +27,12 @@ pragma solidity 0.8.36;
 //  registers through the swap door when a wired factory derives it, by factory call
 //  (mode 0) and by CREATE2 (mode 4).
 //
+//  Second part (Hub._register): when every row of a full pair had aged to psi 0 the
+//  strict `<` evicted the lowest index, whatever its depth - a 3M pool left before
+//  fifteen 1k rows. Ties now break by the depth bucket. Red on a591f97:
+//  `test_EvictionTieAtPsiZero_EvictsTheShallowestRow`. The control
+//  `test_EvictionUnequalPsi_PsiStillDecidesAlone` pins that the bucket only breaks ties.
+//
 //  Fixtures are written from the report; the researcher's archive was not used.
 //    forge test --match-path test/Rizki3107FakePairSeat.t.sol -vv
 // =============================================================================
@@ -326,5 +332,68 @@ contract Rizki3107FakePairSeatTest is Test {
         assertFalse(_seated(address(p)), "precondition: not registered before the swap");
         _dustThrough(address(p), USER);
         assertTrue(_seated(address(p)), "a CREATE2-derived pool must still register through the swap door");
+    }
+
+    // ── eviction: ties break by depth, psi still decides alone ───────────────
+
+    function _fill(uint256 n, uint256 base) internal returns (MockV2Pair[] memory fill) {
+        fill = new MockV2Pair[](n);
+        for (uint256 i; i < n; ++i) {
+            uint256 d = base * (i + 1);
+            fill[i] = new MockV2Pair(address(tokenA), address(tokenB));
+            tokenA.mint(address(fill[i]), d);
+            tokenB.mint(address(fill[i]), d);
+            fill[i].setReserves(uint112(d), uint112(d));
+            hub.seedPool(address(fill[i]), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
+        }
+    }
+
+    function _seedFresh() internal returns (MockV2Pair fresh) {
+        fresh = new MockV2Pair(address(tokenA), address(tokenB));
+        tokenA.mint(address(fresh), DEEP);
+        tokenB.mint(address(fresh), DEEP);
+        fresh.setReserves(DEEP, DEEP);
+        hub.seedPool(address(fresh), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
+    }
+
+    function _age(uint256 d) internal {
+        vm.warp(block.timestamp + d * 1 days);
+        vm.roll(block.number + d * 43_200);
+    }
+
+    /// Red on a591f97: with all 16 rows at psi 0 the newcomer evicted index 0, the 3M seed
+    /// (bucket 9), and kept fifteen 1k-15k rows (buckets 6-7).
+    function test_EvictionTieAtPsiZero_EvictsTheShallowestRow() public {
+        MockV2Pair[] memory fill = _fill(15, 1_000e18);      // honest is index 0; 16 rows
+        _age(60);
+        assertEq(hub.getPsi(address(honest), address(tokenA), address(tokenB)), 0, "non-vacuity: the tie is at psi 0");
+        assertEq(hub.getPsi(address(fill[0]), address(tokenA), address(tokenB)), 0, "non-vacuity: psi 0");
+        MockV2Pair fresh = _seedFresh();
+        assertTrue(_seated(address(fresh)), "the newcomer must take a seat");
+        assertTrue(_seated(address(honest)), "the deepest row was evicted on a psi tie");
+        assertFalse(_seated(address(fill[0])), "the shallowest, lowest-index row must be the one evicted");
+    }
+
+    /// Control: the bucket breaks ties only. A shallow row that is still warm (psi > 0) outranks
+    /// every deeper row at psi 0, so a psi-0 row leaves and the warm one stays.
+    function test_EvictionUnequalPsi_PsiStillDecidesAlone() public {
+        MockV2Pair warm = new MockV2Pair(address(tokenA), address(tokenB));
+        tokenA.mint(address(warm), 100e18);
+        tokenB.mint(address(warm), 100e18);
+        warm.setReserves(uint112(100e18), uint112(100e18));   // bucket 5, below every other row
+        hub.seedPool(address(warm), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
+        MockV2Pair[] memory fill = _fill(14, 1_000e18);       // honest + warm + 14 = 16 rows
+        _age(60);
+        uint256 d = BPC.registryDepth18(address(warm), BPC.KIND_V2, address(tokenA), address(tokenB), address(0), bytes32(0));
+        vm.prank(address(router));
+        hub.recordSwap(address(warm), BPC.KIND_V2, 0, address(0), address(tokenA), address(tokenB), 1e15, 1e15, d);
+        assertGt(hub.getPsi(address(warm), address(tokenA), address(tokenB)), 0, "non-vacuity: the shallow row is warm");
+        assertEq(hub.getPsi(address(fill[0]), address(tokenA), address(tokenB)), 0, "non-vacuity: the rest are at psi 0");
+        _seedFresh();
+        assertTrue(_seated(address(warm)), "a warm row was evicted for a colder deeper one: psi no longer decides");
+        uint256 gone;
+        for (uint256 i; i < fill.length; ++i) if (!_seated(address(fill[i]))) ++gone;
+        if (!_seated(address(honest))) ++gone;
+        assertEq(gone, 1, "exactly one psi-0 row leaves");
     }
 }

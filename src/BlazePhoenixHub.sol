@@ -2030,11 +2030,17 @@ contract BlazePhoenixHub {
                 // Evict the lowest-scoring slot (rank by fitness, not vitality,
                 // consistent with _canInsert so the pool we admit is the pool we
                 // chose to make room for).
+                // TIES BREAK BY DEPTH, NOT BY INDEX (rizki-3107). When every row has
+                // aged to psi 0 the fitness says nothing, and the strict `<` below
+                // used to evict the lowest index whatever its depth: a 3M pool left
+                // before fifteen 1k rows (measured). The 4-bit depth bucket rides under psi, so equal
+                // psi evicts the shallowest row; unequal psi still decides alone.
                 uint256 worstIdx;
                 uint256 worst = type(uint256).max;
                 bool bridged = _pairBridged($, t0, t1);
                 for (uint256 i; i < ks.length; ) {
-                    uint256 v = _psiOfSlot($.slot[ks[i]], bridged);
+                    uint256 sv = $.slot[ks[i]];
+                    uint256 v = (_psiOfSlot(sv, bridged) << 4) | BPC.decodeBucket(sv);
                     if (v < worst) { worst = v; worstIdx = i; }
                     unchecked { ++i; }
                 }
