@@ -69,6 +69,25 @@ contract KindMaskQuestionSeparationTest is Test {
         assertFalse(_contains(hub, "KINDS_PAIR_PROOF = KINDS_"), "PAIR_PROOF is derived from another mask");
     }
 
+    /// The masks against theta, the Core's data for what each kind is. A kind exists when theta
+    /// gives it an attribute: every kind that exists is executable, and every one a factory makes
+    /// is routable - all but V4_NATIVE, which derives from the singleton. The day theta gains a
+    /// kind no mask names, or a mask names a kind theta does not describe, this is the red that
+    /// asks which question the new kind answers. KINDS_PAIR_PROOF against A_PAIR_VER is pinned
+    /// in PairProofMaskParity.t.sol.
+    function test_ExecutableIsEveryKindThetaDescribes() public view {
+        assertEq(probe.executable(), _described(), "KINDS_EXECUTABLE is not the set of kinds theta describes");
+    }
+
+    function test_RoutableIsEveryDescribedKindButTheNative() public view {
+        assertEq(probe.routable(), _described() & ~(uint256(1) << BPC.KIND_V4_NATIVE),
+            "KINDS_ROUTABLE is not the set of kinds theta describes, less V4_NATIVE");
+    }
+
+    function _described() internal pure returns (uint256 m) {
+        for (uint256 k; k < 256; ++k) if (BPC.thetaOf(uint8(k)) != 0) m |= uint256(1) << k;
+    }
+
     function _contains(string memory hay, string memory needle) internal pure returns (bool) {
         bytes memory h = bytes(hay);
         bytes memory n = bytes(needle);

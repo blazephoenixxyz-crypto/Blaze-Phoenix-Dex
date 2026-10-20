@@ -8,7 +8,11 @@
 # Rules enforced:
 #   1. a PINNED row must name a test file that EXISTS
 #   2. a PINNED row's test file must MENTION the quantity  <- this is the one that bites
-#   3. a SINGLE row that names a CI guard must find that guard in ci.yml
+#   3. a SINGLE row must name its CI guard (*Name ... guard*), and ci.yml must have it
+#
+# Rule 3 used to bite only when the row named a guard, so a SINGLE row naming none passed
+# silently: on 2026-10-20 thirteen of seventeen did. SINGLE claims that a guard forbids the
+# copy; a row held by a test is PINNED, and a row held by neither is OPEN.
 #
 # Rule 2 demoted two rows on the day the register was written: PROTOCOL_FEE_BPS
 # and depthWad both cited pins that never name what they pin, and a finding
@@ -74,8 +78,11 @@ while IFS= read -r row; do
       done
       ;;
     SINGLE)
-      guard="$(printf '%s' "$row" | grep -oE '\*[A-Z][a-z]+ [a-z]+ guard\*' | tr -d '*' | head -1)"
-      if [[ -n "$guard" ]] && [[ -r "$CI" ]]; then
+      guard="$(printf '%s' "$row" | grep -oE '\*[A-Z][A-Za-z0-9]*( [a-z]+)* guard\*' | tr -d '*' | head -1)"
+      if [[ -z "$guard" ]]; then
+        echo "::error::SINGLE row for '$qty' names no CI guard. SINGLE means a guard forbids the copy: name it (*Name guard*), or call the row what holds it - PINNED with its test, OPEN with nothing."
+        fail=1
+      elif [[ -r "$CI" ]]; then
         if ! grep -qi "$guard" "$CI"; then
           echo "::error::SINGLE row for '$qty' relies on the CI job \"$guard\", which is not in $CI."
           fail=1

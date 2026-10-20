@@ -993,8 +993,8 @@ contract BlazePhoenixSolver {
             bytes32 pid;
             if (BPC.kindHas(p.kind, BPC.A_CONC_SING)) {
                 if (mgr == address(0)) mgr = hub.v4PoolManager();
-                pid = BPC.computeV4PoolId(p.kind == BPC.KIND_V4_NATIVE ? address(0) : p.token0,
-                    p.token1, p.fee, p.tickSpacing, p.hooks);
+                (address c0, address c1) = BPC.v4LegCurrencies(p.kind, p.token0, p.token1, true);
+                pid = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
             }
             uint256 d = BPC.registryDepth18(p.pool, p.kind, p.token0, p.token1, mgr, pid);
             // Strict: an equal mass does not displace the earlier row, so the choice is a
@@ -1169,8 +1169,8 @@ contract BlazePhoenixSolver {
     function _heldShare(PoolInfo memory p, uint256 d, address tIn, uint256 bar) private view returns (uint256) {
         address mgr = hub.v4PoolManager();
         bool zfo = p.token0 == tIn;
-        bytes32 pid = BPC.computeV4PoolId(p.kind == BPC.KIND_V4_NATIVE ? address(0) : p.token0,
-            p.token1, p.fee, p.tickSpacing, p.hooks);
+        (address c0, address c1) = BPC.v4LegCurrencies(p.kind, p.token0, p.token1, true);
+        bytes32 pid = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
         return BPC.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core (size)
     }
 
@@ -1447,19 +1447,13 @@ contract BlazePhoenixSolver {
         PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
     ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
         bool zfo = cand.token0 == tIn;
-        address qIn = tIn;
-        address other = zfo ? cand.token1 : cand.token0;
-        if (cand.kind == BPC.KIND_V4_NATIVE) {
-            // Native V4: PoolInfo carries the pair in WETH-canonical form
-            // with token0 = the wrapped-native side (the registry's
-            // orientation contract — see Hub._readPoolInfo). The pool's REAL
-            // currency0 is address(0): substitute it on whichever side is
-            // token0 before the quote sorts the pair, so universalQuote
-            // derives the native poolId (address(0) sorts first by
-            // construction). zeroForOne needs no branch: token0 == tIn
-            // already means "input is currency0" under this orientation.
-            if (zfo) qIn = address(0); else other = address(0);
-        }
+        // Native V4: PoolInfo carries the pair in WETH-canonical form with token0 = the
+        // wrapped-native side (the registry's orientation contract - see Hub._readPoolInfo).
+        // The pool's REAL currency0 is address(0): BPC.v4LegCurrencies puts it on whichever
+        // side is token0 before the quote sorts the pair, so universalQuote derives the native
+        // poolId. zeroForOne needs no branch: token0 == tIn already means "input is
+        // currency0" under this orientation. Every other kind passes through untouched.
+        (address qIn, address other) = BPC.v4LegCurrencies(cand.kind, tIn, zfo ? cand.token1 : cand.token0, zfo);
         QuoteCtx memory c = QuoteCtx({
             kind:        cand.kind,
             pool:        cand.pool,

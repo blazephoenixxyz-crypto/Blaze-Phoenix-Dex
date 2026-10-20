@@ -237,6 +237,14 @@ jobs:
         # copy of the predicate outside the Core.
         run: python3 .github/scripts/theta_membership_guard.py
 
+      - name: V4 identity guard (the native side of a V4 leg is derived once)
+        # Fusion 1 (2026-10-20): five hand-written copies of "which side of a native V4 leg is the
+        # chain's coin" (Quoter x2, Solver x3) became calls to Core.v4LegCurrencies. Fails on a
+        # KIND_V4_NATIVE branch that puts address(0) on a side by hand outside the census (the
+        # Router's WETH-verified producer, the Hub's registration door), on a census site that is
+        # gone, and on nativeMapVerified called or either producer defined outside its place.
+        run: python3 .github/scripts/v4_identity_guard.py
+
       - name: Door prologue census (every value door opens the same way)
         # M7: the Router's four value doors each carry whenLive+nrEntrant, the uint128 cap and the
         # zero-minOut refusal before the pull, the zero-received refusal and the #45 clamp after

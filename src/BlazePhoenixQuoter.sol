@@ -413,7 +413,7 @@ contract BlazePhoenixQuoter {
     ///      (currencies, fee, tickSpacing, hooks) - which `_execV4Amt` refuses with
     ///      RouterE(11). `_simV4` already asked this, but the plan preview prices
     ///      from the plan and never reaches it (bounty #52, ridhahmuh). The native
-    ///      side is derived as `_simV4` derives it, from zeroForOne.
+    ///      side is derived as `_simV4` derives it, by BPC.v4LegCurrencies.
     function _hookRefusedIn(Route memory route) private view returns (bool) {
         for (uint256 h; h < route.hops.length; ) {
             Leg[] memory legs = route.hops[h].legs;
@@ -423,12 +423,8 @@ contract BlazePhoenixQuoter {
                 if (BPC.kindHasAny(leg.kind, BPC.A_CONC_SING)) {
                     if (k != address(0)
                         && (BPC.hookAltersDeltas(k) || (BPC.hookRunsInSwap(k) && hub.hookPaused(k)))) return true;
-                    address tIn = route.hops[h].tokenIn;
-                    address tOther = address(uint160(uint256(leg.auxId)));
-                    if (leg.kind == BPC.KIND_V4_NATIVE) {
-                        if (leg.zeroForOne) tIn = address(0);
-                        else tOther = address(0);
-                    }
+                    (address tIn, address tOther) = BPC.v4LegCurrencies(leg.kind,
+                        route.hops[h].tokenIn, address(uint160(uint256(leg.auxId))), leg.zeroForOne);
                     (address c0, address c1) = BPC.sortTokens(tIn, tOther);
                     if (leg.zeroForOne != (tIn == c0)
                         || leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, k)))))
@@ -566,19 +562,13 @@ contract BlazePhoenixQuoter {
         if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) return 0;
         address tokenOther = address(uint160(uint256(leg.auxId)));
         if (tokenOther == address(0)) return 0;
-        if (leg.kind == BPC.KIND_V4_NATIVE) {
-            // Native pool: substitute address(0) for the wrapped-native side.
-            // Which side that is falls out of zeroForOne alone (the Solver's
-            // orientation contract: zeroForOne ⇔ the input is the pool's
-            // currency0, and a native pool's currency0 is ALWAYS address(0)
-            // since it sorts first) — so no WETH address is needed here, and
-            // the Quoter never settles anything: the dry-run reverts before
-            // any payment, making a wrong key merely a 0-quote, never a loss.
-            // For a well-formed leg this derivation agrees exactly with the
-            // Router's weth-verified substitution — same key, same poolId.
-            if (leg.zeroForOne) tokenIn = address(0);
-            else tokenOther = address(0);
-        }
+        // Native pool: address(0) takes the wrapped-native side, which falls out of
+        // zeroForOne alone (BPC.v4LegCurrencies, the orientation contract) - so no WETH
+        // address is needed here, and the Quoter never settles anything: the dry-run
+        // reverts before any payment, making a wrong key merely a 0-quote, never a loss.
+        // For a well-formed leg this derivation agrees exactly with the Router's
+        // weth-verified substitution - same key, same poolId.
+        (tokenIn, tokenOther) = BPC.v4LegCurrencies(leg.kind, tokenIn, tokenOther, leg.zeroForOne);
         (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
         // Parity with the Router's BPX-2026-009 refusals: a leg whose direction is not
         // the direction of its tokens, or that names a pool its key does not derive

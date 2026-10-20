@@ -3,6 +3,9 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  ONE FEE, ONE PLACE — measured from outside the Router.
 //
+//  The register row this pins: the fee count `Router._payFee` keeps per settlement
+//  (SHARED_QUANTITIES.md).
+//
 //  The rule (Router._execute, 2026-08-22; both regimes named 2026-09-05): ANCHORED — a bridge
 //  coin is some hop's input, and the fee is charged exactly once, there (or on the output of a
 //  direct route into a bridge coin); EXHAUSTION — no bridge coin is any hop's input, and every

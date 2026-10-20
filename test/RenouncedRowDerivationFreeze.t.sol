@@ -10,6 +10,7 @@
 //  fixed. The codehash pin answers for the factory's runtime and cannot answer for
 //  the row's own CREATE2 derivation input, which lives in the row; so the guard
 //  names that input directly, as it already names the runtime and the mode family.
+//  That input is `factories[row].initHash` (its row in SHARED_QUANTITIES.md).
 //
 //  WHAT MUST STAY OPEN, and is asserted here so a future edit cannot quietly close
 //  it: an identical re-add is a no-op refresh, and a factory that was never listed

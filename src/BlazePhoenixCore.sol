@@ -1310,6 +1310,36 @@ library BlazePhoenixCore {
         return (address(0), address(0));
     }
 
+    /// @notice A V4 leg's currencies, by its orientation: the ONE derivation of the native side
+    ///         for every reader that holds a direction and no WETH (Quoter, Solver).
+    ///
+    /// @dev    WHY IT EXISTS. "Which side of a native V4 leg is the chain's coin?" was answered
+    ///         by hand five times: twice in the Quoter (`_hookRefusedIn`, `_simV4`, the #52
+    ///         preview and the dry-run) and three times in the Solver (`_capByLiveDepth`,
+    ///         `_heldShare`, `_quoteWithDepth`). Five copies of one line agree until one of
+    ///         them is edited; the poolId the plan prices and the one the preview names would
+    ///         then differ with no symptom. Now the copies are calls.
+    ///
+    ///         THE ORIENTATION CONTRACT. A native pool's currency0 is ALWAYS address(0) (it
+    ///         sorts first), and `zeroForOne` means "the input is currency0", so the input is
+    ///         the native side exactly when `zeroForOne` holds. A registry row (`PoolInfo`) is
+    ///         this call with `zeroForOne = true`: its token0 is the wrapped-native side
+    ///         (`Hub._readPoolInfo`). Every other kind returns its tokens untouched.
+    ///
+    ///         WHY NOT `nativeMapVerified`. That producer recognises the native side by the
+    ///         canonical WETH, which the Router holds and must hold: its callback unwraps and
+    ///         wraps, so it may only ever touch the real WETH. These readers hold no WETH and
+    ///         settle nothing, so a malformed leg costs them a 0-quote, never a transfer. On
+    ///         every leg the Router admits (one side the WETH, the direction its tokens' own)
+    ///         the two derive the same key: test/Fusion1020V4LegCurrencies.t.sol.
+    function v4LegCurrencies(uint8 kind, address tIn, address tOther, bool zeroForOne)
+        internal pure returns (address, address)
+    {
+        if (kind != KIND_V4_NATIVE) return (tIn, tOther);
+        if (zeroForOne) return (address(0), tOther);
+        return (tIn, address(0));
+    }
+
     /// @notice The Solidly CURVE with the right decimals — the ONLY producer of this quantity.
     ///
     ///         WHY IT EXISTS. The same question ("how much does this pool return?") was answered
