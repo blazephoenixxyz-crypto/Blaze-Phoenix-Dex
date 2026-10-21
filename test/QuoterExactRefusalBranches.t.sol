@@ -93,6 +93,9 @@ contract MockSolverQ {
 contract MockHubQ {
     address public v4PoolManager;
     function setV4PoolManager(address m) external { v4PoolManager = m; }
+    /// The Router's WETH, asked by the Quoter for a native V4 leg (#52 seal: nativeMapVerified).
+    address public weth;
+    function setWeth(address w) external { weth = w; }
     function bridgeCount() external pure returns (uint8) { return 0; }
     function bridge(uint8) external pure returns (address) { return address(0); }
     /// The one bridge is the routes' OUTPUT token (set in `setUp`): a direct route into a
@@ -683,6 +686,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     /// FAILS IF DELETED: yes — the un-substituted key sortTokens(tokA, tokB)
     /// mismatches, the manager refuses, and the decoy shows instead of Q_OUT.
     function test_Exact_V4Native_ZeroForOneSubstitutesCurrency0() public {
+        hubMock.setWeth(address(tokA)); // the input side is the Router's WETH
         mgrMock.setExpectedKey(address(0), address(tokB), POOL_FEE, TICK_SP, address(0));
 
         Leg memory l = _v4Leg(AMT);
@@ -700,6 +704,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     /// FAILS IF DELETED: yes — tokenOther stays the auxId token, the key
     /// mismatches, and the decoy shows.
     function test_Exact_V4Native_NotZeroForOneSubstitutesCounterSide() public {
+        hubMock.setWeth(address(tokB)); // the counter side is the Router's WETH
         mgrMock.setExpectedKey(address(0), address(tokA), POOL_FEE, TICK_SP, address(0));
 
         Leg memory l = _v4Leg(AMT);
