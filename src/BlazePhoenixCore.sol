@@ -1274,24 +1274,26 @@ library BlazePhoenixCore {
 
     /// @notice Ask a Solidly-class pair for its own exact output. Same doctrine
     ///         as an ask-the-pool adapter (quote fn == exec fn => cannot diverge):
-    ///         getAmountOut(amountIn, tokenIn) is computed by the pair's own
-    ///         bytecode — live fee, stable curve and rounding included — so a
-    ///         swap requesting exactly this figure satisfies the K invariant by
-    ///         construction and no safety haircut is needed. Returns 0 when the
-    ///         pool does not expose the selector (caller falls back to the
-    ///         replicated curve with a conservative haircut).
+    ///         the pair's quote is computed by its own bytecode — live fee,
+    ///         stable curve and rounding included — so a swap requesting
+    ///         exactly this figure satisfies the K invariant by construction
+    ///         and no safety haircut is needed. Two selectors, asked in order:
+    ///         getAmountOutWithTotalFee(amountIn, tokenIn) (0x0ea099c1) and,
+    ///         only when that ask fails, getAmountOut(amountIn, tokenIn)
+    ///         (0xf140a35a). Returns 0 when the pool exposes neither (caller
+    ///         falls back to the replicated curve with a conservative haircut).
     function solidlyGetAmountOut(address pool, uint256 amountIn, address tokenIn)
         public view returns (uint256 out)
     {
-        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSignature(
-            "getAmountOut(uint256,address)", amountIn, tokenIn));
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x0ea099c1, amountIn, tokenIn));
+        if (!ok) (ok, w) = _askWord(pool, abi.encodeWithSelector(0xf140a35a, amountIn, tokenIn));
         if (ok) out = w;
     }
 
     /// @dev A one-word ask, bounded the way every read the quote path makes of a pool is bounded:
     ///      GAS_CAP of gas, and a fixed-size copy - one word here, never the whole returndata. The
     ///      planner quotes every candidate of a pair in one call, so no answer may cost it more.
-    ///      The Solidly pair's getAmountOut, its factory() and that factory's getFee ask through
+    ///      The Solidly pair's two quote asks, its factory() and that factory's getFee ask through
     ///      here; the fixed-selector getters keep their inline form of the same bound. `ok` only
     ///      for an answer of at least one word; the word is the answer's first.
     function _askWord(address target, bytes memory cd) private view returns (bool ok, uint256 word) {

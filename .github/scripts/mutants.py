@@ -3188,6 +3188,21 @@ M = [
       old="uint256 amtIn) external returns (uint256 out) {\n        (address tIn, address tOut) = _wrapperTokens(zeroForOne);",
       new="uint256 amtIn) external returns (uint256 out) {\n        (address tIn, address tOut) = _wrapperTokens(!zeroForOne); // MUTANT [611]",
       teste="test_BalV3_QuoteCallEqualsExecution_QuoteIsZero"),
+ dict(nome="m13-1021 [612]: the Solidly ask asks only getAmountOut, never the total-fee selector",
+      f="src/BlazePhoenixCore.sol",
+      old="_askWord(pool, abi.encodeWithSelector(0x0ea099c1, amountIn, tokenIn));",
+      new="_askWord(pool, abi.encodeWithSelector(0xf140a35a, amountIn, tokenIn)); // MUTANT [612]",
+      teste="test_APairWithOnlyTheTotalFeeSelectorIsAskedItsOwnAnswer"),
+ dict(nome="m13-1021 [613]: the Solidly asks run in the old order, so getAmountOut wins over the total fee",
+      f="src/BlazePhoenixCore.sol",
+      old="(0x0ea099c1, amountIn, tokenIn));\n        if (!ok) (ok, w) = _askWord(pool, abi.encodeWithSelector(0xf140a35a,",
+      new="(0xf140a35a, amountIn, tokenIn));\n        if (!ok) (ok, w) = _askWord(pool, abi.encodeWithSelector(0x0ea099c1, /* MUTANT [613] */",
+      teste="test_APairWithBothSelectorsIsAskedTheTotalFeeOne"),
+ dict(nome="m13-1021 [614]: the total-fee ask is asked for one wei more than the leg's input",
+      f="src/BlazePhoenixCore.sol",
+      old="(0x0ea099c1, amountIn, tokenIn));",
+      new="(0x0ea099c1, amountIn + 1, tokenIn)); // MUTANT [614]",
+      teste="test_APairWithOnlyTheTotalFeeSelectorQuotesAndDeliversItsOwnAnswer"),
 ]
 
 def run(t):
