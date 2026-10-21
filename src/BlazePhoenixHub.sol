@@ -236,6 +236,28 @@ contract BlazePhoenixHub {
     ///      A salt-ABI identity, kept as a set so the Gate joins it as one data bit.
     uint256 internal constant KINDS_V3_SALT =
           (uint256(1) << BPC.KIND_V3) | (uint256(1) << BPC.KIND_ALGEBRA) | (uint256(1) << BPC.KIND_EXTERNAL);
+    /// @dev The kinds a mode that fixes no salt family can register: every routable kind but
+    ///      the Gate's, whose identity is its CREATE2 under the V3 salt and nothing else.
+    uint256 internal constant KINDS_LOOKUP = KINDS_ROUTABLE & ~(uint256(1) << BPC.KIND_EXTERNAL);
+    /// @notice Which kinds each discovery mode can register: the salt-slot <-> kind coherence
+    ///         of `addFactory`, as DATA. Row `m` is bits 16m..16m+15; bit `k` set = kind `k`
+    ///         admissible under mode `m`. Modes that fix no salt family (0-3 ask, 7 V3-CL,
+    ///         8 tombstone) admit every routable kind but the Gate's; 4 (V2 salt) only V2; 5 (V3 salt)
+    ///         KINDS_V3_SALT; 6 (clone) only Solidly; 9 (V4 derive) only V4. Rows 10-15 are
+    ///         empty. 16 bits per row is enough because KINDS_ROUTABLE has no bit >= 16 (pinned).
+    ///         Mode 8 never reaches its row: MODES_VALID refuses it first, and stays the one
+    ///         check that does.
+    uint256 internal constant MODE_KINDS =
+          KINDS_LOOKUP                                                             // 0
+        | (KINDS_LOOKUP << 16)                                                     // 1
+        | (KINDS_LOOKUP << 32)                                                     // 2
+        | (KINDS_LOOKUP << 48)                                                     // 3
+        | ((uint256(1) << BPC.KIND_V2) << (16 * MODE_CREATE2_V2))                  // 4
+        | (KINDS_V3_SALT << (16 * MODE_CREATE2_V3))                                // 5
+        | ((uint256(1) << BPC.KIND_SOLIDLY) << (16 * MODE_CREATE2_CLONE))          // 6
+        | (KINDS_LOOKUP << (16 * MODE_CREATE2_V3CL))                               // 7
+        | (KINDS_LOOKUP << 128)                                                    // 8 (tombstone)
+        | ((uint256(1) << BPC.KIND_V4) << (16 * MODE_V4_DERIVE));                  // 9
     uint8   internal constant MODE_CREATE2_CLONE     = 6;
     // Live, but dispatched by arithmetic (`sub = mode - 4`) inside BPC.deriveAddress rather than
     // by name, so a naive "unreferenced identifier" scan will flag it as dead. It is not: mode 7
@@ -724,31 +746,22 @@ contract BlazePhoenixHub {
                 && mode != MODE_V4_DERIVE && initHash == bytes32(0)
         ) revert HubE(5);
 
-        // 3) salt-slot ↔ kind coherence
-        if (mode == MODE_CREATE2_V2 && kind != BPC.KIND_V2)      revert HubE(5);
-        if (mode == MODE_CREATE2_CLONE && kind != BPC.KIND_SOLIDLY) revert HubE(5);
-        // Kind 9 is the Gate's CREATE2 and nothing else: a lookup row would trust a getPool
-        // answer for it, and a V3-CL row derives by spacing, a salt the Gate never uses.
-        if (kind == BPC.KIND_EXTERNAL && mode != MODE_CREATE2_V3) revert HubE(5);
-        if (mode == MODE_CREATE2_V3) {
-            // V3 salt slot accepts V3, Algebra, or the Gate (KIND_EXTERNAL): the three
-            // families that deploy under keccak(abi.encode(t0, t1, fee)) or its Algebra sibling.
-            if (((KINDS_V3_SALT >> kind) & 1) == 0) revert HubE(5);
-            // Algebra is dynamic-fee: every declared fee must be the 0 sentinel (R2)
-            if (kind == BPC.KIND_ALGEBRA) {
-                for (uint256 i; i < fees.length; ) {
-                    if (fees[i] != 0) revert HubE(5);
-                    unchecked { ++i; }
-                }
+        // 3) salt-slot <-> kind coherence, as DATA: row `mode` of MODE_KINDS lists the kinds
+        //    that mode can derive (bit k = kind k). The index cannot bleed into the next
+        //    row: `kind` already passed KINDS_ROUTABLE, which has no bit >= 16. Kind 9 (the
+        //    Gate) sits in row 5 alone: a lookup row would trust a getPool answer for it, and
+        //    a V3-CL row derives by spacing, a salt the Gate never uses.
+        if (((MODE_KINDS >> ((uint256(mode) << 4) | kind)) & 1) == 0) revert HubE(5);
+        // Algebra is dynamic-fee: every declared fee must be the 0 sentinel (R2)
+        if (mode == MODE_CREATE2_V3 && kind == BPC.KIND_ALGEBRA) {
+            for (uint256 i; i < fees.length; ) {
+                if (fees[i] != 0) revert HubE(5);
+                unchecked { ++i; }
             }
         }
-        // V4 derive-scan coherence: mode 9 is only meaningful for the V4
-        // kind, and its fees/spacings are PAIRED explicit extras — enforce
+        // V4 derive-scan: its fees/spacings are PAIRED explicit extras; enforce
         // equal length so a misregistered row cannot silently mispair them.
-        if (mode == MODE_V4_DERIVE) {
-            if (kind != BPC.KIND_V4) revert HubE(5);
-            if (fees.length != spacings.length) revert HubE(5);
-        }
+        if (mode == MODE_V4_DERIVE && fees.length != spacings.length) revert HubE(5);
 
         HubStore storage $ = _store();
         // A KNOWN FACTORY IS REFRESHED IN PLACE, NEVER GIVEN A SECOND ROW — the
