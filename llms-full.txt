@@ -1357,21 +1357,61 @@ The invariant catalogue is documented in [`llms.txt`](./llms.txt). Invariants ar
 exercised in CI by the test suite, Halmos symbolic proofs, and Slither static
 analysis; a report that defeats one of these is especially welcome.
 
+### Uniswap V4 hooks and pool callbacks
+
+Hooks are checked at execution, in `BlazePhoenixRouter._execV4Amt`, from the
+hook's address bits and the Hub's allow-list:
+
+- A hook whose bits let it return swap deltas is refused (`RouterE(9)`): the V4
+  quote cannot price custom accounting, so quote and execution would diverge.
+- A hook whose bits make it run in the swap (`beforeSwap` / `afterSwap`) is
+  refused while `Hub.hookPaused` is true: revoked by the curator, or listed and
+  its runtime code changed since admission.
+- A hook nobody listed is the caller's signed choice on the explicit entry
+  point, bounded like every venue by the floors re-derived from measured output,
+  the attestation gate and the caller's `userMinOut`. The automatic entry point
+  (Solver and the pool registry) never proposes it: registry reads drop a V4
+  pool whose hook fails `Hub.isHookLive`.
+- A hook with no swap bit is not entered by its own pool's swap. It can still be
+  reached through a nested PoolManager call made by a hook that does run; that
+  is bounded by the manager's flash accounting (an unsettled delta reverts the
+  whole unlock), the same floors, and the admission of the calling hook.
+
+What the codehash pin covers. `Hub.isHookLive` is true while a hook is
+allow-listed and its runtime code still matches the hash pinned at admission,
+so a redeploy at the same address, or any other change to the hook's own
+runtime, pauses it. It does **not** see a delegate proxy swapping its
+implementation: the proxy's runtime stays byte-identical, and the EVM gives a
+contract no way to read another contract's storage, so the EIP-1967 slot cannot
+be pinned on-chain. That case is bounded by human curation of the allow-list
+(admitting an upgradeable hook is a judgement the pin does not replace), by the
+immutable address bits, which reject the delta-returning class before any token
+moves, and by the floors on measured output.
+
+V3-style callbacks. `_v3Callback` refuses any caller other than the
+exact pool recorded in transient storage for the current leg (`RouterE(6)`),
+refuses a demand above that leg's input (`maxAmt`), and clears that context
+before paying, so a re-entry reverts.
+
 ## Verification pipeline and track record
 
-An independent external audit is scheduled before launch. What runs on every
-push: a forge suite of 1,252 declared tests across 206 files (unit, property,
-parity, stateful invariants) and 25 fork suites against live chain liquidity;
-Halmos symbolic proofs, Slither (fail on high), an EIP-170 size guard — also
+An independent external audit has not yet taken place; one is scheduled before
+launch. Measured at commit `b9db56d` (2026-10-22, `FOUNDRY_PROFILE=release`):
+338 test files (30 of them fork suites against live chain liquidity) declare
+2,236 `test*` / `invariant*` / `check*` functions (unit, property, parity,
+stateful invariants); the run gave 2,074 passed, 0 failed and 49 skipped in
+380 suites, the skips being lanes that run elsewhere
+([`TESTING.md`](./TESTING.md)). On every push: the forge suite, Halmos symbolic
+proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
 suite are what branch protection on `main` requires; the Certora Prover (INV-20
 fail-closed), Aderyn, Solhint and the secret scan run alongside. Beyond the
-suite, a curated mutation guard of 183 named mutants, a shared-quantity
+suite, a curated mutation guard of 625 named mutants, a shared-quantity
 register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it
 from a clean checkout: [`docs/AUDIT_METHOD.md`](./docs/AUDIT_METHOD.md).
 
-Track record, across this repo and the staking sibling: **25 researchers
+Track record, across this repo and the staking sibling: **61 researchers
 credited** in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) — a count
 you can check against that file rather than against this sentence — every
 confirmed finding fixed with a regression test that fails against the pre-fix
@@ -1521,6 +1561,26 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Yudha Eka Saputra**
 - **Pavan Baile**
 - **Garin**
+- **Bandreg**
+- **Makino Ken**
+- **sus1lo**
+- **Widya Kuya**
+- **polabears**
+- **Danu Fandiyana (anmxx)**
+- **ALZEA**
+- **Tuan Berdasi**
+- **Ricki Ariadi**
+- **Agis Apriansyah**
+- **Joko (Independent Web3 Security Analyst)**
+- **Luis_MZ**
+- **biasaajash**
+- **PapaCZ**
+- **WANZ**
+- **TOT**
+- **fortworun**
+- **KHIKHI**
+- **momonom207**
+- **Tarun Pardeshi**
 - **Anonymous**
 
 ---
@@ -1541,11 +1601,13 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
-**1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
-`forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
-the run did not have). The mutant register holds **434 curated mutants** today
-(`.github/scripts/check_targets.py`), each paired with the test that must kill it.
+Measured at commit `b9db56d` (2026-10-22), `FOUNDRY_PROFILE=release`: **338 `.t.sol` files** —
+308 local, 30 fork — holding **2,236 `test*` / `invariant*` / `check*` declarations** (lines
+matching `function (test|invariant|check)…(` under `test/`); **2,074 tests passed, 0 failed** in 380
+suites, 49 skipped (43 in the fork suites without an RPC, the five N-version checks and
+`PcTraceProbe`). The mutant register holds **625 curated mutants** (the length of `M` in
+`.github/scripts/mutants.py`, as `check_targets.py` reports it), each paired with the test that must
+kill it.
 
 Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
 with one, where none is skipped; the five N-version checks run in their own lane, at other code
@@ -1974,10 +2036,10 @@ is stated in `SHARED_QUANTITIES.md`, row "Router balance after settlement").
 
 ## 7. Validation summary
 
-Measured on this tree (2026-09-24), by the commands in [`../TESTING.md`](../TESTING.md):
-236 `.t.sol` files — 209 local, 27 on forked live liquidity — holding 1,609
-`test*` / `invariant*` / `check*` declarations, 43 of them stateful `invariant_*`
-campaigns; and 268 curated mutants, each paired with the named test that must fail
+Measured at commit `b9db56d` (2026-10-22), by the commands in [`../TESTING.md`](../TESTING.md):
+338 `.t.sol` files — 308 local, 30 on forked live liquidity — holding 2,236
+`test*` / `invariant*` / `check*` declarations, 48 of them stateful `invariant_*`
+campaigns; and 625 curated mutants, each paired with the named test that must fail
 when it is applied. The routing logic this document describes is tested by name:
 the split gate against every survivor (`test/SplitGateSeesEverySurvivor.t.sol`),
 the capacity clamp (`test/RouterPhysicalMassCap.t.sol`), the bridge term of the
@@ -2168,7 +2230,7 @@ hop count.
 | `_quote` (Curve NG) | "What does this NG leg pay for amtIn?" | one private body read by `quote` (the wrapper's view) and `quoteCall` (the wrapper's eth_call quote, the Quoter's fallback arm); the lock probe (`get_virtual_price`) sits inside it | `PINNED` | `test/adapters/AdapterCurveNG.t.sol`: quote == wrapper.quoteCall == wrapper.quote == the executed output on an asymmetric rate; mutants [581], [608] |
 | `_quote` (Curve crypto NG) | "What does this Twocrypto-NG / Tricrypto-NG leg pay for amtIn?" | one private body read by `quote` (the wrapper's view) and `quoteCall` (the wrapper's eth_call quote, the Quoter's fallback arm); the lock probe (`get_virtual_price`) and the direction's indices (`_ij`, shared with `exec`) sit inside it | `PINNED` | `test/adapters/AdapterCurveCryptoNG.t.sol`: quote == quoteCall == wrapper.quote == the executed output on an asymmetric rate, and the locked pool quotes 0; `test/fork/AdapterCurveCryptoNGFork.t.sol` (quote == execution on Base); mutants [606], [607], [609] |
 | `_requireHookPinned` (Balancer V3) | "May this pool's hooks run under the adapter?" | one function, read at `resolve` (from the Vault's `getHooksConfig`) and again at every `exec` (from the wrapper's aux1), like the Router's `isHookLive` | `PINNED` | `test/adapters/AdapterBalancerV3.t.sol` (pinned hook trades, then the same hook with other code is refused at exec); mutants [593]-[595] |
-| adapter `depth18` | "How deep is this external leg?" | the adapters answer 0 on purpose: the Core's `registryDepth18` is the one depth producer, and kind 9 has no depth arm yet; `Gate.vitalOf` reads the word capped by `Core.heldMass18`, so a 0 is depth 0 there | `OPEN` | none. Harmless while the adapters are reached only through explicit routes (owner, 21/10); a ranking consumer would need a pin first |
+| adapter `depth18` | "How deep is this external leg?" | `ExtAdapterBase._depth18`, the one adapter producer: the larger side of the balances the venue itself reports, each normalised by its token's decimals, through `Core.maxSide18` (the same formula `Core.heldMass18` caps with; kept inline there, since through `maxSide18` the Hub grew 772 B past EIP-170). Two forms, asked of the venue: by index (`_indexedDepth18`: the pool's `coins(i)`/`balances(i)`, Curve NG and crypto NG, only when the lock probe passes) and by list (`_listedDepth18`: the Vault's `getPoolTokens` balances for Balancer V2, `getPoolTokenInfo` balancesRaw for V3, matched to the calling wrapper's pair). Never reads amtIn; `Gate.vitalOf` caps it by `heldMass18` (adapter-depth-1021) | `PINNED` (2026-10-21) | `test/adapters/AdapterCurveNG.t.sol`, `AdapterCurveCryptoNG.t.sol`, `AdapterBalancerV2.t.sol`, `AdapterBalancerV3.t.sol` (`*_Depth18_*`: the long side of the venue's word, not its balanceOf; decimals before the max; zero while a Curve pool is locked; only for the Gate's wrapper); mutants [670]-[678] |
 | Gate use (`vitalSlot`, a wrapper's swap count) | "How used is this Gate wrapper?" | `Wrapper.swap`, the one writer, after the custody checks: Core's `tickSlot` then `stampTs`, in the Hub's slot layout, only when the swap is material on both sides of the venue pool (input >= the venue's balance of the input token >> `MATERIAL_SHIFT`, output >= its balance of the output token >> `MATERIAL_SHIFT`, output non-zero; each side in its own token). Read only by `Gate.vitalOf` through Core's `vitality`. The Hub's `recordSwap` still skips kind 9 (no Hub byte spent): the Gate is the registry of its own wrappers | `PINNED` (2026-10-21) | `test/GateVitality.t.sol`: material swaps tick (direct and through the Router's door), dust in, dust out and nothing out never tick, each against its threshold computed by hand; mutants [624]-[628] |
 | Gate fitness (`vitalOf`: vitality, depth18, psi of a wrapper) | "How fit is this Gate wrapper for the registry?" | `Gate.vitalOf`, the one producer, relayed by `Quoter.gateVitalOf` behind `Core.gateWrapperLive`: zeros unless the Gate created the wrapper and its family is live; depth = the adapter's declared `depth18` (read with `amtIn = 0` under `GATE_QUOTE_GAS`) capped by `Core.heldMass18` over the venue pool (the registry's own concentrated-arm cap); psi = `Core.psi` with the bucket of that depth now, no bridge or concentration bonus. Not yet consumed by the Solver (kind 9 is never planned, D13) | `PINNED` (2026-10-21) | `test/GateVitality.t.sol`: the word capped at the mass, an honest word standing, a one-sided venue keeping its side, the burning adapter capped, psi on the live bucket, an impostor and a cleared family at zero, the Quoter reading only the admitted Gate; mutants [629]-[636] |
 

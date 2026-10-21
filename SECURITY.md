@@ -78,21 +78,61 @@ The invariant catalogue is documented in [`llms.txt`](./llms.txt). Invariants ar
 exercised in CI by the test suite, Halmos symbolic proofs, and Slither static
 analysis; a report that defeats one of these is especially welcome.
 
+### Uniswap V4 hooks and pool callbacks
+
+Hooks are checked at execution, in `BlazePhoenixRouter._execV4Amt`, from the
+hook's address bits and the Hub's allow-list:
+
+- A hook whose bits let it return swap deltas is refused (`RouterE(9)`): the V4
+  quote cannot price custom accounting, so quote and execution would diverge.
+- A hook whose bits make it run in the swap (`beforeSwap` / `afterSwap`) is
+  refused while `Hub.hookPaused` is true: revoked by the curator, or listed and
+  its runtime code changed since admission.
+- A hook nobody listed is the caller's signed choice on the explicit entry
+  point, bounded like every venue by the floors re-derived from measured output,
+  the attestation gate and the caller's `userMinOut`. The automatic entry point
+  (Solver and the pool registry) never proposes it: registry reads drop a V4
+  pool whose hook fails `Hub.isHookLive`.
+- A hook with no swap bit is not entered by its own pool's swap. It can still be
+  reached through a nested PoolManager call made by a hook that does run; that
+  is bounded by the manager's flash accounting (an unsettled delta reverts the
+  whole unlock), the same floors, and the admission of the calling hook.
+
+What the codehash pin covers. `Hub.isHookLive` is true while a hook is
+allow-listed and its runtime code still matches the hash pinned at admission,
+so a redeploy at the same address, or any other change to the hook's own
+runtime, pauses it. It does **not** see a delegate proxy swapping its
+implementation: the proxy's runtime stays byte-identical, and the EVM gives a
+contract no way to read another contract's storage, so the EIP-1967 slot cannot
+be pinned on-chain. That case is bounded by human curation of the allow-list
+(admitting an upgradeable hook is a judgement the pin does not replace), by the
+immutable address bits, which reject the delta-returning class before any token
+moves, and by the floors on measured output.
+
+V3-style callbacks. `_v3Callback` refuses any caller other than the
+exact pool recorded in transient storage for the current leg (`RouterE(6)`),
+refuses a demand above that leg's input (`maxAmt`), and clears that context
+before paying, so a re-entry reverts.
+
 ## Verification pipeline and track record
 
-An independent external audit is scheduled before launch. What runs on every
-push: a forge suite of 1,252 declared tests across 206 files (unit, property,
-parity, stateful invariants) and 25 fork suites against live chain liquidity;
-Halmos symbolic proofs, Slither (fail on high), an EIP-170 size guard — also
+An independent external audit has not yet taken place; one is scheduled before
+launch. Measured at commit `b9db56d` (2026-10-22, `FOUNDRY_PROFILE=release`):
+338 test files (30 of them fork suites against live chain liquidity) declare
+2,236 `test*` / `invariant*` / `check*` functions (unit, property, parity,
+stateful invariants); the run gave 2,074 passed, 0 failed and 49 skipped in
+380 suites, the skips being lanes that run elsewhere
+([`TESTING.md`](./TESTING.md)). On every push: the forge suite, Halmos symbolic
+proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
 suite are what branch protection on `main` requires; the Certora Prover (INV-20
 fail-closed), Aderyn, Solhint and the secret scan run alongside. Beyond the
-suite, a curated mutation guard of 183 named mutants, a shared-quantity
+suite, a curated mutation guard of 625 named mutants, a shared-quantity
 register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it
 from a clean checkout: [`docs/AUDIT_METHOD.md`](./docs/AUDIT_METHOD.md).
 
-Track record, across this repo and the staking sibling: **25 researchers
+Track record, across this repo and the staking sibling: **61 researchers
 credited** in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) — a count
 you can check against that file rather than against this sentence — every
 confirmed finding fixed with a regression test that fails against the pre-fix

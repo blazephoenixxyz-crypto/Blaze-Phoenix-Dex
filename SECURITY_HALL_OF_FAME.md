@@ -63,6 +63,26 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Yudha Eka Saputra**
 - **Pavan Baile**
 - **Garin**
+- **Bandreg**
+- **Makino Ken**
+- **sus1lo**
+- **Widya Kuya**
+- **polabears**
+- **Danu Fandiyana (anmxx)**
+- **ALZEA**
+- **Tuan Berdasi**
+- **Ricki Ariadi**
+- **Agis Apriansyah**
+- **Joko (Independent Web3 Security Analyst)**
+- **Luis_MZ**
+- **biasaajash**
+- **PapaCZ**
+- **WANZ**
+- **TOT**
+- **fortworun**
+- **KHIKHI**
+- **momonom207**
+- **Tarun Pardeshi**
 - **Anonymous**
 
 ---

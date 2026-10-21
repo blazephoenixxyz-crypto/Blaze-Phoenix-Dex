@@ -3,11 +3,13 @@
 How the suite is organised, how to run every gate, and what a test has to satisfy before it
 counts as evidence here. The method behind it is in [`docs/AUDIT_METHOD.md`](docs/AUDIT_METHOD.md).
 
-Measured on this tree (2026-09-24): **236 `.t.sol` files** — 209 local, 27 fork — holding
-**1,609 `test*` / `invariant*` / `check*` declarations**; **1,451 tests green** in 274 suites with
-`forge test`, 48 skipped (the fork suites without an RPC, and two probes that need an environment
-the run did not have). The mutant register holds **434 curated mutants** today
-(`.github/scripts/check_targets.py`), each paired with the test that must kill it.
+Measured at commit `b9db56d` (2026-10-22), `FOUNDRY_PROFILE=release`: **338 `.t.sol` files** —
+308 local, 30 fork — holding **2,236 `test*` / `invariant*` / `check*` declarations** (lines
+matching `function (test|invariant|check)…(` under `test/`); **2,074 tests passed, 0 failed** in 380
+suites, 49 skipped (43 in the fork suites without an RPC, the five N-version checks and
+`PcTraceProbe`). The mutant register holds **625 curated mutants** (the length of `M` in
+`.github/scripts/mutants.py`, as `check_targets.py` reports it), each paired with the test that must
+kill it.
 
 Every skip names the lane that runs it. The fork suites need an RPC and run in CI's fork lane
 with one, where none is skipped; the five N-version checks run in their own lane, at other code

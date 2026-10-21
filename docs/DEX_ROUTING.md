@@ -149,10 +149,10 @@ is stated in `SHARED_QUANTITIES.md`, row "Router balance after settlement").
 
 ## 7. Validation summary
 
-Measured on this tree (2026-09-24), by the commands in [`../TESTING.md`](../TESTING.md):
-236 `.t.sol` files — 209 local, 27 on forked live liquidity — holding 1,609
-`test*` / `invariant*` / `check*` declarations, 43 of them stateful `invariant_*`
-campaigns; and 268 curated mutants, each paired with the named test that must fail
+Measured at commit `b9db56d` (2026-10-22), by the commands in [`../TESTING.md`](../TESTING.md):
+338 `.t.sol` files — 308 local, 30 on forked live liquidity — holding 2,236
+`test*` / `invariant*` / `check*` declarations, 48 of them stateful `invariant_*`
+campaigns; and 625 curated mutants, each paired with the named test that must fail
 when it is applied. The routing logic this document describes is tested by name:
 the split gate against every survivor (`test/SplitGateSeesEverySurvivor.t.sol`),
 the capacity clamp (`test/RouterPhysicalMassCap.t.sol`), the bridge term of the
