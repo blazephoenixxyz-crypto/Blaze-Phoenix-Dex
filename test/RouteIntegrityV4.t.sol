@@ -249,8 +249,9 @@ contract RouteIntegrityV4Test is Test {
         assertGt(exactB, amt * 9 / 10, "and not clamped to the attested 4x point");
         // the researcher's leg: names pool A, key derives pool B
         solver.setPlan(_route(pidA, hookB, amt, qa));
-        (, uint256 exactMismatch) = quoter.previewPlanExact(c0, c1, amt);
-        assertGt(exactMismatch, 3 * amt, "held at the plan's own point, not priced on pool B");
+        (Route memory back, uint256 exactMismatch) = quoter.previewPlanExact(c0, c1, amt);
+        assertEq(exactMismatch, 0, "the Router refuses the leg (RouterE(11)): the exact scalar is zero (W3-F2)");
+        assertGt(back.totalOut, 3 * amt, "held at the plan's own point, not priced on pool B");
     }
 
     // ── V4 campaign (2026-09-23): guards that had no test able to see them ──────

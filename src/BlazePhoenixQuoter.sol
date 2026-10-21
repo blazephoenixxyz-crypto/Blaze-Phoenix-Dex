@@ -727,6 +727,11 @@ contract BlazePhoenixQuoter {
         // unchanged wherever the deduction above was already the lower one.
         uint256 funded = _fundedOut(route, amountIn);
         if (funded < exactOut) exactOut = funded;
+        // Q3 AT THE EXACT DOORS (W3-F2, Luis_MZ, bounty). A leg the Router refuses (RouterE(9)
+        // hook, RouterE(11) key, RouterE(8) native side) falls back to the plan's claim in
+        // `_priceLeg`, and that claim was returned as execution-grade. Asked of `_pack`'s own
+        // producer; the route keeps its attestation, the scalar says the Router will not fill.
+        if (_hookRefusedIn(route)) exactOut = 0;
         return (route, exactOut);
     }
 

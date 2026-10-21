@@ -143,12 +143,13 @@ contract RouteIntegrityMetaTest is Test {
         FixedPlanSolver fixedSolver = new FixedPlanSolver();
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(fixedSolver));
         fixedSolver.setPlan(_oneHop(tIn, tOther, leg, amt, 3 * amt));
-        (, uint256 exactOut) = quoter.previewPlanExact(tIn, tOther, amt);
+        (Route memory back, uint256 exactOut) = quoter.previewPlanExact(tIn, tOther, amt);
         if (lie == 0) {
             assertLe(exactOut, amt, "a consistent leg is priced on the pool (1:1 less fee)");
             assertGt(exactOut, amt * 9 / 10, "and not clamped to the attested point");
         } else {
-            assertGt(exactOut, 2 * amt, "an inconsistent leg is not priced: the preview holds the plan's point");
+            assertEq(exactOut, 0, "the Router refuses an inconsistent leg: the exact scalar is zero (W3-F2)");
+            assertGt(back.totalOut, 2 * amt, "an inconsistent leg is not priced: the preview holds the plan's point");
         }
     }
 

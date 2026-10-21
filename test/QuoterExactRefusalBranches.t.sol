@@ -559,6 +559,16 @@ contract QuoterExactRefusalBranchesTest is Test {
         exactOut = _exact(r, amt);
     }
 
+    /// @dev A leg the Router refuses: the scalar is zero since W3-F2, so the dry run's own
+    ///      answer is read from the route's attestation, which still shows whether `_simV4`
+    ///      refused the leg (the plan's DECOY_OUT) or priced it (the manager's Q_OUT).
+    function _v4Refused(Leg memory l) internal returns (uint256 attested) {
+        solverMock.setBest(_wrap(l, AMT));
+        (Route memory back, uint256 net) = quoter.previewPlanExact(address(tokA), address(tokB), AMT);
+        assertEq(net, 0, "a leg the Router refuses must quote a zero exact scalar (W3-F2)");
+        attested = back.totalOut;
+    }
+
     /// BRANCH Quoter:420 (both arms). Taken by: a zero order and an order
     /// past int128 — the range V4's amountSpecified can express. Observable:
     /// refusal -> 0 / fallback decoy, with the manager primed to answer.
@@ -604,7 +614,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         Leg memory l = _v4Leg(AMT);
         l.hooks = HOOK_DELTA;
         _repool(l);   // well-formed for THIS key, so only the delta-hook guard can refuse
-        uint256 exactOut = _v4Exact(l, AMT);
+        uint256 exactOut = _v4Refused(l);
         assertEq(exactOut, DECOY_OUT,
             "a delta-altering hook is unquotable even when the manager would answer");
     }
@@ -620,7 +630,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         assertFalse(BPC.hookAltersDeltas(HOOK_SWAP), "pinned: and alters no delta, so only the pause arm can refuse");
         Leg memory l = _swapHookLeg();
         hubMock.setHookPaused(HOOK_SWAP, true);
-        uint256 exactOut = _v4Exact(l, AMT);
+        uint256 exactOut = _v4Refused(l);
         assertEq(exactOut, DECOY_OUT,
             "the exact pass priced a leg whose hook is paused, which the Router refuses with RouterE(9)");
     }
@@ -631,6 +641,33 @@ contract QuoterExactRefusalBranchesTest is Test {
         Leg memory l = _swapHookLeg();
         uint256 exactOut = _v4Exact(l, AMT);
         assertEq(exactOut, Q_OUT, "a live swap-running hook must be dry-run on the pool");
+    }
+
+    /// W3-F2 (bounty uid 3115, Luis_MZ): guarantee Q3 for the exact scalar. A route whose V4 leg
+    /// names a hook the Router refuses (RouterE(9): paused while it runs in the swap, or altering
+    /// deltas) is unquotable at BOTH exact doors, as `_pack` withholds `canExecute` for it: the
+    /// answer is zero, not the plan's own claim. The manager is primed to answer each key and the
+    /// plan carries DECOY_OUT, so a nonzero answer is either the dry run or the fallback.
+    /// FAILS IF DELETED: yes - without the `_hookRefusedIn` question at the head of the exact
+    /// pass, the leg falls back to the plan's claim and the scalar is DECOY_OUT less the fee.
+    function test_ExactScalar_RouterRefusedHook_IsZero() public {
+        Leg memory l = _swapHookLeg();
+        hubMock.setHookPaused(HOOK_SWAP, true);
+        Route memory r = _wrap(l, AMT);
+        solverMock.setBest(r);
+        (, uint256 net) = quoter.previewPlanExact(address(tokA), address(tokB), AMT);
+        assertEq(net, 0, "previewPlanExact quoted a paused swap hook the Router refuses with RouterE(9)");
+        (, net) = quoter.previewRouteExact(r, AMT);
+        assertEq(net, 0, "previewRouteExact quoted a paused swap hook the Router refuses with RouterE(9)");
+
+        (address c0, address c1) = BPC.sortTokens(address(tokA), address(tokB));
+        mgrMock.setExpectedKey(c0, c1, POOL_FEE, TICK_SP, HOOK_DELTA);
+        l = _v4Leg(AMT);
+        l.hooks = HOOK_DELTA;
+        _repool(l);
+        solverMock.setBest(_wrap(l, AMT));
+        (, net) = quoter.previewPlanExact(address(tokA), address(tokB), AMT);
+        assertEq(net, 0, "previewPlanExact quoted a delta-altering hook the Router refuses with RouterE(9)");
     }
 
     function _swapHookLeg() internal returns (Leg memory l) {

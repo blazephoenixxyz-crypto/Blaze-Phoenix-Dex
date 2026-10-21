@@ -134,7 +134,10 @@ contract Seal1021NativeParityTest is Test {
         FixedPlanSolver s = new FixedPlanSolver();
         s.setPlan(_route(tIn, tOther, true, named, amt));
         BlazePhoenixQuoter q = new BlazePhoenixQuoter(address(hub), address(s));
-        (, exactOut) = q.previewPlanExact(tIn, tOther, amt);
+        // The route's attestation, not the scalar: since W3-F2 a leg the Router refuses quotes a
+        // zero scalar whatever the dry run did, and the attestation still shows what it did.
+        (Route memory back, ) = q.previewPlanExact(tIn, tOther, amt);
+        exactOut = back.totalOut;
     }
 
     function test_ExactPreview_HonestNativeLeg_IsDryRun() public {

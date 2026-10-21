@@ -3248,6 +3248,11 @@ M = [
       old="== uint256(uint160(tIn)) ? uint256(a1)\n",
       new="== uint256(uint160(tIn)) ? (a1 < 0 ? uint256(-a1) : uint256(a1)) // MUTANT [623]\n",
       teste="test_ATokenNamedCallbackWithANegativeAmountIsRefused"),
+ dict(nome="W3-F2 [640]: the exact pass stops asking the Router's refusal, so a leg the Router refuses quotes the plan's claim as execution-grade",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        if (_hookRefusedIn(route)) exactOut = 0;",
+      new="        // MUTANT [640]",
+      teste="test_ExactScalar_RouterRefusedHook_IsZero"),
 ]
 
 def run(t):

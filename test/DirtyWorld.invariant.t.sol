@@ -469,7 +469,9 @@ contract DirtyWorldHandler is Test {
             q = q_;
             exactOut = e;
         } catch { return; }
-        if (exactOut <= claim) { b2AtClaim++; return; }
+        // The attestation too: since W3-F2 a leg the Router refuses quotes a zero scalar, so
+        // a paused hook dry-run on the pool shows only in the route the preview returns.
+        if (exactOut <= claim && q.totalOut <= claim) { b2AtClaim++; return; }
         b2Checked++;
         address payer = _payer();
         w.A.mint(payer, amt);

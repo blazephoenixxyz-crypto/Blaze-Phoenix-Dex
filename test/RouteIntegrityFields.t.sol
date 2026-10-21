@@ -124,8 +124,9 @@ contract RouteIntegrityFieldsTest is Test {
         (, uint256 exactHonest) = quoter.previewPlanExact(c0, c1, amt);
         assertGt(exactHonest, 3 * amt, "sanity: the dry run is live and prices c0 -> c1");
         solver.setPlan(_v4Route(false, amt, 4 * amt));
-        (, uint256 exactFlipped) = quoter.previewPlanExact(c0, c1, amt);
-        assertGt(exactFlipped, 3 * amt, "held at the plan's point, not priced as c1 -> c0");
+        (Route memory back, uint256 exactFlipped) = quoter.previewPlanExact(c0, c1, amt);
+        assertEq(exactFlipped, 0, "the Router refuses the leg (RouterE(11)): the exact scalar is zero (W3-F2)");
+        assertGt(back.totalOut, 3 * amt, "held at the plan's point, not priced as c1 -> c0");
     }
 
     /// @dev seeds a V4 pool at price 1 with deep liquidity and a 1:1 fill
