@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
-import {IExtAdapter, IExtAdapterQuoteCall} from "./IExtAdapter.sol";
+import {IExtAdapter} from "./IExtAdapter.sol";
 import {ExtAdapterBase} from "./ExtAdapterBase.sol";
 
 /// Balancer V2 Vault (balancer-v2-monorepo pkg/interfaces/contracts/vault/IVault.sol).
@@ -58,7 +58,7 @@ interface IBalancerPoolFactory {
 ///         venuePool = the Vault; aux0 = poolId; aux1 unused.
 ///         QUOTE: Balancer V2 has no view quote (`queryBatchSwap` writes and reverts), so `quote`
 ///         answers 0 and the SDK uses `quoteCall` by eth_call; the leg then travels attested.
-contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter, IExtAdapterQuoteCall {
+contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {
     IBalancerV2Vault public immutable VAULT;
     address public immutable FACTORY0;
     address public immutable FACTORY1;
@@ -110,9 +110,10 @@ contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter, IExtAdapt
         return (0, 0);
     }
 
-    /// eth_call only: `queryBatchSwap` is non-view by design (Swaps.sol, "query" section).
-    function quoteCall(address wrapper, bool zeroForOne, uint256 amtIn) external returns (uint256 out) {
-        (, bytes32 poolId, , address tIn, address tOut) = _legOf(wrapper, zeroForOne);
+    /// eth_call only: `queryBatchSwap` is non-view by design (Swaps.sol, "query" section). The
+    /// pair is the calling wrapper's, as in `exec`: a caller the Gate did not create is refused.
+    function quoteCall(address, bytes32 poolId, bytes32, bool zeroForOne, uint256 amtIn) external returns (uint256 out) {
+        (address tIn, address tOut) = _wrapperTokens(zeroForOne);
         IBalancerV2Vault.BatchSwapStep[] memory steps = new IBalancerV2Vault.BatchSwapStep[](1);
         steps[0] = IBalancerV2Vault.BatchSwapStep(poolId, 0, 1, amtIn, "");
         address[] memory assets = new address[](2);

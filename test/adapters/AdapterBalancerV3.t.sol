@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import {AdapterHarness} from "./AdapterHarness.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {BlazePhoenixGateWrapper} from "./vendor/BlazePhoenixGateSnapshot.sol";
+import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterBalancerV3, IBalancerV3Vault} from "../../src/adapters/BlazePhoenixAdapterBalancerV3.sol";
 import {MockBalancerFactory} from "./mocks/MockBalancerV2.sol";
 import {MockBalancerV3Vault} from "./mocks/MockBalancerV3.sol";
@@ -87,7 +87,7 @@ contract AdapterBalancerV3Test is AdapterHarness {
         (uint256 q, ) = BlazePhoenixGateWrapper(w).quote(false, 6e18);
         assertEq(q, 0);
         vm.prank(address(this), address(0)); // eth_call context, as the Vault's quote demands
-        uint256 qc = adapter.quoteCall(w, false, 6e18);
+        uint256 qc = BlazePhoenixGateWrapper(w).quoteCall(false, 6e18);
         assertGt(qc, 0);
         _settled();
         assertEq(_swap(w, false, 6e18), qc);

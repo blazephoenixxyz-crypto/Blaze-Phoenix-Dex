@@ -50,16 +50,6 @@ abstract contract ExtAdapterBase {
         (tIn, tOut) = zeroForOne ? (a, b) : (b, a);
     }
 
-    /// `quoteCall`'s view of a leg: the wrapper's record, after the Gate vouches for it.
-    function _legOf(address w, bool zeroForOne)
-        internal view returns (address pool, bytes32 aux0, bytes32 aux1, address tIn, address tOut)
-    {
-        (tIn, tOut) = _pairOf(w, zeroForOne);
-        pool = IGateWrapperState(w).venuePool();
-        aux0 = IGateWrapperState(w).aux0();
-        aux1 = IGateWrapperState(w).aux1();
-    }
-
     /// The ONE producer of "is t0 and t1 a pair of `coins`": both present, at distinct indices.
     function _indices(address[] memory coins, address t0, address t1) internal pure returns (uint256 i0, uint256 i1) {
         uint256 n = coins.length;

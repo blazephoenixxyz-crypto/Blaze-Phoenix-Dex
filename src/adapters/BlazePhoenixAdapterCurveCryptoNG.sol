@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 import {BlazePhoenixCore as BPC} from "../BlazePhoenixCore.sol";
-import {IExtAdapter, IExtAdapterQuoteCall} from "./IExtAdapter.sol";
+import {IExtAdapter} from "./IExtAdapter.sol";
 import {ExtAdapterBase} from "./ExtAdapterBase.sol";
 
 /// Curve crypto NG factories: curvefi/twocrypto-ng TwocryptoFactory.vy (get_coins L357, address[2])
@@ -39,7 +39,7 @@ interface ICurveTricryptoWETH {
 ///         REFUSED at resolve: a native-enabled tricrypto (it has `WETH20()` and no
 ///         `exchange_received`; the call would fail at every exec).
 ///         aux0 = index of token0 | index of token1 << 8. aux1 unused.
-contract BlazePhoenixAdapterCurveCryptoNG is ExtAdapterBase, IExtAdapter, IExtAdapterQuoteCall {
+contract BlazePhoenixAdapterCurveCryptoNG is ExtAdapterBase, IExtAdapter {
     address public immutable FACTORY;
 
     constructor(address gate, address factory) ExtAdapterBase(gate) {
@@ -77,8 +77,9 @@ contract BlazePhoenixAdapterCurveCryptoNG is ExtAdapterBase, IExtAdapter, IExtAd
     }
 
     /// Same body as `quote` (M4): the SDK's number and the on-chain number cannot differ.
-    function quoteCall(address wrapper, bool zeroForOne, uint256 amtIn) external view returns (uint256 out) {
-        (address pool, bytes32 aux0, , , ) = _legOf(wrapper, zeroForOne);
+    function quoteCall(address pool, bytes32 aux0, bytes32, bool zeroForOne, uint256 amtIn)
+        external view returns (uint256 out)
+    {
         out = _quote(pool, aux0, zeroForOne, amtIn);
     }
 

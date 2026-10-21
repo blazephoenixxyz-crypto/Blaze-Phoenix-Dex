@@ -3,11 +3,11 @@ pragma solidity 0.8.36;
 
 import {AdapterHarness} from "../adapters/AdapterHarness.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../adapters/vendor/BlazePhoenixGateSnapshot.sol";
+import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterCurveCryptoNG} from "../../src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol";
 
-/// The crypto NG adapter against the live Curve factories on Base, behind the vendored Gate
-/// snapshot, at the latest block of the public endpoint (the `base` alias, no key). Skips, never
+/// The crypto NG adapter against the live Curve factories on Base, behind the Gate
+/// (src/BlazePhoenixGate.sol), at the latest block of the public endpoint (the `base` alias, no key). Skips, never
 /// passes, when the fork cannot be opened.
 /// Factories: curvefi/docs static/deployments.json (base.factory.twocrypto / .tricrypto, 21/10).
 /// Pools: read from the factories (pool_list, get_coins) and from the pools (version, coins,
@@ -62,7 +62,7 @@ contract AdapterCurveCryptoNGForkTest is AdapterHarness {
         _accept(fam, address(a));
         address w = gate.create(tIn, tOut, uint24(fam) << 16 | 1, abi.encode(pool));
         bool z = address(t0) == tIn;
-        uint256 q = a.quoteCall(w, z, amt);
+        uint256 q = BlazePhoenixGateWrapper(w).quoteCall(z, amt);
         assertGt(q, 0);
         assertEq(_swapReal(w, z, amt), q, "get_dy == exchange_received on the same state");
         _assertEmpty(address(a), w, pool);
@@ -111,5 +111,38 @@ contract AdapterCurveCryptoNGForkTest is AdapterHarness {
         _accept(4, address(a));
         vm.expectRevert(_aerr(2));
         gate.create(TOP, SNL, uint24(4) << 16 | 1, abi.encode(TRI_SNL_TOP_BCOW));
+    }
+
+    // ─── GATE_QUOTE_GAS against the live pools: the Quoter's arm (Quoter._priceLeg) under the
+    //     cap answers what it answers without it (see AdaptersFork for the method) ───
+
+    function _gas(uint8 fam, address factory, address pool, address tIn, address tOut, uint256 amt) internal {
+        _pair(tIn, tOut);
+        BlazePhoenixAdapterCurveCryptoNG a = new BlazePhoenixAdapterCurveCryptoNG(address(gate), factory);
+        _accept(fam, address(a));
+        address w = gate.create(tIn, tOut, uint24(fam) << 16 | 1, abi.encode(pool));
+        address[] memory c = new address[](6);
+        (c[0], c[1], c[2], c[3], c[4], c[5]) = (w, address(gate), address(a), pool, address(t0), address(t1));
+        _armUnderCap(w, address(t0) == tIn, amt, c);
+    }
+
+    function testFork_GateQuoteGas_Twocrypto200_WethToFrok() public {
+        if (!_fork()) return;
+        _gas(4, TWO_FACTORY, TWO_V200_FROK_WETH, WETH, FROK, 0.001e18);
+    }
+
+    function testFork_GateQuoteGas_Twocrypto210_EusdToLcap() public {
+        if (!_fork()) return;
+        _gas(4, TWO_FACTORY, TWO_V210_LCAP_EUSD, EUSD, LCAP, 1000e18);
+    }
+
+    function testFork_GateQuoteGas_FxSwap210d_UsdcToWeth() public {
+        if (!_fork()) return;
+        _gas(4, TWO_FACTORY, FX_V210D_USDC_WETH, USDC, WETH, 10e6);
+    }
+
+    function testFork_GateQuoteGas_Tricrypto_TopToSnl() public {
+        if (!_fork()) return;
+        _gas(5, TRI_FACTORY, TRI_SNL_TOP_BCOW, TOP, SNL, 1e18);
     }
 }

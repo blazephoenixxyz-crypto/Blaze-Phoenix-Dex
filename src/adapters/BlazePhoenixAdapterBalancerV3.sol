@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 import {BlazePhoenixCore as BPC} from "../BlazePhoenixCore.sol";
-import {IExtAdapter, IExtAdapterQuoteCall} from "./IExtAdapter.sol";
+import {IExtAdapter} from "./IExtAdapter.sol";
 import {ExtAdapterBase} from "./ExtAdapterBase.sol";
 
 /// Balancer V3 Vault (balancer-v3-monorepo pkg/interfaces/contracts/vault/{IVaultMain,
@@ -62,7 +62,7 @@ interface IBalancerV3PoolFactory {
 ///         pin is checked again on every `exec`, like the Router's `isHookLive`.
 ///         venuePool = the Vault; aux0 = pool; aux1 = hooks contract (0 if none).
 ///         QUOTE: V3 quotes only by eth_call (`Vault.quote`), so `quote` answers 0.
-contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter, IExtAdapterQuoteCall {
+contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
     IBalancerV3Vault public immutable VAULT;
     address public immutable FACTORY0;
     address public immutable FACTORY1;
@@ -136,8 +136,9 @@ contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter, IExtAdapt
     }
 
     /// eth_call only (the Vault's `quote` requires a static-call context).
-    function quoteCall(address wrapper, bool zeroForOne, uint256 amtIn) external returns (uint256 out) {
-        (, bytes32 aux0, , address tIn, address tOut) = _legOf(wrapper, zeroForOne);
+    /// The pair is the calling wrapper's, as in `exec`: a caller the Gate did not create is refused.
+    function quoteCall(address, bytes32 aux0, bytes32, bool zeroForOne, uint256 amtIn) external returns (uint256 out) {
+        (address tIn, address tOut) = _wrapperTokens(zeroForOne);
         bytes memory r = VAULT.quote(abi.encodeCall(this.onQuote, (address(uint160(uint256(aux0))), tIn, tOut, amtIn)));
         out = abi.decode(r, (uint256));
     }

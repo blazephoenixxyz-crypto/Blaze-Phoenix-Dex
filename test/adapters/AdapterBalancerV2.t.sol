@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import {AdapterHarness} from "./AdapterHarness.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {BlazePhoenixGateWrapper} from "./vendor/BlazePhoenixGateSnapshot.sol";
+import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterBalancerV2} from "../../src/adapters/BlazePhoenixAdapterBalancerV2.sol";
 import {MockBalancerFactory, MockBalancerV2Vault} from "./mocks/MockBalancerV2.sol";
 
@@ -63,7 +63,7 @@ contract AdapterBalancerV2Test is AdapterHarness {
         (uint256 q, uint256 d) = wr.quote(true, 5e18);
         assertEq(q, 0);
         assertEq(d, 0);
-        uint256 qc = adapter.quoteCall(w, true, 5e18);
+        uint256 qc = wr.quoteCall(true, 5e18);
         assertGt(qc, 0);
         assertEq(_swap(w, true, 5e18), qc);
     }
@@ -92,9 +92,10 @@ contract AdapterBalancerV2Test is AdapterHarness {
         adapter.exec(address(vault), PID, bytes32(0), true, 1e18, address(this));
     }
 
+    /// `_requireWrapper`: the pair a query prices is the calling wrapper's, so a non-wrapper is refused.
     function test_BalV2_QuoteCallOnNonWrapper_Refused() public {
         vm.expectRevert(_aerr(1));
-        adapter.quoteCall(address(vault), true, 1e18);
+        adapter.quoteCall(address(vault), PID, bytes32(0), true, 1e18);
     }
 
     // ─── identity at resolve: the Vault and a listed factory vouch ───

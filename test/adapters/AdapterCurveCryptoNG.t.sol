@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import {AdapterHarness} from "./AdapterHarness.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {BlazePhoenixGateWrapper} from "./vendor/BlazePhoenixGateSnapshot.sol";
+import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterCurveCryptoNG} from "../../src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol";
 import {MockCurveCryptoNGFactory, MockCurveCryptoNGPool, MockCurveTricryptoWETHPool} from "./mocks/MockCurveCryptoNG.sol";
 import {MockCurveNGFactory} from "./mocks/MockCurveNG.sol";
@@ -107,7 +107,7 @@ contract AdapterCurveCryptoNGTest is AdapterHarness {
         BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
         (uint256 q, ) = adapter.quote(wr.venuePool(), wr.aux0(), wr.aux1(), false, 7e18);
         (uint256 qw, ) = wr.quote(false, 7e18);
-        uint256 qc = adapter.quoteCall(w, false, 7e18);
+        uint256 qc = wr.quoteCall(false, 7e18);
         assertGt(q, 0);
         assertEq(qc, q);
         assertEq(qw, q);

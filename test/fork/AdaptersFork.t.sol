@@ -3,12 +3,12 @@ pragma solidity 0.8.36;
 
 import {AdapterHarness} from "../adapters/AdapterHarness.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../adapters/vendor/BlazePhoenixGateSnapshot.sol";
+import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterCurveNG} from "../../src/adapters/BlazePhoenixAdapterCurveNG.sol";
 import {BlazePhoenixAdapterBalancerV2} from "../../src/adapters/BlazePhoenixAdapterBalancerV2.sol";
-import {BlazePhoenixAdapterBalancerV3} from "../../src/adapters/BlazePhoenixAdapterBalancerV3.sol";
+import {BlazePhoenixAdapterBalancerV3, IBalancerV3Vault} from "../../src/adapters/BlazePhoenixAdapterBalancerV3.sol";
 
-/// The three adapters against the live venues on Base, behind the vendored Gate snapshot, at the
+/// The three adapters against the live venues on Base, behind the Gate (src/BlazePhoenixGate.sol), at the
 /// latest block of the public endpoint (no key: the `base` alias of foundry.toml). Skips, never
 /// passes, when the fork cannot be opened.
 /// Addresses: Curve NG factory and pools read from the factory itself (pool_list, get_coins,
@@ -63,7 +63,7 @@ contract AdaptersForkTest is AdapterHarness {
         _accept(1, address(a));
         address w = gate.create(USDC, CRVUSD, uint24(1) << 16 | 1, abi.encode(NG_USDC_CRVUSD));
         bool z = address(t0) == USDC;
-        uint256 q = a.quoteCall(w, z, 100e6);
+        uint256 q = BlazePhoenixGateWrapper(w).quoteCall(z, 100e6);
         assertGt(q, 0);
         assertEq(_swapReal(w, z, 100e6), q, "get_dy == exchange_received on the same state");
         _assertEmpty(address(a), w, NG_USDC_CRVUSD);
@@ -86,7 +86,7 @@ contract AdaptersForkTest is AdapterHarness {
         _accept(2, address(a));
         address w = gate.create(USDC, OLAS, uint24(2) << 16 | 1, abi.encode(V2_OLAS_USDC));
         bool z = address(t0) == USDC;
-        uint256 q = a.quoteCall(w, z, 50e6);
+        uint256 q = BlazePhoenixGateWrapper(w).quoteCall(z, 50e6);
         assertGt(q, 0);
         assertEq(_swapReal(w, z, 50e6), q);
         _assertEmpty(address(a), w, V2_VAULT);
@@ -106,7 +106,7 @@ contract AdaptersForkTest is AdapterHarness {
         // snapshot: exec 23380974 against quote 24165350, because the quote's swap had moved the pool.
         uint256 snap = vm.snapshotState();
         vm.prank(address(this), address(0));
-        uint256 q = a.quoteCall(w, z, 0.01e18);
+        uint256 q = BlazePhoenixGateWrapper(w).quoteCall(z, 0.01e18);
         vm.revertToState(snap);
         assertGt(q, 0);
         assertEq(_swapReal(w, z, 0.01e18), q);
@@ -121,5 +121,58 @@ contract AdaptersForkTest is AdapterHarness {
         _accept(3, address(a));
         vm.expectRevert(_aerr(7));
         gate.create(WAGHO, WAUSDC, uint24(3) << 16 | 1, abi.encode(V3_SURGE_GHO_USDC));
+    }
+
+    // ─── GATE_QUOTE_GAS against the live venues: the Quoter's arm (Quoter._priceLeg), capped, answers what it
+    //     answers uncapped (gas logged; run with --isolate for a cold, eth_call-shaped figure) ───
+
+    function _cold(address w, address a, address venue, address extra) internal view returns (address[] memory c) {
+        c = new address[](7);
+        (c[0], c[1], c[2], c[3], c[4], c[5], c[6]) = (w, address(gate), a, venue, address(t0), address(t1), extra);
+    }
+
+    function testFork_GateQuoteGas_CurveNG_UsdcToCrvUsd() public {
+        if (!_fork()) return;
+        _pair(USDC, CRVUSD);
+        BlazePhoenixAdapterCurveNG a = new BlazePhoenixAdapterCurveNG(address(gate), NG_FACTORY);
+        _accept(1, address(a));
+        address w = gate.create(USDC, CRVUSD, uint24(1) << 16 | 1, abi.encode(NG_USDC_CRVUSD));
+        _armUnderCap(w, address(t0) == USDC, 100e6, _cold(w, address(a), NG_USDC_CRVUSD, NG_FACTORY));
+    }
+
+    function testFork_GateQuoteGas_BalV2_UsdcToOlas() public {
+        if (!_fork()) return;
+        _pair(USDC, OLAS);
+        BlazePhoenixAdapterBalancerV2 a = new BlazePhoenixAdapterBalancerV2(
+            address(gate), V2_VAULT, [V2_WEIGHTED_V4, address(0), address(0), address(0)]
+        );
+        _accept(2, address(a));
+        address w = gate.create(USDC, OLAS, uint24(2) << 16 | 1, abi.encode(V2_OLAS_USDC));
+        _armUnderCap(w, address(t0) == USDC, 50e6, _cold(w, address(a), V2_VAULT, address(uint160(uint256(V2_OLAS_USDC) >> 96))));
+    }
+
+    function testFork_GateQuoteGas_BalV3_Weighted5_WethToUsdc() public {
+        if (!_fork()) return;
+        _pair(WETH, USDC);
+        BlazePhoenixAdapterBalancerV3 a = new BlazePhoenixAdapterBalancerV3(
+            address(gate), V3_VAULT, [V3_WEIGHTED_V1, address(0)], [bytes32(0), bytes32(0)]
+        );
+        _accept(3, address(a));
+        address w = gate.create(WETH, USDC, uint24(3) << 16 | 1, abi.encode(V3_WEIGHTED_5));
+        _armUnderCap(w, address(t0) == WETH, 0.01e18, _cold(w, address(a), V3_VAULT, V3_WEIGHTED_5));
+    }
+
+    /// The heaviest live V3 shape found on Base: a StableSurge hook (dynamic fee on every swap)
+    /// over two ERC-4626 wrappers, with the hook's codehash pinned so the adapter admits it.
+    function testFork_GateQuoteGas_BalV3_SurgeHookPinned_WaUsdcToWaGho() public {
+        if (!_fork()) return;
+        _pair(WAUSDC, WAGHO);
+        address hook = IBalancerV3Vault(V3_VAULT).getHooksConfig(V3_SURGE_GHO_USDC).hooksContract;
+        BlazePhoenixAdapterBalancerV3 a = new BlazePhoenixAdapterBalancerV3(
+            address(gate), V3_VAULT, [V3_STABLE_SURGE_V1, address(0)], [hook.codehash, bytes32(0)]
+        );
+        _accept(3, address(a));
+        address w = gate.create(WAUSDC, WAGHO, uint24(3) << 16 | 1, abi.encode(V3_SURGE_GHO_USDC));
+        _armUnderCap(w, address(t0) == WAUSDC, 100e6, _cold(w, address(a), V3_VAULT, hook));
     }
 }
