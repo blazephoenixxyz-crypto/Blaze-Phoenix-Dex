@@ -103,6 +103,7 @@ interface IHubQ {
     function bridge(uint8 i) external view returns (address);
     function isBridgeToken(address t) external view returns (bool);
     function hookPaused(address h) external view returns (bool);
+    function weth() external view returns (address);
 }
 
 /// @dev The Router's primary door, declared here only so `abi.encodeCall` type-checks the
@@ -413,7 +414,9 @@ contract BlazePhoenixQuoter {
     ///      (currencies, fee, tickSpacing, hooks) - which `_execV4Amt` refuses with
     ///      RouterE(11). `_simV4` already asked this, but the plan preview prices
     ///      from the plan and never reaches it (bounty #52, ridhahmuh). The native
-    ///      side is derived as `_simV4` derives it, by BPC.v4LegCurrencies.
+    ///      side is derived as `_simV4` and the Router derive it: by the canonical
+    ///      WETH (BPC.nativeMapVerified), and a native leg naming no WETH side is
+    ///      refused, as the Router refuses it with RouterE(8) (seal 2026-10-21).
     function _hookRefusedIn(Route memory route) private view returns (bool) {
         for (uint256 h; h < route.hops.length; ) {
             Leg[] memory legs = route.hops[h].legs;
@@ -423,8 +426,12 @@ contract BlazePhoenixQuoter {
                 if (BPC.kindHasAny(leg.kind, BPC.A_CONC_SING)) {
                     if (k != address(0)
                         && (BPC.hookAltersDeltas(k) || (BPC.hookRunsInSwap(k) && hub.hookPaused(k)))) return true;
-                    (address tIn, address tOther) = BPC.v4LegCurrencies(leg.kind,
-                        route.hops[h].tokenIn, address(uint160(uint256(leg.auxId))), leg.zeroForOne);
+                    address tIn = route.hops[h].tokenIn;
+                    address tOther = address(uint160(uint256(leg.auxId)));
+                    if (leg.kind == BPC.KIND_V4_NATIVE) {
+                        (tIn, tOther) = BPC.nativeMapVerified(tIn, tOther, hub.weth());
+                        if (tIn == address(0) && tOther == address(0)) return true;
+                    }
                     (address c0, address c1) = BPC.sortTokens(tIn, tOther);
                     if (leg.zeroForOne != (tIn == c0)
                         || leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, k)))))
@@ -562,13 +569,16 @@ contract BlazePhoenixQuoter {
         if (BPC.hookRunsInSwap(leg.hooks) && hub.hookPaused(leg.hooks)) return 0;
         address tokenOther = address(uint160(uint256(leg.auxId)));
         if (tokenOther == address(0)) return 0;
-        // Native pool: address(0) takes the wrapped-native side, which falls out of
-        // zeroForOne alone (BPC.v4LegCurrencies, the orientation contract) - so no WETH
-        // address is needed here, and the Quoter never settles anything: the dry-run
-        // reverts before any payment, making a wrong key merely a 0-quote, never a loss.
-        // For a well-formed leg this derivation agrees exactly with the Router's
-        // weth-verified substitution - same key, same poolId.
-        (tokenIn, tokenOther) = BPC.v4LegCurrencies(leg.kind, tokenIn, tokenOther, leg.zeroForOne);
+        // Native pool: address(0) takes the side that IS the canonical WETH, asked of the
+        // Router through the Hub - the Router's own producer (BPC.nativeMapVerified) on the
+        // Router's own WETH, so the key priced here is the key `_execV4Amt` settles. Derived
+        // from zeroForOne alone (v4LegCurrencies) a leg naming no WETH side was priced on
+        // the pool its orientation pointed at while the Router refused it with RouterE(8)
+        // (#52, seal 2026-10-21); such a leg is unquotable here.
+        if (leg.kind == BPC.KIND_V4_NATIVE) {
+            (tokenIn, tokenOther) = BPC.nativeMapVerified(tokenIn, tokenOther, hub.weth());
+            if (tokenIn == address(0) && tokenOther == address(0)) return 0;
+        }
         (address c0, address c1) = BPC.sortTokens(tokenIn, tokenOther);
         // Parity with the Router's BPX-2026-009 refusals: a leg whose direction is not
         // the direction of its tokens, or that names a pool its key does not derive

@@ -1311,7 +1311,11 @@ library BlazePhoenixCore {
     }
 
     /// @notice A V4 leg's currencies, by its orientation: the ONE derivation of the native side
-    ///         for every reader that holds a direction and no WETH (Quoter, Solver).
+    ///         for every reader that holds a direction and no WETH (the Solver, on registry
+    ///         rows). The Quoter left it on 2026-10-21 (#52 seal): it judges CALLER legs, and
+    ///         on a leg naming no WETH side this producer still names a pool while the Router
+    ///         refuses the leg with RouterE(8); the Quoter now asks `nativeMapVerified` on the
+    ///         Router's WETH (Hub.weth), as the Router does.
     ///
     /// @dev    WHY IT EXISTS. "Which side of a native V4 leg is the chain's coin?" was answered
     ///         by hand five times: twice in the Quoter (`_hookRefusedIn`, `_simV4`, the #52

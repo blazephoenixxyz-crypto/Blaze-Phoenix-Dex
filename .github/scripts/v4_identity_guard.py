@@ -4,10 +4,13 @@
 A native V4 pool's currency0 is address(0), and every reader that builds its key has to put the
 chain's coin on the right side first. That substitution was written by hand five times outside the
 Router (Quoter `_hookRefusedIn` and `_simV4`, Solver `_capByLiveDepth`, `_heldShare` and
-`_quoteWithDepth`); all five now call Core.v4LegCurrencies, the orientation producer. The Router
+`_quoteWithDepth`); all five then called Core.v4LegCurrencies, the orientation producer. The Router
 keeps its own producer, Core.nativeMapVerified, because it settles and may only ever touch the
 canonical WETH (test/Fusion1020V4LegCurrencies.t.sol proves the two name the same pool on every leg
-the Router admits).
+the Router admits). Since 2026-10-21 (#52 seal) the Quoter asks nativeMapVerified too, fed the
+Router's WETH through Hub.weth(): on a leg the Router REFUSES (no WETH side) the orientation
+producer still named a pool, and the preview endorsed what the execution reverted with RouterE(8)
+(test/Seal1021NativeParity.t.sol). The Solver keeps v4LegCurrencies on registry rows.
 
 What the guard checks, over src/*.sol with comments stripped:
   1. A HAND DERIVATION is a test against KIND_V4_NATIVE whose branch (the block or statement an
@@ -42,11 +45,18 @@ CENSUS = {
     ("BlazePhoenixRouter.sol", "_recordHits"):
         "the executed leg's registry id: t0 is the WETH side because _execV4Amt proved it. Same "
         "form as v4LegCurrencies(kind, t0, t1, true); moving it is fusion phase 2 (Router margin).",
+    ("BlazePhoenixQuoter.sol", "_hookRefusedIn"):
+        "the preview's key check: the Router's producer (nativeMapVerified) on the Router's WETH "
+        "(Hub.weth), so a native leg naming no WETH side is refused as _execV4Amt refuses it (8).",
+    ("BlazePhoenixQuoter.sol", "_simV4"):
+        "the dry-run's key: the same producer on the same WETH, so the pool priced is the pool the "
+        "Router settles; a native leg naming no WETH side is unquotable (#52 seal).",
     ("BlazePhoenixHub.sol", "recordSwap"):
         "registration, not a leg: the swap does not carry which hop token is the wrapped one, so "
         "both orientations are tried and the 160-bit poolId truncation authenticates the match.",
 }
-MAP_CALLERS = {("BlazePhoenixRouter.sol", "_v4LegQuote"), ("BlazePhoenixRouter.sol", "_execV4Amt")}
+MAP_CALLERS = {("BlazePhoenixRouter.sol", "_v4LegQuote"), ("BlazePhoenixRouter.sol", "_execV4Amt"),
+               ("BlazePhoenixQuoter.sol", "_hookRefusedIn"), ("BlazePhoenixQuoter.sol", "_simV4")}
 
 FUNC = re.compile(r"\bfunction\s+([A-Za-z_0-9]+)\s*\(")
 NATIVE = re.compile(r"\bKIND_V4_NATIVE\b")

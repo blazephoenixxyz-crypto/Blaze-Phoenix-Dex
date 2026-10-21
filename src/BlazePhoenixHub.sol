@@ -1223,8 +1223,7 @@ contract BlazePhoenixHub {
         //     other): zero already sorts first, so `computeV4PoolId` gets it in
         //     the right position without a single ternary. Only the shape of the
         //     emitted PoolInfo needs fixing, and that fits in one loop here.
-        address rt = $.router;
-        address w = rt == address(0) ? address(0) : IRouterWeth(rt).weth();
+        address w = weth();
         if (w != address(0) && (t0 == w || t1 == w)) {
             address other = t0 == w ? t1 : t0;
             uint256 ini = uint256(uint128(kf));
@@ -1640,6 +1639,13 @@ contract BlazePhoenixHub {
     function getSlot(bytes32 key) external view returns (uint256) { return _store().slot[key]; }
     function getPool(bytes32 key) external view returns (address) { return _store().poolOf[key]; }
     function v4PoolManager() external view returns (address) { return _store().v4PoolManager; }
+    /// @notice The canonical WETH, asked of the Router (never stored here, so it cannot drift
+    ///         from the copy the Router settles with): the input of `BPC.nativeMapVerified`
+    ///         for the Quoter, which derives a native leg's key exactly as the Router does (#52).
+    function weth() public view returns (address) {
+        address rt = _store().router;
+        return rt == address(0) ? address(0) : IRouterWeth(rt).weth();
+    }
     function v4EntryCount() external view returns (uint256) { return _store().v4Entries.length; }
     /// @notice Learned V4 pattern code of a token: packed
     ///         (fee << 24 | uint24(tickSpacing)), 0 = none. Hint metadata
