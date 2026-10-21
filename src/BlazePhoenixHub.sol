@@ -889,6 +889,10 @@ contract BlazePhoenixHub {
 
     function factoryCount() external view returns (uint256) { return _store().factories.length; }
 
+    /// @notice The code `f` was admitted with (0 = never admitted). The trust anchor of
+    ///         BPC.gateWrapperLive: the admission, not the pool, says which gate is real.
+    function factoryCodehashOf(address f) external view returns (bytes32) { return _store().factoryCodehash[f]; }
+
     // ─── V4 explicit registration ──────────────────────────────────────
 
     function addV4(

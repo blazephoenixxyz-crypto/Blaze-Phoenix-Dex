@@ -29,6 +29,16 @@ import {
     MockGateVenue, MockGateRegistry, MockGateAdapter, MockGateHostileAdapter
 } from "./mocks/MockGateAdapters.sol";
 
+/// A working V3 pool that also answers the wrapper's getters with the admitted gate: what a
+/// kind-9 leg's calldata could point at if the kind were trusted. Its quote is absurd on
+/// purpose, so a Quoter that priced it would show.
+contract GateImpostorPool is MockV3Pool {
+    address public gate;
+    constructor(address g, address a, address b) MockV3Pool(a, b, 3000) { gate = g; }
+    function quote(bool, uint256) external pure returns (uint256, uint256) { return (1e30, 0); }
+    function quoteCall(bool, uint256) external pure returns (uint256) { return 1e30; }
+}
+
 /// A Solver that answers a fixed plan: the best door's only input it does not choose.
 contract GateBestPlanStub {
     bytes internal blob;
@@ -452,7 +462,13 @@ contract BlazePhoenixGateTest is Test {
 
     // ─── Router: end to end through the wrapper ───
 
+    /// The Gate's Hub row, once: BPC.gateWrapperLive asks the Hub whether the gate is admitted.
+    function _admit() internal {
+        if (hub.factoryCodehashOf(address(gate)) == bytes32(0)) _gateRow(gate);
+    }
+
     function _router() internal returns (BlazePhoenixRouter r) {
+        _admit();
         r = new BlazePhoenixRouter(address(hub), address(0xD0D0), address(this), address(0xFEE1), address(0xFEE2));
     }
 
@@ -539,7 +555,8 @@ contract BlazePhoenixGateTest is Test {
         assertEq(router.swapExactIn(r, amt, out, u, block.timestamp + 1), out);
     }
 
-    /// Quantity: after clear the kind-9 route reverts and a native V3 route still settles.
+    /// Quantity: after clear the kind-9 route reverts at the door (BPC.gateWrapperLive step 3,
+    /// RouterE(19), before any callback) and a native V3 route still settles.
     function test_GateF2_Router_ClearStopsOnlyTheFamily() public {
         BlazePhoenixGateWrapper w = _wrapper();
         BlazePhoenixRouter router = _router();
@@ -548,7 +565,7 @@ contract BlazePhoenixGateTest is Test {
         gate.clearAdapter(FAM);
         Route memory r9 = _route(address(w), BPC.KIND_EXTERNAL, KEY, amt, venue.quoteSell(amt));
         vm.prank(u);
-        vm.expectRevert(_err(4));
+        vm.expectRevert(_rerr(19));
         router.swapExactIn(r9, amt, 1, u, block.timestamp + 1);
         MockV3Pool p = new MockV3Pool(address(t0), address(t1), 3000);
         p.setState(Q96, uint128(1e27));
@@ -570,6 +587,7 @@ contract BlazePhoenixGateTest is Test {
     /// refuses kind 9 when the leg arrives through the best door (selfExecutePrePulled). The same plan settles by swapExactIn, and
     /// the same door settles a V3 plan: the refusal is the kind's, at that door.
     function test_GateF2_BestDoor_RefusesKindExternal() public {
+        _admit();
         BlazePhoenixGateWrapper w = _wrapper();
         GateBestPlanStub stub = new GateBestPlanStub();
         BlazePhoenixRouter router =
@@ -652,6 +670,7 @@ contract BlazePhoenixGateTest is Test {
     /// family prices 0 on both.
     function test_GateF2_Quoter_FallsBackToQuoteCall() public {
         BlazePhoenixGateWrapper w = _hostileWrapper(6);
+        _admit();
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
         uint256 amt = 1_000e18;
         (uint256 v, ) = w.quote(true, amt);
@@ -663,5 +682,109 @@ contract BlazePhoenixGateTest is Test {
         gate.clearAdapter(HFAM);
         (q, ) = quoter.previewRouteExact(r, amt);
         assertEq(q.hops[0].legs[0].expectedOut, 0, "a cleared family prices 0");
+    }
+
+    // ─── identity derived: a kind-9 leg is the admitted Gate's wrapper, or nothing ───
+
+    /// Quantity: BPC.gateWrapperLive step 2 (the address) at the Router's door. A working V3
+    /// pool that names the admitted gate, under a key of a live family, is refused as kind 9
+    /// (RouterE(19)): steps 1 and 3 pass for it, only the address tells. The same pool
+    /// settles as kind 1, so the refusal is the identity's, not the pool's.
+    /// RED before the derivation: the impostor settled as kind 9.
+    function test_GateF2_Identity_RouterRefusesAPoolThatOnlyNamesTheGate() public {
+        BlazePhoenixRouter router = _router();
+        GateImpostorPool p = new GateImpostorPool(address(gate), address(t0), address(t1));
+        p.setState(Q96, uint128(1e27));
+        t1.mint(address(p), 1_000_000e18);
+        uint256 amt = 1_000e18;
+        address u = _user(router, 2 * amt);
+        uint256 exp = BPC.outV3(amt, Q96, uint128(1e27), 3000, true, 0);
+        vm.prank(u);
+        vm.expectRevert(_rerr(19));
+        router.swapExactIn(_route(address(p), BPC.KIND_EXTERNAL, KEY, amt, exp), amt, 1, u, block.timestamp + 1);
+        vm.prank(u);
+        assertGt(router.swapExactIn(_route(address(p), BPC.KIND_V3, 3000, amt, exp), amt, 1, u,
+            block.timestamp + 1), 0, "the same pool settles as kind 1");
+    }
+
+    /// Quantity: BPC.gateWrapperLive step 1 (the Hub's admission). A real wrapper of a Gate the
+    /// Hub never admitted - same code, same tuple, same live family - is refused; the admitted
+    /// Gate's wrapper for the same tuple settles.
+    function test_GateF2_Identity_RouterRefusesAnUnadmittedGatesWrapper() public {
+        BlazePhoenixRouter router = _router();
+        BlazePhoenixGateWrapper w = _wrapper();
+        BlazePhoenixGate g2 = new BlazePhoenixGate(address(this));
+        g2.proposeAdapter(FAM, address(adapter));
+        vm.warp(block.timestamp + 48 hours);
+        g2.acceptAdapter(FAM);
+        address w2 = g2.create(address(t0), address(t1), KEY, abi.encode(address(venue)));
+        assertEq(BlazePhoenixGateWrapper(w2).venuePool(), w.venuePool(), "setup: the same venue");
+        uint256 amt = 1_000e18;
+        address u = _user(router, 2 * amt);
+        uint256 exp = venue.quoteSell(amt);
+        vm.prank(u);
+        vm.expectRevert(_rerr(19));
+        router.swapExactIn(_route(w2, BPC.KIND_EXTERNAL, KEY, amt, exp), amt, 1, u, block.timestamp + 1);
+        vm.prank(u);
+        assertGt(router.swapExactIn(_route(address(w), BPC.KIND_EXTERNAL, KEY, amt, exp), amt, 1, u,
+            block.timestamp + 1), 0, "the admitted Gate's wrapper settles");
+    }
+
+    /// Quantity: the leg's fee is the venue key the address is derived from. The admitted
+    /// wrapper under another key of the same live family is refused; under its own, settles.
+    function test_GateF2_Identity_RouterRefusesAnotherVenueKey() public {
+        BlazePhoenixRouter router = _router();
+        BlazePhoenixGateWrapper w = _wrapper();
+        uint24 other = uint24(uint256(FAM) << 16 | 2);
+        uint256 amt = 1_000e18;
+        address u = _user(router, 2 * amt);
+        uint256 exp = venue.quoteSell(amt);
+        vm.prank(u);
+        vm.expectRevert(_rerr(19));
+        router.swapExactIn(_route(address(w), BPC.KIND_EXTERNAL, other, amt, exp), amt, 1, u, block.timestamp + 1);
+        vm.prank(u);
+        assertGt(router.swapExactIn(_route(address(w), BPC.KIND_EXTERNAL, KEY, amt, exp), amt, 1, u,
+            block.timestamp + 1), 0, "its own key settles");
+    }
+
+    /// Quantity: Quoter._priceLeg asks the same BPC.gateWrapperLive. The impostor (quote 1e30)
+    /// and an unadmitted Gate's wrapper price 0; the admitted wrapper prices its adapter's quote.
+    function test_GateF2_Identity_QuoterPricesOnlyTheAdmittedWrapper() public {
+        _admit();
+        BlazePhoenixGateWrapper w = _wrapper();
+        BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
+        GateImpostorPool p = new GateImpostorPool(address(gate), address(t0), address(t1));
+        BlazePhoenixGate g2 = new BlazePhoenixGate(address(this));
+        g2.proposeAdapter(FAM, address(adapter));
+        vm.warp(block.timestamp + 48 hours);
+        g2.acceptAdapter(FAM);
+        address w2 = g2.create(address(t0), address(t1), KEY, abi.encode(address(venue)));
+        uint256 amt = 1_000e18;
+        (Route memory q, ) = quoter.previewRouteExact(_route(address(p), BPC.KIND_EXTERNAL, KEY, amt, 0), amt);
+        assertEq(q.hops[0].legs[0].expectedOut, 0, "the impostor prices 0");
+        (q, ) = quoter.previewRouteExact(_route(w2, BPC.KIND_EXTERNAL, KEY, amt, 0), amt);
+        assertEq(q.hops[0].legs[0].expectedOut, 0, "an unadmitted Gate's wrapper prices 0");
+        (q, ) = quoter.previewRouteExact(_route(address(w), BPC.KIND_EXTERNAL, KEY, amt, 0), amt);
+        assertEq(q.hops[0].legs[0].expectedOut, venue.quoteSell(amt), "the admitted wrapper prices");
+    }
+
+    /// Quantity: Quoter GATE_QUOTE_GAS. An adapter whose quote and quoteCall spend all the gas
+    /// they get prices 0 and leaves the quote with its gas: capped calls, not 63/64 of it.
+    function test_GateF2_Quoter_GasCapBoundsABurningAdapter() public {
+        _admit();
+        BlazePhoenixGateWrapper w = _hostileWrapper(7);
+        BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
+        uint256 amt = 1_000e18;
+        Route memory r = _route(address(w), BPC.KIND_EXTERNAL, HKEY, amt, 0);
+        uint256 g0 = gasleft();
+        (Route memory q, ) = quoter.previewRouteExact{gas: 20_000_000}(r, amt);
+        uint256 used = g0 - gasleft();
+        assertEq(q.hops[0].legs[0].expectedOut, 0, "a burning adapter prices 0");
+        // Measured 2.05M: the route is priced on two passes, two capped answers each. Uncapped,
+        // the first burning answer alone takes 63/64 of the 20M given.
+        assertLt(used, 5_000_000, "capped answers, not the whole budget");
+        hostile.setMode(0);
+        (q, ) = quoter.previewRouteExact(r, amt);
+        assertEq(q.hops[0].legs[0].expectedOut, venue.quoteSell(amt), "the neighbour: an honest answer prices");
     }
 }

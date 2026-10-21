@@ -154,6 +154,8 @@ contract BlazePhoenixQuoter {
     ///         re-underwrite it.
     uint16  internal constant ASSUMED_FEE_SAFETY = 5;
     uint16  internal constant MAX_BATCH         = 32;
+    /// @dev Gas each Gate adapter answer (quote, then quoteCall) may spend in _priceLeg.
+    uint256 internal constant GATE_QUOTE_GAS    = 500_000;
 
     ISolverQ public immutable solver;
     IHubQ    public immutable hub;
@@ -817,13 +819,19 @@ contract BlazePhoenixQuoter {
             // A Gate wrapper is priced by its own adapter: the view `quote` first, then the
             // eth_call `quoteCall` when the view has no answer. A failure is 0, never the
             // plan's point: kind 9 is never planned, so that point is the caller's.
-            try IGateWrapperQ(leg.pool).quote(leg.zeroForOne, legIn) returns (uint256 o, uint256) {
-                legOut = o;
-            } catch {}
-            if (legOut == 0) {
-                try IGateWrapperQ(leg.pool).quoteCall(leg.zeroForOne, legIn) returns (uint256 o) {
+            // Same identity the Router's door demands (BPC.gateWrapperLive): a pool that is
+            // not an admitted Gate's wrapper for this hop and fee, or whose family has no
+            // live adapter, prices 0. Each adapter answer runs under GATE_QUOTE_GAS, so one
+            // leg cannot spend the whole quote's gas.
+            if (BPC.gateWrapperLive(address(hub), leg.pool, tIn, tOut, leg.fee)) {
+                try IGateWrapperQ(leg.pool).quote{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn) returns (uint256 o, uint256) {
                     legOut = o;
                 } catch {}
+                if (legOut == 0) {
+                    try IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn) returns (uint256 o) {
+                        legOut = o;
+                    } catch {}
+                }
             }
         } else {
             // SOLIDLY — priced via the ONE Core dispatcher, exactly like

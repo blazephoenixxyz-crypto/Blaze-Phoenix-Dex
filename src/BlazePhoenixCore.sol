@@ -648,6 +648,43 @@ library BlazePhoenixCore {
         }
     }
 
+    /// @notice IDENTITY DERIVED for a kind-9 leg (a Gate wrapper). The ONE producer: the
+    ///         Router's explicit doors and the Quoter both ask it, and neither trusts the
+    ///         calldata's word that `pool` is a wrapper. The pool is asked only which gate
+    ///         made it; that answer is then checked against sources the pool does not
+    ///         control:
+    ///           1. the Hub must have admitted `g` as a factory, and `g` must still run the
+    ///              code it was admitted with (the Hub's codehash pin);
+    ///           2. `pool` must equal create2(g, v3Salt(t0, t1, fee), g.WRAPPER_INIT_HASH())
+    ///              - the formula the Hub discovers kind-9 rows by - with the hop's own
+    ///              tokens and the leg's own fee (the venue key). Only `g` can deploy at that
+    ///              address, and only the wrapper's code hashes to that init hash; a pool
+    ///              lying about its gate misses the address, and an admitted factory that is
+    ///              not a Gate has no WRAPPER_INIT_HASH (reads 0). The address fixes the
+    ///              wrapper's runtime and its slot (t0, t1, key); venuePool/aux0/aux1 are
+    ///              immutables the Gate wrote at create from its adapter's resolve, so they
+    ///              are bound transitively;
+    ///           3. the family (key >> 16) must have a live adapter in the Gate NOW: a
+    ///              cleared or drifted adapter refuses the leg here, not in the callback.
+    ///         Every external read is GAS_CAP-bounded and reads 0 on failure: fail closed.
+    function gateWrapperLive(address hub, address pool, address tA, address tB, uint24 fee)
+        public view returns (bool)
+    {
+        // `_askWord` leaves the word 0 on a failed or short answer, so `ok` adds nothing here.
+        (, uint256 w) = _askWord(pool, abi.encodeWithSignature("gate()"));
+        address g = address(uint160(w));
+        (, w) = _askWord(hub, abi.encodeWithSignature("factoryCodehashOf(address)", g));
+        // No `w == 0` arm: an unadmitted gate with code misses here; one with no account
+        // (codehash 0) has no init hash and misses the address below.
+        if (bytes32(w) != g.codehash) return false;
+        (, w) = _askWord(g, abi.encodeWithSignature("WRAPPER_INIT_HASH()"));
+        (address t0, address t1) = sortTokens(tA, tB);
+        // A missing init hash reads 0; create2 over it is an address no deployment can match.
+        if (create2Address(g, v3Salt(t0, t1, fee), bytes32(w)) != pool) return false;
+        (, w) = _askWord(g, abi.encodeWithSignature("liveAdapter(uint8)", uint8(fee >> 16)));
+        return w != 0;
+    }
+
     /// @notice Canonical V4 pool id from a PoolKey.
     function computeV4PoolId(
         address currency0, address currency1, uint24 fee,

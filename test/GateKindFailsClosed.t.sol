@@ -121,9 +121,11 @@ contract GateKindFailsClosedTest is Test {
 
     // ─── Router: kind 9 executes through _execV3Amt and its callback ───
 
-    /// Quantity: the Router's execution dispatch for kind 9.
-    /// RED at 13fff68: RouterE(8), the dispatch had no arm for it.
-    function test_GateK9_Router_ExecutesKindExternalThroughTheV3Callback() public {
+    /// Quantity: the Router's execution dispatch for kind 9 asks BPC.gateWrapperLive first. A
+    /// plain V3 pool labelled kind 9 is refused (RouterE(19)); the same pool settles as kind 1.
+    /// History: at 13fff68 this was RouterE(8) (no arm); phase 2 gave kind 9 the V3 arm and this
+    /// pool settled as kind 9 - the calldata's label was the identity. The derivation closes it.
+    function test_GateK9_Router_RefusesAPoolThatIsNotAWrapper() public {
         BlazePhoenixRouter router =
             new BlazePhoenixRouter(address(hub), address(0xD0D0), address(this), address(0xFEE1), address(0xFEE2));
         MockV3Pool p = new MockV3Pool(address(t0), address(t1), 3000);
@@ -143,8 +145,12 @@ contract GateKindFailsClosedTest is Test {
         Route memory r = Route({hops: hs, totalOut: exp, singleOut: 0, singleOutFloor: 0, expectedImpactBps: 0,
             confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(19)));
+        router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
+        r.hops[0].legs[0].kind = BPC.KIND_V3;
+        vm.prank(user);
         uint256 out = router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
-        assertGt(out, 0, "kind 9 settles through the V3 callback");
+        assertGt(out, 0, "the same pool settles as kind 1");
         assertEq(t1.balanceOf(user), out, "the user receives what the Router measured");
         assertEq(t0.balanceOf(address(router)), 0, "the Router keeps no input");
         assertEq(t1.balanceOf(address(router)), 0, "the Router keeps no output");

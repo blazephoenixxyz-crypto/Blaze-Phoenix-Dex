@@ -92,6 +92,7 @@ contract MockGateHostileAdapter is MockGateAdapter {
     uint8 public constant LIE = 4;         // trades honestly, returns ten times the output
     uint8 public constant ZERO_POOL = 5;   // resolve answers no pool
     uint8 public constant CALL_ONLY = 6;   // honest, but prices only by quoteCall (quote = 0)
+    uint8 public constant BURN = 7;        // quote and quoteCall spend every unit of gas given
     uint8 public mode;
 
     constructor(BlazePhoenixGate g, MockGateRegistry r) MockGateAdapter(g, r) {}
@@ -140,7 +141,17 @@ contract MockGateHostileAdapter is MockGateAdapter {
     function quote(address vp, bytes32, bytes32, bool, uint256 amtIn)
         external view override returns (uint256, uint256)
     {
+        if (mode == BURN) _burn();
         if (mode == CALL_ONLY) return (0, 0);
         return (MockGateVenue(vp).quoteSell(amtIn), 0);
+    }
+
+    function quoteCall(address vp, bytes32, bytes32, bool, uint256 amtIn) external override returns (uint256) {
+        if (mode == BURN) _burn();
+        return MockGateVenue(vp).quoteSell(amtIn);
+    }
+
+    function _burn() internal pure {
+        while (true) {}
     }
 }

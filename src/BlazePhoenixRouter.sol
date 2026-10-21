@@ -1718,6 +1718,10 @@ contract BlazePhoenixRouter {
             // measured delta. It has no theta bit, so no reader treats it as a V3 pool.
             // Explicit-route doors only: the best door re-enters as this Router
             // (selfExecutePrePulled), so a Solver plan carrying kind 9 falls to RouterE(8).
+            // The calldata's kind is a claim, not an identity: BPC.gateWrapperLive derives
+            // the wrapper from the Hub's Gate row and the hop's own tokens and fee.
+            if (k == BPC.KIND_EXTERNAL && !BPC.gateWrapperLive(address(hub), leg.pool, tokenIn, legOutRaw, leg.fee))
+                revert RouterE(19);
             _execV3Amt(leg, tokenIn, amt);
         } else if (BPC.kindHas(k, BPC.A_CONC_SING)) {
             _execV4Amt(leg, tokenIn, amt);
