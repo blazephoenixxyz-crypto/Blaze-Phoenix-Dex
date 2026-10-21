@@ -59,12 +59,14 @@ contract AdapterBalancerV2Test is AdapterHarness {
     }
 
     function test_BalV2_QuoteCallEqualsExecution_QuoteIsZero() public {
+        vault.setRateOf(address(t1), 9_000); // t1->t0 prices apart: a reversed pair is seen ([610])
         BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
         (uint256 q, uint256 d) = wr.quote(true, 5e18);
         assertEq(q, 0);
         assertEq(d, 0);
         uint256 qc = wr.quoteCall(true, 5e18);
         assertGt(qc, 0);
+        assertEq(qc, 5e18 * 9_970 / 10_000, "quoteCall prices t0->t1");
         assertEq(_swap(w, true, 5e18), qc);
     }
 

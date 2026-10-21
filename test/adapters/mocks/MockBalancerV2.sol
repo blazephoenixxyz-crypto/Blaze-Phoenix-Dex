@@ -20,10 +20,21 @@ contract MockBalancerV2Vault {
     mapping(bytes32 => address[]) internal tokensOf;
     mapping(address => mapping(address => uint256)) public internalBalance;
     uint256 public rateBps = 9_970;
+    /// Per input token, when set: a pool is not 1:1, so a quote of the wrong direction shows.
+    mapping(address => uint256) public rateBpsOf;
     uint8 public mode;
     bool internal entered;
     uint256 public allowanceSeen;
     uint256 public queries;
+
+    function setRateOf(address tokenIn, uint256 bps) external {
+        rateBpsOf[tokenIn] = bps;
+    }
+
+    function _rate(address tokenIn) internal view returns (uint256 r) {
+        r = rateBpsOf[tokenIn];
+        if (r == 0) r = rateBps;
+    }
 
     function registerPool(bytes32 id, address pool, address[] memory tokens) external {
         poolOf[id] = pool;
@@ -63,7 +74,7 @@ contract MockBalancerV2Vault {
         } else if (mode != 1) {
             MockERC20(s.assetIn).transferFrom(f.sender, address(this), s.amount);
         }
-        out = s.amount * rateBps / 10_000;
+        out = s.amount * _rate(s.assetIn) / 10_000;
         require(out >= limit, "BAL#507");
         if (f.toInternalBalance) internalBalance[f.recipient][s.assetOut] += out;
         else MockERC20(s.assetOut).transfer(f.recipient, out);
@@ -73,12 +84,12 @@ contract MockBalancerV2Vault {
     function queryBatchSwap(
         IBalancerV2Vault.SwapKind,
         IBalancerV2Vault.BatchSwapStep[] memory steps,
-        address[] memory,
+        address[] memory assets,
         IBalancerV2Vault.FundManagement memory
     ) external returns (int256[] memory d) {
         queries++; // non-view, as the real one
         d = new int256[](2);
         d[0] = int256(steps[0].amount);
-        d[1] = -int256(steps[0].amount * rateBps / 10_000);
+        d[1] = -int256(steps[0].amount * _rate(assets[steps[0].assetInIndex]) / 10_000);
     }
 }

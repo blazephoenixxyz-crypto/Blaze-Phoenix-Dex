@@ -84,11 +84,13 @@ contract AdapterBalancerV3Test is AdapterHarness {
     }
 
     function test_BalV3_QuoteCallEqualsExecution_QuoteIsZero() public {
+        vault.setRateOf(address(t0), 9_000); // t0->t1 prices apart: a reversed pair is seen ([611])
         (uint256 q, ) = BlazePhoenixGateWrapper(w).quote(false, 6e18);
         assertEq(q, 0);
         vm.prank(address(this), address(0)); // eth_call context, as the Vault's quote demands
         uint256 qc = BlazePhoenixGateWrapper(w).quoteCall(false, 6e18);
         assertGt(qc, 0);
+        assertEq(qc, 6e18 * 9_970 / 10_000, "quoteCall prices t1->t0");
         _settled();
         assertEq(_swap(w, false, 6e18), qc);
     }

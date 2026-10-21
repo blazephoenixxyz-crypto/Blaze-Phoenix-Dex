@@ -21,6 +21,17 @@ contract MockBalancerV3Vault {
     address[] internal touched;
     bool public unlocked;
     uint256 public rateBps = 9_970;
+    /// Per input token, when set: a pool is not 1:1, so a quote of the wrong direction shows.
+    mapping(address => uint256) public rateBpsOf;
+
+    function setRateOf(address tokenIn, uint256 bps) external {
+        rateBpsOf[tokenIn] = bps;
+    }
+
+    function _rate(address tokenIn) internal view returns (uint256 r) {
+        r = rateBpsOf[tokenIn];
+        if (r == 0) r = rateBps;
+    }
 
     function registerPool(address pool, address[] memory tokens, IBalancerV3Vault.HooksConfig memory h) external {
         isPoolRegistered[pool] = true;
@@ -52,7 +63,7 @@ contract MockBalancerV3Vault {
         require(unlocked, "VaultIsNotUnlocked");
         require(isPoolRegistered[p.pool], "PoolNotRegistered");
         require(p.kind == IBalancerV3Vault.SwapKind.EXACT_IN, "kind");
-        uint256 out = p.amountGivenRaw * rateBps / 10_000;
+        uint256 out = p.amountGivenRaw * _rate(p.tokenIn) / 10_000;
         require(out >= p.limitRaw, "SwapLimit");
         _touch(p.tokenIn, int256(p.amountGivenRaw));
         _touch(p.tokenOut, -int256(out));
