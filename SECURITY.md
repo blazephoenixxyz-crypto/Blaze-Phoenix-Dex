@@ -136,8 +136,8 @@ Track record, across this repo and the staking sibling: **62 researchers
 credited** in [`SECURITY_HALL_OF_FAME.md`](./SECURITY_HALL_OF_FAME.md) — a count
 you can check against that file rather than against this sentence — every
 confirmed finding fixed with a regression test that fails against the pre-fix
-code, and **zero Critical**: no direct theft or permanent freeze of funds has
-ever been demonstrated. Every report is reproduced red-first before a verdict
+code. One finding was rated Critical (conditional), in Router 1.0.0, and fixed;
+no loss of funds has occurred. Every report is reproduced red-first before a verdict
 is given; the process, from receipt to Hall of Fame, is written down in
 [`docs/BOUNTY_METHOD.md`](./docs/BOUNTY_METHOD.md).
 
