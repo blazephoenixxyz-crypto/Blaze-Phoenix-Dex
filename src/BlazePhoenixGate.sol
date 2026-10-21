@@ -255,7 +255,7 @@ contract BlazePhoenixGateWrapper {
     }
 
     /// 11 re-entered | 12 not exact-in | 4 no live adapter | 13 paid less than asked |
-    /// 14 the adapter kept part of the input or of the output
+    /// 14 the adapter kept part of the input or of the output | 15 the wrapper was left holding it
     function swap(address recipient, bool zeroForOne, int256 amountSpecified, uint160, bytes calldata data)
         external returns (int256 amount0, int256 amount1)
     {
@@ -276,13 +276,17 @@ contract BlazePhoenixGateWrapper {
         // 2) Forward exactly that delta and let the adapter trade it.
         uint256 adIn = BPC.balanceOf(tIn, a);
         uint256 adOut = BPC.balanceOf(tOut, a);
+        uint256 wOut = BPC.balanceOf(tOut, address(this));
         uint256 outBefore = BPC.balanceOf(tOut, recipient);
         BPC.safeTransfer(tIn, a, paid);
         IExtAdapter(a).exec(venuePool, aux0, aux1, zeroForOne, paid, recipient);
 
-        // 3) Custody: the adapter ends holding what it held before the push, of both tokens.
+        // 3) Custody: the adapter ends holding what it held before the push, of both tokens,
+        //    and so does the wrapper (it holds nothing between calls).
         if (BPC.balanceOf(tIn, a) > adIn) revert GateE(14);
         if (BPC.balanceOf(tOut, a) > adOut) revert GateE(14);
+        if (BPC.balanceOf(tIn, address(this)) > inBefore) revert GateE(15);
+        if (BPC.balanceOf(tOut, address(this)) > wOut) revert GateE(15);
 
         // 4) The output is the measured delta at the recipient, in V3's sign convention.
         uint256 out = BPC.balanceOf(tOut, recipient) - outBefore;

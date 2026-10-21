@@ -392,6 +392,25 @@ contract BlazePhoenixGateTest is Test {
         w.swap(address(this), true, 1e18, 0, "");
     }
 
+    /// Quantity: the wrapper ends with no more input token than it had (it holds nothing
+    /// between calls): an adapter that hands the input back is refused (review G1, 21/10).
+    function test_GateF2_Wrapper_InputBackToWrapperRefused() public {
+        BlazePhoenixGateWrapper w = _hostileWrapper(8);
+        t1.mint(address(hostile), 10e18);
+        t0.mint(address(this), 1e18);
+        vm.expectRevert(_err(15));
+        w.swap(address(this), true, 1e18, 0, "");
+    }
+
+    /// Quantity: the wrapper ends with no more output token than it had: output delivered
+    /// to the wrapper instead of the recipient is refused (review G1, 21/10).
+    function test_GateF2_Wrapper_OutputToWrapperRefused() public {
+        BlazePhoenixGateWrapper w = _hostileWrapper(9);
+        t0.mint(address(this), 1e18);
+        vm.expectRevert(_err(15));
+        w.swap(address(this), true, 1e18, 0, "");
+    }
+
     /// Quantity: no re-entry into a wrapper during its own swap.
     function test_GateF2_Wrapper_ReentryRefused() public {
         BlazePhoenixGateWrapper w = _hostileWrapper(3);

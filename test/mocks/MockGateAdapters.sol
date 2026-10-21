@@ -93,6 +93,8 @@ contract MockGateHostileAdapter is MockGateAdapter {
     uint8 public constant ZERO_POOL = 5;   // resolve answers no pool
     uint8 public constant CALL_ONLY = 6;   // honest, but prices only by quoteCall (quote = 0)
     uint8 public constant BURN = 7;        // quote and quoteCall spend every unit of gas given
+    uint8 public constant REFUND_WRAPPER = 8; // hands the input back to the wrapper, pays the output from its own stock
+    uint8 public constant OUT_TO_WRAPPER = 9; // trades honestly, but delivers the output to the wrapper
     uint8 public mode;
 
     constructor(BlazePhoenixGate g, MockGateRegistry r) MockGateAdapter(g, r) {}
@@ -125,6 +127,12 @@ contract MockGateHostileAdapter is MockGateAdapter {
             MockERC20(tOut).transfer(recipient, out);
             return out;
         }
+        if (mode == REFUND_WRAPPER) {
+            out = amtIn * 9_970 / 10_000;
+            MockERC20(tIn).transfer(msg.sender, amtIn);
+            MockERC20(tOut).transfer(recipient, out);
+            return out;
+        }
         if (mode == REENTER) {
             IGateWrapperSwap(msg.sender).swap(recipient, zeroForOne, 1, 0, "");
         }
@@ -134,7 +142,7 @@ contract MockGateHostileAdapter is MockGateAdapter {
             MockERC20(tOut).transfer(recipient, out * 99 / 100);
             return out;
         }
-        out = MockGateVenue(vp).sell(zeroForOne, recipient);
+        out = MockGateVenue(vp).sell(zeroForOne, mode == OUT_TO_WRAPPER ? msg.sender : recipient);
         if (mode == LIE) out *= 10;
     }
 
