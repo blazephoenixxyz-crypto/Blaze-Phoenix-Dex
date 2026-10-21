@@ -97,6 +97,13 @@ interface IConcPoolQ {
         external returns (int256 amount0, int256 amount1);
 }
 
+/// @dev A Gate wrapper's two quotes (src/BlazePhoenixGate.sol): `quote` is a view, and
+///      `quoteCall` serves venues that only price by simulation (read here by eth_call).
+interface IGateWrapperQ {
+    function quote(bool zeroForOne, uint256 amtIn) external view returns (uint256 out, uint256 depth18);
+    function quoteCall(bool zeroForOne, uint256 amtIn) external returns (uint256 out);
+}
+
 interface IHubQ {
     function v4PoolManager() external view returns (address);
     function bridgeCount() external view returns (uint8);
@@ -620,7 +627,21 @@ contract BlazePhoenixQuoter {
         external returns (Route memory route, uint256 exactOut)
     {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
-        route = plan.best;
+        return _exact(plan.best, amountIn);
+    }
+
+    /// @notice The same execution-grade re-pricing as `previewPlanExact`, for a route built
+    ///         off-chain instead of by the Solver: the only way to quote Gate legs (kind 9),
+    ///         which the Solver never plans and the best door refuses. Call via eth_call.
+    function previewRouteExact(Route memory route, uint256 amountIn)
+        external returns (Route memory, uint256)
+    {
+        return _exact(route, amountIn);
+    }
+
+    function _exact(Route memory route, uint256 amountIn)
+        private returns (Route memory, uint256 exactOut)
+    {
         if (route.hops.length == 0) return (route, 0);
         uint256 carry = amountIn; // exact input entering the current hop
         // #44 (babayagaleet): on a multi-hop route the Router charges the fee on the INPUT of
@@ -704,6 +725,7 @@ contract BlazePhoenixQuoter {
         // unchanged wherever the deduction above was already the lower one.
         uint256 funded = _fundedOut(route, amountIn);
         if (funded < exactOut) exactOut = funded;
+        return (route, exactOut);
     }
 
     /// @dev What the Router delivers for `route` when it charges the protocol fee on an input:
@@ -791,6 +813,18 @@ contract BlazePhoenixQuoter {
             if (legOut == 0)
                 legOut = BPC.mulDiv(
                     leg.expectedOut, legIn > base ? base : legIn, base);
+        } else if (leg.kind == BPC.KIND_EXTERNAL) {
+            // A Gate wrapper is priced by its own adapter: the view `quote` first, then the
+            // eth_call `quoteCall` when the view has no answer. A failure is 0, never the
+            // plan's point: kind 9 is never planned, so that point is the caller's.
+            try IGateWrapperQ(leg.pool).quote(leg.zeroForOne, legIn) returns (uint256 o, uint256) {
+                legOut = o;
+            } catch {}
+            if (legOut == 0) {
+                try IGateWrapperQ(leg.pool).quoteCall(leg.zeroForOne, legIn) returns (uint256 o) {
+                    legOut = o;
+                } catch {}
+            }
         } else {
             // SOLIDLY — priced via the ONE Core dispatcher, exactly like
             // the V2 branch above (DEDUP BP-14/P4). universalQuote's
@@ -804,7 +838,7 @@ contract BlazePhoenixQuoter {
             // linear rescale walked the TANGENT of a concave curve and
             // OVERSTATED whenever carry outgrew the plan (reported at up
             // to ~907 bps on a thin pool) — pinned RED-first by
-            // test/QuoterOverQuote.t.sol. Tombstone kinds and KIND_EXTERNAL
+            // test/QuoterOverQuote.t.sol. Tombstone kinds
             // also land here and quote 0 (universalQuote's fail-closed
             // default) because the ctx carries the LEG's kind: it used to be
             // forced to KIND_SOLIDLY, which priced any unknown kind on the

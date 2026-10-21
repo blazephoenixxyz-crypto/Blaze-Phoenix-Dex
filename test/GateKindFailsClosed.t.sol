@@ -153,7 +153,9 @@ contract GateKindFailsClosedTest is Test {
     // ─── Quoter: an unknown kind is priced by its own kind, which has no arm ───
 
     /// Quantity: Quoter._priceLeg for a kind outside every arm, read through previewPlanExact.
-    /// RED at 13fff68: kind 9 on a Solidly pair was priced on the Solidly curve.
+    /// RED at 13fff68: an unknown kind on a Solidly pair was priced on the Solidly curve. Since
+    /// phase 2 kind 9 has its own arm (the wrapper's adapter, test/BlazePhoenixGate.t.sol), so
+    /// the unknown kind here is tombstone 3.
     function test_GateK9_QuoterPriceLeg_UnknownKindQuotesZero() public {
         KindFailsClosedPlanStub stub = new KindFailsClosedPlanStub();
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(stub));
@@ -166,9 +168,12 @@ contract GateKindFailsClosedTest is Test {
         stub.setPlan(_onePlan(address(p), BPC.KIND_SOLIDLY, x, claim));
         (Route memory rs, ) = quoter.previewPlanExact(address(t0), address(t1), x);
         assertGt(rs.hops[0].legs[0].expectedOut, 0, "the neighbour: the Solidly leg is priced");
+        stub.setPlan(_onePlan(address(p), 3, x, claim));
+        (Route memory r3, ) = quoter.previewPlanExact(address(t0), address(t1), x);
+        assertEq(r3.hops[0].legs[0].expectedOut, 0, "_priceLeg: an unknown kind has no quote producer and must price 0");
         stub.setPlan(_onePlan(address(p), KIND9, x, claim));
         (Route memory r9, ) = quoter.previewPlanExact(address(t0), address(t1), x);
-        assertEq(r9.hops[0].legs[0].expectedOut, 0, "_priceLeg: kind 9 has no quote producer and must price 0");
+        assertEq(r9.hops[0].legs[0].expectedOut, 0, "_priceLeg: a pair is not a Gate wrapper, kind 9 on it prices 0");
     }
 
     function _onePlan(address pool, uint8 kind, uint256 x, uint256 claim) internal view returns (RoutePlan memory p) {

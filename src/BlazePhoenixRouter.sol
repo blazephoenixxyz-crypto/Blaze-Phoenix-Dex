@@ -1712,10 +1712,12 @@ contract BlazePhoenixRouter {
         // reverts directly — same result, fewer bytes.
         if (BPC.kindHas(k, BPC.A_RESERVES)) {
             _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
-        } else if (BPC.kindHas(k, BPC.A_CONC_POOL) || k == BPC.KIND_EXTERNAL) {
+        } else if (BPC.kindHas(k, BPC.A_CONC_POOL) || (k == BPC.KIND_EXTERNAL && msg.sender != address(this))) {
             // KIND_EXTERNAL is an IDENTITY, not an attribute: a Gate wrapper speaks the V3
             // swap/callback ABI, so it settles through the same callback and the same
             // measured delta. It has no theta bit, so no reader treats it as a V3 pool.
+            // Explicit-route doors only: the best door re-enters as this Router
+            // (selfExecutePrePulled), so a Solver plan carrying kind 9 falls to RouterE(8).
             _execV3Amt(leg, tokenIn, amt);
         } else if (BPC.kindHas(k, BPC.A_CONC_SING)) {
             _execV4Amt(leg, tokenIn, amt);
