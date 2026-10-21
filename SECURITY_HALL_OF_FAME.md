@@ -73,7 +73,7 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Tuan Berdasi**
 - **Ricki Ariadi**
 - **Agis Apriansyah**
-- **Joko (Independent Web3 Security Analyst)**
+- **Joko**
 - **Luis_MZ**
 - **biasaajash**
 - **PapaCZ**
