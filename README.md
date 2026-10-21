@@ -251,15 +251,15 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 6 | `src/*.sol` |
-| Test declarations | 2,224 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test declarations | 2,236 | `function test*` / `invariant*` / `check*` under `test/` |
 | Test files | 338 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 30 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 616 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 625 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
-| Researchers credited | 42 | `SECURITY_HALL_OF_FAME.md` |
+| Researchers credited | 62 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
 
 ## Assurance: what the repository measures about its own evidence
@@ -344,7 +344,7 @@ code, and a mutant the test must kill; nothing is closed by argument alone. With
 researchers who read the source, thought adversarially and told us privately what they found:
 
 <!-- researchers:begin -->
-[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · Charan · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Anonymous
+[NetGakarot (Gakarot)](https://github.com/NetGakarot) · duxun · AmanDara1 · amitbhakar · eveeyrp · siam siddik · Thomas · llen · destinyae · superagent · Mohd Huzaifa · Raditya · bai bo · Josh W · Borutobro · mohaseenkatika · mohaseenbasha · Karan Rathod · Seavia Resources · acit aja · Brian Wahyu · M2000 Slash · Binod Bk · CHARIR ABDELHAMID · Charan · Ashish Prajapati · rety6363 · Cico Agung · Amir · Marcin Sikora · Monster Dev · Fersdoven Josua · Ade Putra Hermawan · sbekk · satu hack · [OxHulk](https://x.com/OxHulk) · Mansor · Malik Werkudhara · Yudha Eka Saputra · Pavan Baile · Garin · Bandreg · Makino Ken · sus1lo · Widya Kuya · polabears · Danu Fandiyana (anmxx) · ALZEA · Tuan Berdasi · Ricki Ariadi · Agis Apriansyah · Joko (Independent Web3 Security Analyst) · Luis_MZ · biasaajash · PapaCZ · WANZ · TOT · fortworun · KHIKHI · momonom207 · Tarun Pardeshi · Anonymous
 <!-- researchers:end -->
 
 Technical detail stays in the verified source and our private records, never on a credits page.
