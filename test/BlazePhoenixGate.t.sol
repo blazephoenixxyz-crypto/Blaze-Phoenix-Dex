@@ -409,6 +409,19 @@ contract BlazePhoenixGateTest is Test {
         w.swap(address(this), true, 1e18, 0, "");
     }
 
+    /// Quantity: the wrapper's own liveAdapter check (GateE(4)), for a caller that is not the
+    /// Router: the door's BPC.gateWrapperLive does not cover a direct swap. The same wrapper
+    /// settles while the family is live.
+    function test_GateF2_Wrapper_ClearedFamilyRefusedAtTheSwap() public {
+        BlazePhoenixGateWrapper w = _wrapper();
+        t0.mint(address(this), 2e18);
+        (, int256 a1) = w.swap(address(this), true, 1e18, 0, "");
+        assertLt(a1, 0, "the neighbour: a live family settles");
+        gate.clearAdapter(FAM);
+        vm.expectRevert(_err(4));
+        w.swap(address(this), true, 1e18, 0, "");
+    }
+
     /// Quantity: exact-in only (amountSpecified > 0).
     function test_GateF2_Wrapper_ExactInOnly() public {
         BlazePhoenixGateWrapper w = _wrapper();
@@ -693,6 +706,9 @@ contract BlazePhoenixGateTest is Test {
     /// RED before the derivation: the impostor settled as kind 9.
     function test_GateF2_Identity_RouterRefusesAPoolThatOnlyNamesTheGate() public {
         BlazePhoenixRouter router = _router();
+        // Step 3 must pass for the impostor, or the refusal would be the family's, not the address's.
+        _accept(FAM, address(adapter));
+        assertTrue(gate.liveAdapter(FAM) != address(0), "setup: the key's family is live");
         GateImpostorPool p = new GateImpostorPool(address(gate), address(t0), address(t1));
         p.setState(Q96, uint128(1e27));
         t1.mint(address(p), 1_000_000e18);
@@ -769,20 +785,20 @@ contract BlazePhoenixGateTest is Test {
     }
 
     /// Quantity: Quoter GATE_QUOTE_GAS. An adapter whose quote and quoteCall spend all the gas
-    /// they get prices 0 and leaves the quote with its gas: capped calls, not 63/64 of it.
+    /// they get prices 0 and the quote still finishes on a bounded budget: capped calls, not
+    /// 63/64 of what is left.
     function test_GateF2_Quoter_GasCapBoundsABurningAdapter() public {
         _admit();
         BlazePhoenixGateWrapper w = _hostileWrapper(7);
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
         uint256 amt = 1_000e18;
         Route memory r = _route(address(w), BPC.KIND_EXTERNAL, HKEY, amt, 0);
-        uint256 g0 = gasleft();
-        (Route memory q, ) = quoter.previewRouteExact{gas: 20_000_000}(r, amt);
-        uint256 used = g0 - gasleft();
-        assertEq(q.hops[0].legs[0].expectedOut, 0, "a burning adapter prices 0");
         // Measured 2.05M: the route is priced on two passes, two capped answers each. Uncapped,
-        // the first burning answer alone takes 63/64 of the 20M given.
-        assertLt(used, 5_000_000, "capped answers, not the whole budget");
+        // the first burning answer takes 63/64 of the budget and the Quoter runs out of gas.
+        // A budget, not a gasleft() delta: under the uncapped-quoteCall mutant the delta stayed
+        // under 5M while the trace showed 18.87M burnt, so the delta proved nothing here.
+        (Route memory q, ) = quoter.previewRouteExact{gas: 3_000_000}(r, amt);
+        assertEq(q.hops[0].legs[0].expectedOut, 0, "a burning adapter prices 0");
         hostile.setMode(0);
         (q, ) = quoter.previewRouteExact(r, amt);
         assertEq(q.hops[0].legs[0].expectedOut, venue.quoteSell(amt), "the neighbour: an honest answer prices");

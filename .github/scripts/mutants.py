@@ -2872,7 +2872,7 @@ M = [
       f="src/BlazePhoenixGate.sol",
       old="        address a = BlazePhoenixGate(gate).liveAdapter(family);\n        if (a == address(0)) revert GateE(4);",
       new="        address a = BlazePhoenixGate(gate).liveAdapter(family); // MUTANT [509]",
-      teste="test_GateF2_Router_ClearStopsOnlyTheFamily"),
+      teste="test_GateF2_Wrapper_ClearedFamilyRefusedAtTheSwap"),
  dict(nome="gate-1021 [510]: the wrapper trades on less input than it was asked to sell",
       f="src/BlazePhoenixGate.sol",
       old="        if (paid < uint256(amountSpecified)) revert GateE(13);",
