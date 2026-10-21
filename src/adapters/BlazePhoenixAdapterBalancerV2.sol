@@ -57,7 +57,9 @@ interface IBalancerPoolFactory {
 ///         answers `isPoolFromFactory` (anyone can deploy a factory, so the list is the adapter's).
 ///         venuePool = the Vault; aux0 = poolId; aux1 unused.
 ///         QUOTE: Balancer V2 has no view quote (`queryBatchSwap` writes and reverts), so `quote`
-///         answers 0 and the SDK uses `quoteCall` by eth_call; the leg then travels attested.
+///         answers out = 0 and the SDK uses `quoteCall` by eth_call; the leg then travels attested.
+///         DEPTH: `quote` declares the pool's balances in the Vault (`getPoolTokens`), the larger
+///         side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18).
 contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {
     IBalancerV2Vault public immutable VAULT;
     address public immutable FACTORY0;
@@ -106,8 +108,11 @@ contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {
         _requireNoAllowance(tIn, address(VAULT));
     }
 
-    function quote(address, bytes32, bytes32, bool, uint256) external pure returns (uint256, uint256) {
-        return (0, 0);
+    function quote(address, bytes32 poolId, bytes32, bool, uint256)
+        external view returns (uint256 out, uint256 depth18)
+    {
+        (address[] memory tokens, uint256[] memory bals, ) = VAULT.getPoolTokens(poolId);
+        depth18 = _listedDepth18(tokens, bals);
     }
 
     /// eth_call only: `queryBatchSwap` is non-view by design (Swaps.sol, "query" section). The

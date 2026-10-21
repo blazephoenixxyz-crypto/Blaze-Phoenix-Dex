@@ -41,6 +41,22 @@ contract MockBalancerV3Vault {
     }
 
     function getPoolTokens(address pool) external view returns (address[] memory) { return tokensOf[pool]; }
+
+    /// VaultTypes.TokenInfo, by layout (TokenType is an enum, one uint8 word).
+    struct TokenInfoM { uint8 tokenType; address rateProvider; bool paysYieldFees; }
+    /// A pool's raw balances in the Vault's accounting (IVaultExtension.getPoolTokenInfo).
+    mapping(address => uint256[]) internal poolBal;
+
+    function setPoolBalances(address pool, uint256[] memory b) external { poolBal[pool] = b; }
+
+    function getPoolTokenInfo(address pool) external view
+        returns (address[] memory tokens, TokenInfoM[] memory info, uint256[] memory raw, uint256[] memory live)
+    {
+        tokens = tokensOf[pool];
+        info = new TokenInfoM[](tokens.length);
+        raw = poolBal[pool].length != 0 ? poolBal[pool] : new uint256[](tokens.length);
+        live = new uint256[](tokens.length);
+    }
     function getHooksConfig(address pool) external view returns (IBalancerV3Vault.HooksConfig memory) { return hooksOf[pool]; }
 
     function _touch(address t, int256 d) internal {

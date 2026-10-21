@@ -43,6 +43,17 @@ interface IBalancerV3Vault {
     function isPoolRegistered(address pool) external view returns (bool);
     function getPoolTokens(address pool) external view returns (address[] memory tokens);
     function getHooksConfig(address pool) external view returns (HooksConfig memory);
+    /// VaultTypes.TokenInfo; `tokenType` read as its uint8 word, so a new enum member cannot
+    /// make the decode revert.
+    struct TokenInfo {
+        uint8 tokenType;
+        address rateProvider;
+        bool paysYieldFees;
+    }
+    function getPoolTokenInfo(address pool) external view returns (
+        address[] memory tokens, TokenInfo[] memory tokenInfo, uint256[] memory balancesRaw,
+        uint256[] memory lastBalancesLiveScaled18
+    );
 }
 
 /// IBasePoolFactory.
@@ -61,7 +72,9 @@ interface IBalancerV3PoolFactory {
 ///         or if a hooks contract is set whose codehash is not one of the two pinned here. The
 ///         pin is checked again on every `exec`, like the Router's `isHookLive`.
 ///         venuePool = the Vault; aux0 = pool; aux1 = hooks contract (0 if none).
-///         QUOTE: V3 quotes only by eth_call (`Vault.quote`), so `quote` answers 0.
+///         QUOTE: V3 quotes only by eth_call (`Vault.quote`), so `quote` answers out = 0.
+///         DEPTH: `quote` declares the pool's raw balances in the Vault (`getPoolTokenInfo`), the
+///         larger side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18).
 contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
     IBalancerV3Vault public immutable VAULT;
     address public immutable FACTORY0;
@@ -131,8 +144,11 @@ contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
         VAULT.sendTo(tOut, recipient, outRaw);
     }
 
-    function quote(address, bytes32, bytes32, bool, uint256) external pure returns (uint256, uint256) {
-        return (0, 0);
+    function quote(address, bytes32 aux0, bytes32, bool, uint256)
+        external view returns (uint256 out, uint256 depth18)
+    {
+        (address[] memory tokens, , uint256[] memory raw, ) = VAULT.getPoolTokenInfo(address(uint160(uint256(aux0))));
+        depth18 = _listedDepth18(tokens, raw);
     }
 
     /// eth_call only (the Vault's `quote` requires a static-call context).

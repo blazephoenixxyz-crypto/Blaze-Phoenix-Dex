@@ -41,6 +41,8 @@ contract MockCurveNGPool {
     }
 
     function coins(uint256 i) external view returns (address) { return coinsList[i]; }
+    /// The pool's own word of its balances (NG: stored_balances - admin_balances; no admin fee here).
+    function balances(uint256 i) external view returns (uint256) { return stored[i]; }
     function setMode(uint8 m) external { mode = m; }
     function setLocked(bool b) external { locked = b; }
 

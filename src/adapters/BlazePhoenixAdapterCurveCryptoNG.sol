@@ -72,15 +72,21 @@ contract BlazePhoenixAdapterCurveCryptoNG is ExtAdapterBase, IExtAdapter {
     function quote(address pool, bytes32 aux0, bytes32, bool zeroForOne, uint256 amtIn)
         external view returns (uint256 out, uint256 depth18)
     {
-        out = _quote(pool, aux0, zeroForOne, amtIn);
-        depth18 = 0; // the Core's registryDepth18 is the one depth producer; kind 9 has no arm yet
+        bool live;
+        (out, live) = _quote(pool, aux0, zeroForOne, amtIn);
+        // DEPTH BY THE VENUE'S FORM (index): the pool's own balances of the pair, the larger side
+        // in 18 decimals; asked only when the pool is not mid-operation, the price's own probe.
+        if (live) {
+            (uint256 i, uint256 j) = _ij(aux0, true);
+            depth18 = _indexedDepth18(pool, i, j);
+        }
     }
 
     /// Same body as `quote` (M4): the SDK's number and the on-chain number cannot differ.
     function quoteCall(address pool, bytes32 aux0, bytes32, bool zeroForOne, uint256 amtIn)
         external view returns (uint256 out)
     {
-        out = _quote(pool, aux0, zeroForOne, amtIn);
+        (out, ) = _quote(pool, aux0, zeroForOne, amtIn);
     }
 
     /// The factory's record of `pool`: exactly 2 or 3 words (address[N_COINS]), the first one
@@ -103,8 +109,11 @@ contract BlazePhoenixAdapterCurveCryptoNG is ExtAdapterBase, IExtAdapter {
 
     /// Ask the pool, and only while it is not in the middle of an operation: `get_virtual_price`
     /// is nonreentrant on both implementations (read-only reentrancy guard), `get_dy` is not.
-    function _quote(address pool, bytes32 aux0, bool zeroForOne, uint256 amtIn) private view returns (uint256 out) {
-        try ICurveCryptoNGPool(pool).get_virtual_price() returns (uint256) {} catch { return 0; }
+    function _quote(address pool, bytes32 aux0, bool zeroForOne, uint256 amtIn)
+        private view returns (uint256 out, bool live)
+    {
+        try ICurveCryptoNGPool(pool).get_virtual_price() returns (uint256) {} catch { return (0, false); }
+        live = true;
         (uint256 i, uint256 j) = _ij(aux0, zeroForOne);
         try ICurveCryptoNGPool(pool).get_dy(i, j, amtIn) returns (uint256 dy) { out = dy; } catch {}
     }

@@ -4,6 +4,13 @@ pragma solidity 0.8.36;
 import {BlazePhoenixCore as BPC} from "../BlazePhoenixCore.sol";
 import {IGateWrappers, IGateWrapperState} from "./IExtAdapter.sol";
 
+/// A venue that answers by index (Curve StableSwap-NG `coins`/`balances(i)`, Twocrypto-NG and
+/// Tricrypto-NG `coins`/`balances` public arrays): the same two getters on all three.
+interface IIndexedVenue {
+    function coins(uint256 i) external view returns (address);
+    function balances(uint256 i) external view returns (uint256);
+}
+
 /// @notice What every Gate adapter shares: who may run it, which tokens it moves, and the one
 ///         custody discipline for a venue that pulls (PULL mode).
 /// @dev Code that the Gate's scan admits: no DELEGATECALL, CALLCODE or SELFDESTRUCT, so only
@@ -61,6 +68,31 @@ abstract contract ExtAdapterBase {
             unchecked { ++k; }
         }
         if (i0 == n || i1 == n) revert AdapterE(3);
+    }
+
+    /// The ONE adapter producer of a declared depth18: the larger side of the balances the venue
+    /// itself reports, each normalised by its token's decimals, through Core's `maxSide18` - the
+    /// registry's criterion, and the formula of the cap the Gate applies (`heldMass18`). Never
+    /// reads amtIn.
+    function _depth18(address a, uint256 ba, address b, uint256 bb) internal view returns (uint256) {
+        return BPC.maxSide18(ba, BPC.decimalsOf(a), bb, BPC.decimalsOf(b));
+    }
+
+    /// depth18 of a venue that answers by index: the pool's own `coins(i)` and `balances(i)` at
+    /// the pair's indices (the record `resolve` matched). A read that fails reverts the quote; the
+    /// wrapper's `quote` catches it, and the Quoter then prices by `quoteCall`, which reads no depth.
+    function _indexedDepth18(address pool, uint256 i0, uint256 i1) internal view returns (uint256) {
+        IIndexedVenue p = IIndexedVenue(pool);
+        return _depth18(p.coins(i0), p.balances(i0), p.coins(i1), p.balances(i1));
+    }
+
+    /// depth18 of a venue that answers by list (a Balancer Vault's tokens and balances of a pool):
+    /// matched to the calling wrapper's pair (`_pairOf`, as in exec and quoteCall), never to an
+    /// argument; a pair the list no longer holds is refused (AdapterE(3)).
+    function _listedDepth18(address[] memory tokens, uint256[] memory bals) internal view returns (uint256) {
+        (address a, address b) = _pairOf(msg.sender, true);
+        (uint256 i0, uint256 i1) = _indices(tokens, a, b);
+        return _depth18(a, bals[i0], b, bals[i1]);
     }
 
     /// PULL custody, step 1: an approval for exactly this call's input.

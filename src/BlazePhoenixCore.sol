@@ -1028,6 +1028,18 @@ library BlazePhoenixCore {
         return n0 < n1 ? n0 : n1;
     }
 
+    /// @notice The LONG side of a pair, already in 18 decimals: the twin of `shortSide18`, and the
+    ///         producer of "the larger of two amounts, normalised" for the Gate adapters, which
+    ///         read the venue's reported balances through it (ExtAdapterBase._depth18).
+    ///         `heldMass18` (the cap on what they declare) is the same formula over balanceOf,
+    ///         kept inline: routing it through here cost the Hub +772 B under via_ir and took
+    ///         it past EIP-170 (measured 2026-10-21). Folding the two is a follow-up.
+    function maxSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1) internal pure returns (uint256) {
+        uint256 n0 = to18(a0, d0);
+        uint256 n1 = to18(a1, d1);
+        return n1 < n0 ? n0 : n1;
+    }
+
     /// @notice `depthFromL` with decimal normalisation — the version to use.
     /// @param d0 decimals of the pool's token0, d1 those of token1.
     function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)

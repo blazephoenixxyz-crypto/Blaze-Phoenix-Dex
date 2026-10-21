@@ -7,6 +7,7 @@ import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterBalancerV3, IBalancerV3Vault} from "../../src/adapters/BlazePhoenixAdapterBalancerV3.sol";
 import {MockBalancerFactory} from "./mocks/MockBalancerV2.sol";
 import {MockBalancerV3Vault} from "./mocks/MockBalancerV3.sol";
+import {MockERC20Dec} from "./mocks/MockERC20Dec.sol";
 
 contract PinnedHook { function ok() external pure returns (uint256) { return 1; } }
 contract OtherHook { function ok() external pure returns (uint256) { return 2; } }
@@ -190,5 +191,44 @@ contract AdapterBalancerV3Test is AdapterHarness {
         // Longer than one word, with a valid pool in the first word: refused too ([546]).
         vm.expectRevert(_aerr(8));
         gate.create(address(t0), address(t1), KEY + 1, abi.encodePacked(abi.encode(POOL), uint8(0)));
+    }
+
+    // ─── depth18: the Vault's raw balances of the pool, the larger side in 18 decimals (adapter-depth-1021) ───
+
+    function _two(uint256 a, uint256 b) internal pure returns (uint256[] memory r) {
+        r = new uint256[](2);
+        (r[0], r[1]) = (a, b);
+    }
+
+    /// Quantity: adapter depth18 (Balancer V3) = max over the wrapper's pair of to18 of
+    /// `Vault.getPoolTokenInfo(pool).balancesRaw`, matched by token in the Vault's registration
+    /// order, for any amtIn and either direction; what Gate.vitalOf reads.
+    function test_BalV3_Depth18_IsThePoolsLongSideInTheVault() public {
+        vault.setPoolBalances(POOL, _two(700e18, 400e18)); // registered (t1, t0)
+        BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
+        (uint256 q, uint256 d) = wr.quote(true, 0);
+        assertEq(q, 0, "no view quote");
+        assertEq(d, 700e18, "the long side of the pool's raw balances");
+        (, uint256 d2) = wr.quote(false, 6e18);
+        assertEq(d2, d, "depth18 does not depend on amtIn or direction");
+        (, uint256 dv, ) = gate.vitalOf(w);
+        assertEq(dv, d, "vitalOf reads the word below the mass held");
+    }
+
+    /// Quantity: adapter depth18 (Balancer V3) normalises by each token's decimals before the max.
+    function test_BalV3_Depth18_NormalisesDecimalsBeforeTheMax() public {
+        MockERC20Dec d6 = new MockERC20Dec(6);
+        address pool6 = address(0xB3006);
+        _register(pool6, f0, address(t0), address(d6), _hooks(false, address(0)));
+        vault.setPoolBalances(pool6, _two(1_000_000e18, 2_000_000e6));
+        address w6 = gate.create(address(d6), address(t0), KEY, abi.encode(pool6));
+        (, uint256 d) = BlazePhoenixGateWrapper(w6).quote(true, 0);
+        assertEq(d, 2_000_000e18, "6-decimal side, normalised, is the long side");
+    }
+
+    /// The pair is the calling wrapper's, as in quoteCall: a caller the Gate did not create is refused.
+    function test_BalV3_Depth18_OnlyForTheGatesWrapper() public {
+        vm.expectRevert(_aerr(1));
+        adapter.quote(address(vault), bytes32(uint256(uint160(POOL))), bytes32(0), true, 0);
     }
 }

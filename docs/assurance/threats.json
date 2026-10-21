@@ -314,6 +314,14 @@
       "guard": "heldMass18",
       "test": "test_GateVital_DepthIsTheWordCappedByTheMassHeld",
       "note": "gatevit-1021. Gate.vitalOf caps the adapter's depth18 (read under GATE_QUOTE_GAS) by the larger normalised holding of the venue pool, the registry's own concentrated-arm cap (one producer). Not covered: a singleton venue's balance is every pool's, so the cap there is loose and the word decides below it; an address the Gate did not create, or a cleared family, reads zero (test_GateVital_OnlyTheGatesOwnWrappers, test_GateVital_ClearedFamilyIsDead)."
+    },
+    {
+      "id": "GATE-ADAPTER-DEPTH-FORM",
+      "class": "A Gate adapter declares a depth that is not the venue's own word: a family formula, raw units across decimals (the side with fewer units read as the shallow one), the pool's balanceOf instead of its accounting, or a balance read while the pool is mid-operation",
+      "status": "blocked",
+      "guard": "_depth18",
+      "test": "test_CurveNG_Depth18_IsThePoolsLongSide",
+      "note": "adapter-depth-1021. ExtAdapterBase._depth18 is the one adapter producer: the larger side of the balances the venue reports (Curve coins(i)/balances(i) by index, only when the lock probe passes; Balancer V2 getPoolTokens and V3 getPoolTokenInfo balancesRaw by list, matched to the calling wrapper's pair), normalised by Core.maxSide18, the same formula Core.heldMass18 caps with (kept inline there: through maxSide18 the Hub grew 772 B past EIP-170). Mutants [670]-[678]. Not covered: a Balancer Vault read inside an open unlock (V3) or a V2 Vault callback, where the pool's balances may include an unsettled delta; vitalOf is a view, and the Gate caps by the Vault's holdings, which are every pool's."
     }
   ]
 }

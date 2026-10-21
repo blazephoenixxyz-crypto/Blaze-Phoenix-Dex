@@ -47,8 +47,14 @@ contract MockBalancerV2Vault {
         return (poolOf[id], IBalancerV2Vault.PoolSpecialization.GENERAL);
     }
 
+    /// A pool's own balances in the Vault's accounting, when set; otherwise the Vault's holdings.
+    mapping(bytes32 => uint256[]) internal poolBal;
+
+    function setPoolBalances(bytes32 id, uint256[] memory b) external { poolBal[id] = b; }
+
     function getPoolTokens(bytes32 id) external view returns (address[] memory t, uint256[] memory b, uint256) {
         t = tokensOf[id];
+        if (poolBal[id].length != 0) return (t, poolBal[id], 0);
         b = new uint256[](t.length);
         for (uint256 k; k < t.length; ++k) b[k] = MockERC20(t[k]).balanceOf(address(this));
         return (t, b, 0);

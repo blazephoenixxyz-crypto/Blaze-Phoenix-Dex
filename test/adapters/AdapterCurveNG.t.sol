@@ -6,6 +6,7 @@ import {MockERC20} from "../mocks/MockERC20.sol";
 import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterCurveNG} from "../../src/adapters/BlazePhoenixAdapterCurveNG.sol";
 import {MockCurveNGFactory, MockCurveNGPool} from "./mocks/MockCurveNG.sol";
+import {MockERC20Dec} from "./mocks/MockERC20Dec.sol";
 
 /// Answers like a wrapper and is not one.
 contract FakeWrapper {
@@ -206,5 +207,51 @@ contract AdapterCurveNGTest is AdapterHarness {
     function test_CurveNG_Resolve_MalformedHint_Refused() public {
         vm.expectRevert(_aerr(8));
         gate.create(address(t0), address(t1), KEY + 1, abi.encode(address(pool), uint256(0)));
+    }
+
+    // ─── depth18: the pool's own balances, the larger side in 18 decimals (adapter-depth-1021) ───
+
+    /// Quantity: adapter depth18 (Curve NG) = max(to18(balances(i0)), to18(balances(i1))): the
+    /// pool's own word (stored balances), not its balanceOf, for any amtIn and either direction,
+    /// and what Gate.vitalOf reads below the mass held.
+    function test_CurveNG_Depth18_IsThePoolsLongSide() public {
+        t1.mint(address(pool), 2_000_000e18);
+        pool.sync(); // stored: t1 3e24 (index 0), t0 1e24 (index 2)
+        t0.mint(address(pool), 9_000_000e18); // a donation the pool has not accounted
+        BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
+        (, uint256 d) = wr.quote(true, 0);
+        assertEq(d, 3_000_000e18, "the long side of the pool's balances");
+        (, uint256 d2) = wr.quote(false, 7e18);
+        assertEq(d2, d, "depth18 does not depend on amtIn or direction");
+        (, uint256 dv, ) = gate.vitalOf(w);
+        assertEq(dv, d, "vitalOf reads the word below the mass held");
+    }
+
+    /// Quantity: adapter depth18 (Curve NG) normalises each side by its coin's decimals before
+    /// the max: 2M of a 6-decimal coin (2e12 raw) is deeper than 1M of an 18-decimal one (1e24 raw).
+    function test_CurveNG_Depth18_NormalisesDecimalsBeforeTheMax() public {
+        MockERC20Dec d6 = new MockERC20Dec(6);
+        address[] memory coins = new address[](2);
+        (coins[0], coins[1]) = (address(d6), address(t1));
+        uint256[] memory rate = new uint256[](2);
+        (rate[0], rate[1]) = (1e18, 1e18);
+        MockCurveNGPool p = new MockCurveNGPool(coins, rate);
+        d6.mint(address(p), 2_000_000e6);
+        t1.mint(address(p), 1_000_000e18);
+        p.sync();
+        (, uint256 d) = adapter.quote(address(p), bytes32(uint256(0 | (1 << 8))), bytes32(0), true, 0);
+        assertEq(d, 2_000_000e18, "6-decimal side, normalised, is the long side");
+    }
+
+    /// Quantity: adapter depth18 (Curve NG) is asked only while the pool is not mid-operation,
+    /// the same lock probe as the quote: locked, nothing is declared.
+    function test_CurveNG_Depth18_ZeroWhileThePoolIsLocked() public {
+        BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
+        pool.setLocked(true);
+        (, uint256 d) = wr.quote(true, 0);
+        assertEq(d, 0, "locked: no depth");
+        pool.setLocked(false);
+        (, d) = wr.quote(true, 0);
+        assertEq(d, 1_000_000e18, "unlocked: the pool's long side");
     }
 }
