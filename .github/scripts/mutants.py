@@ -3128,6 +3128,46 @@ M = [
       old="        if (hint.length != 32) revert AdapterE(8);",
       new="        if (hint.length < 32) revert AdapterE(8); // MUTANT [546]",
       teste="test_BalV3_Resolve_MalformedHint_Refused"),
+ dict(nome="adapters [650]: Curve crypto NG resolve accepts a hint longer than one word, so trailing bytes ride along unread",
+      f="src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol",
+      old="        if (hint.length != 32) revert AdapterE(8);",
+      new="        if (hint.length < 32) revert AdapterE(8); // MUTANT [650]",
+      teste="test_CryptoNG_Resolve_MalformedHint_Refused"),
+ dict(nome="adapters [651]: Curve crypto NG stops reading an all-zero factory record as 'not this factory's pool' (identity by calldata)",
+      f="src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol",
+      old="        if (coins[0] == address(0)) revert AdapterE(2);",
+      new="        // MUTANT [651]",
+      teste="test_CryptoNG_Resolve_PoolNotFromFactory_Refused"),
+ dict(nome="adapters [652]: Curve crypto NG reads a factory answer of any length, so a StableSwap-NG record (offset, length, coins) passes as coins",
+      f="src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol",
+      old="        if (!ok || (r.length != 64 && r.length != 96)) revert AdapterE(2);",
+      new="        if (!ok) revert AdapterE(2); // MUTANT [652]",
+      teste="test_CryptoNG_Resolve_StableSwapFactoryIsNotACryptoRecord_Refused"),
+ dict(nome="adapters [653]: Curve crypto NG truncates a factory word with high bits into an address",
+      f="src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol",
+      old="            if (word >> 160 != 0) revert AdapterE(2);",
+      new="            // MUTANT [653]",
+      teste="test_CryptoNG_Resolve_DirtyFactoryWord_Refused"),
+ dict(nome="adapters [654]: Curve crypto NG admits a native-enabled tricrypto, which has no exchange_received",
+      f="src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol",
+      old="        try ICurveTricryptoWETH(pool).WETH20() returns (address) { revert AdapterE(4); } catch {}",
+      new="        // MUTANT [654]",
+      teste="test_CryptoNG_Resolve_NativeTricryptoRefused"),
+ dict(nome="adapters [655]: HUNT-001 class on the crypto NG adapter - exec stops asking the Gate whether the caller is its wrapper (same shared line as [527], paired with this adapter's test)",
+      f="src/adapters/ExtAdapterBase.sol",
+      old="        if (!GATE.isWrapper(w)) revert AdapterE(1);",
+      new="        // MUTANT [655]",
+      teste="test_CryptoNG_FakeWrapperWithRealTokens_Refused"),
+ dict(nome="adapters [656]: Curve crypto NG quote stops probing the pool's lock, so a quote read mid-operation (read-only reentrancy) is served",
+      f="src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol",
+      old="        try ICurveCryptoNGPool(pool).get_virtual_price() returns (uint256) {} catch { return 0; }",
+      new="        try ICurveCryptoNGPool(pool).get_virtual_price() returns (uint256) {} catch {} // MUTANT [656]",
+      teste="test_CryptoNG_QuoteWhilePoolLocked_IsZero"),
+ dict(nome="adapters [657]: Curve crypto NG swaps the coin indices of a direction",
+      f="src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol",
+      old="        (i, j) = zeroForOne ? (a, b) : (b, a);",
+      new="        (i, j) = zeroForOne ? (b, a) : (a, b); // MUTANT [657]",
+      teste="test_CryptoNG_Two_Swap_RecipientGetsTheVenueOutput_BothWays"),
 ]
 
 def run(t):
@@ -3152,7 +3192,7 @@ def artefact_fingerprint():
     out = {}
     # adapters: the Gate adapters are shipped artefacts too.
     for c in ("Core", "Quoter", "Solver", "Router", "Hub", "Gate",
-              "AdapterCurveNG", "AdapterBalancerV2", "AdapterBalancerV3"):
+              "AdapterCurveNG", "AdapterBalancerV2", "AdapterBalancerV3", "AdapterCurveCryptoNG"):
         f = os.path.join("out", f"BlazePhoenix{c}.sol", f"BlazePhoenix{c}.json")
         if not os.path.exists(f):
             return {}
