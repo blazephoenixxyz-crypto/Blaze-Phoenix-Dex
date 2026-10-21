@@ -595,9 +595,11 @@ contract UnvisitedCellsBadKindTest is Test {
                    expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
     }
 
-    function _expectRefusalAndNoStranding(uint8 kind) internal {
+    function _expectRefusalAndNoStranding(uint8 kind) internal { _expectRefusalAndNoStranding(kind, 8); }
+
+    function _expectRefusalAndNoStranding(uint8 kind, uint16 code) internal {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, code));
         router.swapExactIn(_route(kind), AMT, 1, user, block.timestamp + 1);
         // Full rollback: the input never left the user, nothing stranded.
         assertEq(A.balanceOf(user), userStart, "input must not be stranded in the Router");
@@ -605,7 +607,9 @@ contract UnvisitedCellsBadKindTest is Test {
     }
 
     function test_Cell7_Kind3_DispatchRefuses()   public { _expectRefusalAndNoStranding(3); }
-    function test_Cell7_Kind9_DispatchRefuses()   public { _expectRefusalAndNoStranding(9); }
+    /// Kind 9 (KIND_EXTERNAL) has a dispatch arm since gate-1021; a pool that is not an
+    /// admitted Gate's wrapper is refused there by identity (BPC.gateWrapperLive, RouterE(19)).
+    function test_Cell7_Kind9_DispatchRefuses()   public { _expectRefusalAndNoStranding(9, 19); }
     function test_Cell7_Kind255_DispatchRefuses() public { _expectRefusalAndNoStranding(255); }
 
     /// @notice Control: the SAME real pool declared as KIND_V2 (0). One respect

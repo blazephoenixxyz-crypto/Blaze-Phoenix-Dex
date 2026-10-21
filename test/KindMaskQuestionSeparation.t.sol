@@ -28,9 +28,13 @@ contract KindMaskQuestionSeparationTest is Test {
 
     function setUp() public { probe = new HubMaskProbe(); }
 
+    /// One named exception since gate-1021: KIND_EXTERNAL (9) is registrable (the Gate's
+    /// MODE_CREATE2_V3 row) but outside KINDS_EXECUTABLE, because the Core has no depth or
+    /// quote producer for it; it executes only by identity (BPC.gateWrapperLive) at the
+    /// explicit doors.
     function test_RoutableIsInsideExecutable() public view {
-        assertEq(probe.routable() & ~probe.executable(), 0,
-            "a kind a factory can register is no longer executable");
+        assertEq(probe.routable() & ~probe.executable(), uint256(1) << BPC.KIND_EXTERNAL,
+            "a kind a factory can register is no longer executable (beyond KIND_EXTERNAL)");
     }
 
     /// The two are NOT equal, and the difference is exactly V4_NATIVE.
@@ -79,9 +83,13 @@ contract KindMaskQuestionSeparationTest is Test {
         assertEq(probe.executable(), _described(), "KINDS_EXECUTABLE is not the set of kinds theta describes");
     }
 
+    /// KIND_EXTERNAL answers the question this test asks: a routable kind theta does not
+    /// describe (no attribute bits, so every Core reader fails closed on it).
     function test_RoutableIsEveryDescribedKindButTheNative() public view {
-        assertEq(probe.routable(), _described() & ~(uint256(1) << BPC.KIND_V4_NATIVE),
-            "KINDS_ROUTABLE is not the set of kinds theta describes, less V4_NATIVE");
+        assertEq(BPC.thetaOf(BPC.KIND_EXTERNAL), 0, "KIND_EXTERNAL gained attributes");
+        assertEq(probe.routable(),
+            (_described() & ~(uint256(1) << BPC.KIND_V4_NATIVE)) | (uint256(1) << BPC.KIND_EXTERNAL),
+            "KINDS_ROUTABLE is not the set of kinds theta describes, less V4_NATIVE, plus KIND_EXTERNAL");
     }
 
     function _described() internal pure returns (uint256 m) {
