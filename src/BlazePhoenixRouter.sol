@@ -232,6 +232,13 @@ contract BlazePhoenixRouter {
     ///      every other moment. Set/cleared around exactly one external call
     ///      each time — see unlockCallback's native seam and receive().
     uint256 private constant TSLOT_ETHOK = uint256(keccak256("blaze.r.ethok"));
+    /// @dev Seed of the per-token transient counter of fee shares BOOKED AS OWED in this
+    ///      transaction (`_push`). They stay in the Router, so every swap-path read of its own
+    ///      balance (`_bal`) subtracts them: they are neither this call's input nor its output.
+    uint256 private constant TSLOT_KEPT  = uint256(keccak256("blaze.r.kept"));
+    /// @dev Gas a fee push may burn. A token that refuses the treasury (blacklist, `false`,
+    ///      revert) or eats the gas costs the swap at most this, never the swap itself.
+    uint256 private constant FEE_GAS     = 150_000;
 
     IHubW public immutable hub;
     address public immutable solver;
@@ -243,6 +250,10 @@ contract BlazePhoenixRouter {
     address public admin;
     address public treasury1;
     address public treasury2;
+    /// @notice Fee shares a treasury slot could not take when its swap paid them
+    ///         (`owed[token][0]` treasury1, `[1]` treasury2); the slot's CURRENT holder
+    ///         pulls them with `claimFee`.
+    mapping(address => uint256[2]) public owed;
     address public permit2;
     /// @notice The chain's canonical wrapped-native token (WETH9-shaped).
     ///         Zero until set by control: native-ETH entry is DISABLED by
@@ -348,6 +359,20 @@ contract BlazePhoenixRouter {
         else if (msg.sender==treasury2) { treasury2=to; emit Cfg(2,to); }
         else revert RouterE(1);
     }
+    /// @notice A slot's holder pulls the fees its slot was owed (seal 2026-10-21). The fee is
+    ///         pushed in the swap; a push the token refuses is booked here instead of reverting
+    ///         the swap, so neither a treasury nor an issuer's blacklist can stop a fee token
+    ///         from trading. The slot, not the address, is owed: a moved slot claims it all.
+    function claimFee(address token) external nrEntrant {
+        uint256 a;
+        if (msg.sender == treasury1) { a = owed[token][0]; owed[token][0] = 0; }
+        if (msg.sender == treasury2) { a += owed[token][1]; owed[token][1] = 0; }
+        if (a == 0) revert RouterE(1);
+        // What leaves is no longer kept: a later swap of this transaction must not subtract it.
+        uint256 s = _keptSlot(token);
+        assembly { let k := tload(s) tstore(s, mul(gt(k, a), sub(k, a))) }
+        BPC.safeTransfer(token, msg.sender, a);
+    }
     function setPermit2(address p)          external onlyControl { permit2=p; emit Cfg(3,p); }
     function setWeth(address w)             external onlyControl { weth=w; emit Cfg(4,w); }
     function setPaused(bool b)              external onlyControl { paused=b; emit PausedSet(b); }
@@ -403,7 +428,10 @@ contract BlazePhoenixRouter {
         uint256 eta = rescueEta[k];
         if (eta == 0 || block.timestamp < eta) revert RouterE(14);
         delete rescueEta[k];
+        // Owed fees are the treasuries', not a stray balance: the rescue returns the rest.
         uint256 amt = BPC.balanceOf(token, address(this));
+        uint256 o = owed[token][0] + owed[token][1];
+        amt = amt > o ? amt - o : 0;
         if (amt > 0) BPC.safeTransfer(token, to, amt);
         emit Rescued(token, to, amt);
     }
@@ -742,7 +770,7 @@ contract BlazePhoenixRouter {
             uint256 c = _legSum(hop);
             if (c < baseH) baseH = c;
         } else {
-            uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
+            uint256 bal = _bal(hop.tokenIn);
             baseH = bal > foreignBase ? bal - foreignBase : 0;
         }
         // ROUND UP, NEVER DOWN. With floor division mulDiv(b, 28, 10_000) is 0
@@ -771,9 +799,46 @@ contract BlazePhoenixRouter {
         assembly { tstore(sFee, add(paid, 1)) }
         uint256 t1 = BPC.mulDiv(fee, TREASURY1_SHARE, BPC.BPS);
         uint256 t2 = fee - t1;
-        if (t1 > 0) BPC.safeTransfer(token, treasury1, t1);
-        if (t2 > 0) BPC.safeTransfer(token, treasury2, t2);
+        if (t1 > 0) _push(token, 0, treasury1, t1);
+        if (t2 > 0) _push(token, 1, treasury2, t2);
         emit Fee(token, fee, t1, t2);
+    }
+
+    /// @dev One slot's share, pushed with capped gas. A push the token refuses (blacklisted
+    ///      payee, `false`, revert, gas burnt) does not revert the swap (the fee DoS a slot
+    ///      holder or an issuer could cause): the share is booked to the slot (`owed`) and
+    ///      stays in the Router, counted in TSLOT_KEPT so no read of this transaction sees it
+    ///      as a swap's balance. The fee is charged either way: every rule that counts it
+    ///      (amountIn - fee, TSLOT_FEE) is unchanged.
+    ///      BOOKED BY THE DELTA, NOT BY THE ANSWER: a token may move the share and still answer
+    ///      in a shape Core reads as a refusal (`false`, an oversized word). Only what did not
+    ///      leave the Router is booked, so a claim never pays a share twice.
+    function _push(address token, uint256 i, address to, uint256 amt) private {
+        uint256 b0 = BPC.balanceOf(token, address(this));
+        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return;
+        uint256 b1 = BPC.balanceOf(token, address(this));
+        uint256 gone = b0 > b1 ? b0 - b1 : 0;
+        if (gone >= amt) return;
+        unchecked { amt -= gone; }
+        owed[token][i] += amt;
+        uint256 s = _keptSlot(token);
+        assembly { tstore(s, add(tload(s), amt)) }
+    }
+
+    function _keptSlot(address token) private pure returns (uint256 s) {
+        s = TSLOT_KEPT;
+        assembly ("memory-safe") { mstore(0, token) mstore(32, s) s := keccak256(0, 64) } // scratch space only
+    }
+
+    /// @dev The Router's own balance of `t` as a swap may see it: the raw balance less the fee
+    ///      shares booked as owed in this transaction. Every swap-path self-balance read goes
+    ///      through here - the entry baselines too, so a second swap in the same transaction
+    ///      measures against the same coordinate. Owed fees from earlier transactions are part
+    ///      of the entry baseline like any balance the Router held before the call.
+    function _bal(address t) private view returns (uint256 b) {
+        b = BPC.balanceOf(t, address(this));
+        uint256 s = _keptSlot(t);
+        assembly { let k := tload(s) b := mul(gt(b, k), sub(b, k)) }
     }
 
     /// @notice Per-hop real-balance-ratio scaling AND price impact (BPS) AND
@@ -857,7 +922,7 @@ contract BlazePhoenixRouter {
             // same amount.
             uint256 realIn = amountIn;
             if (h != 0) {
-                uint256 bal = BPC.balanceOf(hop.tokenIn, address(this));
+                uint256 bal = _bal(hop.tokenIn);
                 realIn = bal > foreignBase ? bal - foreignBase : 0;
             }
             uint256 quotedIn = _legSum(hop);
@@ -944,7 +1009,7 @@ contract BlazePhoenixRouter {
         // Input-token balance at entry (the input is already in the Router).
         // Every unit pulled for this swap MUST be consumed by the legs; the
         // holds-nothing check after the hop loop enforces it.
-        uint256 tinStart = BPC.balanceOf(tokenIn, address(this));
+        uint256 tinStart = _bal(tokenIn);
         // Output-token baseline — the exact mirror of tinStart/baseIn, and for
         // the same reason: the post-hop measurement must be a DELTA, never a
         // raw balance. Any tokenOut the Router already holds is mis-sent or
@@ -969,7 +1034,7 @@ contract BlazePhoenixRouter {
         // different moments: the house defect signature, now against TIME instead of against
         // space.
         uint256 baseIn = tinStart > amountIn ? tinStart - amountIn : 0;
-        uint256 toutStart = tokenIn == tokenOut ? baseIn : BPC.balanceOf(tokenOut, address(this));
+        uint256 toutStart = tokenIn == tokenOut ? baseIn : _bal(tokenOut);
         // Floor re-derivation: sum of per-leg real impact (BPS), averaged later.
         uint256 impactAcc;
         // On-chain quote for the legs as actually executed — replaces the
@@ -1000,7 +1065,7 @@ contract BlazePhoenixRouter {
         uint256[] memory hopScale = new uint256[](route.hops.length);
         for (uint256 bh; bh + 1 < route.hops.length; ) {
             address bt = route.hops[bh].tokenOut;
-            if (bt != tokenIn && bt != tokenOut) bridgeBase[bh] = BPC.balanceOf(bt, address(this));
+            if (bt != tokenIn && bt != tokenOut) bridgeBase[bh] = _bal(bt);
             unchecked { ++bh; }
         }
 
@@ -1101,7 +1166,7 @@ contract BlazePhoenixRouter {
                 // into tokenIn (hop 1 would re-enter it, refused just above) and its fee has already
                 // left the Router, so the balance above baseIn IS hop 0's residual.
                 if (h == 1 && tokenIn == tokenOut) {
-                    uint256 resid0 = BPC.balanceOf(tokenIn, address(this));
+                    uint256 resid0 = _bal(tokenIn);
                     if (resid0 > baseIn) BPC.safeTransfer(tokenIn, payer, resid0 - baseIn);
                 }
             }
@@ -1255,7 +1320,7 @@ contract BlazePhoenixRouter {
                 uint256 legAmt = BPC.mulDiv(leg.amountIn, scaleNum, scaleDen);
                 uint256 scaledAmt = legAmt;
                 if (l == legs - 1) {
-                    uint256 remaining = BPC.balanceOf(legIn, address(this));
+                    uint256 remaining = _bal(legIn);
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
                 // A leg with a zero scaled input never reaches the pool:
@@ -1377,13 +1442,13 @@ contract BlazePhoenixRouter {
         // excluded (it is paid out below), as is the degenerate
         // tokenIn == tokenOut case, whose residual left at the start of hop 1.
         if (tokenIn != tokenOut) {
-            uint256 residIn = BPC.balanceOf(tokenIn, address(this));
+            uint256 residIn = _bal(tokenIn);
             if (residIn > baseIn) BPC.safeTransfer(tokenIn, payer, residIn - baseIn);
         }
         for (uint256 h; h + 1 < route.hops.length; ) {
             address bridge = route.hops[h].tokenOut;
             if (bridge != tokenIn && bridge != tokenOut) {
-                uint256 rb = BPC.balanceOf(bridge, address(this));
+                uint256 rb = _bal(bridge);
                 uint256 bb = bridgeBase[h];
                 if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);
             }
@@ -1397,7 +1462,7 @@ contract BlazePhoenixRouter {
         // that baseline (an intermediate hop whose tokenIn is tokenOut) leaves
         // the balance under the baseline and reverts here — the safe outcome,
         // since those funds were never this swap's to spend.
-        uint256 totalReceived = BPC.balanceOf(tokenOut, address(this)) - toutStart;
+        uint256 totalReceived = _bal(tokenOut) - toutStart;
         if (totalReceived == 0) revert RouterE(8);
         amountOut = totalReceived;
 

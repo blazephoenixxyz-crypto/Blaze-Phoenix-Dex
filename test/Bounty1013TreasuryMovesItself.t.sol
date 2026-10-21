@@ -84,9 +84,12 @@ contract Bounty1013TreasuryMovesItselfTest is Test {
     function test_BlacklistedTreasuryAfterRenounce_MovesItselfAndSwapsResume() public {
         router.renounceControl();
         usdc.setBlacklisted(t1, true);
+        // Seal 2026-10-21: a refused push no longer reverts the swap; the share is booked
+        // to the slot and the slot's holder claims it once it has moved somewhere payable.
         vm.prank(user);
-        vm.expectRevert();
-        router.swapExactIn(_route(1_000e18), 1_000e18, 1, user, block.timestamp + 1);
+        assertGt(router.swapExactIn(_route(1_000e18), 1_000e18, 1, user, block.timestamp + 1), 0, "the blacklist does not block the swap");
+        uint256 owed1 = router.owed(address(usdc), 0);
+        assertGt(owed1, 0, "treasury1's share is booked to its slot");
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(1)));
         router.setTreasuries(address(0x7003), t2);
         vm.prank(t1);
@@ -96,6 +99,10 @@ contract Bounty1013TreasuryMovesItselfTest is Test {
         vm.prank(user);
         assertGt(router.swapExactIn(_route(1_000e18), 1_000e18, 1, user, block.timestamp + 1), 0, "swaps resume");
         assertGt(usdc.balanceOf(address(0x7003)), 0, "the fee reaches the new slot");
+        uint256 b0 = usdc.balanceOf(address(0x7003));
+        vm.prank(address(0x7003));
+        router.claimFee(address(usdc));
+        assertEq(usdc.balanceOf(address(0x7003)) - b0, owed1, "the moved slot claims what it was owed");
     }
 
     function test_OnlyAHolderMovesASlot() public {

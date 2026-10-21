@@ -24,7 +24,11 @@ OTHERS = ["src/BlazePhoenixHub.sol", "src/BlazePhoenixSolver.sol",
 
 # function -> (number of self-balance reads, the baseline that makes each one a delta)
 CENSUS = {
-    "executeRescue": (1, "onlyControl after the rescue timelock; not reachable from a swap"),
+    "executeRescue": (1, "onlyControl after the rescue timelock; not reachable from a swap; "
+                         "pays the balance less the owed fees"),
+    "_bal": (1, "the one producer of a swap-path self-balance: raw less this transaction's "
+                "TSLOT_KEPT; every caller below subtracts its own baseline"),
+    "_push": (2, "gone = before - after around one fee push; only the undelivered rest is booked"),
     "swapExactInWithPermit2": (2, "received = after - balBefore"),
     "swapExactInNative": (2, "received = after - balBefore"),
     "swapBestExactIn": (2, "received = after - balBefore"),
@@ -37,7 +41,10 @@ CENSUS = {
     "_execScaled": (2, "got = after - balBefore"),
 }
 
-SELF_READ = re.compile(r"balanceOf\([^;]*address\(this\)\)|address\(this\)\.balance|selfbalance\(\)")
+# `_bal(t)` (seal 2026-10-21) is the Router's balance less the fee shares booked as owed in
+# this transaction; each call is a self-balance read and is pinned like the raw ones.
+SELF_READ = re.compile(r"balanceOf\([^;]*address\(this\)\)|address\(this\)\.balance|selfbalance\(\)"
+                       r"|(?<!function )\b_bal\(")
 FUNC = re.compile(r"^\s*function\s+([A-Za-z_0-9]+)\s*\(")
 COMMENT = re.compile(r"^\s*(///|//|\*|/\*)")
 

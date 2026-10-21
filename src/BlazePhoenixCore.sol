@@ -658,13 +658,22 @@ library BlazePhoenixCore {
 
     /// @notice Selector-driven safe transfer that tolerates non-standard ERC20s.
     function safeTransfer(address token, address to, uint256 amt) internal {
-        bool ok;
+        require(tryTransfer(token, to, amt, gasleft()), "BPC:transfer");
+    }
+
+    /// @notice THE success predicate of an ERC20 transfer, with the gas the call may burn
+    ///         capped at `g` (a cap above what is left is clamped by EIP-150, so `gasleft()`
+    ///         is the uncapped transfer). `safeTransfer` is this plus a revert, so a transfer
+    ///         that may fail (the Router's fee push, seal 2026-10-21) and one that must not are
+    ///         judged by one rule: success, and either no return data from a contract or a
+    ///         non-zero word.
+    function tryTransfer(address token, address to, uint256 amt, uint256 g) internal returns (bool ok) {
         assembly ("memory-safe") {
             let m := mload(0x40)
             mstore(m, 0xa9059cbb00000000000000000000000000000000000000000000000000000000)
             mstore(add(m, 4),  and(to,  0xffffffffffffffffffffffffffffffffffffffff))
             mstore(add(m, 36), amt)
-            ok := call(gas(), token, 0, m, 68, 0, 32)
+            ok := call(g, token, 0, m, 68, 0, 32)
             if ok {
                 switch returndatasize()
                 case 0 { ok := iszero(iszero(extcodesize(token))) }
@@ -672,7 +681,6 @@ library BlazePhoenixCore {
                 default { ok := 0 }
             }
         }
-        require(ok, "BPC:transfer");
     }
 
     function safeTransferFrom(address token, address from, address to, uint256 amt) internal {
