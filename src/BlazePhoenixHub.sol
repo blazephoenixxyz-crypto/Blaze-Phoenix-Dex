@@ -531,9 +531,11 @@ contract BlazePhoenixHub {
         // listing a new hook, or re-listing an unchanged one, still works.
         if (ok && $.controlRenounced && $.hookAllowed[h] && $.hookCodehash[h] != h.codehash) revert HubE(1);
         $.hookAllowed[h] = ok;
-        // Pin the code at admission (Layer 3). A later code change (proxy
-        // upgrade, selfdestruct+redeploy) makes isHookLive() false → the hook is
-        // auto-paused (not routable) WITHOUT eviction; re-admitting re-pins it.
+        // Pin the code at admission (Layer 3). A later change of the hook's OWN
+        // runtime (selfdestruct+redeploy, metamorphic code) makes isHookLive()
+        // false → the hook is auto-paused (not routable) WITHOUT eviction;
+        // re-admitting re-pins it. A delegate proxy swapping its implementation
+        // keeps its runtime and is NOT seen here (see isHookLive).
         // A revoked hook keeps a sentinel in its pin slot with `hookAllowed == false`: that
         // pair is the curator's explicit "no", refused on every door until re-listed. An
         // unknown hook (never listed) has no pin and is the caller's own choice on the

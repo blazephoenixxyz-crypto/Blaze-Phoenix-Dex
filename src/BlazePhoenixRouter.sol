@@ -1964,7 +1964,8 @@ contract BlazePhoenixRouter {
             if (BPC.hookAltersDeltas(leg.hooks)) revert RouterE(9);
             // Layer 2/3 for a hook that RUNS IN THE SWAP (beforeSwap or afterSwap
             // bit): refused while PAUSED — revoked by the curator, or listed and
-            // its code moved since the pin (proxy upgrade, redeploy). A hook nobody
+            // its own runtime moved since the pin (redeploy; a delegate proxy's
+            // implementation swap is not visible, see Hub.isHookLive). A hook nobody
             // listed is the caller's signed choice on this door, bounded like every
             // venue by the in-frame promise, the attestation gate and userMinOut;
             // the automatic door never proposes it (registry reads filter by
