@@ -2074,7 +2074,12 @@ contract BlazePhoenixRouter {
         uint256 maxAmt;
         assembly { expected := tload(sP) tIn := tload(sT) maxAmt := tload(sA) }
         if (msg.sender != expected || expected == address(0)) revert RouterE(6);
-        uint256 owed = a0 > 0 ? uint256(a0) : (a1 > 0 ? uint256(a1) : 0);
+        // Two callback forms: a delta pair (V3 / Algebra: owed = the positive delta), or a
+        // token-named one (first word = the context's tokenIn, owed = the second word). A
+        // negative delta never equals an address; a negative named amount reads as a uint above
+        // maxAmt and is refused below.
+        uint256 owed = uint256(a0) == uint256(uint160(tIn)) ? uint256(a1)
+            : (a0 > 0 ? uint256(a0) : (a1 > 0 ? uint256(a1) : 0));
         if (owed == 0) revert RouterE(8);
         // The pool can never demand more than the input this leg was given.
         // A zero-input leg never reaches swap() (see _execScaled), so a zero

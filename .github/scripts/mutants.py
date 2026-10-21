@@ -3233,6 +3233,21 @@ M = [
       old="        | ((uint256(1) << BPC.KIND_V4) << (16 * MODE_V4_DERIVE));",
       new="        | (((uint256(1) << BPC.KIND_V4) | (uint256(1) << BPC.KIND_V3)) << (16 * MODE_V4_DERIVE)); // MUTANT [581]",
       teste="test_AddFactory_V4DeriveModeRefusesV3"),
+ dict(nome="m13-1021 [582]: the token-named callback form is read as a delta pair",
+      f="src/BlazePhoenixRouter.sol",
+      old="uint256 owed = uint256(a0) == uint256(uint160(tIn)) ? uint256(a1)",
+      new="uint256 owed = false ? uint256(a1) /* MUTANT [582] */",
+      teste="test_ATokenNamedCallbackIsPaidTheNamedAmountInBothDirections"),
+ dict(nome="m13-1021 [583]: a delta pair with a positive first delta is paid the second word",
+      f="src/BlazePhoenixRouter.sol",
+      old=": (a0 > 0 ? uint256(a0) : (a1 > 0 ? uint256(a1) : 0));",
+      new=": (a0 > 0 ? uint256(a1) : (a1 > 0 ? uint256(a1) : 0)); // MUTANT [583]",
+      teste="test_ADeltaPairCallbackIsPaidItsPositiveDeltaInBothDirections"),
+ dict(nome="m13-1021 [584]: a negative named amount is paid as its magnitude",
+      f="src/BlazePhoenixRouter.sol",
+      old="== uint256(uint160(tIn)) ? uint256(a1)\n",
+      new="== uint256(uint160(tIn)) ? (a1 < 0 ? uint256(-a1) : uint256(a1)) // MUTANT [584]\n",
+      teste="test_ATokenNamedCallbackWithANegativeAmountIsRefused"),
 ]
 
 def run(t):
