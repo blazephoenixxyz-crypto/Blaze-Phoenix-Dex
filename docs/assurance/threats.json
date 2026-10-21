@@ -298,6 +298,22 @@
       "guard": "_derivedByFactory",
       "test": "test_TrapPairWithoutFactoryOrigin_TakesNoSeat",
       "note": "rizki-3107 (Rizki Armando), 2026-10-20. Admission requires proof of origin: the swap door seats a pair-shaped or concentrated pool only if Hub.discoverFor (the derivation from the wired factories) lists it; the pool's own token0()/token1() check stays beside it, because a CREATE2 hit proves the deployer and salt, not the tokens (test_Create2HitOnOtherTokens_IsRefusedByThePairCheck). An unproven pool stays tradable on a caller-built route, at the caller's risk."
+    },
+    {
+      "id": "GATE-DUST-USE",
+      "class": "Dust swaps through a Gate wrapper buy vitality: each swap counts once whatever its size, so a wrapper's use (and psi) is pumped for the price of gas",
+      "status": "blocked",
+      "guard": "MATERIAL_SHIFT",
+      "test": "test_GateVital_DustInputNeverTicks",
+      "note": "gatevit-1021 (W5-C1 on the Gate's own count). A wrapper's swap ticks its vitalSlot only when the input is at least the venue pool's balance of the input token >> 16 and the output at least its balance of the output token >> 16 (each side in its own token, no cross-token comparison) and the output is non-zero; pinned on both sides and on an empty output side (test_GateVital_DustOutputNeverTicks, test_GateVital_NothingOutNeverTicks). Not covered: an LP who controls most of the venue's holdings can withdraw them inside one transaction and tick with a small swap; a singleton venue (one balance for every pool) makes the threshold large and fails closed."
+    },
+    {
+      "id": "GATE-ATTESTED-DEPTH",
+      "class": "A Gate adapter declares a depth its venue pool does not hold, and the Gate's fitness ranks the wrapper by the word",
+      "status": "blocked",
+      "guard": "heldMass18",
+      "test": "test_GateVital_DepthIsTheWordCappedByTheMassHeld",
+      "note": "gatevit-1021. Gate.vitalOf caps the adapter's depth18 (read under GATE_QUOTE_GAS) by the larger normalised holding of the venue pool, the registry's own concentrated-arm cap (one producer). Not covered: a singleton venue's balance is every pool's, so the cap there is loose and the word decides below it; an address the Gate did not create, or a cleared family, reads zero (test_GateVital_OnlyTheGatesOwnWrappers, test_GateVital_ClearedFamilyIsDead)."
     }
   ]
 }

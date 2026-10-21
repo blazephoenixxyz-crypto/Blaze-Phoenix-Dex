@@ -2593,11 +2593,32 @@ library BlazePhoenixCore {
         // Holding NEITHER, the mass is zero. An empty side used to switch the cap off, and a
         // V3-shaped contract that paid out everything it held was stamped at the depth it
         // declared (ninth wave, Binod Bk).
-        uint256 n0 = to18(balanceOf(t0, pool), dc0);
-        uint256 n1 = to18(balanceOf(t1, pool), dc1);
-        uint256 held = n0 > n1 ? n0 : n1;
+        uint256 held = heldMass18(pool, t0, dc0, t1, dc1);
         if (held < depth) depth = held;
     }
+
+    /// @notice THE ONE PRODUCER of "the mass a pool physically holds", normalised: the larger of
+    ///         its two holdings in 18 decimals (the least cap with f(a, 0) = a and f(0, b) = b; see
+    ///         the concentrated arm of `registryDepth18`). Read by the registry's concentrated arm
+    ///         and by the Gate's `vitalOf`, so a declared depth meets the same cap on both doors.
+    function heldMass18(address pool, address t0, uint8 dc0, address t1, uint8 dc1)
+        internal view returns (uint256)
+    {
+        uint256 n0 = to18(balanceOf(t0, pool), dc0);
+        uint256 n1 = to18(balanceOf(t1, pool), dc1);
+        return n0 > n1 ? n0 : n1;
+    }
+
+    /// @notice Stamp lastUpdateTs (bits [95:64]) with `ts`: the field `vitality` decays from.
+    ///         The Gate's wrappers stamp through here; the Hub's `_stampTs` is the same formula
+    ///         over block.timestamp (folding it here is a follow-up, kept out of the Hub's bytes).
+    function stampTs(uint256 s, uint32 ts) internal pure returns (uint256) {
+        return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(ts) << 64);
+    }
+
+    /// @notice Gas cap on one adapter answer read through a Gate wrapper: the Quoter's legs and
+    ///         the Gate's `vitalOf` depth read, so one hostile adapter cannot drain either.
+    uint256 internal constant GATE_QUOTE_GAS = 500_000;
 
     /// @notice Update the slot after a swap. Increments swap count (from its currently-decayed
     ///         base, not the raw historical total), refreshes last-block, and (optionally)

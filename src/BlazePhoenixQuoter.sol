@@ -102,6 +102,12 @@ interface IConcPoolQ {
 interface IGateWrapperQ {
     function quote(bool zeroForOne, uint256 amtIn) external view returns (uint256 out, uint256 depth18);
     function quoteCall(bool zeroForOne, uint256 amtIn) external returns (uint256 out);
+    function gate() external view returns (address);
+}
+
+/// @dev The Gate's registry fitness of one of its wrappers (src/BlazePhoenixGate.sol).
+interface IGateVitalQ {
+    function vitalOf(address w) external view returns (uint256 v, uint256 depth18, uint256 psi);
 }
 
 interface IHubQ {
@@ -155,7 +161,7 @@ contract BlazePhoenixQuoter {
     uint16  internal constant ASSUMED_FEE_SAFETY = 5;
     uint16  internal constant MAX_BATCH         = 32;
     /// @dev Gas each Gate adapter answer (quote, then quoteCall) may spend in _priceLeg.
-    uint256 internal constant GATE_QUOTE_GAS    = 500_000;
+    uint256 internal constant GATE_QUOTE_GAS    = BPC.GATE_QUOTE_GAS;
 
     ISolverQ public immutable solver;
     IHubQ    public immutable hub;
@@ -630,6 +636,17 @@ contract BlazePhoenixQuoter {
     {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
         return _exact(plan.best, amountIn);
+    }
+
+    /// @notice The registry fitness of a Gate wrapper: (vitality, depth18, psi), read through the
+    ///         identity the Router's door and the kind-9 leg demand (BPC.gateWrapperLive). Zeros
+    ///         unless `pool` is an admitted Gate's wrapper for (tA, tB, fee) with a live adapter.
+    ///         The Gate's `vitalOf` is the one producer; the Quoter adds no figure of its own.
+    function gateVitalOf(address pool, address tA, address tB, uint24 fee)
+        external view returns (uint256 v, uint256 depth18, uint256 psi)
+    {
+        if (!BPC.gateWrapperLive(address(hub), pool, tA, tB, fee)) return (0, 0, 0);
+        return IGateVitalQ(IGateWrapperQ(pool).gate()).vitalOf(pool);
     }
 
     /// @notice The same execution-grade re-pricing as `previewPlanExact`, for a route built

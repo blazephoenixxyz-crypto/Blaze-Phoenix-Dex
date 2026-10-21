@@ -42,7 +42,10 @@ interface IExtAdapter {
     /// Delivers the output to `recipient`. The return value is advisory and never read.
     function exec(address venuePool, bytes32 aux0, bytes32 aux1, bool zeroForOne, uint256 amtIn, address recipient)
         external returns (uint256 out);
-    /// View quote; 0 means "not quotable on-chain".
+    /// View quote; 0 means "not quotable on-chain". `depth18` is the venue pool's depth in
+    /// 18-decimal token units and must not depend on `amtIn`: the Gate's `vitalOf` reads it with
+    /// `amtIn = 0`, under BPC.GATE_QUOTE_GAS, and caps it by the mass the venue pool holds
+    /// (BPC.heldMass18). 0 declares nothing.
     function quote(address venuePool, bytes32 aux0, bytes32 aux1, bool zeroForOne, uint256 amtIn)
         external view returns (uint256 out, uint256 depth18);
     /// Non-view quote for venues that only price by simulation, read off-chain by eth_call.
@@ -218,6 +221,30 @@ contract BlazePhoenixGate {
         return (_pT0, _pT1, _pKey, _pVenue, _pAux0, _pAux1);
     }
 
+    /// The registry fitness of one of this Gate's wrappers, in the Hub's units, at no Hub byte:
+    ///  - identity: zeros unless this Gate created `w` and its family has a live adapter (a
+    ///    cleared family cannot execute, so it does not rank);
+    ///  - vitality: the wrapper's use count (`vitalSlot`, material swaps only), decayed by Core;
+    ///  - depth18: the adapter's declared depth, read under BPC.GATE_QUOTE_GAS, capped by the
+    ///    mass the venue pool physically holds (BPC.heldMass18, the registry's own cap);
+    ///  - psi: Core's psi over that slot with the bucket of the depth NOW, no bridge or
+    ///    concentration bonus (a consumer that wants them applies Core's rule itself).
+    function vitalOf(address w) external view returns (uint256 v, uint256 depth18, uint256 psi) {
+        if (!isWrapper[w]) return (0, 0, 0);
+        BlazePhoenixGateWrapper x = BlazePhoenixGateWrapper(w);
+        if (liveAdapter(x.family()) == address(0)) return (0, 0, 0);
+        uint256 s = x.vitalSlot();
+        uint32 ts = uint32(block.timestamp);
+        v = BPC.vitality(s, ts);
+        try x.quote{gas: BPC.GATE_QUOTE_GAS}(true, 0) returns (uint256, uint256 d) {
+            depth18 = d;
+        } catch {}
+        (address t0, address t1) = (x.token0(), x.token1());
+        uint256 held = BPC.heldMass18(x.venuePool(), t0, BPC.decimalsOf(t0), t1, BPC.decimalsOf(t1));
+        if (held < depth18) depth18 = held;
+        psi = BPC.psi(BPC.setBucket(s, BPC.depthBucket(depth18)), ts, false, false);
+    }
+
     /// Where the wrapper of (tA, tB, venueKey) lives, created or not: the Hub's derive, by the
     /// same two producers (Core.v3Salt, Core.create2Address).
     function wrapperAddress(address tA, address tB, uint24 venueKey) external view returns (address) {
@@ -226,9 +253,16 @@ contract BlazePhoenixGate {
     }
 }
 
-/// @notice A V3-shaped facade for one venue pool. Holds nothing between calls.
+/// @notice A V3-shaped facade for one venue pool. Holds no token between calls; its only
+///         state is its use count.
 contract BlazePhoenixGateWrapper {
     error GateE(uint8 code);
+
+    /// A swap counts as use only when it moves at least 2^-16 (~0.15 bps) of the venue pool's
+    /// holding on BOTH sides: the input against the venue's balance of the input token, the
+    /// output against its balance of the output token, each in its own token (no cross-token
+    /// comparison). Dust pays gas and buys no vitality (W5-C1).
+    uint8 public constant MATERIAL_SHIFT = 16;
 
     address public immutable gate;
     address public immutable token0;
@@ -239,6 +273,10 @@ contract BlazePhoenixGateWrapper {
     address public immutable venuePool;
     bytes32 public immutable aux0;
     bytes32 public immutable aux1;
+
+    /// The Hub's slot layout, written only by `swap`: swapCount (from its decayed base),
+    /// lastBlk and lastUpdateTs, through Core's tickSlot and stampTs. Read by Gate.vitalOf.
+    uint256 public vitalSlot;
 
     bool transient private _locked;
 
@@ -278,6 +316,8 @@ contract BlazePhoenixGateWrapper {
         uint256 adOut = BPC.balanceOf(tOut, a);
         uint256 wOut = BPC.balanceOf(tOut, address(this));
         uint256 outBefore = BPC.balanceOf(tOut, recipient);
+        uint256 vIn = BPC.balanceOf(tIn, venuePool);
+        uint256 vOut = BPC.balanceOf(tOut, venuePool);
         BPC.safeTransfer(tIn, a, paid);
         IExtAdapter(a).exec(venuePool, aux0, aux1, zeroForOne, paid, recipient);
 
@@ -292,6 +332,13 @@ contract BlazePhoenixGateWrapper {
         uint256 out = BPC.balanceOf(tOut, recipient) - outBefore;
         if (zeroForOne) amount1 = -int256(out);
         else amount0 = -int256(out);
+
+        // 5) Use: only a swap material on both sides of the venue pool ticks (MATERIAL_SHIFT).
+        //    A venue empty of the output makes its threshold 0, so nothing out is never use.
+        if (out != 0 && paid >= vIn >> MATERIAL_SHIFT && out >= vOut >> MATERIAL_SHIFT) {
+            uint32 ts = uint32(block.timestamp);
+            vitalSlot = BPC.stampTs(BPC.tickSlot(vitalSlot, uint32(block.number), 0, ts), ts);
+        }
         _locked = false;
     }
 
