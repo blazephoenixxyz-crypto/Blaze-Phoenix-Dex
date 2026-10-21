@@ -2656,7 +2656,7 @@ M = [
       f='src/BlazePhoenixRouter.sol',
       old='                (uint256 q_, uint256 imp, bool held) = BPC.legQuoteImpact(leg, hop.tokenIn, hop.tokenOut, legAmt);',
       new='                (uint256 q_, uint256 imp, bool held) = BPC.legQuoteImpact(leg, hop.tokenOut, hop.tokenIn, legAmt); // MUTANT [484]',
-      teste='test_SolidlyProof_QuoteFollowsTheLegCurve'),
+      teste='test_SolidlyProof_QuoteReadsTheHopsDirection'),
  dict(nome='fee seal [485]: a refused push is no longer booked to the slot (the share is lost to the treasury)',
       f='src/BlazePhoenixRouter.sol',
       old='        owed[token][i] += amt;',

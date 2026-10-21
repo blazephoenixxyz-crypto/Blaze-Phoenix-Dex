@@ -43,6 +43,11 @@ contract SolidlyProofQuotesThePairFigureTest is Test {
     MockERC20 internal tOut;   // not a bridge: no output-side fee
     MockSolidlyPair internal pair;
 
+    /// @dev Reserves per side and what the pair holds of each coin; equal by default.
+    uint112 internal rInR  = RESERVE;
+    uint112 internal rOutR = RESERVE;
+    uint256 internal holds = RESERVE;
+
     /// @dev A fresh world per call, so both curves see identical reserves and
     ///      amount without the Solver choosing between them.
     function _world(bool stable) internal {
@@ -57,9 +62,10 @@ contract SolidlyProofQuotesThePairFigureTest is Test {
         tIn  = new MockERC20("IN", "IN");
         tOut = new MockERC20("OUT", "OUT");
         pair = new MockSolidlyPair(address(tIn), address(tOut), stable);
-        tIn.mint(address(pair), RESERVE);
-        tOut.mint(address(pair), RESERVE);
-        pair.setReserves(RESERVE, RESERVE);
+        tIn.mint(address(pair), holds);
+        tOut.mint(address(pair), holds);
+        if (address(tIn) == pair.token0()) pair.setReserves(rInR, rOutR);
+        else pair.setReserves(rOutR, rInR);
         hub.seedPool(address(pair), BPC.KIND_SOLIDLY, 30, address(0), address(tIn), address(tOut));
 
         tIn.mint(USER, 10 * AMT);
@@ -125,5 +131,23 @@ contract SolidlyProofQuotesThePairFigureTest is Test {
         assertGt(qS, 0, "setup: the stable leg is quoted");
         assertGt(qV, 0, "setup: the volatile leg is quoted");
         assertTrue(qS != qV, "the published quote must come from the leg's own curve");
+    }
+
+    /// @notice The quote is read for the hop's own direction (K2 seal, mutant 484). Over equal
+    ///         reserves the two directions give the same figure, so the test above cannot see a
+    ///         quote taken with the hop's ends swapped. Here the reserves differ by side (1:2)
+    ///         and the pair holds the larger reserve of BOTH coins, so the held-by guard passes in
+    ///         either orientation and the quote alone decides: it must be the pair's figure for
+    ///         tIn -> tOut, which the reverse direction does not give. Both curves.
+    function test_SolidlyProof_QuoteReadsTheHopsDirection() public {
+        rInR = 1_000_000e18; rOutR = 2_000_000e18; holds = 2_000_000e18;
+        for (uint256 c; c < 2; ++c) {
+            bool stable = c == 0;
+            uint256 fwd = BPC.outSolidly(AMT, rInR, rOutR, 30, stable);
+            uint256 rev = BPC.outSolidly(AMT, rOutR, rInR, 30, stable);
+            assertTrue(fwd != rev, "setup: the two directions give different figures");
+            (uint256 q, , ) = _run(stable);
+            assertEq(q, fwd, "the quote is the pair's figure for the hop's own direction");
+        }
     }
 }

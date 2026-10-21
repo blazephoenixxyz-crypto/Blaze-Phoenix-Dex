@@ -73,6 +73,43 @@ contract SealFeeToken {
     }
 }
 
+/// ONE TRANSACTION, FOR REAL. This Foundry resets transient storage between the top-level calls
+/// of a test (probed 2026-10-21: tstore in one call, tload in the next reads 0), so two swaps
+/// called from the test body are two transactions and the kept coordinate is born at zero in
+/// each. Everything that must share a transaction runs inside one call of this contract, which
+/// is the payer (and, when moved there, a treasury slot holder). `spent[k]` is what swap k cost
+/// it. `claimFee` by selector, like the test's helpers, so the file compiles before the fix.
+contract SealBatch {
+    function twoSwaps(BlazePhoenixRouter r, SealFeeToken t, Route calldata route, uint256 amt)
+        external returns (uint256[2] memory spent)
+    {
+        t.approve(address(r), type(uint256).max);
+        for (uint256 k; k < 2; ++k) {
+            uint256 b0 = t.balanceOf(address(this));
+            r.swapExactIn(route, amt, 1, address(this), block.timestamp + 1);
+            spent[k] = b0 - t.balanceOf(address(this));
+        }
+    }
+
+    /// Swap (this slot holder refuses its share, so it is booked), claim it, swap again.
+    function swapClaimSwap(BlazePhoenixRouter r, SealFeeToken t, Route calldata route, uint256 amt)
+        external returns (uint256[2] memory spent, uint256 claimed)
+    {
+        t.approve(address(r), type(uint256).max);
+        uint256 b0 = t.balanceOf(address(this));
+        r.swapExactIn(route, amt, 1, address(this), block.timestamp + 1);
+        spent[0] = b0 - t.balanceOf(address(this));
+        t.setRefuse(address(this), 0);
+        b0 = t.balanceOf(address(this));
+        (bool ok, ) = address(r).call(abi.encodeWithSignature("claimFee(address)", address(t)));
+        require(ok, "claim");
+        claimed = t.balanceOf(address(this)) - b0;
+        b0 = t.balanceOf(address(this));
+        r.swapExactIn(route, amt, 1, address(this), block.timestamp + 1);
+        spent[1] = b0 - t.balanceOf(address(this));
+    }
+}
+
 contract Seal1021FeeNeverBlocksTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixRouter router;
@@ -210,11 +247,11 @@ contract Seal1021FeeNeverBlocksTest is Test {
         tok.setRefuse(t1, 1);
         tok.setRefuse(t2, 1);
         uint256 amt = 1_000e18; uint256 legAmt = 600e18;
+        SealBatch b = new SealBatch();
+        tok.mint(address(b), 10_000e18);
+        uint256[2] memory spent = b.twoSwaps(router, tok, _direct(legAmt), amt);
         for (uint256 k; k < 2; ++k) {
-            uint256 b0 = tok.balanceOf(user);
-            vm.prank(user);
-            router.swapExactIn(_direct(legAmt), amt, 1, user, block.timestamp + 1);
-            assertEq(b0 - tok.balanceOf(user), legAmt + _fee(legAmt), "the payer spent the legs and the fee, no more, no less");
+            assertEq(spent[k], legAmt + _fee(legAmt), "the payer spent the legs and the fee, no more, no less");
         }
         assertEq(_owedAll(), 2 * _fee(legAmt), "both fees booked in full");
         assertEq(tok.balanceOf(address(router)), _owedAll(), "nothing owed was swept");
@@ -283,18 +320,18 @@ contract Seal1021FeeNeverBlocksTest is Test {
     /// transaction. What the claim paid out is no longer kept, so the second swap's input
     /// sweep returns the payer's whole residual and the Router ends holding nothing.
     function test_ClaimBetweenTwoSwapsOfOneTransaction_KeepsTheCoordinate() public {
-        tok.setRefuse(t1, 1);
         uint256 amt = 1_000e18; uint256 legAmt = 600e18;
-        vm.prank(user);
-        router.swapExactIn(_direct(legAmt), amt, 1, user, block.timestamp + 1);
-        assertGt(_owed(0), 0, "setup: a share is booked");
-        tok.setRefuse(t1, 0);
-        (bool ok, ) = _claim(t1);
-        assertTrue(ok, "claim");
-        uint256 b0 = tok.balanceOf(user);
-        vm.prank(user);
-        router.swapExactIn(_direct(legAmt), amt, 1, user, block.timestamp + 1);
-        assertEq(b0 - tok.balanceOf(user), legAmt + _fee(legAmt), "the second payer got its whole residual back");
+        uint256 share0 = _fee(legAmt) * 3_000 / BPC.BPS;
+        SealBatch b = new SealBatch();
+        tok.mint(address(b), 10_000e18);
+        vm.prank(t1); router.moveTreasury(address(b));
+        tok.setRefuse(address(b), 1);
+        (uint256[2] memory spent, uint256 claimed) = b.swapClaimSwap(router, tok, _direct(legAmt), amt);
+        assertEq(claimed, share0, "setup: the first swap booked slot 0's share and its holder claimed it");
+        assertEq(spent[0], legAmt + _fee(legAmt), "the first swap cost the legs and the fee");
+        // The holder is now paid its slot-0 share in the swap, so the swap nets the fee less it.
+        assertEq(spent[1], legAmt + _fee(legAmt) - share0,
+            "the second swap of the same transaction returned its whole residual");
         assertEq(tok.balanceOf(address(router)), 0, "nothing stranded");
     }
 
