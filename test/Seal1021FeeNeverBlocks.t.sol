@@ -91,13 +91,15 @@ contract SealBatch {
         }
     }
 
-    /// Swap (this slot holder refuses its share, so it is booked), claim it, swap again.
-    function swapClaimSwap(BlazePhoenixRouter r, SealFeeToken t, Route calldata route, uint256 amt)
+    /// Swap (this slot holder refuses its share, so it is booked), claim it, swap again. The
+    /// first swap pulls exactly legs + fee (`amt0`): its holder refuses tok, so no residual may
+    /// come back to it. The second (`amt1`) leaves a residual for the sweep under test.
+    function swapClaimSwap(BlazePhoenixRouter r, SealFeeToken t, Route calldata route, uint256 amt0, uint256 amt1)
         external returns (uint256[2] memory spent, uint256 claimed)
     {
         t.approve(address(r), type(uint256).max);
         uint256 b0 = t.balanceOf(address(this));
-        r.swapExactIn(route, amt, 1, address(this), block.timestamp + 1);
+        r.swapExactIn(route, amt0, 1, address(this), block.timestamp + 1);
         spent[0] = b0 - t.balanceOf(address(this));
         t.setRefuse(address(this), 0);
         b0 = t.balanceOf(address(this));
@@ -105,7 +107,7 @@ contract SealBatch {
         require(ok, "claim");
         claimed = t.balanceOf(address(this)) - b0;
         b0 = t.balanceOf(address(this));
-        r.swapExactIn(route, amt, 1, address(this), block.timestamp + 1);
+        r.swapExactIn(route, amt1, 1, address(this), block.timestamp + 1);
         spent[1] = b0 - t.balanceOf(address(this));
     }
 }
@@ -326,7 +328,7 @@ contract Seal1021FeeNeverBlocksTest is Test {
         tok.mint(address(b), 10_000e18);
         vm.prank(t1); router.moveTreasury(address(b));
         tok.setRefuse(address(b), 1);
-        (uint256[2] memory spent, uint256 claimed) = b.swapClaimSwap(router, tok, _direct(legAmt), amt);
+        (uint256[2] memory spent, uint256 claimed) = b.swapClaimSwap(router, tok, _direct(legAmt), legAmt + _fee(legAmt), amt);
         assertEq(claimed, share0, "setup: the first swap booked slot 0's share and its holder claimed it");
         assertEq(spent[0], legAmt + _fee(legAmt), "the first swap cost the legs and the fee");
         // The holder is now paid its slot-0 share in the swap, so the swap nets the fee less it.

@@ -138,16 +138,19 @@ contract SolidlyProofQuotesThePairFigureTest is Test {
     ///         quote taken with the hop's ends swapped. Here the reserves differ by side (1:2)
     ///         and the pair holds the larger reserve of BOTH coins, so the held-by guard passes in
     ///         either orientation and the quote alone decides: it must be the pair's figure for
-    ///         tIn -> tOut, which the reverse direction does not give. Both curves.
+    ///         tIn -> tOut, which the reverse direction does not give. Both curves. The leg is
+    ///         quoted on the amount net of the 28 bps input fee, so the bound is relative (0.5 %)
+    ///         and the setup requires the two directions to sit more than 2 % apart.
     function test_SolidlyProof_QuoteReadsTheHopsDirection() public {
         rInR = 1_000_000e18; rOutR = 2_000_000e18; holds = 2_000_000e18;
         for (uint256 c; c < 2; ++c) {
             bool stable = c == 0;
             uint256 fwd = BPC.outSolidly(AMT, rInR, rOutR, 30, stable);
             uint256 rev = BPC.outSolidly(AMT, rOutR, rInR, 30, stable);
-            assertTrue(fwd != rev, "setup: the two directions give different figures");
+            uint256 gap = fwd > rev ? fwd - rev : rev - fwd;
+            assertGt(gap * 100, fwd * 2, "setup: the two directions sit more than 2% apart");
             (uint256 q, , ) = _run(stable);
-            assertEq(q, fwd, "the quote is the pair's figure for the hop's own direction");
+            assertApproxEqRel(q, fwd, 0.005e18, "the quote is the pair's figure for the hop's own direction");
         }
     }
 }
