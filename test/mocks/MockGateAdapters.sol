@@ -101,7 +101,6 @@ contract MockGateHostileAdapter is MockGateAdapter {
     uint8 public constant REFUND_WRAPPER = 8; // hands the input back to the wrapper, pays the output from its own stock
     uint8 public constant OUT_TO_WRAPPER = 9; // trades honestly, but delivers the output to the wrapper
     uint8 public constant OVERQUOTE = 10;  // quotes twice what it delivers; trades honestly
-    uint8 public constant QUOTE_PLUS_ONE = 11; // quotes 1 wei over what it delivers (rounding)
     uint8 public mode;
 
     constructor(BlazePhoenixGate g, MockGateRegistry r) MockGateAdapter(g, r) {}
@@ -159,7 +158,6 @@ contract MockGateHostileAdapter is MockGateAdapter {
         if (mode == BURN) _burn();
         if (mode == CALL_ONLY) return (0, 0);
         if (mode == OVERQUOTE) return (2 * MockGateVenue(vp).quoteSell(amtIn), declaredDepth);
-        if (mode == QUOTE_PLUS_ONE) return (MockGateVenue(vp).quoteSell(amtIn) + 1, declaredDepth);
         return (MockGateVenue(vp).quoteSell(amtIn), declaredDepth);
     }
 

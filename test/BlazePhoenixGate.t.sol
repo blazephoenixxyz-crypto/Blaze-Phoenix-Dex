@@ -734,12 +734,6 @@ contract BlazePhoenixGateTest is Test {
         return out - BPC.mulDivUp(out, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 
-    /// One proof swap of `amt` of token0 (recipient = the wrapper; the output comes back here).
-    function _prove(BlazePhoenixGateWrapper w, uint256 amt) internal {
-        t0.mint(address(this), amt);
-        w.swap(address(w), true, int256(amt), 0, "");
-    }
-
     /// One direct swap of `amt` of token0 by this contract (anyone may call a wrapper).
     function _swapDirect(BlazePhoenixGateWrapper w, uint256 amt) internal {
         t0.mint(address(this), amt);
@@ -767,7 +761,6 @@ contract BlazePhoenixGateTest is Test {
         assertEq(_best(router, amt), _net(exp), "the best door delivers the quote, net of the protocol fee");
         assertEq(t0.balanceOf(address(router)) + t1.balanceOf(address(router)), 0, "Router at 0");
         assertEq(t0.balanceOf(address(w)) + t1.balanceOf(address(w)), 0, "wrapper at 0");
-        assertFalse(w.quoteBroken(), "an honest material swap keeps the quote");
         assertGt(w.vitalSlot(), 0, "and is use");
     }
 
@@ -798,13 +791,12 @@ contract BlazePhoenixGateTest is Test {
     /// Quantity: how long an adapter that quotes high and delivers low holds the automatic door.
     /// The adapter quotes twice what it trades and its venue holds the pair's mass, so its
     /// vote centres the band and the Solver seats it over a thin curated pair; the best door
-    /// reverts at the leg floor (RouterE(5)), moving no funds: the pair's automatic door is
-    /// down. ONE material proof swap (recipient = the wrapper), by anyone, measures the lie
-    /// (the delivered delta under the adapter's own quote for the same input, at the same
-    /// state): `quoteBroken` is set for ever, that swap is not use, the Gate drops the wrapper
-    /// from the pair's list and the best door settles through the pair again.
-    /// RED before the proof swap: the list kept the wrapper and the door stayed down.
-    function test_GatedAuto_OverquotingAdapterIsMeasuredOutOfTheList() public {
+    /// reverts at the leg floor (RouterE(5)), moving no funds, so the lie never settles. The
+    /// door is down until the admin clears the family (clearAdapter): the wrapper is then not
+    /// live, not planned, and the best door settles through the pair again.
+    /// No swap, by anyone, removes a wrapper: a measured "broken quote" would let a griefer
+    /// retire a legitimate gated venue for ever (fee-on-transfer, hooked, size-dependent).
+    function test_GatedAuto_OverquotingAdapterHoldsTheFloorUntilCleared() public {
         BlazePhoenixGateWrapper w = _hostileWrapper(hostile.OVERQUOTE());
         hostile.setDeclaredDepth(type(uint128).max);   // capped by the venue's 1M a side
         (BlazePhoenixSolver solver, BlazePhoenixRouter router) = _autoDoor();
@@ -819,56 +811,18 @@ contract BlazePhoenixGateTest is Test {
         assertEq(t0.balanceOf(u), amt, "the revert moved no funds");
 
         _swapDirect(w, amt);
-        assertFalse(w.quoteBroken(), "control: a plain swap claims nothing");
-        uint256 vs = w.vitalSlot();
-        _prove(w, amt);
-        assertTrue(w.quoteBroken(), "one material proof swap measures the lie");
-        assertEq(w.vitalSlot(), vs, "and is not use");
-        assertEq(gate.wrappersOf(address(t0), address(t1))[0], 0, "the Gate's list drops the wrapper");
+        assertEq(address(uint160(gate.wrappersOf(address(t0), address(t1))[0])), address(w),
+            "a swap removes nothing from the list");
+        gate.clearAdapter(HFAM);
         RoutePlan memory p = solver.findBestRoutePlan(address(t0), address(t1), amt);
-        assertFalse(_plans(p, address(w)), "the wrapper is not planned");
+        assertFalse(_plans(p, address(w)), "the cleared wrapper is not planned");
         assertTrue(_plans(p, address(pair)), "the pair is");
         vm.prank(u);
         assertGt(router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1), 0,
             "the best door is back");
     }
 
-    /// Quantity: the slack of the measured quote, 1 bp of the adapter's quote. An adapter that
-    /// quotes 1 wei over what it delivers (rounding) keeps its quote: a material swap is use
-    /// and leaves `quoteBroken` false.
-    function test_GatedAuto_RoundingIsNotALie() public {
-        BlazePhoenixGateWrapper w = _hostileWrapper(hostile.QUOTE_PLUS_ONE());
-        (uint256 q, ) = w.quote(true, 1_000e18);
-        assertEq(q, venue.quoteSell(1_000e18) + 1, "setup: the quote is 1 wei over");
-        _prove(w, 1_000e18);
-        assertFalse(w.quoteBroken(), "1 wei of rounding is not a lie");
-        assertGt(w.vitalSlot(), 0, "the swap is use");
-        _prove(w, 5_000);   // dust: 1 bp of a 4,986-wei claim is 0 wei, so 1 wei would break it
-        assertFalse(w.quoteBroken(), "a dust proof measures nothing");
-    }
-
-    /// Quantity: the list a retired wrapper leaves. Three wrappers of one pair, the middle one
-    /// overquoting: its proof removes it, the other two keep their creation order with no
-    /// hole (Core.gatedOf stops at the first 0), and the freed slot takes a new venue key.
-    /// A caller that is not listed retires nothing, even naming the same pair.
-    function test_GatedAuto_RetireKeepsTheOthersInOrder() public {
-        _accept(FAM, address(adapter));
-        address w1 = gate.create(address(t0), address(t1), KEY, abi.encode(address(venue)));
-        BlazePhoenixGateWrapper h = _hostileWrapper(hostile.OVERQUOTE());
-        address w3 = gate.create(address(t0), address(t1), uint24(uint256(FAM) << 16 | 2), abi.encode(address(venue)));
-        vm.prank(address(venue));   // a stranger naming the same pair (venue.token0/token1)
-        gate.retire();
-        assertEq(address(uint160(gate.wrappersOf(address(t0), address(t1))[1])), address(h), "a stranger retires nothing");
-        _prove(h, 1_000e18);
-        uint256[4] memory l = gate.wrappersOf(address(t0), address(t1));
-        assertEq(address(uint160(l[0])), w1, "first stays first");
-        assertEq(address(uint160(l[1])), w3, "third moves up");
-        assertEq(l[2], 0, "no hole, no duplicate");
-        address w4 = gate.create(address(t0), address(t1), uint24(uint256(FAM) << 16 | 3), abi.encode(address(venue)));
-        assertEq(address(uint160(gate.wrappersOf(address(t0), address(t1))[2])), w4, "the slot is free again");
-    }
-
-    /// Quantity: where the lie of (c) stops, with no proof. The same adapter, quoting twice what
+    /// Quantity: where the lie of (c) stops before any clear. The same adapter, quoting twice what
     /// it trades, against a curated pair holding three times its venue's mass: the band
     /// centres on the pair (the wrapper votes only the mass its venue holds, Core._gateVital),
     /// the lie falls outside it, and the best door settles through the pair.
@@ -882,7 +836,6 @@ contract BlazePhoenixGateTest is Test {
         assertFalse(_plans(p, address(w)), "the lie is out of the band");
         assertTrue(_plans(p, address(pair)), "the pair is planned");
         assertGt(_best(router, amt), 0, "the best door settles");
-        assertFalse(w.quoteBroken(), "nothing was proved");
     }
 
     /// Quantity: who votes discovery freshness (MIN_FRESH_VENUES). Three curated rows, two of

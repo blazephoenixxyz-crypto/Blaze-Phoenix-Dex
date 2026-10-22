@@ -353,21 +353,21 @@
       "status": "blocked",
       "guard": "GATE_MAX_WRAPPERS",
       "test": "test_GatedAuto_WrapperListIsCappedAtFour",
-      "note": "gatedauto-1022. Gate.create refuses a fifth wrapper per pair (GateE(16)); Gate.retire removes a wrapper's own entry and shifts the rest (test_GatedAuto_RetireKeepsTheOthersInOrder). Measured on swapBestExactIn, release profile, mock adapter: +110 393 gas per listed wrapper that loses; each adapter read is capped at GATE_QUOTE_GAS, and SOLVE_GAS exhaustion fails closed (RouterE(17)). Mutants [686] [694]."
+      "note": "gatedauto-1022. Gate.create refuses a fifth wrapper per pair (GateE(16)). The list is grow-only: nothing removes an entry, so a cleared family's wrappers keep their slots for life (4 creations per pair, ever); a cleared entry costs a solve only its gateWrapperLive. Measured on swapBestExactIn, release profile, mock adapter: +110 393 gas per listed wrapper that loses; each adapter read is capped at GATE_QUOTE_GAS, and SOLVE_GAS exhaustion fails closed (RouterE(17)). Mutant [686]."
     },
     {
       "id": "GATED-AUTO-OVERQUOTE",
       "class": "An admitted Gate adapter's view quote promises more than its venue delivers, so the automatic door plans the wrapper and the leg floor reverts the best door for the pair",
       "status": "blocked",
-      "guard": "quoteBroken",
-      "test": "test_GatedAuto_OverquotingAdapterIsMeasuredOutOfTheList",
-      "note": "gatedauto-1022. No funds move: the leg floor (LEG_FLOOR_BPS) reverts RouterE(5). The DoS needs the lying wrapper to anchor the depth-weighted band (the pair's mass, or the only venue); under a deeper curated anchor the band keeps a lie above MEDIAN_FILTER_BPS out (test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand), and a lie within it settles above the floor, the user held by userMinOut. Any caller can prove a wrapper: a material swap with recipient = the wrapper reads the adapter's quote for the paid input after the callback, measures the output at the wrapper and forwards it; short by more than 1 bp sets quoteBroken for ever and calls Gate.retire, which takes the wrapper off wrappersOf; rounding is not a lie (test_GatedAuto_RoundingIsNotALie). Not covered: false positives on fee-on-transfer outputs, venues running untrusted hooks in exec, and size-dependent divergence. Mutants [687]-[693]."
+      "guard": "LEG_FLOOR_BPS",
+      "test": "test_GatedAuto_OverquotingAdapterHoldsTheFloorUntilCleared",
+      "note": "gatedauto-1022. Three guards and no permissionless proof. The floor: no funds move, the leg floor (LEG_FLOOR_BPS) and the hop check revert RouterE(5) and userMinOut holds the user. The band: the wrapper votes only the mass its venue holds (Gate.vitalOf caps the adapter's depth word), so under a deeper curated anchor a lie above MEDIAN_FILTER_BPS is out (test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand, mutant [688]) and a lie within it settles above the floor. The clear: when the lying wrapper anchors the band (the pair's mass, or the only venue) the pair's automatic door is down, explicit doors untouched, until the admin's Gate.clearAdapter takes the family out at every door (mutant [689]). Residual: after renounceControl a lying family keeps that door down for its pairs. A permissionless proof (a swap measuring the quote and retiring the wrapper) was built and dropped in review on 2026-10-22: permanent (CREATE2 cannot recreate the wrapper), triggerable by anyone for one material swap, and its false positives (fee-on-transfer, hooked venues, size-dependent divergence) are exactly the gated venues, so it handed a griefer a way to remove a legitimate venue for ever."
     },
     {
       "id": "GATED-AUTO-HOSTILE-ADAPTER",
-      "class": "An admitted Gate adapter that is itself malicious: it reverts in exec to deny the pair's best door, or detects the proof context (the wrapper holds the paid input when the claim is read) and answers it honestly",
+      "class": "An admitted Gate adapter that is itself malicious: it reverts in exec to deny the pair's best door, or quotes honestly to every view read and delivers less only in exec",
       "status": "out-of-scope",
-      "rationale": "The adapter family is the admin's admission behind a 48-hour timelock with code pinned by hash; the proof catches honest-but-wrong adapters, not adversarial ones. The answer to a hostile family is Gate.clearAdapter, which stops it at once at every door, available until the admin renounces control; after renouncing a hostile family stays listed. Recorded 2026-10-22 (gatedauto-1022)."
+      "rationale": "The adapter family is the admin's admission behind a 48-hour timelock with code pinned by hash; no on-chain check can tell a hostile adapter from an honest one at admission. The answer to a hostile family is Gate.clearAdapter, which stops it at once at every door, available until the admin renounces control; after renouncing a hostile family stays listed. Recorded 2026-10-22 (gatedauto-1022)."
     }
   ]
 }
