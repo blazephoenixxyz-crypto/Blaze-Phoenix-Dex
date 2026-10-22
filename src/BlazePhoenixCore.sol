@@ -2021,10 +2021,38 @@ library BlazePhoenixCore {
         if (x >= 1 << 1) r += 1;
     }
 
-    /// @dev TickBitmap.nextInitializedTickWithinOneWord, read through extsload: the next
-    ///      initialized tick at or below `tick` (price falling) or strictly above it (price
-    ///      rising), or the edge of the current bitmap word when none is set in it.
-    function _v4NextTick(address manager, bytes32 bitmapSlot, int24 tick, int24 ts, bool lte)
+    /// @dev Word `w` of a V3-shaped pool's answer to getter `sel(arg)`; zero when the pool does
+    ///      not answer it (codeless, reverting, or too short an answer). The walk's reads of a
+    ///      V3 book: slot0(), liquidity(), tickBitmap(int16), ticks(int24).
+    function _v3Get(address pool, uint256 sel, int256 arg, uint256 w) private view returns (uint256 r) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, shl(224, sel))
+            mstore(add(m, 4), arg)
+            if staticcall(GAS_CAP, pool, m, 36, m, 64) {
+                if gt(returndatasize(), add(shl(5, w), 31)) { r := mload(add(m, shl(5, w))) }
+            }
+        }
+    }
+
+    /// @dev One read of the book the walk follows: through extsload from the singleton (`base`
+    ///      = the V4 pool's state slot), or from a V3-shaped pool's own getters when `base` is
+    ///      zero. `k`: 0 the price word, 1 the tick, 2 the liquidity, 3 bitmap word `arg`, 4 the
+    ///      liquidityNet of tick `arg` (in the low 128 bits).
+    function _book(address src, uint256 base, uint256 k, int256 arg) private view returns (uint256) {
+        if (base == 0) return _v3Get(
+            src, k < 2 ? 0x3850c7bd : k == 2 ? 0x1a686502 : k == 3 ? 0x5339c296 : 0xf30dba93, arg, k == 1 || k == 4 ? 1 : 0
+        );
+        uint256 w = _v4Load(src, k < 3 ? bytes32(base + (k == 2 ? 3 : 0)) : keccak256(abi.encode(arg, bytes32(base + (k == 3 ? 5 : 4)))));
+        return k == 1 ? w >> 160 : k == 4 ? w >> 128 : w;
+    }
+
+    /// @dev TickBitmap.nextInitializedTickWithinOneWord: the next initialized tick at or below
+    ///      `tick` (price falling) or strictly above it (price rising), or the edge of the
+    ///      current bitmap word when none is set in it. The word is read through extsload from
+    ///      the singleton (`base` = the V4 pool's state slot), or from a V3-shaped pool's own
+    ///      `tickBitmap(int16)` when `base` is zero.
+    function _v4NextTick(address src, uint256 base, int24 tick, int24 ts, bool lte)
         private view returns (int24 next, bool initialized)
     {
         int24 c = tick / ts;
@@ -2032,7 +2060,7 @@ library BlazePhoenixCore {
         if (!lte) c++;
         int16 wordPos = int16(c >> 8);
         uint256 bitPos = uint256(uint24(c)) & 0xff;
-        uint256 word = _v4Load(manager, keccak256(abi.encode(int256(wordPos), bitmapSlot)));
+        uint256 word = _book(src, base, 3, wordPos);
         int256 n;
         if (lte) {
             uint256 masked = word & (type(uint256).max >> (255 - bitPos));
@@ -2108,10 +2136,14 @@ library BlazePhoenixCore {
     /// @notice What the pool pays for `amountIn`, walked over its initialized ticks the way
     ///         the PoolManager's swap loop walks them, for at most V4_WALK_MAX_STEPS stretches.
     ///         A range with nothing beyond it pays what it holds and no more; liquidity beyond
-    ///         the current range is counted where it is.
+    ///         the current range is counted where it is. With a zero `poolId`, `manager` is a
+    ///         V3-shaped pool and the same walk reads its own book (slot0, liquidity,
+    ///         tickBitmap, ticks) at the fee and spacing the pool itself reports; a pool that
+    ///         does not answer those reads walks to zero.
     function v4WalkOut(
         address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne
     ) public view returns (uint256 out) {
+        if (poolId == bytes32(0)) (fee, tickSpacing) = (getV3Fee(manager), int24(int256(_v3Get(manager, 0xd0c93a7c, 0, 0))));
         (out, , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, type(uint256).max);
     }
 
@@ -2189,21 +2221,25 @@ library BlazePhoenixCore {
     }
 
     function _v4Walk(
-        address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
+        address src, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
         uint256 bar
     ) private view returns (uint256 lo, uint256 out, uint256 hi) {
-        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || manager == address(0)) return (0, 0, 0);
-        uint256 base = uint256(keccak256(abi.encode(poolId, uint256(6))));
-        uint256 w0 = _v4Load(manager, bytes32(base));
-        uint160 sp = uint160(w0);
+        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || src == address(0)) return (0, 0, 0);
+        // `src` is the V4 singleton (state read through extsload), or, with a zero poolId, a
+        // V3-shaped pool walked through its own getters (slot0, liquidity, tickBitmap, ticks).
+        uint256 base = poolId == bytes32(0) ? 0 : uint256(keccak256(abi.encode(poolId, uint256(6))));
+        uint160 sp = uint160(_book(src, base, 0, 0));
         if (sp == 0) return (0, 0, 0);
-        int24 tick = int24(uint24(w0 >> 160));
-        uint128 liq = uint128(_v4Load(manager, bytes32(base + 3)));
+        int24 tick = int24(uint24(_book(src, base, 1, 0)));
+        uint128 liq = uint128(_book(src, base, 2, 0));
         uint256 rem = amountIn;
         uint256 i;
         for (; i < V4_WALK_DEEP_STEPS; ) {
-            (int24 nt, bool init) = _v4NextTick(manager, bytes32(base + 5), tick, tickSpacing, zeroForOne);
+            (int24 nt, bool init) = _v4NextTick(src, base, tick, tickSpacing, zeroForOne);
             uint160 target = sqrtPriceAtTick(nt);
+            // A book whose tick disagrees with its price would step the wrong way: stop, the
+            // figure so far only understates.
+            if (zeroForOne ? target > sp : target < sp) break;
             (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, fee, zeroForOne);
             out += o;
             rem -= used;
@@ -2214,7 +2250,7 @@ library BlazePhoenixCore {
                 // liquidityNet, the high half of TickInfo's first word; crossing downward
                 // applies it negated. Saturating: an inconsistent state quotes zero past the
                 // crossing instead of reverting the whole plan.
-                int256 net = int256(int128(int256(_v4Load(manager, keccak256(abi.encode(int256(nt), bytes32(base + 4)))) >> 128)));
+                int256 net = int256(int128(int256(_book(src, base, 4, nt))));
                 if (zeroForOne) net = -net;
                 uint256 l = uint256(liq);
                 if (net < 0) l = l > uint256(-net) ? l - uint256(-net) : 0;

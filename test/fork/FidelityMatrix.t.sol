@@ -153,6 +153,25 @@ abstract contract MatrixOps is TokenSweepBase {
                 ? ((pv.netOut - pv.effectiveMinOut) * 10_000) / pv.netOut : 0);
     }
 
+    /// A PORTA EXATA (`previewPlanExact`), a cotacao vinculativa: cada perna concentrada
+    /// ensaiada na propria pool e revertida. A banda de 0-1 bps do whitepaper (§17.2) e
+    /// desta porta; aqui executa-se a rota que ela devolve com o `exactOut` como minimo e
+    /// mede-se: nunca acima do entregue (Q1) e a 1 bps dele.
+    function _linhaExata(string memory rotulo, address tIn, address tOut, uint256 amt) internal {
+        (Route memory r, uint256 exactOut) = quoter.previewPlanExact(tIn, tOut, amt);
+        assertGt(exactOut, 0, string.concat(rotulo, ": a porta exata nao devolveu rota"));
+        deal(tIn, USER, amt);
+        vm.prank(USER);
+        IERC20M(tIn).approve(address(router), amt);
+        uint256 balAntes = IERC20M(tOut).balanceOf(USER);
+        vm.prank(USER);
+        uint256 entregue = router.swapExactIn(r, amt, exactOut, USER, block.timestamp + 60);
+        assertEq(IERC20M(tOut).balanceOf(USER) - balAntes, entregue, "delta != retorno");
+        assertLe((entregue - exactOut) * 10_000, exactOut,
+            string.concat(rotulo, ": a porta exata a mais de 1 bps da entrega no MESMO bloco"));
+        console2.log(string.concat("[EXATA] ", rotulo, " exactOut / entregue:"), exactOut, entregue);
+    }
+
     /// O optimo, parte (b): grelha de splits 2-vias, passos de 10%, sobre os
     /// dois candidatos mais fundos. O solver tem de chegar a 10 bps do maximo
     /// da grelha — a tolerancia e o preco documentado do gate de split.
@@ -354,6 +373,20 @@ contract FidelityMatrixBaseTest is BaseChainFixture, MatrixOps {
     function test_Otimo() public {
         if (address(hub) == address(0)) return;
         _otimoGrelha("USDC->WETH", _dollar(), _weth(), 1_000e6);
+    }
+    /// DAI, e a porta exata ao lado da modelada. DAI->USDC a 10k e um par estavel cujas
+    /// pernas V3 de fee 100 o clamp de capacidade prende sem cortar o input: a promessa
+    /// delas e a resposta do livro da pool (Solver._capacity via Core.v4WalkOut), e as duas portas tem de
+    /// chegar a entrega. A linha modelada fica a 1k: a 10k, neste bloco, o teste (a) da melhor
+    /// perna unica ja falhava na base 7b8df77, antes do fix (grossOut 7 156,6 vs 9 979,8 USDC;
+    /// medido 22/10, red2.txt), residual de ranking por triar, fora do 3073.
+    function test_Matriz_DaiEPortaExata() public {
+        if (address(hub) == address(0)) return;
+        address dai = 0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb;
+        _linha("DAI->USDC 1k", dai, _dollar(), 1_000e18, true);
+        _linhaExata("DAI->USDC 10k", dai, _dollar(), 10_000e18);
+        _linhaExata("USDC->DAI 10k", _dollar(), dai, 10_000e6);
+        _linhaExata("USDC->WETH 10k", _dollar(), _weth(), 10_000e6);
     }
 }
 

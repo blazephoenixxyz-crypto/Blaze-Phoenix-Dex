@@ -98,7 +98,9 @@ contract Fix1019N1SingleHopTest is Fix1019N1Base {
 
     /// By-design pin (Q1). 40 % of holdings asked: cap < quote <= holdings, so the leg's
     /// promise is exactly the cap while the exact dry-run sees the whole fill. Red iff the
-    /// capacity clamp stops capping the promise (Solver:847).
+    /// capacity clamp stops capping the promise (Solver._capacity). MockV3Pool has no tick
+    /// book (no tickSpacing()), so the walk answers nothing and the promise is the cap; a
+    /// readable book lifts it to the pool's answer (test/CapacityPromiseWalksTheBook.t.sol).
     function test_N1_Clamp_DefaultPromiseIsTheCap_ExactSeesTheFill() public {
         (BlazePhoenixQuoter.Preview memory pv,,) = quoter.previewPlan(address(A), address(B), 40e18);
         assertEq(pv.route.hops.length, 1, "setup: one hop");
@@ -178,6 +180,7 @@ contract Fix1019N1SplitHopTest is Fix1019N1Base {
     /// By-design pin (Q1) on the split path: 80e18 over two pools of 100e18 holdings.
     /// Every leg's promise is at most the cap and at least one leg is capped exactly,
     /// while the exact dry-run sees the whole fill. Red iff the split clamp stops capping.
+    /// The pools have no tick book, so each held promise is the cap (see the single-leg pin).
     function test_N1_SplitClamp_LegPromisesAreCapped_ExactSeesTheFill() public {
         (BlazePhoenixQuoter.Preview memory pv,,) = quoter.previewPlan(address(A), address(B), 80e18);
         assertEq(pv.route.hops.length, 1, "setup: one hop");

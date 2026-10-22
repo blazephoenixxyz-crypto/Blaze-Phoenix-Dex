@@ -183,9 +183,12 @@ contract BlazePhoenixSolver {
     ///         share walking a thin pool's tick ladder at a collapsing
     ///         marginal price, invisibly to the floors because they derive
     ///         from the already-crushed promise. When the fill is aggressive
-    ///         but possible (cap < quote <= holdings) only the promise is
-    ///         capped — cutting capital there forced partial fills on pools
-    ///         that execute fine (measured: a 43bps full fill halved).
+    ///         but possible (cap < quote <= holdings) the capital stays —
+    ///         cutting it there forced partial fills on pools that execute
+    ///         fine (measured: a 43bps full fill halved) — and the promise is
+    ///         the pool's own answer for the committed input, its book walked
+    ///         read-only and held between the cap and the quote
+    ///         (`_capacity`); a book that cannot be read keeps the cap.
     uint16  internal constant MAX_CONC_DRAIN_BPS   = 3_000; // 30% of real holdings
     /// @notice ABSOLUTE ceiling on a route's MEASURED price impact. Above it the
     ///         Solver returns no route at all.
@@ -822,35 +825,17 @@ contract BlazePhoenixSolver {
             // can pay none. Skipping the clamp handed a V3-shaped contract with no
             // capital its whole declared promise (ninth wave, Binod Bk). A zero
             // cap now drops the leg, and the freed input flows on like any cut.
+            // The two tiers are `_capacity`'s, shared with the single-leg path. A cut
+            // share frees input that flows to the LAST leg via the remainder mechanism
+            // (re-clamped there if that leg is also phantom-thin), and whatever no
+            // surviving venue can absorb stays unrouted — the Router's residual sweep
+            // returns it to the caller.
             if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) {
-                uint256 cap = BPC.mulDiv(balsOut[i], MAX_CONC_DRAIN_BPS, BPC.BPS);
-                if (allowCut && outL > balsOut[i]) {
-                    // ─── Input-side clamp: capital follows the promise ───
-                    // The quote exceeds the pool's WHOLE holdings — physically
-                    // impossible, the promise is phantom (measured on a Base
-                    // stable pair: 89% of a 10k order sent into a pool holding
-                    // 6.2k of tokenOut — a 27% one-way loss walking its tick
-                    // ladder and 7M gas crossing it, masked as "surplus"
-                    // because the floors derive from the crushed promise). Cut
-                    // the committed input in the promise's ratio; the freed
-                    // input flows to the LAST leg via the remainder mechanism
-                    // (re-clamped there if that leg is also phantom-thin), and
-                    // whatever no surviving venue can absorb stays unrouted —
-                    // the Router's residual sweep returns it to the caller.
-                    // Fills that are aggressive but PHYSICALLY POSSIBLE
-                    // (cap < quote <= holdings) keep their full share and only
-                    // the promise is capped: cutting those forced partial
-                    // fills on healthy pools (measured: a 43bps full fill
-                    // degraded to a half-filled order).
-                    uint256 keep = BPC.mulDiv(share, cap, outL);
-                    allocated -= share - keep;
-                    share = keep;
-                    outL = cap;
-                    if (share == 0) { unchecked { ++i; } continue; }
-                } else if (outL > cap) {
-                    outL = cap;
-                }
-                if (outL == 0) { unchecked { ++i; } continue; }
+                uint256 keep;
+                (keep, outL) = _capacity(cands[i], tIn, share, outL, balsOut[i], allowCut);
+                allocated -= share - keep;
+                share = keep;
+                if (share == 0 || outL == 0) { unchecked { ++i; } continue; }
             }
             tmpLegs[legCount] = Leg({
                 pool:        cands[i].pool,
@@ -1178,6 +1163,36 @@ contract BlazePhoenixSolver {
         return BPC.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core (size)
     }
 
+    /// @dev The capacity clamp of a concentrated leg (MAX_CONC_DRAIN_BPS), one rule for the
+    ///      split and the single-leg path: `quote` for `amountIn`, against `held` of tokenOut.
+    ///      Returns the input committed and its promise.
+    ///      Input-side tier (`allowCut`, the first hop): the quote exceeds the pool's WHOLE
+    ///      holdings — physically impossible, the promise is phantom (measured on a Base stable
+    ///      pair: 89% of a 10k order sent into a pool holding 6.2k of tokenOut — a 27% one-way
+    ///      loss walking its tick ladder and 7M gas crossing it, masked as "surplus" because the
+    ///      floors derive from the crushed promise). The committed input is cut in the
+    ///      promise's ratio, and the promise is the cap.
+    ///      Aggressive but PHYSICALLY POSSIBLE (cap < quote): the leg keeps its whole input —
+    ///      cutting it forced partial fills on healthy pools (measured: a 43bps full fill
+    ///      degraded to a half-filled order) — so it is promised the pool's own answer for that
+    ///      input: its book walked read-only by `Core.v4WalkOut` (a zero poolId walks a
+    ///      V3-shaped pool through its own getters, at its own fee and spacing), held between
+    ///      the cap and the single-tick quote. The walk only understates what the pool pays, so
+    ///      wherever the pool pays at least the cap the promise does not exceed it, and the cap
+    ///      floor keeps every promise at or above the cap; a book that does not answer keeps
+    ///      the cap. On a later hop, where no input is cut, a quote above the holdings reaches
+    ///      this tier too: the walk of a real book stays within what the pool holds, and the
+    ///      single-tick quote bounds it whatever the book says.
+    function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 held, bool allowCut)
+        private view returns (uint256, uint256)
+    {
+        uint256 cap = BPC.mulDiv(held, MAX_CONC_DRAIN_BPS, BPC.BPS);
+        if (allowCut && quote > held) return (BPC.mulDiv(amountIn, cap, quote), cap);
+        if (quote <= cap) return (amountIn, quote);
+        uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn, 0, 0, c.token0 == tIn);
+        return (amountIn, w < cap ? cap : (w > quote ? quote : w));
+    }
+
     /// @dev THE DEPTH-WEIGHTED MEDIAN of the rates. It is the base of the band.
     ///
     ///      WHAT IT REPLACES, AND WHY. The base was the rate of the SINGLE deepest pool
@@ -1401,23 +1416,16 @@ contract BlazePhoenixSolver {
         // the route executes a small honest fill (the Router sweeps the
         // uncommitted remainder back to the caller) instead of walking the
         // pool's tick ladder at a collapsing marginal price. Aggressive but
-        // possible (cap < quote <= holdings): full commit, promise capped.
+        // possible (cap < quote <= holdings): full commit, the promise the pool's
+        // own book for it, never below the cap (`_capacity`).
         // Zero holdings are zero capacity here as on the split path, and for the
         // same reason: this is the second consumer of the same question, and the
         // split gate collapses a route onto the best single leg, so a skip here
         // alone was enough to hand an empty book the whole order.
         uint256 legIn = amountIn;
         if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
-            uint256 balOut = BPC.balanceOf(tOut, cand.pool);
-            uint256 cap = BPC.mulDiv(balOut, MAX_CONC_DRAIN_BPS, BPC.BPS);
-            if (allowCut && out_ > balOut) {
-                legIn = BPC.mulDiv(amountIn, cap, out_);
-                out_ = cap;
-                if (legIn == 0 || out_ == 0) return (hop, 0, 0);
-            } else if (out_ > cap) {
-                out_ = cap;
-                if (out_ == 0) return (hop, 0, 0);
-            }
+            (legIn, out_) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), allowCut);
+            if (legIn == 0 || out_ == 0) return (hop, 0, 0);
         }
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({
