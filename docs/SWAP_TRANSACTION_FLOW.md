@@ -175,6 +175,8 @@ The check is made on what arrived, not on what was promised along the way.
 | 15 | a swap settled without paying the protocol fee |
 | 16 | the fee was paid twice on an anchored route |
 | 17 | the in-transaction search of `swapBestExactIn` ran out of its fixed budget (`SOLVE_GAS`) |
+| 18 | the call reached the Router's code through a delegated account (EIP-7702) rather than at the Router's own address |
+| 19 | a gated leg (kind 9) is not the live wrapper the Hub's Gate row derives for the hop's tokens and fee |
 
 ## 9. Where block time and chain state enter
 

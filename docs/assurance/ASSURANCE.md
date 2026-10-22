@@ -497,7 +497,11 @@ fuzzes the walk against it across tick spacing (1, 10, 60, 200), fee tier (0.01 
 on a tick's lower edge or inside it, one to four overlapping positions, orders from 10⁹ to 10²⁴ and
 both directions: the walk never exceeds the specification by more than 64 wei. The TickMath table
 the walk prices ticks with is checked exactly at the canonical endpoints and against an independent
-fixed point on every tick.
+fixed point on every tick. The same walk reads a V3-shaped pool's own book when it is given no
+poolId (`slot0`, `liquidity`, `tickBitmap`, `ticks`, at the fee and spacing the pool reports); it
+prices the promise of a concentrated leg the capacity bound holds (`Solver._capacity`), and
+`test/CapacityPromiseWalksTheBook.t.sol` pins it against the single-tick figure on a flat book,
+each bound of that promise, and a book that does not answer.
 
 ## 4l. Mutants aimed at the invariants
 

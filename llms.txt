@@ -173,7 +173,7 @@ declaration counts, not pass counts.
 - [TypeScript SDK](https://github.com/blazephoenixxyz-crypto/SDK): `npm i @blazephoenix/sdk viem`. Quote, build, simulate, execute and index swaps on your own RPC; calldata is checked before it is returned.
 - [MCP server](https://github.com/blazephoenixxyz-crypto/blazephoenix-mcp): tools for AI agents (quotes, unsigned calldata, solvency checks). Remote: `claude mcp add --transport http blazephoenix https://blazephoenix.xyz/mcp`. Local: `npx -y @blazephoenix/mcp` with your own node.
 - [HTTP API](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-API): source published for review; OpenAPI at https://blazephoenix.xyz/api/openapi.json.
-- Solidity: `Quoter.previewPlan(tokenIn, tokenOut, amountIn)` off-chain, then `Router.swapExactIn(route, amountIn, userMinOut, recipient, deadline)`; or `Router.swapBestExactIn(tokenIn, tokenOut, amountIn, userMinOut, recipient, deadline)` to solve and execute in one transaction. `userMinOut` must be non-zero on every door.
+- Solidity: `Quoter.previewPlanExact(tokenIn, tokenOut, amountIn)` through `eth_call` (the binding quote: every concentrated leg is dry-run on its own pool; derive `userMinOut` from its `exactOut`), then `Router.swapExactIn(route, amountIn, userMinOut, recipient, deadline)`; or `Router.swapBestExactIn(tokenIn, tokenOut, amountIn, userMinOut, recipient, deadline)` to solve and execute in one transaction. `userMinOut` must be non-zero on every door.
 - Contract reference, regenerated from natspec whenever the source changes on main: https://blazephoenixxyz-crypto.github.io/Blaze-Phoenix-Dex/
 
 ## The BlazePhoenix repositories (one project, one account)
