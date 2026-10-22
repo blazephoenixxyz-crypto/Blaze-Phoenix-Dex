@@ -377,9 +377,7 @@ contract FidelityMatrixBaseTest is BaseChainFixture, MatrixOps {
     /// DAI, e a porta exata ao lado da modelada. DAI->USDC a 10k e um par estavel cujas
     /// pernas V3 de fee 100 o clamp de capacidade prende sem cortar o input: a promessa
     /// delas e a resposta do livro da pool (Solver._capacity via Core.v4WalkOut), e as duas portas tem de
-    /// chegar a entrega. A linha modelada fica a 1k: a 10k, neste bloco, o teste (a) da melhor
-    /// perna unica ja falhava na base 7b8df77, antes do fix (grossOut 7 156,6 vs 9 979,8 USDC;
-    /// medido 22/10, red2.txt), residual de ranking por triar, fora do 3073.
+    /// chegar a entrega. A linha modelada mede-se a 1k; a 10k mede-a a porta exata.
     function test_Matriz_DaiEPortaExata() public {
         if (address(hub) == address(0)) return;
         address dai = 0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb;
