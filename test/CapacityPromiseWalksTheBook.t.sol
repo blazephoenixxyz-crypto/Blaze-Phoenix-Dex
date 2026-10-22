@@ -199,4 +199,32 @@ contract CapacityPromiseWalksTheBookTest is Test {
             );
         }
     }
+
+    /// Two held books split the order. `a` empties at its first crossing, so at its share its
+    /// book pays less than its cap; `b` holds 150e18, so the whole order is past its holdings
+    /// and only its share is held. The split is built on the books: `a` keeps the cap as its
+    /// lower bound and `b` is promised what its book pays.
+    function test_3073_Solver_Split_BookEmptiesBelowTheCap_BesideAWalkedLeg() public {
+        MockV3BookPool a = _seed(250e18);
+        a.setTick(-600, int128(L));            // crossing down removes all liquidity
+        _seed(150e18);
+        RoutePlan memory plan = solver.findBestRoutePlan(_tIn(), _tOut(), IN);
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, 2, "precondition: the split survives");
+        for (uint256 i; i < legs.length; ++i) {
+            bool isA = legs[i].pool == address(a);
+            uint256 c = _cap(isA ? 250e18 : 150e18);
+            uint256 w = _walk(legs[i].pool, legs[i].amountIn, true);
+            emit log_named_uint("leg in", legs[i].amountIn);
+            emit log_named_uint("  walk", w);
+            emit log_named_uint("  promised", legs[i].expectedOut);
+            if (isA) {
+                assertLt(w, c, "precondition: a's book pays under its cap at its share");
+                assertEq(legs[i].expectedOut, c, "lower bound: the cap");
+            } else {
+                assertGt(w, c, "precondition: b's book pays past its cap at its share");
+                assertEq(legs[i].expectedOut, w, "b is promised its book's answer");
+            }
+        }
+    }
 }

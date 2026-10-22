@@ -4,9 +4,10 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  3073, the capacity walk on the chosen topology. A capacity-held concentrated
 //  leg (cap < F <= holdings, MAX_CONC_DRAIN_BPS) ranks at its cap in every
-//  bridge topology; the direct topology, and a winning bridge topology built
-//  once more, promise their held legs their own book's answer (Solver._capacity,
-//  WALK). Pinned here:
+//  topology, the direct one included: one basis for the judgement. When a held
+//  candidate of the winning build could pay more than what that build chose, the
+//  topology is built once more and its held candidates are ranked and promised
+//  their own book's answer (Solver._capacity, WALK). Pinned:
 //
 //   - I2 on every hop: no concentrated leg is promised more than the pool holds
 //     of tokenOut, also on a later hop, where the input is never cut. A book
@@ -15,8 +16,14 @@ pragma solidity 0.8.36;
 //     per tick, as UniswapV3Pool.ticks reads them), so it runs on one topology
 //     per solve. Honest V3 grids whose cap binds on every pair keep the margins
 //     test/EntryBSolveBudget.t.sol sets for V4 books (SOLVE_GAS / 10 for one or
-//     two bridges, / 5 for three), and the automatic door settles them.
+//     two bridges, / 5 for three), and the automatic door settles them, up to
+//     three bridges with six books on every pair.
 //   - The gain on a later hop: a held leg of a bridge route is promised its walk.
+//   - One basis: a direct book is never ranked on its walk against a bridge
+//     ranked at its cap; the bridge that leads keeps the lead and its walk.
+//   - One hop: a held single beside an unheld rival or an unheld split, held
+//     legs of a split, a held book the band leaves alone, and a held book the
+//     funnel leaves out of a split the gate collapses are each settled by the walk.
 //
 //  forge test --match-path test/CapacityWalkBudget.t.sol -vv
 // =============================================================================
@@ -109,7 +116,7 @@ contract CapacityWalkBudgetTest is Test {
 
     /// Every pair of tIn, tOut and `nBridges` bridges gets `perPair` heavy books.
     function _grid(uint256 nBridges, uint256 perPair) internal {
-        uint24[3] memory fees = [uint24(3_000), 500, 10_000];
+        uint24[6] memory fees = [uint24(3_000), 500, 10_000, 100, 2_500, 400];
         address[] memory b = new address[](nBridges);
         for (uint256 i; i < nBridges; ++i) { b[i] = _token(); hub.addBridge(b[i]); }
         for (uint256 k; k < perPair; ++k) {
@@ -162,6 +169,7 @@ contract CapacityWalkBudgetTest is Test {
     function test_3073_WalkBudget_TwoBridges_FitsATenth() public { _grid(2, 1); _fits("2 bridges, 1 book per pair", SOLVE_GAS / 10); }
     function test_3073_WalkBudget_ThreeBridges_FitsAFifth() public { _grid(3, 1); _fits("3 bridges, 1 book per pair", SOLVE_GAS / 5); }
     function test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles() public { _grid(3, 3); _fits("3 bridges, 3 books per pair", SOLVE_GAS * 3 / 4); }
+    function test_3073_WalkBudget_ThreeBridgesSixBooks_Settles() public { _grid(3, 6); _fits("3 bridges, 6 books per pair", SOLVE_GAS); }
 
     // ─── I2 on a later hop ─────────────────────────────────────────────
 
@@ -237,5 +245,181 @@ contract CapacityWalkBudgetTest is Test {
         assertEq(g.expectedOut, w, "the second leg's promise is its book's answer");
         assertEq(plan.best.totalOut, w, "and so is the route's");
         assertFalse(plan.hasFallback, "the rebuilt route is not its own fallback");
+    }
+
+    // ─── One basis across topologies ───────────────────────────────────
+
+    /// A direct book the cap binds (cap 90e18 of 300e18 held) beside a bridge route whose
+    /// second book the cap binds too (cap 94.8e18 of 316e18). Both rank at their caps, so the
+    /// bridge leads, and its own build then asks its book. The order is settled on the bridge
+    /// and delivers what the bridge pays: more than the direct book pays for the whole order,
+    /// and at least the 109.711e18 the cap-only judgement (f91c6bd) delivered here.
+    function test_3073_OneBasis_BridgeLeadsAndIsPromisedItsBook() public {
+        address br = _token();
+        hub.addBridge(br);
+        MockV3BookPool h1 = new MockV3BookPool(t0, br, FEE, TS);
+        h1.setState(SP, 1_000_000e18);
+        MockERC20(t0).mint(address(h1), 10_000_000e18);
+        MockERC20(br).mint(address(h1), 10_000_000e18);
+        hub.seedPool(address(h1), BPC.KIND_V3, FEE, address(0), t0, br);
+        MockV3BookPool b2 = new MockV3BookPool(br, t1, FEE, TS);
+        b2.setState(SP, 1_415e18);
+        MockERC20(br).mint(address(b2), 316e18);
+        MockERC20(t1).mint(address(b2), 316e18);
+        hub.seedPool(address(b2), BPC.KIND_V3, FEE, address(0), br, t1);
+        MockV3BookPool d = new MockV3BookPool(t0, t1, FEE, TS);
+        d.setState(SP, 609e18);
+        MockERC20(t0).mint(address(d), 300e18);
+        MockERC20(t1).mint(address(d), 300e18);
+        hub.seedPool(address(d), BPC.KIND_V3, FEE, address(0), t0, t1);
+        uint256 amt = 120e18;
+        uint256 directPays = BPC.v4WalkOut(address(d), bytes32(0), amt, 0, 0, d.token0() == t0);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _i2(plan.best);
+        assertEq(plan.best.hops.length, 2, "the bridge route leads");
+        assertGt(plan.best.totalOut, BPC.mulDiv(316e18, 3_000, BPC.BPS), "its held leg is promised its book, above the cap");
+        uint256 b1 = MockERC20(t1).balanceOf(user);
+        vm.prank(user);
+        (bool ok, ) = address(router).call(
+            abi.encodeCall(BlazePhoenixRouter.swapBestExactIn, (t0, t1, amt, 1, user, block.timestamp + 1))
+        );
+        assertTrue(ok, "the automatic door settles");
+        uint256 got = MockERC20(t1).balanceOf(user) - b1;
+        assertGt(got, directPays, "it delivers more than the direct book pays");
+        assertGe(got, 109_711_452_379_324_602_667, "and at least the cap-only judgement's delivery");
+    }
+
+    // ─── One hop: a held book against the rest of its hop ──────────────
+
+    function _book(address a, address b, uint24 fee, uint128 liq, uint256 held) internal returns (MockV3BookPool p) {
+        p = new MockV3BookPool(a, b, fee, TS);
+        p.setState(SP, liq);
+        MockERC20(a).mint(address(p), held);
+        MockERC20(b).mint(address(p), held);
+        hub.seedPool(address(p), BPC.KIND_V3, fee, address(0), a, b);
+    }
+
+    function _settles(uint256 amt, RoutePlan memory plan) internal returns (uint256 got) {
+        uint256 b1 = MockERC20(t1).balanceOf(user);
+        vm.prank(user);
+        (bool ok, ) = address(router).call(
+            abi.encodeCall(BlazePhoenixRouter.swapBestExactIn, (t0, t1, amt, 1, user, block.timestamp + 1))
+        );
+        assertTrue(ok, "the automatic door settles");
+        got = MockERC20(t1).balanceOf(user) - b1;
+        assertGe(got, plan.best.singleOutFloor, "it delivers at least the floor");
+    }
+
+    function _net(uint256 x) internal pure returns (uint256) {
+        return x - BPC.mulDivUp(x, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    }
+
+    function _log(RoutePlan memory plan) internal {
+        emit log_named_uint("hops", plan.best.hops.length);
+        emit log_named_uint("legs", plan.best.hops[0].legs.length);
+        emit log_named_uint("totalOut", plan.best.totalOut);
+        for (uint256 l; l < plan.best.hops[0].legs.length; ++l) {
+            emit log_named_address("  pool", plan.best.hops[0].legs[l].pool);
+            emit log_named_uint("  in", plan.best.hops[0].legs[l].amountIn);
+            emit log_named_uint("  out", plan.best.hops[0].legs[l].expectedOut);
+        }
+    }
+
+    /// A held single against an unheld rival on the same hop. `h` holds 150e18: the order
+    /// (120e18) is inside its holdings and past its cap (45e18); its book pays ~119.6e18.
+    /// `u` holds 1,000e18 and pays ~85.7e18, under its cap. At the cap `u` would take the
+    /// hop; the build is settled by the walk, and the hop pays what `h`'s book pays.
+    function test_3073_OneHop_HeldSingleOverAnUnheldRival() public {
+        MockV3BookPool h = _book(t0, t1, FEE, 1_000_000e18, 150e18);
+        MockV3BookPool u = _book(t0, t1, 500, 300e18, 1_000e18);
+        uint256 amt = 120e18;
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), amt, 0, 0, h.token0() == t0);
+        uint256 uPays = BPC.v4WalkOut(address(u), bytes32(0), amt, 0, 0, u.token0() == t0);
+        emit log_named_uint("hPays", hPays);
+        emit log_named_uint("uPays", uPays);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertGt(hPays, uPays, "precondition: the held book pays more than its rival");
+        assertGt(uPays, BPC.mulDiv(150e18, 3_000, BPC.BPS), "precondition: the rival pays past the held book's cap");
+        assertGe(plan.best.totalOut, hPays, "the hop is promised at least what the held book pays");
+        assertGe(_settles(amt, plan), _net(hPays), "and delivers it, net of the protocol fee");
+    }
+
+    /// Two books each holding 100e18: the whole order (120e18) is past either one's holdings,
+    /// so no single is held; half of it on each is inside them and past each cap (30e18).
+    /// The split's legs are held at the cap; the walk promises each its book's answer.
+    function test_3073_OneHop_SplitHeldAtTheCapIsPromisedItsBooks() public {
+        _book(t0, t1, FEE, 1_000_000e18, 100e18);
+        _book(t0, t1, 500, 1_000_000e18, 100e18);
+        uint256 amt = 120e18;
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertGt(plan.best.hops[0].legs.length, 1, "precondition: the split");
+        assertGt(plan.best.totalOut, 2 * BPC.mulDiv(100e18, 3_000, BPC.BPS), "the held legs are promised past their caps");
+        assertGe(_settles(amt, plan), _net(plan.best.totalOut), "and the books pay it, net of the protocol fee");
+    }
+
+    /// A split whose legs the cap does not bind, beside a single the cap binds: `h` holds
+    /// 300e18 (cap 90e18) and pays ~119.6e18 for the whole order. The split of `h` and `u`
+    /// beats `h` at its cap; it does not beat what `h`'s book pays, and the walk settles that.
+    function test_3073_OneHop_HeldSingleOverAnUnheldSplit() public {
+        MockV3BookPool h = _book(t0, t1, FEE, 1_000_000e18, 300e18);
+        _book(t0, t1, 500, 300e18, 1_000e18);
+        uint256 amt = 120e18;
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), amt, 0, 0, h.token0() == t0);
+        emit log_named_uint("hPays", hPays);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertGe(plan.best.totalOut, hPays, "the hop is promised at least what the held book pays");
+        assertGe(_settles(amt, plan), _net(hPays), "and delivers it, net of the protocol fee");
+    }
+
+    /// A held book beside a pool priced at a quarter of it, which the band leaves out: the
+    /// hop keeps one candidate, held at its cap (45e18 of 150e18), and the walk settles it.
+    function test_3073_OneHop_BandKeepsOneHeldBook_PromiseIsItsBook() public {
+        MockV3BookPool h = _book(t0, t1, FEE, 1_000_000e18, 150e18);
+        MockV3BookPool off = new MockV3BookPool(t0, t1, 500, TS);
+        off.setState(uint160(1 << 95), 1_000e18);
+        MockERC20(t0).mint(address(off), 10e18);
+        MockERC20(t1).mint(address(off), 10e18);
+        hub.seedPool(address(off), BPC.KIND_V3, 500, address(0), t0, t1);
+        uint256 amt = 120e18;
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), amt, 0, 0, h.token0() == t0);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertEq(plan.best.hops[0].legs.length, 1, "precondition: one leg");
+        assertEq(plan.best.hops[0].legs[0].pool, address(h), "precondition: the held book");
+        assertGt(hPays, BPC.mulDiv(150e18, 3_000, BPC.BPS), "precondition: its book pays past the cap");
+        assertEq(plan.best.totalOut, hPays, "the hop is promised what the held book pays");
+        assertGe(_settles(amt, plan), _net(hPays), "and delivers it, net of the protocol fee");
+    }
+
+    /// The split weighs by holdings: three books holding 4,000e18 at a 1% fee take most of the
+    /// order, and the gate collapses it onto the 0.05% book. The 0.01% book holds 150e18, the
+    /// least, so the funnel leaves it out of the split; the gate ranks it at its cap (45e18)
+    /// though its book pays more than the collapsed single. The walk settles the hop on it.
+    function test_3073_OneHop_CollapseBesideAHeldSingle_PromiseIsItsBook() public {
+        _book(t0, t1, 10_000, 1_000_000e18, 4_000e18);
+        _book(t0, t1, 10_000, 1_000_000e18, 4_001e18);
+        _book(t0, t1, 10_000, 1_000_000e18, 4_002e18);
+        MockV3BookPool u = _book(t0, t1, 500, 1_000_000e18, 400e18);
+        MockV3BookPool h = _book(t0, t1, 100, 1_000_000e18, 150e18);
+        uint256 amt = 120e18;
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), amt, 0, 0, h.token0() == t0);
+        uint256 uPays = BPC.v4WalkOut(address(u), bytes32(0), amt, 0, 0, u.token0() == t0);
+        emit log_named_uint("hPays", hPays);
+        emit log_named_uint("uPays", uPays);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertGt(hPays, uPays, "precondition: the held book pays more than the collapsed single");
+        assertEq(plan.best.hops[0].legs.length, 1, "the hop is one leg");
+        assertEq(plan.best.hops[0].legs[0].pool, address(h), "on the held book");
+        assertEq(plan.best.totalOut, hPays, "promised what its book pays");
+        assertGe(_settles(amt, plan), _net(hPays), "and delivers it, net of the protocol fee");
     }
 }

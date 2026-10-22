@@ -188,10 +188,9 @@ contract BlazePhoenixSolver {
     ///         fine (measured: a 43bps full fill halved) — and the promise is
     ///         the pool's own answer for the committed input, its book walked
     ///         read-only and held between the cap and the quote
-    ///         (`_capacity`); a book that cannot be read keeps the cap. The
-    ///         book is walked on the direct topology and on the winning bridge
-    ///         topology's own build; a bridge topology ranks such a leg at the
-    ///         cap (`findBestRoutePlan`).
+    ///         (`_capacity`); a book that cannot be read keeps the cap. Every
+    ///         topology ranks such a leg at the cap; the book is walked on the
+    ///         winning topology's own build (`findBestRoutePlan`).
     uint16  internal constant MAX_CONC_DRAIN_BPS   = 3_000; // 30% of real holdings
     /// @dev `_capacity` modes: CUT, the first hop may cut its committed input; WALK, the
     ///      build asks the book of a capacity-held leg.
@@ -289,8 +288,9 @@ contract BlazePhoenixSolver {
         // raise the constant over there - and vice versa: `hub.bridge(i)` past the Hub's array
         // reverts with Panic 0x32.
         address[4] memory bs = [hub.bridge(0), hub.bridge(1), hub.bridge(2), address(0)];
-        // Every topology is judged on the route BUILT for it; `bk` remembers which one took
-        // the lead. A bridge topology ranks a capacity-held leg at its cap (`_capacity`).
+        // Every topology is judged on the route BUILT for it, and on one basis: a
+        // capacity-held leg ranks at its cap (`_capacity`). `bk` remembers which one took
+        // the lead.
         uint256 bk;
         for (uint256 k; k < TOPOLOGIES; ) {
             uint256 u0 = m.bestU;
@@ -302,14 +302,16 @@ contract BlazePhoenixSolver {
         plan.fallbackRoute = m.secR;
         plan.hasFallback = m.secU > 0;
 
-        // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE. The direct one asks its books as
-        // it is built (`_planDirect`); a bridge topology that wins is built once more with
-        // WALK, so its capacity-held legs are promised what their own books pay. A walk reads
-        // up to sixteen stretches cold; asked of every bridge candidate it multiplied that by
-        // the candidates of every topology inside SOLVE_GAS, here it is one build. The rebuilt
-        // route leads only if it ranks above the one built at the cap, and the fallback stays
-        // the runner-up read above.
-        if (bk != 0) {
+        // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's. When a
+        // capacity-held candidate of the leading build could pay more than what that build
+        // chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
+        // capacity-held candidates are ranked and promised what their own books pay. A walk
+        // reads up to sixteen stretches cold; asked of every candidate it multiplied that by
+        // the candidates of every topology inside SOLVE_GAS, here it is one build, and only
+        // when the cap can bind the choice. The judgement across topologies stays on the one
+        // basis above; the rebuilt route leads only if it ranks above the one built at the
+        // cap, and the fallback stays the runner-up read above.
+        if (m.bestHeld) {
             m.walk = WALK;
             _planTopology(m, bk, bs, tIn, tOut, amountIn);
         }
@@ -363,19 +365,21 @@ contract BlazePhoenixSolver {
         uint256    secU;
         Route      bestR;
         Route      secR;
-        uint256    walk;   // `_capacity` mode of a bridge topology: WALK on the winner's own build
+        uint256    walk;   // `_capacity` mode: WALK on the winner's own build
+        bool       bestHeld;   // the leader's build left a capacity-held candidate unsettled
     }
 
     /// @dev S2 (V4 fragmentation, reported by Seavia Resources): the judgement is by `u`, the
     ///      route's RANKING figure - `totalOut` plus `up`, what the deep walks resolved above the
     ///      sixteen-stretch promise (`_buildHop`; on a bridge route the rank carried stage by
     ///      stage, `_planViaBridges`). On an untruncated route the two are the same number.
-    ///      `totalOut` stays the promise in the plan; `u` only orders.
-    function _considera(Melhores memory m, Route memory r, uint256 up) private pure {
+    ///      `totalOut` stays the promise in the plan; `u` only orders. `held` travels with the
+    ///      route it was built for (`_buildHop`).
+    function _considera(Melhores memory m, Route memory r, uint256 up, bool held) private pure {
         uint256 u = r.totalOut;
         if (u == 0) return;   // an assembly that refused the route
         u += up;
-        if (u > m.bestU) { m.secU = m.bestU; m.secR = m.bestR; m.bestU = u; m.bestR = r; }
+        if (u > m.bestU) { m.secU = m.bestU; m.secR = m.bestR; m.bestU = u; m.bestR = r; m.bestHeld = held; }
         else if (u > m.secU) { m.secU = u; m.secR = r; }
     }
 
@@ -391,10 +395,10 @@ contract BlazePhoenixSolver {
         // PER-HOP CEILING, not the global one: a direct route is ONE hop, and
         // the 4-legs-per-hop limit applies to it like to any other. It used to
         // use MAX_LEGS and could spend the entire budget on a single hop.
-        (Hop memory hop, uint256 up) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, WALK | CUT);
+        (Hop memory hop, uint256 up, bool held) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, m.walk | CUT);
         if (hop.expectedOut == 0) return;
         Route memory route = _assembleRoute(hop);
-        _considera(m, route, up);
+        _considera(m, route, up, held);
     }
 
     /// @notice BRIDGE ROUTES: tIn -> bA -> tOut, or THREE HOPS over TWO bridges
@@ -439,6 +443,7 @@ contract BlazePhoenixSolver {
         uint256 used;           // legs spent by the stages built so far
         uint256 p = amountIn;   // the PROMISE carried into the stage
         uint256 r;              // its RANK (0 into stage A: the input is exact there)
+        bool held;              // any pass of any stage left a capacity-held candidate unsettled
         for (uint256 i; i < n; ) {
             uint256 room = MAX_LEGS + i + 1 - n;   // one leg left for every stage after this one
             if (used >= room) return;
@@ -451,7 +456,8 @@ contract BlazePhoenixSolver {
             // judgement alone. The stage's rank is the larger of the two lower bounds.
             uint256 rk;
             for (uint256 k; ; ) {
-                (Hop memory h, uint256 up) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), i == 0 ? m.walk | CUT : m.walk);
+                (Hop memory h, uint256 up, bool hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), i == 0 ? m.walk | CUT : m.walk);
+                if (hh) held = true;
                 if (k == 0) {
                     if (h.expectedOut == 0 || h.legs.length == 0) return;
                     hops[i] = h;
@@ -468,23 +474,27 @@ contract BlazePhoenixSolver {
         }
         if (used > MAX_LEGS) return;
         Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, p);
-        _considera(m, route, r - p);
+        _considera(m, route, r - p, held);
     }
 
     // =========================================================================
     //  HOP CONSTRUCTION — depth-weighted allocation
     // =========================================================================
 
+    /// @dev `held`: a capacity-held candidate ranked at its cap could still change what this
+    ///      hop chose - a leg of the split held at the cap, or a held single whose quote is
+    ///      above what the gate asks of it. Such a build is settled by the walk
+    ///      (`findBestRoutePlan`).
     function _buildHop(
         address tIn, address tOut, uint256 amountIn,
         PoolInfo[] memory cands, uint8 budget, uint256 mode
-    ) private view returns (Hop memory hop, uint256 up) {
+    ) private view returns (Hop memory hop, uint256 up, bool held) {
         uint256 n = cands.length;
-        if (n == 0) return (hop, 0);
+        if (n == 0) return (hop, 0, false);
         // No blind pre-trim: every candidate is probed (rate + depth + real
         // holdings), and the cut to `budget` happens after weighting — see the
         // FUNNEL CUT below. Discovery order can no longer starve a deep venue.
-        if (n == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up); }
+        if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up, f != 0); }
 
         // =========================================================================
         //  STAGE 1 — MARGINAL-RATE MEDIAN FILTER  (single probe pass)
@@ -648,11 +658,11 @@ contract BlazePhoenixSolver {
             while (firstNonZero < n && sortedRates[firstNonZero] == 0) {
                 unchecked { ++firstNonZero; }
             }
-            if (firstNonZero == n) return (hop, 0);
+            if (firstNonZero == n) return (hop, 0, false);
             uint256 medianIdx = firstNonZero + ((n - firstNonZero) / 2);
             if (medianIdx >= n) medianIdx = n - 1;  // guard: never index past end
             uint256 median = sortedRates[medianIdx];
-            if (median == 0) return (hop, 0);
+            if (median == 0) return (hop, 0, false);
 
             // Band base: the CAPITAL ANCHOR when one exists (any candidate
             // holds a non-zero real tokenOut balance); plain median only as
@@ -722,8 +732,8 @@ contract BlazePhoenixSolver {
                 }
                 unchecked { ++i; }
             }
-            if (nKept == 0) return (hop, 0);
-            if (nKept == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up); }
+            if (nKept == 0) return (hop, 0, false);
+            if (nKept == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up, f != 0); }
             n = nKept;
         }
 
@@ -827,7 +837,9 @@ contract BlazePhoenixSolver {
             // returns it to the caller.
             if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) {
                 uint256 keep;
-                (keep, outL) = _capacity(cands[i], tIn, share, outL, balsOut[i], mode);
+                uint256 f;
+                (keep, outL, f) = _capacity(cands[i], tIn, share, outL, balsOut[i], mode);
+                if (f != 0) held = true;
                 allocated -= share - keep;
                 share = keep;
                 if (share == 0 || outL == 0) { unchecked { ++i; } continue; }
@@ -849,7 +861,7 @@ contract BlazePhoenixSolver {
             totalOut += outL;
             unchecked { ++legCount; ++i; }
         }
-        if (legCount == 0) return (hop, 0);
+        if (legCount == 0) return (hop, 0, false);
 
         Leg[] memory legs = new Leg[](legCount);
         // Σ of the COMMITTED (post-clamp) leg inputs — the honest hop.amountIn.
@@ -924,11 +936,13 @@ contract BlazePhoenixSolver {
             Hop memory single;
             uint256 sR;
             uint256 hMax;
+            uint256 hF;   // the highest quote among the capacity-held singles ranked at the cap
             for (uint256 i; i < nBand; ) {
-                (Hop memory alt, uint256 aR, uint256 aH) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR);
+                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR);
                 aR += alt.expectedOut;
                 aH += alt.expectedOut;
                 if (aH > hMax) hMax = aH;
+                if (aF > hF) hF = aF;
                 if (aR > sR) { single = alt; sR = aR; }   // an empty single ranks 0
                 unchecked { ++i; }
             }
@@ -938,8 +952,13 @@ contract BlazePhoenixSolver {
                     sR, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000
                 )
             ) {
-                return (single, sR - single.expectedOut);
+                if (hF > sR) held = true;
+                return (single, sR - single.expectedOut, held);
             }
+            // A held single whose own book could pay more than the split leaves this choice
+            // unsettled at the cap, as a held leg of the split does. (One that could pay at
+            // most the split would only take the hop for its gas, paying less.)
+            if (hF > totalOut + up) held = true;
         }
         hop = Hop({
             tokenIn: tIn, tokenOut: tOut,
@@ -1160,8 +1179,10 @@ contract BlazePhoenixSolver {
 
     /// @dev The capacity clamp of a concentrated leg (MAX_CONC_DRAIN_BPS), one rule for the
     ///      split and the single-leg path: `quote` for `amountIn`, against `held` of tokenOut.
-    ///      Returns the input committed and its promise. `mode`: CUT on the first hop, WALK on
-    ///      the direct topology and on a winning bridge topology's own build (`findBestRoutePlan`).
+    ///      Returns the input committed, its promise and, for a leg ranked at the cap without
+    ///      WALK, the quote its book may still pay up to (zero otherwise: `_buildHop`'s `held`).
+    ///      `mode`: CUT on the first hop, WALK on the winning topology's own build
+    ///      (`findBestRoutePlan`).
     ///      PHANTOM (quote > the pool's WHOLE holdings), on every hop: physically impossible
     ///      (measured on a Base stable pair: 89% of a 10k order sent into a pool holding 6.2k
     ///      of tokenOut — a 27% one-way loss walking its tick ladder and 7M gas crossing it,
@@ -1171,23 +1192,23 @@ contract BlazePhoenixSolver {
     ///      to what the stage before produced.
     ///      Aggressive but PHYSICALLY POSSIBLE (cap < quote <= holdings): the leg keeps its
     ///      whole input — cutting it forced partial fills on healthy pools (measured: a 43bps
-    ///      full fill degraded to a half-filled order) — and a bridge topology ranks it at the
+    ///      full fill degraded to a half-filled order) — and every topology ranks it at the
     ///      cap. With WALK it is promised the pool's own answer for that input: its book
     ///      walked read-only by `Core.v4WalkOut` (a zero poolId walks a V3-shaped pool through
     ///      its own getters, at its own fee and spacing), held between the cap and the
     ///      single-tick quote. So no promise passes the pool's holdings, on any hop (the cap
     ///      below them, or P <= quote <= held), and a book that does not answer keeps the cap. The walk
     ///      reads every stretch it crosses cold, so it runs on one topology per solve, never per
-    ///      ranked bridge candidate (SOLVE_GAS; test/CapacityWalkBudget.t.sol).
+    ///      ranked candidate (SOLVE_GAS; test/CapacityWalkBudget.t.sol).
     function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 held, uint256 mode)
-        private view returns (uint256, uint256)
+        private view returns (uint256, uint256, uint256)
     {
         uint256 cap = BPC.mulDiv(held, MAX_CONC_DRAIN_BPS, BPC.BPS);
-        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap);
-        if (quote <= cap) return (amountIn, quote);
-        if (mode & WALK == 0) return (amountIn, cap);
+        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);
+        if (quote <= cap) return (amountIn, quote, 0);
+        if (mode & WALK == 0) return (amountIn, cap, quote);
         uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn, 0, 0, c.token0 == tIn);
-        return (amountIn, w < cap ? cap : (w > quote ? quote : w));
+        return (amountIn, w < cap ? cap : (w > quote ? quote : w), 0);
     }
 
     /// @dev THE DEPTH-WEIGHTED MEDIAN of the rates. It is the base of the band.
@@ -1395,18 +1416,19 @@ contract BlazePhoenixSolver {
 
     function _singleLeg(
         address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, uint256 mode, uint256 bar
-    ) private view returns (Hop memory hop, uint256 up, uint256 hi) {
+    ) private view returns (Hop memory hop, uint256 up, uint256 hi, uint256 f) {
         // S2: `up` is the rank above the promise and `hi` the ceiling above it (deep V4 walk,
         // gated by `bar`, `v4WalkRank`; both zero elsewhere). They only order, never promise.
+        // `f` is `_capacity`'s third answer: the quote of a leg ranked at its cap.
         uint256 out_;
         (out_, up, hi) = _quote(cand, tIn, amountIn, bar);
         up -= out_;
         hi -= out_;
-        if (out_ == 0) return (hop, 0, 0);
+        if (out_ == 0) return (hop, 0, 0, 0);
         // Same rule as the split path: a reserve-shaped promise above the pool's tokenOut
         // holdings comes from forged reserves, so the candidate is dropped, not clamped
         // (bounty #43, babayagaleet).
-        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ > BPC.balanceOf(tOut, cand.pool)) return (hop, 0, 0);
+        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ > BPC.balanceOf(tOut, cand.pool)) return (hop, 0, 0, 0);
         // Capacity clamp — same two-tier doctrine as the split path (see
         // MAX_CONC_DRAIN_BPS). Quote > the pool's WHOLE holdings: physically
         // impossible, so the committed input is cut in the promise's ratio and
@@ -1421,8 +1443,8 @@ contract BlazePhoenixSolver {
         // alone was enough to hand an empty book the whole order.
         uint256 legIn = amountIn;
         if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
-            (legIn, out_) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);
-            if (legIn == 0 || out_ == 0) return (hop, 0, 0);
+            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);
+            if (legIn == 0 || out_ == 0) return (hop, 0, 0, 0);
         }
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({
