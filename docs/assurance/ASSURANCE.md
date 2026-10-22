@@ -625,6 +625,18 @@ unobservable by any test once the two checks hold (its mutant was *decorative*),
 the guard reports it rather than carrying it. The repair is also smaller than the code it replaces. Its class is the one this repository names first — fail-open — found by an
 instrument that was not looking for it.
 
+The same holds for size. Under via-IR the Yul names carry AST IDs, and the order in which the
+optimiser meets functions follows them. With unused constants appended to `Core.sol` and the Hub's
+source untouched, the release Hub of `10a6053` built at 23,956 B or 24,728 B: five of seven
+variants, clean builds, were past EIP-170. The cause was `Hub._register`. The doors passed it
+literals, `FunctionSpecializer` copies a callee once for each call site that passes a literal, and
+a single-use copy is always inlined. Whether two equal copies were folded back first was decided
+by the order. `_register` now takes only runtime values (the born slot from `_born`, with kind
+read back from it), so there is nothing to specialise and its four callers keep one body. The Hub
+measures 22,668 B in all seven variants. `tools/hub-lottery.sh` builds the variants and fails on
+the wall or on a spread across them. It is the instrument that kills the mutant handing
+`_register` a literal again (956 B of spread).
+
 ## 4o. The fee rule, both regimes named — and the contract asserting the count
 
 The protocol fee has had one rule since 2026-08-22: charge once, on the input of the first hop

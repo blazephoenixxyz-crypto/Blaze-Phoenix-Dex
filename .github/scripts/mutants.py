@@ -3371,6 +3371,21 @@ M = [
       old='                if (!ran || leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; }',
       new='                if (!ran) { unchecked { ++l; } continue; } // MUTANT [679]',
       teste='test_GateF2_Router_FeedbackSkipsKindExternal'),
+ dict(nome='hubcura-1022 [680]: the operator\'s V4 door births an uncurated row',
+      f='src/BlazePhoenixHub.sol',
+      old='        _register(key, poolAddr, r0, r1, _born(kind4, fee, true),',
+      new='        _register(key, poolAddr, r0, r1, _born(kind4, fee, false), // MUTANT [680]',
+      teste='test_addV4_birthsItsRowAtTier0'),
+ dict(nome='hubcura-1022 [681]: the permissionless V4 door births a curated row',
+      f='src/BlazePhoenixHub.sol',
+      old='        _register(key, poolAddr, s0, s1, _born(BPC.KIND_V4, fee, false), depthTok);',
+      new='        _register(key, poolAddr, s0, s1, _born(BPC.KIND_V4, fee, true), depthTok); // MUTANT [681]',
+      teste='test_claimV4_birthsItsRowAtTier2'),
+ dict(nome='hubcura-1022 [682]: the seed door drops the hook it admitted',
+      f='src/BlazePhoenixHub.sol',
+      old='                  BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid));\n        if (hooks != address(0)) $.hooksOf[key] = hooks;',
+      new='                  BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid)); // MUTANT [682]',
+      teste='test_seedPool_writesTheHookItAdmitted'),
 ]
 
 def run(t):

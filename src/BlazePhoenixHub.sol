@@ -961,8 +961,9 @@ contract BlazePhoenixHub {
         // chain's coin, which WETH stands for (`r0`/`r1` are the WETH-sorted registry key,
         // and would swap the decimals when the other token sorts below WETH).
         uint8 kind4 = nat ? BPC.KIND_V4_NATIVE : BPC.KIND_V4;
-        _register(key, poolAddr, kind4, fee, hooks, r0, r1, true,
+        _register(key, poolAddr, r0, r1, _born(kind4, fee, true),
                   BPC.registryDepth18(poolAddr, kind4, nat ? w : s0, s1, $.v4PoolManager, pid));
+        if (hooks != address(0)) $.hooksOf[key] = hooks;
         // If sorting did not leave WETH in token0, mark the inversion so that
         // `_readPoolInfo` undoes it when reporting.
         if (nat && r0 != w) $.slot[key] = _markNativeSwapped($.slot[key], true);
@@ -1050,7 +1051,7 @@ contract BlazePhoenixHub {
             tickSpacing: tickSpacing, hooks: address(0)
         }));
         $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
-        _register(key, poolAddr, BPC.KIND_V4, fee, address(0), s0, s1, false, depthTok);
+        _register(key, poolAddr, s0, s1, _born(BPC.KIND_V4, fee, false), depthTok);
         // A4: persist the MEASURED depth bucket (mirrors recordSwap's new-pool
         // path) so a claimed pool is fitness-ranked on its real liquidity instead
         // of defaulting to bucket 0 (psi ~1) — otherwise the pool that just won
@@ -1927,7 +1928,7 @@ contract BlazePhoenixHub {
             // skips, so the order changes the gas, never the answer.
             if (!_derivedByFactory(pool, t0, t1)) return;
         }
-        _register(key, pool, kind, feeReg, address(0), t0, t1, false, depthWad);
+        _register(key, pool, t0, t1, _born(kind, feeReg, false), depthWad);
         // initial tick + stamp wall-clock activity time
         $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthWad, uint32(block.timestamp)));
         emit Volume(key, amtIn, amtOut);
@@ -2047,9 +2048,17 @@ contract BlazePhoenixHub {
     ///      dust, and the only family `seedPool` refuses (native V4) had no door that
     ///      measured it at all (Seavia Resources, bug bounty). Written here, a door that
     ///      forgets the depth no longer compiles.
+    ///      ONE BODY, WHATEVER THE AST IDS (hubcura-1022). Every argument here is a runtime value:
+    ///      the born slot (`_born`) carries kind, fee and tier, and kind is read back from it;
+    ///      the hooks a door admits are written by that door. Under via-IR a callee passed a
+    ///      literal is copied once per call site (FunctionSpecializer) and a single-use copy is
+    ///      always inlined; whether equal copies were folded back first followed the order the
+    ///      AST IDs gave the functions, and the same Hub source built 23,956 B or 24,728 B
+    ///      (measured on 10a6053 with unused constants appended to Core.sol). With no literal
+    ///      and four callers this body is never copied. Do not give it a parameter a door can
+    ///      pass as a literal; `tools/hub-lottery.sh` measures the spread.
     function _register(
-        bytes32 key, address pool, uint8 kind, uint24 fee, address hooks,
-        address t0, address t1, bool trusted, uint256 depth18
+        bytes32 key, address pool, address t0, address t1, uint256 s, uint256 depth18
     ) private {
         HubStore storage $ = _store();
         bytes32[] storage ks = $.pairKeys[t0][t1];
@@ -2094,11 +2103,7 @@ contract BlazePhoenixHub {
                 ks.push(key);
             }
         }
-        uint256 s = BPC.encodeSlot(
-            true, fee, kind, trusted ? 0 : 2, 0,
-            uint32(block.timestamp), 0, 0, 0,
-            uint32(block.number), uint32(block.number)
-        );
+        uint8 kind = BPC.decodeKind(s);
         s = BPC.setBucket(s, BPC.depthBucket(depth18));
         // The bridge term of psi is no longer frozen here (BRIDGE-01, see
         // `_pairBridged`). What IS measured at this door and persisted is the
@@ -2107,8 +2112,18 @@ contract BlazePhoenixHub {
         if (kind == BPC.KIND_SOLIDLY && BPC.solidlyStable(pool)) s = _markStable(s, true);
         $.slot[key]    = s;
         $.poolOf[key]  = pool;
-        if (hooks != address(0)) $.hooksOf[key] = hooks;
         emit Registered(key, pool, kind);
+    }
+
+    /// @dev The slot a row is born with: active, its fee and kind, tier 0 when an operator
+    ///      registers it and 2 when anyone may (`trusted`), stamped now. `_register` adds the
+    ///      depth bucket and the stable bit.
+    function _born(uint8 kind, uint24 fee, bool trusted) private view returns (uint256) {
+        return BPC.encodeSlot(
+            true, fee, kind, trusted ? 0 : 2, 0,
+            uint32(block.timestamp), 0, 0, 0,
+            uint32(block.number), uint32(block.number)
+        );
     }
 
     /// @notice Operator entry-point for seeding the registry up-front.
@@ -2164,7 +2179,8 @@ contract BlazePhoenixHub {
         // funnel's top-K, and was never swapped to be corrected. The depth comes from the same
         // producer the Router calls, and `_register` writes it, so no door can skip it. Only the
         // bucket is written: no swap happened here, so the swap count stays what it was.
-        _register(key, pool, kind, fee, hooks, t0, t1, true,
+        _register(key, pool, t0, t1, _born(kind, fee, true),
                   BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid));
+        if (hooks != address(0)) $.hooksOf[key] = hooks;
     }
 }

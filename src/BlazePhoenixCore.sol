@@ -1032,8 +1032,10 @@ library BlazePhoenixCore {
     ///         producer of "the larger of two amounts, normalised" for the Gate adapters, which
     ///         read the venue's reported balances through it (ExtAdapterBase._depth18).
     ///         `heldMass18` (the cap on what they declare) is the same formula over balanceOf,
-    ///         kept inline: routing it through here cost the Hub +772 B under via_ir and took
-    ///         it past EIP-170 (measured 2026-10-21). Folding the two is a follow-up.
+    ///         kept inline for now. The +772 B measured on 2026-10-21 when routing it through
+    ///         here was the via-IR size lottery (see `Hub._register`), not the fold: with
+    ///         `_register` taking runtime arguments only, the fold leaves the Hub at 22,668 B
+    ///         for N = 0..6 in tools/hub-lottery.sh. Folding the two is a follow-up.
     function maxSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1) internal pure returns (uint256) {
         uint256 n0 = to18(a0, d0);
         uint256 n1 = to18(a1, d1);
