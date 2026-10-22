@@ -337,7 +337,7 @@
       "status": "blocked",
       "guard": "gateWrapperLive",
       "test": "test_GatedAuto_ClearedFamilyLeavesTheBestDoorToThePair",
-      "note": "gatedauto-1022 (owner, 2026-10-22: «gated na porta automática»). The Solver reads its candidates from its immutable gate's wrappersOf through Core.discoverWithGate, filters each entry by Core.gateWrapperLive and drops the Hub sweep's own kind-9 rows; the Router's dispatch keeps gateWrapperLive on the execution path at every door, the best door's self-call included (test_GateF2_BestDoor_SettlesKindExternal, test_GateF2_Solver_NeverPlansAWrapperWithoutItsGate). Mutants [516] [567] [680]-[684]."
+      "note": "gatedauto-1022 (owner, 2026-10-22: «gated na porta automática»). The Solver reads its candidates from its immutable gate's wrappersOf through Core.discoverWithGate, filters each entry by Core.gateWrapperLive and drops the Hub sweep's own kind-9 rows; the Router's dispatch keeps gateWrapperLive on the execution path at every door, the best door's self-call included (test_GateF2_BestDoor_SettlesKindExternal, test_GateF2_Solver_NeverPlansAWrapperWithoutItsGate). Mutants [516] [567] [683]-[687]."
     },
     {
       "id": "GATED-AUTO-FRESHNESS-VOTE",
@@ -345,7 +345,7 @@
       "status": "blocked",
       "guard": "_registryFresh",
       "test": "test_GatedAuto_WrappersDoNotVoteFreshness",
-      "note": "gatedauto-1022. _registryFresh and MIN_FRESH_VENUES count curated Hub rows only; the Hub never holds a kind-9 row (seedPool refuses it, recordSwap skips it). Gated rows enter every merge, sweep or not. Mutant [685]."
+      "note": "gatedauto-1022. _registryFresh and MIN_FRESH_VENUES count curated Hub rows only; the Hub never holds a kind-9 row (seedPool refuses it, recordSwap skips it). Gated rows enter every merge, sweep or not. Mutant [688]."
     },
     {
       "id": "GATED-AUTO-LIST-GAS",
@@ -353,7 +353,7 @@
       "status": "blocked",
       "guard": "GATE_MAX_WRAPPERS",
       "test": "test_GatedAuto_WrapperListIsCappedAtFour",
-      "note": "gatedauto-1022. Gate.create refuses a fifth wrapper per pair (GateE(16)). The list is grow-only: nothing removes an entry, so a cleared family's wrappers keep their slots for life (4 creations per pair, ever); a cleared entry costs a solve only its gateWrapperLive. Measured on swapBestExactIn, release profile, mock adapter: +110 393 gas per listed wrapper that loses; each adapter read is capped at GATE_QUOTE_GAS, and SOLVE_GAS exhaustion fails closed (RouterE(17)). Mutant [686]."
+      "note": "gatedauto-1022. Gate.create refuses a fifth wrapper per pair (GateE(16)). The list is grow-only: nothing removes an entry, so a cleared family's wrappers keep their slots for life (4 creations per pair, ever); a cleared entry costs a solve only its gateWrapperLive. Measured on swapBestExactIn, release profile, mock adapter: +110 393 gas per listed wrapper that loses; each adapter read is capped at GATE_QUOTE_GAS, and SOLVE_GAS exhaustion fails closed (RouterE(17)). Mutant [689]."
     },
     {
       "id": "GATED-AUTO-OVERQUOTE",
@@ -361,7 +361,7 @@
       "status": "blocked",
       "guard": "LEG_FLOOR_BPS",
       "test": "test_GatedAuto_OverquotingAdapterHoldsTheFloorUntilCleared",
-      "note": "gatedauto-1022. Three guards and no permissionless proof. The floor: no funds move, the leg floor (LEG_FLOOR_BPS) and the hop check revert RouterE(5) and userMinOut holds the user. The band: the wrapper votes only the mass its venue holds (Gate.vitalOf caps the adapter's depth word), so under a deeper curated anchor a lie above MEDIAN_FILTER_BPS is out (test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand, mutant [688]) and a lie within it settles above the floor. The clear: when the lying wrapper anchors the band (the pair's mass, or the only venue) the pair's automatic door is down, explicit doors untouched, until the admin's Gate.clearAdapter takes the family out at every door (mutant [689]). Residual: after renounceControl a lying family keeps that door down for its pairs. A permissionless proof (a swap measuring the quote and retiring the wrapper) was built and dropped in review on 2026-10-22: permanent (CREATE2 cannot recreate the wrapper), triggerable by anyone for one material swap, and its false positives (fee-on-transfer, hooked venues, size-dependent divergence) are exactly the gated venues, so it handed a griefer a way to remove a legitimate venue for ever."
+      "note": "gatedauto-1022. Three guards and no permissionless proof. The floor: no funds move, the leg floor (LEG_FLOOR_BPS) and the hop check revert RouterE(5) and userMinOut holds the user. The band: the wrapper votes only the mass its venue holds (Gate.vitalOf caps the adapter's depth word), so under a deeper curated anchor a lie above MEDIAN_FILTER_BPS is out (test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand, mutant [691]) and a lie within it settles above the floor. The clear: when the lying wrapper anchors the band (the pair's mass, or the only venue) the pair's automatic door is down, explicit doors untouched, until the admin's Gate.clearAdapter takes the family out at every door (mutant [692]). Residual: after renounceControl a lying family keeps that door down for its pairs. A permissionless proof (a swap measuring the quote and retiring the wrapper) was built and dropped in review on 2026-10-22: permanent (CREATE2 cannot recreate the wrapper), triggerable by anyone for one material swap, and its false positives (fee-on-transfer, hooked venues, size-dependent divergence) are exactly the gated venues, so it handed a griefer a way to remove a legitimate venue for ever."
     },
     {
       "id": "GATED-AUTO-HOSTILE-ADAPTER",
