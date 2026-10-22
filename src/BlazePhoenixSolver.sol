@@ -188,8 +188,15 @@ contract BlazePhoenixSolver {
     ///         fine (measured: a 43bps full fill halved) — and the promise is
     ///         the pool's own answer for the committed input, its book walked
     ///         read-only and held between the cap and the quote
-    ///         (`_capacity`); a book that cannot be read keeps the cap.
+    ///         (`_capacity`); a book that cannot be read keeps the cap. The
+    ///         book is walked on the direct topology and on the winning bridge
+    ///         topology's own build; a bridge topology ranks such a leg at the
+    ///         cap (`findBestRoutePlan`).
     uint16  internal constant MAX_CONC_DRAIN_BPS   = 3_000; // 30% of real holdings
+    /// @dev `_capacity` modes: CUT, the first hop may cut its committed input; WALK, the
+    ///      build asks the book of a capacity-held leg.
+    uint256 private constant CUT  = 1;
+    uint256 private constant WALK = 2;
     /// @notice ABSOLUTE ceiling on a route's MEASURED price impact. Above it the
     ///         Solver returns no route at all.
     /// @dev    The Iron-Law floor promises to retain 80% of a reference — but the
@@ -269,77 +276,64 @@ contract BlazePhoenixSolver {
             revert SolverE(4);
 
         Melhores memory m;
-        _planDirect(m, tIn, tOut, amountIn);
-        // The `bridgeCount()` that used to be here was REDUNDANT. The slots above the counter are
-        // ALWAYS address(0) — `addBridge` fills in sequence and `removeBridge` compacts and
-        // zeroes the leftover — and both guards already tested `!= address(0)`. It was a traversal of
-        // boundary crossing per solve to answer a question the read value itself already answers.
+        // The bridges are read once; the slots above the counter are ALWAYS address(0) -
+        // `addBridge` fills in sequence and `removeBridge` compacts and zeroes the leftover -
+        // so no `bridgeCount()` is needed (that traversal was removed deliberately: -1,581 gas
+        // per solve) and the guards in `_planTopology` test `!= address(0)`.
         //
-        // THE HONEST BALANCE: with >= 2 bridges configured (the production case) it is 3 crossings
-        // dropping to 2. With an EMPTY registry it goes from 1 to 2 — worse, but a registry with
-        // no bridges is a misconfiguration, not a regime worth optimising.
-        //
-        // AND THE TWO UNROLLED READS ARE THE HUB'S `MAX_BRIDGE_ROUTES`, WRITTEN HERE IN
-        // CODE. It is this number — not MAX_BRIDGES — that decides across how many bridges we
-        // route, and the difference between the two was a silent asymmetry: the third bridge had
-        // admission rights and +25% fitness without ever being able to be a hop. See the
-        // Hub's MAX_BRIDGE_ROUTES note and test/RoutableBridgeAsymmetry.t.sol, pinning both sides.
-        // OWNER DECISION 2026-08-21: MAX_BRIDGES went down from 3 to 2 and the third
-        // arm (`b2`/`viaB3`) was REMOVED from here in the same commit. The two things MUST
-        // move together: `hub.bridge(2)` over an `address[2]` reverts with Panic 0x32.
-        // Measured before the cut (Base fork, 9 factories, USDC->LINK): the 3rd bridge cost
-        // +760,125 gas per cold solve, +32.5%. Whoever adds a `b2` here MUST raise
-        // the constant over there — and vice versa.
-        address b0 = hub.bridge(0);
-        if (b0 != address(0) && b0 != tIn && b0 != tOut) {
-            _planViaBridges(m, tIn, tOut, amountIn, b0, address(0));
+        // THE THREE READS ARE THE HUB'S `MAX_BRIDGE_ROUTES`, WRITTEN HERE IN CODE. It is this
+        // number - not MAX_BRIDGES - that decides across how many bridges we route, and the
+        // difference between the two was a silent asymmetry: a bridge with admission rights and
+        // +25% fitness that could never be a hop. See the Hub's MAX_BRIDGE_ROUTES note and
+        // test/RoutableBridgeAsymmetry.t.sol, pinning both sides. Whoever adds a read here MUST
+        // raise the constant over there - and vice versa: `hub.bridge(i)` past the Hub's array
+        // reverts with Panic 0x32.
+        address[4] memory bs = [hub.bridge(0), hub.bridge(1), hub.bridge(2), address(0)];
+        // Every topology is judged on the route BUILT for it; `bk` remembers which one took
+        // the lead. A bridge topology ranks a capacity-held leg at its cap (`_capacity`).
+        uint256 bk;
+        for (uint256 k; k < TOPOLOGIES; ) {
+            uint256 u0 = m.bestU;
+            _planTopology(m, k, bs, tIn, tOut, amountIn);
+            if (m.bestU != u0) bk = k;
+            unchecked { ++k; }
         }
-        address b1 = hub.bridge(1);
-        if (b1 != address(0) && b1 != tIn && b1 != tOut) {
-            _planViaBridges(m, tIn, tOut, amountIn, b1, address(0));
-        }
-        address b2 = hub.bridge(2);
-        if (b2 != address(0) && b2 != tIn && b2 != tOut) {
-            _planViaBridges(m, tIn, tOut, amountIn, b2, address(0));
-        }
+        if (m.bestU == 0) revert SolverE(5);
+        plan.fallbackRoute = m.secR;
+        plan.hasFallback = m.secU > 0;
 
-        Route memory best;
-        Route memory second;
-        uint256 bestU;
-        uint256 secondU;
-
-        // THREE HOPS over TWO bridges: tIn -> bX -> bY -> tOut.
-        //
-        // NO `bridgeCount()`: the three values are already in hand (b0/b1/b2,
-        // read above) and the positions above the counter are ALWAYS address(0)
-        // — `addBridge` fills in sequence and `removeBridge` compacts. Restoring
-        // the call would undo yesterday's deliberate removal (-1,581 gas per
-        // solve) to answer a question that the values already read do
-        // answer. The `!= address(0)` guards do the rest.
-        //
-        // This only ADDS candidates to the judgement: a direct route still
-        // wins whenever it delivers more, because the comparison is by `totalOut`
-        // and not by topology depth.
-        address[3] memory bs = [b0, b1, b2];
-        for (uint256 i; i < 3; ) {
-            address x = bs[i];
-            if (x != address(0) && x != tIn && x != tOut) {
-                for (uint256 j; j < 3; ) {
-                    address y = bs[j];
-                    if (j != i && y != address(0) && y != tIn && y != tOut && y != x) {
-                        _planViaBridges(m, tIn, tOut, amountIn, x, y);
-                    }
-                    unchecked { ++j; }
-                }
-            }
-            unchecked { ++i; }
+        // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE. The direct one asks its books as
+        // it is built (`_planDirect`); a bridge topology that wins is built once more with
+        // WALK, so its capacity-held legs are promised what their own books pay. A walk reads
+        // up to sixteen stretches cold; asked of every bridge candidate it multiplied that by
+        // the candidates of every topology inside SOLVE_GAS, here it is one build. The rebuilt
+        // route leads only if it ranks above the one built at the cap, and the fallback stays
+        // the runner-up read above.
+        if (bk != 0) {
+            m.walk = WALK;
+            _planTopology(m, bk, bs, tIn, tOut, amountIn);
         }
-        bestU = m.bestU; secondU = m.secU; best = m.bestR; second = m.secR;
-        if (bestU == 0) revert SolverE(5);
+        plan.best = m.bestR;
+    }
 
-        plan.best = best;
-        plan.fallbackRoute = second;
-        plan.hasFallback = (secondU > 0);
+    /// @dev The topologies, in the order they are judged (a tie keeps the earlier one):
+    ///      0 direct; 1-3 one bridge, tIn -> bs[k-1] -> tOut; 4-12 THREE HOPS over TWO
+    ///      bridges, tIn -> bs[i] -> bs[j] -> tOut with i = (k-4)/3, j = (k-4)%3, i != j.
+    ///      Bridge topologies only ADD candidates to the judgement: a direct route still wins
+    ///      whenever it delivers more, because the comparison is by the output built and not
+    ///      by topology depth.
+    uint256 private constant TOPOLOGIES = 13;
+
+    function _planTopology(
+        Melhores memory m, uint256 k, address[4] memory bs, address tIn, address tOut, uint256 amountIn
+    ) private view {
+        if (k == 0) return _planDirect(m, tIn, tOut, amountIn);
+        (uint256 i, uint256 j) = k < 4 ? (k - 1, 3) : ((k - 4) / 3, (k - 4) % 3);
+        address x = bs[i];
+        address y = bs[j];
+        if (x == address(0) || x == tIn || x == tOut) return;
+        if (j != 3 && (j == i || y == address(0) || y == tIn || y == tOut || y == x)) return;
+        _planViaBridges(m, tIn, tOut, amountIn, x, y);
     }
 
     /// @dev The SINGLE producer of the "which route is best" judgement, and the criterion is
@@ -369,6 +363,7 @@ contract BlazePhoenixSolver {
         uint256    secU;
         Route      bestR;
         Route      secR;
+        uint256    walk;   // `_capacity` mode of a bridge topology: WALK on the winner's own build
     }
 
     /// @dev S2 (V4 fragmentation, reported by Seavia Resources): the judgement is by `u`, the
@@ -396,7 +391,7 @@ contract BlazePhoenixSolver {
         // PER-HOP CEILING, not the global one: a direct route is ONE hop, and
         // the 4-legs-per-hop limit applies to it like to any other. It used to
         // use MAX_LEGS and could spend the entire budget on a single hop.
-        (Hop memory hop, uint256 up) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, true);
+        (Hop memory hop, uint256 up) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, WALK | CUT);
         if (hop.expectedOut == 0) return;
         Route memory route = _assembleRoute(hop);
         _considera(m, route, up);
@@ -456,7 +451,7 @@ contract BlazePhoenixSolver {
             // judgement alone. The stage's rank is the larger of the two lower bounds.
             uint256 rk;
             for (uint256 k; ; ) {
-                (Hop memory h, uint256 up) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), i == 0);
+                (Hop memory h, uint256 up) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), i == 0 ? m.walk | CUT : m.walk);
                 if (k == 0) {
                     if (h.expectedOut == 0 || h.legs.length == 0) return;
                     hops[i] = h;
@@ -482,14 +477,14 @@ contract BlazePhoenixSolver {
 
     function _buildHop(
         address tIn, address tOut, uint256 amountIn,
-        PoolInfo[] memory cands, uint8 budget, bool allowCut
+        PoolInfo[] memory cands, uint8 budget, uint256 mode
     ) private view returns (Hop memory hop, uint256 up) {
         uint256 n = cands.length;
         if (n == 0) return (hop, 0);
         // No blind pre-trim: every candidate is probed (rate + depth + real
         // holdings), and the cut to `budget` happens after weighting — see the
         // FUNNEL CUT below. Discovery order can no longer starve a deep venue.
-        if (n == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut, 0); return (hop, up); }
+        if (n == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up); }
 
         // =========================================================================
         //  STAGE 1 — MARGINAL-RATE MEDIAN FILTER  (single probe pass)
@@ -728,7 +723,7 @@ contract BlazePhoenixSolver {
                 unchecked { ++i; }
             }
             if (nKept == 0) return (hop, 0);
-            if (nKept == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], allowCut, 0); return (hop, up); }
+            if (nKept == 1) { (hop, up, ) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up); }
             n = nKept;
         }
 
@@ -832,7 +827,7 @@ contract BlazePhoenixSolver {
             // returns it to the caller.
             if (BPC.kindHas(cands[i].kind, BPC.A_CONC_POOL)) {
                 uint256 keep;
-                (keep, outL) = _capacity(cands[i], tIn, share, outL, balsOut[i], allowCut);
+                (keep, outL) = _capacity(cands[i], tIn, share, outL, balsOut[i], mode);
                 allocated -= share - keep;
                 share = keep;
                 if (share == 0 || outL == 0) { unchecked { ++i; } continue; }
@@ -930,7 +925,7 @@ contract BlazePhoenixSolver {
             uint256 sR;
             uint256 hMax;
             for (uint256 i; i < nBand; ) {
-                (Hop memory alt, uint256 aR, uint256 aH) = _singleLeg(tIn, tOut, amountIn, cands[i], allowCut, sR);
+                (Hop memory alt, uint256 aR, uint256 aH) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR);
                 aR += alt.expectedOut;
                 aH += alt.expectedOut;
                 if (aH > hMax) hMax = aH;
@@ -1165,30 +1160,32 @@ contract BlazePhoenixSolver {
 
     /// @dev The capacity clamp of a concentrated leg (MAX_CONC_DRAIN_BPS), one rule for the
     ///      split and the single-leg path: `quote` for `amountIn`, against `held` of tokenOut.
-    ///      Returns the input committed and its promise.
-    ///      Input-side tier (`allowCut`, the first hop): the quote exceeds the pool's WHOLE
-    ///      holdings — physically impossible, the promise is phantom (measured on a Base stable
-    ///      pair: 89% of a 10k order sent into a pool holding 6.2k of tokenOut — a 27% one-way
-    ///      loss walking its tick ladder and 7M gas crossing it, masked as "surplus" because the
-    ///      floors derive from the crushed promise). The committed input is cut in the
-    ///      promise's ratio, and the promise is the cap.
-    ///      Aggressive but PHYSICALLY POSSIBLE (cap < quote): the leg keeps its whole input —
-    ///      cutting it forced partial fills on healthy pools (measured: a 43bps full fill
-    ///      degraded to a half-filled order) — so it is promised the pool's own answer for that
-    ///      input: its book walked read-only by `Core.v4WalkOut` (a zero poolId walks a
-    ///      V3-shaped pool through its own getters, at its own fee and spacing), held between
-    ///      the cap and the single-tick quote. The walk only understates what the pool pays, so
-    ///      wherever the pool pays at least the cap the promise does not exceed it, and the cap
-    ///      floor keeps every promise at or above the cap; a book that does not answer keeps
-    ///      the cap. On a later hop, where no input is cut, a quote above the holdings reaches
-    ///      this tier too: the walk of a real book stays within what the pool holds, and the
-    ///      single-tick quote bounds it whatever the book says.
-    function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 held, bool allowCut)
+    ///      Returns the input committed and its promise. `mode`: CUT on the first hop, WALK on
+    ///      the direct topology and on a winning bridge topology's own build (`findBestRoutePlan`).
+    ///      PHANTOM (quote > the pool's WHOLE holdings), on every hop: physically impossible
+    ///      (measured on a Base stable pair: 89% of a 10k order sent into a pool holding 6.2k
+    ///      of tokenOut — a 27% one-way loss walking its tick ladder and 7M gas crossing it,
+    ///      masked as "surplus" because the floors derive from the crushed promise). The
+    ///      promise is the cap; on the first hop (CUT) the committed input is cut in the
+    ///      promise's ratio too. A later hop keeps its input, because the Router rescales it
+    ///      to what the stage before produced.
+    ///      Aggressive but PHYSICALLY POSSIBLE (cap < quote <= holdings): the leg keeps its
+    ///      whole input — cutting it forced partial fills on healthy pools (measured: a 43bps
+    ///      full fill degraded to a half-filled order) — and a bridge topology ranks it at the
+    ///      cap. With WALK it is promised the pool's own answer for that input: its book
+    ///      walked read-only by `Core.v4WalkOut` (a zero poolId walks a V3-shaped pool through
+    ///      its own getters, at its own fee and spacing), held between the cap and the
+    ///      single-tick quote. So no promise passes the pool's holdings, on any hop (the cap
+    ///      below them, or P <= quote <= held), and a book that does not answer keeps the cap. The walk
+    ///      reads every stretch it crosses cold, so it runs on one topology per solve, never per
+    ///      ranked bridge candidate (SOLVE_GAS; test/CapacityWalkBudget.t.sol).
+    function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 held, uint256 mode)
         private view returns (uint256, uint256)
     {
         uint256 cap = BPC.mulDiv(held, MAX_CONC_DRAIN_BPS, BPC.BPS);
-        if (allowCut && quote > held) return (BPC.mulDiv(amountIn, cap, quote), cap);
+        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap);
         if (quote <= cap) return (amountIn, quote);
+        if (mode & WALK == 0) return (amountIn, cap);
         uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn, 0, 0, c.token0 == tIn);
         return (amountIn, w < cap ? cap : (w > quote ? quote : w));
     }
@@ -1397,7 +1394,7 @@ contract BlazePhoenixSolver {
     }
 
     function _singleLeg(
-        address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, bool allowCut, uint256 bar
+        address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, uint256 mode, uint256 bar
     ) private view returns (Hop memory hop, uint256 up, uint256 hi) {
         // S2: `up` is the rank above the promise and `hi` the ceiling above it (deep V4 walk,
         // gated by `bar`, `v4WalkRank`; both zero elsewhere). They only order, never promise.
@@ -1424,7 +1421,7 @@ contract BlazePhoenixSolver {
         // alone was enough to hand an empty book the whole order.
         uint256 legIn = amountIn;
         if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
-            (legIn, out_) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), allowCut);
+            (legIn, out_) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);
             if (legIn == 0 || out_ == 0) return (hop, 0, 0);
         }
         Leg[] memory legs = new Leg[](1);

@@ -501,7 +501,12 @@ fixed point on every tick. The same walk reads a V3-shaped pool's own book when 
 poolId (`slot0`, `liquidity`, `tickBitmap`, `ticks`, at the fee and spacing the pool reports); it
 prices the promise of a concentrated leg the capacity bound holds (`Solver._capacity`), and
 `test/CapacityPromiseWalksTheBook.t.sol` pins it against the single-tick figure on a flat book,
-each bound of that promise, and a book that does not answer.
+each bound of that promise, and a book that does not answer. The book is walked on the direct
+topology and on the winning bridge topology's own build, so a solve pays it once per route and
+not once per ranked candidate: `test/CapacityWalkBudget.t.sol` holds grids of V3 books the cap
+binds on every pair (sixteen stretches each, four storage words per tick) to the margins
+`test/EntryBSolveBudget.t.sol` sets inside SOLVE_GAS, and pins that no concentrated leg is
+promised more than its pool holds on any hop.
 
 ## 4l. Mutants aimed at the invariants
 
