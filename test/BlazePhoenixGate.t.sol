@@ -49,6 +49,30 @@ contract GateBestPlanStub {
     }
 }
 
+/// A Gate whose `vitalOf` answers the raw bytes it is set to (any length): the oracle for the
+/// one reader of that answer, Core._gateVital.
+contract GateVitalStub {
+    bytes internal ans;
+    function set(bytes calldata a) external { ans = a; }
+    fallback(bytes calldata) external returns (bytes memory) { return ans; }
+}
+
+/// Core._gateVital inlined into a frame of its own, with the free memory pointer read
+/// before and after (F1, 2026-10-22). The pointer is repaired before returning, so a reader
+/// that moved it is reported, not turned into an out-of-gas in this probe's own encoder.
+contract GateVitalProbe {
+    function probe(address g, address w)
+        external view returns (uint256 fp0, uint256 fp1, uint256 depth18, uint256 psi)
+    {
+        assembly { fp0 := mload(0x40) }
+        (depth18, psi) = BPC._gateVital(g, w);
+        assembly {
+            fp1 := mload(0x40)
+            mstore(0x40, add(fp0, 0x100))
+        }
+    }
+}
+
 contract BlazePhoenixGateTest is Test {
     uint8 constant FAM = 1;
     uint24 constant KEY = uint24(uint256(FAM) << 16 | 1);
@@ -912,6 +936,125 @@ contract BlazePhoenixGateTest is Test {
         assertEq(BPC.gatePsi(address(gate), address(w)), psiW, "Core reads the Gate's psi");
         assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
             "used: seated by its vitalOf psi, and it pays best");
+    }
+
+    // ─── F1 (2026-10-22): the Gate's answer is read into scratch, never over 0x40 ───
+    //
+    // vitalOf answers three words; Core._gateVital is their one reader. Copied whole to 0x00,
+    // the third (psi) landed on the free memory pointer, and every encoder after it wrote at
+    // address psi: memory expansion quadratic in psi (~34M gas at 2^22, over the Router's
+    // SOLVE_GAS) and an out-of-gas for psi >= 2^32. Oracle: the words the Gate answered (the
+    // stub's, or the real Gate's `vitalOf` decoded by the ABI here) and gasleft().
+
+    /// Quantity: _gateVital's frame after the read, at psi 0, 1, 2^22 and 2^255. The free
+    /// pointer moves only by the calldata it allocated (never to psi), depth18 and psi are
+    /// words 1 and 2 of the answer, and BPC.gatePsi costs the same at every psi.
+    /// RED before the fix: the pointer read back as psi (and gatePsi spent ~34M gas at 2^22,
+    /// out of gas at 2^255).
+    function test_GateVital_FreePointerIntactAtAnyPsi() public {
+        GateVitalStub g = new GateVitalStub();
+        GateVitalProbe pr = new GateVitalProbe();
+        address w = address(0xCAFE);
+        uint256[4] memory ps = [uint256(0), 1, uint256(1) << 22, uint256(1) << 255];
+        for (uint256 i; i < 4; i++) {
+            g.set(abi.encode(uint256(0xA11), uint256(12_345e18), ps[i]));
+            (uint256 fp0, uint256 fp1, uint256 d, uint256 p) = pr.probe(address(g), w);
+            assertGe(fp1, fp0, "the free pointer never moves back");
+            assertLe(fp1, fp0 + 0x80, "nor past the calldata it allocated");
+            assertEq(d, 12_345e18, "depth18 is word 1");
+            assertEq(p, ps[i], "psi is word 2");
+            uint256 g0 = gasleft();
+            uint256 q = BPC.gatePsi(address(g), w);
+            uint256 used = g0 - gasleft();
+            assertEq(q, ps[i], "gatePsi relays psi");
+            assertLt(used, 60_000, "gatePsi's cost is flat in psi");
+        }
+    }
+
+    /// Quantity: what _gateVital reads from a Gate whose vitalOf answers fewer than three
+    /// words: (0, 0), as for a failed call, and never a revert (the copy of words 1-2 is
+    /// asked only of an answer that has them).
+    function test_GateVital_ShortAnswerReadsZero() public {
+        GateVitalStub g = new GateVitalStub();
+        GateVitalProbe pr = new GateVitalProbe();
+        g.set(abi.encode(uint256(0xA11), uint256(12_345e18)));
+        (, , uint256 d, uint256 p) = pr.probe(address(g), address(0xCAFE));
+        assertEq(d, 0, "no depth from a short answer");
+        assertEq(p, 0, "no psi from a short answer");
+        assertEq(BPC.gatePsi(address(g), address(0xCAFE)), 0, "gatePsi reads 0");
+    }
+
+    /// The wrapper of `_wrapper` over a venue holding 2e30 a side: its depth is in bucket 15
+    /// (weight 2^15), so 128 material swaps lift vitalOf's psi to 2^22.
+    function _deepWrapper() internal returns (BlazePhoenixGateWrapper w) {
+        w = _wrapper();
+        adapter.setDeclaredDepth(type(uint128).max);   // capped by what the venue holds
+        t0.mint(address(venue), 2e30);
+        t1.mint(address(venue), 2e30);
+        venue.sync();
+    }
+
+    /// 128 material swaps (each above 1/2^MATERIAL_SHIFT of both venue sides): use, not a cheatcode.
+    function _heat(BlazePhoenixGateWrapper w) internal returns (uint256 psi) {
+        for (uint256 i; i < 128; i++) _swapDirect(w, 4e25);
+        (, , psi) = gate.vitalOf(address(w));
+        assertGe(psi, uint256(1) << 22, "setup: psi is 2^22 or more");
+    }
+
+    /// Quantity: Core.gateQuote (with and without depth) and Core.gatedOf (through
+    /// discoverWithGate) for one wrapper at psi 0 and at psi >= 2^22: the same out, the depth
+    /// the Gate's vitalOf answers, the same rows, and gateQuote's cost flat in psi.
+    /// RED before the fix: gateQuote with depth spent ~34M gas at psi 2^22. The quote without
+    /// depth and gatedOf never read vitalOf; they are the controls.
+    function test_GatedAuto_GateQuoteIsFlatInPsi() public {
+        BlazePhoenixGateWrapper w = _deepWrapper();
+        _admit();
+        uint256 amt = 1_000e18;
+        (bool l0, uint256 o0, uint256 d0) =
+            BPC.gateQuote(address(hub), address(w), address(t0), address(t1), KEY, true, amt, true);
+        (, uint256 vd0, uint256 psi0) = gate.vitalOf(address(w));
+        PoolInfo[] memory r0 = BPC.discoverWithGate(address(hub), address(gate), address(t0), address(t1), false);
+        assertEq(psi0, 0, "setup: unused, psi 0");
+        assertTrue(l0, "live");
+        assertEq(d0, vd0, "cold: the Gate's depth");
+
+        _heat(w);
+        (, uint256 vd1, ) = gate.vitalOf(address(w));
+        uint256 g0 = gasleft();
+        (bool l1, uint256 o1, uint256 d1) =
+            BPC.gateQuote(address(hub), address(w), address(t0), address(t1), KEY, true, amt, true);
+        uint256 used = g0 - gasleft();
+        assertTrue(l1, "still live");
+        assertEq(o1, o0, "the same out");
+        assertEq(o1, venue.quoteSell(amt), "the adapter's quote");
+        assertEq(d1, vd1, "hot: the Gate's depth");
+        assertLt(used, 1_000_000, "gateQuote's cost is flat in psi");
+        (, uint256 o2, ) =
+            BPC.gateQuote(address(hub), address(w), address(t0), address(t1), KEY, true, amt, false);
+        assertEq(o2, o0, "control: without depth, the same out");
+        PoolInfo[] memory r1 = BPC.discoverWithGate(address(hub), address(gate), address(t0), address(t1), false);
+        assertEq(r1.length, r0.length, "control: gatedOf, the same rows");
+        assertEq(r1[0].pool, r0[0].pool, "control: the same wrapper");
+    }
+
+    /// Quantity: the automatic door's cost for a pair whose only venue is a wrapper at psi
+    /// >= 2^22. The real Solver ranks it (Core.gatePsi) and prices it (Core.gateQuote with
+    /// depth); the best door settles the adapter's quote, net of the protocol fee, far below
+    /// the Router's SOLVE_GAS (12M).
+    /// RED before the fix: the Solver ran out of SOLVE_GAS on gatePsi's encoder, RouterE(17).
+    function test_GatedAuto_HotWrapperSettlesUnderTheSolveBudget() public {
+        BlazePhoenixGateWrapper w = _deepWrapper();
+        _heat(w);
+        (, BlazePhoenixRouter router) = _autoDoor();
+        uint256 amt = 1_000e18;
+        uint256 exp = venue.quoteSell(amt);
+        address u = _user(router, amt);
+        vm.prank(u);
+        uint256 g0 = gasleft();
+        uint256 out = router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1);
+        uint256 used = g0 - gasleft();
+        assertEq(out, _net(exp), "the best door delivers the wrapper's quote");
+        assertLt(used, 3_000_000, "a quarter of SOLVE_GAS bounds the whole door");
     }
 
     // ─── the Quoter: Gate legs are priced by their adapter, on an off-chain route ───

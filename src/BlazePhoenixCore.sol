@@ -2854,15 +2854,18 @@ library BlazePhoenixCore {
         (, p) = _gateVital(gate, w);
     }
 
-    /// @dev `vitalOf(w)` of `g`: (depth18, psi), zeros on any failure. It runs one adapter read
-    ///      under its own GATE_QUOTE_GAS; twice that bounds the whole answer.
-    function _gateVital(address g, address w) private view returns (uint256 depth18, uint256 p) {
+    /// @dev `vitalOf(w)` of `g`: (depth18, psi), zeros on any failure or short answer. It runs
+    ///      one adapter read under its own GATE_QUOTE_GAS; twice that bounds the whole answer.
+    ///      The one reader of that answer copies only words 1-2, into scratch: the whole answer
+    ///      at 0x00 put psi on the free memory pointer (F1, 2026-10-22; Scratch memory guard).
+    function _gateVital(address g, address w) internal view returns (uint256 depth18, uint256 p) {
         bytes memory cd = abi.encodeWithSignature("vitalOf(address)", w);
         assembly ("memory-safe") {
-            let ok := staticcall(mul(GATE_QUOTE_GAS, 2), g, add(cd, 32), mload(cd), 0x00, 0x60)
+            let ok := staticcall(mul(GATE_QUOTE_GAS, 2), g, add(cd, 32), mload(cd), 0, 0)
             if and(ok, iszero(lt(returndatasize(), 0x60))) {
-                depth18 := mload(0x20)
-                p := mload(0x40)
+                returndatacopy(0x00, 0x20, 0x40)
+                depth18 := mload(0x00)
+                p := mload(0x20)
             }
         }
     }

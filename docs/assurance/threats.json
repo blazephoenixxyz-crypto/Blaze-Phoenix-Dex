@@ -368,6 +368,14 @@
       "class": "An admitted Gate adapter that is itself malicious: it reverts in exec to deny the pair's best door, or quotes honestly to every view read and delivers less only in exec",
       "status": "out-of-scope",
       "rationale": "The adapter family is the admin's admission behind a 48-hour timelock with code pinned by hash; no on-chain check can tell a hostile adapter from an honest one at admission. The answer to a hostile family is Gate.clearAdapter, which stops it at once at every door, available until the admin renounces control; after renouncing a hostile family stays listed. Recorded 2026-10-22 (gatedauto-1022)."
+    },
+    {
+      "id": "GATED-AUTO-PSI-POINTER",
+      "class": "A word of an external answer copied over the free memory pointer: a wrapper's psi, raised by anyone's material swaps, becomes the address the next encoder writes at, so every solve that ranks or prices the wrapper pays memory expansion quadratic in psi and the automatic door fails at SOLVE_GAS",
+      "status": "blocked",
+      "guard": "_gateVital",
+      "test": "test_GatedAuto_HotWrapperSettlesUnderTheSolveBudget",
+      "note": "F1 of the gatedauto-1022 review. Core._gateVital, the one reader of Gate.vitalOf, copies only words 1-2 into scratch (returndatacopy(0x00, 0x20, 0x40) after returndatasize() >= 0x60). Before: the whole answer at 0x00, psi on 0x40; measured 33 988 102 gas for gateQuote with depth at psi 2^22 and RouterE(17) at the best door. The class is held by the Scratch memory guard in ci.yml (no assembly call or copy with a literal output below 0x80 may end past 0x40). Mutants [693]-[697]."
     }
   ]
 }

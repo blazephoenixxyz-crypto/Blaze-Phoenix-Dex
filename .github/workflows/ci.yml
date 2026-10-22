@@ -253,6 +253,17 @@ jobs:
         # copy of the clamp.
         run: python3 .github/scripts/door_prologue_guard.py
 
+      - name: Scratch memory guard (a raw call writes into 0x00-0x3f, never over 0x40)
+        # F1 (2026-10-22): Core._gateVital copied vitalOf's three words to 0x00, the third (psi)
+        # became the free memory pointer, and the next encoder wrote at address psi (gas
+        # quadratic in psi, RouterE(17) at the automatic door). "memory-safe" is a promise the
+        # compiler does not check; this checks it. Fails on any assembly call or copy whose
+        # literal output offset is below 0x80 and whose end passes 0x40. The self-test feeds it
+        # the 7b8df77 reader, so the guard is proven able to fail.
+        run: |
+          python3 .github/scripts/scratch_memory_guard.py --self-test
+          python3 .github/scripts/scratch_memory_guard.py
+
       - name: Curve/Balancer excisado (decisao do dono 2026-08-20)
         # Removidos por decisao: quase nenhuma L2 os tem, e custavam bytecode em cinco contratos.
         # O corte apaga tres superficies que eram cada uma a UNICA da sua classe: o unico approve
