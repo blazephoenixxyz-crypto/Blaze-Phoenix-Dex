@@ -2198,8 +2198,11 @@ contract BlazePhoenixRouter {
             for (uint256 l; l < hop.legs.length; ) {
                 bool ran = executedMask & (uint256(1) << legIdx) != 0;
                 unchecked { ++legIdx; }
-                if (!ran) { unchecked { ++l; } continue; }
                 Leg calldata leg = hop.legs[l];
+                // A kind-9 leg has one vitality producer, its wrapper (`swap` ticks `vitalSlot`,
+                // read by Gate.vitalOf), and Hub.recordSwap discards kind 9 (KINDS_EXECUTABLE):
+                // the depth read and the call were gas with no effect.
+                if (!ran || leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; }
                 // t0/t1 are always derivable from the hop's own tokenIn/
                 // tokenOut via zeroForOne — every leg in a hop trades the
                 // same pair by construction, so no staticcall is needed here

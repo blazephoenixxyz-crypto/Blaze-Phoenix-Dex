@@ -212,8 +212,8 @@ M = [
 # shape - the skipped leg is credited at full scale - so the test observes the Router's guard.
  dict(nome="registry: crediting declared legs instead of executed ones, at the declared amount (the phantom leg)",
       f="src/BlazePhoenixRouter.sol",
-      old="                if (!ran) { unchecked { ++l; } continue; }",
-      new="                if (!ran) { hopScale[h] = 1e18; } // MUTANTE",
+      old="                if (!ran || leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; }",
+      new="                if (leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; } if (!ran) { hopScale[h] = 1e18; } // MUTANTE",
       teste="test_PhantomLeg_NotCreditedToRegistry"),
  dict(nome="V4: the grid is suppressed again by a learned code",
       f="src/BlazePhoenixHub.sol",
@@ -3366,6 +3366,11 @@ M = [
       old='        (address a, address b) = _pairOf(msg.sender, true);',
       new='        (address a, address b) = (IGateWrapperState(msg.sender).token0(), IGateWrapperState(msg.sender).token1()); // MUTANT [678]',
       teste='test_BalV2_Depth18_OnlyForTheGatesWrapper'),
+ dict(nome='gatedfresh-1022 [679]: the Router feeds a kind-9 leg to Hub.recordSwap, a second vitality door the Hub discards',
+      f='src/BlazePhoenixRouter.sol',
+      old='                if (!ran || leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; }',
+      new='                if (!ran) { unchecked { ++l; } continue; } // MUTANT [679]',
+      teste='test_GateF2_Router_FeedbackSkipsKindExternal'),
 ]
 
 def run(t):

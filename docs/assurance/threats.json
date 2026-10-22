@@ -322,6 +322,14 @@
       "guard": "_depth18",
       "test": "test_CurveNG_Depth18_IsThePoolsLongSide",
       "note": "adapter-depth-1021. ExtAdapterBase._depth18 is the one adapter producer: the larger side of the balances the venue reports (Curve coins(i)/balances(i) by index, only when the lock probe passes; Balancer V2 getPoolTokens and V3 getPoolTokenInfo balancesRaw by list, matched to the calling wrapper's pair), normalised by Core.maxSide18, the same formula Core.heldMass18 caps with (kept inline there: through maxSide18 the Hub grew 772 B past EIP-170). Mutants [670]-[678]. Not covered: a Balancer Vault read inside an open unlock (V3) or a V2 Vault callback, where the pool's balances may include an unsettled delta; vitalOf is a view, and the Gate caps by the Vault's holdings, which are every pool's."
+    },
+    {
+      "id": "GATE-SECOND-VITALITY-DOOR",
+      "class": "A Gate wrapper's use reaches the registry through a second door: the Router feeds an executed kind-9 leg to Hub.recordSwap, so two writers answer one quantity and the user pays a depth read and a Hub call for each",
+      "status": "blocked",
+      "guard": "_recordHits",
+      "test": "test_GateF2_Router_FeedbackSkipsKindExternal",
+      "note": "gatedfresh-1022. Wrapper.swap is the one writer of a wrapper's use (vitalSlot, read by Gate.vitalOf). Router._recordHits skips a kind-9 leg as it skips a leg that did not run; Hub.recordSwap's KINDS_EXECUTABLE return stays as the fail-closed second check. Measured on the explicit door (release profile, warm wrapper): 325 657 to 315 391 gas per kind-9 swap; Router +25 B. Mutant [679]."
     }
   ]
 }

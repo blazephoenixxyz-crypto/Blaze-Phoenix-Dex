@@ -544,6 +544,21 @@ contract BlazePhoenixGateTest is Test {
         assertEq(t0.allowance(address(router), address(w)), 0, "no allowance to the wrapper");
     }
 
+    /// Quantity: the Router's registry feedback skips a kind-9 leg. The wrapper is the one
+    /// producer of its own vitality (it ticks `vitalSlot` in `swap`, read by Gate.vitalOf), and
+    /// Hub.recordSwap discards kind 9 (KINDS_EXECUTABLE), so the call was gas with no effect.
+    function test_GateF2_Router_FeedbackSkipsKindExternal() public {
+        BlazePhoenixGateWrapper w = _wrapper();
+        BlazePhoenixRouter router = _router();
+        uint256 amt = 1_000e18;
+        address u = _user(router, amt);
+        Route memory r9 = _route(address(w), BPC.KIND_EXTERNAL, KEY, amt, venue.quoteSell(amt));
+        vm.expectCall(address(hub), abi.encodeWithSelector(BlazePhoenixHub.recordSwap.selector), 0);
+        vm.prank(u);
+        assertGt(router.swapExactIn(r9, amt, 1, u, block.timestamp + 1), 0, "the kind-9 leg settles");
+        assertGt(w.vitalSlot(), 0, "the wrapper ticked its own vitality");
+    }
+
     /// Quantity: the per-leg floor binds a kind-9 leg through its attestation (claimed 10x).
     function test_GateF2_Router_InflatedAttestationRefused() public {
         BlazePhoenixGateWrapper w = _wrapper();
