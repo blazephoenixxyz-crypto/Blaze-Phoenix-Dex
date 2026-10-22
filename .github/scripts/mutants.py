@@ -3690,6 +3690,21 @@ M = [
       old='                if (aF > hF) hF = aF;\n',
       new='                // MUTANT [734]\n',
       teste='test_3073_OneHop_HeldSingleOverAnUnheldRival'),
+ dict(nome='3073-4 [735]: an unheld later stage clears the held mark of an earlier one',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (hh) held = true;\n',
+      new='                held = hh; // MUTANT [735]\n',
+      teste='test_3073_FirstHopHeld_LaterUnheldStageKeepsTheMark'),
+ dict(nome='3073-4 [736]: an unheld later leg clears the held mark of an earlier leg',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (f != 0) held = true;\n',
+      new='                held = f != 0; // MUTANT [736]\n',
+      teste='test_3073_SplitHeldFirstLeg_UnheldLastLegKeepsTheMark'),
+ dict(nome='3073-4 [737]: a collapse drops the held mark of the split it replaces',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (hF > sR) held = true;\n                return (single, sR - single.expectedOut, held);\n',
+      new='                return (single, sR - single.expectedOut, hF > sR); // MUTANT [737]\n',
+      teste='test_3073_CollapseOffAHeldSplit_KeepsTheMark'),
 ]
 
 def run(t):

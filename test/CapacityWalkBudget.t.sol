@@ -422,4 +422,72 @@ contract CapacityWalkBudgetTest is Test {
         assertEq(plan.best.totalOut, hPays, "promised what its book pays");
         assertGe(_settles(amt, plan), _net(hPays), "and delivers it, net of the protocol fee");
     }
+
+    // ─── The held mark survives what follows it ────────────────────────
+
+    /// No direct pool: t0 -> br -> t1. The FIRST hop is the held book (cap 45e18 of 150e18;
+    /// it pays ~119.6e18 for the 120e18 order), the second a deep book the cap does not bind.
+    /// The mark the first stage leaves is not cleared by the unheld stage after it: the route
+    /// is rebuilt with the walk and its first leg is promised its book.
+    function test_3073_FirstHopHeld_LaterUnheldStageKeepsTheMark() public {
+        address br = _token();
+        hub.addBridge(br);
+        MockV3BookPool h = _book(t0, br, FEE, 1_000_000e18, 150e18);
+        _pool(br, t1, 1_000_000e18, 10_000_000e18);
+        uint256 amt = 120e18;
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), amt, 0, 0, h.token0() == t0);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _i2(plan.best);
+        assertEq(plan.best.hops.length, 2, "precondition: the bridge route");
+        Leg memory g = plan.best.hops[0].legs[0];
+        assertEq(g.pool, address(h), "precondition: the held book on the first hop");
+        assertGt(hPays, BPC.mulDiv(150e18, 3_000, BPC.BPS), "precondition: its book pays past the cap");
+        assertEq(g.expectedOut, hPays, "the first leg is promised its book, not its cap");
+        assertGt(plan.best.totalOut, BPC.mulDiv(150e18, 3_000, BPC.BPS), "and the route carries it");
+        _settles(amt, plan);
+    }
+
+    /// A split of a held book seated FIRST and an unheld one seated LAST. `h` holds 50e18
+    /// (weight 50, share ~24e18, cap 15e18); `s` holds 1,000,000e18 but its book is thin
+    /// (L 200e18, weight 200): the deepest weight, seated last, nowhere near its cap. The split
+    /// beats every single (`h` alone is past its holdings). The unheld last leg does not clear
+    /// the mark of the held one: the build is walked, and `h` is promised its book.
+    function test_3073_SplitHeldFirstLeg_UnheldLastLegKeepsTheMark() public {
+        MockV3BookPool h = _book(t0, t1, 100, 1_000_000e18, 50e18);
+        _book(t0, t1, 500, 200e18, 1_000_000e18);
+        uint256 amt = 120e18;
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertEq(plan.best.hops[0].legs.length, 2, "precondition: the split is kept");
+        Leg memory g = plan.best.hops[0].legs[0];
+        assertEq(g.pool, address(h), "precondition: the held book is seated first");
+        assertGt(BPC.mulDiv(g.amountIn, 9_990, BPC.BPS), BPC.mulDiv(50e18, 3_000, BPC.BPS), "precondition: its share is past its cap");
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), g.amountIn, 0, 0, g.zeroForOne);
+        assertEq(g.expectedOut, hPays, "the held leg is promised its book, not its cap");
+        assertGe(_settles(amt, plan), _net(plan.best.totalOut), "and the books pay it, net of the protocol fee");
+    }
+
+    /// The gate collapses a split onto a single only by 25 ppm, and only at the cap. `h`
+    /// holds 1.469e18 at 0.01% (weight 37 of 10,037, share ~0.4424e18 past its 0.4407e18
+    /// cap); `s` holds 397e18 at 1%
+    /// (its whole-order quote 118.8e18 stays under its 119.1e18 cap). Ranked at the cap, the
+    /// split does not earn its second leg and collapses onto `s`; the held leg it drops keeps
+    /// the build's mark, so the build is walked, and with `h` promised its book the split
+    /// beats `s` alone by more than the gate asks.
+    function test_3073_CollapseOffAHeldSplit_KeepsTheMark() public {
+        MockV3BookPool h = _book(t0, t1, 100, 1e30, 1.469e18);
+        MockV3BookPool s = _book(t0, t1, 10_000, 1e30, 397e18);
+        uint256 amt = 120e18;
+        uint256 sPays = BPC.v4WalkOut(address(s), bytes32(0), amt, 0, 0, s.token0() == t0);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertLe(sPays, BPC.mulDiv(397e18, 3_000, BPC.BPS), "precondition: the single is not held");
+        assertEq(plan.best.hops[0].legs.length, 2, "the walked build keeps the split");
+        assertEq(plan.best.hops[0].legs[0].pool, address(h), "with the held book seated first");
+        assertGt(plan.best.hops[0].legs[0].expectedOut, BPC.mulDiv(1.469e18, 3_000, BPC.BPS), "promised past its cap");
+        assertGt(plan.best.totalOut, BPC.mulDiv(sPays, 1_000_025, 1_000_000), "and the split beats the single by the gate");
+        assertGe(_settles(amt, plan), _net(sPays), "it settles");
+    }
 }
