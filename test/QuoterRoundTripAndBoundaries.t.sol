@@ -41,7 +41,7 @@ contract QuoterRoundTripAndBoundariesTest is Test {
         hub.initialize(address(this), address(0));
         tokenA = new MockERC20("A", "A");
         tokenB = new MockERC20("B", "B");
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), treasury1, treasury2
         );

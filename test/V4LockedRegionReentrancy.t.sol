@@ -104,7 +104,7 @@ contract V4LockedRegionReentrancyTest is Test {
         mgr = new RecordingV4Manager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr)); // V4 manager = the recording one
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), treasury1, treasury2);
         A = new MockERC20Adv();
         B = new MockERC20Adv();

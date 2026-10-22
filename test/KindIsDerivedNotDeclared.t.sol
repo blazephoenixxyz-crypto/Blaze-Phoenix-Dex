@@ -86,7 +86,7 @@ contract KindIsDerivedNotDeclaredTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         // This test contract IS the Router, so it may call recordSwap.
         hub.setRoles(address(this), address(solver), address(this));
 

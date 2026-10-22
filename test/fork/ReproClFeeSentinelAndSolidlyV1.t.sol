@@ -63,6 +63,7 @@ contract ReproClFeeSentinelBase is Test {
             tokenOther: WETH,
             hooks: address(0),
             v4Manager: address(0),
+            hub: address(0),
             decIn1: 0,
             decOther1: 0
         });
@@ -84,7 +85,7 @@ contract ReproClFeeSentinelBase is Test {
         QuoteCtx memory c = QuoteCtx({
             kind: 1, pool: AEROCL_POOL, zeroForOne: false, fee: measured,
             tickSpacing: 100, stable: false, tokenIn: USDC, tokenOther: WETH,
-            hooks: address(0), v4Manager: address(0), decIn1: 0, decOther1: 0
+            hooks: address(0), v4Manager: address(0), hub: address(0), decIn1: 0, decOther1: 0
         });
         (uint256 out, ) = BPC.universalQuote(c, 1_000e6);
         assertGt(out, 0.0001 ether, "controlo: com fee explicita o pool quota na banda");

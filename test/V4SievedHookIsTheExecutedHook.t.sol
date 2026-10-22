@@ -114,7 +114,7 @@ contract V4SievedHookIsTheExecutedHookTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
         hub.setRoles(address(this), address(this), address(this));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), treasury1, treasury2);
         A = new MockERC20Simple();

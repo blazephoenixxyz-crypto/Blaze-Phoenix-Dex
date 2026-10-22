@@ -257,7 +257,7 @@ contract RouterAdversarialV4FromV1Test is Test {
         mgr = new HostileV4Manager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr)); // V4 manager = the hostile one
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), treasury1, treasury2);
 
         A = new MockERC20Adv();

@@ -48,7 +48,7 @@ contract PreviewRefusesDeltaHooksTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0)); // manager wired below
         hub.setV4Manager(address(new MockV4Manager()));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), address(this), address(this)

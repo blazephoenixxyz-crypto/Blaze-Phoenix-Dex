@@ -42,7 +42,7 @@ contract QuoterExactFloorHoldsWhenTheFeeIsChargedOnTheInputTest is Test {
         hub.initialize(address(this), address(0));
         tokenA = new MockERC20("A", "A");
         tokenB = new MockERC20("B", "B");
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), makeAddr("t1"), makeAddr("t2"));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         pool = new MockV3Pool(address(tokenA), address(tokenB), 100);

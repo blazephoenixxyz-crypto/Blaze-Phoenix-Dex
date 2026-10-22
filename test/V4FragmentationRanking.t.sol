@@ -57,7 +57,7 @@ contract V4FragmentationRankingTest is Test {
         mgr = new MockV4TickManager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
         hub.setRoles(address(router), address(solver), address(0xC0FFEE));
         (t0, t1) = _pair();

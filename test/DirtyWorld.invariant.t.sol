@@ -633,7 +633,7 @@ contract DirtyWorldInvariantTest is Test {
         w.mgr = new MockV4HookedManager();
         w.hub = new BlazePhoenixHub(address(this));
         w.hub.initialize(address(this), address(w.mgr));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(w.hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(w.hub), address(0));
         w.router = new BlazePhoenixRouter(address(w.hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
         w.quoter = new BlazePhoenixQuoter(address(w.hub), address(solver));
         w.hub.setRoles(address(w.router), address(solver), address(w.quoter));

@@ -25,6 +25,7 @@ import {BlazePhoenixCore as BPC, Route, Hop, Leg, PoolInfo, RoutePlan} from "../
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockV2Factory} from "./mocks/MockV2Factory.sol";
 import {
     MockGateVenue, MockGateRegistry, MockGateAdapter, MockGateHostileAdapter
 } from "./mocks/MockGateAdapters.sol";
@@ -624,16 +625,23 @@ contract BlazePhoenixGateTest is Test {
         assertGt(out, 0, "the native V3 leg still settles");
     }
 
-    // ─── the best door: kind 9 enters by explicit routes only (owner's decision, 21/10) ───
+    // ─── the best door: kind 9 at the automatic door (owner's decision 2026-10-22) ───
+    //
+    // 2026-10-21 kind 9 was kept to the explicit doors. 2026-10-22 the owner reversed it (gated
+    // venues at the automatic door): the Solver seats its immutable Gate's wrappers, priced by
+    // the one producer (Core.gateQuote) and ranked by the Gate's vitalOf, and the best door
+    // settles them through the same identity check (Core.gateWrapperLive) as every other door.
 
     function _plan(Route memory r) internal pure returns (RoutePlan memory p) {
         p.best = r;
     }
 
-    /// Quantity: the execution dispatch (`k == KIND_EXTERNAL && msg.sender != address(this)`)
-    /// refuses kind 9 when the leg arrives through the best door (selfExecutePrePulled). The same plan settles by swapExactIn, and
-    /// the same door settles a V3 plan: the refusal is the kind's, at that door.
-    function test_GateF2_BestDoor_RefusesKindExternal() public {
+    /// Quantity: the doors the execution dispatch serves kind 9 at. A stub plan carrying one
+    /// kind-9 leg settles through the best door (selfExecutePrePulled) at the adapter's quote,
+    /// as it does through swapExactIn, and the same door still settles a V3 plan.
+    /// RED before 2026-10-22: the dispatch read `k == KIND_EXTERNAL && msg.sender != address(this)`
+    /// and the best door fell to RouterE(8).
+    function test_GateF2_BestDoor_SettlesKindExternal() public {
         _admit();
         BlazePhoenixGateWrapper w = _wrapper();
         GateBestPlanStub stub = new GateBestPlanStub();
@@ -641,11 +649,12 @@ contract BlazePhoenixGateTest is Test {
             new BlazePhoenixRouter(address(hub), address(stub), address(this), address(0xFEE1), address(0xFEE2));
         uint256 amt = 1_000e18;
         address u = _user(router, 3 * amt);
-        Route memory r9 = _route(address(w), BPC.KIND_EXTERNAL, KEY, amt, venue.quoteSell(amt));
+        uint256 exp = venue.quoteSell(amt);
+        Route memory r9 = _route(address(w), BPC.KIND_EXTERNAL, KEY, amt, exp);
         stub.setPlan(_plan(r9));
         vm.prank(u);
-        vm.expectRevert(_rerr(8));
-        router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1);
+        assertEq(router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1), _net(exp),
+            "the best door settles the kind-9 plan at its quote, net of the protocol fee");
 
         vm.prank(u);
         assertGt(router.swapExactIn(r9, amt, 1, u, block.timestamp + 1), 0, "the explicit door settles it");
@@ -660,21 +669,18 @@ contract BlazePhoenixGateTest is Test {
             "the best door settles a V3 plan");
     }
 
-    /// Quantity: with the Gate admitted and its wrapper discovered, the real Solver plans no
-    /// kind-9 leg and the best door still settles the pair through its other venue. Zero bytes
-    /// in the Solver: the wrapper has no reader there, so it quotes 0 and is dropped.
-    function test_GateF2_Solver_NeverPlansTheWrapper() public {
+    /// Quantity: where a Solver's kind-9 rows come from. With the Gate admitted and its wrapper
+    /// found by the Hub's derived sweep, a Solver wired to NO Gate (gate = 0) plans no kind-9
+    /// leg and the best door settles through the pair: the Hub's discovered kind-9 rows are
+    /// dropped (Core.discoverWithGate), and only the immutable Gate's list seats a wrapper.
+    function test_GateF2_Solver_NeverPlansAWrapperWithoutItsGate() public {
         _gateRow(gate);
         BlazePhoenixGateWrapper w = _wrapper();
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         BlazePhoenixRouter router =
             new BlazePhoenixRouter(address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
         hub.setRoles(address(router), address(solver), address(this));
-        MockV2Pair pair = new MockV2Pair(address(t0), address(t1));
-        pair.setReserves(1_000_000e18, 1_000_000e18);
-        t0.mint(address(pair), 1_000_000e18);
-        t1.mint(address(pair), 1_000_000e18);
-        hub.seedPool(address(pair), BPC.KIND_V2, 30, address(0), address(t0), address(t1));
+        _seededPair(1_000_000e18);
         PoolInfo[] memory d = hub.discoverFor(address(t0), address(t1));
         assertEq(d.length, 1, "setup: discovery finds the wrapper");
         assertEq(d[0].pool, address(w), "setup: the hit is the wrapper");
@@ -688,10 +694,271 @@ contract BlazePhoenixGateTest is Test {
                 assertTrue(plan.best.hops[h].legs[l].pool != address(w), "the wrapper is never planned");
             }
         }
+        assertGt(_best(router, amt), 0, "the best door settles through the other venue");
+    }
+
+    /// A real Solver over this Gate and a Router on it: the automatic door end to end.
+    function _autoDoor() internal returns (BlazePhoenixSolver solver, BlazePhoenixRouter router) {
+        _admit();
+        solver = new BlazePhoenixSolver(address(hub), address(gate));
+        router = new BlazePhoenixRouter(address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
+        hub.setRoles(address(router), address(solver), address(this));
+    }
+
+    /// A curated V2 pair funded to `r` a side.
+    function _seededPair(uint256 r) internal returns (MockV2Pair pair) {
+        pair = new MockV2Pair(address(t0), address(t1));
+        pair.setReserves(uint112(r), uint112(r));
+        t0.mint(address(pair), r);
+        t1.mint(address(pair), r);
+        hub.seedPool(address(pair), BPC.KIND_V2, 30, address(0), address(t0), address(t1));
+    }
+
+    function _plans(RoutePlan memory p, address pool) internal pure returns (bool) {
+        for (uint256 h; h < p.best.hops.length; h++) {
+            for (uint256 l; l < p.best.hops[h].legs.length; l++) {
+                if (p.best.hops[h].legs[l].pool == pool) return true;
+            }
+        }
+        return false;
+    }
+
+    function _best(BlazePhoenixRouter router, uint256 amt) internal returns (uint256 out) {
         address u = _user(router, amt);
         vm.prank(u);
+        out = router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1);
+    }
+
+    /// What the Router hands over of a route that delivered `out` (BPC.PROTOCOL_FEE_BPS kept).
+    function _net(uint256 out) internal pure returns (uint256) {
+        return out - BPC.mulDivUp(out, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    }
+
+    /// One proof swap of `amt` of token0 (recipient = the wrapper; the output comes back here).
+    function _prove(BlazePhoenixGateWrapper w, uint256 amt) internal {
+        t0.mint(address(this), amt);
+        w.swap(address(w), true, int256(amt), 0, "");
+    }
+
+    /// One direct swap of `amt` of token0 by this contract (anyone may call a wrapper).
+    function _swapDirect(BlazePhoenixGateWrapper w, uint256 amt) internal {
+        t0.mint(address(this), amt);
+        w.swap(address(this), true, int256(amt), 0, "");
+    }
+
+    /// Quantity: the automatic door's output through a live wrapper. With the Gate admitted and
+    /// its wrapper the pair's only venue, the real Solver plans one kind-9 leg on it, priced by
+    /// Core.gateQuote, and the best door delivers that quote with every party back at 0.
+    /// RED before P1-P4: the Solver priced kind 9 at 0, the pair had no plan (SolverE(5)).
+    function test_GatedAuto_BestDoorSettlesThroughALiveWrapper() public {
+        BlazePhoenixGateWrapper w = _wrapper();
+        (BlazePhoenixSolver solver, BlazePhoenixRouter router) = _autoDoor();
+        assertEq(solver.gate(), address(gate), "the Solver is wired to this Gate");
+        uint256 amt = 1_000e18;
+        uint256 exp = venue.quoteSell(amt);
+        RoutePlan memory p = solver.findBestRoutePlan(address(t0), address(t1), amt);
+        assertEq(p.best.hops.length, 1, "one hop");
+        assertEq(p.best.hops[0].legs.length, 1, "one leg");
+        Leg memory l = p.best.hops[0].legs[0];
+        assertEq(l.pool, address(w), "on the wrapper");
+        assertEq(l.kind, BPC.KIND_EXTERNAL, "as kind 9");
+        assertEq(l.fee, KEY, "under its venue key");
+        assertEq(l.expectedOut, exp, "priced by the adapter's quote");
+        assertEq(_best(router, amt), _net(exp), "the best door delivers the quote, net of the protocol fee");
+        assertEq(t0.balanceOf(address(router)) + t1.balanceOf(address(router)), 0, "Router at 0");
+        assertEq(t0.balanceOf(address(w)) + t1.balanceOf(address(w)), 0, "wrapper at 0");
+        assertFalse(w.quoteBroken(), "an honest material swap keeps the quote");
+        assertGt(w.vitalSlot(), 0, "and is use");
+    }
+
+    /// Quantity: what clearAdapter leaves at the automatic door. Before the clear the wrapper
+    /// beats a curated V2 pair and is planned. After it Core.gateQuote reads it not live at 0,
+    /// the Gate's list gives no row for it, the plan holds no leg on it, and the best door
+    /// settles through the pair (no revert).
+    function test_GatedAuto_ClearedFamilyLeavesTheBestDoorToThePair() public {
+        BlazePhoenixGateWrapper w = _wrapper();
+        (BlazePhoenixSolver solver, BlazePhoenixRouter router) = _autoDoor();
+        MockV2Pair pair = _seededPair(1_000_000e18);
+        uint256 amt = 1_000e18;
+        assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
+            "setup: the wrapper is planned before the clear");
+        gate.clearAdapter(FAM);
+        (bool live, uint256 q, ) =
+            BPC.gateQuote(address(hub), address(w), address(t0), address(t1), KEY, true, amt, false);
+        assertFalse(live, "a cleared family is not live");
+        assertEq(q, 0, "and prices 0");
+        assertEq(BPC.discoverWithGate(address(hub), address(gate), address(t0), address(t1), false).length, 0,
+            "the Gate's list gives no row");
+        RoutePlan memory p = solver.findBestRoutePlan(address(t0), address(t1), amt);
+        assertFalse(_plans(p, address(w)), "the wrapper is not planned");
+        assertTrue(_plans(p, address(pair)), "the pair is");
+        assertGt(_best(router, amt), 0, "the best door settles");
+    }
+
+    /// Quantity: how long an adapter that quotes high and delivers low holds the automatic door.
+    /// The adapter quotes twice what it trades and its venue holds the pair's mass, so its
+    /// vote centres the band and the Solver seats it over a thin curated pair; the best door
+    /// reverts at the leg floor (RouterE(5)), moving no funds: the pair's automatic door is
+    /// down. ONE material proof swap (recipient = the wrapper), by anyone, measures the lie
+    /// (the delivered delta under the adapter's own quote for the same input, at the same
+    /// state): `quoteBroken` is set for ever, that swap is not use, the Gate drops the wrapper
+    /// from the pair's list and the best door settles through the pair again.
+    /// RED before the proof swap: the list kept the wrapper and the door stayed down.
+    function test_GatedAuto_OverquotingAdapterIsMeasuredOutOfTheList() public {
+        BlazePhoenixGateWrapper w = _hostileWrapper(hostile.OVERQUOTE());
+        hostile.setDeclaredDepth(type(uint128).max);   // capped by the venue's 1M a side
+        (BlazePhoenixSolver solver, BlazePhoenixRouter router) = _autoDoor();
+        MockV2Pair pair = _seededPair(10_000e18);
+        uint256 amt = 1_000e18;
+        assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
+            "setup: the lie wins the plan");
+        address u = _user(router, amt);
+        vm.prank(u);
+        vm.expectRevert(_rerr(5));
+        router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1);
+        assertEq(t0.balanceOf(u), amt, "the revert moved no funds");
+
+        _swapDirect(w, amt);
+        assertFalse(w.quoteBroken(), "control: a plain swap claims nothing");
+        uint256 vs = w.vitalSlot();
+        _prove(w, amt);
+        assertTrue(w.quoteBroken(), "one material proof swap measures the lie");
+        assertEq(w.vitalSlot(), vs, "and is not use");
+        assertEq(gate.wrappersOf(address(t0), address(t1))[0], 0, "the Gate's list drops the wrapper");
+        RoutePlan memory p = solver.findBestRoutePlan(address(t0), address(t1), amt);
+        assertFalse(_plans(p, address(w)), "the wrapper is not planned");
+        assertTrue(_plans(p, address(pair)), "the pair is");
+        vm.prank(u);
         assertGt(router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1), 0,
-            "the best door settles through the other venue");
+            "the best door is back");
+    }
+
+    /// Quantity: the slack of the measured quote, 1 bp of the adapter's quote. An adapter that
+    /// quotes 1 wei over what it delivers (rounding) keeps its quote: a material swap is use
+    /// and leaves `quoteBroken` false.
+    function test_GatedAuto_RoundingIsNotALie() public {
+        BlazePhoenixGateWrapper w = _hostileWrapper(hostile.QUOTE_PLUS_ONE());
+        (uint256 q, ) = w.quote(true, 1_000e18);
+        assertEq(q, venue.quoteSell(1_000e18) + 1, "setup: the quote is 1 wei over");
+        _prove(w, 1_000e18);
+        assertFalse(w.quoteBroken(), "1 wei of rounding is not a lie");
+        assertGt(w.vitalSlot(), 0, "the swap is use");
+        _prove(w, 5_000);   // dust: 1 bp of a 4,986-wei claim is 0 wei, so 1 wei would break it
+        assertFalse(w.quoteBroken(), "a dust proof measures nothing");
+    }
+
+    /// Quantity: the list a retired wrapper leaves. Three wrappers of one pair, the middle one
+    /// overquoting: its proof removes it, the other two keep their creation order with no
+    /// hole (Core.gatedOf stops at the first 0), and the freed slot takes a new venue key.
+    /// A caller that is not listed retires nothing, even naming the same pair.
+    function test_GatedAuto_RetireKeepsTheOthersInOrder() public {
+        _accept(FAM, address(adapter));
+        address w1 = gate.create(address(t0), address(t1), KEY, abi.encode(address(venue)));
+        BlazePhoenixGateWrapper h = _hostileWrapper(hostile.OVERQUOTE());
+        address w3 = gate.create(address(t0), address(t1), uint24(uint256(FAM) << 16 | 2), abi.encode(address(venue)));
+        vm.prank(address(venue));   // a stranger naming the same pair (venue.token0/token1)
+        gate.retire();
+        assertEq(address(uint160(gate.wrappersOf(address(t0), address(t1))[1])), address(h), "a stranger retires nothing");
+        _prove(h, 1_000e18);
+        uint256[4] memory l = gate.wrappersOf(address(t0), address(t1));
+        assertEq(address(uint160(l[0])), w1, "first stays first");
+        assertEq(address(uint160(l[1])), w3, "third moves up");
+        assertEq(l[2], 0, "no hole, no duplicate");
+        address w4 = gate.create(address(t0), address(t1), uint24(uint256(FAM) << 16 | 3), abi.encode(address(venue)));
+        assertEq(address(uint160(gate.wrappersOf(address(t0), address(t1))[2])), w4, "the slot is free again");
+    }
+
+    /// Quantity: where the lie of (c) stops, with no proof. The same adapter, quoting twice what
+    /// it trades, against a curated pair holding three times its venue's mass: the band
+    /// centres on the pair (the wrapper votes only the mass its venue holds, Core._gateVital),
+    /// the lie falls outside it, and the best door settles through the pair.
+    function test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand() public {
+        BlazePhoenixGateWrapper w = _hostileWrapper(hostile.OVERQUOTE());
+        hostile.setDeclaredDepth(type(uint128).max);
+        (BlazePhoenixSolver solver, BlazePhoenixRouter router) = _autoDoor();
+        MockV2Pair pair = _seededPair(3_000_000e18);
+        uint256 amt = 1_000e18;
+        RoutePlan memory p = solver.findBestRoutePlan(address(t0), address(t1), amt);
+        assertFalse(_plans(p, address(w)), "the lie is out of the band");
+        assertTrue(_plans(p, address(pair)), "the pair is planned");
+        assertGt(_best(router, amt), 0, "the best door settles");
+        assertFalse(w.quoteBroken(), "nothing was proved");
+    }
+
+    /// Quantity: who votes discovery freshness (MIN_FRESH_VENUES). Three curated rows, two of
+    /// them fresh, and a live wrapper of the Gate: the wrapper is no third fresh vote, the
+    /// sweep runs, and a deep pool only an admitted factory knows is planned. Control: a third
+    /// FRESH curated row skips the sweep and the deep pool is not seen, so the boundary is the
+    /// count of fresh curated rows, the Gate's wrappers excluded.
+    function test_GatedAuto_WrappersDoNotVoteFreshness() public {
+        venue.setPayBps(9_000);   // the wrapper is a candidate, not the winner
+        _wrapper();
+        (BlazePhoenixSolver solver, ) = _autoDoor();
+        MockV2Factory factory = new MockV2Factory();
+        hub.addFactory(address(factory), BPC.KIND_V2, 0, bytes32(0), new uint24[](0), new int24[](0));
+        MockV2Pair deep = new MockV2Pair(address(t0), address(t1));
+        deep.setReserves(1_000_000e18, 1_000_000e18);
+        t0.mint(address(deep), 1_000_000e18);
+        t1.mint(address(deep), 1_000_000e18);
+        factory.setPair(address(t0), address(t1), address(deep));
+        _seededPair(10_000e18);
+        vm.warp(block.timestamp + 3_601);   // past DISCOVERY_TTL_SECONDS: one stale row
+        _seededPair(10_000e18);
+        _seededPair(10_000e18);
+        uint256 amt = 1_000e18;
+        assertGt(gate.wrappersOf(address(t0), address(t1))[0], 0, "setup: the wrapper is listed");
+        assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(deep)),
+            "two fresh curated rows and a wrapper: the sweep runs");
+        _seededPair(10_000e18);
+        assertFalse(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(deep)),
+            "control: three fresh curated rows skip the sweep");
+    }
+
+    /// Quantity: MAX_WRAPPERS_PER_PAIR, the length of the Gate's per-pair list (Core's
+    /// GATE_MAX_WRAPPERS, the one number the list and its reader share). Four wrappers of one
+    /// pair are listed in creation order with their venue keys; the fifth create reverts
+    /// GateE(16); another pair keeps its own list.
+    function test_GatedAuto_WrapperListIsCappedAtFour() public {
+        _accept(FAM, address(adapter));
+        assertEq(gate.MAX_WRAPPERS_PER_PAIR(), 4);
+        address[4] memory ws;
+        for (uint256 i; i < 4; i++) {
+            ws[i] = gate.create(address(t0), address(t1), uint24(uint256(FAM) << 16 | (i + 1)),
+                abi.encode(address(venue)));
+        }
+        uint256[4] memory l = gate.wrappersOf(address(t1), address(t0));
+        for (uint256 i; i < 4; i++) {
+            assertEq(address(uint160(l[i])), ws[i], "creation order");
+            assertEq(l[i] >> 160, uint256(FAM) << 16 | (i + 1), "with its venue key");
+        }
+        vm.expectRevert(_err(16));
+        gate.create(address(t0), address(t1), uint24(uint256(FAM) << 16 | 5), abi.encode(address(venue)));
+
+        MockERC20 t2 = new MockERC20("C", "C");
+        MockGateVenue v2 = new MockGateVenue(address(t0), address(t2));
+        reg.add(address(v2));
+        address w2 = gate.create(address(t0), address(t2), KEY, abi.encode(address(v2)));
+        assertEq(address(uint160(gate.wrappersOf(address(t0), address(t2))[0])), w2, "another pair, its own list");
+    }
+
+    /// Quantity: the score the funnel ranks a wrapper by: Gate.vitalOf's psi, read through
+    /// Core.gatePsi. Eight curated pairs fill the funnel (MAX_CANDIDATES = 8); the unused
+    /// wrapper scores the floor and is cut before any quote, though it pays best. After
+    /// material swaps its vitalOf psi outranks the curated rows: it is seated and planned.
+    function test_GatedAuto_FunnelRanksTheWrapperByVitalOf() public {
+        BlazePhoenixGateWrapper w = _wrapper();
+        adapter.setDeclaredDepth(type(uint128).max);   // capped by what the venue holds
+        (BlazePhoenixSolver solver, ) = _autoDoor();
+        for (uint256 i; i < 8; i++) _seededPair(10_000e18);
+        uint256 amt = 1_000e18;
+        assertFalse(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
+            "unused: cut by the funnel");
+        for (uint256 i; i < 3; i++) _swapDirect(w, 100e18);
+        (, , uint256 psiW) = gate.vitalOf(address(w));
+        assertGt(psiW, 0, "the swaps are use");
+        assertEq(BPC.gatePsi(address(gate), address(w)), psiW, "Core reads the Gate's psi");
+        assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
+            "used: seated by its vitalOf psi, and it pays best");
     }
 
     // ─── the Quoter: Gate legs are priced by their adapter, on an off-chain route ───

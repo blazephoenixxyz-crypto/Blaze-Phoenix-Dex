@@ -51,7 +51,7 @@ contract RobinhoodV4SweepTest is Test {
         vm.createSelectFork("robinhood");
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), V4_MGR);
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), T1, T2);
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         hub.setRoles(address(router), address(solver), address(quoter));

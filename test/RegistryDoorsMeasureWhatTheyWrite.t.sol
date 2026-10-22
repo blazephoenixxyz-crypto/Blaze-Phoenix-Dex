@@ -63,7 +63,7 @@ contract RegistryDoorsMeasureWhatTheyWriteTest is Test {
         mgr = new RegistryDoorsV4State();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         // This contract stands in for the Router: on recordSwap, and as the
         // `weth()` the native V4 door asks the Router for.
         hub.setRoles(address(this), address(solver), address(this));

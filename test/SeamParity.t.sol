@@ -100,7 +100,7 @@ contract SeamParityTest is Test {
         tokA = new MockERC20("A", "A");
         tokB = new MockERC20("B", "B");
         aFirst = address(tokA) < address(tokB);
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), treasury1, treasury2
         );
@@ -225,7 +225,7 @@ contract SeamParityTest is Test {
             kind: BPC.KIND_SOLIDLY, pool: address(pair), zeroForOne: aFirst,
             fee: 30, tickSpacing: 0, stable: false,
             tokenIn: address(tokA), tokenOther: address(tokB),
-            hooks: address(0), v4Manager: address(0), decIn1: 0, decOther1: 0
+            hooks: address(0), v4Manager: address(0), hub: address(0), decIn1: 0, decOther1: 0
         });
         (uint256 coreQuote, ) = BPC.universalQuote(ctx, netIn);
         assertGt(coreQuote, 0, "the fallback quote must be positive");

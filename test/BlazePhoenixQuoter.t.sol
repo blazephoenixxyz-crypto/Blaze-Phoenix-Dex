@@ -32,7 +32,7 @@ contract BlazePhoenixQuoterTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
 
         tokenA = new MockERC20("A", "A");

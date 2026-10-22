@@ -131,6 +131,9 @@ struct QuoteCtx {
     address tokenOther;
     address hooks;
     address v4Manager;   // V4 PoolManager (for extsload state reads); 0 if N/A
+    /// @dev The Hub whose admitted Gates a kind-9 pool must belong to (`gateQuote`); 0 if N/A,
+    ///      and a kind-9 pool then prices 0 (no Gate is admitted by the zero address).
+    address hub;
     /// @dev Decimals of both tokens, ENCODED AS `decimals + 1`.
     ///      0 = "not filled in" -> `universalQuote` reads them itself.
     ///
@@ -149,6 +152,13 @@ struct QuoteCtx {
     uint8   decIn1;
     uint8   decOther1;
 }
+
+// Most wrappers one Gate holds for a pair (the Gate's `create` refuses one more, and
+// `wrappersOf` answers exactly this many words). The best door reads every one on every
+// solve of the pair (Core.gatedOf: one identity check each) and they take seats in the
+// Solver's funnel of MAX_CANDIDATES = 8: four leaves half of it to the native venues.
+// File-level so it can size an array in the Gate and in Core alike.
+uint256 constant GATE_MAX_WRAPPERS = 4;
 
 library BlazePhoenixCore {
 
@@ -1682,6 +1692,13 @@ library BlazePhoenixCore {
         public view returns (uint256 out, uint256 depthWad)
     {
         if (amountIn == 0) return (0, 0);
+        // KIND_EXTERNAL: the Gate wrapper's one producer, identity first (`gateQuote`). Its
+        // depth is the Gate's `vitalOf`, the registry fitness depth of the wrapper.
+        if (c.kind == KIND_EXTERNAL) {
+            (, out, depthWad) = gateQuote(
+                c.hub, c.pool, c.tokenIn, c.tokenOther, c.fee, c.zeroForOne, amountIn, true);
+            return (out, depthWad);
+        }
         uint8 k = c.kind;
         // Tombstone 3 left this branch (an EIP-170 dead-code pass): the venue
         // that lived there did not expose getReserves(), so this branch always
@@ -2800,4 +2817,125 @@ library BlazePhoenixCore {
         if (amountIn == 0 || sqrtP == 0 || liq == 0) return BPS;
         return impactV3FromOut(outV3(amountIn, sqrtP, liq, feePpm, zeroForOne, 0), amountIn, sqrtP, zeroForOne);
     }
+
+    // ─── the Gate's wrappers as planner rows (gated-auto, 2026-10-22) ───
+
+    /// @notice THE ONE PRODUCER of a Gate wrapper's price for a leg: the Quoter's kind-9 arm and
+    ///         `universalQuote` (the Solver's) read it, so the price a plan is built on and the
+    ///         price the quote channel reports are the same. `live` is `gateWrapperLive` (the
+    ///         identity the Router demands at execution); a pool that is not live prices 0.
+    ///         `out` is the wrapper's view `quote` (its adapter's answer), run under
+    ///         GATE_QUOTE_GAS so one adapter cannot spend the caller's gas; a failure is 0.
+    ///         With `withDepth`, `depth18` is the Gate's own fitness depth (`vitalOf`: the
+    ///         adapter's declared depth capped by the mass the venue pool holds), so the depth
+    ///         a kind-9 candidate votes the band with has one producer too.
+    function gateQuote(
+        address hub, address pool, address tIn, address tOut, uint24 fee,
+        bool zeroForOne, uint256 amountIn, bool withDepth
+    ) public view returns (bool live, uint256 out, uint256 depth18) {
+        live = gateWrapperLive(hub, pool, tIn, tOut, fee);
+        if (!live || amountIn == 0) return (live, 0, 0);
+        bytes memory cd = abi.encodeWithSignature("quote(bool,uint256)", zeroForOne, amountIn);
+        assembly ("memory-safe") {
+            let ok := staticcall(GATE_QUOTE_GAS, pool, add(cd, 32), mload(cd), 0x00, 0x20)
+            ok := and(ok, iszero(lt(returndatasize(), 0x20)))
+            if ok { out := mload(0x00) }
+        }
+        if (!withDepth || out == 0) return (live, out, 0);
+        // `live` proved pool.gate() is an admitted Gate; the depth is that Gate's answer.
+        (, uint256 g) = _askWord(pool, abi.encodeWithSignature("gate()"));
+        (depth18, ) = _gateVital(address(uint160(g)), pool);
+    }
+
+    /// @notice The Gate's psi for `w` (its `vitalOf`): 0 for a pool that Gate did not create
+    ///         or whose family has no live adapter. The Solver's ranking reads it for its
+    ///         kind-9 rows, which have no Hub row (psi 0 there) (P2).
+    function gatePsi(address gate, address w) public view returns (uint256 p) {
+        (, p) = _gateVital(gate, w);
+    }
+
+    /// @dev `vitalOf(w)` of `g`: (depth18, psi), zeros on any failure. It runs one adapter read
+    ///      under its own GATE_QUOTE_GAS; twice that bounds the whole answer.
+    function _gateVital(address g, address w) private view returns (uint256 depth18, uint256 p) {
+        bytes memory cd = abi.encodeWithSignature("vitalOf(address)", w);
+        assembly ("memory-safe") {
+            let ok := staticcall(mul(GATE_QUOTE_GAS, 2), g, add(cd, 32), mload(cd), 0x00, 0x60)
+            if and(ok, iszero(lt(returndatasize(), 0x60))) {
+                depth18 := mload(0x20)
+                p := mload(0x40)
+            }
+        }
+    }
+
+    /// @notice The Gate's live wrappers of (tA, tB) as planner rows (P3b). `gate` is the one
+    ///         Gate the caller trusts (the Solver's immutable); its list is filtered by
+    ///         `gateWrapperLive`, so a row is returned only if the Hub admits the Gate's code
+    ///         NOW, the address derives from (t0, t1, key) and the family has a live adapter.
+    ///         `active` is true: an admitted factory vouches for the row (the Solver's band
+    ///         vote reads that bit). A gate with no code, or no full answer, gives no row.
+    function gatedOf(address gate, address hub, address tA, address tB)
+        internal view returns (PoolInfo[] memory out)
+    {
+        (address t0, address t1) = sortTokens(tA, tB);
+        bytes memory cd = abi.encodeWithSignature("wrappersOf(address,address)", t0, t1);
+        uint256[GATE_MAX_WRAPPERS] memory ws;
+        bool ok;
+        assembly ("memory-safe") {
+            ok := staticcall(GAS_CAP, gate, add(cd, 32), mload(cd), ws, 0x80)
+            ok := and(ok, iszero(lt(returndatasize(), 0x80)))
+        }
+        if (!ok) return out;
+        out = new PoolInfo[](GATE_MAX_WRAPPERS);
+        uint256 n;
+        for (uint256 i; i < GATE_MAX_WRAPPERS; ++i) {
+            if (ws[i] == 0) break;   // the list is in creation order, 0 past the last
+            address w = address(uint160(ws[i]));
+            uint24 key = uint24(ws[i] >> 160);
+            if (!gateWrapperLive(hub, w, t0, t1, key)) continue;
+            out[n++] = PoolInfo({
+                active: true, stable: false, kind: KIND_EXTERNAL, fee: key, tickSpacing: 0,
+                token0: t0, token1: t1, pool: w, hooks: address(0)
+            });
+        }
+        assembly ("memory-safe") { mstore(out, n) }
+    }
+
+    /// @notice The discovery list the Solver merges (P3b): the Hub's derived sweep when `sweep`
+    ///         (the registry is not fresh), less its kind-9 rows, then `gatedOf` - the trusted
+    ///         Gate's live wrappers - ALWAYS. A wrapper has no Hub row, so a fresh registry would
+    ///         otherwise hide it for good; it is seated by the Gate's list or not at all, never
+    ///         twice. The caller decides `sweep` before this, from its registry rows only, so a
+    ///         wrapper never votes freshness. A failing sweep reverts, as the Hub's call does.
+    function discoverWithGate(address hub, address gate, address tA, address tB, bool sweep)
+        public view returns (PoolInfo[] memory out)
+    {
+        PoolInfo[] memory g = gatedOf(gate, hub, tA, tB);
+        uint256 rows;
+        uint256 dn;
+        if (sweep) {
+            (bool ok, bytes memory r) = hub.staticcall(
+                abi.encodeWithSignature("discoverFor(address,address)", tA, tB));
+            if (!ok) assembly ("memory-safe") { revert(add(r, 32), mload(r)) }
+            // The Hub's answer is abi.encode(PoolInfo[]) and PoolInfo is all value types:
+            // [0x20][len][len rows of 9 words]. A row's nine words ARE a memory PoolInfo, so
+            // each row is read in place (no decoder, no copy); the return encoder below cleans
+            // every field. A shape that is not exactly that reverts.
+            assembly ("memory-safe") {
+                dn := mload(add(r, 0x40))
+                rows := add(r, 0x60)
+                if or(iszero(eq(mload(add(r, 0x20)), 0x20)),
+                      iszero(eq(mload(r), add(0x40, mul(dn, 0x120))))) { revert(0, 0) }
+            }
+        }
+        out = new PoolInfo[](dn + g.length);
+        uint256 n;
+        for (uint256 i; i < dn; ++i) {
+            PoolInfo memory p;
+            assembly ("memory-safe") { p := add(rows, mul(i, 0x120)) }
+            if (p.kind != KIND_EXTERNAL) out[n++] = p;
+        }
+        for (uint256 i; i < g.length; ++i) out[n++] = g[i];
+        assembly ("memory-safe") { mstore(out, n) }
+    }
 }
+

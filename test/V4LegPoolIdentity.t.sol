@@ -101,7 +101,7 @@ contract V4LegPoolIdentityTest is Test {
         mgr = new ExtsloadV4Manager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), treasury1, treasury2);
         // The Router must BE the router role, or recordSwap dies in the try/catch.

@@ -72,7 +72,7 @@ contract SolverHookAdmissibilityTest is Test {
         v4mgr = new QuotableV4Manager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(v4mgr));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         hub.setRoles(address(this), address(solver), address(this));
 
         tA = new MockERC20("A", "A");

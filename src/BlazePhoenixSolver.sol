@@ -242,10 +242,14 @@ contract BlazePhoenixSolver {
     error SolverE(uint16 code);
 
     IHubR public immutable hub;
+    /// The one Gate whose wrappers (kind 9) this planner seats (owner's decision 2026-10-22:
+    /// gated venues at the automatic door). Zero = no Gate: Core.gatedOf gives no row for it.
+    address public immutable gate;
 
-    constructor(address hub_) {
+    constructor(address hub_, address gate_) {
         require(hub_ != address(0), "Solver:hub0");
         hub = IHubR(hub_);
+        gate = gate_;
     }
 
     // =========================================================================
@@ -1466,6 +1470,8 @@ contract BlazePhoenixSolver {
             hooks:       cand.hooks,
             v4Manager:   BPC.kindHasAny(cand.kind, BPC.A_CONC_SING)
                 ? hub.v4PoolManager() : address(0),
+            // A Gate wrapper (kind 9) is priced by Core.gateQuote against this Hub's admission.
+            hub:         address(hub),
             // NO TERNARY, and the reason matters. The first version wrote
             // `zfo ? dIn1 : dIn1` — both branches equal, a no-op pretending
             // a decision had been made. There is none: `zfo` says whether tIn
@@ -1517,8 +1523,11 @@ contract BlazePhoenixSolver {
         // for DISCOVERY_TTL_SECONDS — tune the constants for coverage vs gas. This
         // re-introduces, behind a freshness gate, the "prefer registered" shortcut
         // that was previously removed for permanently suppressing discovery.
-        PoolInfo[] memory dis;
-        if (!_registryFresh(reg)) dis = hub.discoverFor(tA, tB);
+        //
+        // THE GATE'S WRAPPERS ENTER EVERY MERGE (P3b), as discovery rows: Core.discoverWithGate
+        // appends the immutable Gate's live wrappers whether or not the sweep runs. They do NOT
+        // vote `_registryFresh` (it reads `reg` only), so they cannot switch discovery off.
+        PoolInfo[] memory dis = BPC.discoverWithGate(address(hub), gate, tA, tB, !_registryFresh(reg));
         uint256 rn = reg.length;
         uint256 dn = dis.length;
         PoolInfo[] memory merged = new PoolInfo[](rn + dn);
@@ -1586,7 +1595,12 @@ contract BlazePhoenixSolver {
             // cached depth is capped by what the pool holds now.
             if (n > keep) deep = _capByLiveDepth(active, ps, n);
         }
-        for (uint256 i; i < n; ) { if (ps[i] == 0) ps[i] = 1; unchecked { ++i; } }
+        for (uint256 i; i < n; ) {
+            // A wrapper has no Hub row (psi 0 there): the Gate's vitalOf scores it (P2).
+            if (active[i].kind == BPC.KIND_EXTERNAL) ps[i] = BPC.gatePsi(gate, active[i].pool);
+            if (ps[i] == 0) ps[i] = 1;
+            unchecked { ++i; }
+        }
         uint256 k = n < keep ? n : keep;
         out = new PoolInfo[](k);
         for (uint256 ki; ki < k; ) {

@@ -70,7 +70,7 @@ contract APoolsAnswerIsBoundedByTheReaderTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         A = new MockERC20("A", "A");
         B = new MockERC20("B", "B");
         (address t0, address t1) = address(A) < address(B) ? (address(A), address(B)) : (address(B), address(A));

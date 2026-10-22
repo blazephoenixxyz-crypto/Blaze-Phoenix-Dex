@@ -73,7 +73,7 @@ contract UnvisitedCellsBridgeTest is Test {
     function _bootstrap() internal {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), T1, T2);
         A = new MockERC20("A", "A"); B = new MockERC20("B", "B");
         dec0 = new MockERC20("D0", "D0"); dec1 = new MockERC20("D1", "D1"); br3 = new MockERC20("BR3", "BR3");

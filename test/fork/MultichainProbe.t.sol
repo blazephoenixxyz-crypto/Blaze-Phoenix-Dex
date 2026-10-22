@@ -60,7 +60,7 @@ abstract contract ChainProbeBase is Test {
     function _core(address v4Manager) internal {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), v4Manager);
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), TEST_TREASURY_1, TEST_TREASURY_2
         );

@@ -35,7 +35,7 @@ contract V4MedianMassIsHeldTest is Test {
         mgr = new MockV4TickManager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         MockERC20 a = new MockERC20("A", "A");
         MockERC20 b = new MockERC20("B", "B");
         (t0, t1) = address(a) < address(b) ? (address(a), address(b)) : (address(b), address(a));

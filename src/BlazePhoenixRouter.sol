@@ -1712,14 +1712,15 @@ contract BlazePhoenixRouter {
         // reverts directly — same result, fewer bytes.
         if (BPC.kindHas(k, BPC.A_RESERVES)) {
             _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
-        } else if (BPC.kindHas(k, BPC.A_CONC_POOL) || (k == BPC.KIND_EXTERNAL && msg.sender != address(this))) {
+        } else if (BPC.kindHas(k, BPC.A_CONC_POOL) || k == BPC.KIND_EXTERNAL) {
             // KIND_EXTERNAL is an IDENTITY, not an attribute: a Gate wrapper speaks the V3
             // swap/callback ABI, so it settles through the same callback and the same
             // measured delta. It has no theta bit, so no reader treats it as a V3 pool.
-            // Explicit-route doors only: the best door re-enters as this Router
-            // (selfExecutePrePulled), so a Solver plan carrying kind 9 falls to RouterE(8).
-            // The calldata's kind is a claim, not an identity: BPC.gateWrapperLive derives
-            // the wrapper from the Hub's Gate row and the hop's own tokens and fee.
+            // Every door, the best one included (owner's decision 2026-10-22: gated venues at the
+            // automatic door; it reverses the explicit-doors-only rule of 2026-10-21): the Solver
+            // seats the immutable Gate's wrappers. The calldata's kind is a claim, not an
+            // identity: BPC.gateWrapperLive derives the wrapper from the Hub's Gate row and the
+            // hop's own tokens and fee.
             if (k == BPC.KIND_EXTERNAL && !BPC.gateWrapperLive(address(hub), leg.pool, tokenIn, legOutRaw, leg.fee))
                 revert RouterE(19);
             _execV3Amt(leg, tokenIn, amt);

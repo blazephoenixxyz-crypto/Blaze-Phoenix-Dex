@@ -129,7 +129,7 @@ contract Seal1021FeeNeverBlocksTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), t1, t2);
         tok = new SealFeeToken();
         other = new MockERC20("O", "O");

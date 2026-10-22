@@ -55,7 +55,7 @@ contract SplitGateSeesTheWholeBandTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         hub.setRoles(address(this), address(solver), address(this));
         A = new MockERC20("A", "A");
         B = new MockERC20("B", "B");
@@ -123,7 +123,7 @@ contract SplitGateSeesTheWholeBandTest is Test {
     function test_R2_Control_FourCandidatesNoCutPaysTheBestSingle() public {
         BlazePhoenixHub h2 = new BlazePhoenixHub(address(this));
         h2.initialize(address(this), address(0));
-        BlazePhoenixSolver s2 = new BlazePhoenixSolver(address(h2));
+        BlazePhoenixSolver s2 = new BlazePhoenixSolver(address(h2), address(0));
         h2.setRoles(address(this), address(s2), address(this));
 
         MockV2Pair p0 = new MockV2Pair(address(A), address(B));
@@ -155,7 +155,7 @@ contract SplitGateSeesTheWholeBandTest is Test {
         for (uint256 d; d < devs.length; ++d) {
             BlazePhoenixHub h = new BlazePhoenixHub(address(this));
             h.initialize(address(this), address(0));
-            BlazePhoenixSolver s = new BlazePhoenixSolver(address(h));
+            BlazePhoenixSolver s = new BlazePhoenixSolver(address(h), address(0));
             h.setRoles(address(this), address(s), address(this));
             uint256 rB = 1e28 * devs[d] / 10_000;
             MockV2Pair sh = new MockV2Pair(address(A), address(B));

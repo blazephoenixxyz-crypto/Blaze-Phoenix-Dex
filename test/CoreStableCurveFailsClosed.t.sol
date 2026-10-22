@@ -80,7 +80,7 @@ contract StableCurveReachesTheSolverTest is Test {
         MockERC20 B = new MockERC20("B", "B");
         BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         (address t0, address t1) = address(A) < address(B) ? (address(A), address(B)) : (address(B), address(A));
         MockSolidlyPair p = new MockSolidlyPair(t0, t1, true);
         // a tenth of a token on each side, in 18-decimal wei: the fit check's own division

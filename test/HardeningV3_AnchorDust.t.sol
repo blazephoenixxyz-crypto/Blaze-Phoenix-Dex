@@ -78,7 +78,7 @@ contract HardeningV3_AnchorDustTest is Test {
         mgr = new MockV4StateManager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
 
         MockERC20 a = new MockERC20("A", "A");
         MockERC20 b = new MockERC20("B", "B");

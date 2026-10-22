@@ -67,7 +67,7 @@ contract RobinhoodV4NativeTest is Test {
     function _stack() internal returns (BlazePhoenixHub h, BlazePhoenixQuoter q) {
         h = new BlazePhoenixHub(address(this));
         h.initialize(address(this), PM);
-        BlazePhoenixSolver s = new BlazePhoenixSolver(address(h));
+        BlazePhoenixSolver s = new BlazePhoenixSolver(address(h), address(0));
         BlazePhoenixRouter r = new BlazePhoenixRouter(address(h), address(s), address(this), T1, T2);
         q = new BlazePhoenixQuoter(address(h), address(s));
         h.setRoles(address(r), address(s), address(q));

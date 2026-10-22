@@ -316,7 +316,7 @@ contract V4DynamicFeeBeforeSwapHookQuoteTest is Test {
         mgr = new MockV4DynFeeManager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         hub.setRoles(address(router), address(solver), address(quoter));

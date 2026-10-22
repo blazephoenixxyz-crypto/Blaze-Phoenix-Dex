@@ -32,7 +32,7 @@ contract SolverEstGasIsTheLadderSumTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         tokenA = new MockERC20("A", "A");
         tokenB = new MockERC20("B", "B");
     }
@@ -71,7 +71,7 @@ contract SolverEstGasIsTheLadderSumTest is Test {
         // A hub with ONE pool, the same pair, the same amounts.
         BlazePhoenixHub hubOne = new BlazePhoenixHub(address(this));
         hubOne.initialize(address(this), address(0));
-        BlazePhoenixSolver solverOne = new BlazePhoenixSolver(address(hubOne));
+        BlazePhoenixSolver solverOne = new BlazePhoenixSolver(address(hubOne), address(0));
         _seedV2On(hubOne, 1_000_000e18, 1_600_000e18);
         RoutePlan memory one = solverOne.findBestRoutePlan(address(tokenA), address(tokenB), 100_000e18);
         Leg[] memory legsOne = _legs(one);

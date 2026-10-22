@@ -50,7 +50,7 @@ contract RouteMetamorphicRelationsTest is Test {
     function _universe(Pool[] memory ps) private returns (BlazePhoenixSolver solver) {
         BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         for (uint256 i; i < ps.length; ++i) {
             MockV2Pair p = new MockV2Pair(address(A), address(B));
             A.mint(address(p), ps[i].rA);

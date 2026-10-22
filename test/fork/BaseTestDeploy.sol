@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
+import {BlazePhoenixGate} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
 
@@ -76,7 +77,9 @@ library BaseTestDeploy {
     {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(admin, BASE_V4_MGR);
-        solver = new BlazePhoenixSolver(address(hub));
+        // The 2.0.0 wiring: the Solver seats the wrappers of ONE Gate, fixed here. No adapter
+        // and no Hub row on the fork, so the Gate answers no wrapper (Core.gatedOf: no row).
+        solver = new BlazePhoenixSolver(address(hub), address(new BlazePhoenixGate(admin)));
         router = new BlazePhoenixRouter(address(hub), address(solver), admin, TEST_TREASURY_1, TEST_TREASURY_2);
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         hub.setRoles(address(router), address(solver), address(quoter));

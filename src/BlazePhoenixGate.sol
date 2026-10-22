@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
-import {BlazePhoenixCore as BPC} from "./BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, GATE_MAX_WRAPPERS} from "./BlazePhoenixCore.sol";
 
 // =============================================================================
 //  BlazePhoenixGate — one Hub factory row (KIND_EXTERNAL, MODE_CREATE2_V3) in
@@ -62,7 +62,8 @@ contract BlazePhoenixGate {
     /// 1 not the curator | 2 control renounced or not the admin | 3 bad argument |
     /// 4 no live adapter (none, or its code moved from the pin) | 5 resolve gave no pool |
     /// 6 adapter code refused by the scan | 7 timelock running | 8 nothing pending |
-    /// 9 adapter code moved since the proposal | 10 replacing a family after renounce
+    /// 9 adapter code moved since the proposal | 10 replacing a family after renounce |
+    /// 16 the pair already holds MAX_WRAPPERS_PER_PAIR wrappers (11-15 are the wrapper's)
     error GateE(uint8 code);
 
     event AdapterProposed(uint8 indexed family, address adapter, bytes32 codehash, uint256 eta);
@@ -73,6 +74,8 @@ contract BlazePhoenixGate {
     event ControlRenounced();
 
     uint256 public constant ADAPTER_DELAY = 48 hours;
+    /// Most wrappers one pair may hold: Core's GATE_MAX_WRAPPERS (the reason is there).
+    uint256 public constant MAX_WRAPPERS_PER_PAIR = GATE_MAX_WRAPPERS;
     /// keccak256 of the wrapper's creation code: the init hash the Hub's factory row carries.
     bytes32 public immutable WRAPPER_INIT_HASH;
 
@@ -87,6 +90,9 @@ contract BlazePhoenixGate {
     mapping(uint8 => bytes32) public pinOf;
     mapping(uint8 => Pending) public pendingOf;
     mapping(address => bool) public isWrapper;
+    /// Every wrapper of the sorted pair (t0, t1), in creation order: venueKey << 160 | wrapper,
+    /// 0 past the last. Grow-only, like the wrappers themselves; `create` is the one writer.
+    mapping(address => mapping(address => uint256[GATE_MAX_WRAPPERS])) private _pairWrappers;
 
     // Parameters of the wrapper under construction, read back by its constructor.
     address transient private _pT0;
@@ -204,6 +210,10 @@ contract BlazePhoenixGate {
         // venueKey 0 is the Hub's Algebra sentinel (fee 0 derives by algebraSalt), so a wrapper
         // under it would never be found.
         if (t0 == address(0) || t0 == t1 || venueKey == 0) revert GateE(3);
+        uint256[GATE_MAX_WRAPPERS] storage list = _pairWrappers[t0][t1];
+        uint256 free;
+        while (free < GATE_MAX_WRAPPERS && list[free] != 0) ++free;
+        if (free == GATE_MAX_WRAPPERS) revert GateE(16);
         address a = liveAdapter(uint8(venueKey >> 16));
         if (a == address(0)) revert GateE(4);
         (address vp, bytes32 x0, bytes32 x1) = IExtAdapter(a).resolve(t0, t1, venueKey, hint);
@@ -211,6 +221,7 @@ contract BlazePhoenixGate {
         (_pT0, _pT1, _pKey, _pVenue, _pAux0, _pAux1) = (t0, t1, venueKey, vp, x0, x1);
         w = address(new BlazePhoenixGateWrapper{salt: BPC.v3Salt(t0, t1, venueKey)}());
         isWrapper[w] = true;
+        list[free] = (uint256(venueKey) << 160) | uint160(w);
         emit WrapperCreated(w, t0, t1, venueKey, vp);
     }
 
@@ -243,6 +254,31 @@ contract BlazePhoenixGate {
         uint256 held = BPC.heldMass18(x.venuePool(), t0, BPC.decimalsOf(t0), t1, BPC.decimalsOf(t1));
         if (held < depth18) depth18 = held;
         psi = BPC.psi(BPC.setBucket(s, BPC.depthBucket(depth18)), ts, false, false);
+    }
+
+    /// Every wrapper this Gate created for the pair, in creation order, packed as
+    /// venueKey << 160 | wrapper, 0 past the last (MAX_WRAPPERS_PER_PAIR words, always).
+    /// Read by Core.gatedOf.
+    function wrappersOf(address tA, address tB)
+        external view returns (uint256[GATE_MAX_WRAPPERS] memory)
+    {
+        (address t0, address t1) = BPC.sortTokens(tA, tB);
+        return _pairWrappers[t0][t1];
+    }
+
+    /// Called by one of this Gate's wrappers when a proof swap measured its quote broken
+    /// (BlazePhoenixGateWrapper.quoteBroken): it leaves its pair's list, the automatic door, and
+    /// the others keep their creation order. The slot is free for another venue key. The
+    /// explicit doors still settle it. The identity is the list itself: a caller removes only
+    /// its own entry, under the pair it names, so any other caller changes nothing.
+    function retire() external {
+        BlazePhoenixGateWrapper w = BlazePhoenixGateWrapper(msg.sender);
+        uint256[GATE_MAX_WRAPPERS] storage list = _pairWrappers[w.token0()][w.token1()];
+        bool gone;
+        for (uint256 i; i < GATE_MAX_WRAPPERS; ++i) {
+            if (!gone) gone = uint160(list[i]) == uint160(msg.sender);
+            if (gone) list[i] = i + 1 < GATE_MAX_WRAPPERS ? list[i + 1] : 0;
+        }
     }
 
     /// Where the wrapper of (tA, tB, venueKey) lives, created or not: the Hub's derive, by the
@@ -278,6 +314,11 @@ contract BlazePhoenixGateWrapper {
     /// lastBlk and lastUpdateTs, through Core's tickSlot and stampTs. Read by Gate.vitalOf.
     uint256 public vitalSlot;
 
+    /// Set for ever by a proof swap (recipient = this wrapper) whose delivered output fell more
+    /// than 1 bp short of the adapter's own view quote for the same input, read at the same
+    /// state just before the trade. The Gate then drops the wrapper from its pair's list.
+    bool public quoteBroken;
+
     bool transient private _locked;
 
     constructor() {
@@ -294,6 +335,10 @@ contract BlazePhoenixGateWrapper {
 
     /// 11 re-entered | 12 not exact-in | 4 no live adapter | 13 paid less than asked |
     /// 14 the adapter kept part of the input or of the output | 15 the wrapper was left holding it
+    ///
+    /// recipient = this wrapper is the PROOF swap: anyone may trade a material input to measure
+    /// the adapter's quote against what it delivers, at a balance only the wrapper moves. The
+    /// output is forwarded to the caller.
     function swap(address recipient, bool zeroForOne, int256 amountSpecified, uint160, bytes calldata data)
         external returns (int256 amount0, int256 amount1)
     {
@@ -318,6 +363,14 @@ contract BlazePhoenixGateWrapper {
         uint256 outBefore = BPC.balanceOf(tOut, recipient);
         uint256 vIn = BPC.balanceOf(tIn, venuePool);
         uint256 vOut = BPC.balanceOf(tOut, venuePool);
+        // The proof's claim: the adapter's own quote for `paid`, after the caller's callback, so
+        // no one can move the venue between the claim and the trade. A failed or starved read
+        // claims 0, which can never mark the quote broken.
+        uint256 claim;
+        if (recipient == address(this) && paid >= vIn >> MATERIAL_SHIFT) {
+            try IExtAdapter(a).quote{gas: BPC.GATE_QUOTE_GAS}(venuePool, aux0, aux1, zeroForOne, paid)
+                returns (uint256 o, uint256) { claim = o; } catch {}
+        }
         BPC.safeTransfer(tIn, a, paid);
         IExtAdapter(a).exec(venuePool, aux0, aux1, zeroForOne, paid, recipient);
 
@@ -326,24 +379,30 @@ contract BlazePhoenixGateWrapper {
         if (BPC.balanceOf(tIn, a) > adIn) revert GateE(14);
         if (BPC.balanceOf(tOut, a) > adOut) revert GateE(14);
         if (BPC.balanceOf(tIn, address(this)) > inBefore) revert GateE(15);
-        if (BPC.balanceOf(tOut, address(this)) > wOut) revert GateE(15);
 
-        // 4) The output is the measured delta at the recipient, in V3's sign convention.
+        // 4) The output is the measured delta at the recipient, in V3's sign convention. A
+        //    proof forwards it to the caller before the wrapper's own custody check.
         uint256 out = BPC.balanceOf(tOut, recipient) - outBefore;
+        if (recipient == address(this)) BPC.safeTransfer(tOut, msg.sender, out);
+        if (BPC.balanceOf(tOut, address(this)) > wOut) revert GateE(15);
         if (zeroForOne) amount1 = -int256(out);
         else amount0 = -int256(out);
 
         // 5) Use: only a swap material on both sides of the venue pool ticks (MATERIAL_SHIFT).
         //    A venue empty of the output makes its threshold 0, so nothing out is never use.
-        if (out != 0 && paid >= vIn >> MATERIAL_SHIFT && out >= vOut >> MATERIAL_SHIFT) {
+        //    A proof that fell short of its claim by more than 1 bp is no use: it breaks the quote.
+        if (claim - claim / BPC.BPS > out) {
+            quoteBroken = true;
+            BlazePhoenixGate(gate).retire();
+        } else if (out != 0 && paid >= vIn >> MATERIAL_SHIFT && out >= vOut >> MATERIAL_SHIFT) {
             uint32 ts = uint32(block.timestamp);
             vitalSlot = BPC.stampTs(BPC.tickSlot(vitalSlot, uint32(block.number), 0, ts), ts);
         }
         _locked = false;
     }
 
-    /// View quote through the live adapter; 0 when there is none or it fails. Never read by
-    /// `swap`.
+    /// View quote through the live adapter; 0 when there is none or it fails. `swap` reads the
+    /// adapter's quote itself, only in a proof.
     function quote(bool zeroForOne, uint256 amtIn) external view returns (uint256 out, uint256 depth18) {
         address a = BlazePhoenixGate(gate).liveAdapter(family);
         if (a == address(0)) return (0, 0);

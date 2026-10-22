@@ -330,6 +330,44 @@
       "guard": "_recordHits",
       "test": "test_GateF2_Router_FeedbackSkipsKindExternal",
       "note": "gatedfresh-1022. Wrapper.swap is the one writer of a wrapper's use (vitalSlot, read by Gate.vitalOf). Router._recordHits skips a kind-9 leg as it skips a leg that did not run; Hub.recordSwap's KINDS_EXECUTABLE return stays as the fail-closed second check. Measured on the explicit door (release profile, warm wrapper): 325 657 to 315 391 gas per kind-9 swap; Router +25 B. Mutant [679]."
+    },
+    {
+      "id": "GATED-AUTO-IDENTITY",
+      "class": "The automatic door seats a kind-9 row that is not a live wrapper of the Solver's own Gate: a stranger's contract, another Gate's wrapper, or a wrapper whose family was cleared",
+      "status": "blocked",
+      "guard": "gateWrapperLive",
+      "test": "test_GatedAuto_ClearedFamilyLeavesTheBestDoorToThePair",
+      "note": "gatedauto-1022 (owner, 2026-10-22: «gated na porta automática»). The Solver reads its candidates from its immutable gate's wrappersOf through Core.discoverWithGate, filters each entry by Core.gateWrapperLive and drops the Hub sweep's own kind-9 rows; the Router's dispatch keeps gateWrapperLive on the execution path at every door, the best door's self-call included (test_GateF2_BestDoor_SettlesKindExternal, test_GateF2_Solver_NeverPlansAWrapperWithoutItsGate). Mutants [516] [567] [680]-[684]."
+    },
+    {
+      "id": "GATED-AUTO-FRESHNESS-VOTE",
+      "class": "Gate wrappers count toward the Solver's freshness quorum, so listed wrappers suppress the Hub sweep that would find a deeper venue",
+      "status": "blocked",
+      "guard": "_registryFresh",
+      "test": "test_GatedAuto_WrappersDoNotVoteFreshness",
+      "note": "gatedauto-1022. _registryFresh and MIN_FRESH_VENUES count curated Hub rows only; the Hub never holds a kind-9 row (seedPool refuses it, recordSwap skips it). Gated rows enter every merge, sweep or not. Mutant [685]."
+    },
+    {
+      "id": "GATED-AUTO-LIST-GAS",
+      "class": "An unbounded per-pair wrapper list makes every solve of the pair pay for each wrapper's adapter reads until the search runs out of SOLVE_GAS",
+      "status": "blocked",
+      "guard": "GATE_MAX_WRAPPERS",
+      "test": "test_GatedAuto_WrapperListIsCappedAtFour",
+      "note": "gatedauto-1022. Gate.create refuses a fifth wrapper per pair (GateE(16)); Gate.retire removes a wrapper's own entry and shifts the rest (test_GatedAuto_RetireKeepsTheOthersInOrder). Measured on swapBestExactIn, release profile, mock adapter: +110 393 gas per listed wrapper that loses; each adapter read is capped at GATE_QUOTE_GAS, and SOLVE_GAS exhaustion fails closed (RouterE(17)). Mutants [686] [694]."
+    },
+    {
+      "id": "GATED-AUTO-OVERQUOTE",
+      "class": "An admitted Gate adapter's view quote promises more than its venue delivers, so the automatic door plans the wrapper and the leg floor reverts the best door for the pair",
+      "status": "blocked",
+      "guard": "quoteBroken",
+      "test": "test_GatedAuto_OverquotingAdapterIsMeasuredOutOfTheList",
+      "note": "gatedauto-1022. No funds move: the leg floor (LEG_FLOOR_BPS) reverts RouterE(5). The DoS needs the lying wrapper to anchor the depth-weighted band (the pair's mass, or the only venue); under a deeper curated anchor the band keeps a lie above MEDIAN_FILTER_BPS out (test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand), and a lie within it settles above the floor, the user held by userMinOut. Any caller can prove a wrapper: a material swap with recipient = the wrapper reads the adapter's quote for the paid input after the callback, measures the output at the wrapper and forwards it; short by more than 1 bp sets quoteBroken for ever and calls Gate.retire, which takes the wrapper off wrappersOf; rounding is not a lie (test_GatedAuto_RoundingIsNotALie). Not covered: false positives on fee-on-transfer outputs, venues running untrusted hooks in exec, and size-dependent divergence. Mutants [687]-[693]."
+    },
+    {
+      "id": "GATED-AUTO-HOSTILE-ADAPTER",
+      "class": "An admitted Gate adapter that is itself malicious: it reverts in exec to deny the pair's best door, or detects the proof context (the wrapper holds the paid input when the claim is read) and answers it honestly",
+      "status": "out-of-scope",
+      "rationale": "The adapter family is the admin's admission behind a 48-hour timelock with code pinned by hash; the proof catches honest-but-wrong adapters, not adversarial ones. The answer to a hostile family is Gate.clearAdapter, which stops it at once at every door, available until the admin renounces control; after renouncing a hostile family stays listed. Recorded 2026-10-22 (gatedauto-1022)."
     }
   ]
 }

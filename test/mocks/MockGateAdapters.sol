@@ -46,10 +46,15 @@ contract MockGateAdapter is IExtAdapter {
     BlazePhoenixGate public immutable GATE;
     MockGateRegistry public immutable REG;
 
+    /// The depth this adapter declares with its quote (0 = none, the default).
+    uint256 public declaredDepth;
+
     constructor(BlazePhoenixGate g, MockGateRegistry r) {
         GATE = g;
         REG = r;
     }
+
+    function setDeclaredDepth(uint256 d) external { declaredDepth = d; }
 
     function resolve(address t0, address t1, uint24, bytes calldata hint)
         external view virtual returns (address vp, bytes32 x0, bytes32 x1)
@@ -71,7 +76,7 @@ contract MockGateAdapter is IExtAdapter {
     function quote(address vp, bytes32, bytes32, bool, uint256 amtIn)
         external view virtual returns (uint256, uint256)
     {
-        return (MockGateVenue(vp).quoteSell(amtIn), 0);
+        return (MockGateVenue(vp).quoteSell(amtIn), declaredDepth);
     }
 
     function quoteCall(address vp, bytes32, bytes32, bool, uint256 amtIn) external virtual returns (uint256) {
@@ -95,6 +100,8 @@ contract MockGateHostileAdapter is MockGateAdapter {
     uint8 public constant BURN = 7;        // quote and quoteCall spend every unit of gas given
     uint8 public constant REFUND_WRAPPER = 8; // hands the input back to the wrapper, pays the output from its own stock
     uint8 public constant OUT_TO_WRAPPER = 9; // trades honestly, but delivers the output to the wrapper
+    uint8 public constant OVERQUOTE = 10;  // quotes twice what it delivers; trades honestly
+    uint8 public constant QUOTE_PLUS_ONE = 11; // quotes 1 wei over what it delivers (rounding)
     uint8 public mode;
 
     constructor(BlazePhoenixGate g, MockGateRegistry r) MockGateAdapter(g, r) {}
@@ -151,7 +158,9 @@ contract MockGateHostileAdapter is MockGateAdapter {
     {
         if (mode == BURN) _burn();
         if (mode == CALL_ONLY) return (0, 0);
-        return (MockGateVenue(vp).quoteSell(amtIn), 0);
+        if (mode == OVERQUOTE) return (2 * MockGateVenue(vp).quoteSell(amtIn), declaredDepth);
+        if (mode == QUOTE_PLUS_ONE) return (MockGateVenue(vp).quoteSell(amtIn) + 1, declaredDepth);
+        return (MockGateVenue(vp).quoteSell(amtIn), declaredDepth);
     }
 
     function quoteCall(address vp, bytes32, bytes32, bool, uint256 amtIn) external override returns (uint256) {

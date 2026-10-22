@@ -45,7 +45,7 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         // This contract plays the Router so it can reach recordSwap, the
         // permissionless registration door.
         hub.setRoles(address(this), address(solver), address(0));

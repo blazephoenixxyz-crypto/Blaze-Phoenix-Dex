@@ -98,7 +98,7 @@ contract V4LegCounterCurrencyIsTheHopOutTest is Test {
         mgr = new AuxIdV4Manager();
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), makeAddr("t1"), makeAddr("t2"));
         hub.setRoles(address(router), address(solver), address(this));

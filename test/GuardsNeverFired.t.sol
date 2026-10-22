@@ -644,12 +644,12 @@ contract GuardsNeverFiredTest is Test {
 
     function test_W12_Fire_SolverCtorZeroHub_Reverts() public {
         vm.expectRevert(bytes("Solver:hub0"));
-        new BlazePhoenixSolver(address(0));
+        new BlazePhoenixSolver(address(0), address(0));
     }
 
     /// @notice Control -- a real hub address constructs and is stored.
     function test_W12_Control_SolverCtorNonzeroHub_Deploys() public {
-        BlazePhoenixSolver s = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver s = new BlazePhoenixSolver(address(hub), address(0));
         assertEq(address(s.hub()), address(hub), "the hub reference survives construction");
     }
 }

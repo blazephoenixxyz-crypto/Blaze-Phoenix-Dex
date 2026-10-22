@@ -838,22 +838,20 @@ contract BlazePhoenixQuoter {
                 legOut = BPC.mulDiv(
                     leg.expectedOut, legIn > base ? base : legIn, base);
         } else if (leg.kind == BPC.KIND_EXTERNAL) {
-            // A Gate wrapper is priced by its own adapter: the view `quote` first, then the
-            // eth_call `quoteCall` when the view has no answer. A failure is 0, never the
-            // plan's point: kind 9 is never planned, so that point is the caller's.
-            // Same identity the Router's door demands (BPC.gateWrapperLive): a pool that is
-            // not an admitted Gate's wrapper for this hop and fee, or whose family has no
-            // live adapter, prices 0. Each adapter answer runs under GATE_QUOTE_GAS, so one
-            // leg cannot spend the whole quote's gas.
-            if (BPC.gateWrapperLive(address(hub), leg.pool, tIn, tOut, leg.fee)) {
-                try IGateWrapperQ(leg.pool).quote{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn) returns (uint256 o, uint256) {
+            // A Gate wrapper is priced by its own adapter through the ONE producer the Solver
+            // plans with (BPC.gateQuote: the Router's identity, BPC.gateWrapperLive, then the
+            // view `quote` under GATE_QUOTE_GAS), then here only the eth_call `quoteCall` when
+            // the view has no answer. A failure is 0, never the plan's point. A pool that is
+            // not an admitted Gate's wrapper for this hop and fee, or whose family has no live
+            // adapter, prices 0. Each adapter answer runs under GATE_QUOTE_GAS, so one leg
+            // cannot spend the whole quote's gas.
+            bool live;
+            (live, legOut, ) = BPC.gateQuote(
+                address(hub), leg.pool, tIn, tOut, leg.fee, leg.zeroForOne, legIn, false);
+            if (live && legOut == 0) {
+                try IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn) returns (uint256 o) {
                     legOut = o;
                 } catch {}
-                if (legOut == 0) {
-                    try IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn) returns (uint256 o) {
-                        legOut = o;
-                    } catch {}
-                }
             }
         } else {
             // SOLIDLY — priced via the ONE Core dispatcher, exactly like

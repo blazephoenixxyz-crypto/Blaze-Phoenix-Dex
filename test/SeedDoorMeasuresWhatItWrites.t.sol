@@ -44,7 +44,7 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         // This contract stands in for the Router on `recordSwap`: the depth it passes is
         // the one the Router would have measured on the same pool.
         hub.setRoles(address(this), address(solver), address(this));

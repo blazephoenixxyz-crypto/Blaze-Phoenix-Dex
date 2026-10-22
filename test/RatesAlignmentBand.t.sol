@@ -26,7 +26,7 @@ contract RatesAlignmentBandTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0xBEEF));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         hub.setRoles(address(this), address(solver), address(this));
         tA = new MockERC20("A", "A");
         tB = new MockERC20("B", "B");

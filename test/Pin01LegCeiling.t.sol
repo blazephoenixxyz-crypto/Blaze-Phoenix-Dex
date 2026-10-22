@@ -26,7 +26,7 @@ import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 /// @dev Exposes the internal constants without widening the contracts' surface
 ///      (the same probe pattern as test/KindMaskQuestionSeparation.t.sol).
 contract SolverCeilingProbe is BlazePhoenixSolver {
-    constructor(address h) BlazePhoenixSolver(h) {}
+    constructor(address h) BlazePhoenixSolver(h, address(0)) {}
     function stageLegs()  external pure returns (uint8) { return MAX_LEGS_PER_STAGE; }
     function globalLegs() external pure returns (uint8) { return MAX_LEGS; }
 }

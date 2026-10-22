@@ -310,7 +310,7 @@ contract FullStackLoopInvariantTest is StdInvariant, Test {
         // onlyRouter rejects it and _recordHits' catch hides the rejection.
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), treasury1, treasury2);
         hub.setRoles(address(router), address(solver), address(this));
 

@@ -58,7 +58,7 @@ contract DeployedSizeGateTest is Test {
 
     function test_EveryShippedContractIsUnderTheSizeGate() public {
         BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         BlazePhoenixRouter router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), TREASURY_1, TREASURY_2);
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(this));
@@ -74,7 +74,7 @@ contract DeployedSizeGateTest is Test {
     ///      so a commit that eats 300 bytes is visible in the log before it is fatal.
     function test_TheRemainingMarginIsPublished() public {
         BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
-        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         BlazePhoenixRouter router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), TREASURY_1, TREASURY_2);
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(solver));

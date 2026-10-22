@@ -50,7 +50,7 @@ abstract contract F19H15Base is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), T1, T2);
         hub.setRoles(address(router), address(solver), address(this));
 
@@ -218,7 +218,7 @@ abstract contract F19H15Base is Test {
     function _mkWorld() internal returns (H17World memory w) {
         w.hub = new BlazePhoenixHub(address(this));
         w.hub.initialize(address(this), address(0));
-        w.solver = new BlazePhoenixSolver(address(w.hub));
+        w.solver = new BlazePhoenixSolver(address(w.hub), address(0));
         w.router = new BlazePhoenixRouter(address(w.hub), address(w.solver), address(this), T1, T2);
         w.hub.setRoles(address(w.router), address(w.solver), address(this));
 
@@ -787,7 +787,7 @@ contract Fix1019JitLiveWindowTest is F19H15Base {
         F19V4StateManager mgr;
         (W, mgr) = _mkClaimWorld();
         W.hub.addBridge(address(W.a));
-        L.sol = new BlazePhoenixSolver(address(W.hub));
+        L.sol = new BlazePhoenixSolver(address(W.hub), address(0));
         L.rtr = new BlazePhoenixRouter(address(W.hub), address(L.sol), address(this), T1, T2);
         W.solver = L.sol;
         W.router = L.rtr;

@@ -44,7 +44,7 @@ contract FloorParitySolverRouterTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
         hub.setRoles(address(router), address(solver), address(this));
         tokenA = new MockERC20("A", "A");

@@ -50,7 +50,7 @@ contract ImpactCeilingGatesOnWorstLegTest is Test {
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
-        solver = new BlazePhoenixSolver(address(hub));
+        solver = new BlazePhoenixSolver(address(hub), address(0));
         hub.setRoles(address(this), address(solver), address(this));
 
         tokA = new MockERC20("A", "A");

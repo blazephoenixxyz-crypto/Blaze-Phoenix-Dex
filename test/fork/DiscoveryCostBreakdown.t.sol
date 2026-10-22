@@ -61,7 +61,7 @@ contract DiscoveryCostBreakdownTest is Test {
     {
         h = new BlazePhoenixHub(address(this));
         h.initialize(address(this), V4MGR);
-        BlazePhoenixSolver s = new BlazePhoenixSolver(address(h));
+        BlazePhoenixSolver s = new BlazePhoenixSolver(address(h), address(0));
         r = new BlazePhoenixRouter(address(h), address(s), address(this),
                                    address(0x7E51), address(0x7E52));
         q = new BlazePhoenixQuoter(address(h), address(s));
