@@ -1041,11 +1041,8 @@ library BlazePhoenixCore {
     /// @notice The LONG side of a pair, already in 18 decimals: the twin of `shortSide18`, and the
     ///         producer of "the larger of two amounts, normalised" for the Gate adapters, which
     ///         read the venue's reported balances through it (ExtAdapterBase._depth18).
-    ///         `heldMass18` (the cap on what they declare) is the same formula over balanceOf,
-    ///         kept inline for now. The +772 B measured on 2026-10-21 when routing it through
-    ///         here was the via-IR size lottery (see `Hub._register`), not the fold: with
-    ///         `_register` taking runtime arguments only, the fold leaves the Hub at 22,668 B
-    ///         for N = 0..6 in tools/hub-lottery.sh. Folding the two is a follow-up.
+    ///         `heldMass18` (the cap on what they declare) calls it over the pool's own two
+    ///         balances (folded 2026-10-23), so the two answers share one formula.
     function maxSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1) internal pure returns (uint256) {
         uint256 n0 = to18(a0, d0);
         uint256 n1 = to18(a1, d1);
@@ -1460,7 +1457,7 @@ library BlazePhoenixCore {
         bool stable, uint256 cfgFee, address tokenIn
     ) public view returns (uint256) {
         uint256 liveFee = readDynamicFee(pool, stable, cfgFee);
-        if (!stable) return outSolidly(ain, rIn, rOut, liveFee, false);
+        if (!stable) return outV2(ain, rIn, rOut, liveFee);
         address t0 = token0Of(pool);
         address other = t0 == tokenIn ? token1Of(pool) : t0;
         return outSolidlyStable(ain, rIn, rOut, liveFee, _decimalsOf(tokenIn), _decimalsOf(other));
@@ -1831,7 +1828,9 @@ library BlazePhoenixCore {
             bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
             (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
                 v4SqrtAndLiq(c.v4Manager, pid);
-            if (sp == 0 || liq == 0) return (0, 0, 0, 0);
+            // sp == 0 needs no branch of its own: the walk re-reads this slot0 word and
+            // answers zeros, and depthFromL18 is 0 at sp == 0.
+            if (liq == 0) return (0, 0, 0, 0);
             // THE WALK, for ranking and for the promise alike. The single-tick form assumed
             // the current liquidity went on for ever: it ranked a pool holding one tick of
             // range as deep and let it take the whole route (dex-19, ninth wave), while its
@@ -1845,7 +1844,8 @@ library BlazePhoenixCore {
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
-            // ~sqrt(price). sp is non-zero here (guarded on entry).
+            // ~sqrt(price). At sp == 0 the walk above has answered zeros and
+            // depthFromL18 answers 0 too.
             uint8 dIn4 = _decIn(c);
             uint8 dOt4 = _decOther(c);
             (uint8 a0, uint8 a1) = c.zeroForOne ? (dIn4, dOt4) : (dOt4, dIn4);
@@ -1934,8 +1934,9 @@ library BlazePhoenixCore {
         address manager, bytes32 poolId, uint256 amountIn,
         uint24 keyFee, int24 tickSpacing, bool zeroForOne
     ) public view returns (uint256) {
-        (uint160 sp, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);
-        if (sp == 0 || lq == 0) return 0;
+        // sp == 0 needs no branch of its own: v4WalkOut re-reads this slot0 word and answers 0.
+        (, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);
+        if (lq == 0) return 0;
         return v4WalkOut(manager, poolId, amountIn, effV4Fee(keyFee, lpF, pF, zeroForOne), tickSpacing, zeroForOne);
     }
 
@@ -2408,7 +2409,7 @@ library BlazePhoenixCore {
         // empty, never ticked, or past the 32-step full-decay horizon — which scores a
         // true 0 and drops the pool from ranking, and (b) a LIVE slot whose count merely
         // rounded away under the shift, floored to 1 so a real pool never vanishes.
-        if (slot == 0) return 0;
+        // An empty slot decodes lastTs == 0: case (a), a true 0.
         uint32 lastTs = decodeLastUpdateTs(slot);
         if (lastTs == 0) return 0;
         uint32 age = currentTs > lastTs ? currentTs - lastTs : 0;
@@ -2422,10 +2423,10 @@ library BlazePhoenixCore {
         uint256 slot, uint32 currentTs,
         bool isBridge, bool isConcentrated
     ) internal pure returns (uint256 f) {
+        // v == 0 scores 0 through the product below: no early return needed.
         uint256 v = vitality(slot, currentTs);
-        if (v == 0) return 0;
+        // bucketWeight is 1 << b with b <= 15 (a 4-bit field): never 0.
         uint256 w = bucketWeight(decodeBucket(slot));
-        if (w == 0) w = 1;
         f = v * w;
         if (isBridge)        f += (f * 2_500) / BPS;
         if (isConcentrated)  f += (f * 500)   / BPS;
@@ -2441,7 +2442,7 @@ library BlazePhoenixCore {
     ///      entire historical vitality). vitality() delegates its decay arithmetic here and adds
     ///      only its dead-vs-floored ranking policy, so the maths exists in exactly one place.
     function _decayedSwapCount(uint256 slot, uint32 currentTs) internal pure returns (uint32) {
-        if (slot == 0) return 0;
+        // An empty slot decodes lastTs == 0 and returns 0 on the next line.
         uint32 lastTs = decodeLastUpdateTs(slot);
         if (lastTs == 0) return 0;
         uint32 swapCount = decodeSwapCount(slot);
@@ -2635,9 +2636,7 @@ library BlazePhoenixCore {
     function heldMass18(address pool, address t0, uint8 dc0, address t1, uint8 dc1)
         internal view returns (uint256)
     {
-        uint256 n0 = to18(balanceOf(t0, pool), dc0);
-        uint256 n1 = to18(balanceOf(t1, pool), dc1);
-        return n0 > n1 ? n0 : n1;
+        return maxSide18(balanceOf(t0, pool), dc0, balanceOf(t1, pool), dc1);
     }
 
     /// @notice Stamp lastUpdateTs (bits [95:64]) with `ts`: the field `vitality` decays from.
@@ -2814,7 +2813,7 @@ library BlazePhoenixCore {
     function impactV3Bps(
         uint256 amountIn, uint160 sqrtP, uint128 liq, uint24 feePpm, bool zeroForOne
     ) public pure returns (uint256) {
-        if (amountIn == 0 || sqrtP == 0 || liq == 0) return BPS;
+        // A zero input, price or liquidity makes outV3 answer 0, which impactV3FromOut maps to BPS.
         return impactV3FromOut(outV3(amountIn, sqrtP, liq, feePpm, zeroForOne, 0), amountIn, sqrtP, zeroForOne);
     }
 

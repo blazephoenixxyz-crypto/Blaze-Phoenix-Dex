@@ -125,4 +125,21 @@ contract V4DynamicFeeQuoteTest is Test {
         assertGt(clean, 0, "baseline must quote");
         assertEq(dirty, clean, "tick/spare bits must not alias into lpFee/protoFee");
     }
+
+    /// Liquidity with no price is a pool that cannot be priced: every V4 door answers zero.
+    /// The doors carry no `sp == 0` branch of their own (core-guardas-1023): the walk re-reads
+    /// slot0 and answers zeros, and `depthFromL18` is 0 at sp == 0. This pins that route;
+    /// mutant [805] disables the walk's check and dies here.
+    function test_LiquidityWithoutAPrice_QuotesZeroOnEveryDoor() public {
+        _seed(3000, 0, 0, uint128(1e21));
+        (uint256 out, uint256 depth) = BPC.universalQuote(_ctx(), 1e18);
+        assertEq(out, 0, "no price, no quote");
+        assertEq(depth, 0, "no price, no depth");
+        (out, depth, , ) = BPC.universalQuoteRank(_ctx(), 1e18, 0);
+        assertEq(out, 0, "ranking door: no price, no quote");
+        assertEq(depth, 0, "ranking door: no price, no depth");
+        (address s0, address s1) = BPC.sortTokens(tokenA, tokenB);
+        bytes32 pid = BPC.computeV4PoolId(s0, s1, DYN, TS, address(0));
+        assertEq(BPC.v4LegOut(address(mgr), pid, 1e18, DYN, TS, true), 0, "execution door: no price, no output");
+    }
 }

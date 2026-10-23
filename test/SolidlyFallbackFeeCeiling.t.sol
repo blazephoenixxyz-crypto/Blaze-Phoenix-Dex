@@ -100,4 +100,16 @@ contract SolidlyFallbackFeeCeilingTest is Test {
         uint256 clamped = BPC.readDynamicFee(address(pair), false, 9_900);
         assertLe(clamped, 100, "declared fee must be clamped to the ceiling band");
     }
+
+    /// The volatile curve goes straight to `outV2` (core-guardas-1023): its zero-reserve check
+    /// is the only one on the way, so a pool with an empty side prices at zero through it.
+    /// Mutant [806] drops the `rIn` arm of that check and dies here.
+    function test_AnEmptyReserveQuotesZeroOnTheVolatileCurve() public view {
+        assertEq(BPC.solidlyCurveOut(address(pair), AMOUNT_IN, 0, RESERVE, false, 30, tokenA), 0,
+            "an empty input reserve was priced");
+        assertEq(BPC.solidlyCurveOut(address(pair), AMOUNT_IN, RESERVE, 0, false, 30, tokenA), 0,
+            "an empty output reserve was priced");
+        assertGt(BPC.solidlyCurveOut(address(pair), AMOUNT_IN, RESERVE, RESERVE, false, 30, tokenA), 0,
+            "control: the same pool with both sides quotes");
+    }
 }
