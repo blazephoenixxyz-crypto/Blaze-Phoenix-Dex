@@ -14,10 +14,17 @@ pragma solidity 0.8.36;
 //     that declares far more than it holds is held at the cap there too.
 //   - SOLVE_GAS: a walk reads up to sixteen stretches cold (four storage words
 //     per tick, as UniswapV3Pool.ticks reads them), so it runs on one topology
-//     per solve. Honest V3 grids whose cap binds on every pair keep the margins
-//     test/EntryBSolveBudget.t.sol sets for V4 books (SOLVE_GAS / 10 for one or
-//     two bridges, / 5 for three), and the automatic door settles them, up to
-//     three bridges with six books on every pair.
+//     per solve, in a static self-call on its own fixed budget (Solver.WALK_GAS).
+//     Honest V3 grids whose cap binds on every pair keep the margins
+//     test/EntryBSolveBudget.t.sol sets for V4 books (a tenth of the search's
+//     12M for one or two bridges, a fifth for three), and the automatic door
+//     settles them, up to three bridges with six books on every pair.
+//   - Liveness and R1 with held legs: where the search fits its 12M, the solve
+//     fits SOLVE_GAS with the walk's budget on top, and the solve the door runs
+//     returns the plan quoted without a cap - on a held grid of three bridges
+//     and six books, on one a bridge leads, on four books whose every read
+//     burns its GAS_CAP, and on every budget across the threshold of a walk
+//     that changes the plan (the plan or nothing, never the plan at the cap).
 //   - The gain on a later hop: a held leg of a bridge route is promised its walk.
 //   - One basis: a direct book is never ranked on its walk against a bridge
 //     ranked at its cap; the bridge that leads keeps the lead and its walk.
@@ -60,6 +67,18 @@ contract HeavyBookPool is MockV3Pool {
     }
 }
 
+/// A V3-shaped book whose every book read burns all the gas it is given (GAS_CAP).
+contract BurnBookPool is MockV3Pool {
+    int24 public tickSpacing = 60;
+    constructor(address a, address b, uint24 f) MockV3Pool(a, b, f) {}
+    function _burn() internal view { uint256 x; while (gasleft() > 3_000) { x = uint256(keccak256(abi.encode(x))); } }
+    function tickBitmap(int16) external view returns (uint256) { _burn(); return type(uint256).max; }
+    function ticks(int24) external view returns (uint128, int128, uint256, uint256, int56, uint160, uint32, bool) {
+        _burn();
+        return (1, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+
 contract CapacityWalkBudgetTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
@@ -69,8 +88,11 @@ contract CapacityWalkBudgetTest is Test {
     address t1;
     address[] touched;
 
-    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`.
-    uint256 constant SOLVE_GAS = 12_000_000;
+    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`: the search's 12M plus the walk's own budget.
+    uint256 constant SOLVE_GAS = 14_700_000;
+    /// The search's share, on which the rows below were sized: SOLVE_GAS grew by the walk's
+    /// budget only, so a row's bound does not grow with it.
+    uint256 constant SEARCH_GAS = 12_000_000;
     uint160 constant SP   = uint160(1 << 96);   // price 1, tick 0
     uint128 constant L    = 1_000e18;
     uint24  constant FEE  = 3_000;
@@ -101,30 +123,33 @@ contract CapacityWalkBudgetTest is Test {
 
     /// A book the cap binds, twenty initialized ticks on both sides of the price, so a walk
     /// in either direction runs its sixteen stretches.
-    function _heavy(address a, address b, uint24 fee) internal {
+    function _heavy(address a, address b, uint24 fee, uint128 liq, uint256 held) internal {
         HeavyBookPool p = new HeavyBookPool(a, b, fee, TS);
-        p.setState(SP, L);
+        p.setState(SP, liq);
         for (int24 i = 1; i <= 20; ++i) {
-            p.setTick(-i * TS, int128(1e18));
-            p.setTick(i * TS, -int128(1e18));
+            p.setTick(-i * TS, int128(liq / 1000));
+            p.setTick(i * TS, -int128(liq / 1000));
         }
-        MockERC20(a).mint(address(p), HELD);
-        MockERC20(b).mint(address(p), HELD);
+        MockERC20(a).mint(address(p), held);
+        MockERC20(b).mint(address(p), held);
         hub.seedPool(address(p), BPC.KIND_V3, fee, address(0), a, b);
         touched.push(address(p));
     }
 
     /// Every pair of tIn, tOut and `nBridges` bridges gets `perPair` heavy books.
-    function _grid(uint256 nBridges, uint256 perPair) internal {
+    function _grid(uint256 nBridges, uint256 perPair) internal { _grid(nBridges, perPair, HELD, L); }
+
+    /// The same grid, every book holding `held` of each token, the direct books declaring `dLiq`.
+    function _grid(uint256 nBridges, uint256 perPair, uint256 held, uint128 dLiq) internal {
         uint24[6] memory fees = [uint24(3_000), 500, 10_000, 100, 2_500, 400];
         address[] memory b = new address[](nBridges);
         for (uint256 i; i < nBridges; ++i) { b[i] = _token(); hub.addBridge(b[i]); }
         for (uint256 k; k < perPair; ++k) {
-            _heavy(t0, t1, fees[k]);
+            _heavy(t0, t1, fees[k], dLiq, held);
             for (uint256 i; i < nBridges; ++i) {
-                _heavy(t0, b[i], fees[k]);
-                _heavy(b[i], t1, fees[k]);
-                for (uint256 j; j < i; ++j) _heavy(b[j], b[i], fees[k]);
+                _heavy(t0, b[i], fees[k], L, held);
+                _heavy(b[i], t1, fees[k], L, held);
+                for (uint256 j; j < i; ++j) _heavy(b[j], b[i], fees[k], L, held);
             }
         }
     }
@@ -165,11 +190,105 @@ contract CapacityWalkBudgetTest is Test {
 
     // ─── SOLVE_GAS with the cap binding on every pair ──────────────────
 
-    function test_3073_WalkBudget_DirectThreeBooks_FitsATenth() public { _grid(0, 3); _fits("direct, 3 books", SOLVE_GAS / 10); }
-    function test_3073_WalkBudget_TwoBridges_FitsATenth() public { _grid(2, 1); _fits("2 bridges, 1 book per pair", SOLVE_GAS / 10); }
-    function test_3073_WalkBudget_ThreeBridges_FitsAFifth() public { _grid(3, 1); _fits("3 bridges, 1 book per pair", SOLVE_GAS / 5); }
-    function test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles() public { _grid(3, 3); _fits("3 bridges, 3 books per pair", SOLVE_GAS * 3 / 4); }
-    function test_3073_WalkBudget_ThreeBridgesSixBooks_Settles() public { _grid(3, 6); _fits("3 bridges, 6 books per pair", SOLVE_GAS); }
+    function test_3073_WalkBudget_DirectThreeBooks_FitsATenth() public { _grid(0, 3); _fits("direct, 3 books", SEARCH_GAS / 10); }
+    function test_3073_WalkBudget_TwoBridges_FitsATenth() public { _grid(2, 1); _fits("2 bridges, 1 book per pair", SEARCH_GAS / 10); }
+    function test_3073_WalkBudget_ThreeBridges_FitsAFifth() public { _grid(3, 1); _fits("3 bridges, 1 book per pair", SEARCH_GAS / 5); }
+    function test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles() public { _grid(3, 3); _fits("3 bridges, 3 books per pair", SEARCH_GAS * 3 / 4); }
+    /// No build of this grid is held: the search alone, inside the search's share.
+    function test_3073_WalkBudget_ThreeBridgesSixBooks_Settles() public { _grid(3, 6); _fits("3 bridges, 6 books per pair", SEARCH_GAS); }
+
+    // ─── Held legs: the door settles the plan quoted, the walk on its own budget ──
+
+    /// Entry A (the uncapped solve), then the solve at the door's budget, which must return
+    /// that same plan (R1), then the door itself, which must settle it.
+    function _settlesAsQuoted(string memory row) internal returns (RoutePlan memory plan) {
+        _cool();
+        uint256 g0 = gasleft();
+        plan = solver.findBestRoutePlan(t0, t1, IN);
+        uint256 used = g0 - gasleft();
+        emit log_named_string("row", row);
+        emit log_named_uint("  plan gas, cold", used);
+        emit log_named_uint("  totalOut", plan.best.totalOut);
+        _i2(plan.best);
+        _cool();
+        RoutePlan memory atTheDoor = solver.findBestRoutePlan{gas: SOLVE_GAS}(t0, t1, IN);
+        assertEq(keccak256(abi.encode(atTheDoor)), keccak256(abi.encode(plan)), "the door's budget chose another plan");
+        _cool();
+        uint256 b1 = MockERC20(t1).balanceOf(user);
+        vm.prank(user);
+        (bool ok, ) = address(router).call{gas: 16_000_000}(
+            abi.encodeCall(BlazePhoenixRouter.swapBestExactIn, (t0, t1, IN, 1, user, block.timestamp + 1))
+        );
+        assertTrue(ok, "the automatic door settles the plan inside SOLVE_GAS");
+        uint256 got = MockERC20(t1).balanceOf(user) - b1;
+        emit log_named_uint("  delivered", got);
+        assertGe(got, plan.best.singleOutFloor, "it delivers at least the floor");
+    }
+
+    /// Held 100e18 on every book (cap 30e18; a quarter of the order quotes ~47e18): the
+    /// direct split leads held, and its rebuild runs past what the search left of 12M.
+    function test_3073_WalkBudget_HeldThreeBridgesSixBooks_SettlesAsQuoted() public {
+        _grid(3, 6, 100e18, L);
+        _settlesAsQuoted("held 100e18, 3 bridges, 6 books per pair");
+    }
+
+    /// The same grid with thin direct books (100e18): a bridge route leads held, and its
+    /// rebuild walks more books than the walk's budget holds.
+    function test_3073_WalkBudget_HeldBridgeLeadsSixBooks_SettlesAsQuoted() public {
+        _grid(3, 6, 100e18, 100e18);
+        _settlesAsQuoted("held 100e18, a bridge leads, 3 bridges, 6 books per pair");
+    }
+
+    /// Four held books whose every read burns its whole GAS_CAP: the cost of a walk is the
+    /// venue's choice. The walk runs out of its own budget and the plan at the cap stands -
+    /// also in the uncapped solve, where the caller's gas would carry the whole walk.
+    function test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQuoted() public {
+        for (uint256 k; k < 4; ++k) {
+            BurnBookPool p = new BurnBookPool(t0, t1, uint24(500 + k * 1000));
+            p.setState(SP, L);
+            MockERC20(t0).mint(address(p), 60e18);
+            MockERC20(t1).mint(address(p), 60e18);
+            hub.seedPool(address(p), BPC.KIND_V3, uint24(500 + k * 1000), address(0), t0, t1);
+            touched.push(address(p));
+        }
+        RoutePlan memory plan = _settlesAsQuoted("4 held books, every read burns its GAS_CAP");
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, 4, "precondition: every hostile book is a leg");
+        uint256 cap = BPC.mulDiv(60e18, 3_000, BPC.BPS);
+        Leg memory l0 = legs[0];
+        assertGt(BPC.v4WalkOut(l0.pool, bytes32(0), l0.amountIn, 0, 0, l0.zeroForOne), cap, "precondition: a whole walk pays past the cap");
+        for (uint256 i; i < legs.length; ++i) assertEq(legs[i].expectedOut, cap, "the walk's own budget, not the caller's gas, keeps the cap");
+    }
+
+    /// T3 on a walk that changes the plan (four books holding 100e18 each: a cap of 30e18 per
+    /// leg, and each book pays more): across the threshold, a capped solve returns the uncapped
+    /// plan or stops with empty revert data, never the plan at the cap - also where the gas
+    /// left would finish a walk this short but not hand it its whole budget.
+    function test_3073_HeldWalk_CappedSolveIsTheQuoteOrNothing() public {
+        _grid(0, 4, 100e18, L);
+        RoutePlan memory ref = solver.findBestRoutePlan(t0, t1, IN);   // warm: the capped calls' cost
+        assertGt(ref.best.totalOut, 4 * 30e18, "the walk does not change the plan");
+        uint256 g0 = gasleft();
+        solver.findBestRoutePlan(t0, t1, IN);
+        uint256 cost = g0 - gasleft();
+        bytes32 h = keccak256(abi.encode(ref));
+        uint256 done;
+        uint256 stopped;
+        // The walk spends a fraction of its budget here: the threshold sits up to WALK_GAS
+        // (Solver, 2.5M) past `cost`.
+        for (uint256 g = cost; g <= cost + 2_700_000; g += 50_000) {
+            try solver.findBestRoutePlan{gas: g}(t0, t1, IN) returns (RoutePlan memory p) {
+                assertEq(keccak256(abi.encode(p)), h, "a capped solve returned another plan");
+                ++done;
+            } catch (bytes memory e) {
+                assertEq(e.length, 0, "a capped solve failed with something other than out-of-gas");
+                ++stopped;
+            }
+        }
+        emit log_named_uint("uncapped cost, warm", cost);
+        assertGt(done, 0, "no budget in the range completes");
+        assertGt(stopped, 0, "every budget in the range completes");
+    }
 
     // ─── I2 on a later hop ─────────────────────────────────────────────
 
@@ -278,6 +397,11 @@ contract CapacityWalkBudgetTest is Test {
         _i2(plan.best);
         assertEq(plan.best.hops.length, 2, "the bridge route leads");
         assertGt(plan.best.totalOut, BPC.mulDiv(316e18, 3_000, BPC.BPS), "its held leg is promised its book, above the cap");
+        // The runner-up read at the cap rides along with the rebuilt leader.
+        assertTrue(plan.hasFallback, "the direct route is the fallback");
+        assertEq(plan.fallbackRoute.hops.length, 1, "the fallback is the direct route");
+        assertEq(plan.fallbackRoute.hops[0].legs[0].pool, address(d), "on the direct book");
+        assertEq(plan.fallbackRoute.hops[0].legs[0].expectedOut, BPC.mulDiv(300e18, 3_000, BPC.BPS), "read at its cap");
         uint256 b1 = MockERC20(t1).balanceOf(user);
         vm.prank(user);
         (bool ok, ) = address(router).call(

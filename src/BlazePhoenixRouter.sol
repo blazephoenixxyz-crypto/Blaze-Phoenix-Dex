@@ -163,14 +163,18 @@ contract BlazePhoenixRouter {
     ///      the search bounds that; a fixed budget that fails closed does.
     ///      Past it the door reverts RouterE(17): no funds move, and
     ///      `swapExactIn` with a plan quoted off-chain is unaffected. The
-    ///      budget is not meant to choose the plan: nothing on the solve path
-    ///      reads gasleft(), and a quote starved inside an exhausted search
-    ///      leaves its frame at most 1/64 of the gas, so finishing on a thinner
-    ///      plan would need the rest of the search to fit in what the parent
-    ///      frames kept; the fuzz at and below the threshold
-    ///      (EntryBSolveBudget) finds no such budget. 2^24 (EIP-7825) less
-    ///      ~4.7M for the pull, the execution and the self-call.
-    uint256 internal constant SOLVE_GAS         = 12_000_000;
+    ///      budget is not meant to choose the plan: no gas the caller brings
+    ///      decides it. The Solver's capacity walk runs on its own fixed budget
+    ///      (Solver.WALK_GAS) and a solve that cannot hand it that budget stops,
+    ///      and a quote starved inside an exhausted search leaves its frame at
+    ///      most 1/64 of the gas, so finishing on a thinner plan would need the
+    ///      rest of the search to fit in what the parent frames kept; the fuzz
+    ///      at and below the threshold (EntryBSolveBudget) finds no such budget.
+    ///      12M for the search, as before the walk, plus WALK_GAS and the 1/64
+    ///      the self-call keeps: what the search settled before, it settles
+    ///      with the walk (test/CapacityWalkBudget.t.sol). 2^24 (EIP-7825) less
+    ///      ~2.08M for the pull, the execution and the self-call.
+    uint256 internal constant SOLVE_GAS         = 14_700_000;
 
     /// @notice Per-leg output floor, in BPS of the leg's pro-rata attested
     ///         quote. Bounds the damage any single manipulated / sandwiched

@@ -292,6 +292,18 @@ contract BlazePhoenixSolver {
         // capacity-held leg ranks at its cap (`_capacity`). `bk` remembers which one took
         // the lead.
         uint256 bk;
+        if (msg.sender == address(this)) {
+            // The rebuild of `_walkOnItsOwnBudget`: the build `bk` once more with WALK, ranked
+            // against the leader's rank at the cap. Not above it: empty revert, the cap plan stands.
+            uint256 u;
+            assembly ("memory-safe") { bk := calldataload(0x64) u := calldataload(0x84) }
+            m.bestU = u;
+            m.walk = WALK;
+            _planTopology(m, bk, bs, tIn, tOut, amountIn);
+            if (m.bestU == u) revert();
+            plan.best = m.bestR;
+            return plan;
+        }
         for (uint256 k; k < TOPOLOGIES; ) {
             uint256 u0 = m.bestU;
             _planTopology(m, k, bs, tIn, tOut, amountIn);
@@ -302,20 +314,54 @@ contract BlazePhoenixSolver {
         plan.fallbackRoute = m.secR;
         plan.hasFallback = m.secU > 0;
 
-        // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's. When a
-        // capacity-held candidate of the leading build could pay more than what that build
-        // chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
-        // capacity-held candidates are ranked and promised what their own books pay. A walk
-        // reads up to sixteen stretches cold; asked of every candidate it multiplied that by
-        // the candidates of every topology inside SOLVE_GAS, here it is one build, and only
-        // when the cap can bind the choice. The judgement across topologies stays on the one
-        // basis above; the rebuilt route leads only if it ranks above the one built at the
-        // cap, and the fallback stays the runner-up read above.
-        if (m.bestHeld) {
-            m.walk = WALK;
-            _planTopology(m, bk, bs, tIn, tOut, amountIn);
-        }
         plan.best = m.bestR;
+
+        // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's, ON ITS OWN BUDGET.
+        // When a capacity-held candidate of the leading build could pay more than what that
+        // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
+        // capacity-held candidates are ranked and promised what their own books pay. A walk
+        // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
+        // (GAS_CAP per read), so the rebuild runs in a static self-call on exactly WALK_GAS:
+        // the plan depends on the state, never on the gas the caller brought. A rebuild that
+        // completes and ranks above the build at the cap leads; otherwise the plan built at
+        // the cap stands. The fallback stays the runner-up read above. A solve that cannot
+        // hand the walk its whole budget stops with empty revert data (out of gas, RouterE(17)
+        // at the automatic door) - never a different plan.
+        if (m.bestHeld) _walkOnItsOwnBudget(plan, bk, m.bestU);
+    }
+
+    /// @dev The gas the rebuild of `findBestRoutePlan` runs on. Fixed: the walk's outcome is a
+    ///      function of the state alone (test/EntryBSolveBudget.t.sol R1). Sized so a
+    ///      rebuild over every held book a build seats fits, on the grids of
+    ///      test/CapacityWalkBudget.t.sol and on a live book
+    ///      (test/fork/CapacityPromiseAsksTheVenue.t.sol).
+    uint256 private constant WALK_GAS = 2_500_000;
+
+    /// @dev The rebuild, as a static self-call of `findBestRoutePlan` carrying `bk` and the rank
+    ///      `u` to beat past the three arguments (only the Solver itself is answered on them).
+    ///      Its answer is spliced in as `plan.best` without decoding: the returned encoding is
+    ///      [0x20][0x60][off fallback][0][best], and only the fallback blob and its flag are
+    ///      ours. On any failure of the self-call the plan built at the cap is returned.
+    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u) private view {
+        bytes memory f = abi.encode(plan.fallbackRoute);
+        bool hf = plan.hasFallback;
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            calldatacopy(p, 0, 0x64)                    // this solve's own call: the one entry, its three words
+            mstore(add(p, 0x64), bk)
+            mstore(add(p, 0x84), u)
+            // The whole WALK_GAS reaches the self-call or the solve stops (EIP-150 keeps 1/64).
+            if lt(gas(), add(div(mul(WALK_GAS, 64), 63), 20000)) { revert(0, 0) }
+            if staticcall(WALK_GAS, address(), p, 0xa4, 0, 0) {
+                returndatacopy(p, 0x40, 0x20)
+                let n := add(mload(p), 0x20)            // the bytes up to the end of `best`
+                returndatacopy(p, 0, n)
+                mstore(add(p, 0x60), hf)
+                let l := sub(mload(f), 0x20)
+                mcopy(add(p, n), add(f, 0x40), l)
+                return(p, add(n, l))
+            }
+        }
     }
 
     /// @dev The topologies, in the order they are judged (a tie keeps the earlier one):
@@ -397,7 +443,10 @@ contract BlazePhoenixSolver {
         // use MAX_LEGS and could spend the entire budget on a single hop.
         (Hop memory hop, uint256 up, bool held) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, m.walk | CUT);
         if (hop.expectedOut == 0) return;
-        Route memory route = _assembleRoute(hop);
+        // One assembly for every route, one hop or three: one producer of the impact and the floor.
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = hop;
+        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, hop.expectedOut);
         _considera(m, route, up, held);
     }
 
@@ -1731,84 +1780,9 @@ contract BlazePhoenixSolver {
         }
     }
 
-    function _assembleRoute(Hop memory hop) private view returns (Route memory route) {
-        _orderLegs(hop);
-        Hop[] memory hops = new Hop[](1);
-        hops[0] = hop;
-        uint256 legs = hop.legs.length;
 
-        // R-B: TWO CONSUMERS, TWO REDUCTIONS. One number used to serve both the
-        // ceiling and the floor, and they want opposite things.
-        //
-        // The CEILING asks "does any leg destroy the order?" — a question about
-        // the WORST leg. Averaging answered a different question and hid the
-        // destroyer: one leg at 9_500 bps beside a single cheap leg averages to
-        // under the 9_000 ceiling and passes. The name said "absolute"; the
-        // `/legs` divisor made it dilutable by adding legs.
-        //
-        // The FLOOR keeps the MEAN, deliberately. ironFloorBps SUBTRACTS impact,
-        // so a bigger number means a LOWER floor: feeding it the max would let a
-        // single dust leg collapse the floor to its hard clamp, which is the
-        // padding attack made trivial rather than closed. The mean is weighted by
-        // each leg's share of the hop since 437d537 (see below).
-        uint256 totalImpactBps;
-        uint256 maxLegImpactBps;
-        uint256 hopIn;
-        uint256 hopIn2;    // Σa², for the concentration-based leg shave (see Core.legShaveBps)
-        for (uint256 i; i < legs; ) {
-            uint256 a = hop.legs[i].amountIn;
-            hopIn += a;
-            hopIn2 += a * a;
-            unchecked { ++i; }
-        }
-        for (uint256 i; i < legs; ) {
-            uint256 li = _legImpactBps(hop.legs[i]);
-            // WEIGHTED BY THE LEG'S SHARE OF THE HOP, with the Router's own
-            // arithmetic (`_wImp`: mulDiv(imp * legs, legAmt, sum) and then
-            // `/ legs` below), so the floor this route ATTESTS and the floor
-            // the Router ENFORCES are the same number on the same block
-            // (6th bounty wave, and review F6/F8, 2026-09-02). Unweighted, a
-            // dust leg voted like a whole one and the two producers drifted:
-            // a looser attestation was harmless, a tighter one refused
-            // honest fills.
-            totalImpactBps += hopIn == 0 ? li : BPC.mulDiv(li * legs, hop.legs[i].amountIn, hopIn);
-            if (li > maxLegImpactBps) maxLegImpactBps = li;
-            unchecked { ++i; }
-        }
-        if (legs > 0) totalImpactBps = totalImpactBps / legs;
-
-        // The absolute impact ceiling: refuse rather than surface a route whose
-        // own measurement says it destroys the order. Returning an empty route is
-        // the Solver's existing "no path" answer — fail-closed, no new revert.
-        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
-
-        // The leg shave from CONCENTRATION, not from the count - the same `legShaveBps` the
-        // Router applies to the same amounts, so the attested floor and the enforced floor are one
-        // number by construction.
-        uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, BPC.legShaveBps(hopIn, hopIn2), 0);
-        // R-C: a protective threshold rounds UP, as the Router's does — the
-        // other half of the same-number parity above.
-        // ONE FIGURE. Since the ninth wave a V4 leg is quoted by walking the pool's own
-        // book (Core.v4WalkOut), so the figure that ranks a venue IS the figure it can pay:
-        // the separate promise layer the single-tick model needed (dex-14, #74) had become an
-        // identity, and is gone with the model. The floor is a fraction of that one figure.
-        uint256 floorOut = BPC.mulDivUp(hop.expectedOut, floorBps, BPC.BPS);
-
-        route = Route({
-            hops:              hops,
-            totalOut:          hop.expectedOut,
-            singleOut:         hop.expectedOut,
-            singleOutFloor:    floorOut,
-            expectedImpactBps: totalImpactBps,
-            confidenceWad:     0,
-            estGas:            _estGas(hop),
-            hasSurplus:        hop.expectedOut > floorOut,
-            isV4Bundle:        false
-        });
-    }
-
-    /// @notice Assemble a multi-hop (bridge) route. Aggregates impact across
-    ///         both stages and derives the output floor from the FINAL
+    /// @notice Assemble a route of one hop (direct) or more (bridges). Aggregates impact across
+    ///         the stages and derives the output floor from the FINAL
     ///         output. Hops stay separate so the Router can rescale stage B
     ///         against the real bridge balance produced by stage A.
     function _assembleRouteMulti(
@@ -1833,8 +1807,21 @@ contract BlazePhoenixSolver {
             }
             unchecked { ++h; }
         }
-        // R-B, multi-hop twin: same split as the single-hop site. The ceiling
-        // gates on the worst LEG anywhere in the route.
+        // R-B: TWO CONSUMERS, TWO REDUCTIONS. One number used to serve both the
+        // ceiling and the floor, and they want opposite things.
+        //
+        // The CEILING asks "does any leg destroy the order?" — a question about
+        // the WORST leg. Averaging answered a different question and hid the
+        // destroyer: one leg at 9_500 bps beside a single cheap leg averages to
+        // under the 9_000 ceiling and passes. The name said "absolute"; the
+        // `/legs` divisor made it dilutable by adding legs.
+        //
+        // The FLOOR keeps the MEAN, deliberately. ironFloorBps SUBTRACTS impact,
+        // so a bigger number means a LOWER floor: feeding it the max would let a
+        // single dust leg collapse the floor to its hard clamp, which is the
+        // padding attack made trivial rather than closed. The mean is weighted by
+        // each leg's share of its hop since 437d537, with the Router's own arithmetic.
+        // The ceiling gates on the worst LEG anywhere in the route.
         //
         // TWO FIGURES, DELIBERATELY (review 2026-09-02, the pass after PR #25):
         //  * the GATE keeps the per-hop mean summed across hops — a deliberate
@@ -1885,7 +1872,8 @@ contract BlazePhoenixSolver {
 
         uint256 totalImpactBps = totalLegs > 0 ? weightedAcc / totalLegs : 0;
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, legShv, 0);
-        // R-C: rounds UP like the single-hop twin and like the Router.
+        // R-C: a protective threshold rounds UP, as the Router's does - the other half of
+        // the same-number parity.
         //
         // ONE FIGURE along the chain too: every hop's legs are quoted by the walk, so each
         // later hop was sized on what the hop before it can pay, and the route's figure is

@@ -45,8 +45,9 @@ contract V4FragmentationGasTest is Test {
     uint256 constant ORDER = 1e22;
     /// The plan must stay quotable in one ordinary `eth_call`.
     uint256 constant PLAN_GAS_CEILING = 30_000_000;
-    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`.
-    uint256 constant SOLVE_GAS = 12_000_000;
+    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`, less the capacity walk's own budget: a solve the
+    /// door refuses searched past this before the walk could be handed its budget.
+    uint256 constant SEARCH_GAS = 12_000_000;
 
     function setUp() public {
         mgr = new MockV4TickManager();
@@ -131,11 +132,11 @@ contract V4FragmentationGasTest is Test {
         if (ok) {
             emit log_named_uint("  swap gas", gSwap);
         } else {
-            // Entry B's search budget: only RouterE(17), and only for a plan over SOLVE_GAS.
+            // Entry B's search budget: only RouterE(17), and only for a plan over the search's share.
             emit log_named_uint("  swap refused, RouterE(17), gas", gSwap);
             assertEq(ret, abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(17)),
                 "entry B failed for a reason other than its search budget");
-            assertGt(gPlan, SOLVE_GAS, "entry B refused a search that fits in SOLVE_GAS");
+            assertGt(gPlan, SEARCH_GAS, "entry B refused a search that fits in its budget");
         }
         assertLt(gPlan, PLAN_GAS_CEILING, "a fragmented book pushed the plan past its gas ceiling");
     }

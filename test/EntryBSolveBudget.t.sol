@@ -70,8 +70,11 @@ contract EntryBSolveBudgetTest is Test {
     uint256 constant DUST  = 600;
     uint256 constant ORDER = 1e22;
 
-    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`.
-    uint256 constant SOLVE_GAS = 12_000_000;
+    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`: the search's 12M plus the capacity walk's own budget.
+    uint256 constant SOLVE_GAS = 14_700_000;
+    /// The search's share, on which T4's margins were set: SOLVE_GAS grew by the walk's budget
+    /// only, so a share of it does not grow with it.
+    uint256 constant SEARCH_GAS = 12_000_000;
     /// EIP-7825 per-transaction gas cap (2^24).
     uint256 constant TX_CAP = 16_777_216;
 
@@ -314,7 +317,7 @@ contract EntryBSolveBudgetTest is Test {
         uint256 plan = g0 - gasleft();
         emit log_named_string("row", row);
         emit log_named_uint("  plan gas, cold", plan);
-        assertLe(plan, SOLVE_GAS / share, "an honest plan uses more than its share of SOLVE_GAS");
+        assertLe(plan, SEARCH_GAS / share, "an honest plan uses more than its share of the search's budget");
         _bEqualsA(ORDER);
     }
 

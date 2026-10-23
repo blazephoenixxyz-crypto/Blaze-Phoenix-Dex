@@ -506,8 +506,12 @@ its cap, one basis for the judgement; the book is walked on the winning topology
 when a held candidate of that build could pay more than what it chose, so a solve pays it once
 per route and not once per ranked candidate: `test/CapacityWalkBudget.t.sol` holds grids of V3 books the cap
 binds on every pair (sixteen stretches each, four storage words per tick) to the margins
-`test/EntryBSolveBudget.t.sol` sets inside SOLVE_GAS, and pins that no concentrated leg is
-promised more than its pool holds on any hop.
+`test/EntryBSolveBudget.t.sol` sets inside the search's 12M, and pins that no concentrated leg is
+promised more than its pool holds on any hop. That one walk runs in a static self-call on its own
+fixed budget (`WALK_GAS`), so what a book makes its reads cost never spends the search's budget,
+and the plan stays a function of the state: SOLVE_GAS is the search's 12M plus that budget, held
+grids of three bridges and six books and four books whose every read burns its cap settle at the
+automatic door as quoted, and a capped solve returns the quote or nothing.
 
 ## 4l. Mutants aimed at the invariants
 

@@ -168,6 +168,41 @@ contract CapacityPromiseWalksTheBookTest is Test {
         assertEq(plan.best.hops[0].legs[0].expectedOut, _cap(HELD), "no book: the old promise");
     }
 
+    /// The same unreadable book beside a booked one (held 250e18 each: cap 75e18 per leg). At
+    /// the cap the two split (150e18); walked, the booked book alone pays more. The book that
+    /// does not answer is refused on its own, before the walk steps, so the rebuild completes
+    /// and the booked book is promised its walk - never a failed rebuild that drops it back to
+    /// the cap. Whatever the shape: a leg on the unreadable book keeps its cap, a leg on the
+    /// booked one is promised its walk, and the hop beats the plan at the cap.
+    function test_3073_Solver_Split_UnreadableBookBesideABook_OnlyItKeepsTheCap() public {
+        uint256 held = 250e18;
+        uint256 c = _cap(held);
+        MockV3Pool u = new MockV3Pool(address(tokenA), address(tokenB), FEE);   // no tickSpacing()
+        u.setState(SP, L);
+        MockERC20(_tOut()).mint(address(u), held);
+        hub.seedPool(address(u), BPC.KIND_V3, FEE, address(0), address(tokenA), address(tokenB));
+        MockV3BookPool b = _seed(held);
+        RoutePlan memory plan = solver.findBestRoutePlan(_tIn(), _tOut(), IN);
+        Leg[] memory legs = plan.best.hops[0].legs;
+        uint256 booked;
+        uint256 sum;
+        for (uint256 i; i < legs.length; ++i) {
+            assertGt(BPC.outV3(legs[i].amountIn, SP, L, FEE, true, 0), c, "precondition: the cap binds the leg");
+            sum += legs[i].expectedOut;
+            if (legs[i].pool == address(u)) {
+                assertEq(legs[i].expectedOut, c, "no book: the old promise");
+            } else {
+                assertEq(legs[i].pool, address(b), "precondition: the booked pool");
+                uint256 w = _walk(address(b), legs[i].amountIn, true);
+                assertGt(w, c, "precondition: the book pays past the cap");
+                assertEq(legs[i].expectedOut, w, "the booked leg is promised its book's answer");
+                ++booked;
+            }
+        }
+        assertGt(booked, 0, "the booked book carries the order");
+        assertGt(sum, 2 * c, "and the hop beats the plan at the cap");
+    }
+
     /// The cap does not bind (F <= cap): the promise is the quote, and the book is not asked.
     function test_3073_Solver_SingleLeg_UnderTheCap_PromiseIsTheQuote() public {
         uint256 held = 1_000e18;               // cap 300e18 > F (~166e18)
