@@ -163,6 +163,18 @@ contract MockV4ManagerNative {
     }
 }
 
+contract SwapThenPushEth {
+    function run(BlazePhoenixRouter r, MockV4ManagerNative m, MockERC20 t, Route memory route, uint256 amt)
+        external returns (bool pushed)
+    {
+        t.approve(address(r), type(uint256).max);
+        r.swapExactIn(route, amt, 1, address(this), block.timestamp + 1);
+        // Later in the same transaction: a manager take to the Router that
+        // no unlock of the Router asked for.
+        (pushed, ) = address(m).call(abi.encodeCall(MockV4ManagerNative.take, (address(0), address(r), 1)));
+    }
+}
+
 contract RouterV4NativeEthTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixRouter router;
@@ -432,5 +444,18 @@ contract RouterV4NativeEthTest is Test {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
         router.swapExactIn(route, amt, 1, user, block.timestamp + 1);
+    }
+
+    /// revisao-total 2026-10-23: the native-output branch opened receive() to
+    /// the manager and never closed it, so for the rest of the transaction
+    /// the manager could push raw ETH into a Router that holds nothing at rest.
+    function test_Receive_TakeWindowClosesWithItsTake() public {
+        uint256 amt = 5e18;
+        uint256 realQuote = BPC.outV3(_netIn(amt), uint160(BPC.Q96), LIQ, FEE, false, 0);
+        SwapThenPushEth b = new SwapThenPushEth();
+        tok.mint(address(b), amt);
+        bool pushed = b.run(router, mgr, tok, _nativeRoute(false, amt, realQuote), amt);
+        assertFalse(pushed, "manager paid the Router after its take window");
+        _assertRouterHoldsNothing();
     }
 }

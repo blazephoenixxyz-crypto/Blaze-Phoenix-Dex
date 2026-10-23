@@ -372,4 +372,19 @@ contract Seal1021FeeNeverBlocksTest is Test {
         assertFalse(tok.hookOk(), "a claim ran inside a swap");
         assertEq(keccak256(tok.hookErr()), keccak256(_e(7)), "refused by the swap lock");
     }
+
+    /// revisao-total 2026-10-23: the fee ledger is single use. In the anchored regime the
+    /// Router refuses a swap that charged twice (RouterE(16)); a ledger the previous swap left
+    /// behind would read as a second charge, and the second anchored swap of a transaction
+    /// would be refused for the first one's fee. Two anchored swaps in ONE call.
+    function test_TwoAnchoredSwapsOneTransaction_EachPaysOnce() public {
+        hub.addBridge(address(tok));
+        uint256 amt = 1_000e18; uint256 legAmt = 600e18;
+        SealBatch b = new SealBatch();
+        tok.mint(address(b), 10_000e18);
+        uint256[2] memory spent = b.twoSwaps(router, tok, _direct(legAmt), amt);
+        for (uint256 k; k < 2; ++k) {
+            assertEq(spent[k], legAmt + _fee(legAmt), "each anchored swap paid its legs and its own fee");
+        }
+    }
 }
