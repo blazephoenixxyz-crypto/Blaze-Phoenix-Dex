@@ -190,4 +190,19 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
         assertFalse(_planUsesHonestPool(),
             "a curated row ticked within the TTL vouches again: the sweep is skipped, as designed");
     }
+
+    /// Concordance of two copies of one formula (0 B): `Hub._stampTs` and `Core.stampTs`, which
+    /// the Gate's wrappers stamp through, write the same field from the same clock. A slot the Hub
+    /// stamped is a fixed point of Core's stamp at the same timestamp, so a moved field or a
+    /// shifted clock in either copy shows here. Folding the two is the follow-up the Core notes.
+    function test_HubStampTs_AgreesWithCoreStampTs() public {
+        MockV2Pair p = _pair(10_000e18, 10_000e18);
+        hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
+        vm.warp(block.timestamp + 1_234);
+        bytes32 key = hub.keyOf(address(p), address(tokenA), address(tokenB));
+        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB), 1, 1, 1e18);
+        uint256 s = hub.getSlot(key);
+        assertEq(uint32(s >> 64), uint32(block.timestamp), "the Hub stamped lastUpdateTs = now");
+        assertEq(s, BPC.stampTs(s, uint32(block.timestamp)), "the Hub's stamp is the Core's stamp");
+    }
 }

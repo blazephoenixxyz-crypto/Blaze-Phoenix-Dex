@@ -59,7 +59,8 @@ interface IBalancerPoolFactory {
 ///         QUOTE: Balancer V2 has no view quote (`queryBatchSwap` writes and reverts), so `quote`
 ///         answers out = 0 and the SDK uses `quoteCall` by eth_call; the leg then travels attested.
 ///         DEPTH: `quote` declares the pool's balances in the Vault (`getPoolTokens`), the larger
-///         side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18).
+///         side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18); none while
+///         the Vault is inside one of its own operations.
 contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {
     IBalancerV2Vault public immutable VAULT;
     address public immutable FACTORY0;
@@ -79,7 +80,7 @@ contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {
         if (hint.length != 32) revert AdapterE(8);
         bytes32 poolId = abi.decode(hint, (bytes32));
         (address pool, ) = VAULT.getPool(poolId);
-        if (pool == address(0) || !_fromListedFactory(pool)) revert AdapterE(2);
+        if (!_fromListedFactory(pool)) revert AdapterE(2);
         (address[] memory tokens, , ) = VAULT.getPoolTokens(poolId);
         _indices(tokens, t0, t1);
         (venuePool, aux0, aux1) = (address(VAULT), poolId, bytes32(0));
@@ -108,11 +109,28 @@ contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {
         _requireNoAllowance(tIn, address(VAULT));
     }
 
+    /// No depth from inside a Vault operation: an exit sends its tokens before the Vault stores
+    /// the pool's new balances (PoolBalances.sol `_joinOrExit`), so a read from there sees
+    /// balances that are about to fall (read-only reentrancy).
     function quote(address, bytes32 poolId, bytes32, bool, uint256)
         external view returns (uint256 out, uint256 depth18)
     {
+        if (_vaultIsMidOperation()) return (0, 0);
         (address[] memory tokens, uint256[] memory bals, ) = VAULT.getPoolTokens(poolId);
         depth18 = _listedDepth18(tokens, bals);
+    }
+
+    /// VaultReentrancyLib.ensureNotInVaultContext as a reading, not a revert: `manageUserBalance`
+    /// is nonReentrant, so a static call to it reverts BAL#400 inside a Vault operation and halts
+    /// on the guard's write, with empty revert data, outside one. 10,000 gas bounds that halt.
+    function _vaultIsMidOperation() private view returns (bool mid) {
+        address v = address(VAULT);
+        assembly ("memory-safe") {
+            mstore(0x00, shl(224, 0x0e8e3e84)) // manageUserBalance((uint8,address,uint256,address,address)[])
+            mstore(0x04, 0)
+            pop(staticcall(10000, v, 0x00, 0x24, 0x00, 0x00))
+            mid := gt(returndatasize(), 0)
+        }
     }
 
     /// eth_call only: `queryBatchSwap` is non-view by design (Swaps.sol, "query" section). The

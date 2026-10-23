@@ -226,6 +226,31 @@ contract AdapterBalancerV3Test is AdapterHarness {
         assertEq(d, 2_000_000e18, "6-decimal side, normalised, is the long side");
     }
 
+    /// Quantity: adapter depth18 (Balancer V3) is asked only while the Vault is not mid-operation
+    /// (`isUnlocked`), the Curve adapters' lock probe in the Vault's form. Inside an unlock a swap
+    /// writes the pool's balances before its debt is settled (Vault.sol `_swap`: debt and credit,
+    /// then `poolBalances[...]`; settlement only when the outermost unlock ends), so a flash-sized
+    /// swap would read as depth, and the Gate's cap is the whole Vault's holding, not the pool's.
+    function test_BalV3_Depth18_ZeroWhileTheVaultIsUnlocked() public {
+        vault.setPoolBalances(POOL, _two(700e18, 400e18));
+        vault.unlock(abi.encodeCall(this.inflateAndRead, ()));
+        assertEq(_dUnlocked, 0, "unlocked: the adapter declares no depth");
+        assertEq(_vUnlocked, 0, "unlocked: vitalOf reads no depth");
+        (, uint256 d) = BlazePhoenixGateWrapper(w).quote(true, 0);
+        assertEq(d, 700e18, "locked again: the pool's long side");
+    }
+
+    uint256 internal _dUnlocked;
+    uint256 internal _vUnlocked;
+
+    /// The Vault's unlock callback: the pool's balance as a swap on credit leaves it mid-session.
+    function inflateAndRead() external {
+        vault.setPoolBalances(POOL, _two(700_000e18, 400e18));
+        (, _dUnlocked) = BlazePhoenixGateWrapper(w).quote(true, 0);
+        (, _vUnlocked, ) = gate.vitalOf(w);
+        vault.setPoolBalances(POOL, _two(700e18, 400e18));
+    }
+
     /// The pair is the calling wrapper's, as in quoteCall: a caller the Gate did not create is refused.
     function test_BalV3_Depth18_OnlyForTheGatesWrapper() public {
         vm.expectRevert(_aerr(1));

@@ -169,6 +169,28 @@ contract AdapterBalancerV2Test is AdapterHarness {
         assertEq(d, 2_000_000e18, "6-decimal side, normalised, is the long side");
     }
 
+    /// Quantity: adapter depth18 (Balancer V2) is read only outside a Vault operation, by
+    /// VaultReentrancyLib.ensureNotInVaultContext's probe. An exit sends its tokens out before the
+    /// Vault stores the pool's new balances (PoolBalances.sol `_joinOrExit`), so a read from inside
+    /// that transfer sees balances the exit is about to lower.
+    function test_BalV2_Depth18_ZeroInsideAVaultOperation() public {
+        vault.setPoolBalances(PID, _two(400e18, 700e18));
+        vault.callOutMidOperation(address(this), abi.encodeCall(this.readMidOperation, ()));
+        assertEq(_dMid, 0, "mid-operation: the adapter declares no depth");
+        assertEq(_vMid, 0, "mid-operation: vitalOf reads no depth");
+        (, uint256 d) = BlazePhoenixGateWrapper(w).quote(true, 0);
+        assertEq(d, 700e18, "after the operation: the pool's long side");
+    }
+    uint256 internal _dMid;
+    uint256 internal _vMid;
+    /// Called by the Vault mid-operation: the pool's stored balance is still the pre-exit one.
+    function readMidOperation() external {
+        vault.setPoolBalances(PID, _two(400e18, 700_000e18));
+        (, _dMid) = BlazePhoenixGateWrapper(w).quote(true, 0);
+        (, _vMid, ) = gate.vitalOf(w);
+        vault.setPoolBalances(PID, _two(400e18, 700e18));
+    }
+
     /// The pair is the calling wrapper's, as in quoteCall: a caller the Gate did not create is refused.
     function test_BalV2_Depth18_OnlyForTheGatesWrapper() public {
         vm.expectRevert(_aerr(1));

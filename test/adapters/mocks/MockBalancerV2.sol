@@ -87,6 +87,27 @@ contract MockBalancerV2Vault {
         entered = false;
     }
 
+    /// IVault.manageUserBalance (UserBalance.sol) is nonReentrant: what VaultReentrancyLib's probe
+    /// staticcalls. Inside a Vault operation the guard reverts BAL#400; outside, the guard's write
+    /// halts the static call with empty revert data.
+    struct UserBalanceOp { uint8 kind; address asset; uint256 amount; address sender; address payable recipient; }
+
+    function manageUserBalance(UserBalanceOp[] memory) external payable {
+        require(!entered, "BAL#400");
+        entered = true;
+        entered = false;
+    }
+
+    /// A Vault operation that calls out before it stores the pool's balances (PoolBalances.sol
+    /// `_joinOrExit`: the exit's transfers, then `_set...PoolBalances`): `target` runs while entered.
+    function callOutMidOperation(address target, bytes calldata data) external {
+        require(!entered, "BAL#400");
+        entered = true;
+        (bool ok, bytes memory r) = target.call(data);
+        if (!ok) assembly { revert(add(r, 32), mload(r)) }
+        entered = false;
+    }
+
     function queryBatchSwap(
         IBalancerV2Vault.SwapKind,
         IBalancerV2Vault.BatchSwapStep[] memory steps,

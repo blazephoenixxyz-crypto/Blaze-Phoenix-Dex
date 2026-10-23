@@ -54,6 +54,8 @@ interface IBalancerV3Vault {
         address[] memory tokens, TokenInfo[] memory tokenInfo, uint256[] memory balancesRaw,
         uint256[] memory lastBalancesLiveScaled18
     );
+    /// IVaultExtension: true while an `unlock` (or a query) is running.
+    function isUnlocked() external view returns (bool);
 }
 
 /// IBasePoolFactory.
@@ -74,7 +76,8 @@ interface IBalancerV3PoolFactory {
 ///         venuePool = the Vault; aux0 = pool; aux1 = hooks contract (0 if none).
 ///         QUOTE: V3 quotes only by eth_call (`Vault.quote`), so `quote` answers out = 0.
 ///         DEPTH: `quote` declares the pool's raw balances in the Vault (`getPoolTokenInfo`), the
-///         larger side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18).
+///         larger side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18); none
+///         while the Vault is unlocked.
 contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
     IBalancerV3Vault public immutable VAULT;
     address public immutable FACTORY0;
@@ -144,9 +147,14 @@ contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
         VAULT.sendTo(tOut, recipient, outRaw);
     }
 
+    /// No depth while the Vault is unlocked: a swap there writes the pool's balances before its
+    /// debt is settled (Vault.sol `_swap`; settlement is checked when the outermost unlock ends),
+    /// so a balance read mid-session may be a flash loan's. The Curve adapters' `live` probe, in
+    /// the Vault's own words.
     function quote(address, bytes32 aux0, bytes32, bool, uint256)
         external view returns (uint256 out, uint256 depth18)
     {
+        if (VAULT.isUnlocked()) return (0, 0);
         (address[] memory tokens, , uint256[] memory raw, ) = VAULT.getPoolTokenInfo(address(uint160(uint256(aux0))));
         depth18 = _listedDepth18(tokens, raw);
     }

@@ -8,6 +8,17 @@ import {BlazePhoenixAdapterCurveNG} from "../../src/adapters/BlazePhoenixAdapter
 import {BlazePhoenixAdapterBalancerV2} from "../../src/adapters/BlazePhoenixAdapterBalancerV2.sol";
 import {BlazePhoenixAdapterBalancerV3, IBalancerV3Vault} from "../../src/adapters/BlazePhoenixAdapterBalancerV3.sol";
 
+/// IVault.flashLoan (balancer-v2-monorepo FlashLoans.sol), nonReentrant: the recipient is called
+/// back while the Vault is inside its own operation.
+interface IFlashV2 {
+    function flashLoan(address recipient, address[] memory tokens, uint256[] memory amounts, bytes memory userData) external;
+}
+
+/// IVaultMain.unlock (balancer-v3-monorepo): calls back msg.sender with `data`.
+interface IUnlockV3 {
+    function unlock(bytes calldata data) external returns (bytes memory);
+}
+
 /// The three adapters against the live venues on Base, behind the Gate (src/BlazePhoenixGate.sol), at the
 /// latest block of the public endpoint (no key: the `base` alias of foundry.toml). Skips, never
 /// passes, when the fork cannot be opened.
@@ -160,6 +171,70 @@ contract AdaptersForkTest is AdapterHarness {
         _accept(3, address(a));
         address w = gate.create(WETH, USDC, uint24(3) << 16 | 1, abi.encode(V3_WEIGHTED_5));
         _armUnderCap(w, address(t0) == WETH, 0.01e18, _cold(w, address(a), V3_VAULT, V3_WEIGHTED_5));
+    }
+
+    // ─── the Balancer depth probes against the live Vaults: quiet outside an operation, zero inside ───
+
+    uint256 internal _dInside;
+
+    /// Balancer V2: outside an operation the live Vault's probe halts with no data and the adapter
+    /// declares the pool's depth; inside one (a flash loan of nothing, `flashLoan` is nonReentrant)
+    /// it answers BAL#400 and the adapter declares none. The probe's cost is logged.
+    function testFork_BalV2_Base_DepthProbe_QuietOutside_ZeroInside() public {
+        if (!_fork()) return;
+        _pair(USDC, OLAS);
+        BlazePhoenixAdapterBalancerV2 a = new BlazePhoenixAdapterBalancerV2(
+            address(gate), V2_VAULT, [V2_WEIGHTED_V4, address(0), address(0), address(0)]
+        );
+        _accept(2, address(a));
+        address w = gate.create(USDC, OLAS, uint24(2) << 16 | 1, abi.encode(V2_OLAS_USDC));
+        uint256 g = gasleft();
+        (, uint256 d) = BlazePhoenixGateWrapper(w).quote(true, 0);
+        emit log_named_uint("V2 depth read, gas (probe included)", g - gasleft());
+        assertGt(d, 0, "outside an operation: the pool's depth");
+        g = gasleft();
+        (bool ok, bytes memory r) = V2_VAULT.staticcall{gas: 10_000}(abi.encodeWithSelector(0x0e8e3e84, 0));
+        emit log_named_uint("V2 probe alone, warm Vault, gas", g - gasleft());
+        assertFalse(ok);
+        assertEq(r.length, 0, "outside an operation the probe halts with no data");
+        address[] memory tokens = new address[](1);
+        tokens[0] = USDC;
+        _dInside = type(uint256).max;
+        IFlashV2(V2_VAULT).flashLoan(address(this), tokens, new uint256[](1), abi.encode(w));
+        assertEq(_dInside, 0, "inside the Vault's flash loan: no depth");
+    }
+
+    function receiveFlashLoan(address[] memory, uint256[] memory, uint256[] memory, bytes memory w) external {
+        require(msg.sender == V2_VAULT, "not the Vault");
+        (, _dInside) = BlazePhoenixGateWrapper(abi.decode(w, (address))).quote(true, 0);
+    }
+
+    /// Balancer V3: the same, with the Vault's own `isUnlocked`: quiet outside, zero inside an unlock.
+    function testFork_BalV3_Base_DepthProbe_QuietOutside_ZeroInside() public {
+        if (!_fork()) return;
+        _pair(WETH, USDC);
+        BlazePhoenixAdapterBalancerV3 a = new BlazePhoenixAdapterBalancerV3(
+            address(gate), V3_VAULT, [V3_WEIGHTED_V1, address(0)], [bytes32(0), bytes32(0)]
+        );
+        _accept(3, address(a));
+        address w = gate.create(WETH, USDC, uint24(3) << 16 | 1, abi.encode(V3_WEIGHTED_5));
+        uint256 g = gasleft();
+        (, uint256 d) = BlazePhoenixGateWrapper(w).quote(true, 0);
+        emit log_named_uint("V3 depth read, gas (probe included)", g - gasleft());
+        assertGt(d, 0, "outside an unlock: the pool's depth");
+        g = gasleft();
+        bool unlocked = IBalancerV3Vault(V3_VAULT).isUnlocked();
+        emit log_named_uint("V3 probe alone, warm Vault, gas", g - gasleft());
+        assertFalse(unlocked);
+        _dInside = type(uint256).max;
+        IUnlockV3(V3_VAULT).unlock(abi.encodeCall(this.readInsideUnlock, (w)));
+        assertEq(_dInside, 0, "inside the Vault's unlock: no depth");
+    }
+
+    function readInsideUnlock(address w) external returns (bytes memory) {
+        require(msg.sender == V3_VAULT, "not the Vault");
+        (, _dInside) = BlazePhoenixGateWrapper(w).quote(true, 0);
+        return "";
     }
 
     /// The heaviest live V3 shape found on Base: a StableSurge hook (dynamic fee on every swap)

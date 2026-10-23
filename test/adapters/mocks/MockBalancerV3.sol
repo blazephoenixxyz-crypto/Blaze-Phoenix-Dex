@@ -58,6 +58,8 @@ contract MockBalancerV3Vault {
         live = new uint256[](tokens.length);
     }
     function getHooksConfig(address pool) external view returns (IBalancerV3Vault.HooksConfig memory) { return hooksOf[pool]; }
+    /// IVaultExtension.isUnlocked: true while an `unlock` (or a `quote`) is running.
+    function isUnlocked() external view returns (bool) { return unlocked; }
 
     function _touch(address t, int256 d) internal {
         if (delta[t] == 0) touched.push(t);
