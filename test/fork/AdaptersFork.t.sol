@@ -174,6 +174,7 @@ contract AdaptersForkTest is AdapterHarness {
     }
 
     // ─── the Balancer depth probes against the live Vaults: quiet outside an operation, zero inside ───
+    //  (the adapter's `depth18`, as the wrapper's quote returns it)
 
     uint256 internal _dInside;
 
