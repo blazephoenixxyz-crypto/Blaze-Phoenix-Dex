@@ -70,12 +70,13 @@ abstract contract ExtAdapterBase {
         if (i0 == n || i1 == n) revert AdapterE(3);
     }
 
-    /// The ONE adapter producer of a declared depth18: the larger side of the balances the venue
-    /// itself reports, each normalised by its token's decimals, through Core's `maxSide18` - the
-    /// registry's criterion, and the formula of the cap the Gate applies (`heldMass18`). Never
-    /// reads amtIn.
+    /// The ONE adapter producer of a declared depth18: the shorter side of the balances the venue
+    /// itself reports, each normalised by its token's decimals, through Core's `shortSide18` - the
+    /// registry's own depth of a pair (`registryDepth18`'s reserves arm, `depthFromL18`), so one
+    /// mass reads one depth on both doors, and the formula of the cap the Gate applies over what
+    /// the venue holds (`Gate.vitalOf`). Never reads amtIn.
     function _depth18(address a, uint256 ba, address b, uint256 bb) internal view returns (uint256) {
-        return BPC.maxSide18(ba, BPC.decimalsOf(a), bb, BPC.decimalsOf(b));
+        return BPC.shortSide18(ba, BPC.decimalsOf(a), bb, BPC.decimalsOf(b));
     }
 
     /// depth18 of a venue that answers by index: the pool's own `coins(i)` and `balances(i)` at

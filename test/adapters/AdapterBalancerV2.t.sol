@@ -64,7 +64,7 @@ contract AdapterBalancerV2Test is AdapterHarness {
         BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
         (uint256 q, uint256 d) = wr.quote(true, 5e18);
         assertEq(q, 0);
-        assertEq(d, 1_000_000e18, "depth18: the pool's long side in the Vault (adapter-depth-1021)");
+        assertEq(d, 1_000_000e18, "depth18: the pool's short side in the Vault (adapter-depth-1021)");
         uint256 qc = wr.quoteCall(true, 5e18);
         assertGt(qc, 0);
         assertEq(qc, 5e18 * 9_970 / 10_000, "quoteCall prices t0->t1");
@@ -136,37 +136,42 @@ contract AdapterBalancerV2Test is AdapterHarness {
         gate.create(address(t0), address(t1), KEY + 1, abi.encodePacked(PID, uint8(0)));
     }
 
-    // ─── depth18: the Vault's balances of the pool, the larger side in 18 decimals (adapter-depth-1021) ───
+    // ─── depth18: the Vault's balances of the pool, the shorter side in 18 decimals (adapter-depth-1021;
+    //     the short side since 2026-10-23: the registry's own depth of a pair) ───
 
     function _two(uint256 a, uint256 b) internal pure returns (uint256[] memory r) {
         r = new uint256[](2);
         (r[0], r[1]) = (a, b);
     }
 
-    /// Quantity: adapter depth18 (Balancer V2) = max over the wrapper's pair of to18 of
+    /// Quantity: adapter depth18 (Balancer V2) = min over the wrapper's pair of to18 of
     /// `Vault.getPoolTokens(poolId)` balances: the pool's balances in the Vault's accounting, not
-    /// the Vault's holdings, for any amtIn and either direction; what Gate.vitalOf reads.
-    function test_BalV2_Depth18_IsThePoolsLongSideInTheVault() public {
+    /// the Vault's holdings, for any amtIn and either direction, whichever token holds the shorter
+    /// side; what Gate.vitalOf reads. Red at 1b4f2d4 (the long side, 700e18).
+    function test_BalV2_Depth18_IsThePoolsShortSideInTheVault() public {
         vault.setPoolBalances(PID, _two(400e18, 700e18)); // t0, t1; the Vault holds 1e24 of each
         BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
         (uint256 q, uint256 d) = wr.quote(true, 0);
         assertEq(q, 0, "no view quote");
-        assertEq(d, 700e18, "the long side of the pool's balances");
+        assertEq(d, 400e18, "the short side of the pool's balances");
         (, uint256 d2) = wr.quote(false, 5e18);
         assertEq(d2, d, "depth18 does not depend on amtIn or direction");
         (, uint256 dv, ) = gate.vitalOf(w);
         assertEq(dv, d, "vitalOf reads the word below the mass held");
+        vault.setPoolBalances(PID, _two(700e18, 400e18));
+        (, d) = wr.quote(true, 0);
+        assertEq(d, 400e18, "the short side follows the token that holds it");
     }
 
     /// Quantity: adapter depth18 (Balancer V2) normalises by each token's decimals before the max.
-    function test_BalV2_Depth18_NormalisesDecimalsBeforeTheMax() public {
+    function test_BalV2_Depth18_NormalisesDecimalsBeforeTheMin() public {
         MockERC20Dec d6 = new MockERC20Dec(6);
         bytes32 pid6 = keccak256("pool-6");
         _register(pid6, address(0xB006), f0, address(d6), address(t0));
         vault.setPoolBalances(pid6, _two(2_000_000e6, 1_000_000e18));
         address w6 = gate.create(address(d6), address(t0), KEY, abi.encode(pid6));
         (, uint256 d) = BlazePhoenixGateWrapper(w6).quote(true, 0);
-        assertEq(d, 2_000_000e18, "6-decimal side, normalised, is the long side");
+        assertEq(d, 1_000_000e18, "normalised, the 6-decimal side is the deeper one: the short side is the other");
     }
 
     /// Quantity: adapter depth18 (Balancer V2) is read only outside a Vault operation, by
@@ -179,7 +184,7 @@ contract AdapterBalancerV2Test is AdapterHarness {
         assertEq(_dMid, 0, "mid-operation: the adapter declares no depth");
         assertEq(_vMid, 0, "mid-operation: vitalOf reads no depth");
         (, uint256 d) = BlazePhoenixGateWrapper(w).quote(true, 0);
-        assertEq(d, 700e18, "after the operation: the pool's long side");
+        assertEq(d, 400e18, "after the operation: the pool's short side");
     }
     uint256 internal _dMid;
     uint256 internal _vMid;

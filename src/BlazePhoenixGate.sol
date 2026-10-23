@@ -44,8 +44,8 @@ interface IExtAdapter {
         external returns (uint256 out);
     /// View quote; 0 means "not quotable on-chain". `depth18` is the venue pool's depth in
     /// 18-decimal token units and must not depend on `amtIn`: the Gate's `vitalOf` reads it with
-    /// `amtIn = 0`, under BPC.GATE_QUOTE_GAS, and caps it by the mass the venue pool holds
-    /// (BPC.heldMass18). 0 declares nothing.
+    /// `amtIn = 0`, under BPC.GATE_QUOTE_GAS, and caps it by the shorter of the venue pool's two
+    /// normalised holdings (BPC.shortSide18). 0 declares nothing.
     function quote(address venuePool, bytes32 aux0, bytes32 aux1, bool zeroForOne, uint256 amtIn)
         external view returns (uint256 out, uint256 depth18);
     /// Non-view quote for venues that only price by simulation, read off-chain by eth_call.
@@ -237,7 +237,12 @@ contract BlazePhoenixGate {
     ///    cleared family cannot execute, so it does not rank);
     ///  - vitality: the wrapper's use count (`vitalSlot`, material swaps only), decayed by Core;
     ///  - depth18: the adapter's declared depth, read under BPC.GATE_QUOTE_GAS, capped by the
-    ///    mass the venue pool physically holds (BPC.heldMass18, the registry's own cap);
+    ///    shorter of the venue pool's two normalised holdings (BPC.shortSide18, the formula of
+    ///    every pair depth the registry produces and of the adapters' own word): an adapter
+    ///    declares the shorter side of what its venue reports, and an honest venue reports no
+    ///    more than it holds, so an honest word is never cut and one mass reads one depth on
+    ///    both doors at any price (a word on the longer side would outvote a native pair holding
+    ///    the same tokens by their price ratio);
     ///  - psi: Core's psi over that slot with the bucket of the depth NOW, no bridge or
     ///    concentration bonus (a consumer that wants them applies Core's rule itself).
     function vitalOf(address w) external view returns (uint256 v, uint256 depth18, uint256 psi) {
@@ -251,7 +256,8 @@ contract BlazePhoenixGate {
             depth18 = d;
         } catch {}
         (address t0, address t1) = (x.token0(), x.token1());
-        uint256 held = BPC.heldMass18(x.venuePool(), t0, BPC.decimalsOf(t0), t1, BPC.decimalsOf(t1));
+        address vp = x.venuePool();
+        uint256 held = BPC.shortSide18(BPC.balanceOf(t0, vp), BPC.decimalsOf(t0), BPC.balanceOf(t1, vp), BPC.decimalsOf(t1));
         if (held < depth18) depth18 = held;
         psi = BPC.psi(BPC.setBucket(s, BPC.depthBucket(depth18)), ts, false, false);
     }

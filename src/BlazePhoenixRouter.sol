@@ -1340,6 +1340,10 @@ contract BlazePhoenixRouter {
                 hopGot += legGot;
                 hopAttested += legAtt;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
+                // THE FLOOR'S BASE SPEAKS FOR EVERY LEG: a leg the frame could not price enters
+                // `hopQuote` with its attested figure (a Gate leg, a native leg with no in-frame
+                // quote), so a priced leg beside it never shrinks the base to its own share.
+                if (legQuotes[l] == 0) hopQuote += legAtt;
                 // A leg that spent input and came back with no attestation was not
                 // measured at all.
                 //
@@ -1419,7 +1423,14 @@ contract BlazePhoenixRouter {
             // that moves up is the conservative direction. Still never reverts here
             // - the two legitimately executable zero-quote paths above are
             // unaffected, because neither of them leaves a leg unmeasured.
-            uint256 hopBase = hopQuote != 0 ? hopQuote : hopAttested;
+            //
+            // A MIXED HOP, CLOSED (2026-10-23). `hopQuote` already carries every unpriced leg's
+            // attested figure (the leg loop above), so a hop with no priced leg anchors on
+            // `hopAttested` as before, and a priced leg beside an attested one no longer drops
+            // the attested leg out of the base: it used to anchor on the priced share alone, and
+            // a Gate leg delivering 82 % of its attestation settled beside a V2 leg while the
+            // same leg alone was refused (test/GateBaseCoherence.t.sol). The base only rises.
+            uint256 hopBase = hopQuote;
             if (hopBlind && route.hops[h].expectedOut > hopBase) {
                 hopBase = route.hops[h].expectedOut;
             }

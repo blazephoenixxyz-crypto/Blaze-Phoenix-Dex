@@ -8,8 +8,9 @@ pragma solidity 0.8.36;
 //  The four properties, one test (and one mutant in mutants.py) per guard:
 //    1. identity is derived: only the Gate's own wrappers, with a live adapter,
 //       and through the Quoter only an admitted Gate's (BPC.gateWrapperLive);
-//    2. depth by shape, never attested: the adapter's word capped by the mass
-//       the venue pool really holds (Core.heldMass18, the registry's own cap);
+//    2. depth by shape, never attested: the adapter's word capped by the
+//       shorter of the venue pool's real holdings (Core.shortSide18, the
+//       registry's own depth of a pair; the larger holding until 2026-10-23);
 //    3. use that costs nothing is not use (W5-C1): a swap ticks only when it
 //       moves a material share of BOTH of the venue's holdings;
 //    4. one producer per quantity: the wrapper writes its use, Gate.vitalOf
@@ -237,7 +238,7 @@ contract GateVitalityTest is Test {
     // ─── 2. depth: the adapter's word, capped by the mass the venue pool holds ───
 
     /// Quantity: Gate depth18 when the word exceeds the mass. HELD of each token is held, so
-    /// the cap is HELD (the larger normalised holding).
+    /// the cap is HELD (the shorter normalised holding).
     function test_GateVital_DepthIsTheWordCappedByTheMassHeld() public {
         BlazePhoenixGateWrapper w = _wrapper();
         adapter.setWord(1e30);
@@ -254,18 +255,31 @@ contract GateVitalityTest is Test {
         assertEq(d, 5e20, "the word, not the singleton-wide mass");
     }
 
-    /// Quantity: Gate depth18 on a venue holding one token only: the cap is the side it
-    /// holds, not the empty side (a range wholly on one side holds real tokens).
-    function test_GateVital_OneSidedVenueKeepsTheSideItHolds() public {
+    /// Quantity: Gate depth18 on a venue holding unequal masses: the cap is the SHORTER
+    /// normalised holding, the depth a native pair holding the same tokens reads (Core's
+    /// registryDepth18, reserves arm), and one side empty caps at zero, as a pair with an empty
+    /// side reads. The adapters declare the short side of their venue's balances
+    /// (ExtAdapterBase._depth18), never a depth from L, so no honest word stands above it.
+    /// Until 2026-10-23 the cap was the larger holding, and a word on the long side outvoted a
+    /// native pair by the price ratio (test/GateBaseCoherence.t.sol).
+    function test_GateVital_CapIsTheShortSideHeld() public {
         _accept(gate, FAM, address(adapter));
         MockGateVenue v2 = new MockGateVenue(address(t0), address(t1));
         reg.add(address(v2));
         t0.mint(address(v2), HELD);
+        t1.mint(address(v2), HELD / 1000);
         v2.sync();
         address w = gate.create(address(t0), address(t1), KEY2, abi.encode(address(v2)));
-        adapter.setWord(1e22);
+        adapter.setWord(HELD);
         (, uint256 d, ) = IGateVital(address(gate)).vitalOf(w);
-        assertEq(d, 1e22, "one side held: the word under that side's mass stands");
+        assertEq(d, HELD / 1000, "unequal holdings: the word is capped at the shorter side");
+        MockGateVenue v3 = new MockGateVenue(address(t0), address(t1));
+        reg.add(address(v3));
+        t0.mint(address(v3), HELD);
+        v3.sync();
+        address w3 = gate.create(address(t0), address(t1), KEY2 + 1, abi.encode(address(v3)));
+        (, d, ) = IGateVital(address(gate)).vitalOf(w3);
+        assertEq(d, 0, "one side held: no depth, as a pair with an empty side");
     }
 
     /// Quantity: the gas the depth read may burn. An adapter that burns every unit it is given

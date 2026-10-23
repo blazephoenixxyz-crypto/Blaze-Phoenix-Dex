@@ -75,7 +75,7 @@ contract BlazePhoenixAdapterCurveNG is ExtAdapterBase, IExtAdapter {
     {
         bool live;
         (out, live) = _quote(pool, aux0, zeroForOne, amtIn);
-        // DEPTH BY THE VENUE'S FORM (index): the pool's own balances of the pair, the larger side
+        // DEPTH BY THE VENUE'S FORM (index): the pool's own balances of the pair, the shorter side
         // in 18 decimals; asked only when the pool is not mid-operation, the price's own probe.
         if (live) {
             (int128 i, int128 j) = _ij(aux0, true);

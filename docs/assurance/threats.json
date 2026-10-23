@@ -311,17 +311,25 @@
       "id": "GATE-ATTESTED-DEPTH",
       "class": "A Gate adapter declares a depth its venue pool does not hold, and the Gate's fitness ranks the wrapper by the word",
       "status": "blocked",
-      "guard": "heldMass18",
+      "guard": "shortSide18",
       "test": "test_GateVital_DepthIsTheWordCappedByTheMassHeld",
-      "note": "gatevit-1021. Gate.vitalOf caps the adapter's depth18 (read under GATE_QUOTE_GAS) by the larger normalised holding of the venue pool, the registry's own concentrated-arm cap (one producer). Not covered: a singleton venue's balance is every pool's, so the cap there is loose and the word decides below it; an address the Gate did not create, or a cleared family, reads zero (test_GateVital_OnlyTheGatesOwnWrappers, test_GateVital_ClearedFamilyIsDead)."
+      "note": "gatevit-1021. Gate.vitalOf caps the adapter's depth18 (read under GATE_QUOTE_GAS) by the shorter normalised holding of the venue pool, Core.shortSide18, the registry's own depth of a pair (registryDepth18's reserves arm), so one mass reads one depth on both doors at any price (coerencia-fix-1023: the cap was the larger holding, heldMass18, and a word on the long side outvoted the short side the registry reads; tests test_GateVital_CapIsTheShortSideHeld and test_Coherence_A_DeeperAnchorHoldsAtAnyPrice, mutants [631] and [758]). A venue holding one side only now reads zero. Not covered: a singleton venue's balance is every pool's, so the cap there is loose and the word decides below it; an address the Gate did not create, or a cleared family, reads zero (test_GateVital_OnlyTheGatesOwnWrappers, test_GateVital_ClearedFamilyIsDead)."
     },
     {
       "id": "GATE-ADAPTER-DEPTH-FORM",
       "class": "A Gate adapter declares a depth that is not the venue's own word: a family formula, raw units across decimals (the side with fewer units read as the shallow one), the pool's balanceOf instead of its accounting, or a balance read while the pool is mid-operation",
       "status": "blocked",
       "guard": "_depth18",
-      "test": "test_CurveNG_Depth18_IsThePoolsLongSide",
-      "note": "adapter-depth-1021. ExtAdapterBase._depth18 is the one adapter producer: the larger side of the balances the venue reports (Curve coins(i)/balances(i) by index, only when the lock probe passes; Balancer V2 getPoolTokens and V3 getPoolTokenInfo balancesRaw by list, matched to the calling wrapper's pair), normalised by Core.maxSide18, the same formula Core.heldMass18 caps with (heldMass18 calls maxSide18 since core-guardas-1023). Mutants [670]-[678]. Since gate-adapt-guardas-1023 a Balancer Vault inside one of its own operations declares no depth: V3 while `isUnlocked` (a swap writes the pool's balances before its debt is settled), V2 when VaultReentrancyLib's `manageUserBalance` probe answers BAL#400 (an exit sends tokens before it stores the pool's new balances). Tests test_BalV3_Depth18_ZeroWhileTheVaultIsUnlocked and test_BalV2_Depth18_ZeroInsideAVaultOperation, and both probes against the live Vaults on Base (test/fork/AdaptersFork.t.sol); mutants [750]-[753]. Not covered: the Gate caps by the Vault's holdings, which are every pool's."
+      "test": "test_CurveNG_Depth18_IsThePoolsShortSide",
+      "note": "adapter-depth-1021. ExtAdapterBase._depth18 is the one adapter producer: the shorter side of the balances the venue reports (Curve coins(i)/balances(i) by index, only when the lock probe passes; Balancer V2 getPoolTokens and V3 getPoolTokenInfo balancesRaw by list, matched to the calling wrapper's pair), normalised by Core.shortSide18, the formula of the registry's own depth of a pair and of the Gate's cap (coerencia-fix-1023; the larger side through Core.maxSide18 until then, mutant [756]). Mutants [671]-[678], [756]. Since gate-adapt-guardas-1023 a Balancer Vault inside one of its own operations declares no depth: V3 while `isUnlocked` (a swap writes the pool's balances before its debt is settled), V2 when VaultReentrancyLib's `manageUserBalance` probe answers BAL#400 (an exit sends tokens before it stores the pool's new balances). Tests test_BalV3_Depth18_ZeroWhileTheVaultIsUnlocked and test_BalV2_Depth18_ZeroInsideAVaultOperation, and both probes against the live Vaults on Base (test/fork/AdaptersFork.t.sol); mutants [750]-[753]. Not covered: the Gate caps by the Vault's holdings, which are every pool's."
+    },
+    {
+      "id": "FLOOR-MIXED-HOP-BASE",
+      "class": "A last hop mixes a leg the frame prices with one it cannot (a Gate leg, a native leg with no in-frame quote), and the protocol floor's base shrinks to the priced leg's share, so the unpriced leg under-delivers inside the floor",
+      "status": "blocked",
+      "guard": "hopQuote",
+      "test": "test_Coherence_D_MixedLastHopKeepsTheGateLegUnderTheFloor",
+      "note": "coerencia-fix-1023. Router._execute folds every leg with no in-frame quote into hopQuote with its attested figure, so finalHopQuote is the sum of each leg's best figure and only rises against the old base (the in-frame quote when any leg had one, else the attested figure). A hop with no in-frame quote at all reads its attested figure as before (NM-002, test_LiquidityGapOnLastHop_FloorFallsBackToAttested, mutant [130]); a blind leg attests nothing and still hands the anchor to expectedOut. Mutant [757]. Not covered: the per-leg floor (LEG_FLOOR_BPS) and Layer 1 remain the only check on a leg's delivery against its own attestation below the hop's floor."
     },
     {
       "id": "GATE-SECOND-VITALITY-DOOR",

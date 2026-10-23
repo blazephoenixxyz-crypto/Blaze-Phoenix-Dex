@@ -7,6 +7,8 @@ import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixAdapterCurveNG} from "../../src/adapters/BlazePhoenixAdapterCurveNG.sol";
 import {MockCurveNGFactory, MockCurveNGPool} from "./mocks/MockCurveNG.sol";
 import {MockERC20Dec} from "./mocks/MockERC20Dec.sol";
+import {MockV2Pair} from "../mocks/MockV2Pair.sol";
+import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
 
 /// Answers like a wrapper and is not one.
 contract FakeWrapper {
@@ -209,27 +211,40 @@ contract AdapterCurveNGTest is AdapterHarness {
         gate.create(address(t0), address(t1), KEY + 1, abi.encode(address(pool), uint256(0)));
     }
 
-    // ─── depth18: the pool's own balances, the larger side in 18 decimals (adapter-depth-1021) ───
+    // ─── depth18: the pool's own balances, the shorter side in 18 decimals (adapter-depth-1021,
+    //     the short side since 2026-10-23: the registry's own depth of a pair) ───
 
-    /// Quantity: adapter depth18 (Curve NG) = max(to18(balances(i0)), to18(balances(i1))): the
+    /// Quantity: adapter depth18 (Curve NG) = min(to18(balances(i0)), to18(balances(i1))): the
     /// pool's own word (stored balances), not its balanceOf, for any amtIn and either direction,
-    /// and what Gate.vitalOf reads below the mass held.
-    function test_CurveNG_Depth18_IsThePoolsLongSide() public {
+    /// whichever coin holds the shorter side; what Gate.vitalOf reads below the mass held; and
+    /// what the registry reads for a native pair holding the same balances (one mass, one depth
+    /// on both doors). Red at 1b4f2d4 (the long side, 3e24).
+    function test_CurveNG_Depth18_IsThePoolsShortSide() public {
         t1.mint(address(pool), 2_000_000e18);
         pool.sync(); // stored: t1 3e24 (index 0), t0 1e24 (index 2)
         t0.mint(address(pool), 9_000_000e18); // a donation the pool has not accounted
         BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(w);
         (, uint256 d) = wr.quote(true, 0);
-        assertEq(d, 3_000_000e18, "the long side of the pool's balances");
+        assertEq(d, 1_000_000e18, "the short side of the pool's balances, not of its balanceOf");
         (, uint256 d2) = wr.quote(false, 7e18);
         assertEq(d2, d, "depth18 does not depend on amtIn or direction");
         (, uint256 dv, ) = gate.vitalOf(w);
         assertEq(dv, d, "vitalOf reads the word below the mass held");
+        MockV2Pair pair = new MockV2Pair(address(t0), address(t1));
+        pair.setReserves(uint112(1_000_000e18), uint112(3_000_000e18));
+        t0.mint(address(pair), 1_000_000e18);
+        t1.mint(address(pair), 3_000_000e18);
+        assertEq(BPC.registryDepth18(address(pair), BPC.KIND_V2, address(t0), address(t1), address(0), bytes32(0)), d,
+            "a native pair holding the same balances reads the same depth");
+        pool.sync(); // the donation accounted: stored t1 3e24, t0 1e25, the short side moves to t1
+        (, d) = wr.quote(true, 0);
+        assertEq(d, 3_000_000e18, "the short side follows the coin that holds it");
     }
 
     /// Quantity: adapter depth18 (Curve NG) normalises each side by its coin's decimals before
-    /// the max: 2M of a 6-decimal coin (2e12 raw) is deeper than 1M of an 18-decimal one (1e24 raw).
-    function test_CurveNG_Depth18_NormalisesDecimalsBeforeTheMax() public {
+    /// the min: 2M of a 6-decimal coin (2e12 raw) is deeper than 1M of an 18-decimal one (1e24
+    /// raw), so the short side is the 18-decimal coin's, not the side with fewer units.
+    function test_CurveNG_Depth18_NormalisesDecimalsBeforeTheMin() public {
         MockERC20Dec d6 = new MockERC20Dec(6);
         address[] memory coins = new address[](2);
         (coins[0], coins[1]) = (address(d6), address(t1));
@@ -240,7 +255,7 @@ contract AdapterCurveNGTest is AdapterHarness {
         t1.mint(address(p), 1_000_000e18);
         p.sync();
         (, uint256 d) = adapter.quote(address(p), bytes32(uint256(0 | (1 << 8))), bytes32(0), true, 0);
-        assertEq(d, 2_000_000e18, "6-decimal side, normalised, is the long side");
+        assertEq(d, 1_000_000e18, "normalised, the 6-decimal side is the deeper one: the short side is the other");
     }
 
     /// Quantity: adapter depth18 (Curve NG) is asked only while the pool is not mid-operation,
@@ -252,6 +267,6 @@ contract AdapterCurveNGTest is AdapterHarness {
         assertEq(d, 0, "locked: no depth");
         pool.setLocked(false);
         (, d) = wr.quote(true, 0);
-        assertEq(d, 1_000_000e18, "unlocked: the pool's long side");
+        assertEq(d, 1_000_000e18, "unlocked: the pool's short side");
     }
 }

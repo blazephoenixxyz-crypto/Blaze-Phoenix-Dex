@@ -76,7 +76,7 @@ interface IBalancerV3PoolFactory {
 ///         venuePool = the Vault; aux0 = pool; aux1 = hooks contract (0 if none).
 ///         QUOTE: V3 quotes only by eth_call (`Vault.quote`), so `quote` answers out = 0.
 ///         DEPTH: `quote` declares the pool's raw balances in the Vault (`getPoolTokenInfo`), the
-///         larger side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18); none
+///         shorter side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18); none
 ///         while the Vault is unlocked.
 contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
     IBalancerV3Vault public immutable VAULT;

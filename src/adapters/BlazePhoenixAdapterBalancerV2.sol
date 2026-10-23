@@ -58,7 +58,7 @@ interface IBalancerPoolFactory {
 ///         venuePool = the Vault; aux0 = poolId; aux1 unused.
 ///         QUOTE: Balancer V2 has no view quote (`queryBatchSwap` writes and reverts), so `quote`
 ///         answers out = 0 and the SDK uses `quoteCall` by eth_call; the leg then travels attested.
-///         DEPTH: `quote` declares the pool's balances in the Vault (`getPoolTokens`), the larger
+///         DEPTH: `quote` declares the pool's balances in the Vault (`getPoolTokens`), the shorter
 ///         side of the wrapper's pair in 18 decimals (ExtAdapterBase._listedDepth18); none while
 ///         the Vault is inside one of its own operations.
 contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {

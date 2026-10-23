@@ -1039,10 +1039,9 @@ library BlazePhoenixCore {
     }
 
     /// @notice The LONG side of a pair, already in 18 decimals: the twin of `shortSide18`, and the
-    ///         producer of "the larger of two amounts, normalised" for the Gate adapters, which
-    ///         read the venue's reported balances through it (ExtAdapterBase._depth18).
-    ///         `heldMass18` (the cap on what they declare) calls it over the pool's own two
-    ///         balances (folded 2026-10-23), so the two answers share one formula.
+    ///         formula of `heldMass18`, the cap on the registry's concentrated arm. Not a depth:
+    ///         every depth of a pair, the Gate adapters' included (ExtAdapterBase._depth18 since
+    ///         2026-10-23), is its short side.
     function maxSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1) internal pure returns (uint256) {
         uint256 n0 = to18(a0, d0);
         uint256 n1 = to18(a1, d1);
@@ -2667,8 +2666,10 @@ library BlazePhoenixCore {
 
     /// @notice THE ONE PRODUCER of "the mass a pool physically holds", normalised: the larger of
     ///         its two holdings in 18 decimals (the least cap with f(a, 0) = a and f(0, b) = b; see
-    ///         the concentrated arm of `registryDepth18`). Read by the registry's concentrated arm
-    ///         and by the Gate's `vitalOf`, so a declared depth meets the same cap on both doors.
+    ///         the concentrated arm of `registryDepth18`). Read by the registry's concentrated arm,
+    ///         whose depth comes from `liquidity()` and may stand on one side of a range. The
+    ///         Gate's `vitalOf` caps by the short side of the same holdings instead: its adapters
+    ///         declare the short side of balances, never a depth from L (2026-10-23).
     function heldMass18(address pool, address t0, uint8 dc0, address t1, uint8 dc1)
         internal view returns (uint256)
     {
