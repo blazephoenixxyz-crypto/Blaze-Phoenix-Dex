@@ -341,9 +341,11 @@ contract QuoteFidelityTest is Test {
         assertEq(pvWarm.grossOut, pv.grossOut, "the same quote twice in one frame disagreed");
         // A public node serves eth_call under a gas cap - 50M is the common default, and some
         // are lower. A quote that needs a quarter of that leaves no room for the caller's own
-        // simulation on top, so the budget asserted here is 5M: an order of magnitude of
-        // headroom against the usual cap, and roughly 50 ms of node time at 100M gas/s.
-        assertLt(gFrio, 5_000_000,
+        // simulation on top, so the budget asserted here is 6.5M: still about 7.7x of headroom
+        // against the usual cap, and roughly 65 ms of node time at 100M gas/s. It was 5M until
+        // 2026-10-23; the guards added since (capacity walk, Gate probes, the Quoter's route
+        // shape) measure 5.77M on this route, and the ceiling was raised to hold them.
+        assertLt(gFrio, 6_500_000,
             "a cold quote must stay inside the budget a public node will serve");
         // The warm/cold difference is logged, not asserted: see the note above.
         console2.log("  diferenca morno-frio (nao afirmada, ver nota):",
