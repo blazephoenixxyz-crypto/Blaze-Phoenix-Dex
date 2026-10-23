@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
+import {Test} from "forge-std/Test.sol";
 import {AdapterHarness} from "./AdapterHarness.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
 import {BlazePhoenixAdapterFluidDexT1} from "../../src/adapters/BlazePhoenixAdapterFluidDexT1.sol";
-import {MockFluidFactory, MockFluidLiquidity, MockFluidDexT1, Intruder} from "./mocks/MockFluidDexT1.sol";
+import {MockFluidFactory, MockFluidLiquidity, MockFluidDexT1, Intruder, MockWETH9} from "./mocks/MockFluidDexT1.sol";
 import {MockERC20Dec} from "./mocks/MockERC20Dec.sol";
 
 /// Exposes the adapter's CREATE-address derivation.
 contract FluidAdapterProbe is BlazePhoenixAdapterFluidDexT1 {
-    constructor(address g) BlazePhoenixAdapterFluidDexT1(g, address(1), address(1)) {}
+    constructor(address g) BlazePhoenixAdapterFluidDexT1(g, address(1), address(1), address(1)) {}
     function createAddress(address d, uint256 n) external pure returns (address) { return _createAddress(d, n); }
 }
 
@@ -20,6 +21,10 @@ contract AdapterFluidDexT1Test is AdapterHarness {
     uint8 internal constant FAM = 5;
     uint24 internal constant KEY = uint24(FAM) << 16 | 1;
     address internal constant NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    /// Fixed addresses so the native side sorts both ways: LO < WETH < HI < NATIVE.
+    address internal constant WETH = 0x4200000000000000000000000000000000000006;
+    address internal constant LO = 0x1111111111111111111111111111111111111111;
+    address internal constant HI = 0x9999999999999999999999999999999999999999;
 
     MockFluidFactory internal factory;
     MockFluidLiquidity internal liq;
@@ -29,12 +34,13 @@ contract AdapterFluidDexT1Test is AdapterHarness {
 
     function setUp() public {
         _tokens();
+        vm.etch(WETH, address(new MockWETH9()).code);
         factory = new MockFluidFactory();
         liq = new MockFluidLiquidity(address(factory));
         dex = factory.deploy(address(liq), address(t0), address(t1)); // dexId 1
         t0.mint(address(liq), 1_000_000e18);
         t1.mint(address(liq), 1_000_000e18);
-        adapter = new BlazePhoenixAdapterFluidDexT1(address(gate), address(factory), address(liq));
+        adapter = new BlazePhoenixAdapterFluidDexT1(address(gate), address(factory), address(liq), WETH);
         _accept(FAM, address(adapter));
         w = gate.create(address(t0), address(t1), KEY, abi.encode(uint256(1)));
     }
@@ -80,6 +86,14 @@ contract AdapterFluidDexT1Test is AdapterHarness {
         _swap(w, zeroForOne, amt);
         _assertEmpty(address(adapter), w, address(dex));
         _assertEmpty(address(adapter), w, address(liq));
+    }
+
+    /// A token that returns nothing from `transfer` (USDT): the callback pays it all the same.
+    function test_Fluid_Swap_TokenWithoutReturnValue_Settles() public {
+        t0.setNoReturnData(true);
+        assertEq(_swap(w, true, 7e18), 7e18 * 9_970 / 10_000);
+        _assertEmpty(address(adapter), w, address(liq));
+        assertEq(t0.balanceOf(address(liq)), 1_000_007e18, "Liquidity received exactly the input");
     }
 
     function test_Fluid_NoApproveInItsBytecode() public view {
@@ -218,12 +232,6 @@ contract AdapterFluidDexT1Test is AdapterHarness {
         gate.create(address(t0), address(t1), KEY + 1, abi.encode(uint256(2)));
     }
 
-    function test_Fluid_Resolve_NativePool_Refused() public {
-        assertLt(uint160(address(t0)), uint160(NATIVE));
-        factory.deploy(address(liq), address(t0), NATIVE);
-        vm.expectRevert(_aerr(4));
-        gate.create(address(t0), NATIVE, KEY + 1, abi.encode(uint256(2)));
-    }
 
     function test_Fluid_Resolve_MalformedHint_Refused() public {
         vm.expectRevert(_aerr(8));
@@ -314,5 +322,180 @@ contract AdapterFluidDexT1Test is AdapterHarness {
         _setSupply(dex, 5_000_000e18, 6_000_000e18); // a word above Liquidity's 1e24 holdings
         (, depth, ) = gate.vitalOf(w);
         assertEq(depth, 1_000_000e18, "capped at the short side of what Liquidity holds");
+    }
+
+    // ─── native ETH: the path speaks WETH; unwrap and wrap at the venue boundary ───
+
+    MockFluidDexT1 internal nLo; // (LO, NATIVE): as WETH, the wrapper's order
+    MockFluidDexT1 internal nHi; // (HI, NATIVE): as WETH, the reverse order (FLIPPED)
+    address internal wLo;
+    address internal wHi;
+
+    /// Pools 2 and 3; Liquidity holds ETH and both tokens. Fluid 0 -> 1 at 99.70 %, 1 -> 0 at
+    /// 90 %: a direction read the wrong way prices differently.
+    function _native() internal {
+        vm.etch(LO, address(t0).code);
+        vm.etch(HI, address(t0).code);
+        nLo = factory.deploy(address(liq), LO, NATIVE);
+        nHi = factory.deploy(address(liq), HI, NATIVE);
+        nLo.setRate1to0(9_000);
+        nHi.setRate1to0(9_000);
+        MockERC20(LO).mint(address(liq), 1_000_000e18);
+        MockERC20(HI).mint(address(liq), 1_000_000e18);
+        vm.deal(address(liq), 1_000_000e18);
+        wLo = gate.create(LO, WETH, KEY, abi.encode(uint256(2)));
+        wHi = gate.create(HI, WETH, KEY, abi.encode(uint256(3)));
+    }
+
+    /// Router-shaped swap on a wrapper with a WETH side; the WETH input is backed by real ETH.
+    function _swapN(address x, bool zeroForOne, uint256 amt) internal returns (uint256 out) {
+        BlazePhoenixGateWrapper wr = BlazePhoenixGateWrapper(x);
+        (address tIn, address tOut) = zeroForOne ? (wr.token0(), wr.token1()) : (wr.token1(), wr.token0());
+        if (tIn == WETH) {
+            vm.deal(address(this), amt);
+            MockWETH9(payable(WETH)).deposit{value: amt}();
+        } else {
+            MockERC20(tIn).mint(address(this), amt);
+        }
+        uint256 b = MockERC20(tOut).balanceOf(address(this));
+        wr.swap(address(this), zeroForOne, int256(amt), 0, "");
+        out = MockERC20(tOut).balanceOf(address(this)) - b;
+    }
+
+    /// Nothing at rest: no ETH, no WETH and no token in the adapter or the wrapper; WETH backed.
+    function _assertEmptyN(address x, address tok) internal view {
+        assertEq(address(adapter).balance, 0, "adapter ETH");
+        assertEq(MockERC20(WETH).balanceOf(address(adapter)), 0, "adapter WETH");
+        assertEq(MockERC20(tok).balanceOf(address(adapter)), 0, "adapter token");
+        assertEq(MockERC20(WETH).balanceOf(x), 0, "wrapper WETH");
+        assertEq(MockERC20(tok).balanceOf(x), 0, "wrapper token");
+        assertEq(x.balance, 0, "wrapper ETH");
+        assertEq(WETH.balance, MockERC20(WETH).totalSupply(), "WETH fully backed");
+    }
+
+    function test_Fluid_Native_Resolve_WethSideAndOrder() public {
+        _native();
+        assertEq(BlazePhoenixGateWrapper(wLo).token0(), LO);
+        assertEq(BlazePhoenixGateWrapper(wLo).aux0(), bytes32(uint256(uint160(address(nLo)))));
+        assertEq(BlazePhoenixGateWrapper(wLo).aux1(), bytes32(uint256(2)), "native, same order");
+        assertEq(BlazePhoenixGateWrapper(wHi).token0(), WETH);
+        assertEq(BlazePhoenixGateWrapper(wHi).aux1(), bytes32(uint256(3)), "native, reversed order");
+        // NATIVE next to the ERC20 WETH reads as WETH/WETH: never a Gate pair.
+        factory.deploy(address(liq), WETH, NATIVE); // id 4
+        vm.expectRevert(_aerr(3));
+        gate.create(WETH, LO, KEY, abi.encode(uint256(4)));
+    }
+
+    /// WETH in: exactly the input is unwrapped and sent as the swap's value; Liquidity holds it.
+    function test_Fluid_Native_EthIn_RecipientPaid_NothingLeft() public {
+        _native();
+        uint256 e = address(liq).balance;
+        // LO pool: WETH is the wrapper's token1 (zeroForOne false), Fluid 1 -> 0.
+        uint256 q = BlazePhoenixGateWrapper(wLo).quoteCall(false, 2e18);
+        assertEq(q, 2e18 * 9_000 / 10_000, "the simulation reads Fluid's direction");
+        assertEq(_swapN(wLo, false, 2e18), q, "quoteCall == execution");
+        assertEq(address(liq).balance, e + 2e18, "Liquidity received the input as ETH");
+        _assertEmptyN(wLo, LO);
+        // HI pool, reversed: WETH is token0 (zeroForOne true), Fluid still 1 -> 0.
+        q = BlazePhoenixGateWrapper(wHi).quoteCall(true, 3e18);
+        assertEq(q, 3e18 * 9_000 / 10_000, "the simulation reads Fluid's direction");
+        assertEq(_swapN(wHi, true, 3e18), q, "quoteCall == execution");
+        assertEq(address(liq).balance, e + 5e18);
+        _assertEmptyN(wHi, HI);
+    }
+
+    /// WETH out: Liquidity pays the ETH to the adapter, which wraps exactly it for the recipient.
+    function test_Fluid_Native_EthOut_WrappedToRecipient_NothingLeft() public {
+        _native();
+        uint256 e = address(liq).balance;
+        uint256 q = BlazePhoenixGateWrapper(wLo).quoteCall(true, 4e18);
+        assertEq(q, 4e18 * 9_970 / 10_000);
+        assertEq(_swapN(wLo, true, 4e18), q, "quoteCall == execution, in WETH");
+        assertEq(address(liq).balance, e - q, "Liquidity paid ETH");
+        _assertEmptyN(wLo, LO);
+        q = BlazePhoenixGateWrapper(wHi).quoteCall(false, 1e18);
+        assertEq(q, 1e18 * 9_970 / 10_000);
+        assertEq(_swapN(wHi, false, 1e18), q);
+        _assertEmptyN(wHi, HI);
+    }
+
+    /// A native input opens no callback: a pool asking for WETH anyway reaches nothing.
+    function test_Fluid_Native_InputOpensNoCallback() public {
+        _native();
+        vm.deal(address(this), 2e18);
+        MockWETH9(payable(WETH)).deposit{value: 2e18}();
+        MockERC20(WETH).transfer(address(adapter), 1e18); // a donation a request could reach
+        nLo.setAskToken(WETH);
+        nLo.setMode(MockFluidDexT1.Mode.AskOnNative);
+        vm.expectRevert(_aerr(6));
+        BlazePhoenixGateWrapper(wLo).swap(address(this), false, int256(1e18), 0, "");
+    }
+
+    /// ETH already in the adapter (forced) is not the output: only the swap's delta is wrapped.
+    function test_Fluid_Native_OutputWrapsOnlyTheDelta() public {
+        _native();
+        vm.deal(address(adapter), 1 ether);
+        uint256 q = BlazePhoenixGateWrapper(wHi).quoteCall(false, 5e18);
+        assertEq(_swapN(wHi, false, 5e18), q, "the recipient gets the swap's output, no more");
+        assertEq(address(adapter).balance, 1 ether, "the forced ETH stays where it was");
+        assertEq(MockERC20(WETH).balanceOf(address(adapter)), 0);
+    }
+
+    function _pay(address from, address to) internal returns (bool ok) {
+        vm.deal(from, 1);
+        vm.prank(from);
+        (ok, ) = to.call{value: 1}("");
+    }
+
+    /// `receive`: no one sends ETH outside the instant of an unwrap or a native payment.
+    function test_Fluid_Native_EthRefusedOutsideExec() public {
+        _native();
+        assertFalse(_pay(address(0xBEEF), address(adapter)), "a stranger");
+        assertFalse(_pay(WETH, address(adapter)), "WETH outside an unwrap");
+        assertFalse(_pay(address(liq), address(adapter)), "Liquidity outside a native payment");
+    }
+
+    /// The window is one call wide: later in the same transaction as a native input (or a
+    /// native output), WETH (or Liquidity) can no longer send ETH to the adapter. Both happen
+    /// inside one call of `NativeSwapThenPush`: Foundry resets transient storage between the
+    /// test's own top-level calls, so a check made from here would pass with the window open.
+    function test_Fluid_Native_EthWindowClosesAfterExec() public {
+        _native();
+        NativeSwapThenPush b = new NativeSwapThenPush();
+        vm.deal(address(this), 1e18);
+        MockWETH9(payable(WETH)).deposit{value: 1e18}();
+        MockERC20(WETH).transfer(address(b), 1e18);
+        MockERC20(LO).mint(address(b), 1e18);
+        assertFalse(b.run(wLo, false, 1e18, WETH, address(adapter)), "WETH after the unwrap");
+        assertFalse(b.run(wLo, true, 1e18, address(liq), address(adapter)), "Liquidity after the payment");
+        assertEq(address(adapter).balance, 0, "adapter ETH");
+    }
+
+    /// The native side's depth is read as WETH's (18 decimals), short side of the collateral.
+    function test_Fluid_Native_Depth_ShortSide() public {
+        _native();
+        (uint256 d0, uint256 d1) = _setSupply(nLo, 100e18, 40e18);
+        (, uint256 depth) = BlazePhoenixGateWrapper(wLo).quote(true, 0);
+        assertEq(depth, BPC.shortSide18(d0, 18, d1, 18));
+        assertEq(depth, d1);
+    }
+}
+
+/// A native swap through the wrapper, then, in the same call frame, `from` sends 1 wei to the
+/// adapter. Pays the wrapper as the Router does (by transfer in the callback).
+contract NativeSwapThenPush is Test {
+    function run(address wr, bool zeroForOne, uint256 amt, address from, address adapter)
+        external returns (bool pushed)
+    {
+        BlazePhoenixGateWrapper(wr).swap(address(this), zeroForOne, int256(amt), 0, "");
+        vm.deal(from, from.balance + 1);
+        vm.prank(from);
+        (pushed, ) = adapter.call{value: 1}("");
+    }
+
+    function uniswapV3SwapCallback(int256 a0, int256 a1, bytes calldata) external {
+        BlazePhoenixGateWrapper w = BlazePhoenixGateWrapper(msg.sender);
+        (address t, int256 amt) = a0 > 0 ? (w.token0(), a0) : (w.token1(), a1);
+        if (amt > 0) MockERC20(t).transfer(msg.sender, uint256(amt));
     }
 }

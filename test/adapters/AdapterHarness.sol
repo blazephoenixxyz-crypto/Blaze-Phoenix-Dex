@@ -46,10 +46,13 @@ abstract contract AdapterHarness is Test {
         out = tOut.balanceOf(address(this)) - b;
     }
 
+    /// Pays by a low-level transfer that accepts an empty return (USDT), as BPC.safeTransfer does.
     function uniswapV3SwapCallback(int256 a0, int256 a1, bytes calldata) external {
         BlazePhoenixGateWrapper w = BlazePhoenixGateWrapper(msg.sender);
-        if (a0 > 0) MockERC20(w.token0()).transfer(msg.sender, uint256(a0));
-        else if (a1 > 0) MockERC20(w.token1()).transfer(msg.sender, uint256(a1));
+        (address t, int256 amt) = a0 > 0 ? (w.token0(), a0) : (w.token1(), a1);
+        if (amt <= 0) return;
+        (bool ok, bytes memory r) = t.call(abi.encodeWithSelector(MockERC20.transfer.selector, msg.sender, uint256(amt)));
+        require(ok && (r.length == 0 || abi.decode(r, (bool))), "harness: pay");
     }
 
     /// Custody after a call: adapter and wrapper hold nothing of either token, and the adapter

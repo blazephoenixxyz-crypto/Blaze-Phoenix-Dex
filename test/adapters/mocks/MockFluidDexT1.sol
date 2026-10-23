@@ -12,8 +12,22 @@ interface IWrapperQuoteLike {
     function quote(bool zeroForOne, uint256 amtIn) external view returns (uint256 out, uint256 depth18);
 }
 
-/// Fluid Liquidity, as far as the adapter sees it: it holds the tokens, answers `readFromStorage`,
-/// and pays out only for a pool its factory created.
+/// WETH9: deposit mints, withdraw pays with transfer's 2300-gas stipend.
+contract MockWETH9 is MockERC20 {
+    constructor() MockERC20("Wrapped Ether", "WETH") {}
+    function deposit() public payable { this.mint(msg.sender, msg.value); }
+    function withdraw(uint256 wad) external {
+        require(balanceOf[msg.sender] >= wad, "weth: balance");
+        balanceOf[msg.sender] -= wad;
+        totalSupply -= wad;
+        payable(msg.sender).transfer(wad);
+    }
+    receive() external payable { deposit(); }
+}
+
+/// Fluid Liquidity, as far as the adapter sees it: it holds the tokens (native ETH included),
+/// answers `readFromStorage`, and pays out only for a pool its factory created; native ETH with
+/// SafeTransfer.safeTransferNative's 50 000 gas (fluid-contracts-public libraries/safeTransfer.sol).
 contract MockFluidLiquidity {
     mapping(bytes32 => uint256) internal _s;
     mapping(address => bool) public isDex;
@@ -27,9 +41,19 @@ contract MockFluidLiquidity {
 
     function pay(address token, address to, uint256 amt) external {
         require(isDex[msg.sender], "not a dex");
-        MockERC20(token).transfer(to, amt);
+        if (token == NATIVE) {
+            (bool ok, ) = to.call{value: amt, gas: 50_000}("");
+            require(ok, "native transfer");
+        } else {
+            MockERC20(token).transfer(to, amt);
+        }
     }
+
+    /// A native input arrives as the operate's value (userModule/main.sol:803-811): no callback.
+    receive() external payable {}
 }
+
+address constant NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
 /// DexFactory.deployDex: CREATE at nonce = ++totalDexes (dexId), so getDexAddress(id) is the
 /// CREATE address of (factory, id).
@@ -39,7 +63,7 @@ contract MockFluidFactory {
     function deploy(address liquidity, address token0, address token1) external returns (MockFluidDexT1 d) {
         uint256 id = ++totalDexes;
         d = new MockFluidDexT1(id, liquidity, token0, token1);
-        if (MockFluidLiquidity(liquidity).factory() == address(this)) MockFluidLiquidity(liquidity).addDex(address(d));
+        if (MockFluidLiquidity(payable(liquidity)).factory() == address(this)) MockFluidLiquidity(payable(liquidity)).addDex(address(d));
     }
 }
 
@@ -47,9 +71,11 @@ contract MockFluidFactory {
 /// `swapInWithCallback` sets the reentrancy bit (dexVariables bit 0), asks the caller for
 /// exactly amountIn through `dexCallback` (main.sol liquidityCallback), requires Liquidity to
 /// have received it, has Liquidity pay `to`, and clears the bit; `swapIn(.., 0x…dEaD)` reverts
-/// FluidDexSwapResult(out). Hostile modes for the callback tests.
+/// FluidDexSwapResult(out). A native input is the call's value, equal to amountIn (main.sol:83-85,
+/// Liquidity takes msg.value and asks no callback); `swapIn` (no callback) also executes.
+/// Hostile modes for the callback tests; AskOnNative asks a callback on a native input.
 contract MockFluidDexT1 {
-    enum Mode { Honest, Twice, Over, WrongToken, NoCallback, Intruder, ProbeQuote, Paused }
+    enum Mode { Honest, Twice, Over, WrongToken, NoCallback, Intruder, ProbeQuote, Paused, AskOnNative }
 
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -60,6 +86,9 @@ contract MockFluidDexT1 {
 
     uint256 public dexVariables;
     uint256 public rateBps = 9_970;
+    /// 1 -> 0 at its own rate when set: a reversed direction prices differently.
+    uint256 public rate1to0Bps;
+    address public askToken;
     Mode public mode;
     uint256 public claimedId;
     address public claimedLiquidity;
@@ -77,6 +106,8 @@ contract MockFluidDexT1 {
 
     function setMode(Mode m) external { mode = m; }
     function setRate(uint256 r) external { rateBps = r; }
+    function setRate1to0(uint256 r) external { rate1to0Bps = r; }
+    function setAskToken(address t) external { askToken = t; }
     function setDexVariables(uint256 v) external { dexVariables = v; }
     function lie(uint256 id_, address liq) external { (claimedId, claimedLiquidity) = (id_, liq); }
     function setIntruder(Intruder i) external { intruder = i; }
@@ -102,24 +133,51 @@ contract MockFluidDexT1 {
         return s == bytes32(0) ? dexVariables : 0;
     }
 
-    function _out(uint256 amt) internal view returns (uint256) { return amt * rateBps / 10_000; }
+    function _out(uint256 amt, bool swap0to1) internal view returns (uint256) {
+        return amt * (swap0to1 || rate1to0Bps == 0 ? rateBps : rate1to0Bps) / 10_000;
+    }
 
-    function swapIn(bool, uint256 amountIn, uint256, address to) external payable returns (uint256) {
+    function swapIn(bool swap0to1, uint256 amountIn, uint256 amountOutMin, address to)
+        external payable returns (uint256)
+    {
         if (mode == Mode.Paused) revert Paused();
-        require(dexVariables & 1 == 0, "reentered");
-        dexVariables |= 1; // _check writes the bit before the result: the simulation is not a view
-        if (to == DEAD) revert IFluidDexT1.FluidDexSwapResult(_out(amountIn));
-        revert("mock: only the simulation");
+        if (to == DEAD) {
+            require(dexVariables & 1 == 0, "reentered");
+            dexVariables |= 1; // _check writes the bit before the result: the simulation is not a view
+            revert IFluidDexT1.FluidDexSwapResult(_out(amountIn, swap0to1));
+        }
+        return _swap(swap0to1, amountIn, amountOutMin, to, false);
     }
 
     function swapInWithCallback(bool swap0to1, uint256 amountIn, uint256 amountOutMin, address to)
-        external payable returns (uint256 out)
+        external payable returns (uint256)
+    {
+        return _swap(swap0to1, amountIn, amountOutMin, to, true);
+    }
+
+    function _swap(bool swap0to1, uint256 amountIn, uint256 amountOutMin, address to, bool isCallback)
+        internal returns (uint256 out)
     {
         require(dexVariables & 1 == 0, "reentered");
         dexVariables |= 1;
         (address tIn, address tOut) = swap0to1 ? (token0, token1) : (token1, token0);
-        out = _out(amountIn);
+        if (msg.value > 0) {
+            require(msg.value == amountIn, "DexT1__EthAndAmountInMisMatch");
+            require(tIn == NATIVE, "DexT1__EthSentForNonNativeSwap");
+        }
+        out = _out(amountIn, swap0to1);
         require(out >= amountOutMin, "out min");
+        address payer = to == address(0) ? msg.sender : to;
+        if (tIn == NATIVE) {
+            require(msg.value == amountIn, "Liquidity: native not received"); // memVar2_ > msg.value
+            if (mode == Mode.AskOnNative) IDexCallbackLike(msg.sender).dexCallback(askToken, amountIn);
+            (bool ok, ) = liquidity.call{value: msg.value}("");
+            require(ok);
+            MockFluidLiquidity(payable(liquidity)).pay(tOut, payer, out);
+            dexVariables &= ~uint256(1);
+            return out;
+        }
+        require(isCallback, "mock: ERC20 input only by callback");
         uint256 before = MockERC20(tIn).balanceOf(liquidity);
         IDexCallbackLike cb = IDexCallbackLike(msg.sender);
         Mode m = mode;
@@ -136,7 +194,7 @@ contract MockFluidDexT1 {
         if (m != Mode.NoCallback) {
             require(MockERC20(tIn).balanceOf(liquidity) >= before + amountIn, "Liquidity: not received");
         }
-        MockFluidLiquidity(liquidity).pay(tOut, to == address(0) ? msg.sender : to, out);
+        MockFluidLiquidity(payable(liquidity)).pay(tOut, payer, out);
         dexVariables &= ~uint256(1);
     }
 }
