@@ -3818,6 +3818,11 @@ M = [
       old="            if (h != 0 && (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == route.hops[0].tokenIn))\n                return true;\n",
       new="            // MUTANT [rv1023-4]\n",
       teste="test_Shape_HopsThatDoNotChain_AreNotQuoted"),
+ dict(nome="rv1023-5: revisao-1023: seedPool writes a V4 row whose id does not derive to its pool",
+      f="src/BlazePhoenixHub.sol",
+      old="            if (address(uint160(uint256(pid))) != pool) revert HubE(4);\n",
+      new="            // MUTANT [rv1023-5]\n",
+      teste="test_SeedPoolV4_AHookTheIdDoesNotDerive_IsRefused"),
 ]
 
 def run(t):

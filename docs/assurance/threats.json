@@ -268,6 +268,14 @@
       "note": "revisao-total 2026-10-23, the V3 twin of BPX-2026-009. _hookRefusedIn asked only the V4 refusals (RouterE(9), (11), (8)); it now asks the RouterE(3) shape of Router._execute first, reading each pair leg's tokens as _legTokens does. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Cold-quote gas +1 832 (QuoteFidelity, measured)."
     },
     {
+      "id": "SOK-HUB-SEED-V4-FOREIGN-ID",
+      "class": "The seed door writes a V4 row keyed to one pool whose depth is read at another pool's id (a declared hook the pool's id does not derive)",
+      "status": "blocked",
+      "guard": "seedPool",
+      "test": "test_SeedPoolV4_AHookTheIdDoesNotDerive_IsRefused",
+      "note": "revisao-total 2026-10-23. The tier is recovered on the hookless id, the V4Entry took the declared hook, and registryDepth18 measured the hooked id, a pool anyone can open and fill. Operator door (A3). The derived id must now be the pool (HubE(4))."
+    },
+    {
       "id": "SOK-FORGED-RESERVES-BAND-VOTE",
       "class": "A pair registered honest forges its reserves afterwards and a recoverable donation buys the band",
       "status": "blocked",

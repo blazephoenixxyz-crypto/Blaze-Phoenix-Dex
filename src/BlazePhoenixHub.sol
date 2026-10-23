@@ -2162,6 +2162,10 @@ contract BlazePhoenixHub {
                 ts = $.v4Entries[$.v4EntryOf[key] - 1].tickSpacing;
             }
             pid = BPC.computeV4PoolId(t0, t1, fee, ts, hooks);
+            // The row IS the pool its id derives from. The tier above is recovered on the
+            // hookless id, so a declared hook keyed this pool to a row whose depth is read at
+            // ANOTHER id, the hooked one (revisao-total 2026-10-23).
+            if (address(uint160(uint256(pid))) != pool) revert HubE(4);
         } else {
             // THE SAME REFUTATION AS THE SWAP DOOR (ninth wave, mohaseenbasha dex-16). This door
             // wrote kind and fee as declared, and nothing re-reads a row after it is written - a

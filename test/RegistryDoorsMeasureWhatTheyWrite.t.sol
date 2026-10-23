@@ -187,6 +187,24 @@ contract RegistryDoorsMeasureWhatTheyWriteTest is Test {
         hub.seedPool(pool, BPC.KIND_V4_NATIVE, FEE, address(0), address(A), address(B));
     }
 
+    /// revisao-total 2026-10-23: a V4 row IS the pool its id derives from. The tier
+    /// is recovered on the hookless id, so a declared hook wrote a row keyed to this
+    /// pool whose depth `registryDepth18` read at ANOTHER id, the hooked one - a
+    /// pool anyone can open and fill on the manager.
+    function test_SeedPoolV4_AHookTheIdDoesNotDerive_IsRefused() public {
+        (address pool, ) = _plant(1);
+        address h = address(uint160(0x77770000));
+        (address s0, address s1) = BPC.sortTokens(address(A), address(B));
+        bytes32 base = keccak256(abi.encode(BPC.computeV4PoolId(s0, s1, FEE, TS, h), uint256(6)));
+        mgr.setSlot(base, bytes32(uint256(BPC.Q96)));
+        mgr.setSlot(bytes32(uint256(base) + 3), bytes32(uint256(DEEP_LIQ)));
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(4)));
+        hub.seedPool(pool, BPC.KIND_V4, FEE, h, address(A), address(B));
+        // Control: the hook its id derives from (none) seeds, at its own depth.
+        hub.seedPool(pool, BPC.KIND_V4, FEE, address(0), address(A), address(B));
+        assertEq(_bucketOf(pool, address(A), address(B)), BPC.depthBucket(1), "own depth");
+    }
+
     // =========================================================================
     //  (2) THE ROUTE: A MEASURED ROW SURVIVES THE FUNNEL
     // =========================================================================
