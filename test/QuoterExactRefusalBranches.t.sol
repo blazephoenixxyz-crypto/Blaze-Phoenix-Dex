@@ -203,6 +203,11 @@ contract EchoConcPool {
     function setMode(uint8 m) external { mode = m; }
     function setQuoteOut(int256 q) external { quoteOut = q; }
 
+    // The pair the Router reads off the pool (`_legTokens`): a leg must trade its hop's pair.
+    address public token0;
+    address public token1;
+    function setTokens(address t0, address t1) external { token0 = t0; token1 = t1; }
+
     function swap(address, bool zeroForOne, int256 amountSpecified, uint160, bytes calldata)
         external returns (int256, int256)
     {
@@ -462,6 +467,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     /// wraps negative through int256() and the echo still answers).
     function test_Exact_Conc_ZeroAndOverRangeInputRefused() public {
         EchoConcPool pool = new EchoConcPool();
+        pool.setTokens(address(tokA), address(tokB));
         pool.setQuoteOut(int256(Q_OUT));
 
         // amtIn == 0
@@ -488,6 +494,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     /// having quoted, and its returned tuple must never be believed.
     function test_Exact_Conc_CleanReturnIsNoQuote() public {
         EchoConcPool pool = new EchoConcPool();
+        pool.setTokens(address(tokA), address(tokB));
         pool.setMode(pool.MODE_CLEAN_RETURN());
 
         uint256 exactOut = _exact(_wrap(_leg(BPC.KIND_V3, address(pool), AMT, DECOY_OUT), AMT), AMT);
@@ -502,6 +509,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     /// reverts and the whole previewPlanExact call dies instead of quoting.
     function test_Exact_Conc_PoolSideRevertFallsBack() public {
         EchoConcPool pool = new EchoConcPool();
+        pool.setTokens(address(tokA), address(tokB));
         pool.setMode(pool.MODE_SHORT_REVERT());
 
         uint256 exactOut = _exact(_wrap(_leg(BPC.KIND_V3, address(pool), AMT, DECOY_OUT), AMT), AMT);
@@ -516,6 +524,7 @@ contract QuoterExactRefusalBranchesTest is Test {
     /// 2**256 - 5 and exactOut explodes to an astronomical over-quote.
     function test_Exact_Conc_NonNegativeDeltaRefused() public {
         EchoConcPool pool = new EchoConcPool();
+        pool.setTokens(address(tokA), address(tokB));
         pool.setMode(pool.MODE_NON_NEGATIVE());
 
         uint256 exactOut = _exact(_wrap(_leg(BPC.KIND_V3, address(pool), AMT, DECOY_OUT), AMT), AMT);
@@ -691,8 +700,12 @@ contract QuoterExactRefusalBranchesTest is Test {
         Leg memory l = _v4Leg(AMT);
         l.auxId = bytes32(0);
         _repool(l);   // the malformed key's own pool, so only the zero-token guard can refuse
-        uint256 exactOut = _v4Exact(l, AMT);
-        assertEq(exactOut, DECOY_OUT, "a leg with no counter token cannot be dry-run");
+        solverMock.setBest(_wrap(l, AMT));
+        (Route memory back, uint256 net) = quoter.previewPlanExact(address(tokA), address(tokB), AMT);
+        assertEq(back.totalOut, DECOY_OUT, "a leg with no counter token cannot be dry-run");
+        // And the scalar is zero: the leg's output (token 0) is not its hop's, which the Router
+        // refuses with RouterE(3) (revisao-total 2026-10-23).
+        assertEq(net, 0, "a leg with no counter token is not executable");
     }
 
     /// BRANCHES Quoter:515/516 (the A_CONC_SING arm) and the full V4 round
@@ -858,6 +871,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         assertGt(honest, 0, "sanity: the pair prices this order");
 
         Leg memory l = _leg(BPC.KIND_SOLIDLY, address(pair), AMT, honest);
+        l.zeroForOne = pair.token0() == address(tokA); // the pair sorts: trade A -> B as the Router reads it
         uint256 exactOut = _exact(_wrap(l, AMT), AMT);
         // The pool's own number less the wei the executor leaves it for its K check: the
         // exact pass promises what the executor asks for (Core.solidlyAskOut, dex-13).
@@ -913,5 +927,97 @@ contract QuoterExactRefusalBranchesTest is Test {
         assertGt(honestAtScale, 0, "sanity: the pair prices the scaled order");
         assertLe(exactOut, honestAtScale,
             "RED-UNTIL-FIXED: linear rescale of a convex curve promises more than the pool delivers");
+    }
+
+
+    // =========================================================================
+    //  The Router's RouterE(3) shape, asked at the exact doors (revisao-total 2026-10-23)
+    // =========================================================================
+    //
+    //  `Router._execute` refuses a route whose SHAPE does not hold before it moves a token:
+    //  a leg that does not trade its hop's pair (Router:1311, the pair read from the pool as
+    //  `_legTokens` reads it; a V4 leg's counter token is its auxId), a hookless leg after a
+    //  hooked one (:1272), a hop that does not start where the previous one ended (:1130).
+    //  `_hookRefusedIn` asked only the V4 refusals (9, 11, 8), so a hand-built route of any of
+    //  these shapes previewed a positive exact scalar for a swap the Router reverts: the
+    //  V3 twin of the flipped V4 direction (BPX-2026-009). Each test below has a control of the
+    //  same route in the shape the Router accepts, priced by the same pool.
+
+    function _echoAB() internal returns (EchoConcPool pool) {
+        pool = new EchoConcPool();
+        pool.setQuoteOut(int256(Q_OUT));
+        pool.setTokens(address(tokA), address(tokB));
+    }
+
+    /// FAILS IF DELETED: yes - without the pair question the flipped leg is dry-run on the
+    /// pool (the echo answers in either direction) and the scalar is Q_OUT less the fee.
+    function test_Shape_LegTradingTheOtherDirection_IsNotQuoted() public {
+        Leg memory l = _leg(BPC.KIND_V3, address(_echoAB()), AMT, DECOY_OUT);
+        (, uint256 net) = quoter.previewRouteExact(_wrap(l, AMT), AMT);
+        assertGt(net, 0, "control: a leg that trades its hop's pair is quoted");
+
+        l.zeroForOne = false; // the pool now trades B -> A inside an A -> B hop
+        (, net) = quoter.previewRouteExact(_wrap(l, AMT), AMT);
+        assertEq(net, 0, "previewRouteExact quoted a leg the Router refuses with RouterE(3) (direction)");
+    }
+
+    /// FAILS IF DELETED: yes - the leg on the C/B pool is dry-run and quoted.
+    function test_Shape_LegOnAnotherPair_IsNotQuoted() public {
+        EchoConcPool pool = _echoAB();
+        pool.setTokens(address(tokC), address(tokB)); // legIn = C in an A -> B hop
+        Leg memory l = _leg(BPC.KIND_V3, address(pool), AMT, DECOY_OUT);
+        (, uint256 net) = quoter.previewRouteExact(_wrap(l, AMT), AMT);
+        assertEq(net, 0, "previewRouteExact quoted a leg on another pair, which the Router refuses with RouterE(3)");
+    }
+
+    /// FAILS IF DELETED: yes - the key (A, C) holds together, so the V4 sieve passes it and the
+    /// manager, primed for that key, answers Q_OUT.
+    function test_Shape_V4LegNamingAnotherCounterToken_IsNotQuoted() public {
+        (address c0, address c1) = BPC.sortTokens(address(tokA), address(tokC));
+        mgrMock.setExpectedKey(c0, c1, POOL_FEE, TICK_SP, address(0));
+        Leg memory l = _v4Leg(AMT);
+        l.auxId = bytes32(uint256(uint160(address(tokC))));
+        _repool(l); // well-formed for (A, C): only the hop's pair can refuse it
+        (, uint256 net) = quoter.previewRouteExact(_wrap(l, AMT), AMT);
+        assertEq(net, 0, "previewRouteExact quoted a V4 leg whose counter token is not the hop's output");
+    }
+
+    /// FAILS IF DELETED: yes - both legs are priced and the scalar is their sum less the fee.
+    function test_Shape_HooklessLegAfterAHookedOne_IsNotQuoted() public {
+        Leg memory hooked = _swapHookLeg();  // live swap hook, priced by the pool
+        hooked.amountIn = AMT / 2;
+        Leg memory plain = _leg(BPC.KIND_V3, address(_echoAB()), AMT / 2, DECOY_OUT);
+        Route memory r = _wrap(plain, AMT);
+        Leg[] memory ls = new Leg[](2);
+        ls[0] = plain; ls[1] = hooked;
+        r.hops[0].legs = ls;
+        (, uint256 net) = quoter.previewRouteExact(r, AMT);
+        assertGt(net, 0, "control: hookless legs before hooked ones are quoted");
+
+        ls[0] = hooked; ls[1] = plain;
+        (, net) = quoter.previewRouteExact(r, AMT);
+        assertEq(net, 0, "previewRouteExact quoted a hookless leg after a hooked one (RouterE(3))");
+    }
+
+    /// FAILS IF DELETED: yes - the second hop's legs are priced on the carry of the first.
+    function test_Shape_HopsThatDoNotChain_AreNotQuoted() public {
+        EchoConcPool bc = new EchoConcPool();
+        bc.setQuoteOut(int256(Q_OUT));
+        bc.setTokens(address(tokB), address(tokC));
+        Route memory r = _wrap(_leg(BPC.KIND_V3, address(_echoAB()), AMT, DECOY_OUT), AMT);
+        Hop[] memory hs = new Hop[](2);
+        hs[0] = r.hops[0];
+        Leg[] memory ls = new Leg[](1);
+        ls[0] = _leg(BPC.KIND_V3, address(bc), Q_OUT, DECOY_OUT);
+        hs[1] = Hop({tokenIn: address(tokB), tokenOut: address(tokC), amountIn: Q_OUT, expectedOut: 0, legs: ls});
+        r.hops = hs;
+        (, uint256 net) = quoter.previewRouteExact(r, AMT);
+        assertGt(net, 0, "control: hops that chain are quoted");
+
+        ls[0].zeroForOne = false; // the C -> B pool ...
+        hs[1].tokenIn = address(tokC); // ... in a hop that starts at C, not where hop 0 ended
+        hs[1].tokenOut = address(tokB);
+        (, net) = quoter.previewRouteExact(r, AMT);
+        assertEq(net, 0, "previewRouteExact quoted hops that do not chain (RouterE(3))");
     }
 }

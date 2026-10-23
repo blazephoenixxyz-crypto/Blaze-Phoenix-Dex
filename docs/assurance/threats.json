@@ -260,6 +260,14 @@
       "note": "W3-F2, Luis_MZ (bug bounty, uid 3115), fixed 2026-10-21. A residue of H13: _simV4 refused the leg, _priceLeg fell back to the plan's claim, and previewPlanExact returned it while the Router fails closed with RouterE(9). _exact now asks _pack's own producer, _hookRefusedIn, and sets the scalar to zero at both exact doors; the route keeps its attestation. No funds at risk: the preview lied, the Router did not move."
     },
     {
+      "id": "SOK-QUOTER-EXACT-SHAPE-REFUSED",
+      "class": "The preview's exact scalar and canExecute quote a route whose shape the Router refuses with RouterE(3): a leg that does not trade its hop's pair, a hookless leg after a hooked one, hops that do not chain",
+      "status": "blocked",
+      "guard": "_hookRefusedIn",
+      "test": "test_Shape_LegTradingTheOtherDirection_IsNotQuoted",
+      "note": "revisao-total 2026-10-23, the V3 twin of BPX-2026-009. _hookRefusedIn asked only the V4 refusals (RouterE(9), (11), (8)); it now asks the RouterE(3) shape of Router._execute first, reading each pair leg's tokens as _legTokens does. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Cold-quote gas +1 832 (QuoteFidelity, measured)."
+    },
+    {
       "id": "SOK-FORGED-RESERVES-BAND-VOTE",
       "class": "A pair registered honest forges its reserves afterwards and a recoverable donation buys the band",
       "status": "blocked",

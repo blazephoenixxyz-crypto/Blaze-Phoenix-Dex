@@ -137,6 +137,10 @@ contract ConditionAdequacyQuoterTest is Test {
 
         // (b) Same state through a route with real topology: one hop, one leg,
         //     priced to zero. Rules out "empty is special-cased upstream".
+        //     The leg's pool names the hop's pair, as the Router reads it
+        //     (`_legTokens`), so only the yield can refuse (revisao-total 2026-10-23).
+        vm.mockCall(address(uint160(0xF001)), abi.encodeWithSignature("token0()"), abi.encode(address(tokA)));
+        vm.mockCall(address(uint160(0xF001)), abi.encodeWithSignature("token1()"), abi.encode(address(tokB)));
         Route memory zeroYield = _route1(
             _leg(BPC.KIND_V3, address(uint160(0xF001)), CALL_AMT, 0), CALL_AMT, 0
         );

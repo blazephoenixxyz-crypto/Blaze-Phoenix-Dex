@@ -421,7 +421,16 @@ contract BlazePhoenixQuoter {
         (pv.topology, pv.bridgeUsed) = _classify(route, feeHop);
     }
 
-    /// @dev True when any single-tick leg names a hook the Router refuses: one that
+    /// @dev True when the Router refuses `route` before it moves a token. Its SHAPE first,
+    ///      the RouterE(3) checks of `Router._execute` in their order: at most MAX_HOPS hops;
+    ///      each hop has 1..5 legs and two different tokens, and starts where the previous one
+    ///      ended and never at the route's input again; no hookless leg after a hooked one;
+    ///      every leg trades its hop's pair as `Router._legTokens` reads it - the pool's own
+    ///      token0/token1 by direction, or a single-tick leg's counter token (auxId). Until
+    ///      2026-10-23 only the V4 refusals below were asked, so a hand-built route with a
+    ///      V3 leg in the other direction or on another pair previewed a positive exact scalar
+    ///      for a swap the Router reverts (revisao-total; the V3 twin of BPX-2026-009).
+    ///      Then the leg's V4 refusals: a hook the Router refuses: one that
     ///      alters deltas, or one that runs in the swap while the Hub reports it
     ///      paused - exactly the two conditions `Router._execV4Amt` reverts on.
     ///      Also true when the leg's key does not hold together - its direction is
@@ -433,16 +442,25 @@ contract BlazePhoenixQuoter {
     ///      WETH (BPC.nativeMapVerified), and a native leg naming no WETH side is
     ///      refused, as the Router refuses it with RouterE(8) (seal 2026-10-21).
     function _hookRefusedIn(Route memory route) private view returns (bool) {
-        for (uint256 h; h < route.hops.length; ) {
-            Leg[] memory legs = route.hops[h].legs;
+        uint256 n = route.hops.length;
+        if (n > 3) return true;                                   // Router MAX_HOPS
+        bool sawHooked;
+        for (uint256 h; h < n; ) {
+            Hop memory hop = route.hops[h];
+            Leg[] memory legs = hop.legs;
+            if (legs.length == 0 || legs.length > 5 || hop.tokenIn == hop.tokenOut) return true;
+            if (h != 0 && (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == route.hops[0].tokenIn))
+                return true;
             for (uint256 l; l < legs.length; ) {
                 Leg memory leg = legs[l];
                 address k = leg.hooks;
+                if (k == address(0)) { if (sawHooked) return true; } else sawHooked = true;
                 if (BPC.kindHasAny(leg.kind, BPC.A_CONC_SING)) {
+                    address tOther = address(uint160(uint256(leg.auxId)));
+                    if (tOther != hop.tokenOut) return true;
                     if (k != address(0)
                         && (BPC.hookAltersDeltas(k) || (BPC.hookRunsInSwap(k) && hub.hookPaused(k)))) return true;
-                    address tIn = route.hops[h].tokenIn;
-                    address tOther = address(uint160(uint256(leg.auxId)));
+                    address tIn = hop.tokenIn;
                     if (leg.kind == BPC.KIND_V4_NATIVE) {
                         (tIn, tOther) = BPC.nativeMapVerified(tIn, tOther, hub.weth());
                         if (tIn == address(0) && tOther == address(0)) return true;
@@ -451,6 +469,12 @@ contract BlazePhoenixQuoter {
                     if (leg.zeroForOne != (tIn == c0)
                         || leg.pool != address(uint160(uint256(BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, k)))))
                         return true;
+                } else {
+                    address t0 = BPC.token0Of(leg.pool);
+                    address t1 = BPC.token1Of(leg.pool);
+                    (address a, address b) = leg.zeroForOne ? (t0, t1) : (t1, t0);
+                    // `_execute` reads a zero legIn as the hop's input: mirrored, not tightened.
+                    if ((a != address(0) && a != hop.tokenIn) || b != hop.tokenOut) return true;
                 }
                 unchecked { ++l; }
             }
