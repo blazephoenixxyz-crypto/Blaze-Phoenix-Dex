@@ -3772,6 +3772,11 @@ M = [
       old="        return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);",
       new="        return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp + 1)) << 64); // MUTANT [754]",
       teste="test_HubStampTs_AgreesWithCoreStampTs"),
+ dict(nome="balv2 [755]: the Vault probe forwards all gas; outside an operation the guard's write halts the static call and burns 63/64 of the Gate's quote budget, so no BalV2 leg keeps a depth",
+      f="src/adapters/BlazePhoenixAdapterBalancerV2.sol",
+      old="            pop(staticcall(10000, v, 0x00, 0x24, 0x00, 0x00))",
+      new="            pop(staticcall(gas(), v, 0x00, 0x24, 0x00, 0x00)) // MUTANT [755]",
+      teste="test_BalV2_Depth18_IsThePoolsLongSideInTheVault"),
 ]
 
 def run(t):
