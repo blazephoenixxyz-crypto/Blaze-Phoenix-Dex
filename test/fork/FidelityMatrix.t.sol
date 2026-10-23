@@ -375,7 +375,7 @@ contract FidelityMatrixBaseTest is BaseChainFixture, MatrixOps {
         _otimoGrelha("USDC->WETH", _dollar(), _weth(), 1_000e6);
     }
     /// DAI, e a porta exata ao lado da modelada. DAI->USDC a 10k e um par estavel cujas
-    /// pernas V3 de fee 100 o clamp de capacidade prende sem cortar o input: a promessa
+    /// pernas V3 de fee 100 o clamp de capacidade (MAX_CONC_DRAIN_BPS) prende sem cortar o input: a promessa
     /// delas e a resposta do livro da pool (Solver._capacity via Core.v4WalkOut), e as duas portas tem de
     /// chegar a entrega. A linha modelada mede-se a 1k; a 10k mede-a a porta exata.
     function test_Matriz_DaiEPortaExata() public {
