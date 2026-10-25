@@ -415,6 +415,8 @@ stays archived at [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526
 
 **License.** [Business Source License 1.1](LICENSE). Copyright © 2026 Mitra. Effective 1 July 2026;
 **Change Date 1 June 2030**. Use outside the license grant before the Change Date is infringement.
+Use of this repository to train AI models, or to generate derived code by automated means, is not
+authorized; see [NOTICE](NOTICE).
 Authorship is cryptographically provable via an embedded keccak256 fingerprint without disclosing
 the authors' identity.
 
