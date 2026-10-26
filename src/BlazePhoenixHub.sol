@@ -263,6 +263,18 @@ contract BlazePhoenixHub {
     // by name, so a naive "unreferenced identifier" scan will flag it as dead. It is not: mode 7
     // is the V3-CL salt family (keccak(t0, t1, tickSpacing) — Velodrome/Aerodrome CL).
     uint8   internal constant MODE_CREATE2_V3CL      = 7;
+    /// @notice Which grid inputs each mode's derivation reads, as DATA: bit `m` set = mode `m`
+    ///         puts that input into `BPC.deriveAddress` (the factory's calldata for 0-3, the salt
+    ///         for 4-7). The fee enters 1 (getPool(t0, t1, fee)) and 5 (v3Salt; fee 0 is the
+    ///         Algebra salt); the spacing enters 3 (getPool(t0, t1, tickSpacing)) and 7 (the V3-CL
+    ///         salt); `stable` (2, 6) has its own two probes. A probe IS what its derivation
+    ///         reads, so two grid cells that differ only in an input their mode never reads are
+    ///         one probe: `_axes` collapses that axis to its first cell, the cell whose hit the
+    ///         dedup kept when every cell was asked. Pinned against the producer itself:
+    ///         test/DiscoveryProbesEachDerivationOnce.t.sol replays the full grid through
+    ///         `deriveAddress` and finds the same pools, in the same order.
+    uint256 internal constant MODES_READ_FEE         = (1 << 1) | (1 << 5);
+    uint256 internal constant MODES_READ_SPACING     = (1 << 3) | (1 << 7);
     // MODE_V4_DERIVE: Uniswap-V4 derive-scan. V4's singleton PoolManager has
     // no factory/pair enumeration, so this mode DERIVES hookless candidate
     // poolIds (learned per-token pattern code -> canonical tiers -> the row's
@@ -1071,8 +1083,7 @@ contract BlazePhoenixHub {
         uint256 maxOut;
         for (uint256 i; i < $.factories.length; ) {
             Factory storage fac = $.factories[i];
-            uint256 fc = fac.fees.length == 0 ? 1 : fac.fees.length;
-            uint256 sc = fac.spacings.length == 0 ? 1 : fac.spacings.length;
+            (uint256 fc, uint256 sc) = _axes(fac);
             uint256 mul = (fac.mode == 2 || fac.mode == 6) ? 2 : 1;
             // The mode-8 branch left with the excision; a factory with that mode can only
             // exist in a legacy Hub and `_scanFactory` stops on it without producing hits,
@@ -1128,8 +1139,7 @@ contract BlazePhoenixHub {
         if (fac.mode == MODE_V4_DERIVE)  return _scanV4(fac, t0, t1, hits, k);
         uint24[] storage fees = fac.fees;
         int24[]  storage sps  = fac.spacings;
-        uint256 fc = fees.length == 0 ? 1 : fees.length;
-        uint256 sc = sps.length == 0  ? 1 : sps.length;
+        (uint256 fc, uint256 sc) = _axes(fac);
         bool solidly = (fac.mode == 2 || fac.mode == 6);
         for (uint256 fi; fi < fc; ) {
             uint24 fee = fees.length == 0 ? 0 : fees[fi];
@@ -1146,6 +1156,20 @@ contract BlazePhoenixHub {
             unchecked { ++fi; }
         }
         return k;
+    }
+
+    /// @dev The grid a row is probed on: `fc` fee cells by `sc` spacing cells. An axis the row's
+    ///      mode never reads (MODES_READ_FEE / MODES_READ_SPACING) is one cell, its first: every
+    ///      other cell would ask the same question again, and its answer could only be the pool
+    ///      the dedup in `_probe` drops or the same absence. (A factory that answered the same
+    ///      question twice in two ways would lose its second answer: fewer listings, never a
+    ///      new one.) The one producer of the grid, so the ceiling `discoverFor` allocates and
+    ///      the loop `_scanFactory` runs cannot drift apart.
+    function _axes(Factory storage fac) private view returns (uint256 fc, uint256 sc) {
+        uint256 nf = fac.fees.length;
+        uint256 ns = fac.spacings.length;
+        fc = nf == 0 || ((MODES_READ_FEE >> fac.mode) & 1) == 0 ? 1 : nf;
+        sc = ns == 0 || ((MODES_READ_SPACING >> fac.mode) & 1) == 0 ? 1 : ns;
     }
 
 

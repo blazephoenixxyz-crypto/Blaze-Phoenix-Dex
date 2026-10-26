@@ -4,9 +4,14 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  Discovery lists each pool once - on both channels that can produce a repeat.
 //
-//  1. Factory-call rows (`_probe`): a factory whose lookup ignores the fee
-//     answers the SAME pool for every fee tier. `test/mocks/MockV2Factory.sol`
-//     is such a factory (`getPair` takes no fee).
+//  1. Factory-call rows (`_probe`): a factory that lists ONE pool at two fee
+//     tiers answers the same pool to two questions its mode does ask
+//     (`getPool(t0, t1, fee)`, mode 1). A mode that does not read the fee
+//     asks once whatever the grid (`_axes`,
+//     test/DiscoveryProbesEachDerivationOnce.t.sol): `MockV2Factory`'s
+//     `getPair` takes no fee, so its two tiers are one question, and
+//     `test_FactoryCall_SamePoolForTwoFees_ListedOnce` pins the outcome
+//     without reaching the dedup.
 //  2. The V4 derive scan (`_admitV4`): the canonical pass and the row's extras
 //     pass reach the SAME pool id when an extra equals a canonical tier.
 //
@@ -21,6 +26,7 @@ import {BlazePhoenixCore as BPC, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockOriginFactory} from "./mocks/MockOriginFactory.sol";
 
 /// @dev V4 PoolManager state mock: the batched and the single extsload over one
 ///      settable slot map (the two reads the derive scan makes).
@@ -41,6 +47,7 @@ contract DiscoveryListsEachPoolOnceTest is Test {
     BlazePhoenixHub hub;
 
     uint8 constant MODE_ASK       = 0;
+    uint8 constant MODE_ASK_FEE   = 1;
     uint8 constant MODE_V4_DERIVE = 9;
 
     function setUp() public {
@@ -70,6 +77,30 @@ contract DiscoveryListsEachPoolOnceTest is Test {
 
         assertEq(hits.length, 1, "the same pool for two fees is listed once");
         assertEq(hits[0].pool, address(pair), "the one venue is the factory's pair");
+    }
+
+    /// @notice One factory lists one pool at two fee tiers, and mode 1 asks for each tier:
+    ///         two questions, one answer, listed once.
+    function test_FactoryCall_OnePoolAtTwoTiersItReads_ListedOnce() public {
+        MockERC20 a = new MockERC20("A", "A");
+        MockERC20 b = new MockERC20("B", "B");
+        MockV2Pair pair = new MockV2Pair(address(a), address(b));
+
+        MockOriginFactory fac = new MockOriginFactory();
+        fac.list(address(pair), address(a), address(b), 100, false);
+        fac.list(address(pair), address(a), address(b), 300, false);
+
+        uint24[] memory fees = new uint24[](2);
+        fees[0] = 100;
+        fees[1] = 300;
+        hub.addFactory(address(fac), BPC.KIND_V3, MODE_ASK_FEE, bytes32(0), fees, new int24[](0));
+
+        (address t0, address t1) = _sorted(address(a), address(b));
+        PoolInfo[] memory hits = hub.discoverFor(t0, t1);
+
+        assertEq(hits.length, 1, "one pool at two tiers is listed once");
+        assertEq(hits[0].pool, address(pair), "the one venue is the factory's pool");
+        assertEq(hits[0].fee, 100, "at the first tier that answered it");
     }
 
     /// @notice Control: two factories, two distinct pools, two venues.
