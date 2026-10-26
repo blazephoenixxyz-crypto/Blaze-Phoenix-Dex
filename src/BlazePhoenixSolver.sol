@@ -413,6 +413,7 @@ contract BlazePhoenixSolver {
         Route      secR;
         uint256    walk;   // `_capacity` mode: WALK on the winner's own build
         bool       bestHeld;   // the leader's build left a capacity-held candidate unsettled
+        uint256    lists;  // the solve's candidate lists, one per ordered pair (`_candsOf`)
     }
 
     /// @dev S2 (V4 fragmentation, reported by Seavia Resources): the judgement is by `u`, the
@@ -436,7 +437,7 @@ contract BlazePhoenixSolver {
     function _planDirect(Melhores memory m, address tIn, address tOut, uint256 amountIn)
         private view
     {
-        PoolInfo[] memory cands = _topKPools(tIn, tOut, MAX_CANDIDATES);
+        PoolInfo[] memory cands = _candsOf(m, tIn, tOut);
         if (cands.length == 0) return;
         // PER-HOP CEILING, not the global one: a direct route is ONE hop, and
         // the 4-legs-per-hop limit applies to it like to any other. It used to
@@ -498,7 +499,7 @@ contract BlazePhoenixSolver {
             if (used >= room) return;
             uint256 budget = room - used;
             if (budget > MAX_LEGS_PER_STAGE) budget = MAX_LEGS_PER_STAGE;
-            PoolInfo[] memory cands = _topKPools(path[i], path[i + 1], MAX_CANDIDATES);
+            PoolInfo[] memory cands = _candsOf(m, path[i], path[i + 1]);
             if (cands.length == 0) return;
             // Pass 0 builds the stage on the promise. Pass 1 runs only when the stage before
             // ranked above its promise: it quotes this stage again on that rank, for the
@@ -1592,6 +1593,49 @@ contract BlazePhoenixSolver {
     // =========================================================================
     //  CANDIDATE SELECTION  (lazy discovery + top-K by fitness)
     // =========================================================================
+
+    /// @dev ONE LIST PER ORDERED PAIR PER SOLVE. `_topKPools` is a function of the state and the
+    ///      pair alone, and the solve is a static call, so the state cannot move between two
+    ///      topologies: a pair they share (tIn -> bA opens topology 1 and every three-hop route
+    ///      over bA; bB -> tOut closes topology 1 + j and every one that ends on bB) is built
+    ///      once, and each later topology reads the list as it was built. Memory, not transient
+    ///      storage: TSTORE is refused in a static frame (EIP-1153).
+    ///      EACH READ GETS ITS OWN COPY of the array: `_buildHop` compacts and reorders the
+    ///      array it is handed, in place, and the next topology must start from the list as
+    ///      built. The rows are shared: nothing downstream writes a PoolInfo field (only
+    ///      `_topKPools` does, on its own rows, before it returns).
+    ///      `m.lists` heads a chain of [next, tA, tB, list] in memory; 0 is none.
+    function _candsOf(Melhores memory m, address tA, address tB) private view returns (PoolInfo[] memory c) {
+        uint256 a = uint160(tA);
+        uint256 b = uint160(tB);
+        uint256 e = m.lists;
+        assembly ("memory-safe") {
+            for {} e { e := mload(e) } {
+                if and(eq(mload(add(e, 0x20)), a), eq(mload(add(e, 0x40)), b)) { c := mload(add(e, 0x60)) break }
+            }
+        }
+        if (e == 0) {
+            c = _topKPools(tA, tB, MAX_CANDIDATES);
+            e = m.lists;
+            assembly ("memory-safe") {
+                let n := mload(0x40)
+                mstore(n, e)
+                mstore(add(n, 0x20), a)
+                mstore(add(n, 0x40), b)
+                mstore(add(n, 0x60), c)
+                mstore(0x40, add(n, 0x80))
+                e := n
+            }
+            m.lists = e;
+        }
+        assembly ("memory-safe") {
+            let l := shl(5, add(mload(c), 1))
+            let d := mload(0x40)
+            mcopy(d, c, l)
+            mstore(0x40, add(d, l))
+            c := d
+        }
+    }
 
     function _topKPools(address tA, address tB, uint8 keep)
         private view returns (PoolInfo[] memory out)
