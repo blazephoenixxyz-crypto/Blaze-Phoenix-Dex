@@ -543,7 +543,9 @@ contract BlazePhoenixSolver {
         // No blind pre-trim: every candidate is probed (rate + depth + real
         // holdings), and the cut to `budget` happens after weighting — see the
         // FUNNEL CUT below. Discovery order can no longer starve a deep venue.
-        if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up, f != 0); }
+        // A lone candidate is quoted once, before the hoisted read below: 0, 0 lets that quote
+        // read the decimals itself.
+        if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, 0, 0); return (hop, up, f != 0); }
 
         // =========================================================================
         //  STAGE 1 — MARGINAL-RATE MEDIAN FILTER  (single probe pass)
@@ -597,8 +599,10 @@ contract BlazePhoenixSolver {
         // SAME pair, so they hold the SAME two tokens — only orientation changes.
         // Reading `decimals()` in there cost 2,339 gas PER CANDIDATE (measured;
         // EIP-2929 does not make it free because USDC is a proxy). Here it is
-        // once per pair. Encoded +1 (see QuoteCtx.decIn1): 0 would mean "not
-        // filled" and there are tokens with genuinely 0 decimals.
+        // once per pair, for every quote of the hop: the probes, the split's
+        // legs and the gate's full-size singles (test/DecimalsReadOncePerHop.t.sol).
+        // Encoded +1 (see QuoteCtx.decIn1): 0 would mean "not filled" and there
+        // are tokens with genuinely 0 decimals.
         uint8 dIn1_ = BPC.decimalsOf(tIn) + 1;
         uint8 dOt1_ = BPC.decimalsOf(tOut) + 1;
         // CAPITAL ANCHOR. Truth votes with capital, not with existence: dust
@@ -782,7 +786,7 @@ contract BlazePhoenixSolver {
                 unchecked { ++i; }
             }
             if (nKept == 0) return (hop, 0, false);
-            if (nKept == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0); return (hop, up, f != 0); }
+            if (nKept == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, dIn1_, dOt1_); return (hop, up, f != 0); }
             n = nKept;
         }
 
@@ -842,7 +846,7 @@ contract BlazePhoenixSolver {
             // S2: bar 0 resolves a truncated V4 walk; `rL - outL` is what it found above the
             // promise, summed into the hop's rank (`up`) at once - only a V4 leg has any, and a
             // V4 leg is dropped below only when `outL` is zero. `outL` stays the promise.
-            (uint256 outL, uint256 rL, ) = _quote(cands[i], tIn, share, 0);
+            (uint256 outL, uint256 rL, ) = _quote(cands[i], tIn, share, 0, dIn1_, dOt1_);
             if (outL != 0) up += rL - outL;
             // A reserve-shaped pool can never pay more than it holds (out < reserveOut <=
             // balance on an honest pair), so a promise above its tokenOut holdings comes
@@ -987,7 +991,7 @@ contract BlazePhoenixSolver {
             uint256 hMax;
             uint256 hF;   // the highest quote among the capacity-held singles ranked at the cap
             for (uint256 i; i < nBand; ) {
-                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR);
+                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, dIn1_, dOt1_);
                 aR += alt.expectedOut;
                 aH += alt.expectedOut;
                 if (aH > hMax) hMax = aH;
@@ -1464,13 +1468,15 @@ contract BlazePhoenixSolver {
     }
 
     function _singleLeg(
-        address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, uint256 mode, uint256 bar
+        address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, uint256 mode, uint256 bar,
+        uint8 dIn1, uint8 dOt1
     ) private view returns (Hop memory hop, uint256 up, uint256 hi, uint256 f) {
         // S2: `up` is the rank above the promise and `hi` the ceiling above it (deep V4 walk,
         // gated by `bar`, `v4WalkRank`; both zero elsewhere). They only order, never promise.
         // `f` is `_capacity`'s third answer: the quote of a leg ranked at its cap.
+        // `dIn1`, `dOt1`: the hop's hoisted decimals, as in `_quoteWithDepth`.
         uint256 out_;
-        (out_, up, hi) = _quote(cand, tIn, amountIn, bar);
+        (out_, up, hi) = _quote(cand, tIn, amountIn, bar, dIn1, dOt1);
         up -= out_;
         hi -= out_;
         if (out_ == 0) return (hop, 0, 0, 0);
@@ -1574,10 +1580,13 @@ contract BlazePhoenixSolver {
     ///      the one closest to the EIP-170 ceiling, so a duplicated call site is a duplicated
     ///      quote engine. R5, "one implementation per published quantity" — deduplication is a
     ///      size measure here, not a style preference.
-    function _quote(PoolInfo memory cand, address tIn, uint256 amt, uint256 bar)
+    ///      `dIn1`, `dOt1` as in `_quoteWithDepth`: the decimals the hop already read. They feed
+    ///      only the depth this function drops, so they change no figure; passing them spares
+    ///      the Core two `decimals()` reads per call (0, 0: the Core reads them).
+    function _quote(PoolInfo memory cand, address tIn, uint256 amt, uint256 bar, uint8 dIn1, uint8 dOt1)
         private view returns (uint256 out, uint256 rank, uint256 hi)
     {
-        (out, , rank, hi) = _quoteWithDepth(cand, tIn, amt, 0, 0, bar);   // single path: hoisting not worth it
+        (out, , rank, hi) = _quoteWithDepth(cand, tIn, amt, dIn1, dOt1, bar);
     }
 
     // =========================================================================
