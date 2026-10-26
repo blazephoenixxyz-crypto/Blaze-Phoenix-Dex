@@ -148,12 +148,13 @@ contract DiscoveryRefreshTest is Test {
     }
 
     /// PORTA FRIA: primeiro swap regista com vitalidade 1, bucket derivado da
-    /// profundidade — e a fee MEDIDA DO POOL, nunca a da calldata. A primeira
-    /// versao deste teste exigia a fee da calldata e ficou vermelha: o
-    /// protocolo estava certo e o teste errado — `feeReg = getV3Fee(pool)` e
-    /// o irmao, na porta do registo, do quoteV3Fee do caminho de quote
-    /// (calldata nunca e base de fee). Por isso a calldata leva 9999 aqui:
-    /// se alguem um dia "simplificar" para confiar nela, isto fica vermelho.
+    /// profundidade — e a fee que cota e a MEDIDA DO POOL, nunca a da calldata. A
+    /// primeira versao deste teste exigia a fee da calldata e ficou vermelha: o
+    /// protocolo estava certo e o teste errado (calldata nunca e base de fee). Desde
+    /// aero-nova (2026-10-26) a linha guarda o tier da derivacao quando o pool
+    /// concorda, senao 0 = leitura ao vivo pelo quoteV3Fee; nunca um instantaneo.
+    /// A calldata leva 9999 aqui: se alguem um dia "simplificar" para confiar
+    /// nela, isto fica vermelho.
     function test_PortaFria_InsereComVitalidadeUm_EFeeMedida() public {
         MockPair p = _pair();
         hub.recordSwap(address(p), KIND_V3, 9999, address(0), TA, TB, 1e18, 1e18, DEPTH_RASA);
@@ -161,8 +162,11 @@ contract DiscoveryRefreshTest is Test {
         uint256 s = hub.getSlot(key);
         assertTrue(BPC.isActive(s), "insercao fria tem de activar o slot");
         assertEq(BPC.decodeKind(s), KIND_V3);
-        assertEq(BPC.decodeFee(s), 500,
-            "o registo tem de guardar a fee MEDIDA do pool (500), nunca a calldata (9999)");
+        // aero-nova 2026-10-26: o tier da origem (1..17) nao e a fee do pool (500), logo a
+        // linha le o pool ao vivo (0) em vez de guardar um instantaneo; a cotacao paga 500.
+        assertEq(BPC.decodeFee(s), 0, "sem identidade de fee a linha le ao vivo, nunca a calldata (9999)");
+        assertEq(BPC.quoteV3Fee(address(p), 0, 0, false), 500,
+            "o registo tem de cotar a fee MEDIDA do pool (500), nunca a calldata (9999)");
         assertEq(BPC.decodeSwapCount(s), 1, "vitalidade nasce a 1");
         assertEq(BPC.decodeBucket(s), BPC.depthBucket(DEPTH_RASA));
         assertEq(hub.getPool(key), address(p));

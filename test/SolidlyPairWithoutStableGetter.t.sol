@@ -161,10 +161,9 @@ contract SolidlyPairWithoutStableGetterTest is Test {
     function test_Shape_PairWithoutStableGetter_IsSolidly() public {
         NoStableGetterPair p = _pair(1_000e18, 2_000e18);
         assertTrue(this.shaped(address(p)), "a pair that answers the total-fee ask for nothing with 0 is Solidly-shaped");
-        (bool ok, uint8 k, uint24 fee) = BPC.provenShape(address(p), BPC.KIND_V2);
+        (bool ok, uint8 k) = BPC.provenShape(address(p), BPC.KIND_V2);
         assertTrue(ok, "a pair-shaped declaration on a pair is not refused");
         assertEq(k, BPC.KIND_SOLIDLY, "the shape decides: declared V2, the pair is Solidly");
-        assertEq(fee, 0, "a pair-shaped row carries fee 0");
         assertTrue(this.shaped(address(new MockSolidlyPair(address(tA), address(tB), true))), "control: stable() is still a shape answer");
     }
 

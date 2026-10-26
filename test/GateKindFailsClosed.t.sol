@@ -68,11 +68,11 @@ contract GateKindFailsClosedTest is Test {
     /// RED at 13fff68: a reserve-shaped pool declared kind 9 came back ok = true, k = V2.
     function test_GateK9_ProvenShape_RefusesKindExternal() public {
         MockV2Pair p = _pair();
-        (bool ok, , ) = BPC.provenShape(address(p), KIND9);
+        (bool ok, ) = BPC.provenShape(address(p), KIND9);
         assertFalse(ok, "provenShape: kind 9 has no reader and must not be re-labelled as a pair");
-        (ok, , ) = BPC.provenShape(address(p), 3);
+        (ok, ) = BPC.provenShape(address(p), 3);
         assertFalse(ok, "provenShape: a tombstone has no reader either");
-        (bool okV2, uint8 k, ) = BPC.provenShape(address(p), BPC.KIND_V2);
+        (bool okV2, uint8 k) = BPC.provenShape(address(p), BPC.KIND_V2);
         assertTrue(okV2 && k == BPC.KIND_V2, "the neighbour: a declared V2 pair is still proven");
     }
 

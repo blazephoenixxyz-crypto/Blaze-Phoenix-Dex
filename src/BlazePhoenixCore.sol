@@ -171,6 +171,26 @@ library BlazePhoenixCore {
     uint256 internal constant Q96        = 0x1000000000000000000000000;
     uint256 internal constant GAS_CAP    = 100_000;
 
+    /// @notice The CL fee read's own budget (getV3Fee), MEASURED, not the shared GAS_CAP.
+    /// @dev    The 2026 Aerodrome CL pools answer fee() through pool -> implementation ->
+    ///         library -> hook, and the hook recomputes the dynamic part from a TWAP: a binary
+    ///         search over the pool's oracle ring, which any caller can grow to 2^16 - 1 slots.
+    ///         The hook wraps that observe in try/catch, so a starved observe answers the BASE
+    ///         fee instead of failing.
+    ///         CL_FEE_SPENT: the most one read spends (caller-measured, account cold) at the
+    ///         structural maximum: ring of 65 535 one short of full, every reachable leaf of the
+    ///         search swept, both discount-registry entries flagged per pool, the MEV-tax branch
+    ///         taken. Base fork, block 53 127 000 (test/fork/AeroNovaFork.t.sol, G3all).
+    ///         CL_FEE_GAS = ceil((CL_FEE_SPENT + 1) * 64^5 / 63^5): a failure swallowed at
+    ///         forwarding depth <= 5 (pool -> impl -> library -> hook -> pool -> impl, each
+    ///         forward all but 1/64, EIP-150) has consumed at least CL_FEE_GAS * (63/64)^5.
+    ///         CL_FEE_TRUST = floor(CL_FEE_GAS * 63^5 / 64^5) > CL_FEE_SPENT: a read that spends
+    ///         this much or more may carry a swallowed failure, and its answer is not taken.
+    ///         test/ClFeeReadHasItsOwnBudget.t.sol re-derives all three.
+    uint256 internal constant CL_FEE_SPENT = 177_670;
+    uint256 internal constant CL_FEE_GAS   = 192_227;
+    uint256 internal constant CL_FEE_TRUST = 177_671;
+
     /// @notice Impact charged to a leg the impact model does not cover
     ///         (stable curves, V4 paths), in bps.
     /// @dev    SINGLE PRODUCER of a literal that was hand-written SIX times
@@ -949,12 +969,29 @@ library BlazePhoenixCore {
     ///         globalState(), not fee(), so an Algebra pool reads 0 here and the
     ///         caller must fail closed (never trust caller-supplied leg.fee for
     ///         the protocol-fee base: execution charges the pool's own fee).
+    ///         The read runs on CL_FEE_GAS, not GAS_CAP (aero-nova 2026-10-26: the new
+    ///         Aerodrome CL fee() spends 78-178k cold, so at GAS_CAP every one of them quoted
+    ///         0xFFFFFF). Three outcomes, never a fourth:
+    ///         - the frame cannot forward the whole budget -> empty revert (the house OOG
+    ///           signature): a starved read never answers, so the gas a sender attaches cannot
+    ///           change which pools a plan sees;
+    ///         - fee() fails, answers short, or spends CL_FEE_TRUST or more -> 0, which
+    ///           quoteV3Fee turns into 0xFFFFFF: that pool is skipped, the route is not reverted;
+    ///         - otherwise the pool's answer.
     function getV3Fee(address pool) internal view returns (uint24 f) {
         assembly ("memory-safe") {
-            let m := mload(0x40)
-            mstore(m, 0xddca3f4300000000000000000000000000000000000000000000000000000000)
-            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
-                if iszero(lt(returndatasize(), 32)) { f := and(mload(m), 0xffffff) }
+            // Guard: the whole budget reaches fee() or nothing is read. 3_000 = the cold account
+            // access (2_600) and the opcodes between this check and the call.
+            if lt(gas(), add(div(mul(CL_FEE_GAS, 64), 63), 3000)) { revert(0, 0) }
+            mstore(0x00, 0xddca3f4300000000000000000000000000000000000000000000000000000000)
+            let g0 := gas()
+            let ok := staticcall(CL_FEE_GAS, pool, 0x00, 0x04, 0x00, 0x20)
+            let spent := sub(g0, gas())
+            // Meta-guard: the read's own cost. A failure swallowed inside fee() consumed at
+            // least CL_FEE_TRUST of the budget; an honest read at the measured maximum stays
+            // below it. Spent this much or more: the answer is not taken.
+            if and(and(ok, iszero(lt(returndatasize(), 32))), lt(spent, CL_FEE_TRUST)) {
+                f := and(mload(0x00), 0xffffff)
             }
         }
     }
@@ -2495,14 +2532,17 @@ library BlazePhoenixCore {
     /// @notice THE SHAPE DECIDES, THE CALLER PROPOSES. The one refutation every registration
     ///         door applies to a declared family: the swap door since REG-01/REG-02, the
     ///         operator's door since the ninth wave (dex-16). `ok` is false when the declaration
-    ///         contradicts the shape; `k` is the family the shape answers; `fee` is the registry
-    ///         fee that family carries. V4 kinds are authenticated by their pool id, not by a
-    ///         shape, and never reach this function.
-    function provenShape(address pool, uint8 kind) public view returns (bool ok, uint8 k, uint24 fee) {
+    ///         contradicts the shape; `k` is the family the shape answers. V4 kinds are
+    ///         authenticated by their pool id, not by a shape, and never reach this function.
+    ///         The shape names no fee (aero-nova 2026-10-26): what a pool's fee() answers is a
+    ///         snapshot, and the 2026 Aerodrome CL fee moves every block, so a row keyed on the
+    ///         snapshot priced every later quote at a fee the pool no longer charged. The row
+    ///         fee is the Hub's (`_concRowFee`): the fee the pool's derivation is keyed by, or 0.
+    function provenShape(address pool, uint8 kind) public view returns (bool ok, uint8 k) {
         // A kind with no shape this Core can read (tombstones, KIND_EXTERNAL) is refused, not
         // re-labelled: below, a pool without slot0 is re-written to V2 or Solidly, so a declared
         // kind 9 left this function as a pair the Solver would price on reserves it never had.
-        if (!kindHasAny(kind, A_RESERVES | A_CONC_POOL)) return (false, kind, 0);
+        if (!kindHasAny(kind, A_RESERVES | A_CONC_POOL)) return (false, kind);
         (uint160 sp, , bool dynShape) = v3StateAndDynFee(pool);
         bool declaredConc = kindHas(kind, A_CONC_POOL);
         bool isConc = sp != 0;
@@ -2510,7 +2550,7 @@ library BlazePhoenixCore {
         // a V2 pair cannot answer slot0, and a concentrated pool has no reserves to read.
         // Registering either on the caller's word would point the Solver at the wrong reader.
         // Fail closed on the REGISTRY, which is the Hub's stated doctrine.
-        if (declaredConc != isConc) return (false, kind, 0);
+        if (declaredConc != isConc) return (false, kind);
         k = kind;
         // Within the concentrated families the shape decides, not calldata: Algebra prices with
         // a dynamic fee it reports itself, V3 with a static tier, so persisting the wrong one
@@ -2524,12 +2564,6 @@ library BlazePhoenixCore {
         // forever. Written as its own statement, not an `else`, so the concentrated line above
         // keeps its mutant.
         if (!isConc) k = isSolidlyShaped(pool) ? KIND_SOLIDLY : KIND_V2;
-        // The registry fee of a PAIR-shaped row is 0 (review 2026-09-02): `getV3Fee` reads the
-        // V3 `fee()` getter, whose unit is a V3 convention; a pair whose `fee()` answers in
-        // another unit (per-mille, ppm) poisoned its own row, and `effV2Fee` read the number as
-        // bps. 0 means "the house's single producer answers": effV2Fee(0) = 30 bps for V2, and
-        // Solidly's fee is measured live by readDynamicFee regardless.
-        fee = isConc ? (dynShape ? 0 : getV3Fee(pool)) : 0;
         ok = true;
     }
 
