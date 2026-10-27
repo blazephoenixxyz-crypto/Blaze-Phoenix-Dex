@@ -292,6 +292,47 @@ contract CapacityWalkBudgetTest is Test {
         assertGt(stopped, 0, "every budget in the range completes");
     }
 
+    /// N2 (reports/plano-1026/onda5/X6), at the threshold itself: the rebuild is called only on
+    /// gas enough for EIP-150 to hand it all of WALK_GAS (WALK_GAS * 64 / 63 + 20,000 left in
+    /// `_walkOnItsOwnBudget`). Completion is monotone in the gas - below the least that completes,
+    /// every stop is out of gas or that check - so a bisection finds the least; there the rebuild
+    /// is handed its whole budget and the uncapped plan returns, and one gas less, or the 1/63 of
+    /// WALK_GAS the check keeps above it less, the solve stops with empty revert data.
+    function test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing() public {
+        _grid(0, 4, 100e18, L);
+        RoutePlan memory ref = solver.findBestRoutePlan(t0, t1, IN);   // warm, as every call below
+        assertGt(ref.best.totalOut, 4 * 30e18, "premise: the walk changes the plan");
+        bytes32 h = keccak256(abi.encode(ref));
+        uint256 g0 = gasleft();
+        solver.findBestRoutePlan(t0, t1, IN);
+        uint256 lo = g0 - gasleft() - 1;   // less than the solve spends: it cannot complete
+        uint256 hi = lo + 2_700_000;
+        solver.findBestRoutePlan{gas: hi}(t0, t1, IN);
+        while (hi - lo > 1) {
+            uint256 g = (lo + hi) / 2;
+            try solver.findBestRoutePlan{gas: g}(t0, t1, IN) returns (RoutePlan memory) { hi = g; }
+            catch (bytes memory e) {
+                assertEq(e.length, 0, "a capped solve failed with something other than out-of-gas");
+                lo = g;
+            }
+        }
+        for (uint256 i; i < 2; ++i) {
+            // 39_683 = WALK_GAS * 64 / 63 - WALK_GAS, rounded up.
+            uint256 g = i == 0 ? hi - 1 : hi - 39_683;
+            try solver.findBestRoutePlan{gas: g}(t0, t1, IN) returns (RoutePlan memory) {
+                revert("a solve short of the walk's whole budget returned a plan");
+            } catch (bytes memory e) {
+                assertEq(e.length, 0, "a solve short of the walk's whole budget failed with data");
+            }
+        }
+        // 2_500_000 = the Solver's WALK_GAS. From here two calls carry the solve's three words:
+        // the one below and the rebuild's self-call. Each must have had the walk's whole budget.
+        vm.expectCallMinGas(address(solver), 0, 2_500_000, abi.encodeCall(solver.findBestRoutePlan, (t0, t1, IN)), 2);
+        RoutePlan memory p = solver.findBestRoutePlan{gas: hi}(t0, t1, IN);
+        assertEq(keccak256(abi.encode(p)), h, "the least gas that completes returned another plan");
+        emit log_named_uint("least gas that completes, warm", hi);
+    }
+
     // ─── I2 on a later hop ─────────────────────────────────────────────
 
     /// The second hop's pool declares L = 1e6e18 and holds 50e18 of tOut: its single-tick

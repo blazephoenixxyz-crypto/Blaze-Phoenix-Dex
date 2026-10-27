@@ -261,15 +261,22 @@ contract BlazePhoenixSolver {
         // the lead.
         uint256 bk;
         if (msg.sender == address(this)) {
-            // The rebuild of `_walkOnItsOwnBudget`: the build `bk` once more with WALK, ranked
-            // against the leader's rank at the cap. Not above it: empty revert, the cap plan stands.
+            // The rebuild of `_walkOnItsOwnBudget`: the build `bk` once more with WALK when the leader
+            // left a held book unsettled (bit 8), and once without the books whose promise fell in
+            // it (the words past 0xa4, `_sitsOut`; N1). Each is ranked on what its books pay against
+            // `u`, the leader's rank on what its books pay, and the better leads. None above `u`:
+            // empty revert, and the leader's plan stands.
             uint256 u;
             assembly ("memory-safe") { bk := calldataload(0x64) u := calldataload(0x84) }
-            m.bestU = u;
             m.walk = WALK;
-            _planTopology(m, bk, bs, tIn, tOut, amountIn);
-            if (m.bestU == u) revert();
-            plan.best = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
+            uint256 v;
+            if (bk >> 8 != 0) (plan.best, v) = _rebuilt(m, uint8(bk), bs, tIn, tOut, amountIn, u);
+            if (msg.data.length > 0xa4) {
+                for (uint256 o = 0xa4; o < msg.data.length; o += 0x60) _sitsOut(m, o);
+                (Route memory r, uint256 w) = _rebuilt(m, uint8(bk), bs, tIn, tOut, amountIn, u);
+                if (w > v) (plan.best, v) = (r, w);
+            }
+            if (v <= u) revert();
             return plan;
         }
         for (uint256 k; k < TOPOLOGIES; ) {
@@ -282,8 +289,6 @@ contract BlazePhoenixSolver {
         plan.fallbackRoute = m.secR;
         plan.hasFallback = m.secU > 0;
 
-        plan.best = m.bestR;
-
         // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's, ON ITS OWN BUDGET.
         // When a capacity-held candidate of the leading build could pay more than what that
         // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
@@ -291,14 +296,24 @@ contract BlazePhoenixSolver {
         // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
         // (GAS_CAP per read), so the rebuild runs in a static self-call on exactly WALK_GAS:
         // the plan depends on the state, never on the gas the caller brought. A rebuild that
-        // completes and ranks above the build at the cap leads; otherwise the plan built at
-        // the cap stands. The fallback stays the runner-up read above. A solve that cannot
+        // completes and ranks above what the build at the cap pays leads; otherwise the plan
+        // built at the cap stands. The fallback stays the runner-up read above. A solve that cannot
         // hand the walk its whole budget stops with empty revert data (out of gas, RouterE(17)
         // at the automatic door) - never a different plan. The walk's assembly return is this
-        // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`,
-        // so only the plan built at the cap needs the one below.
-        if (m.bestHeld) _walkOnItsOwnBudget(plan, bk, m.bestU);
-        plan.best = _paysWhatItWalks(plan.best, tIn, tOut, amountIn);
+        // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`.
+        //
+        // N1: THE LEADER ANSWERS FOR WHAT ITS BOOKS PAY. The plan built at the cap is promised what
+        // its books pay before the rebuild is decided, and `d` is what they do not pay of the rank
+        // it led on. A promise that fell means the build led on a figure no venue pays (a thick
+        // tick one step deep ranked over a pair that paid 3.5 times what the book did), so it is
+        // rebuilt then too, without the books that fell (`fl`), and the rebuild leads only above
+        // the leader's rank less `d`, on what its own books pay. No margin is added: both sides
+        // are the Router's own in-frame figures, and a leg more is the split gate's question,
+        // inside the build. One rebuild per solve, as before.
+        uint256 fl;
+        (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
+        uint256 d = m.bestR.totalOut - plan.best.totalOut;
+        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);
     }
 
     /// @dev The gas the rebuild of `findBestRoutePlan` runs on. Fixed: the walk's outcome is a
@@ -309,11 +324,12 @@ contract BlazePhoenixSolver {
     uint256 private constant WALK_GAS = 2_500_000;
 
     /// @dev The rebuild, as a static self-call of `findBestRoutePlan` carrying `bk` and the rank
-    ///      `u` to beat past the three arguments (only the Solver itself is answered on them).
+    ///      `u` to beat past the three arguments, then one [tokenIn, tokenOut, pool] for each book
+    ///      on `fl` (`_paysWhatItWalks`); only the Solver itself is answered on them.
     ///      Its answer is spliced in as `plan.best` without decoding: the returned encoding is
     ///      [0x20][0x60][off fallback][0][best], and only the fallback blob and its flag are
     ///      ours. On any failure of the self-call the plan built at the cap is returned.
-    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u) private view {
+    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u, uint256 fl) private view {
         bytes memory f = abi.encode(plan.fallbackRoute);
         bool hf = plan.hasFallback;
         assembly ("memory-safe") {
@@ -321,9 +337,11 @@ contract BlazePhoenixSolver {
             calldatacopy(p, 0, 0x64)                    // this solve's own call: the one entry, its three words
             mstore(add(p, 0x64), bk)
             mstore(add(p, 0x84), u)
+            let q := add(p, 0xa4)
+            for {} fl { fl := mload(fl) } { mcopy(q, add(fl, 0x20), 0x60) q := add(q, 0x60) }
             // The whole WALK_GAS reaches the self-call or the solve stops (EIP-150 keeps 1/64).
             if lt(gas(), add(div(mul(WALK_GAS, 64), 63), 20000)) { revert(0, 0) }
-            if staticcall(WALK_GAS, address(), p, 0xa4, 0, 0) {
+            if staticcall(WALK_GAS, address(), p, sub(q, p), 0, 0) {
                 returndatacopy(p, 0x40, 0x20)
                 let n := add(mload(p), 0x20)            // the bytes up to the end of `best`
                 returndatacopy(p, 0, n)
@@ -341,9 +359,12 @@ contract BlazePhoenixSolver {
     ///      keeps its promise. A promise only falls. What falls comes off its hop, the hops after
     ///      it are scaled to what now reaches them - output is concave in input with none at
     ///      zero, so a leg on a share of its input pays at least that share of its promise - and
-    ///      the route is assembled again, one producer of the floor. The ranking is untouched.
+    ///      the route is assembled again, one producer of the floor. The ranking is not changed
+    ///      here: each book whose promise fell is handed back on `fl`, a chain of [next, tokenIn,
+    ///      tokenOut, pool] in memory (0 is none), and the leader's build is rebuilt without them
+    ///      (N1, `findBestRoutePlan`).
     function _paysWhatItWalks(Route memory r, address tIn, address tOut, uint256 amountIn)
-        private view returns (Route memory)
+        private view returns (Route memory, uint256 fl)
     {
         uint256 reads = BPC.V3_PAY_READS;
         uint256 num = 1;
@@ -358,8 +379,11 @@ contract BlazePhoenixSolver {
             for (uint256 l; l < hop.legs.length; ) {
                 Leg memory g = hop.legs[l];
                 if (num != den) (g.amountIn, g.expectedOut) = (BPC.mulDiv(g.amountIn, num, den), BPC.mulDiv(g.expectedOut, num, den));
-                if (reads > 5 && BPC.kindHas(g.kind, BPC.A_CONC_POOL))
-                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, g.expectedOut, reads);
+                if (reads > 5 && BPC.kindHas(g.kind, BPC.A_CONC_POOL)) {
+                    uint256 p = g.expectedOut;
+                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads);
+                    if (g.expectedOut < p) fl = _fell(fl, hop.tokenIn, hop.tokenOut, g.pool);
+                }
                 sum += g.expectedOut;
                 unchecked { ++l; }
             }
@@ -368,8 +392,57 @@ contract BlazePhoenixSolver {
             (num, den) = (sum, was);
             unchecked { ++h; }
         }
-        if (!fell) return r;
-        return _assembleRouteMulti(r.hops, tIn, tOut, amountIn, num);
+        if (!fell) return (r, fl);
+        return (_assembleRouteMulti(r.hops, tIn, tOut, amountIn, num), fl);
+    }
+
+    /// @dev One build of the leading topology on the rebuild (`findBestRoutePlan`), and its rank on
+    ///      what its books pay (`_paysWhatItWalks`); 0 when no route of it ranks above `u`.
+    function _rebuilt(
+        Melhores memory m, uint256 k, address[4] memory bs, address tIn, address tOut, uint256 amountIn, uint256 u
+    ) private view returns (Route memory a, uint256 v) {
+        m.bestU = u;
+        _planTopology(m, k, bs, tIn, tOut, amountIn);
+        if (m.bestU == u) return (a, 0);
+        (a, ) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
+        v = m.bestU - (m.bestR.totalOut - a.totalOut);
+    }
+
+    /// @dev N1: one more book on the chain of those that fell (`_paysWhatItWalks`).
+    function _fell(uint256 fl, address a, address b, address x) private pure returns (uint256 e) {
+        assembly ("memory-safe") {
+            e := mload(0x40)
+            mstore(e, fl)
+            mstore(add(e, 0x20), a)
+            mstore(add(e, 0x40), b)
+            mstore(add(e, 0x60), x)
+            mstore(0x40, add(e, 0x80))
+        }
+    }
+
+    /// @dev N1: a book whose promise fell in the leader sits its rebuild out. Its pair's list is
+    ///      read into the solve's cache (`_candsOf`; the self-call starts with none) and the book
+    ///      is taken off it there, the order of the rest kept: every later read of the pair is a
+    ///      copy of that list. `o` is where its [tokenIn, tokenOut, pool] sits in the calldata.
+    function _sitsOut(Melhores memory m, uint256 o) private view {
+        uint256 a;
+        uint256 b;
+        uint256 x;
+        assembly ("memory-safe") { a := calldataload(o) b := calldataload(add(o, 0x20)) x := calldataload(add(o, 0x40)) }
+        _candsOf(m, address(uint160(a)), address(uint160(b)));
+        uint256 e = m.lists;
+        assembly ("memory-safe") {
+            for {} e { e := mload(e) } { if and(eq(mload(add(e, 0x20)), a), eq(mload(add(e, 0x40)), b)) { break } }
+            let c := mload(add(e, 0x60))
+            let n := mload(c)
+            for { let s := add(c, 0x20) let z := add(s, shl(5, n)) } lt(s, z) { s := add(s, 0x20) } {
+                if eq(mload(add(mload(s), 0xe0)), x) {   // PoolInfo.pool
+                    mcopy(s, add(s, 0x20), sub(z, add(s, 0x20)))
+                    mstore(c, sub(n, 1))
+                    break
+                }
+            }
+        }
     }
 
     /// @dev The topologies, in the order they are judged (a tie keeps the earlier one):
