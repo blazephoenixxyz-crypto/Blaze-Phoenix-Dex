@@ -2224,6 +2224,83 @@ library BlazePhoenixCore {
         (out, , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, type(uint256).max);
     }
 
+    /// @dev The reads a concentrated leg's promise may spend on its own pool's book (DEX-01): the
+    ///      Solver's whole route shares them, the frame spends them on each leg. Five come before
+    ///      the first stretch (fee, tickSpacing, the price, the tick, the liquidity), then one
+    ///      bitmap word per stretch and one tick per crossing.
+    uint256 internal constant V3_PAY_READS = 12;
+
+    /// @notice DEX-01: what a V3-shaped pool pays for `amountIn`, against `f`, the single-range
+    ///         figure. The book is walked as `v4WalkOut` walks it with a zero poolId, for at most
+    ///         `reads` reads of the pool: a walk that finishes inside them and inside
+    ///         V4_WALK_MAX_STEPS stretches answers min(walk, f); one that does not, or a book that
+    ///         does not answer, answers `f`, the band. `left` is what the walk did not spend. Each
+    ///         read holds ASK_GAS_FLOOR first, so it gets its whole GAS_CAP: a starved read
+    ///         reverts empty, and the answer is the state's, never the caller's gas (R1). ONE
+    ///         producer for the Solver's promise and the Router's in-frame quote.
+    function v3PaysOnBudget(address pool, uint256 amountIn, bool zeroForOne, uint256 f, uint256 reads)
+        public view returns (uint256, uint256 left)
+    {
+        left = reads;
+        if (left < 6 || amountIn == 0) return (f, left);
+        left -= 2;
+        uint24 fee = getV3Fee(pool);
+        int24 ts = int24(int256(_fedRead(pool, 5, 0)));
+        if (fee == 0 || fee >= 1_000_000 || ts <= 0) return (f, left);
+        --left;
+        uint160 sp = uint160(_fedRead(pool, 0, 0));
+        if (sp == 0) return (f, left);
+        left -= 2;
+        int24 tick = int24(uint24(_fedRead(pool, 1, 0)));
+        uint128 liq = uint128(_fedRead(pool, 2, 0));
+        // A tick past the price bounds belongs to no price: the band. This walk runs outside the
+        // rebuild's self-call, so it must answer, never revert (`_v4NextTick` overflows on the
+        // last int24 tick rising).
+        if (tick < V4_MIN_TICK || tick > V4_MAX_TICK) return (f, left);
+        uint256 rem = amountIn;
+        uint256 out;
+        for (uint256 i; ; ++i) {
+            // The next read is a bitmap word: a walk that cannot pay for it, or whose sixteenth
+            // stretch closed with input unspent, keeps the band.
+            if (left == 0 || i == V4_WALK_MAX_STEPS) return (f, left);
+            --left;
+            _fedRead(pool, 6, 0);
+            (int24 nt, bool init) = _v4NextTick(pool, 0, tick, ts, zeroForOne);
+            uint160 target = sqrtPriceAtTick(nt);
+            // A book whose tick disagrees with its price is not read: the band (a step the wrong
+            // way underflows in `_v4Step`).
+            if (zeroForOne ? sp < target : sp > target) return (f, left);
+            (, uint256 used, uint256 paid) = _v4Step(sp, target, liq, rem, fee, zeroForOne);
+            out += paid;
+            rem -= used;
+            if (rem == 0) break;
+            if (init) {
+                if (left == 0) return (f, 0);
+                --left;
+                // liquidityNet, negated crossing downward, saturating, as `_v4Walk` applies it.
+                int256 net = (zeroForOne ? -1 : int256(1)) * int256(int128(int256(_fedRead(pool, 4, nt))));
+                uint256 l = uint256(liq);
+                liq = uint128(net < 0 ? (l > uint256(-net) ? l - uint256(-net) : 0)
+                    : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));
+            }
+            // At the price bound the book has ended: what the walk reached is what the pool pays.
+            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;
+            tick = zeroForOne ? nt - 1 : nt;
+            sp = target;
+        }
+        // The input spent (or the book ended) inside the reads: the promise is what the book pays.
+        return (out < f ? out : f, left);
+    }
+
+    /// @dev One read of `v3PaysOnBudget`, ASK_GAS_FLOOR held first: `k` as `_book` takes it on a
+    ///      V3-shaped pool, 5 its tickSpacing(); 6 reads nothing (the guard before a bitmap word,
+    ///      which `_v4NextTick` reads itself).
+    function _fedRead(address pool, uint256 k, int256 arg) private view returns (uint256) {
+        assembly ("memory-safe") { if lt(gas(), ASK_GAS_FLOOR) { revert(0, 0) } }
+        if (k == 5) return _v3Get(pool, 0xd0c93a7c, 0, 0);
+        return k == 6 ? 0 : _book(pool, 0, k, arg);
+    }
+
     /// @notice The same walk, for RANKING. `lo` is `v4WalkOut` - the sixteen-stretch figure, the
     ///         promise. When those sixteen stretches leave input unspent, the walk asks whether
     ///         the rest could still carry the quote above `bar`; only if it could does it go on,
@@ -2681,6 +2758,9 @@ library BlazePhoenixCore {
             if (legAmt != 0 && sp != 0 && lq != 0) {
                 q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, dynFee, dyn), leg.zeroForOne, 0);
                 imp = q == 0 ? DEFAULT_IMPACT_BPS : impactV3FromOut(q, legAmt, sp, leg.zeroForOne);
+                // DEX-01: the quote is what the promise is (`v3PaysOnBudget`, on a leg's whole
+                // V3_PAY_READS); the impact stays the single-range one the Solver's floor reads.
+                (q, ) = v3PaysOnBudget(leg.pool, legAmt, leg.zeroForOne, q, V3_PAY_READS);
             }
         }
     }

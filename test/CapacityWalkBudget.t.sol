@@ -194,7 +194,9 @@ contract CapacityWalkBudgetTest is Test {
     function test_3073_WalkBudget_TwoBridges_FitsATenth() public { _grid(2, 1); _fits("2 bridges, 1 book per pair", SEARCH_GAS / 10); }
     function test_3073_WalkBudget_ThreeBridges_FitsAFifth() public { _grid(3, 1); _fits("3 bridges, 1 book per pair", SEARCH_GAS / 5); }
     function test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles() public { _grid(3, 3); _fits("3 bridges, 3 books per pair", SEARCH_GAS * 3 / 4); }
-    /// No build of this grid is held: the search alone, inside the search's share.
+    /// No build of this grid is held: the search alone, inside the search's share. Since DEX-01
+    /// the plan's concentrated legs are walked by `Core.v3PaysOnBudget` on V3_PAY_READS reads for
+    /// the whole route, inside the same share (mutant [912]: twelve reads for each leg do not fit).
     function test_3073_WalkBudget_ThreeBridgesSixBooks_Settles() public { _grid(3, 6); _fits("3 bridges, 6 books per pair", SEARCH_GAS); }
 
     // ─── Held legs: the door settles the plan quoted, the walk on its own budget ──

@@ -269,7 +269,7 @@ contract BlazePhoenixSolver {
             m.walk = WALK;
             _planTopology(m, bk, bs, tIn, tOut, amountIn);
             if (m.bestU == u) revert();
-            plan.best = m.bestR;
+            plan.best = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
             return plan;
         }
         for (uint256 k; k < TOPOLOGIES; ) {
@@ -295,8 +295,10 @@ contract BlazePhoenixSolver {
         // the cap stands. The fallback stays the runner-up read above. A solve that cannot
         // hand the walk its whole budget stops with empty revert data (out of gas, RouterE(17)
         // at the automatic door) - never a different plan. The walk's assembly return is this
-        // external function's own return (its last statement), so nothing is skipped.
+        // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`,
+        // so only the plan built at the cap needs the one below.
         if (m.bestHeld) _walkOnItsOwnBudget(plan, bk, m.bestU);
+        plan.best = _paysWhatItWalks(plan.best, tIn, tOut, amountIn);
     }
 
     /// @dev The gas the rebuild of `findBestRoutePlan` runs on. Fixed: the walk's outcome is a
@@ -331,6 +333,43 @@ contract BlazePhoenixSolver {
                 return(p, add(n, l))
             }
         }
+    }
+
+    /// @dev DEX-01: the plan's concentrated legs, in route order, promised what their own books
+    ///      pay (`Core.v3PaysOnBudget`, the Router's own in-frame figure), on V3_PAY_READS reads
+    ///      for the whole route: on a dense book a walk this short does not finish, and the leg
+    ///      keeps its promise. A promise only falls. What falls comes off its hop, the hops after
+    ///      it are scaled to what now reaches them - output is concave in input with none at
+    ///      zero, so a leg on a share of its input pays at least that share of its promise - and
+    ///      the route is assembled again, one producer of the floor. The ranking is untouched.
+    function _paysWhatItWalks(Route memory r, address tIn, address tOut, uint256 amountIn)
+        private view returns (Route memory)
+    {
+        uint256 reads = BPC.V3_PAY_READS;
+        uint256 num = 1;
+        uint256 den = 1;
+        bool fell;
+        uint256 n = r.hops.length;
+        for (uint256 h; h < n; ) {
+            Hop memory hop = r.hops[h];
+            uint256 was = hop.expectedOut;
+            uint256 sum;
+            if (num != den) hop.amountIn = BPC.mulDiv(hop.amountIn, num, den);
+            for (uint256 l; l < hop.legs.length; ) {
+                Leg memory g = hop.legs[l];
+                if (num != den) (g.amountIn, g.expectedOut) = (BPC.mulDiv(g.amountIn, num, den), BPC.mulDiv(g.expectedOut, num, den));
+                if (reads > 5 && BPC.kindHas(g.kind, BPC.A_CONC_POOL))
+                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, g.expectedOut, reads);
+                sum += g.expectedOut;
+                unchecked { ++l; }
+            }
+            hop.expectedOut = sum;
+            if (sum != was) fell = true;
+            (num, den) = (sum, was);
+            unchecked { ++h; }
+        }
+        if (!fell) return r;
+        return _assembleRouteMulti(r.hops, tIn, tOut, amountIn, num);
     }
 
     /// @dev The topologies, in the order they are judged (a tie keeps the earlier one):
