@@ -1225,10 +1225,16 @@ M = [
       old='                carry -= fee;',
       new='                carry -= 0; // MUTANT',
       teste='test_InputChargedRouteSettlesAtExactOut'),
+ # Re-pointed 2026-10-27 (transplant 2): since T01 the guard lives in the ONE predicate,
+ # `BPC.paysOnInput` (`!feeOnOut && ...`), which the Router and `_fundedOut` both run. On the
+ # Quoter's early return (`if (feeOnOut) return type(uint256).max;`) the mutant SURVIVED this
+ # test (measured 2026-10-27, release profile): `_fundedOut` no longer charges such a route on
+ # its input, so the return is a short-circuit there. Dropping `!feeOnOut` charges it on input
+ # AND output.
  dict(nome='exact floor: a direct route into a bridge is funded as if charged on the input',
-      f='src/BlazePhoenixQuoter.sol',
-      old='        if (feeOnOut) return type(uint256).max;',
-      new='        if (false) return type(uint256).max; // MUTANT',
+      f='src/BlazePhoenixCore.sol',
+      old='        return !feeOnOut && (feeHop == type(uint256).max || h == feeHop);',
+      new='        return (feeHop == type(uint256).max || h == feeHop); // MUTANT',
       teste='test_Control_OutputChargedRouteKeepsThePlainDeduction'),
  # ── guards that had no mutant of their own (2026-10-13) ──
  dict(nome='fallback: ETH sent with callback-length calldata is no longer refused by the value guard',
