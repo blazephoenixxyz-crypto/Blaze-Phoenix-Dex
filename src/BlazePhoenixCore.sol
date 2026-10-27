@@ -2472,11 +2472,13 @@ library BlazePhoenixCore {
     ///      floors a decayed-to-zero live slot to 1 for display/ranking). 0 here genuinely means
     ///      no activity survives the decay window. Shared by vitality() and tickSlot() so a
     ///      reactivation counts from what actually remains, never from the pre-decay historical
-    ///      total (see docs/INVARIANTS_AND_TIME.md R3: "price by what remains, never a historical
-    ///      scalar" — swapCount was previously a raw cumulative counter that never reset in
-    ///      storage, so a single dust swap after a full decay instantly restored the pool's
-    ///      entire historical vitality). vitality() delegates its decay arithmetic here and adds
-    ///      only its dead-vs-floored ranking policy, so the maths exists in exactly one place.
+    ///      total (see R3 of docs/INVARIANTS_AND_TIME.md in the Staking repository,
+    ///      https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking: "price by what
+    ///      remains, never a historical scalar" — swapCount was previously a raw cumulative
+    ///      counter that never reset in storage, so a single dust swap after a full decay
+    ///      instantly restored the pool's entire historical vitality). vitality() delegates its
+    ///      decay arithmetic here and adds only its dead-vs-floored ranking policy, so the maths
+    ///      exists in exactly one place.
     function _decayedSwapCount(uint256 slot, uint32 currentTs) internal pure returns (uint32) {
         // An empty slot decodes lastTs == 0 and returns 0 on the next line.
         uint32 lastTs = decodeLastUpdateTs(slot);
@@ -2886,8 +2888,15 @@ library BlazePhoenixCore {
 
     /// @notice The Gate's psi for `w` (its `vitalOf`): 0 for a pool that Gate did not create
     ///         or whose family has no live adapter. The Solver's ranking reads it for its
-    ///         kind-9 rows, which have no Hub row (psi 0 there) (P2).
+    ///         kind-9 rows, which have no Hub row (psi 0 there) (P2). psi is vitality times
+    ///         the bucket's weight, so a wrapper of vitality 0 (never swapped, or past the
+    ///         32-step horizon) is psi 0 at every depth bucket: answered here by the same
+    ///         `vitality` the Gate runs at the same timestamp, without the depth read the Gate
+    ///         pays first (its adapter's quote, the venue's balances and decimals). A slot that
+    ///         cannot be read asks the Gate.
     function gatePsi(address gate, address w) public view returns (uint256 p) {
+        (bool ok, uint256 s) = _askWord(w, abi.encodeWithSignature("vitalSlot()"));
+        if (ok && vitality(s, uint32(block.timestamp)) == 0) return 0;
         (, p) = _gateVital(gate, w);
     }
 

@@ -400,6 +400,14 @@
       "guard": "_gateVital",
       "test": "test_GatedAuto_HotWrapperSettlesUnderTheSolveBudget",
       "note": "F1 of the gatedauto-1022 review. Core._gateVital, the one reader of Gate.vitalOf, copies only words 1-2 into scratch (returndatacopy(0x00, 0x20, 0x40) after returndatasize() >= 0x60). Before: the whole answer at 0x00, psi on 0x40; measured 33 988 102 gas for gateQuote with depth at psi 2^22 and RouterE(17) at the best door. The class is held by the Scratch memory guard in ci.yml (no assembly call or copy with a literal output below 0x80 may end past 0x40). Mutants [693]-[697]."
+    },
+    {
+      "id": "GATED-AUTO-PSI-SHORTCUT",
+      "class": "A score answered without its producer: a reader that skips the Gate's vitalOf for a wrapper the Gate would score above 0 drops that wrapper from the funnel (as one that reads the decay on another clock, or without vitality's floor, does to a live wrapper), and one that trusts a slot it could not read seats or cuts a pool on a word nobody wrote",
+      "status": "blocked",
+      "guard": "gatePsi",
+      "test": "test_GatePsi_IsTheGatesPsiAlongAWrappersLife",
+      "note": "H1 (gas-h1-1026). Core.gatePsi reads the wrapper's vitalSlot through _askWord (capped at GAS_CAP) and answers 0 itself only for a slot READ at vitality 0 by Core.vitality at uint32(block.timestamp), the function and the timestamp Gate.vitalOf runs: empty (lastUpdateTs 0) or dead by decay (its last stamp 32 steps or more ago). Core.psi (v * 2^bucket) is then 0 at every depth bucket, the answer Gate.vitalOf gives after its depth read. Any other slot, and a read that fails (no code, a revert, a short answer), asks the Gate as before. Pinned against gatePsi at 59ecf3f and by hand over buckets 0..15: vitality 0, 1, 3, the floor, both sides of the 32-step horizon, slots no swap writes, any slot (fuzz); by vm.expectCall the call not made (an unused wrapper, a dead one) and made once (a used one, one at the floor a second before the horizon); the saving by gas probes from cold accounts (8 957 against 47 908 gas, mock adapter); a burning read costs GAS_CAP and under 20k more. Mutants [826]-[838]."
     }
   ]
 }

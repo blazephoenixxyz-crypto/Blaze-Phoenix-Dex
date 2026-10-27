@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
-// Extrapolating the invariants-and-time lens (docs/INVARIANTS_AND_TIME.md, written for the
+// Extrapolating the invariants-and-time lens (docs/INVARIANTS_AND_TIME.md in the Staking
+// repository, https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking, written for the
 // Staking contract) to the DEX's own time-integral quantity: BlazePhoenixCore.vitality(), which
 // decides route priority. Rule R3 there: "Price by what remains, never by a historical scalar."
 //
