@@ -128,19 +128,23 @@ for p in sorted(glob.glob(os.path.join(OUT, "BlazePhoenix*.sol", "*.json"))):
     if not obj or len(obj) < 10: continue
     targets.append(name)
     ops = opcodes(obj, n_code)
-    counts, push4 = {}, set()
+    counts, push4, short = {}, set(), set()
     for _off, op, imm in walk(obj):
         if op in COUNTED:
             counts[COUNTED[op]] = counts.get(COUNTED[op], 0) + 1
         if op == 0x63:                      # PUSH4 - the dispatcher's selector constants
             push4.add(imm.hex())
+        elif 0x60 <= op <= 0x62:            # solc drops a selector's leading zero bytes:
+            short.add(imm.hex().rjust(8, "0"))  # 0x0052ba47 is emitted as PUSH3 0x52ba47
     # SELECTOR INVENTORY. Every function the ABI declares must appear as a PUSH4 in the runtime
     # dispatcher. One that does not is declared and unreachable, which is a linking or codegen
     # defect and not something source review can see - the source says the function is there.
     abi_sel = set()
     for e in art.get("methodIdentifiers", {}).values():
         abi_sel.add(e.lower())
-    missing = sorted(abi_sel - push4)
+    # A short push only answers for a selector whose leading byte is zero; any other selector
+    # still needs its PUSH4.
+    missing = sorted(s for s in abi_sel - push4 if not (s.startswith("00") and s in short))
     if missing:
         problems.append(f"{name}: {len(missing)} declared function(s) have no selector in the "
                         f"dispatcher - declared and unreachable: {', '.join(missing[:6])}")
