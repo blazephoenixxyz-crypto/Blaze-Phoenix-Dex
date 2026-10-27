@@ -304,16 +304,24 @@ jobs:
         run: python3 .github/scripts/check_targets.py
 
   mutation-guard:
-    name: mutation guard (shard ${{ matrix.shard }} of 4)
+    name: mutation guard (shard ${{ matrix.shard }} of 8)
     runs-on: ubuntu-latest
     # Its own job since 2026-10-07, in four parallel shards. Inside `test` the guard took 80 of
     # the job's 90 minutes at ~271 mutants and was cancelled (runs 37653877143, 37653884792);
     # every guarded fix adds to it, so it cannot share a ceiling with the gate.
+    # Eight shards since 2026-10-27, from measurement, not a raised ceiling. A shard costs one
+    # full release compile (its baseline: 10.8 min on a fast runner, 15.3 on a slow one) plus one
+    # sparse compile per mutant (17 s fast, 24 s slow; locally solc is 82% of a mutant's wall and
+    # the paired test ~0%, so shards balance by count, not by test). At 740 mutants four shards
+    # took 64-66 min on fast runners; the slow ones, on pace for ~90, were cancelled at 75 with
+    # ~190 mutants left without a verdict (runs 40417743525, 40424845798). Eight: ~37 fast, ~52 slow,
+    # ~55 at 800. Unbuffered output, so a cancelled shard still shows every verdict it reached.
+    # Add shards, not minutes, when 15 + 0.4 * (mutants / shards) passes 60.
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -338,7 +346,8 @@ jobs:
         # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
         env:
           MUTANTS_SHARD: ${{ matrix.shard }}
-          MUTANTS_SHARDS: 4
+          MUTANTS_SHARDS: 8
+          PYTHONUNBUFFERED: "1"
         run: python3 .github/scripts/mutants.py
 
   deep-invariant:
