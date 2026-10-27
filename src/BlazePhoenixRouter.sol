@@ -1104,14 +1104,10 @@ contract BlazePhoenixRouter {
         // The Solver builds ALL multi-hop routes through registered bridges, so
         // the honest path still pays 28 bps exactly once, in the bridge coin —
         // the owner's decision stays intact.
-        uint256 feeHop = type(uint256).max;
-        for (uint256 fi; fi < route.hops.length; ) {
-            if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
-            unchecked { ++fi; }
-        }
-        // Read ONCE: the predicate used here and in the block at the end has to be
+        // The scan and `feeOnOut` are `BPC.feeCalendar`, the one producer the Quoter asks too.
+        // `feeOnOut` is read ONCE: the predicate used here and in the block at the end has to be
         // the same value, and between the two the whole route runs (hooks included).
-        bool feeOnOut = route.hops.length == 1 && hub.isBridgeToken(tokenOut);
+        (uint256 feeHop, bool feeOnOut) = BPC.feeCalendar(address(hub), route.hops, tokenOut);
         // TWO REGIMES, BOTH NAMED (2026-09-05). ANCHORED: a bridge coin is an input somewhere, and
         // the fee is charged exactly once, there. EXHAUSTION: no bridge coin is an input anywhere
         // (a hand-built route through pools the registry would not hold) — `feeHop` stays at max
@@ -1214,7 +1210,7 @@ contract BlazePhoenixRouter {
             // On a DIRECT route whose destination IS already a bridge, the fee
             // comes out of the output (see the block at the end of this function)
             // — nothing is charged here, otherwise it would be charged twice.
-            if (!feeOnOut && (feeHop == type(uint256).max || h == feeHop)) {
+            if (BPC.paysOnInput(h, feeHop, feeOnOut)) {
                 (amountIn, outCap) = _chargeHopFee(hop, h, amountIn, foreignBase, tokenOut, outCap);
             }
 

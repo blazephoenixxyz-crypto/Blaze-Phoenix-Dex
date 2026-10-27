@@ -161,6 +161,11 @@ struct QuoteCtx {
 // File-level so it can size an array in the Gate and in Core alike.
 uint256 constant GATE_MAX_WRAPPERS = 4;
 
+/// @notice The Hub's bridge registry, as `feeCalendar` asks it (the mapping, never the array).
+interface IBridgeAskC {
+    function isBridgeToken(address t) external view returns (bool);
+}
+
 library BlazePhoenixCore {
 
     string  internal constant VERSION    = "2.0.0";
@@ -380,6 +385,32 @@ library BlazePhoenixCore {
     // constant is readable by whoever imports it, and the measuring apparatus ends up bolted to
     // the object it measures — corollary (c) of the I-measure, applied to the suite.
     uint16  internal constant PROTOCOL_FEE_BPS        = 28;    // 0.28%
+
+    /// @notice THE FEE CALENDAR, the one producer of "on which hop is the protocol fee charged?".
+    ///         Until 2026-10-27 the scan below was written four times (Router._execute, and the
+    ///         Quoter's _pack, _exact and _fundedOut), each copy answering the same question.
+    ///         ANCHORED: `feeHop` is the first hop whose INPUT is a registered bridge, asked of the
+    ///         Hub's mapping in hop order, and that hop alone pays. EXHAUSTION: no hop's input is a
+    ///         bridge, `feeHop` stays at `type(uint256).max` and every hop pays on its own input -
+    ///         immunity by exhaustion, no index left to put a dust prefix in front of
+    ///         (`test_JUIZ_PrefixoSemValorEscapaAFee`). OUTPUT: a direct route into a bridge
+    ///         (`feeOnOut`) pays on its output and on no input. The Router inlines this; the
+    ///         Quoter reaches it through BlazePhoenixMath, where its route is calldata too.
+    function feeCalendar(address hub, Hop[] calldata hops, address tokenOut)
+        internal view returns (uint256 feeHop, bool feeOnOut)
+    {
+        feeHop = type(uint256).max;
+        for (uint256 fi; fi < hops.length; ) {
+            if (IBridgeAskC(hub).isBridgeToken(hops[fi].tokenIn)) { feeHop = fi; break; }
+            unchecked { ++fi; }
+        }
+        feeOnOut = hops.length == 1 && IBridgeAskC(hub).isBridgeToken(tokenOut);
+    }
+
+    /// @notice Whether hop `h` pays the fee on its INPUT under `feeCalendar`'s answer.
+    function paysOnInput(uint256 h, uint256 feeHop, bool feeOnOut) internal pure returns (bool) {
+        return !feeOnOut && (feeHop == type(uint256).max || h == feeHop);
+    }
 
     // ─── V3 sqrt-price bounds ──────────────────────────────────────────
 
