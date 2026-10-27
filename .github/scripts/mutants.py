@@ -1633,8 +1633,9 @@ M = [
  # ── Dimension tests (2026-10-07): each new test is paired with the edit it must see ──
  dict(nome="keyOf: the registry key starts to depend on the order the pair is named in",
       f="src/BlazePhoenixHub.sol",
-      old="        (address s0, address s1) = BPC.sortTokens(tA, tB);\n        return keccak256(abi.encodePacked(pool, s0, s1));",
-      new="        (address s0, address s1) = (tA, tB); // MUTANT\n        return keccak256(abi.encodePacked(pool, s0, s1));",
+      # Re-pointed 2026-10-27: keyOf returns the Core's `BPC.pairKey`; the door stops sorting.
+      old="        return BPC.pairKey(pool, tA, tB);",
+      new="        return keccak256(abi.encodePacked(pool, tA, tB)); // MUTANT",
       teste="test_KeyIsOrderInvariant"),
  dict(nome="KINDS_EXECUTABLE: the native V4 kind drops out of the executable mask",
       f="src/BlazePhoenixHub.sol",
@@ -4411,14 +4412,36 @@ M = [
  # --- transplant 2 (2026-10-27): after [896] ---
  dict(nome='T2 Q773: a later hop divides its legs by the declared hop.amountIn again, not by their sum',
       f='src/BlazePhoenixQuoter.sol',
-      old='            if (h != 0) {\n                plannedIn = 0;\n',
-      new='            if (false) { // MUTANT\n                plannedIn = 0;\n',
+      # Re-pointed 2026-10-27 (T04): hop 0 joined the sum, so the loop lost its `if (h != 0)`.
+      old='            uint256 plannedIn;\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
+      new='            uint256 plannedIn;\n            if (h != 0) plannedIn = route.hops[h].amountIn; else // MUTANT\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
       teste='test_LaterHopCommitmentFundsTheLegsTheRouterFunds'),
  dict(nome='T2 T16: pairKey stops sorting the pair (an order-sensitive key)',
       f='src/BlazePhoenixCore.sol',
       old='        return keccak256(abi.encodePacked(pool, s0, s1));',
       new='        return keccak256(abi.encodePacked(pool, tA, tB)); // MUTANT',
       teste='test_PairKeyIsTheHubsKeyOf_BothOrders'),
+ # --- T04 and pairKey (2026-10-27): after the T16 mutant ---
+ dict(nome='T04: hop 0 divides its legs by the declared hop.amountIn again, not by their sum',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            uint256 plannedIn;\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
+      new='            uint256 plannedIn;\n            if (h == 0) plannedIn = route.hops[h].amountIn; else // MUTANT\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
+      teste='test_HopZeroCommitmentFundsTheLegsTheRouterFunds'),
+ dict(nome="T04: hop 0's fee is charged on the whole order, not on what its legs commit",
+      f='src/BlazePhoenixQuoter.sol',
+      old='                carry -= BPC.mulDivUp(h == 0 && carry > plannedIn ? plannedIn : carry,\n',
+      new='                carry -= BPC.mulDivUp(carry, // MUTANT\n',
+      teste='test_HopZeroFeeIsTakenBeforeTheCapAsTheRouterTakesIt'),
+ dict(nome='T04: hop 0 is capped before its fee again, so the fee comes out of the committed legs',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            if (route.hops.length > 1 && BPC.paysOnInput(h, feeHop, feeOnOut))\n                carry -= BPC.mulDivUp(h == 0',
+      new='            if (h == 0 && carry > plannedIn) carry = plannedIn; // MUTANT\n            if (route.hops.length > 1 && BPC.paysOnInput(h, feeHop, feeOnOut))\n                carry -= BPC.mulDivUp(h == 0',
+      teste='test_HopZeroFeeIsTakenBeforeTheCapAsTheRouterTakesIt'),
+ dict(nome="pairKey: the Solver's freshness gate reads another key than the row's, so curated fresh rows stop vouching",
+      f='src/BlazePhoenixSolver.sol',
+      old='            uint256 s = hub.getSlot(BPC.pairKey(reg[i].pool, reg[i].token0, reg[i].token1));',
+      new='            uint256 s = hub.getSlot(BPC.pairKey(reg[i].pool, reg[i].token0, reg[i].token0)); // MUTANT',
+      teste='test_ThreeCuratedRows_StillSkipDiscovery'),
 ]
 
 def run(t):

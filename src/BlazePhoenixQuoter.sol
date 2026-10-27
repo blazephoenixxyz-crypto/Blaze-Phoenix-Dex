@@ -762,18 +762,22 @@ contract BlazePhoenixQuoter {
             (feeHop, feeOnOut) =
                 this.feeCalendarOf(route.hops, route.hops[route.hops.length - 1].tokenOut);
         for (uint256 h; h < route.hops.length; h++) {
-            uint256 plannedIn = route.hops[h].amountIn == 0
-                ? carry : route.hops[h].amountIn;
-            // Q773 (2026-10-27): from hop 1 on, the divisor is the hop commitment, the legs' own
-            // sum, as in the Router (`_hopScaleImpactAndQuote` reads `_legSum(hop)`, never
-            // `hop.amountIn`) and in `_fundedOut`. A later hop that declared another figure was
-            // priced on legs the Router never funds. Hop 0 keeps `plannedIn` as cap and divisor
-            // (T04, with the owner).
-            if (h != 0) {
-                plannedIn = 0;
-                for (uint256 l; l < route.hops[h].legs.length; l++)
-                    plannedIn += route.hops[h].legs[l].amountIn;
-            }
+            // Q773 and T04 (2026-10-27): at every hop the divisor is the hop commitment, the legs'
+            // own sum, as in the Router (`_hopScaleImpactAndQuote` reads `_legSum(hop)`, never
+            // `hop.amountIn`) and in `_fundedOut`. A hop that declared another figure was priced on
+            // legs the Router never funds: from hop 1 on (Q773), and at hop 0 (T04), where a figure
+            // under the legs' sum priced them at their full size, and a direct route into a bridge,
+            // which `_fundedOut` does not bound, was promised about twice what the Router fills.
+            uint256 plannedIn;
+            for (uint256 l; l < route.hops[h].legs.length; l++)
+                plannedIn += route.hops[h].legs[l].amountIn;
+            // HOP 0 PAYS BEFORE ITS CAP (T04): the Router charges hop 0 on min(order, Σ leg.amountIn)
+            // and caps what is left (`_chargeHopFee`, then `_hopScaleImpactAndQuote`), so an order
+            // above the commitment pays the fee out of its surplus. Capped first, the quote took the
+            // fee out of the committed legs and fell short of the fill.
+            if (route.hops.length > 1 && BPC.paysOnInput(h, feeHop, feeOnOut))
+                carry -= BPC.mulDivUp(h == 0 && carry > plannedIn ? plannedIn : carry,
+                    BPC.PROTOCOL_FEE_BPS, BPC.BPS);
             // HOP-0 CAP — the quote-side twin of BlazePhoenixRouter.sol:514.
             // carry starts at the caller's FULL order, but when the Solver's
             // capacity clamp fired the plan committed LESS than that, so
@@ -785,8 +789,6 @@ contract BlazePhoenixQuoter {
             // hop 0; the quote must not price more than the Router spends.
             // Later hops legitimately scale: their carry is a real output.
             if (h == 0 && carry > plannedIn) carry = plannedIn;
-            if (route.hops.length > 1 && BPC.paysOnInput(h, feeHop, feeOnOut))
-                carry -= BPC.mulDivUp(carry, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
             uint256 hopOut;
             for (uint256 l; l < route.hops[h].legs.length; l++) {
                 Leg memory leg = route.hops[h].legs[l];

@@ -794,11 +794,11 @@ library BlazePhoenixCore {
     }
 
     /// @notice A pool's registry key: the pool and its pair, sorted, so the order the pair is
-    ///         named in does not matter. The same word as `Hub.keyOf`, which the registry's own
-    ///         reads and writes use; this copy runs in the reader's frame, so a library that only
-    ///         reads a slot (`BlazePhoenixMath._mutedVotes`) stops asking the Hub for a pure
-    ///         function of its arguments (T16, 2026-10-27). Two producers of one quantity, tied by
-    ///         `test/PairKeyIsTheHubsKeyOf.t.sol` (SHARED_QUANTITIES, row `keyOf`).
+    ///         named in does not matter. The one producer (2026-10-27): `Hub.keyOf` returns it for
+    ///         the registry's own reads and writes, and a reader that only reads a slot computes it
+    ///         in its own frame instead of asking the Hub for a pure function of its arguments
+    ///         (`BlazePhoenixMath._mutedVotes`, T16; `Solver._registryFresh`).
+    ///         `test/PairKeyIsTheHubsKeyOf.t.sol` ties the Hub's door to it (SHARED_QUANTITIES, row `keyOf`).
     function pairKey(address pool, address tA, address tB) internal pure returns (bytes32) {
         (address s0, address s1) = sortTokens(tA, tB);
         return keccak256(abi.encodePacked(pool, s0, s1));
