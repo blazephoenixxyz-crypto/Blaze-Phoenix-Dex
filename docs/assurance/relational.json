@@ -46,6 +46,26 @@
     { "quantity": "per-pool traded volume",
       "producer_a": "recordSwap", "producer_b": "balanceOf",
       "status": "tied", "test": "test_INV_F4_VolumeInEqualsTheMeasuredPoolDelta",
-      "note": "The registry is handed what the hop was able to spend, not what the route declared. The ratio of measured to declared is uniform across the legs of a hop, so one word per hop reconstructs each leg's real spend exactly - which is what let this be tied without widening a call frame already at the via-ir stack limit." }
+      "note": "The registry is handed what the hop was able to spend, not what the route declared. The ratio of measured to declared is uniform across the legs of a hop, so one word per hop reconstructs each leg's real spend exactly - which is what let this be tied without widening a call frame already at the via-ir stack limit." },
+
+    { "quantity": "leg funding at a later hop",
+      "producer_a": "_exact", "producer_b": "_hopScaleImpactAndQuote",
+      "status": "tied", "test": "test_LaterHopCommitmentFundsTheLegsTheRouterFunds",
+      "note": "From hop 1 on the Router splits what arrived over the legs by their committed sum and never reads hop.amountIn; the exact door divided by hop.amountIn, so a route built off-chain whose later hop declared another figure was priced on legs the Router never funds (Q773, 2026-10-27). Hop 0 followed the same day (T04): see the two rows on hop 0 below." },
+
+    { "quantity": "leg funding at hop 0",
+      "producer_a": "_exact", "producer_b": "_hopScaleImpactAndQuote",
+      "status": "tied", "test": "test_HopZeroCommitmentFundsTheLegsTheRouterFunds",
+      "note": "At hop 0 the Router caps what the order brings at the legs' committed sum and splits it by that sum; hop.amountIn is never read. The exact door capped and divided by the declared hop.amountIn, so a direct route into a bridge whose hop 0 declared half its legs' sum was priced on the legs at full size and promised about twice what the Router fills; the Router refused the route the door returned (T04, 2026-10-27)." },
+
+    { "quantity": "fee at hop 0 against its cap",
+      "producer_a": "_exact", "producer_b": "_chargeHopFee",
+      "status": "tied", "test": "test_HopZeroFeeIsTakenBeforeTheCapAsTheRouterTakesIt",
+      "note": "When hop 0 pays on its input the Router charges ceil(28 bps) of min(order, legs' sum) and caps what is left, so an order above the commitment pays the fee out of its surplus. The exact door capped first and took the fee out of the committed legs: the scalar fell short of the delivery (T04, 2026-10-27)." },
+
+    { "quantity": "pool registry key",
+      "producer_a": "pairKey", "producer_b": "keyOf",
+      "status": "tied", "test": "test_PairKeyIsTheHubsKeyOf_BothOrders",
+      "note": "The registry's key. Since 2026-10-27 (T04-pairkey) Hub.keyOf returns BPC.pairKey, one producer behind the Hub's door; BlazePhoenixMath (T16) and the Solver's freshness gate compute it in their own frame instead of asking the Hub. The test ties the door to the producer: the pair named in either order, pairKey's own order invariance, and a fuzz case over the domain." }
   ]
 }
