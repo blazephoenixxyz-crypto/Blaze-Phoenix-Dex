@@ -395,7 +395,8 @@ library BlazePhoenixCore {
     ///         immunity by exhaustion, no index left to put a dust prefix in front of
     ///         (`test_JUIZ_PrefixoSemValorEscapaAFee`). OUTPUT: a direct route into a bridge
     ///         (`feeOnOut`) pays on its output and on no input. The Router inlines this; the
-    ///         Quoter reaches it through BlazePhoenixMath, where its route is calldata too.
+    ///         Quoter, whose routes are memory, reaches it through its own external door
+    ///         (`BlazePhoenixQuoter.feeCalendarOf`), where the route is calldata too.
     function feeCalendar(address hub, Hop[] calldata hops, address tokenOut)
         internal view returns (uint256 feeHop, bool feeOnOut)
     {

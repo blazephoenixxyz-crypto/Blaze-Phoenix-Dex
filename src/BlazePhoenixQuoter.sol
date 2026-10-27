@@ -342,8 +342,8 @@ contract BlazePhoenixQuoter {
         // that always deducted once answered 28 bps while execution took ~56, which is
         // exactly the failure the comment above predicts for this pair of channels.
         //
-        // THE SIGNAL IS ASKED OF THE PRODUCER, never re-derived: the same
-        // `hub.isBridgeToken` the Router asks, in the same scan order. Iterating
+        // THE SIGNAL IS ASKED OF THE PRODUCER, never re-derived: `BPC.feeCalendar`, the
+        // function the Router runs (through `feeCalendarOf`, 2026-10-27). Iterating
         // `hub.bridge(i)` here instead would read the ARRAY while the Router reads the
         // MAPPING -- the desync reported by bai bo in the 4th wave and closed by making
         // `addBridge` idempotent. One question, one producer.
@@ -362,10 +362,7 @@ contract BlazePhoenixQuoter {
         // bridge `pv.bridgeUsed` names - so the two can never disagree (BRIDGE-02).
         uint256 feeHop = type(uint256).max;
         if (route.hops.length > 1) {
-            for (uint256 fi; fi < route.hops.length; ) {
-                if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
-                unchecked { ++fi; }
-            }
+            (feeHop, ) = this.feeCalendarOf(route.hops, route.hops[route.hops.length - 1].tokenOut);
             if (feeHop == type(uint256).max) charges = route.hops.length;
         }
         for (uint256 c; c < charges; ) {
@@ -726,6 +723,19 @@ contract BlazePhoenixQuoter {
         return IGateVitalQ(IGateWrapperQ(pool).gate()).vitalOf(pool);
     }
 
+    /// @notice The Router's fee calendar for `hops`, asked of the one producer, `BPC.feeCalendar`:
+    ///         `feeHop` is the first hop whose input is a registered bridge (`type(uint256).max`
+    ///         when none is: every hop pays on its input) and `feeOnOut` marks a direct route
+    ///         into a bridge, which pays on its output. The Quoter's routes are memory and the
+    ///         producer reads `Hop[] calldata`; `_pack`, `_exact` and `_fundedOut` reach it
+    ///         through this door (`this.feeCalendarOf`), so the scan is written once and the
+    ///         crossing is paid only in an eth_call.
+    function feeCalendarOf(Hop[] calldata hops, address tokenOut)
+        external view returns (uint256 feeHop, bool feeOnOut)
+    {
+        return BPC.feeCalendar(address(hub), hops, tokenOut);
+    }
+
     /// @notice The same execution-grade re-pricing as `previewPlanExact`, for a route built
     ///         off-chain instead of by the Solver: the only way to quote Gate legs (kind 9),
     ///         which the Solver never plans and the best door refuses. Call via eth_call.
@@ -745,12 +755,12 @@ contract BlazePhoenixQuoter {
         // the reduced amount; one deduction off the gross output over-promised by a wei. The
         // fee is modelled where it is charged. A single hop takes the output deduction below,
         // bounded by `_fundedOut` where the Router charges that hop on its input.
+        // The anchor is `BPC.feeCalendar`'s, asked as `_pack` asks it: only at two hops or more.
         uint256 feeHop = type(uint256).max;
-        if (route.hops.length > 1) {
-            for (uint256 fi; fi < route.hops.length; fi++) {
-                if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
-            }
-        }
+        bool feeOnOut;
+        if (route.hops.length > 1)
+            (feeHop, feeOnOut) =
+                this.feeCalendarOf(route.hops, route.hops[route.hops.length - 1].tokenOut);
         for (uint256 h; h < route.hops.length; h++) {
             uint256 plannedIn = route.hops[h].amountIn == 0
                 ? carry : route.hops[h].amountIn;
@@ -765,7 +775,7 @@ contract BlazePhoenixQuoter {
             // hop 0; the quote must not price more than the Router spends.
             // Later hops legitimately scale: their carry is a real output.
             if (h == 0 && carry > plannedIn) carry = plannedIn;
-            if (route.hops.length > 1 && (feeHop == type(uint256).max || h == feeHop))
+            if (route.hops.length > 1 && BPC.paysOnInput(h, feeHop, feeOnOut))
                 carry -= BPC.mulDivUp(carry, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
             uint256 hopOut;
             for (uint256 l; l < route.hops[h].legs.length; l++) {
@@ -850,25 +860,23 @@ contract BlazePhoenixQuoter {
     }
 
     /// @dev What the Router delivers for `route` when it charges the protocol fee on an input:
-    ///      the same scan as `Router._execute` (`feeOnOut` for a direct route into a bridge,
+    ///      `BPC.feeCalendar`, as `Router._execute` (`feeOnOut` for a direct route into a bridge,
     ///      else the first hop whose input is a bridge, else every hop), the same base
     ///      (hop 0: the order capped by the committed legs; later hops: what arrived), the same
     ///      round-up, the same pro-rata funding of the legs. `type(uint256).max` when the fee is
     ///      taken off the output, where the caller's deduction is already the Router's.
     function _fundedOut(Route memory route, uint256 amountIn) private returns (uint256 carry) {
         uint256 n = route.hops.length;
-        if (n == 1 && hub.isBridgeToken(route.hops[0].tokenOut)) return type(uint256).max;
-        uint256 feeHop = type(uint256).max;
-        for (uint256 fi; fi < n; ) {
-            if (hub.isBridgeToken(route.hops[fi].tokenIn)) { feeHop = fi; break; }
-            unchecked { ++fi; }
-        }
+        // The Router's calendar, `BPC.feeCalendar` (no hop: no question asked, nothing charged).
+        (uint256 feeHop, bool feeOnOut) =
+            this.feeCalendarOf(route.hops, n == 0 ? address(0) : route.hops[n - 1].tokenOut);
+        if (feeOnOut) return type(uint256).max;
         carry = amountIn;
         for (uint256 h; h < n; h++) {
             Hop memory hop = route.hops[h];
             uint256 legSum;
             for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
-            if (feeHop == type(uint256).max || h == feeHop) {
+            if (BPC.paysOnInput(h, feeHop, feeOnOut)) {
                 uint256 feeBase = h == 0 && carry > legSum ? legSum : carry;
                 uint256 fee = BPC.mulDivUp(feeBase, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
                 if (fee >= carry) return 0;
