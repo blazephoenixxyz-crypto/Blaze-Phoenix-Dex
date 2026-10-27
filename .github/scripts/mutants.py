@@ -4402,6 +4402,12 @@ M = [
       old='        if (totalReceived > outCap) totalReceived = outCap;\n',
       new='        if (totalReceived != outCap) totalReceived = outCap; // MUTANT\n',
       teste='test_AFeeOnTransferOutputIsPaidWhatArrived'),
+ # --- transplant 2 (2026-10-27): after [896] ---
+ dict(nome='T2 Q773: a later hop divides its legs by the declared hop.amountIn again, not by their sum',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            if (h != 0) {\n                plannedIn = 0;\n',
+      new='            if (false) { // MUTANT\n                plannedIn = 0;\n',
+      teste='test_LaterHopCommitmentFundsTheLegsTheRouterFunds'),
 ]
 
 def run(t):

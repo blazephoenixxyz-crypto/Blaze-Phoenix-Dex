@@ -764,6 +764,16 @@ contract BlazePhoenixQuoter {
         for (uint256 h; h < route.hops.length; h++) {
             uint256 plannedIn = route.hops[h].amountIn == 0
                 ? carry : route.hops[h].amountIn;
+            // Q773 (2026-10-27): from hop 1 on, the divisor is the hop commitment, the legs' own
+            // sum, as in the Router (`_hopScaleImpactAndQuote` reads `_legSum(hop)`, never
+            // `hop.amountIn`) and in `_fundedOut`. A later hop that declared another figure was
+            // priced on legs the Router never funds. Hop 0 keeps `plannedIn` as cap and divisor
+            // (T04, with the owner).
+            if (h != 0) {
+                plannedIn = 0;
+                for (uint256 l; l < route.hops[h].legs.length; l++)
+                    plannedIn += route.hops[h].legs[l].amountIn;
+            }
             // HOP-0 CAP — the quote-side twin of BlazePhoenixRouter.sol:514.
             // carry starts at the caller's FULL order, but when the Solver's
             // capacity clamp fired the plan committed LESS than that, so

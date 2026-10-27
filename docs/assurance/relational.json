@@ -46,6 +46,11 @@
     { "quantity": "per-pool traded volume",
       "producer_a": "recordSwap", "producer_b": "balanceOf",
       "status": "tied", "test": "test_INV_F4_VolumeInEqualsTheMeasuredPoolDelta",
-      "note": "The registry is handed what the hop was able to spend, not what the route declared. The ratio of measured to declared is uniform across the legs of a hop, so one word per hop reconstructs each leg's real spend exactly - which is what let this be tied without widening a call frame already at the via-ir stack limit." }
+      "note": "The registry is handed what the hop was able to spend, not what the route declared. The ratio of measured to declared is uniform across the legs of a hop, so one word per hop reconstructs each leg's real spend exactly - which is what let this be tied without widening a call frame already at the via-ir stack limit." },
+
+    { "quantity": "leg funding at a later hop",
+      "producer_a": "_exact", "producer_b": "_hopScaleImpactAndQuote",
+      "status": "tied", "test": "test_LaterHopCommitmentFundsTheLegsTheRouterFunds",
+      "note": "From hop 1 on the Router splits what arrived over the legs by their committed sum and never reads hop.amountIn; the exact door divided by hop.amountIn, so a route built off-chain whose later hop declared another figure was priced on legs the Router never funds (Q773, 2026-10-27). Hop 0 still caps and divides by the declared hop.amountIn (T04, open with the owner)." }
   ]
 }
