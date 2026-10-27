@@ -43,6 +43,10 @@ function bad(msg) { print "::error::Identity guard: " msg; fails++ }
   fn = substr($0, RSTART + 9, RLENGTH - 9)
 }
 fn == "recordSwap" && code ~ /if \(!_derivedByFactory\(pool, t0, t1\)\) return;/ { proved = NR }
+# Since aero-nova (2026-10-26) the proof also hands back the tier its derivation is keyed by:
+# the destructured call, then the refusal on the very next line, is the same proof.
+fn == "recordSwap" && code ~ /\(proven, idFee\) = _derivedByFactory\(pool, t0, t1\);/ { asked = NR }
+fn == "recordSwap" && asked && NR == asked + 1 && code ~ /if \(!proven\) return;/ { proved = NR }
 fn == "_derivedByFactory" {
   seenDerived = 1
   if (code ~ /discoverFor\(/) asks = 1
