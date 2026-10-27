@@ -51,6 +51,11 @@
     { "quantity": "leg funding at a later hop",
       "producer_a": "_exact", "producer_b": "_hopScaleImpactAndQuote",
       "status": "tied", "test": "test_LaterHopCommitmentFundsTheLegsTheRouterFunds",
-      "note": "From hop 1 on the Router splits what arrived over the legs by their committed sum and never reads hop.amountIn; the exact door divided by hop.amountIn, so a route built off-chain whose later hop declared another figure was priced on legs the Router never funds (Q773, 2026-10-27). Hop 0 still caps and divides by the declared hop.amountIn (T04, open with the owner)." }
+      "note": "From hop 1 on the Router splits what arrived over the legs by their committed sum and never reads hop.amountIn; the exact door divided by hop.amountIn, so a route built off-chain whose later hop declared another figure was priced on legs the Router never funds (Q773, 2026-10-27). Hop 0 still caps and divides by the declared hop.amountIn (T04, open with the owner)." },
+
+    { "quantity": "pool registry key",
+      "producer_a": "pairKey", "producer_b": "keyOf",
+      "status": "tied", "test": "test_PairKeyIsTheHubsKeyOf_BothOrders",
+      "note": "The Hub's key for its registry, and the library's copy that BlazePhoenixMath computes in its own frame instead of asking the Hub (T16, 2026-10-27): the same word with the pair named in either order, and a fuzz case over the domain." }
   ]
 }

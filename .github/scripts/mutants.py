@@ -2116,8 +2116,8 @@ M = [
       teste='test_L1144c1_BridgeStageSingleLegNeverInputCuts'),
  dict(nome='bounty #85 (b): an unvouched permissionless row is never muted',
       f='src/BlazePhoenixMath.sol',
-      old='.keyOf(p.pool, p.token0, p.token1))) != 0) mute |= 1 << i;',
-      new='.keyOf(p.pool, p.token0, p.token1))) != 0) {} // MUTANT',
+      old='.pairKey(p.pool, p.token0, p.token1))) != 0) mute |= 1 << i;',
+      new='.pairKey(p.pool, p.token0, p.token1))) != 0) {} // MUTANT',
       teste='test_ParkedHeldPairDoesNotCaptureTheBand'),
  dict(nome='bounty #85 (b): the mute mask is computed but the vote ignores it',
       f='src/BlazePhoenixMath.sol',
@@ -2141,8 +2141,8 @@ M = [
       teste='test_limit_NoVouchedMassAndAParkedHeldPairStillCaptures'),
  dict(nome='bounty #85 (b): a curated row is muted like a permissionless one',
       f='src/BlazePhoenixMath.sol',
-      old='.keyOf(p.pool, p.token0, p.token1))) != 0) mute',
-      new='.keyOf(p.pool, p.token0, p.token1))) != 255) mute',
+      old='.pairKey(p.pool, p.token0, p.token1))) != 0) mute',
+      new='.pairKey(p.pool, p.token0, p.token1))) != 255) mute',
       teste='test_ParkedHeldPairDoesNotCaptureTheBand'),
  dict(nome='R1: the in-transaction search budget raised past the per-transaction cap (the over-budget door spends the whole transaction)',
       f='src/BlazePhoenixRouter.sol',
@@ -4408,6 +4408,11 @@ M = [
       old='            if (h != 0) {\n                plannedIn = 0;\n',
       new='            if (false) { // MUTANT\n                plannedIn = 0;\n',
       teste='test_LaterHopCommitmentFundsTheLegsTheRouterFunds'),
+ dict(nome='T2 T16: pairKey stops sorting the pair (an order-sensitive key)',
+      f='src/BlazePhoenixCore.sol',
+      old='        return keccak256(abi.encodePacked(pool, s0, s1));',
+      new='        return keccak256(abi.encodePacked(pool, tA, tB)); // MUTANT',
+      teste='test_PairKeyIsTheHubsKeyOf_BothOrders'),
 ]
 
 def run(t):
