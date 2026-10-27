@@ -2885,8 +2885,15 @@ library BlazePhoenixCore {
 
     /// @notice The Gate's psi for `w` (its `vitalOf`): 0 for a pool that Gate did not create
     ///         or whose family has no live adapter. The Solver's ranking reads it for its
-    ///         kind-9 rows, which have no Hub row (psi 0 there) (P2).
+    ///         kind-9 rows, which have no Hub row (psi 0 there) (P2). psi is vitality times
+    ///         the bucket's weight, so a wrapper of vitality 0 (never swapped, or past the
+    ///         32-step horizon) is psi 0 at every depth bucket: answered here by the same
+    ///         `vitality` the Gate runs at the same timestamp, without the depth read the Gate
+    ///         pays first (its adapter's quote, the venue's balances and decimals). A slot that
+    ///         cannot be read asks the Gate.
     function gatePsi(address gate, address w) public view returns (uint256 p) {
+        (bool ok, uint256 s) = _askWord(w, abi.encodeWithSignature("vitalSlot()"));
+        if (ok && vitality(s, uint32(block.timestamp)) == 0) return 0;
         (, p) = _gateVital(gate, w);
     }
 
