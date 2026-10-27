@@ -170,6 +170,8 @@ contract BlazePhoenixQuoter {
     /// @dev The payload both quote callbacks revert with. Tagged, so a venue's own
     ///      revert data can never be read as a quote, whatever its length.
     error QuoteDeltas(int256 d0, int256 d1);
+    /// @dev The payload `dryQuoteCall` reverts with: a Gate adapter's `quoteCall` answer.
+    error GateQuoteCall(uint256 out);
 
     constructor(address hub_, address solver_) {
         if (hub_ == address(0) || solver_ == address(0)) revert QuoterE(3);
@@ -560,6 +562,33 @@ contract BlazePhoenixQuoter {
         assembly { d0 := mload(add(reason, 36)) d1 := mload(add(reason, 68)) }
     }
 
+    /// @notice A Gate wrapper's `quoteCall`, asked in a frame that always reverts; the Quoter's
+    ///         own frame, refused to any other caller. Some venues price only by running the
+    ///         swap: the Balancer V3 Vault's `quote` runs it and returns without unwinding it,
+    ///         so within one eth_call the second pricing of a leg (`_fundedOut`, after `_exact`)
+    ///         met the venue the first had moved and the exact scalar fell under delivery
+    ///         (3330, 2026-10-27). The revert unwinds whatever the venue's simulation wrote, as
+    ///         it unwinds the swaps `_simConc` and `_simV4` run; the answer travels in the revert
+    ///         data. Under GATE_QUOTE_GAS; a failure is 0.
+    function dryQuoteCall(address wrapper, bool zeroForOne, uint256 amtIn) external {
+        if (msg.sender != address(this)) revert QuoterE(6);
+        uint256 out;
+        try IGateWrapperQ(wrapper).quoteCall{gas: GATE_QUOTE_GAS}(zeroForOne, amtIn) returns (uint256 o) {
+            out = o;
+        } catch {}
+        revert GateQuoteCall(out);
+    }
+
+    /// @dev `dryQuoteCall`'s answer: 0 unless the frame reverted with its own payload (an
+    ///      out-of-gas or an undecodable answer reverts it without one).
+    function _dryQuoteCall(address wrapper, bool zeroForOne, uint256 amtIn) private returns (uint256 out) {
+        try this.dryQuoteCall(wrapper, zeroForOne, amtIn) {} catch (bytes memory r) {
+            if (r.length == 36 && bytes4(r) == GateQuoteCall.selector) {
+                assembly { out := mload(add(r, 36)) }
+            }
+        }
+    }
+
     /// @notice Exact-in dry-run on a concentrated pool (V3/Algebra family).
     ///         Returns the pool-computed output; 0 if the pool refused.
     function _simConc(address pool, bool zfo, uint256 amtIn)
@@ -897,7 +926,9 @@ contract BlazePhoenixQuoter {
             // A Gate wrapper is priced by its own adapter through the ONE producer the Solver
             // plans with (BPC.gateQuote: the Router's identity, BPC.gateWrapperLive, then the
             // view `quote` under GATE_QUOTE_GAS), then here only the eth_call `quoteCall` when
-            // the view has no answer. A failure is 0, never the plan's point. A pool that is
+            // the view has no answer, asked in a frame that reverts (`dryQuoteCall`, 3330): a
+            // venue that prices by running the swap leaves nothing behind for the next pricing.
+            // A failure is 0, never the plan's point. A pool that is
             // not an admitted Gate's wrapper for this hop and fee, or whose family has no live
             // adapter, prices 0. Each adapter answer runs under GATE_QUOTE_GAS, so one leg
             // cannot spend the whole quote's gas.
@@ -905,9 +936,7 @@ contract BlazePhoenixQuoter {
             (live, legOut, ) = BPC.gateQuote(
                 address(hub), leg.pool, tIn, tOut, leg.fee, leg.zeroForOne, legIn, false);
             if (live && legOut == 0) {
-                try IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn) returns (uint256 o) {
-                    legOut = o;
-                } catch {}
+                legOut = _dryQuoteCall(leg.pool, leg.zeroForOne, legIn);
             }
         } else {
             // SOLIDLY — priced via the ONE Core dispatcher, exactly like

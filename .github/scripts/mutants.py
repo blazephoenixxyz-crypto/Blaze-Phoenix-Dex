@@ -2999,8 +2999,8 @@ M = [
       teste="test_GateF2_Quoter_GasCapBoundsABurningAdapter"),
  dict(nome="gate-1021 [569]: the Quoter's quoteCall runs without GATE_QUOTE_GAS",
       f="src/BlazePhoenixQuoter.sol",
-      old="IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(",
-      new="IGateWrapperQ(leg.pool).quoteCall/* MUTANT [569] */(",
+      old="IGateWrapperQ(wrapper).quoteCall{gas: GATE_QUOTE_GAS}(",
+      new="IGateWrapperQ(wrapper).quoteCall/* MUTANT [569] */(",
       teste="test_GateF2_Quoter_GasCapBoundsABurningAdapter"),
  dict(nome="gate-1021 [570]: the Router derives the identity under a fixed key, not the leg's fee",
       f="src/BlazePhoenixRouter.sol",
@@ -4093,6 +4093,11 @@ M = [
       old='        uint24 f = dyn ? 0 : getV3Fee(pool); // CL: the fee lives on the pool, asked now\n',
       new='        uint24 f = cfgFee != 0 || dyn ? 0 : getV3Fee(pool); // MUTANT: the row key first\n',
       teste='test_AFeeThatRoseIsPromisedAsThePoolChargesIt'),
+ dict(nome='C-f2 3330: the Gate quoteCall is asked outside the reverting frame, so the venue keeps what its simulation wrote',
+      f='src/BlazePhoenixQuoter.sol',
+      old='                legOut = _dryQuoteCall(leg.pool, leg.zeroForOne, legIn);\n',
+      new='                legOut = IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn); // MUTANT\n',
+      teste='test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands'),
 ]
 
 def run(t):

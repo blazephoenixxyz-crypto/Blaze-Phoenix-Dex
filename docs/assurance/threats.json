@@ -440,6 +440,14 @@
       "guard": "quoteV3Fee",
       "test": "test_AFeeThatRoseIsPromisedAsThePoolChargesIt",
       "note": "DEX-17 (revisao-total K5; opencode dx/it0020), 2026-10-27. provenShape writes a CL pool's fee() into its row at registration, and quoteV3Fee returned that key first ('static key is truth'), so the Solver's leg and the preview priced the registration block's fee; the Router's floor asks the pool (cfgFee 0) and the pool charges its own. Measured on Base: Slipstream WETH/USDC sp=100 answers fee() 549 and 564 in consecutive blocks, 150..937 across 35 samples. Red at 2a384f0: registered at 150, charging 937, netOut 997050419999003087 > delivered 996265623599004655, so a userMinOut taken from the preview is refused; registered at 937, charging 150, the venue priced worse than it is (test_AFeeThatFellIsPromisedAsThePoolChargesIt). quoteV3Fee now asks fee() of a pool that is not Algebra-shaped first, one staticcall per CL quote; the key answers only for a pool whose fee() does not; Algebra keeps its order. No funds at risk: the floor was already live. Mutant C-f2 DEX-17."
+    },
+    {
+      "id": "SOK-QUOTER-GATE-QUOTECALL-STATE",
+      "class": "A Gate leg priced by quoteCall on a venue that prices by running the swap leaves the venue moved inside the eth_call, and the next pricing of the leg in the same preview meets a venue the Router will not",
+      "status": "blocked",
+      "guard": "dryQuoteCall",
+      "test": "test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands",
+      "note": "3330 (imnw313), 2026-10-27. _exact prices the plan as committed, then _fundedOut prices the route as the Router funds it; a Gate adapter with no view price is asked quoteCall both times, and the Balancer V3 Vault's quote runs the swap and returns without unwinding it. The funded pass met the venue the first pass had moved and exactOut fell under the floor it promises (PoC on a Base fork at block 52,900,000: 326 bps under delivery on a 0.01 ETH WETH->RATE route, 1,444 bps split over two legs). Red in a unit fixture (a constant-product venue whose query writes its reserves): exactOut 991241419527741341670 against a floor of 993218161492991487486, 19.9 bps under, and the venue's input reserve 1,997.2e18 above where the preview found it (both passes kept). Under-promise: the Router's floor holds and no funds move. The Quoter now asks quoteCall in a frame of its own that always reverts (dryQuoteCall), as _simConc and _simV4 unwind the swaps they run; the answer travels in the revert data, under GATE_QUOTE_GAS. The adapter is not changed, so any venue whose simulation writes is covered."
     }
   ]
 }
