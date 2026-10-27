@@ -1958,22 +1958,23 @@ fly and keeps those with deployed code. A coherence guard rejects structurally
 impossible `(kind, mode, initHash, fees)` combinations at registration. One
 init-code hash works across chains for Uniswap-V3-shaped venues.
 
-> **CORRIGIDO 2026-08-21 — esta secção estava desactualizada.**
-> A afirmação "the full CREATE2 sweep is the dominant cost of an on-chain solve"
-> e a tabela de −72% a −80% abaixo foram **refutadas por medição**:
+> **CORRECTED 2026-08-21: this section was out of date.**
+> The claim "the full CREATE2 sweep is the dominant cost of an on-chain solve"
+> and the -72% to -80% table below were **refuted by measurement**:
 >
-> | onde | descoberta / solve |
+> | where | discovery / solve |
 > |---|---|
-> | harness local (mock) | 95.663 de 208.844 |
-> | **fork da Base @49.800.000** | **75k de 2,17M = 3,4%** |
+> | local harness (mock) | 95,663 of 208,844 |
+> | **Base fork @49,800,000** | **75k of 2.17M = 3.4%** |
 >
-> O custo dominante é a **cotação** — até 8 candidatos por par (`MAX_CANDIDATES`, à
-> data; desde a poda-1027 nenhuma contagem corta o funil: cota-se cada linha do par que
-> não é pó, medida contra o resto do par em `Solver._dropDust`), 3 pares por solve, cada um com `universalQuote` (delegatecall + staticcalls à
-> pool). E o portão de frescura que saltaria a descoberta **quase nunca dispara**:
-> `MIN_FRESH_VENUES = 3` por par, mas o `recordSwap` só regista as pernas
-> **executadas** (1-2 por par desde o colapso single-leg), logo `rn < 3` sempre.
-> Ver `test/fork/DiscoveryCostBreakdown.t.sol` e `test/fork/OnchainDiscoveryCost.t.sol`.
+> The dominant cost is the **quote**: up to 8 candidates per pair (`MAX_CANDIDATES` at
+> the time; since the 2026-10-27 funnel change no count cuts the funnel: every row of the
+> pair that is not dust, measured against the rest of the pair in `Solver._dropDust`, is
+> quoted), 3 pairs per solve, each through `universalQuote` (delegatecall + staticcalls to
+> the venue). The freshness gate that would skip discovery **almost never fires**:
+> `MIN_FRESH_VENUES = 3` per pair, but `recordSwap` only records the legs that were
+> **executed** (1-2 per pair since the single-leg collapse), so `rn < 3` always.
+> See `test/fork/DiscoveryCostBreakdown.t.sol` and `test/fork/OnchainDiscoveryCost.t.sol`.
 
 
 ~~The full CREATE2 sweep is the dominant cost of an on-chain solve. The registry
