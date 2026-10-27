@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 //
-// TEST-ONLY FROZEN REFERENCE (D10, 2026-10-26). This is src/BlazePhoenixSolver.sol at commit
-// 59ecf3f, the last Solver that computed each hop's band, weights, funnel cut and seat inline,
-// before that arithmetic moved to src/BlazePhoenixMath.sol. Besides this note, three things differ
-// from that file: the contract name, the import path, and the held-share call, which goes to
-// `CoreHeldShareRef` below instead of `BPC` (G alpha3, 2026-10-27: `Core.v4HeldShare` became
-// internal; the wrapper keeps it behind a DELEGATECALL, as in 59ecf3f, so this reference stays
-// under EIP-170 and runs the same code). It is never deployed; it exists so that
-// test/MathBoundarySameAnswer.t.sol can hold the new Solver to the old answer, to the wei.
+// TEST-ONLY FROZEN REFERENCE (D10, 2026-10-26; rebased on poda-1027 at the 2026-10-27
+// integration). This is src/BlazePhoenixSolver.sol at commit 8938b6a (branch poda-1027: 59ecf3f
+// plus the funnel's dust rule, Solver._dropDust), the last Solver that computed each hop's band,
+// weights, funnel cut and seat inline, before that arithmetic moved to src/BlazePhoenixMath.sol.
+// Until the integration the reference was the Solver of 59ecf3f; poda changes which rows reach
+// the funnel, so the old reference answered for a rule the tree no longer has. Besides this note,
+// three things differ from that file: the contract name, the import path, and the held-share
+// call, which goes to `CoreHeldShareRef` below instead of `BPC` (G alpha3, 2026-10-27:
+// `Core.v4HeldShare` became internal; the wrapper keeps it behind a DELEGATECALL, as in 59ecf3f,
+// so this reference stays under EIP-170 and runs the same code). It is never deployed; it exists
+// so that test/MathBoundarySameAnswer.t.sol can hold the new Solver to the old answer, to the wei.
 //
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
@@ -109,7 +112,7 @@ interface IHubR {
 //      Neither of the first two had been calibrated against any measurement.
 uint32 constant MIN_SPLIT_IMPROVEMENT_PPM = 25;
 
-contract SolverRef59ecf3f {
+contract SolverRefPoda1027 {
 
     string  public constant VERSION                = "2.0.0";
 
@@ -139,15 +142,6 @@ contract SolverRef59ecf3f {
     ///         respect it: it used the global ceiling).
     uint8   internal constant MAX_LEGS_PER_STAGE   = 4;
 
-    /// @notice Candidates PROBED from the Hub per pair. Deliberately wider
-    ///         than the leg budget (MAX_LEGS): the probe funnel sees more
-    ///         venues than it will use, and the weight-ranked cut down to the
-    ///         leg budget happens AFTER the marginal-rate probe and capital
-    ///         anchor — so a deep pool listed behind several thin equal-psi
-    ///         venues (e.g. a Solidly stable pool sitting behind four V3 fee
-    ///         tiers in discovery order) is seen, weighted, and can displace
-    ///         them instead of being starved out by list order.
-    uint8   internal constant MAX_CANDIDATES       = 8;
 
     /// @notice Skip the full CREATE2 discovery sweep when the pair already has at
     ///         least this many registered venues active within DISCOVERY_TTL_SECONDS.
@@ -456,12 +450,12 @@ contract SolverRef59ecf3f {
     function _planDirect(Melhores memory m, address tIn, address tOut, uint256 amountIn)
         private view
     {
-        PoolInfo[] memory cands = _candsOf(m, tIn, tOut);
+        (PoolInfo[] memory cands, uint256 dec) = _candsOf(m, tIn, tOut);
         if (cands.length == 0) return;
         // PER-HOP CEILING, not the global one: a direct route is ONE hop, and
         // the 4-legs-per-hop limit applies to it like to any other. It used to
         // use MAX_LEGS and could spend the entire budget on a single hop.
-        (Hop memory hop, uint256 up, bool held) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, m.walk | CUT);
+        (Hop memory hop, uint256 up, bool held) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, m.walk | CUT | dec << 8);
         if (hop.expectedOut == 0) return;
         // One assembly for every route, one hop or three: one producer of the impact and the floor.
         Hop[] memory hops = new Hop[](1);
@@ -518,14 +512,14 @@ contract SolverRef59ecf3f {
             if (used >= room) return;
             uint256 budget = room - used;
             if (budget > MAX_LEGS_PER_STAGE) budget = MAX_LEGS_PER_STAGE;
-            PoolInfo[] memory cands = _candsOf(m, path[i], path[i + 1]);
+            (PoolInfo[] memory cands, uint256 dec) = _candsOf(m, path[i], path[i + 1]);
             if (cands.length == 0) return;
             // Pass 0 builds the stage on the promise. Pass 1 runs only when the stage before
             // ranked above its promise: it quotes this stage again on that rank, for the
             // judgement alone. The stage's rank is the larger of the two lower bounds.
             uint256 rk;
             for (uint256 k; ; ) {
-                (Hop memory h, uint256 up, bool hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), i == 0 ? m.walk | CUT : m.walk);
+                (Hop memory h, uint256 up, bool hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), (i == 0 ? m.walk | CUT : m.walk) | dec << 8);
                 if (hh) held = true;
                 if (k == 0) {
                     if (h.expectedOut == 0 || h.legs.length == 0) return;
@@ -563,9 +557,9 @@ contract SolverRef59ecf3f {
         // No blind pre-trim: every candidate is probed (rate + depth + real
         // holdings), and the cut to `budget` happens after weighting — see the
         // FUNNEL CUT below. Discovery order can no longer starve a deep venue.
-        // A lone candidate is quoted once, before the hoisted read below: 0, 0 lets that quote
-        // read the decimals itself.
-        if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, 0, 0); return (hop, up, f != 0); }
+        // A lone candidate is quoted once, with the decimals the funnel read (0, 0 when it read
+        // none, a pair of one row: that quote then reads them itself).
+        if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, uint8(mode >> 16), uint8(mode >> 8)); return (hop, up, f != 0); }
 
         // =========================================================================
         //  STAGE 1 — MARGINAL-RATE MEDIAN FILTER  (single probe pass)
@@ -618,13 +612,15 @@ contract SolverRef59ecf3f {
         // DECIMALS HOISTING. Every candidate in this loop is a pool of the
         // SAME pair, so they hold the SAME two tokens — only orientation changes.
         // Reading `decimals()` in there cost 2,339 gas PER CANDIDATE (measured;
-        // EIP-2929 does not make it free because USDC is a proxy). Here it is
-        // once per pair, for every quote of the hop: the probes, the split's
-        // legs and the gate's full-size singles (test/DecimalsReadOncePerHop.t.sol).
-        // Encoded +1 (see QuoteCtx.decIn1): 0 would mean "not filled" and there
-        // are tokens with genuinely 0 decimals.
-        uint8 dIn1_ = BPC.decimalsOf(tIn) + 1;
-        uint8 dOt1_ = BPC.decimalsOf(tOut) + 1;
+        // EIP-2929 does not make it free because USDC is a proxy). It is read
+        // once per pair per solve, by the funnel that weighs the pair's dust
+        // (`_topKPools`), and rides in bits 8-23 of `mode` to every quote of
+        // every build of the hop: the probes, the split's legs and the gate's
+        // full-size singles (test/DecimalsReadOncePerHop.t.sol). Encoded +1 (see
+        // QuoteCtx.decIn1): 0 would mean "not filled" and there are tokens with
+        // genuinely 0 decimals; a list of two rows or more always carries them.
+        uint8 dIn1_ = uint8(mode >> 16);
+        uint8 dOt1_ = uint8(mode >> 8);
         // CAPITAL ANCHOR. Truth votes with capital, not with existence: dust
         // pools with stale prices can form a fake majority and vote the
         // honest deep pool out of a plain median (for example: two dead
@@ -710,7 +706,7 @@ contract SolverRef59ecf3f {
         uint256 kept;
         {
             // Median of the non-zero rates. We sort a COPY of `rates` (insertion
-            // sort — n ≤ 8 so cost is negligible) so the per-index association in
+            // sort over the funnel's non-dust rows) so the per-index association in
             // `rates`/`depths` survives for the band filter below. Zero entries
             // (dead pools) bubble to the bottom of the copy and are skipped.
             uint256[] memory sortedRates = new uint256[](n);
@@ -836,7 +832,7 @@ contract SolverRef59ecf3f {
         // which the T2 doctrine forbids because a donation inflates it at no cost to the donor.
         (uint256[] memory psis, uint256 sumPsi) = _weights(cands, depths, balsOut, n);
 
-        // ─── FUNNEL CUT (see MAX_CANDIDATES) ───
+        // ─── FUNNEL CUT (the funnel is every non-dust row, see _dropDust) ───
         // The funnel probed more venues than the leg budget allows; commit to
         // the top-`budget` survivors by WEIGHT (not discovery order), so a deep
         // late-listed pool displaces thin early-listed ones. Extracted to keep
@@ -1039,31 +1035,32 @@ contract SolverRef59ecf3f {
         });
     }
 
-    /// @dev THE FUNNEL RANKS ON WHAT A POOL HOLDS NOW (Seavia Resources, bug bounty). A row's
-    ///      depth bucket is measured at a registry door inside a transaction its caller
-    ///      controls and persisted, so the cache records an instant. When the funnel has to cut,
-    ///      each row's bucket is capped by what the registry's one depth producer
-    ///      (`Core.registryDepth18`) reads now: psi is vitality times 2^bucket, so lowering the
-    ///      bucket from `b` to `lb` divides the rank by 2^(b - lb). A seat in the funnel costs
-    ///      mass kept in the pool, which is mass a trade can take. Read here rather than in the
-    ///      Hub: the ranking is the Solver's, and `PoolInfo` already names every V4 key field.
-    ///
-    ///      IT ALSO NAMES THE DEEPEST ROW (bounty #82, Ronksok Gaming; root in mohaseenbasha
-    ///      dex-12). The cap above only LOWERS a score; it cannot stop a score that is honest
-    ///      about depth and cheap about activity. psi multiplies the swap count, which costs one
-    ///      dust swap per unit, by 2^bucket, where a whole DECADE of mass buys one doubling: eight
-    ///      pools holding 1/100 of the honest venue's mass out-rank it after a handful of dust
-    ///      swaps each, take all eight seats, and the honest venue is cut before it is quoted.
-    ///      No cap on the count closes that (at cap c >= 2 a pool one decade shallower still
-    ///      wins), so the funnel instead guarantees one seat to the row holding the most mass
-    ///      NOW, measured by the same producer, and `_seatDeepest` gives it that seat. Every row
-    ///      is measured here, not only the bucketed ones: a discovered row has no slot, and it
-    ///      is exactly the one the score cannot see.
-    function _capByLiveDepth(PoolInfo[] memory rows, uint256[] memory ps, uint256 n)
-        private view returns (PoolInfo memory deepest)
+    /// @dev DUST IS MEASURED AGAINST THE PAIR, NOT COUNTED OUT (3317). The funnel kept the eight
+    ///      rows psi ranked best, and a count is what dust buys: eight live pools of liquidity 1
+    ///      filled the Hub's V4 cap, and psi multiplies a swap count anyone can pump by 2^bucket,
+    ///      so eight pools holding 1/100 of the honest venue's mass out-ranked it and cut it before
+    ///      it was quoted (bounty #82, Ronksok Gaming; root in mohaseenbasha dex-12). Each row is
+    ///      measured now by the registry's one depth producer (`Core.registryDepth18`), not by
+    ///      the bucket a registry door cached (Seavia Resources), and row j is dropped iff
+    ///          d_j * 1e6 < MIN_SPLIT_IMPROVEMENT_PPM * (D - d_j),   D = the sum over the rows.
+    ///      For pools at one price and fee, the most a leg on j adds to what the others pay,
+    ///      relative to it, is d_j / (D - d_j) at every size, so a dropped row cannot lift an
+    ///      order by the improvement a split must show to be kept: no threshold of its own and no
+    ///      price, only shares of the pair's own measured depth (at two prices inside the band a
+    ///      dust row priced better can win an order small enough for it; dropping it costs at most
+    ///      the price gap: MR-R1d, test/RouteMetamorphicRelations.t.sol). A row alone on its pair or
+    ///      holding all of it (a new pool of a rare token) is never dust (D - d_j = 0), nor is
+    ///      the deepest (d_max >= D / n). A Gate wrapper measures 0 because its mass is not read
+    ///      here, and absent is not zero: it stays. Survivors keep their order and their psi.
+    ///      The reads are the ones `_buildHop`'s probe makes next, so they are warm there, and the
+    ///      decimals are the pair's, read once (`dec`, +1 encoded: tA's above tB's). No product
+    ///      overflows: a depth is at most 2^128 * 1e18.
+    function _dropDust(PoolInfo[] memory rows, uint256[] memory ps, uint256 n, address tA, uint256 dec)
+        private view returns (uint256 kept)
     {
         address mgr;
-        uint256 most;
+        uint256[] memory d = new uint256[](n);
+        uint256 sum;
         for (uint256 i; i < n; ) {
             PoolInfo memory p = rows[i];
             bytes32 pid;
@@ -1072,35 +1069,20 @@ contract SolverRef59ecf3f {
                 (address c0, address c1) = BPC.v4LegCurrencies(p.kind, p.token0, p.token1, true);
                 pid = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
             }
-            uint256 d = BPC.registryDepth18(p.pool, p.kind, p.token0, p.token1, mgr, pid);
-            // Strict: an equal mass does not displace the earlier row, so the choice is a
-            // function of the measured set and the merge order only.
-            if (d > most) { most = d; deepest = p; }
-            uint8 b = BPC.decodeBucket(hub.getSlot(hub.keyOf(p.pool, p.token0, p.token1)));
-            if (b != 0) {
-                uint8 lb = BPC.depthBucket(d);
-                if (lb < b) ps[i] >>= (b - lb);
+            d[i] = BPC.registryDepth18Dec(p.pool, p.kind,
+                p.token0, uint8(p.token0 == tA ? dec >> 8 : dec) - 1,
+                p.token1, uint8(p.token1 == tA ? dec >> 8 : dec) - 1, mgr, pid);
+            sum += d[i];
+            unchecked { ++i; }
+        }
+        for (uint256 i; i < n; ) {
+            if (rows[i].kind == BPC.KIND_EXTERNAL || d[i] * 1e6 >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - d[i])) {
+                rows[kept] = rows[i];
+                ps[kept] = ps[i];
+                unchecked { ++kept; }
             }
             unchecked { ++i; }
         }
-    }
-
-    /// @dev THE DEEPEST MEASURED ROW IS ALWAYS QUOTED (bounty #82). If the score order left it
-    ///      outside the funnel, it takes the LAST seat — the row the score ranked weakest of
-    ///      those kept — and nothing else moves. If it is already seated, or the funnel did not
-    ///      cut (`deep.pool == 0`), the funnel is exactly what the score chose. A seat is a
-    ///      chance to be QUOTED, not a share: `_buildHop` still prices every seated row, so an
-    ///      honest venue seated here wins the order only by paying more. To take this seat an
-    ///      attacker must hold more mass than the deepest venue, in a pool whose price a trade
-    ///      (or an arbitrageur) can then take.
-    function _seatDeepest(PoolInfo[] memory out, PoolInfo memory deep) private pure {
-        uint256 k = out.length;
-        if (k == 0 || deep.pool == address(0)) return;
-        for (uint256 i; i < k; ) {
-            if (out[i].pool == deep.pool) return;
-            unchecked { ++i; }
-        }
-        out[k - 1] = deep;
     }
 
     /// @dev WHO TAKES WHAT THE SHARES LEAVE OVER, decided before anything is allocated.
@@ -1381,7 +1363,8 @@ contract SolverRef59ecf3f {
     }
 
     /// @dev The band around `base` (+-MEDIAN_FILTER_BPS): bit i set = candidate i's rate is live
-    ///      and inside it (n <= MAX_CANDIDATES = 8). One producer for the filter in `_buildHop`
+    ///      and inside it (n < 256: the funnel is bounded by the pair's table, sixteen registry
+    ///      slots, the wired rows' cells and four wrappers). One producer for the filter in `_buildHop`
     ///      and for the S2 check above.
     function _inBand(uint256[] memory rates, uint256 n, uint256 base) private pure returns (uint256 set) {
         uint256 hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
@@ -1410,7 +1393,7 @@ contract SolverRef59ecf3f {
             unchecked { ++i; }
         }
         if (m == 0 || massa == 0) return 0;
-        // Insertion sort of the PAIRS by rate — n <= 8, negligible cost. Sorting the pairs is what
+        // Insertion sort of the PAIRS by rate, over the band. Sorting the pairs is what
         // sets this apart from sorting rates alone: mass has to travel with its rate.
         for (uint256 i = 1; i < m; ) {
             uint256 kr = r[i];
@@ -1610,7 +1593,7 @@ contract SolverRef59ecf3f {
     }
 
     // =========================================================================
-    //  CANDIDATE SELECTION  (lazy discovery + top-K by fitness)
+    //  CANDIDATE SELECTION  (lazy discovery, dust dropped by depth, ordered by fitness)
     // =========================================================================
 
     /// @dev ONE LIST PER ORDERED PAIR PER SOLVE. `_topKPools` is a function of the state and the
@@ -1623,18 +1606,18 @@ contract SolverRef59ecf3f {
     ///      array it is handed, in place, and the next topology must start from the list as
     ///      built. The rows are shared: nothing downstream writes a PoolInfo field (only
     ///      `_topKPools` does, on its own rows, before it returns).
-    ///      `m.lists` heads a chain of [next, tA, tB, list] in memory; 0 is none.
-    function _candsOf(Melhores memory m, address tA, address tB) private view returns (PoolInfo[] memory c) {
+    ///      `m.lists` heads a chain of [next, tA, tB, list, decimals] in memory; 0 is none.
+    function _candsOf(Melhores memory m, address tA, address tB) private view returns (PoolInfo[] memory c, uint256 dec) {
         uint256 a = uint160(tA);
         uint256 b = uint160(tB);
         uint256 e = m.lists;
         assembly ("memory-safe") {
             for {} e { e := mload(e) } {
-                if and(eq(mload(add(e, 0x20)), a), eq(mload(add(e, 0x40)), b)) { c := mload(add(e, 0x60)) break }
+                if and(eq(mload(add(e, 0x20)), a), eq(mload(add(e, 0x40)), b)) { c := mload(add(e, 0x60)) dec := mload(add(e, 0x80)) break }
             }
         }
         if (e == 0) {
-            c = _topKPools(tA, tB, MAX_CANDIDATES);
+            (c, dec) = _topKPools(tA, tB);
             e = m.lists;
             assembly ("memory-safe") {
                 let n := mload(0x40)
@@ -1642,7 +1625,8 @@ contract SolverRef59ecf3f {
                 mstore(add(n, 0x20), a)
                 mstore(add(n, 0x40), b)
                 mstore(add(n, 0x60), c)
-                mstore(0x40, add(n, 0x80))
+                mstore(add(n, 0x80), dec)
+                mstore(0x40, add(n, 0xa0))
                 e := n
             }
             m.lists = e;
@@ -1656,8 +1640,8 @@ contract SolverRef59ecf3f {
         }
     }
 
-    function _topKPools(address tA, address tB, uint8 keep)
-        private view returns (PoolInfo[] memory out)
+    function _topKPools(address tA, address tB)
+        private view returns (PoolInfo[] memory out, uint256 dec)
     {
         // Combine registered pools with discovered ones — never let one suppress
         // the other. Previously "if empty then discover" meant that once any pool
@@ -1718,16 +1702,15 @@ contract SolverRef59ecf3f {
             if (!dup && !BPC.hookAltersDeltas(dis[i].hooks)) { merged[n] = dis[i]; unchecked { ++n; } }
             unchecked { ++i; }
         }
-        if (n == 0) return new PoolInfo[](0);
+        if (n == 0) return (out, 0);
 
         PoolInfo[] memory active = new PoolInfo[](n);
         for (uint256 i; i < n; ) { active[i] = merged[i]; unchecked { ++i; } }
 
-        // Compute fitness for each and select top-K with selection sort.
+        // Compute fitness for each and order the survivors with selection sort.
         // ONE batched external call for the whole candidate set (previously
         // keyOf + getPsi per candidate = 2n calls): pure view-path saving.
         uint256[] memory ps;
-        PoolInfo memory deep;   // set only when the funnel cuts; see _seatDeepest
         {
             address[] memory pls = new address[](n);
             address[] memory t0s = new address[](n);
@@ -1739,9 +1722,11 @@ contract SolverRef59ecf3f {
                 unchecked { ++i; }
             }
             ps = hub.psisOf(pls, t0s, t1s);
-            // More rows than the funnel keeps: the ranking decides who is cut, so every
-            // cached depth is capped by what the pool holds now.
-            if (n > keep) deep = _capByLiveDepth(active, ps, n);
+            // No count cuts the funnel: dust is weighed against the pair's depth.
+            if (n > 1) {
+                dec = (uint256(BPC.decimalsOf(tA)) + 1) << 8 | (uint256(BPC.decimalsOf(tB)) + 1);
+                n = _dropDust(active, ps, n, tA, dec);
+            }
         }
         for (uint256 i; i < n; ) {
             // A wrapper has no Hub row (psi 0 there): the Gate's vitalOf scores it (P2).
@@ -1749,22 +1734,21 @@ contract SolverRef59ecf3f {
             if (ps[i] == 0) ps[i] = 1;
             unchecked { ++i; }
         }
-        uint256 k = n < keep ? n : keep;
-        out = new PoolInfo[](k);
-        for (uint256 ki; ki < k; ) {
+        out = new PoolInfo[](n);
+        for (uint256 ki; ki < n; ) {
             uint256 bestI = ki;
             for (uint256 j = ki + 1; j < n; ) {
-                // TIE-BREAK BY FEE, ASCENDING — measured, not cosmetic. In a
-                // COLD registry psi is 0 for every candidate (floored to 1
-                // above), the sort degenerates to DISCOVERY ORDER, and the
-                // top-K guillotine falls before anything is QUOTED: on OP the
-                // Velo CL spacing-100 pool (fee ~5 bps, the best single leg by
-                // output) sat past position 8 and the funnel never saw it —
-                // 20 bps on the table at 1k, 16 bps on Base at 100k (matrix,
-                // 2026-08-24). At equal fitness, admitting the CHEAPER venue
-                // to the quote round is strictly better than address order;
-                // the quotes in _buildHop still make every real decision. A
-                // warm registry is untouched: real psi differs and the
+                // TIE-BREAK BY FEE, ASCENDING. In a COLD registry psi is 0 for
+                // every candidate (floored to 1 above) and the sort degenerates
+                // to DISCOVERY ORDER. Until 2026-10-27 a top-K guillotine fell
+                // here, before anything was QUOTED: on OP the Velo CL
+                // spacing-100 pool (fee ~5 bps, the best single leg by output)
+                // sat past position 8 and the funnel never saw it — 20 bps on
+                // the table at 1k, 16 bps on Base at 100k (matrix, 2026-08-24).
+                // No count cuts the funnel now, so the order only fixes which
+                // venue is probed first and settles exact ties; the quotes in
+                // _buildHop make every real decision. A warm registry is
+                // untouched: real psi differs and the
                 // tie-break never fires. (CL/Algebra rows carry the fee=0
                 // sentinel, which sorts them first at cold start — harmless:
                 // discovery only emits pools that EXIST, and the quote round
@@ -1780,7 +1764,6 @@ contract SolverRef59ecf3f {
             out[ki] = active[ki];
             unchecked { ++ki; }
         }
-        _seatDeepest(out, deep);
     }
 
     /// @notice True when the pair's registered set is rich and recent enough to

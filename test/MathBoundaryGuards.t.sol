@@ -12,8 +12,8 @@ pragma solidity 0.8.36;
 // G3  THE ANSWER HAS EXACTLY THE CANONICAL LENGTH. The ABI decoder accepts a longer returndata,
 //     so the hop compares the length with the encoding of what it decoded (SolverE(7)).
 //
-// The meta-guard - the whole answer compared, to the wei, with the Solver of 59ecf3f - is
-// test/MathBoundarySameAnswer.t.sol.
+// The meta-guard - the whole answer compared, to the wei, with the inline Solver of 8938b6a
+// (59ecf3f plus poda) - is test/MathBoundarySameAnswer.t.sol.
 
 import {Test} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";

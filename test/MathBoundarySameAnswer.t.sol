@@ -10,8 +10,8 @@ pragma solidity 0.8.36;
 // the wrong order, an early exit taken at another point, or a boundary that costs a walk its
 // budget would each change an answer without any other test having a reason to look.
 //
-// So the answer is compared whole. `SolverRef59ecf3f` is the Solver of 59ecf3f, literally (the
-// code before the move); both Solvers read the same Hub and the same state, and each call must
+// So the answer is compared whole. `SolverRefPoda1027` is the Solver of 8938b6a (59ecf3f plus
+// poda's dust rule), literally (the code before the move); both Solvers read the same Hub and the same state, and each call must
 // come back with the same success and the same returndata bytes. The fixed rows are the shapes
 // the moved code decides on (an outlier against the band, a funnel cut over more candidates
 // than legs, concentrated books voting with what they hold, bridge stages whose second pass
@@ -28,7 +28,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
-import {SolverRef59ecf3f} from "./ref/SolverRef59ecf3f.sol";
+import {SolverRefPoda1027} from "./ref/SolverRefPoda1027.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV4TickManager} from "./mocks/MockV4TickManager.sol";
@@ -38,7 +38,7 @@ import {HeavyBookPool, BurnBookPool} from "./CapacityWalkBudget.t.sol";
 contract MathBoundarySameAnswerTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
-    SolverRef59ecf3f ref;
+    SolverRefPoda1027 ref;
     MockV4TickManager mgr;
     address tA;
     address tB;
@@ -55,7 +55,7 @@ contract MathBoundarySameAnswerTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
         solver = new BlazePhoenixSolver(address(hub), address(0));
-        ref = new SolverRef59ecf3f(address(hub), address(0));
+        ref = new SolverRefPoda1027(address(hub), address(0));
         hub.setRoles(address(this), address(solver), address(this));
         address a = _token();
         address b = _token();
@@ -164,7 +164,7 @@ contract MathBoundarySameAnswerTest is Test {
         (bool okR, bytes memory rR) = address(ref).staticcall{gas: g}(q);
         gasRef = g0 - gasleft();
         assertEq(okN, okR, "D10: one Solver answered and the other refused");
-        assertEq(rN, rR, "D10: the Solver with the library and the Solver of 59ecf3f disagree");
+        assertEq(rN, rR, "D10: the Solver with the library and the inline Solver of 8938b6a disagree");
         ok = okN;
         for (uint256 i; i < recs.length; ++i) {
             if (recs[i].kind != VmSafe.AccountAccessKind.DelegateCall) continue;
@@ -183,7 +183,7 @@ contract MathBoundarySameAnswerTest is Test {
         emit log_named_uint("  amountIn", amt);
         emit log_named_uint("  select calls", selects);
         emit log_named_uint("  gas new, cold", gN);
-        emit log_named_uint("  gas 59ecf3f, cold", gR);
+        emit log_named_uint("  gas 8938b6a, cold", gR);
         emit log_named_int("  boundary overhead", int256(gN) - int256(gR));
         (ok, , gN, ) = _same(a, b, amt, SOLVE_GAS);
         emit log_named_string("  at SOLVE_GAS", ok ? "both answered, same bytes" : "both refused, same bytes");
