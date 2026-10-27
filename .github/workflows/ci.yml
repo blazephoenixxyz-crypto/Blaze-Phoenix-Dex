@@ -401,11 +401,14 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Fork tests
-        # dRPC (no rate limit, all 5 chains) forks directly - no Anvil, no
-        # throttling. The DRPC_KEY secret feeds foundry.toml's [rpc_endpoints]
-        # via ${DRPC_KEY}; never hard-coded.
+        # Alchemy forks every chain except Base (public endpoint). The runner
+        # rewrites foundry.toml's dRPC endpoints to Alchemy before the run; the
+        # rewrite is never committed and the ALCHEMY_KEY secret is never
+        # hard-coded. DRPC_KEY only arms the skip guards in the fork suites.
+        # -j 2: Alchemy answers bursts with HTTP 429.
         env:
-          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
+          DRPC_KEY: ${{ secrets.ALCHEMY_KEY != '' && 'alchemy-via-toml' || '' }}
         # Retried, because the observed failures are third-party RPC timeouts
         # ("operation timed out" from lb.drpc.live), not verdicts about our code
         # — the same commit passed and failed on consecutive runs. Retrying
@@ -414,9 +417,16 @@ jobs:
         # this cuts the false-red rate without weakening the signal at all.
         run: |
           set -o pipefail
+          sed -i -E 's#https://lb\.drpc\.live/ethereum/\$\{DRPC_KEY\}#https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}#;
+                     s#https://lb\.drpc\.live/optimism/\$\{DRPC_KEY\}#https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}#;
+                     s#https://lb\.drpc\.live/arbitrum/\$\{DRPC_KEY\}#https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}#;
+                     s#https://lb\.drpc\.live/robinhood/\$\{DRPC_KEY\}#https://robinhood-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}#' foundry.toml
+          if grep -qE 'lb\.drpc\.live/(ethereum|optimism|arbitrum|robinhood)/' foundry.toml; then
+            echo "::error::foundry.toml endpoint rewrite to Alchemy did not apply"; exit 1
+          fi
           SPEC="RpcProbeTest|NestedHookSettlementFork|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|DeployedCodehashPinTest|DeployedParityTest|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1"
           for attempt in 1 2 3; do
-            if forge test -vvv --match-path "test/fork/**" --match-contract "$SPEC" 2>&1 | tee fork.log; then
+            if forge test -j 2 -vvv --match-path "test/fork/**" --match-contract "$SPEC" 2>&1 | tee fork.log; then
               # Exit code 0 is NOT a verdict here: every fork setUp `vm.skip`s
               # when DRPC_KEY is empty, so a missing or rotated secret would
               # turn this lane green with ZERO tests run. Only a positive
@@ -427,7 +437,7 @@ jobs:
               echo "::error::fork lane finished with ${PASSED:-0} tests passed — the secret is missing or every suite skipped; this is not green"
               exit 1
             fi
-            echo "::warning::fork attempt $attempt failed — retrying in 20s (dRPC timeouts are the usual cause)"
+            echo "::warning::fork attempt $attempt failed — retrying in 20s (RPC timeouts and 429s are the usual cause)"
             sleep 20
           done
           echo "::error::fork tests failed three consecutive attempts — treat this as real, not as a flake"
