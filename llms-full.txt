@@ -172,12 +172,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 6 | `src/*.sol` |
-| Test declarations | 2,364 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 347 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 32 | `test/fork/*.t.sol` |
+| Test declarations | 2,324 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 348 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 31 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 761 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 740 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 62 | `SECURITY_HALL_OF_FAME.md` |
@@ -742,12 +742,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 6 | `src/*.sol` |
-| Test declarations | 2,364 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 347 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 32 | `test/fork/*.t.sol` |
+| Test declarations | 2,324 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 348 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 31 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 761 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 740 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 62 | `SECURITY_HALL_OF_FAME.md` |
@@ -906,6 +906,8 @@ stays archived at [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526
 
 **License.** [Business Source License 1.1](LICENSE). Copyright © 2026 Mitra. Effective 1 July 2026;
 **Change Date 1 June 2030**. Use outside the license grant before the Change Date is infringement.
+Use of this repository to train AI models, or to generate derived code by automated means, is not
+authorized; see [NOTICE](NOTICE).
 Authorship is cryptographically provable via an embedded keccak256 fingerprint without disclosing
 the authors' identity.
 
@@ -2197,6 +2199,7 @@ hop count.
 | `provenShape` (a non-V4 row's family and fee) | "What family is this pool, and what fee does its row carry?" | `Core.provenShape` (definition); called by both doors that write a non-V4 row - `Hub.recordSwap`, which skips a contradicted declaration, and `Hub.seedPool`, which refuses it | `PINNED` (both doors since 2026-09-23) | `test/SeedDoorMeasuresWhatItWrites.t.sol` - the operator's door refuses a kind the shape contradicts and writes the fee the pool reports; the swap door's pins (KindIsDerivedNotDeclared, RegistryFeeFromCalldata) now run through the same function |
 | `solidlyAskOut` (what a Solidly pair is asked to pay) | "How much does a Solidly leg deliver, and so how much may it promise?" | `Core.solidlyAskOut` (definition), on the pair's own figure from `Core.solidlyGetAmountOut`, which asks `getAmountOutWithTotalFee` first and `getAmountOut` only when that ask fails; `Router._execPairAmt` asks the pair for it; `Core.universalQuote` promises it to the Solver's plans and the Quoter's exact preview. The Router's in-frame quote keeps the pair's own figure on purpose: it is a floor basis, not a promise | `PINNED` (fixed 2026-09-23) | `test/SolidlyQuoteIsTheExecutorsAsk.t.sol` - a one-leg preview selling into a bridge coin published a netOut one wei above the delivery, and the Router refused it as userMinOut (dex-13, ninth wave); `test/SolidlyAskAsksTheTotalFeeFirst.t.sol` - a pair with only the total-fee selector was asked nothing and quoted on the replicated curve, and a pair with both was asked the plain figure (m13-1021) |
 | `single` (the min-split gate's reference) | "What would this order get from the best single pool?" | `Solver._buildHop` alone: every survivor of the band and the funnel is quoted at full size by `_singleLeg` | `PINNED` (fixed 2026-09-23) | `test/SplitGateSeesEverySurvivor.t.sol`, against the V2 closed form. The gate measured two representatives - the deepest survivor and the best marginal rate - and kept a split 1.48% below a third pool alone (Brian Wahyu, ninth wave) |
+| `decIn1` / `decOther1` (a hop's two token decimals, +1 encoded in `QuoteCtx`) | "How many decimals do this hop's tokens have?" | read once per hop build by `Solver._buildHop` (`_decimalsOf` on each token, after the lone-candidate exit) and handed to every quote of the hop: the probes (`_quoteWithDepth`), the split's legs (`_quote`), the gate's full-size singles and a band of one (`_singleLeg`). `Core._decIn` / `_decOther` read a token themselves only where the field is 0, which is now the lone candidate's one quote. They feed only `depthWad`, which `_quote` drops | `PINNED` (2026-10-26) | `test/DecimalsReadOncePerHop.t.sol` - a split and a band of one each read `decimals()` of each token once per hop build (red before: 7 and 2 reads per token); a Base mainnet fork run on nineteen reference pairs returned the same plan, bit for bit, before and after |
 
 ### Identity and keys
 
@@ -2240,6 +2243,7 @@ hop count.
 | `wrappersOf` (the Gate's per-pair list; `MAX_WRAPPERS_PER_PAIR` = Core's `GATE_MAX_WRAPPERS` = 4) | "Which wrappers may the automatic door seat for this pair?" | `Gate.create` is the one writer (curator only, creation order, GateE(16) past the cap). Grow-only, like the wrappers themselves: nothing removes an entry, so a wrapper whose family is cleared keeps its slot for life and four creations fill the pair for ever (a cleared entry costs only its `gateWrapperLive`). Read only by `Core.gatedOf` through `Core.discoverWithGate`, the Solver's merge: each entry filtered by `gateWrapperLive`, then ALWAYS merged, the Hub sweep's own kind-9 rows dropped. The length is one constant shared by the Gate's storage and Core's reader. Gated rows never vote freshness: `_registryFresh` counts curated Hub rows only, and the Hub never holds a kind-9 row (`seedPool` refuses it, `recordSwap` skips it). The cap of 4 is gas: each entry costs every solve of the pair one `gateWrapperLive`, one `gatePsi` (a `vitalOf` read whose adapter call runs under `GATE_QUOTE_GAS`, 500k) and, for each quote the search takes of it, one adapter read under the same 500k; measured on `swapBestExactIn` (release profile, mock adapter, 2026-10-22): 383 205 gas with no Gate, 397 602 with the Gate and an empty list, 507 995 with one listed wrapper that loses (+110 393 for the entry), 659 018 when it wins. Four honest entries add about 0.44M to a solve; four adversarial ones are bounded only by the 500k per read, which is why the list is short against the Router's `SOLVE_GAS` (12M), whose exhaustion fails closed (RouterE(17)) | `PINNED` (2026-10-22) | `test/BlazePhoenixGate.t.sol`: `test_GatedAuto_WrapperListIsCappedAtFour`, `test_GatedAuto_WrappersDoNotVoteFreshness` (two fresh curated rows and a listed wrapper still sweep; a third fresh curated row does not), `test_GateF2_Solver_NeverPlansAWrapperWithoutItsGate`, `test_GatedAuto_ClearedFamilyLeavesTheBestDoorToThePair`; mutants [683] [685]-[689] |
 | `gatePsi` (a wrapper's score in the Solver's funnel) | "How does the funnel rank a kind-9 row?" | `Gate.vitalOf`'s psi, read by `Core.gatePsi` (one call per kind-9 row) in the Solver's ranking loop in place of the Hub's psi, which is 0 for a pool with no Hub row; curated rows keep the Hub's psi | `PINNED` (2026-10-22) | `test/BlazePhoenixGate.t.sol`: `test_GatedAuto_FunnelRanksTheWrapperByVitalOf` (eight curated pairs fill the funnel; the unused wrapper is cut, after material swaps it is seated; `BPC.gatePsi` equals `vitalOf`'s psi); mutant [690]. Its cost is flat in psi (F1, 2026-10-22): `test_GateVital_FreePointerIntactAtAnyPsi` (psi 0, 1, 2^22, 2^255), `test_GatedAuto_GateQuoteIsFlatInPsi`, `test_GatedAuto_HotWrapperSettlesUnderTheSolveBudget` (the best door at psi >= 2^22, under a quarter of SOLVE_GAS); mutants [693], [695]-[697] |
 | `scratch` (where an assembly call or copy writes its answer: 0x00-0x3f) | "Where may a raw call put the words it reads?" | Solidity's scratch 0x00-0x3f, or memory the caller allocated; never 0x40 (the free memory pointer) or 0x60 (the zero slot), whatever `memory-safe` promises. A reader of more than two words copies only the words it reads: `Core._gateVital`, the one reader of `Gate.vitalOf`, calls with no output area, requires `returndatasize() >= 0x60` and `returndatacopy(0x00, 0x20, 0x40)` (F1, 2026-10-22: the whole answer copied to 0x00 put psi on the free pointer) | `SINGLE` (2026-10-22) | *Scratch memory guard* in ci.yml (`.github/scripts/scratch_memory_guard.py`, red on the 7b8df77 reader, which its self-test carries); `test/BlazePhoenixGate.t.sol`: `test_GateVital_FreePointerIntactAtAnyPsi`, `test_GateVital_ShortAnswerReadsZero` (a short answer reads 0, never reverts); mutants [693]-[695] |
+| `MODES_READ_FEE` / `MODES_READ_SPACING` (which grid axes a factory mode reads) | "Do two cells of a row's grid ask its factory different questions?" | `Core.deriveAddress` / `_factoryLookup` (definition: the inputs each mode passes to the factory or hashes into the salt); `Hub._axes` (a hand copy as two bit masks: fee read by modes 1 and 5, spacing by modes 3 and 7) sizes both `discoverFor`'s allocation and `_scanFactory`'s loops, so an axis a mode never reads is probed at its first cell only | `PINNED` (2026-10-26) | `test/DiscoveryProbesEachDerivationOnce.t.sol`: the census (one `deriveAddress` per distinct question, per row, from the state diff) and the differential (the scan lists, field by field and in order, what the whole grid lists when replayed through `deriveAddress` itself, with the pools a mode does not tell apart by an axis planted at that axis's LAST cell, so a mask bit that is missing, or a CREATE2 mode (4-7) that starts reading an axis, misses them). Mutants 812-819. Escape: a factory-call mode (0, 2) that starts reading an axis must change the function it calls, which this file does not pin |
 
 ### Transient state
 
