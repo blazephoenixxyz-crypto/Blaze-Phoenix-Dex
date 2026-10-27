@@ -13,6 +13,8 @@ import {Origin} from "./mocks/MockOriginFactory.sol";
 // answer there, and the 2026 Aerodrome CL fee() moves every block: a row born at one block's
 // answer priced every later quote at it. The row's fee is now the fee its derivation is keyed by
 // (the factory tier the pool was found under), when the pool agrees, else 0, the live read.
+// Since DEX-17 (2026-10-27) quoteV3Fee asks fee() of a non-Algebra pool first and the row's key
+// answers only when fee() does not: this file now guards that fallback key, not every quote.
 
 /// A V3 pool whose fee moves, as a dynamic-fee pool's does.
 contract SettableFeeV3Pool is MockV3Pool {
@@ -115,8 +117,9 @@ contract RowFeeIsNeverASnapshotTest is Test {
         assertEq(BPC.decodeFee(s), 0, "a contradicted tier is not a key");
     }
 
-    /// GUARD, positive side: the tier the pool answers is written, so a fee-keyed V3 keeps its
-    /// static key (no read per quote).
+    /// GUARD, positive side: the tier the pool answers is written as the row's key. The key is
+    /// not what a quote charges: since DEX-17 (2026-10-27) quoteV3Fee asks the pool's fee() on
+    /// every non-Algebra CL quote, and the key answers only when fee() does not.
     function test_ATierThePoolAnswersIsWritten() public {
         SettableFeeV3Pool p = _pool(3000);
         Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V3, 3000);

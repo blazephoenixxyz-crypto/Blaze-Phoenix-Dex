@@ -27,6 +27,7 @@ import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {Origin} from "./mocks/MockOriginFactory.sol";
 
 /// @dev A V3-shaped pool whose fee the test moves, as a dynamic-fee CL pool moves it per block.
 contract MovingFeeV3Pool is MockV3Pool {
@@ -63,6 +64,7 @@ contract QuoteChargesTheClFeeThePoolChargesNowTest is Test {
         pool.setState(uint160(BPC.Q96), 1e30);
         tA.mint(address(pool), 1e30);
         tB.mint(address(pool), 1e30);
+        Origin.wire(hub, address(pool), address(tA), address(tB), BPC.KIND_V3, feeAtRegistration);
         hub.seedPool(address(pool), BPC.KIND_V3, feeAtRegistration, address(0), address(tA), address(tB));
         hub.addBridge(address(tB));
     }
