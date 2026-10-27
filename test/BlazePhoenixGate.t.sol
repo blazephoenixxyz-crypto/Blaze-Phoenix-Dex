@@ -918,24 +918,26 @@ contract BlazePhoenixGateTest is Test {
         assertEq(address(uint160(gate.wrappersOf(address(t0), address(t2))[0])), w2, "another pair, its own list");
     }
 
-    /// Quantity: the score the funnel ranks a wrapper by: Gate.vitalOf's psi, read through
-    /// Core.gatePsi. Eight curated pairs fill the funnel (MAX_CANDIDATES = 8); the unused
-    /// wrapper scores the floor and is cut before any quote, though it pays best. After
-    /// material swaps its vitalOf psi outranks the curated rows: it is seated and planned.
-    function test_GatedAuto_FunnelRanksTheWrapperByVitalOf() public {
+    /// Quantity: the score the funnel orders a wrapper by: Gate.vitalOf's psi, read through
+    /// Core.gatePsi. Eight curated pairs sit beside the wrapper. With eight seats
+    /// (MAX_CANDIDATES, before poda-1027) the unused wrapper scored the floor and was cut
+    /// before any quote, though it pays best. No count cuts the funnel now, and a wrapper is
+    /// never dust: the Solver does not read its mass (it measures 0, and absent is not zero).
+    /// So it is quoted and planned unused, and after material swaps its psi is vitalOf's.
+    function test_GatedAuto_AWrapperIsNeverDustAndIsScoredByVitalOf() public {
         BlazePhoenixGateWrapper w = _wrapper();
         adapter.setDeclaredDepth(type(uint128).max);   // capped by what the venue holds
         (BlazePhoenixSolver solver, ) = _autoDoor();
         for (uint256 i; i < 8; i++) _seededPair(10_000e18);
         uint256 amt = 1_000e18;
-        assertFalse(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
-            "unused: cut by the funnel");
+        assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
+            "unused: neither cut by a count nor dropped as dust, and it pays best");
         for (uint256 i; i < 3; i++) _swapDirect(w, 100e18);
         (, , uint256 psiW) = gate.vitalOf(address(w));
         assertGt(psiW, 0, "the swaps are use");
         assertEq(BPC.gatePsi(address(gate), address(w)), psiW, "Core reads the Gate's psi");
         assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
-            "used: seated by its vitalOf psi, and it pays best");
+            "used: still planned, it pays best");
     }
 
     // ─── F1 (2026-10-22): the Gate's answer is read into scratch, never over 0x40 ───

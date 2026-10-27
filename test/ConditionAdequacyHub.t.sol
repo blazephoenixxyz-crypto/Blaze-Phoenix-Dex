@@ -425,25 +425,16 @@ contract ConditionAdequacyHubTest is Test {
     }
 
     // =========================================================================
-    //  Hub:1036 — _probeV4Batch: `kf >> 128 >= V4_CAP`
-    //  Once the native pass fills the cap, the outer guard is what keeps the
-    //  scan from consulting the manager again (the inner break re-guards
-    //  admissions, so the CALL is the only observable). vm.expectCall with
-    //  count 0 pins the call-pattern: the wrapped canonical batch must never
-    //  reach the manager.
+    //  Hub:1036 / Hub:1067 (59ecf3f) — `kf >> 128 >= V4_CAP`, REMOVED (poda-1027)
+    //  The scan stopped at eight V4 hits per pair, and a count is what dust buys:
+    //  eight live pools of liquidity 1 filled it and hid every deeper pool after
+    //  them (3317; test/V4DustCannotFillTheScan.t.sol). No count stops the scan
+    //  now; each V4 row reserves 2 * fees.length + 10 slots in `discoverFor`.
+    //  These two pins kept the worlds of the cap tests and turned them over: red
+    //  if a count cap comes back, at either guard.
     // =========================================================================
 
-    /// Neutralised (forced false), the wrapped canonical batch builds its pids
-    /// and performs the batched extsload — the count-0 expectation trips.
-    function test_L1036_CapReached_ManagerNotConsultedAgain() public {
-        uint24[] memory fees4 = new uint24[](4);
-        int24[]  memory sps4  = new int24[](4);
-        fees4[0] = 400;    sps4[0] = 8;
-        fees4[1] = 2500;   sps4[1] = 50;
-        fees4[2] = 7000;   sps4[2] = 140;
-        fees4[3] = 20000;  sps4[3] = 400;
-        _addDeriveRow(fees4, sps4);
-        // 4 canonical + 4 extra native pools: the native pass fills V4_CAP = 8.
+    function _plantEightNative(uint24[] memory fees4, int24[] memory sps4) private {
         _plantAt(_nativePid(tokenB, 500, 10), 1e18);
         _plantAt(_nativePid(tokenB, 3000, 60), 1e18);
         _plantAt(_nativePid(tokenB, 10_000, 200), 1e18);
@@ -451,62 +442,65 @@ contract ConditionAdequacyHubTest is Test {
         for (uint256 i; i < 4; ++i) {
             _plantAt(_nativePid(tokenB, fees4[i], sps4[i]), 1e18);
         }
+    }
+
+    function _fourExtras() private pure returns (uint24[] memory fees4, int24[] memory sps4) {
+        fees4 = new uint24[](4);
+        sps4  = new int24[](4);
+        fees4[0] = 400;    sps4[0] = 8;
+        fees4[1] = 2500;   sps4[1] = 50;
+        fees4[2] = 7000;   sps4[2] = 140;
+        fees4[3] = 20000;  sps4[3] = 400;
+    }
+
+    /// Eight native hits, then the wrapped pair: its canonical batch still reaches the
+    /// manager (once) and the wrapped pool it finds is the ninth hit. Under the cap the
+    /// batch was never sent and the pool was not emitted.
+    function test_L1036_NoCap_EightNativeHitsDoNotStopTheWrappedPass() public {
+        (uint24[] memory fees4, int24[] memory sps4) = _fourExtras();
+        _addDeriveRow(fees4, sps4);
+        _plantEightNative(fees4, sps4);
+        _plantAt(_wrappedPid(tokenB, WETH, 3000, 60), 1e18);
 
         // The wrapped-pair canonical batch calldata, byte-identical to what
-        // BPC.v4Slot0Batch would send: selector 0xdbd035ff ++ bytes32[] of
-        // slot0 base slots for the four canonical tiers of (tokenB, WETH).
+        // BPC.v4Slot0Batch sends: selector 0xdbd035ff ++ bytes32[] of slot0 base
+        // slots for the four canonical tiers of (tokenB, WETH).
         bytes32[] memory slots4 = new bytes32[](4);
         slots4[0] = keccak256(abi.encode(_wrappedPid(tokenB, WETH, 500, 10), uint256(6)));
         slots4[1] = keccak256(abi.encode(_wrappedPid(tokenB, WETH, 3000, 60), uint256(6)));
         slots4[2] = keccak256(abi.encode(_wrappedPid(tokenB, WETH, 10_000, 200), uint256(6)));
         slots4[3] = keccak256(abi.encode(_wrappedPid(tokenB, WETH, 100, 1), uint256(6)));
-        vm.expectCall(address(mgr), abi.encodeWithSelector(bytes4(0xdbd035ff), slots4), uint64(0));
+        vm.expectCall(address(mgr), abi.encodeWithSelector(bytes4(0xdbd035ff), slots4), uint64(1));
 
         PoolInfo[] memory hits = hub.discoverFor(WETH, tokenB);
-        assertEq(hits.length, 8, "the native pass alone fills the cap");
-        for (uint256 i; i < hits.length; ++i) {
-            assertEq(hits[i].kind, BPC.KIND_V4_NATIVE, "every emitted hit is native");
+        assertEq(hits.length, 9, "eight native hits must not stop the wrapped pass");
+        for (uint256 i; i < 8; ++i) {
+            assertEq(hits[i].kind, BPC.KIND_V4_NATIVE, "the native pass comes first");
         }
+        assertEq(hits[8].kind, BPC.KIND_V4, "the ninth hit is the wrapped pool");
+        assertEq(hits[8].fee, uint24(3000), "the wrapped pool found by the canonical batch");
     }
 
-    // =========================================================================
-    //  Hub:1067 — _admitV4: `kf >> 128 >= V4_CAP` (direct learned-code call)
-    //  Deciding state: cap already full when stage (a) runs, with hits.length
-    //  ABOVE V4_CAP (an extra factory row inflates maxOut), so the sibling
-    //  `k >= hits.length` cannot catch it.
-    // =========================================================================
-
-    /// Neutralised (forced false), the direct stage-(a) admit proceeds (k=8 <
-    /// hits.length=9), finds the planted dust tier live and emits a 9th hit.
-    function test_L1067_CapReached_LearnedCodeAdmitStops() public {
+    /// Eight native hits, then a learned code: the direct stage-(a) admit still runs and
+    /// the tier only that code reaches is the ninth hit. Under the cap it stopped at 8.
+    function test_L1067_NoCap_LearnedCodeAdmitsPastEightHits() public {
         hub.addBridge(bridgeLo);
-        uint24[] memory fees4 = new uint24[](4);
-        int24[]  memory sps4  = new int24[](4);
-        fees4[0] = 400;    sps4[0] = 8;
-        fees4[1] = 2500;   sps4[1] = 50;
-        fees4[2] = 7000;   sps4[2] = 140;
-        fees4[3] = 20000;  sps4[3] = 400;
+        (uint24[] memory fees4, int24[] memory sps4) = _fourExtras();
         _addDeriveRow(fees4, sps4);
-        // A second row only to make hits.length = V4_CAP + 1 (it finds nothing).
+        // A second row, as in the cap test (there it lifted hits.length above the cap).
         hub.addFactory(address(new MockV2Factory()), BPC.KIND_V2, 0, bytes32(0), noFees, noSpacings);
-        // Fill the cap with 8 native pools, as in the L1036 test.
-        _plantAt(_nativePid(tokenB, 500, 10), 1e18);
-        _plantAt(_nativePid(tokenB, 3000, 60), 1e18);
-        _plantAt(_nativePid(tokenB, 10_000, 200), 1e18);
-        _plantAt(_nativePid(tokenB, 100, 1), 1e18);
-        for (uint256 i; i < 4; ++i) {
-            _plantAt(_nativePid(tokenB, fees4[i], sps4[i]), 1e18);
-        }
-        // Learn a dust code for tokenB and park a live pool at that tier on
-        // the scanned wrapped pair, reachable ONLY through stage (a).
+        _plantEightNative(fees4, sps4);
+        // Learn a code for tokenB and park a live pool at that tier on the scanned
+        // wrapped pair, reachable ONLY through stage (a).
         _plantAt(_wrappedPid(bridgeLo, tokenB, 777, 5), 1e18);
         vm.prank(address(0xCA11));
         hub.claimV4(bridgeLo, tokenB, 777, 5);
         _plantAt(_wrappedPid(tokenB, WETH, 777, 5), 1e18);
 
         PoolInfo[] memory hits = hub.discoverFor(WETH, tokenB);
-        assertEq(hits.length, 8,
-            "with the cap full, the learned-code direct admit must stop at the cap guard");
+        assertEq(hits.length, 9, "eight hits must not stop the learned-code admit");
+        assertEq(hits[8].fee, uint24(777), "the ninth hit is the learned tier");
+        assertEq(hits[8].tickSpacing, int24(5), "at the learned spacing");
     }
 
     // =========================================================================

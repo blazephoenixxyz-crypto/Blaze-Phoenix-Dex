@@ -83,10 +83,14 @@ contract RobinhoodV4DeriveTest is Test {
         hub.addBridge(USDG);
         // The row's factory field records the PoolManager (operator
         // legibility + non-zero check); the scan reads $.v4PoolManager.
-        // No initHash, no extras: everything below is pure derivation.
-        hub.addFactory(
-            V4_MGR, KIND_V4, MODE_V4_DERIVE, bytes32(0), new uint24[](0), new int24[](0)
-        );
+        // No initHash. The two launchpad tiers are the row's declared
+        // (fee, spacing) pairs: since poda-1027 the scan probes no generator
+        // grid, so a chain's exotic tiers are row data or a learned code.
+        uint24[] memory fees = new uint24[](2);
+        int24[] memory sps = new int24[](2);
+        (fees[0], sps[0]) = (MOMO_FEE, MOMO_TS);
+        (fees[1], sps[1]) = (BAG_FEE, BAG_TS);
+        hub.addFactory(V4_MGR, KIND_V4, MODE_V4_DERIVE, bytes32(0), fees, sps);
     }
 
     // ─── helpers ───────────────────────────────────────────────────────
@@ -116,7 +120,8 @@ contract RobinhoodV4DeriveTest is Test {
 
     // ─── 1. address-only derivation, no claims ─────────────────────────
 
-    /// Grid-derivable launchpad pools are found FULLY ON-CHAIN with nothing
+    /// Launchpad pools at the row's declared tiers (the generator grid until
+    /// poda-1027) are found FULLY ON-CHAIN with nothing
     /// but the pair addresses — no claim, no off-chain log scan — and every
     /// emitted candidate passes the on-chain existence proof (claimV4
     /// accepts it), so a non-existent tier is never returned.

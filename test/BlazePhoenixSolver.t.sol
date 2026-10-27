@@ -16,7 +16,7 @@ import {MockV2Factory} from "./mocks/MockV2Factory.sol";
 /// @notice Coverage for BlazePhoenixSolver — previously zero tests (see
 ///         TESTING.md "Known gaps"). Exercises the median-rate filter, the
 ///         capital anchor, the two-tier capacity clamp (MAX_CONC_DRAIN_BPS),
-///         bridge topology selection/ranking, the MAX_CANDIDATES funnel cut,
+///         bridge topology selection/ranking, the leg-budget funnel cut,
 ///         and the registry-freshness discovery gate.
 contract BlazePhoenixSolverTest is Test {
     BlazePhoenixHub hub;
@@ -332,7 +332,7 @@ contract BlazePhoenixSolverTest is Test {
     }
 
     // =========================================================================
-    //  MAX_CANDIDATES funnel cut — top-K by weight, not discovery/list order
+    //  Leg-budget funnel cut (MAX_LEGS) — top-K by weight, not discovery/list order
     // =========================================================================
 
     function test_FunnelCut_KeepsDeepestFourOfSeven() public {

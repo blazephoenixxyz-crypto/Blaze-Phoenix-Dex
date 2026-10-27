@@ -14,6 +14,7 @@ pragma solidity 0.8.36;
 //    MR-R4  registration-order independence
 //           plan over {p1,p2} == plan over {p2,p1}
 //    MR-R5  the attested floor never exceeds the expected output
+//    MR-R1d a dust pool is not quoted, and that costs at most the price band
 //
 //  Domains: reserves in [1e20, 1e30] (well inside uint112), the two pools' spot
 //  prices within ±4% of each other (the Solver's median filter drops a pool whose
@@ -25,6 +26,14 @@ pragma solidity 0.8.36;
 //  a deep mispriced pool displaced a shallow honest one (MR-R3) — both the filter
 //  doing its job. MR-R4 is stated to one wei: the split's rounding depends on the
 //  order legs are allocated, and a minimum-weight pool is kept or cut by its position.
+//  MR-R1 and MR-R3 also keep the two depths within 1:10^4 of each other. Since
+//  poda-1027 a pool under MIN_SPLIT_IMPROVEMENT_PPM (25 ppm) of the rest of its pair
+//  is dropped before it is quoted (Solver._dropDust), so over a pool that small the
+//  relations would be about the dust rule. MEASURED on the CI seed before the domain
+//  was written: a pool at 7.7 ppm of the other, priced 3.97 % better, would have paid
+//  309 bps more on an order of 0.85 % of its reserve (MR-R1), and a deep pool added
+//  next to a 5 ppm one replaced it at 311 bps less (MR-R3); both plans were the deep
+//  pool alone, to the wei. MR-R1d pins that cost: never more than the price band.
 //
 //  forge test --match-path test/RouteMetamorphicRelations.t.sol
 // =============================================================================
@@ -82,6 +91,15 @@ contract RouteMetamorphicRelationsTest is Test {
         ps[1] = Pool(rA2, rA2 * price / 1000 * dev / 10_000);
     }
 
+    /// @dev `_two` with the second depth within 1:10^4 of the first: at 100 ppm of each other
+    ///      or more, neither pool is dust at any price in the band.
+    function _twoAboveDust(uint256 r1, uint256 r2, uint256 r3, uint256 r4) private pure returns (Pool[] memory) {
+        uint256 rA1 = bound(r1, 1e22, 1e28);
+        uint256 lo = rA1 / 1e4 > 1e22 ? rA1 / 1e4 : 1e22;
+        uint256 hi = rA1 * 1e4 < 1e28 ? rA1 * 1e4 : 1e28;
+        return _two(rA1, r2, bound(r3, lo, hi), r4);
+    }
+
     function _amt(uint256 a, Pool[] memory ps) private pure returns (uint256) {
         uint256 shallow = ps[0].rA < ps[1].rA ? ps[0].rA : ps[1].rA;
         return bound(a, 1e12, shallow / 100);
@@ -117,10 +135,24 @@ contract RouteMetamorphicRelationsTest is Test {
     }
 
     function testFuzz_MRR1_SplitNeverWorseThanBestSinglePool(uint256 a, uint256 r1, uint256 r2, uint256 r3, uint256 r4) public {
-        Pool[] memory ps = _two(r1, r2, r3, r4);
+        Pool[] memory ps = _twoAboveDust(r1, r2, r3, r4);
         a = _amt(a, ps);
         BlazePhoenixSolver s = _universe(ps);
         assertGe(_plan(s, a).best.totalOut, _bestSingle(a, ps), "MR-R1: the plan pays less than the best single pool would");
+    }
+
+    /// MR-R1d, the dust side of MR-R1 and MR-R3. A pool at most 1/50,000 of the other (under
+    /// 21 ppm at any price in the band) is dropped before it is quoted, so on an order it could
+    /// take it is not there to win: the plan is the deep pool alone, to the wei. What that costs
+    /// is the price gap and never more: inside the ±4 % band the best single pool pays at most
+    /// 4 % more, plus the deep pool's impact at this size (under 2e-7).
+    function testFuzz_MRR1d_ADustPoolIsNotQuotedAndCostsAtMostTheBand(uint256 a, uint256 r1, uint256 r2, uint256 r3, uint256 r4) public {
+        uint256 rA1 = bound(r1, 1e27, 1e28);
+        Pool[] memory ps = _two(rA1, r2, bound(r3, 1e22, rA1 / 50_000), r4);
+        a = _amt(a, ps);
+        uint256 got = _plan(_universe(ps), a).best.totalOut;
+        assertEq(got, _cp(a, ps[0].rA, ps[0].rB), "MR-R1d: the dust pool was quoted: the plan is not the deep pool alone");
+        assertGe(got * 10_401, _bestSingle(a, ps) * 10_000, "MR-R1d: dropping the dust pool cost more than the band");
     }
 
     /// MR-R1 is not vacuous: where a split wins it is TAKEN, and with the weights the
@@ -172,7 +204,7 @@ contract RouteMetamorphicRelationsTest is Test {
     }
 
     function testFuzz_MRR3_MoreLiquidityNeverLowersThePlan(uint256 a, uint256 r1, uint256 r2, uint256 r3, uint256 r4) public {
-        Pool[] memory ps = _two(r1, r2, r3, r4);
+        Pool[] memory ps = _twoAboveDust(r1, r2, r3, r4);
         a = _amt(a, ps);
         Pool[] memory one = new Pool[](1);
         one[0] = ps[0];

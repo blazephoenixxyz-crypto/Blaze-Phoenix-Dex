@@ -279,7 +279,7 @@ contract BlazePhoenixHub {
     // MODE_V4_DERIVE: Uniswap-V4 derive-scan. V4's singleton PoolManager has
     // no factory/pair enumeration, so this mode DERIVES hookless candidate
     // poolIds (learned per-token pattern code -> canonical tiers -> the row's
-    // paired extras -> a bounded generator grid) and emits only the ones
+    // paired extras) and emits only the ones
     // proven live on the PoolManager via extsload. The row's `factory` field
     // records the PoolManager for operator legibility (and `_ne0`); the scan
     // itself always reads `$.v4PoolManager` — the single source of truth,
@@ -287,16 +287,12 @@ contract BlazePhoenixHub {
     uint8   internal constant MODE_V4_DERIVE         = 9;
 
     // ─── V4 derive-scan bounds ─────────────────────────────────────────
-    // Per-scan cap on emitted V4 pools (early-stop), sized to the Solver's
-    // appetite for parallel candidates on one pair.
-    uint256 internal constant V4_CAP                 = 8;
-    // Generator Pi_K: fee = 10_000*j, tickSpacing = 100*j, hookless — the
-    // observed launchpad family ("ratio-100" pools). j descends from
-    // V4_GRID_MAX so the high-fee launch tiers (the ones that exist before a
-    // token matures into canonical tiers) are probed first; V4_GRID_PROBES
-    // caps what a cold miss can cost. Must satisfy V4_GRID_PROBES <= V4_GRID_MAX.
+    // Generator Pi_K: fee = 10_000*j, tickSpacing = 100*j, hookless: the
+    // observed launchpad family ("ratio-100" pools), j <= V4_GRID_MAX. The scan
+    // no longer probes this grid (40 cold cells on every miss): a Pi_K pool is
+    // reached through the code `_recoverV4Ts` learns from a swap through it, or
+    // through the row's extras. The bound stays for that inverse.
     uint256 internal constant V4_GRID_MAX            = 99;
-    uint256 internal constant V4_GRID_PROBES         = 40;
 
     // ─── ERC-7201 namespace ────────────────────────────────────────────
 
@@ -1090,7 +1086,10 @@ contract BlazePhoenixHub {
             // exist in a legacy Hub and `_scanFactory` stops on it without producing hits,
             // so it does not contribute to the ceiling. The accounting must mirror the scan
             // loop: `_probe` writes into `hits[k]` with no bounds check of its own.
-            if (fac.mode == MODE_V4_DERIVE) { maxOut += V4_CAP; }
+            // A V4 row is bounded by its table, not by a count: the native and the
+            // wrapped pass each probe the four canonical tiers and the row's extras,
+            // and the two learned codes add at most two.
+            if (fac.mode == MODE_V4_DERIVE) { maxOut += 2 * fac.fees.length + 10; }
             else { maxOut += fc * sc * mul; }
             unchecked { ++i; }
         }
@@ -1241,11 +1240,13 @@ contract BlazePhoenixHub {
     //    (a) learned per-token pattern codes — the steady-state ONE-probe path
     //    (c) canonical Uniswap tiers, one batched extsload
     //    (d) the row's paired explicit extras, one batched extsload
-    //    (e) generator Pi_K cold-start grid, one batched extsload, entered
-    //        ONLY when (a)-(d) found nothing: the grid bootstraps unknown
-    //        tokens, and once any pool is proven the residual exotic tiers
-    //        are left to claimV4/learning instead of being paid on every scan
-    //  Early-stop at V4_CAP emitted pools.
+    //  Every stage runs on every scan and the table bounds what it emits: no
+    //  stage is gated on another's hits and no count stops it early. A cap of
+    //  eight let dust planted at the early cells use up the slots before a deep
+    //  pool at a later cell was built; the dust now reaches the Solver, whose
+    //  funnel weighs it against the pair's depth. The cold-start grid that used
+    //  to follow (40 generator tiers on every miss) is gone: an exotic tier is
+    //  reached by a learned code or a row extra.
     //
     //  NATIVE ETH: the (ETH, X) pair has TWO pool keys in V4 — native
     //  (currency0 = address(0)) and wrapped (currency0 = WETH). They are
@@ -1255,9 +1256,6 @@ contract BlazePhoenixHub {
     //  it quotes worse, silently. BOTH are emitted and the funnel picks by depth.
     //  A hooked pool cannot be emitted: its HOOKLESS poolId does not exist in
     //  the PoolManager, so it fails the live proof by construction.
-    //
-    //  `kf` packs the two scan counters into one word — low 128 bits: the
-    //  global hits write-cursor `k`; high 128 bits: pools found by THIS scan.
 
     function _scanV4(
         Factory storage fac, address t0, address t1, PoolInfo[] memory hits, uint256 k
@@ -1266,11 +1264,13 @@ contract BlazePhoenixHub {
         HubStore storage $ = _store();
         address mgr = $.v4PoolManager;
         if (mgr == address(0)) return k;     // unconfigured manager: fail closed
-        uint256 kf = k;
-        // (0) NATIVE ETH FIRST. Probed before the wrapped one because of
-        //     `V4_CAP` (8): a pair with many wrapped pools would exhaust the
-        //     slots before the native one was even built. The order IS the
-        //     policy.
+        address w = weth();
+        // (P1) A POOL CAN ONLY PAY WHAT THE MANAGER HOLDS. Measured before the first
+        //     cold probe; see `_pmHoldsNone`. WETH is exempt: its side of the pair
+        //     has two custodies, WETH and native ETH, and the native pass reads both.
+        if ((t0 != w && _pmHoldsNone(mgr, t0)) || (t1 != w && _pmHoldsNone(mgr, t1))) return k;
+        // (0) NATIVE ETH FIRST. No count stops the scan, so the order no longer
+        //     decides what is emitted; it only fixes the order of the hits.
         //
         //     There is NO new parameter on the probing functions, and the
         //     reason is MEASURED: the first version of this passed an
@@ -1280,24 +1280,21 @@ contract BlazePhoenixHub {
         //     other): zero already sorts first, so `computeV4PoolId` gets it in
         //     the right position without a single ternary. Only the shape of the
         //     emitted PoolInfo needs fixing, and that fits in one loop here.
-        address w = weth();
         if (w != address(0) && (t0 == w || t1 == w)) {
             address other = t0 == w ? t1 : t0;
-            uint256 ini = uint256(uint128(kf));
+            uint256 ini = k;
             // Canonicals AND extras, just like the wrapped pass. Cutting the
             // extras here saved 33 bytes of Hub (measured, not estimated) and
             // opened a coverage hole in exotic tiers — the owner chose coverage.
-            // The cold-start grid stays out: it only enters when NOTHING was
-            // found, and the native pass runs first.
-            kf = _probeV4Batch(mgr, address(0), other, _v4CanonicalTiers(), hits, kf);
-            kf = _probeV4Batch(mgr, address(0), other, _v4ExtraTiers(fac), hits, kf);
+            k = _probeV4Batch(mgr, address(0), other, _v4CanonicalTiers(), hits, k);
+            k = _probeV4Batch(mgr, address(0), other, _v4ExtraTiers(fac), hits, k);
             // `_admitV4` emitted them as KIND_V4 with token0 = address(0).
             // Rewrite to the WETH-canonical form: the ORIENTATION CONTRACT
             // requires token0 = the wrapped-native side, because the Solver
             // derives `zeroForOne = (token0 == tokenIn)` and maps the native
             // currency by ORIENTATION. Without this the pool would be invisible
             // to half the token space — the same defect as Monoslot bit 6.
-            for (uint256 z = ini; z < uint256(uint128(kf)); ) {
+            for (uint256 z = ini; z < k; ) {
                 // `token1` is NOT rewritten: `_admitV4` already stored it as
                 // `other` (it was the t1 we passed in). Only `kind` and `token0`
                 // are lying.
@@ -1309,27 +1306,18 @@ contract BlazePhoenixHub {
         // (a) learned pattern codes of both tokens (identical codes dedup)
         uint256 cA = $.v4CodeOf[t0];
         uint256 cB = $.v4CodeOf[t1];
-        if (cA != 0) kf = _admitV4(mgr, t0, t1, cA, hits, kf);
-        if (cB != 0 && cB != cA) kf = _admitV4(mgr, t0, t1, cB, hits, kf);
+        if (cA != 0) k = _admitV4(mgr, t0, t1, cA, hits, k);
+        if (cB != 0 && cB != cA) k = _admitV4(mgr, t0, t1, cB, hits, k);
         // A LEARNED CODE IS A HINT, AND A HINT MAY NOT SUPPRESS A SEARCH.
-        // Stage (a) above and the probes below shared ONE counter, so a hit from
-        // the learned code counted as if this pair's own tiers had been probed.
         // `v4CodeOf` is writable by anyone through the permissionless `claimV4`,
-        // so planting a dust pool at any valid tier set the code, produced a
-        // hit here, and switched off (e) — the ONLY probe that reaches
-        // non-canonical tiers. A legitimate deep pool at such a tier then
-        // vanished from discovery entirely, and the honest path never restored
-        // it. Reported by Mohd Huzaifa, who also supplied the shape of this fix.
-        uint256 kfBeforeOwnProbes = kf >> 128;
+        // and a hit from a planted code once switched off the only probe that
+        // reached non-canonical tiers, so a deep pool there vanished from
+        // discovery. Reported by Mohd Huzaifa, who also supplied the shape of the
+        // first fix. No stage below is gated on any hit: the rule holds by
+        // construction.
         // (c) canonical tiers, then (d) paired extras — one batch each
-        kf = _probeV4Batch(mgr, t0, t1, _v4CanonicalTiers(), hits, kf);
-        kf = _probeV4Batch(mgr, t0, t1, _v4ExtraTiers(fac), hits, kf);
-        // (e) generator cold-start — only when THIS PAIR's own tiers found
-        // nothing. Gating on the total again would let a learned code speak for
-        // a search that never ran. Costs nothing in the honest case: the grid
-        // still runs exactly when it is genuinely needed.
-        if (kf >> 128 == kfBeforeOwnProbes) kf = _probeV4Batch(mgr, t0, t1, _v4GridTiers(), hits, kf);
-        return uint256(uint128(kf));
+        k = _probeV4Batch(mgr, t0, t1, _v4CanonicalTiers(), hits, k);
+        return _probeV4Batch(mgr, t0, t1, _v4ExtraTiers(fac), hits, k);
     }
 
     /// @dev Probe a packed tier list against (t0, t1) with ONE batched
@@ -1337,10 +1325,10 @@ contract BlazePhoenixHub {
     ///      survivors — a miss costs one batched SLOAD, not a full read pair.
     function _probeV4Batch(
         address mgr, address t0, address t1, uint256[] memory tiers,
-        PoolInfo[] memory hits, uint256 kf
+        PoolInfo[] memory hits, uint256 k
     ) private view returns (uint256) {
         uint256 n = tiers.length;
-        if (n == 0 || kf >> 128 >= V4_CAP) return kf;
+        if (n == 0) return k;
         bytes32[] memory pids = new bytes32[](n);
         for (uint256 i; i < n; ) {
             pids[i] = BPC.computeV4PoolId(
@@ -1350,14 +1338,13 @@ contract BlazePhoenixHub {
         }
         bytes32[] memory w0 = BPC.v4Slot0Batch(mgr, pids);
         for (uint256 i; i < n; ) {
-            if (kf >> 128 >= V4_CAP) break;
             // sqrtPriceX96 occupies slot0's low 160 bits; zero = uninitialized.
             if (uint160(uint256(w0[i])) != 0) {
-                kf = _admitV4(mgr, t0, t1, tiers[i], hits, kf);
+                k = _admitV4(mgr, t0, t1, tiers[i], hits, k);
             }
             unchecked { ++i; }
         }
-        return kf;
+        return k;
     }
 
     /// @dev Fully verify ONE hookless candidate tier and emit it if live:
@@ -1368,26 +1355,48 @@ contract BlazePhoenixHub {
     ///      `code` is the packed tier (fee << 24 | uint24(tickSpacing)).
     function _admitV4(
         address mgr, address t0, address t1, uint256 code,
-        PoolInfo[] memory hits, uint256 kf
+        PoolInfo[] memory hits, uint256 k
     ) private view returns (uint256) {
-        uint256 k = uint256(uint128(kf));
-        if (kf >> 128 >= V4_CAP || k >= hits.length) return kf;
+        if (k >= hits.length) return k;
         uint24 fee = uint24(code >> 24);
         int24  ts  = int24(uint24(code));
         bytes32 pid = BPC.computeV4PoolId(t0, t1, fee, ts, address(0));
         (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) = BPC.v4SqrtAndLiq(mgr, pid);
-        if (sp == 0 || liq == 0) return kf;                      // not live: fail closed
-        if (BPC.effV4Fee(fee, lpF, pF, true) >= 1_000_000) return kf;  // unresolvable dynamic fee (direction-free check)
+        if (sp == 0 || liq == 0) return k;                      // not live: fail closed
+        if (BPC.effV4Fee(fee, lpF, pF, true) >= 1_000_000) return k;  // unresolvable dynamic fee (direction-free check)
         address p = address(uint160(uint256(pid)));
         for (uint256 d; d < k; ) {
-            if (hits[d].pool == p) return kf;
+            if (hits[d].pool == p) return k;
             unchecked { ++d; }
         }
         hits[k] = PoolInfo({
             active: true, stable: false, kind: BPC.KIND_V4, fee: fee,
             tickSpacing: ts, token0: t0, token1: t1, pool: p, hooks: address(0)
         });
-        unchecked { return kf + 1 + (uint256(1) << 128); }
+        unchecked { return k + 1; }
+    }
+
+    /// @dev P1: TRUE ONLY ON A MEASURED ZERO. A V4 pool's tokens sit in the PoolManager, so
+    ///      no pool on a token the manager holds none of can pay out that side, and the scan
+    ///      of its pair stops before its first cold probe. A bridge token is never asked.
+    ///      Anything short of a measurement keeps the scan (absent is not zero): a manager
+    ///      inside an unlock, whose balances move within the callback, or a read that fails,
+    ///      runs past GAS_CAP or answers under one word. A donation can only turn it back on.
+    function _pmHoldsNone(address mgr, address t) private view returns (bool none) {
+        if (_store().isBridge[t]) return false;
+        uint256 cap = BPC.GAS_CAP;
+        assembly ("memory-safe") {
+            // exttload(IS_UNLOCKED_SLOT), the V4 Lock slot keccak256("Unlocked") - 1
+            mstore(0x00, shl(224, 0xf135baaa))
+            mstore(0x04, 0xc090fc4683624cfc3884e9d8de5eca132f2d0ec062aff75d43c0465d5ceeab23)
+            let ok := staticcall(cap, mgr, 0x00, 0x24, 0x00, 0x20)
+            if and(and(ok, iszero(lt(returndatasize(), 32))), iszero(mload(0x00))) {
+                mstore(0x00, shl(224, 0x70a08231))
+                mstore(0x04, and(mgr, 0xffffffffffffffffffffffffffffffffffffffff))
+                ok := staticcall(cap, t, 0x00, 0x24, 0x00, 0x20)
+                none := and(and(ok, iszero(lt(returndatasize(), 32))), iszero(mload(0x00)))
+            }
+        }
     }
 
     /// @dev Canonical Uniswap fee tiers — the most common hookless configs.
@@ -1410,18 +1419,6 @@ contract BlazePhoenixHub {
         for (uint256 i; i < n; ) {
             t[i] = _v4Code(fac.fees[i], fac.spacings[i]);
             unchecked { ++i; }
-        }
-    }
-
-    /// @dev Generator Pi_K cold-start grid: fee = 10_000*j, ts = 100*j, j
-    ///      descending from V4_GRID_MAX, capped at V4_GRID_PROBES candidates
-    ///      (j never underflows: V4_GRID_PROBES <= V4_GRID_MAX).
-    function _v4GridTiers() private pure returns (uint256[] memory t) {
-        t = new uint256[](V4_GRID_PROBES);
-        uint256 j = V4_GRID_MAX;
-        for (uint256 i; i < V4_GRID_PROBES; ) {
-            t[i] = _v4Code(uint24(10_000 * j), int24(uint24(100 * j)));
-            unchecked { ++i; --j; }
         }
     }
 

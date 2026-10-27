@@ -155,8 +155,9 @@ struct QuoteCtx {
 
 // Most wrappers one Gate holds for a pair (the Gate's `create` refuses one more, and
 // `wrappersOf` answers exactly this many words). The best door reads every one on every
-// solve of the pair (Core.gatedOf: one identity check each) and they take seats in the
-// Solver's funnel of MAX_CANDIDATES = 8: four leaves half of it to the native venues.
+// solve of the pair (Core.gatedOf: one identity check each) and every one enters the
+// Solver's funnel next to the native venues (a wrapper's mass is not measured, so it is
+// never dropped as dust).
 // File-level so it can size an array in the Gate and in Core alike.
 uint256 constant GATE_MAX_WRAPPERS = 4;
 
@@ -1465,7 +1466,7 @@ library BlazePhoenixCore {
     ///
     /// @dev    WHY IT EXISTS. "Which side of a native V4 leg is the chain's coin?" was answered
     ///         by hand five times: twice in the Quoter (`_hookRefusedIn`, `_simV4`, the #52
-    ///         preview and the dry-run) and three times in the Solver (`_capByLiveDepth`,
+    ///         preview and the dry-run) and three times in the Solver (`_dropDust`,
     ///         `_heldShare`, `_quoteWithDepth`). Five copies of one line agree until one of
     ///         them is edited; the poolId the plan prices and the one the preview names would
     ///         then differ with no symptom. Now the copies are calls.
@@ -2679,9 +2680,16 @@ library BlazePhoenixCore {
     ///         the mass the pool holds (ninth wave, Binod Bk).
     function registryDepth18(
         address pool, uint8 kind, address t0, address t1, address v4mgr, bytes32 pid
+    ) public view returns (uint256) {
+        return registryDepth18Dec(pool, kind, t0, decimalsOf(t0), t1, decimalsOf(t1), v4mgr, pid);
+    }
+
+    /// @notice `registryDepth18` with the two tokens' decimals already read. The Solver's funnel
+    ///         measures every row of one pair, whose two tokens are the same in each row, and
+    ///         reads their decimals once for the whole hop (test/DecimalsReadOncePerHop.t.sol).
+    function registryDepth18Dec(
+        address pool, uint8 kind, address t0, uint8 dc0, address t1, uint8 dc1, address v4mgr, bytes32 pid
     ) public view returns (uint256 depth) {
-        uint8 dc0 = decimalsOf(t0);
-        uint8 dc1 = decimalsOf(t1);
         if (kindHas(kind, A_RESERVES)) {
             // NORMALISE BEFORE THE `min`. This was the EIGHTH site of the same defect class: the
             // raw `min(r0, r1)` picks the side with fewer UNITS, not the SHALLOWER side. A
@@ -2689,8 +2697,8 @@ library BlazePhoenixCore {
             // and since `tickSlot` rewrites the bucket unconditionally, the first routed swap
             // undid the correct bucket the registry already held (cured 2026-08-21).
             (uint256 r0, uint256 r1) = getReserves(pool);
-            // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01): the registry's depth bucket ranks
-            // the funnel's top-K and decides evictions, and this was the pool's own word. A pair
+            // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01): the registry's depth bucket orders
+            // the funnel and decides evictions, and this was the pool's own word. A pair
             // whose declared reserves exceed what it holds on either side is not capped but
             // zeroed: an honest pair never reports more than it holds (sync copies balances into
             // reserves; a donation only raises the balance), so the excess is a lie, and a liar's

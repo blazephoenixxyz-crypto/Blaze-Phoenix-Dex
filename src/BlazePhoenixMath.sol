@@ -119,7 +119,7 @@ library BlazePhoenixMath {
         uint256 kept;
         {
             // Median of the non-zero rates. We sort a COPY of `rates` (insertion
-            // sort — n ≤ 8 so cost is negligible) so the per-index association in
+            // sort over the funnel's non-dust rows) so the per-index association in
             // `rates`/`depths` survives for the band filter below. Zero entries
             // (dead pools) bubble to the bottom of the copy and are skipped.
             uint256[] memory sortedRates = new uint256[](n);
@@ -245,7 +245,7 @@ library BlazePhoenixMath {
         // which the T2 doctrine forbids because a donation inflates it at no cost to the donor.
         (psis, sumPsi) = _weights(cands, depths, balsOut, n);
 
-        // ─── FUNNEL CUT (see MAX_CANDIDATES) ───
+        // ─── FUNNEL CUT (the funnel is every non-dust row, see Solver._dropDust) ───
         // The funnel probed more venues than the leg budget allows; commit to
         // the top-`budget` survivors by WEIGHT (not discovery order), so a deep
         // late-listed pool displaces thin early-listed ones. Extracted to keep
@@ -462,7 +462,8 @@ library BlazePhoenixMath {
     }
 
     /// @dev The band around `base` (+-MEDIAN_FILTER_BPS): bit i set = candidate i's rate is live
-    ///      and inside it (n <= MAX_CANDIDATES = 8). One producer for the filter in `_select`
+    ///      and inside it (n < 256: the funnel is bounded by the pair's table, sixteen registry
+    ///      slots, the wired rows' cells and four wrappers). One producer for the filter in `_select`
     ///      and for the S2 check above.
     function _inBand(uint256[] memory rates, uint256 n, uint256 base) private pure returns (uint256 set) {
         uint256 hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
@@ -491,7 +492,7 @@ library BlazePhoenixMath {
             unchecked { ++i; }
         }
         if (m == 0 || massa == 0) return 0;
-        // Insertion sort of the PAIRS by rate — n <= 8, negligible cost. Sorting the pairs is what
+        // Insertion sort of the PAIRS by rate, over the band. Sorting the pairs is what
         // sets this apart from sorting rates alone: mass has to travel with its rate.
         for (uint256 i = 1; i < m; ) {
             uint256 kr = r[i];

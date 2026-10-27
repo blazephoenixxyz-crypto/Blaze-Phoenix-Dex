@@ -576,7 +576,7 @@ An oracle written from the same formula cannot catch the formula. A metamorphic 
 instead how the output must **move** when the input moves, and the venue's own curve answers
 that question without a reference implementation. `test/CoreMetamorphicRelations.t.sol` (2026-09-02,
 extended 2026-09-05) holds fourteen relations over the Core's quote maths; `test/RouteMetamorphicRelations.t.sol`
-(2026-09-05) holds five over the Solver's plan on a two-pool universe with a real Hub and a real Solver.
+(2026-09-05, extended 2026-10-27) holds six over the Solver's plan on a two-pool universe with a real Hub and a real Solver.
 
 | level | relation | what it says |
 |---|---|---|
@@ -587,11 +587,12 @@ extended 2026-09-05) holds fourteen relations over the Core's quote maths; `test
 | Core, V2 · V3 | MR5 fee monotone | a higher fee never pays more |
 | Core, V3 | MR6 direction symmetry | at price 1.0 the two arms of `outV3` agree to two ulps |
 | Core, Solidly | MR7 identity | the volatile arm **is** `outV2`, one producer |
-| plan | MR-R1 | the split never pays less than the best single pool would |
+| plan | MR-R1 | the split never pays less than the best single pool would, over pools above dust |
 | plan | MR-R2 | monotone in `amountIn` |
-| plan | MR-R3 | adding a pool inside the price band never lowers the plan |
+| plan | MR-R3 | adding a pool inside the price band and above dust never lowers the plan |
 | plan | MR-R4 | registration order moves the plan by at most one weight unit of the split |
 | plan | MR-R5 | the attested floor never exceeds the expected output |
+| plan | MR-R1d | a pool under 25 ppm of the rest of its pair is not quoted, and that costs at most the price band |
 
 Three of the bounds were **measured before they were written**, and the number in the assertion is
 the mechanism, not the sample:
@@ -603,7 +604,13 @@ the mechanism, not the sample:
 - **MR-R1 / MR-R3.** With one pool priced 10¹⁰ away from the other, the plan paid 35 % less than
   the outlier alone, and a deep mispriced pool displaced a shallow honest one. That is the Solver's
   median filter (`MEDIAN_FILTER_BPS`, ±5 %) refusing to believe an outlier — the relations hold over
-  pools it admits, so the domain keeps the two prices within ±4 %.
+  pools it admits, so the domain keeps the two prices within ±4 %. Since 2026-10-27 a pool under
+  `MIN_SPLIT_IMPROVEMENT_PPM` (25 ppm) of the rest of its pair is dropped before it is quoted
+  (`Solver._dropDust`), so the domain also keeps the two depths within 1:10⁴. Measured on the CI
+  seed before it was written: a pool at 7.7 ppm of the other, priced 3.97 % better, would have paid
+  309 bps more on an order of 0.85 % of its reserve (MR-R1), and a deep pool added beside a 5 ppm
+  one replaced it at 311 bps less (MR-R3); both plans were the deep pool alone, to the wei. MR-R1d
+  pins that cost: the dust pool is not quoted, and the best single pool pays at most the band more.
 - **MR-R4.** Replayed leg by leg: a pool whose depth weight floors to the minimum (1 of 10,000
   against the deepest) is **kept** as a dust leg when it was registered first and **cut** when
   registered second. Both plans are sound; they differ by what one weight unit of the amount earns
