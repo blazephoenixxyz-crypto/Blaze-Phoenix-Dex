@@ -4402,7 +4402,7 @@ M = [
       old='        if (totalReceived > outCap) totalReceived = outCap;\n',
       new='        if (totalReceived != outCap) totalReceived = outCap; // MUTANT\n',
       teste='test_AFeeOnTransferOutputIsPaidWhatArrived'),
- # --- DEX-01 / 3331 (2026-10-27): labels [897]-[914] ---
+ # --- DEX-01 / 3331 (2026-10-27): labels [897]-[915] ---
  # A V3 leg's promise (Solver._paysWhatItWalks) and the Router's in-frame quote (Core.legQuoteImpact)
  # have one producer, Core.v3PaysOnBudget: the book walked on V3_PAY_READS reads, the single-range
  # figure kept (the band) when the walk cannot finish. The walk of the plan built at the cap runs in
@@ -4415,17 +4415,17 @@ M = [
       f='src/BlazePhoenixCore.sol',
       old='                (q, ) = v3PaysOnBudget(leg.pool, legAmt, leg.zeroForOne, q, V3_PAY_READS);\n',
       new='                // MUTANT DEX-01: the frame keeps the single-range figure\n',
-      teste='test_Parity_TheLegAttestsWhatTheRouterQuotesInFrame'),
+      teste='test_V3_Parity_TheLegAttestsWhatTheRouterQuotesInFrame'),
  dict(nome='DEX-01 promise [898]: a walk that finishes still answers the single-range figure',
       f='src/BlazePhoenixCore.sol',
       old='        return (out < f ? out : f, left);\n',
       new='        return (f, left); // MUTANT\n',
-      teste='test_TheLegAttestsWhatThePoolPays_AndRankingIsThatFigure'),
+      teste='test_V3_TheLegAttestsWhatThePoolPays'),
  dict(nome='DEX-01 cap plan [899]: the plan built at the cap is not promised what its books pay',
       f='src/BlazePhoenixSolver.sol',
       old='        plan.best = _paysWhatItWalks(plan.best, tIn, tOut, amountIn);\n',
       new='        // MUTANT DEX-01: the plan built at the cap keeps its single-range promises\n',
-      teste='test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay'),
+      teste='test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay'),
  dict(nome="DEX-01 rebuild [900]: the rebuild's plan leaves through the assembly return unwalked",
       f='src/BlazePhoenixSolver.sol',
       old='            plan.best = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);\n',
@@ -4460,7 +4460,7 @@ M = [
       f='src/BlazePhoenixCore.sol',
       old='                (q, ) = v3PaysOnBudget(leg.pool, legAmt, leg.zeroForOne, q, V3_PAY_READS);\n',
       new='                (q, ) = v3PaysOnBudget(leg.pool, legAmt, leg.zeroForOne, q, 5); // MUTANT\n',
-      teste='test_Red_CanExecuteMustNotBeRefused'),
+      teste='test_V3_Red_CanExecuteMustNotBeRefused'),
  dict(nome='DEX-01 gate [907]: the walk asks for more reads than any caller has, so no V3 promise falls',
       f='src/BlazePhoenixCore.sol',
       old='        if (left < 6 || amountIn == 0) return (f, left);\n',
@@ -4485,7 +4485,7 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='            if (sum != was) fell = true;\n',
       new='            // MUTANT DEX-01: the route is never assembled again\n',
-      teste='test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay'),
+      teste='test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay'),
  dict(nome='DEX-01 budget [912]: every concentrated leg of a plan walks on twelve reads of its own',
       f='src/BlazePhoenixSolver.sol',
       old='                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, g.expectedOut, reads);\n',
@@ -4501,6 +4501,11 @@ M = [
       old='                liq = uint128(net < 0 ? (l > uint256(-net) ? l - uint256(-net) : 0)\n',
       new='                liq = uint128(net < 0 ? l - uint256(-net) // MUTANT\n',
       teste='test_ABookWhoseCrossingTakesMoreThanItHoldsLeavesTheSolveStanding'),
+ dict(nome='DEX-01 only falls [915]: a walk that finishes above the band promises the walk, above the figure the plan was ranked on',
+      f='src/BlazePhoenixCore.sol',
+      old='        return (out < f ? out : f, left);\n',
+      new='        return (out, left); // MUTANT\n',
+      teste='test_ABookThatThickensPastTheEdgeIsPromisedNoMoreThanTheBand'),
 ]
 
 def run(t):
