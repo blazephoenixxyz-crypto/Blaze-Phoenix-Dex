@@ -764,9 +764,12 @@ contract BlazePhoenixRouter {
         for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
     }
 
-    function _chargeHopFee(Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase)
-        private returns (uint256)
-    {
+    /// @return The input left to hop 0 (unchanged on later hops) and `_execute`'s output cap,
+    ///         less this fee when the hop's token is tokenOut (3310): a fee charged in tokenOut
+    ///         leaves the Router as a leg's input does.
+    function _chargeHopFee(
+        Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase, address tokenOut, uint256 outCap
+    ) private returns (uint256, uint256) {
         uint256 baseH;
         if (h == 0) {
             // `amountIn` here is the MEASURED pull (every door hands `_execute` its balance
@@ -787,13 +790,15 @@ contract BlazePhoenixRouter {
         // for any non-zero base instead, so nothing legitimate is refused.
         // The guard below now means only "there is no base to charge".
         uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-        if (feeH == 0) return amountIn;
+        if (feeH == 0) return (amountIn, outCap);
         _payFee(hop.tokenIn, feeH);
+        // Saturating: hop 0 of a cyclic route pays its fee in tokenOut before any leg made some.
+        if (hop.tokenIn == tokenOut) outCap = outCap > feeH ? outCap - feeH : 0;
         // Only hop 0 spends the `amountIn` travelling in the frame; the later ones read the
         // balance, which the fee transfer has already reduced.
-        if (h != 0) return amountIn;
+        if (h != 0) return (amountIn, outCap);
         if (feeH >= amountIn) revert RouterE(8);
-        unchecked { return amountIn - feeH; }
+        unchecked { return (amountIn - feeH, outCap); }
     }
 
     /// @dev The 30/70 split in its own frame: under via_ir `_execute` sits at the stack limit,
@@ -1132,6 +1137,9 @@ contract BlazePhoenixRouter {
         // here, a hooked leg may only sit in the LAST hop; the Solver builds
         // nothing else (`_assembleRouteMulti`).
         bool sawHooked;
+        // The tokenOut the legs' venues declare they paid the Router, less what later legs and fee
+        // charges took back out of it (3310, see totalReceived below).
+        uint256 outCap;
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
@@ -1207,7 +1215,7 @@ contract BlazePhoenixRouter {
             // comes out of the output (see the block at the end of this function)
             // — nothing is charged here, otherwise it would be charged twice.
             if (!feeOnOut && (feeHop == type(uint256).max || h == feeHop)) {
-                amountIn = _chargeHopFee(hop, h, amountIn, foreignBase);
+                (amountIn, outCap) = _chargeHopFee(hop, h, amountIn, foreignBase, tokenOut, outCap);
             }
 
             uint256[] memory legQuotes = new uint256[](hop.legs.length);
@@ -1329,17 +1337,24 @@ contract BlazePhoenixRouter {
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
                 // A leg with a zero scaled input never reaches the pool:
-                // `_execScaled` returns (0,0) before any transfer or swap. Record
+                // `_execScaled` returns (0,0,0) before any transfer or swap. Record
                 // WHICH legs actually ran, so the registry credits execution and
                 // not calldata. The index runs across the whole route and both
                 // loops walk the same calldata in the same order.
                 if (scaledAmt != 0) executedMask |= (uint256(1) << legIdx);
                 unchecked { ++legIdx; }
-                (uint256 legGot, uint256 legAtt) = _execScaled(
+                (uint256 legGot, uint256 legAtt, uint256 legDecl) = _execScaled(
                     leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
                 );
                 hopGot += legGot;
                 hopAttested += legAtt;
+                // 3310: a leg that makes tokenOut adds what its venue declares it paid; a leg that
+                // hands tokenOut to its venue (a later hop of the loose A->X->B->X shape) takes what
+                // it handed off the cap. Floored at zero: hop 0 of a cyclic route spends the input,
+                // measured against baseIn and made by no leg. A hop that spends nothing (a no-op
+                // tail) leaves the output as made.
+                if (legOutRaw == tokenOut) outCap += legDecl;
+                else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
                 // THE FLOOR'S BASE SPEAKS FOR EVERY LEG: a leg the frame could not price enters
                 // `hopQuote` with its attested figure (a Gate leg, a native leg with no in-frame
@@ -1479,6 +1494,14 @@ contract BlazePhoenixRouter {
         // the balance under the baseline and reverts here — the safe outcome,
         // since those funds were never this swap's to spend.
         uint256 totalReceived = _bal(tokenOut) - toutStart;
+        // 3310 — #45's mirror (`received` capped at `amountIn`). Between toutStart and here other
+        // code runs: every leg, the fee pushes, the sweeps. A positive restatement of tokenOut in
+        // that span (a rebase, a reflection) also grows the balance above the baseline, and the
+        // delta paid that growth to the swapper. DEX-11 refuses it only inside a measured leg
+        // window. The delta may not exceed what the legs' venues declared they paid in tokenOut,
+        // less what later legs and fee charges took back out (outCap); less is fine (a
+        // fee-on-transfer tokenOut), and the excess stays with the rescue.
+        if (totalReceived > outCap) totalReceived = outCap;
         if (totalReceived == 0) revert RouterE(8);
         amountOut = totalReceived;
 
@@ -1688,14 +1711,14 @@ contract BlazePhoenixRouter {
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
     function _execScaled(
         Leg calldata leg, address tokenIn, address legOutRaw, uint256 amt, uint256 legQuote, uint256 legAmt
-    ) private returns (uint256 got, uint256 attested) {
+    ) private returns (uint256 got, uint256 attested, uint256 declared) {
         // A zero-input leg is a no-op: skip it entirely. A leg scaled to zero
         // input (for example the last leg when the Router holds no remaining
         // input) must never reach pool.swap(): the budget cap in _v3Callback
         // is now UNCONDITIONAL, so a zero cap would revert the whole swap
         // (RouterE 8) instead of no-oping. The residual sweep returns unspent
         // input.
-        if (amt == 0) return (0, 0);
+        if (amt == 0) return (0, 0, 0);
         // ─── Per-leg iron floor (see BPC.LEG_FLOOR_BPS) ───
         // Measure THIS leg's real contribution to the Router's tokenOut
         // balance and require >= BPC.LEG_FLOOR_BPS (8.000 = 80%) of its bound. The
@@ -1722,8 +1745,8 @@ contract BlazePhoenixRouter {
         }
 
         uint8 k = leg.kind;
-        // What the venue declares it paid the Router for this leg (DEX-11, read after `got`).
-        uint256 declared;
+        // `declared`: what the venue declares it paid the Router for this leg (DEX-11, read
+        // after `got`; returned for the output cap in _execute, 3310).
         // Tombstone 3 left this dispatch in the EIP-170 dead-code pass: the venue
         // that lived there did not expose getReserves(), so the old _execV2Amt path
         // always computed outAmt == 0 and reverted RouterE(8). The `else` below

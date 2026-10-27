@@ -91,7 +91,7 @@ contract HostileToken {
 
 /// @dev A fake V3-shaped pool the attacker controls. On swap() it (optionally) re-enters the
 ///      Router's universal callback `reenterN` times, then pays out `payOut` of tokenOut it was
-///      pre-funded with.
+///      pre-funded with and declares what it paid.
 contract HostileV3Pool {
     address public token0;
     address public token1;
@@ -124,14 +124,19 @@ contract HostileV3Pool {
             ok; // tolerated: bounded pulls are expected to revert once drained
             unchecked { ++i; }
         }
-        // (B) pay out attacker-chosen tokenOut (pre-funded) back to the Router.
+        // (B) pay out attacker-chosen tokenOut (pre-funded) back to the Router, and declare it
+        // as a real V3 pool does: the paid side comes back negative. The Router pays no more
+        // tokenOut than its venues declared (3310), so a pool that paid and declared 0 settled
+        // nothing.
+        uint256 paid;
         if (payOut > 0) {
             address t = payToken0 ? token0 : token1;
             if (IERC20MinAdv(t).balanceOf(address(this)) >= payOut) {
                 IERC20MinAdv(t).transfer(msg.sender, payOut);
+                paid = payOut;
             }
         }
-        return (int256(0), int256(0));
+        return payToken0 ? (-int256(paid), int256(0)) : (int256(0), -int256(paid));
     }
 }
 
