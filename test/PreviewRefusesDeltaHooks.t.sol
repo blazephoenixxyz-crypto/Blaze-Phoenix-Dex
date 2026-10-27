@@ -161,4 +161,55 @@ contract PreviewRefusesDeltaHooksTest is Test {
         uint256 delivered = router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
         assertGt(delivered, 0, "control route executes");
     }
+
+    /// @notice Red against mutant [59] of .github/scripts/mutants.py at 59ecf3f; green on 59ecf3f.
+    ///         The route above is refused by the preview for two other reasons before the hook
+    ///         is asked: its V4 leg names 0xDEAD, not the pool its key derives (bounty #52), and
+    ///         a hookless leg follows a hooked one (RouterE(3) shape). Here the key holds
+    ///         together - the named pool is the key's poolId, the direction is the tokens',
+    ///         auxId is the hop's tokenOut - and the leg is the route's only one, so the
+    ///         unconditional delta arm is the one question left that can refuse it.
+    function test_PreviewRefusesADeltaAlteringHookOnAKeyThatHoldsTogether() public {
+        uint256 amountIn = 1_000e18;
+        uint256 claim = 990e18; // the route's own claim; the preview prices from it
+        (address c0, address c1) = BPC.sortTokens(address(tokenA), address(tokenB));
+        bool zfo = address(tokenA) == c0;
+        uint24 fee = 3000;
+        int24 ts = 60;
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = Leg({
+            pool: address(uint160(uint256(BPC.computeV4PoolId(c0, c1, fee, ts, DELTA_HOOK)))),
+            hooks: DELTA_HOOK,
+            kind: BPC.KIND_V4,
+            fee: fee,
+            tickSpacing: ts,
+            zeroForOne: zfo,
+            stable: false,
+            amountIn: amountIn,
+            expectedOut: claim,
+            auxId: bytes32(uint256(uint160(address(tokenB))))
+        });
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({
+            tokenIn: address(tokenA), tokenOut: address(tokenB),
+            amountIn: amountIn, expectedOut: claim, legs: legs
+        });
+        Route memory route = Route({
+            hops: hops, totalOut: claim, singleOut: claim, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+            hasSurplus: false, isV4Bundle: false
+        });
+        assertTrue(BPC.hookAltersDeltas(DELTA_HOOK), "setup: the hook alters deltas");
+        assertFalse(BPC.hookRunsInSwap(DELTA_HOOK) && hub.hookPaused(DELTA_HOOK),
+            "setup: the paused-hook arm alone would pass it");
+
+        BlazePhoenixQuoter.Preview memory pv = quoter.previewRoute(route, 0);
+        assertGt(pv.netOut, 0, "netOut is positive, so only the hook question can refuse");
+        assertFalse(pv.canExecute, "previewRoute endorsed a delta-altering hook the Router always refuses");
+
+        // The Router refuses the identical route at its hook sieve.
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 9));
+        router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
+    }
 }
