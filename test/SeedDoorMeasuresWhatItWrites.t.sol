@@ -109,6 +109,39 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
         }
     }
 
+    /// Red against mutant [270] of .github/scripts/mutants.py at 59ecf3f; green on 59ecf3f.
+    ///
+    /// THE FUNNEL GUARANTEES ONE SEAT, NOT TWO. Since bounty #82 (98f9ac2) the Solver measures
+    /// every row when the funnel cuts and `_seatDeepest` hands its last seat to the deepest one,
+    /// whatever its bucket: that seat alone keeps the test above green with every seeded row born
+    /// at bucket 0. A second deep pool has no such seat. Only the bucket it was born at ranks it
+    /// above warm dust, so it is quoted, and the order is split across both deep pools.
+    function test_ASecondSeededDeepPoolOutranksWarmDustWithoutTheGuaranteedSeat() public {
+        MockV2Pair deeper = _v2(1e24);
+        MockV2Pair deep = _v2(5e23);
+        hub.seedPool(address(deeper), BPC.KIND_V2, 30, address(0), address(A), address(B));
+        hub.seedPool(address(deep), BPC.KIND_V2, 30, address(0), address(A), address(B));
+        for (uint256 i; i < 8; ++i) {                     // the funnel keeps eight
+            MockV2Pair dust = _v2(1e14);
+            hub.seedPool(address(dust), BPC.KIND_V2, 30, address(0), address(A), address(B));
+            _warm(address(dust), 1e14, 3);
+        }
+        uint256 order = 1e23;
+        // Two equal-price constant-product pools at the same fee, split in proportion to their
+        // reserves, pay what one pool holding both would: the most this order can get.
+        uint256 bothDeep = BPC.outV2(order, 15e23, 15e23, 30);
+        try solver.findBestRoutePlan(address(A), address(B), order) returns (RoutePlan memory plan) {
+            bool deepRouted;
+            for (uint256 i; i < plan.best.hops[0].legs.length; ++i) {
+                if (plan.best.hops[0].legs[i].pool == address(deep)) deepRouted = true;
+            }
+            assertTrue(deepRouted, "the second seeded deep pool was cut from the funnel by warm dust");
+            assertGe(plan.best.totalOut, bothDeep * 99 / 100, "and the order was not given both pools' depth");
+        } catch {
+            assertTrue(false, "no route at all on a pair holding two deep pools");
+        }
+    }
+
     // ── dex-12: the pair's bridge term is the newcomer's too ───────────────────
 
     function test_ANewcomerOnABridgedPairCarriesTheBridgeTermItsRivalsCarry() public {

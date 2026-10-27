@@ -190,7 +190,7 @@ M = [
       f="src/BlazePhoenixHub.sol",
       old="        if (((KINDS_EXECUTABLE >> kind) & 1) == 0) return;",
       new="        // MUTANTE",
-      teste="test_RecordSwapRejectsExcisedKind"),
+      teste="test_AnExcisedKindNeverTicksARegisteredRow"),
  # ── guards of the sealing wave 2026-08-31/09-01 ────────────────────────────
  # THE CONTRACT of this file in action: nine commits added guards and the
  # list was not updated. It caught that itself, with three TARGET
@@ -356,7 +356,7 @@ M = [
       f="src/BlazePhoenixQuoter.sol",
       old="                    && (BPC.hookAltersDeltas(k) || (BPC.hookRunsInSwap(k) && hub.hookPaused(k)))) return true;",
       new="                    && (BPC.hookRunsInSwap(k) && hub.hookPaused(k))) return true; // MUTANT",
-      teste="test_PreviewRefusesWhatTheRouterRefuses_DeltaHook"),
+      teste="test_PreviewRefusesADeltaAlteringHookOnAKeyThatHoldsTogether"),
  dict(nome="V4 settle: the sync before paying is dropped",
       f="src/BlazePhoenixRouter.sol",
       old="            IV4PoolManager(mgr).sync(tIn);",
@@ -870,7 +870,7 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       old="                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;",
       new="                    physical; // MUTANT",
-      teste="test_probe_forgedAfterSeating_cannotCaptureTheRouteWithoutCapital"),
+      teste="test_TheBandIsAnchoredByTheMassHeld_NotTheMassDeclared"),
  # ── the book that holds nothing (ninth wave, Binod Bk) ────────────────────
  # A V3-shaped contract that ends every swap empty switched the mass cap off at
  # every producer. One mutant per producer, and the registry watched in both
@@ -1551,7 +1551,7 @@ M = [
       f="src/BlazePhoenixHub.sol",
       old="                  BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid));",
       new="                  0); // MUTANT",
-      teste="test_ASeededDeepPoolIsNotCutFromTheFunnelByWarmDust"),
+      teste="test_ASecondSeededDeepPoolOutranksWarmDustWithoutTheGuaranteedSeat"),
  dict(nome="N4: the operator's V4 door registers a row at depth bucket 0 again",
       f="src/BlazePhoenixHub.sol",
       old="                  BPC.registryDepth18(poolAddr, kind4, nat ? w : s0, s1, $.v4PoolManager, pid));",
@@ -1873,7 +1873,7 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       old="            if (BPC.kindHas(cands[i].kind, BPC.A_RESERVES) && outL > balsOut[i]) outL = 0;",
       new="            // MUTANT",
-      teste="test_ForgedReservesVenue_IsNeverQuotedAboveItsHoldings"),
+      teste="test_ASplitLegOnAReserveShapedVenueIsNeverPromisedAboveItsHoldings"),
  dict(nome="getReserves: a word wider than uint112 reads as no reserves, never truncated",
       f="src/BlazePhoenixCore.sol",
       old="                    if shr(112, or(r0, r1)) { r0 := 0 r1 := 0 }",
@@ -3563,7 +3563,7 @@ M = [
       f='src/BlazePhoenixQuoter.sol',
       old='            legOut = _simConc(leg.pool, leg.zeroForOne, legIn);',
       new='            legOut = 0; // MUTANT [707]',
-      teste='test_Matriz_DaiEPortaExata'),
+      teste="test_3073_ExactDoor_HeldLeg_IsPricedByThePoolNotByThePlan"),
  dict(nome="3073 [708]: the walk no longer refuses a zero spacing, a pool that does not answer tickSpacing() is walked",
       f='src/BlazePhoenixCore.sol',
       old='        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || src == address(0)) return (0, 0, 0);',
@@ -3591,17 +3591,17 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='        uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn, 0, 0, c.token0 == tIn);',
       new='        uint256 w = 0; // MUTANT [712]',
-      teste='test_3073_DaiUsdc_10k_PromiseIsTheVenueAnswer'),
+      teste="test_3073_HeldSplit_RebuildPastOnePointFiveMillion_IsPromisedItsBooks"),
  dict(nome="3073 [713]: on the fork, the book is asked about half the committed input (DAI->USDC 15k)",
       f='src/BlazePhoenixSolver.sol',
       old='        uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn, 0, 0, c.token0 == tIn);',
       new='        uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn / 2, 0, 0, c.token0 == tIn); // MUTANT [713]',
-      teste='test_3073_DaiUsdc_15k_PromiseIsTheVenueAnswer'),
+      teste="test_3073_HeldSplit_RebuildPastOnePointFiveMillion_IsPromisedItsBooks"),
  dict(nome="3073 [714]: on the fork, a walk that stops short of the cap is promised below the old promise (DAI->USDC 20k)",
       f='src/BlazePhoenixSolver.sol',
       old='        return (amountIn, w < cap ? cap : (w > quote ? quote : w), 0);',
       new='        return (amountIn, w > quote ? quote : w, 0); // MUTANT [714]',
-      teste='test_3073_DaiUsdc_20k_PastTheWalk_PromiseStaysWithinItsBounds'),
+      teste="test_3073_Solver_Split_BookEmptiesBelowTheCap_BesideAWalkedLeg"),
  dict(nome="3073-2 [715]: a phantom leg on a later hop leaves the cap, the chosen route promises past the pool's holdings",
       f='src/BlazePhoenixSolver.sol',
       old='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
@@ -3749,7 +3749,7 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='    uint256 private constant WALK_GAS = 2_500_000;',
       new='    uint256 private constant WALK_GAS = 1_500_000; // MUTANT [743]',
-      teste='test_3073_DaiUsdc_10k_PromiseIsTheVenueAnswer'),
+      teste="test_3073_HeldSplit_RebuildPastOnePointFiveMillion_IsPromisedItsBooks"),
  # gate-adapt-guardas-1023: the Balancer adapters declare no depth while their Vault is mid-operation,
  # and the Hub's copy of the timestamp stamp agrees with Core's. Labels from 750 (738-749 left to core-guardas-1023).
  dict(nome="adapters [750]: Balancer V3 reads depth18 while the Vault is unlocked (balances written before settlement)",
@@ -3980,8 +3980,8 @@ def run(t):
     return r.returncode == 0, r.stdout + r.stderr
 
 
-def artefact_fingerprint():
-    """sha256 of each shipped contract's DEPLOYED bytecode.
+def artefact_fingerprint(harness=()):
+    """sha256 of each shipped contract's DEPLOYED bytecode, and of every artefact of the harness files.
 
     A mutant is a claim about the artefact, not about the source. A source edit the optimiser
     folds away compiles to a byte-identical object: the paired test then passes for the same
@@ -3991,7 +3991,13 @@ def artefact_fingerprint():
 
     So the guard now reads what decides. Byte-identical artefact means the mutant is inert and
     its verdict is discarded rather than reported. (Owner's point, 2026-09-04: run the mutants
-    against the bytecode too, or there is no certainty.)"""
+    against the bytecode too, or there is no certainty.)
+
+    A mutant on a test file (the hyp-1020 entries on DirtyWorld and Fix1020DelegatedCallbacks) is a
+    claim about the harness, and it moves no shipped artefact: hashed against src alone, every one
+    of them read INERT by construction from 2026-10-20 to 10-27, and fifteen guards on the harness
+    were unread. `harness` names the non-src files a run mutates; every artefact compiled from them
+    is hashed too, so a harness mutant is inert only when its own objects did not move."""
     out = {}
     # adapters: the Gate adapters are shipped artefacts too.
     for c in ("Core", "Quoter", "Solver", "Router", "Hub", "Gate",
@@ -4004,6 +4010,12 @@ def artefact_fingerprint():
         # in the creation object alone, and a runtime-only hash is blind to a mutant on it.
         obj = art.get("bytecode", {}).get("object", "") + "|" + art.get("deployedBytecode", {}).get("object", "")
         out[c] = hashlib.sha256(obj.encode()).hexdigest()[:16]
+    for f in harness:
+        d = os.path.join("out", os.path.basename(f))
+        for j in sorted(os.listdir(d)) if os.path.isdir(d) else ():
+            art = json.load(open(os.path.join(d, j)))
+            obj = art.get("bytecode", {}).get("object", "") + "|" + art.get("deployedBytecode", {}).get("object", "")
+            out[f + ":" + j] = hashlib.sha256(obj.encode()).hexdigest()[:16]
     return out
 
 
@@ -4047,7 +4059,11 @@ def main():
     mine = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % n == k]
     paired = {m["teste"] for _, m in mine}
     green, red, _ = baseline()
-    pristine = artefact_fingerprint()
+    harness = sorted({m["f"] for _, m in mine if not m["f"].startswith("src/")})
+    pristine = artefact_fingerprint(harness)
+    # A test file is recompiled only by the runs whose test it holds, so its objects stay as the last
+    # mutant on it left them: each mutant is judged on src plus its own file, never on another's.
+    own = lambda d, f: {k: v for k, v in d.items() if ":" not in k or k.startswith(f + ":")}
     inert = []
     unseen = paired - green - red
     if red & paired:
@@ -4070,8 +4086,8 @@ def main():
         try:
             open(m["f"],"w").write(src.replace(m["old"], m["new"]))
             ok, out = run(m["teste"])
-            fp = artefact_fingerprint()
-            if pristine and fp and fp == pristine:
+            fp = artefact_fingerprint(harness)
+            if pristine and fp and own(fp, m["f"]) == own(pristine, m["f"]):
                 # The source moved and the artefact did not. Whatever the test did, it did not
                 # do it because of this mutant.
                 inert.append(f"[{i}] {m['nome']}: INERT - the deployed bytecode is byte-identical "

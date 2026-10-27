@@ -559,6 +559,17 @@ sentinel the table names as expected. A green suite with an unwatched guard in i
 of both documented regressions in this codebase; the measurement that finds one now runs on
 every guard the campaigns claim.
 
+**2026-10-27: the leg-pair row had gone vacant.** The guard's CI run on 59ecf3f found mutant [249]
+(`||` -> `&&` in the leg-pair check, the `LEG-pair-and` row of the JSON) alive under its own campaign.
+Since bounty #85 (f9d3c77, 2026-10-13) the Router's in-frame quote refuses with `RouterE(8)`, before the
+leg-pair check, a pool holding less of the hop's input token than the leg's input-side reserve.
+`StrandedRegime`'s `swapDivergent` routes A through the T/B pool, which held no A, so every divergent
+attempt died there and `invariant_DivergentLegNeverSettles` certified the guard over an empty universe:
+the shape this section exists to catch. The handler now tops the pool's A up to its T reserve before each
+attempt, and `afterInvariant` requires every divergent leg the unpaused Router could execute to be refused
+with the guard's own `RouterE(3)`, at least one per run. With the mutant the invariant now fails on its
+first call (release settings, seed 0xb1a2ef00). The JSON row is still the 2026-09-05 measurement.
+
 ## 4m. Metamorphic relations — a second judge for the maths and for the plan
 
 An oracle written from the same formula cannot catch the formula. A metamorphic relation asks
