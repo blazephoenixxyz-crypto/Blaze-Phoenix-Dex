@@ -170,6 +170,14 @@ library BlazePhoenixCore {
     uint256 internal constant BPS        = 10_000;
     uint256 internal constant Q96        = 0x1000000000000000000000000;
     uint256 internal constant GAS_CAP    = 100_000;
+    /// @notice The gas a frame must hold for a one-word ask of a pool to hand it the whole
+    ///         GAS_CAP: the callee gets min(GAS_CAP, A - A/64) of the A left at the call
+    ///         (EIP-150), so A >= GAS_CAP * 64 / 63 = 101_587; + 3_000 = the cold account access
+    ///         (2_600) and the opcodes up to the call. On less the ask reverts empty, the house's
+    ///         out-of-gas signature: a pool that reverts EARLY when starved (the 2026 Aerodrome
+    ///         pairs check gasleft() before their fee module) is never read as one that has no
+    ///         answer. Literal for assembly; test/SolidlyPairWithoutStableGetter.t.sol re-derives it.
+    uint256 internal constant ASK_GAS_FLOOR = 104_587;
 
     /// @notice The CL fee read's own budget (getV3Fee), MEASURED, not the shared GAS_CAP.
     /// @dev    The 2026 Aerodrome CL pools answer fee() through pool -> implementation ->
@@ -177,19 +185,31 @@ library BlazePhoenixCore {
     ///         search over the pool's oracle ring, which any caller can grow to 2^16 - 1 slots.
     ///         The hook wraps that observe in try/catch, so a starved observe answers the BASE
     ///         fee instead of failing.
-    ///         CL_FEE_SPENT: the most one read spends (caller-measured, account cold) at the
-    ///         structural maximum: ring of 65 535 one short of full, every reachable leaf of the
-    ///         search swept, both discount-registry entries flagged per pool, the MEV-tax branch
-    ///         taken. Base fork, block 53 127 000 (test/fork/AeroNovaFork.t.sol, G3all).
+    ///         CL_FEE_COST: the most one read costs at the structural maximum, the account access
+    ///         (cold) and all the callee consumes: ring of 65 535 one short of full, every
+    ///         reachable leaf of the search swept, both discount-registry entries flagged per
+    ///         pool, the MEV-tax branch taken. Base fork, block 53 127 000
+    ///         (test/fork/AeroNovaFork.t.sol, G3all: the reader's spent net of its own window).
+    ///         CL_FEE_WINDOW: a bound on the window, the static gas of the ops the compiler puts
+    ///         between the two GAS reads around the call below. `spent` counts it, and it is the
+    ///         compiler's, not the source's (11 in the Hub and the Solver as compiled; checked on
+    ///         every build by test/ClFeeReadHasItsOwnBudget.t.sol).
+    ///         CL_FEE_SPENT = CL_FEE_COST + CL_FEE_WINDOW: the most an honest read measures here.
     ///         CL_FEE_GAS = ceil((CL_FEE_SPENT + 1) * 64^5 / 63^5): a failure swallowed at
     ///         forwarding depth <= 5 (pool -> impl -> library -> hook -> pool -> impl, each
     ///         forward all but 1/64, EIP-150) has consumed at least CL_FEE_GAS * (63/64)^5.
     ///         CL_FEE_TRUST = floor(CL_FEE_GAS * 63^5 / 64^5) > CL_FEE_SPENT: a read that spends
     ///         this much or more may carry a swallowed failure, and its answer is not taken.
-    ///         test/ClFeeReadHasItsOwnBudget.t.sol re-derives all three.
-    uint256 internal constant CL_FEE_SPENT = 177_670;
-    uint256 internal constant CL_FEE_GAS   = 192_227;
-    uint256 internal constant CL_FEE_TRUST = 177_671;
+    ///         CL_FEE_FLOOR = CL_FEE_GAS * 64 / 63 + 3_000: the gas a frame must hold for the
+    ///         whole budget to reach fee() (EIP-150 keeps 1/64; 3_000 = the cold account access,
+    ///         2_600, and the opcodes up to the call).
+    ///         test/ClFeeReadHasItsOwnBudget.t.sol re-derives them all.
+    uint256 internal constant CL_FEE_COST   = 177_662;
+    uint256 internal constant CL_FEE_WINDOW = 64;
+    uint256 internal constant CL_FEE_SPENT  = 177_726;
+    uint256 internal constant CL_FEE_GAS    = 192_288;
+    uint256 internal constant CL_FEE_TRUST  = 177_727;
+    uint256 internal constant CL_FEE_FLOOR  = 198_340;
 
     /// @notice Impact charged to a leg the impact model does not cover
     ///         (stable curves, V4 paths), in bps.
@@ -585,24 +605,31 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice Does the pool answer `stable()` (0x22be3de1)? A Solidly /
-    ///         Velodrome / Aerodrome pair does; a Uniswap-V2 pair does not.
-    ///         This is the pair-shaped family's SHAPE probe, the sibling of
-    ///         `v3StateAndDynFee` for the concentrated family: it lets the Hub
-    ///         derive V2-vs-Solidly from the pool instead of persisting the
-    ///         calldata's word (review 2026-09-02). A hostile pool can answer
-    ///         either way; both misclassifications fall to the conservative
-    ///         path (the Solidly quote asks the pool and falls back to a
-    ///         haircut curve; the V2 quote is bounded by the pool's own K).
-    ///         `>= 32`, per this file's returndata policy (see getReserves).
-    function isSolidlyShaped(address pool) internal view returns (bool yes) {
-        assembly ("memory-safe") {
-            let p := mload(0x40)
-            mstore(p, 0x22be3de100000000000000000000000000000000000000000000000000000000)
-            let ok := staticcall(GAS_CAP, pool, p, 0x04, 0x00, 0x20)
-            // The answer must be an ABI bool: a word above 1 is not a shape answer.
-            yes := and(and(ok, iszero(lt(returndatasize(), 32))), lt(mload(0x00), 2))
-        }
+    /// @notice Is the pool a Solidly-class pair? The pair-shaped family's SHAPE probe, the
+    ///         sibling of `v3StateAndDynFee` for the concentrated family: it lets the Hub derive
+    ///         V2-vs-Solidly from the pool instead of persisting the calldata's word (review
+    ///         2026-09-02). Either answer makes a pair Solidly: `stable()` answered with an ABI
+    ///         bool (Solidly / Velodrome / the first Aerodrome), or the total-fee ask
+    ///         getAmountOutWithTotalFee(0, address(0)) (0x0ea099c1) answered with 0 - the 2026
+    ///         Aerodrome V2 factories fix the curve per factory and their pairs have no stable().
+    ///         The output of nothing is nothing, so a catch-all fallback's nonzero word is no
+    ///         answer. A Uniswap-V2 pair answers neither. A hostile pool can answer either way;
+    ///         both misclassifications fall to the conservative path (the Solidly quote asks the
+    ///         pool, and only a pair that answers stable() has a curve to fall back to; the V2
+    ///         quote is bounded by the pool's own K). Both asks hold the floor (ASK_GAS_FLOOR).
+    function isSolidlyShaped(address pool) internal view returns (bool) {
+        if (answersStable(pool)) return true;
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x0ea099c1, uint256(0), address(0)));
+        return ok && w == 0;
+    }
+
+    /// @dev Does the pool answer `stable()` (0x22be3de1) with an ABI bool (a word above 1 is no
+    ///      answer)? Only such a pair has a curve the Core can replicate: the replicated-curve
+    ///      fallback (`solidlyAskOut`, `legQuoteImpact`) is closed to every other one.
+    function answersStable(address pool) internal view returns (bool ok) {
+        uint256 w;
+        (ok, w) = _askWord(pool, abi.encodeWithSelector(0x22be3de1));
+        ok = ok && w < 2;
     }
 
     /// @dev The pool's own `stable()` answer — read ONCE, at registration, and
@@ -612,16 +639,11 @@ library BlazePhoenixCore {
     ///      A pair that does not answer — a V2 shape, or a hostile pool — reads
     ///      as volatile, which is the conservative curve: every Solidly quote
     ///      channel asks the pool's `getAmountOut` first and only the
-    ///      replicated-curve fallback consults this flag. Same selector and
-    ///      returndata policy as `isSolidlyShaped`.
-    function solidlyStable(address pool) internal view returns (bool yes) {
-        assembly ("memory-safe") {
-            let p := mload(0x40)
-            mstore(p, 0x22be3de100000000000000000000000000000000000000000000000000000000)
-            let ok := staticcall(GAS_CAP, pool, p, 0x04, 0x00, 0x20)
-            // Same ABI-bool policy as the shape read: only the word 1 is "stable" (bounty #42).
-            yes := and(and(ok, iszero(lt(returndatasize(), 32))), eq(mload(0x00), 1))
-        }
+    ///      replicated-curve fallback consults this flag. Same ask as `answersStable`
+    ///      (the floor included); only the word 1 is "stable" (bounty #42).
+    function solidlyStable(address pool) internal view returns (bool) {
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x22be3de1));
+        return ok && w == 1;
     }
 
     /// @dev Factory staticcall dispatcher. Each AMM family exposes its lookup
@@ -980,9 +1002,8 @@ library BlazePhoenixCore {
     ///         - otherwise the pool's answer.
     function getV3Fee(address pool) internal view returns (uint24 f) {
         assembly ("memory-safe") {
-            // Guard: the whole budget reaches fee() or nothing is read. 3_000 = the cold account
-            // access (2_600) and the opcodes between this check and the call.
-            if lt(gas(), add(div(mul(CL_FEE_GAS, 64), 63), 3000)) { revert(0, 0) }
+            // Guard: the whole budget reaches fee() or nothing is read.
+            if lt(gas(), CL_FEE_FLOOR) { revert(0, 0) }
             mstore(0x00, 0xddca3f4300000000000000000000000000000000000000000000000000000000)
             let g0 := gas()
             let ok := staticcall(CL_FEE_GAS, pool, 0x00, 0x04, 0x00, 0x20)
@@ -1352,9 +1373,11 @@ library BlazePhoenixCore {
     ///      planner quotes every candidate of a pair in one call, so no answer may cost it more.
     ///      The Solidly pair's two quote asks, its factory() and that factory's getFee ask through
     ///      here; the fixed-selector getters keep their inline form of the same bound. `ok` only
-    ///      for an answer of at least one word; the word is the answer's first.
+    ///      for an answer of at least one word; the word is the answer's first. Never asked on
+    ///      less than ASK_GAS_FLOOR: a starved ask reverts empty instead of answering "no".
     function _askWord(address target, bytes memory cd) private view returns (bool ok, uint256 word) {
         assembly ("memory-safe") {
+            if lt(gas(), ASK_GAS_FLOOR) { revert(0, 0) }
             // Two statements, not one: Yul evaluates arguments right to left, so a size check
             // written as the call's sibling would read the returndata of the call before it.
             ok := staticcall(GAS_CAP, target, add(cd, 32), mload(cd), 0x00, 0x20)
@@ -1367,12 +1390,16 @@ library BlazePhoenixCore {
     ///         executor settles on and the quote channel promises. Its own `getAmountOut` less
     ///         one wei, the rounding margin that keeps the pair's K check satisfied; on forks
     ///         without the selector (an answer <= 1), the replicated curve at the live fee less
-    ///         200 bps, because the pool's K rounding cannot be observed there.
+    ///         200 bps, because the pool's K rounding cannot be observed there. Only a pair that
+    ///         answers stable() has a curve to replicate: for any other the `stable` flag is
+    ///         nobody's word (the volatile curve on a stable pool under-asks a balanced pool and
+    ///         over-asks a skewed one), so its ask is 0 (aero-nova, 2026-10-26).
     function solidlyAskOut(
         address pool, uint256 amountIn, address tokenIn, bool zeroForOne, bool stable, uint256 cfgFee
     ) public view returns (uint256 out) {
         out = solidlyGetAmountOut(pool, amountIn, tokenIn);
         if (out > 1) { unchecked { return out - 1; } }
+        if (!answersStable(pool)) return 0;
         (uint256 r0, uint256 r1) = getReserves(pool);
         (uint256 rIn, uint256 rOut) = zeroForOne ? (r0, r1) : (r1, r0);
         out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * 9800) / BPS;
@@ -2619,9 +2646,10 @@ library BlazePhoenixCore {
                     // Solidly: the pool's own getAmountOut - decimal-agnostic and what the
                     // executor settles. Trigger aligned with the executor (`<= 1` is "no answer").
                     // NO HAIRCUT here: the executor's 200 bps are slack for the pool's K, and
-                    // this number is a FLOOR (coverage gate, fee base, hopAttested).
+                    // this number is a FLOOR (coverage gate, fee base, hopAttested). The curve
+                    // only for a pair that answers stable(), as in `solidlyAskOut`; else 0.
                     q = solidlyGetAmountOut(leg.pool, legAmt, tokenIn);
-                    if (q <= 1) q = solidlyCurveOut(leg.pool, legAmt, rIn, rOut, leg.stable, leg.fee, tokenIn);
+                    if (q <= 1) q = answersStable(leg.pool) ? solidlyCurveOut(leg.pool, legAmt, rIn, rOut, leg.stable, leg.fee, tokenIn) : 0;
                 }
             }
         } else if (kindHas(leg.kind, A_CONC_POOL)) {

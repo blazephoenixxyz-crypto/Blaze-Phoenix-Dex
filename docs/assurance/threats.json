@@ -400,6 +400,38 @@
       "guard": "_gateVital",
       "test": "test_GatedAuto_HotWrapperSettlesUnderTheSolveBudget",
       "note": "F1 of the gatedauto-1022 review. Core._gateVital, the one reader of Gate.vitalOf, copies only words 1-2 into scratch (returndatacopy(0x00, 0x20, 0x40) after returndatasize() >= 0x60). Before: the whole answer at 0x00, psi on 0x40; measured 33 988 102 gas for gateQuote with depth at psi 2^22 and RouterE(17) at the best door. The class is held by the Scratch memory guard in ci.yml (no assembly call or copy with a literal output below 0x80 may end past 0x40). Mutants [693]-[697]."
+    },
+    {
+      "id": "AERO-NOVA-SWALLOWED-OOG-FEE",
+      "class": "A view the planner trusts that catches its own callee's failure and answers a fallback: a fee() whose hook wraps a TWAP observe in try/catch answers the BASE fee when the observe runs out of gas, so the caller's gas limit, or an attacker growing the oracle ring, chooses the fee a plan prices",
+      "status": "blocked",
+      "guard": "CL_FEE_TRUST",
+      "test": "test_ASwallowedFailureFiveForwardsDeepIsNotTaken",
+      "note": "aero-nova 2026-10-26 (the 2026 Aerodrome CL pools). Core.getV3Fee reads on its own budget CL_FEE_GAS, refuses to read on less than CL_FEE_FLOOR (empty revert), and does not take an answer that spent CL_FEE_TRUST or more: a failure swallowed at forwarding depth <= 5 has consumed at least that (EIP-150), and an honest read at the measured structural maximum (CL_FEE_COST, Base fork) stays below it. Mutants [741]-[746]."
+    },
+    {
+      "id": "AERO-NOVA-FEE-SNAPSHOT-KEY",
+      "class": "A per-block dynamic fee written into a registry row as a static key: every later quote prices the pool at the fee of the block it was registered in",
+      "status": "blocked",
+      "guard": "_concRowFee",
+      "test": "test_ASpacingKeyedRowFromASwapReadsTheFeeLive",
+      "note": "aero-nova 2026-10-26. Hub._concRowFee is the one producer of a non-V4 row's fee at both doors: a V3 row carries the tier its derivation is keyed by only when the pool answers it, else 0, the live read; never the pool's fee() answer. The swap door writes 0 when starved, the operator's door reverts. Mutants [747]-[751]."
+    },
+    {
+      "id": "AERO-NOVA-STARVED-PROBE",
+      "class": "A probe read on caller-chosen gas: a pool that reverts early when starved (the 2026 Aerodrome pairs check gasleft() before their fee module) reads as one that has no answer, so the sender's gas limit re-labels a Solidly pair as V2 or writes a stable pair volatile",
+      "status": "blocked",
+      "guard": "ASK_GAS_FLOOR",
+      "test": "test_ShapeUnderEveryGas_PairWithoutStableGetter_NeverReadsV2",
+      "note": "aero-nova 2026-10-26. Core._askWord reverts empty (the house's out-of-gas signature) on less than ASK_GAS_FLOOR = GAS_CAP * 64 / 63 + 3 000, so every shape, stable and quote ask either gets the whole GAS_CAP or does not answer. Mutants [757]-[759]."
+    },
+    {
+      "id": "AERO-NOVA-UNKNOWN-CURVE",
+      "class": "A replicated-curve fallback applied to a pair whose curve the reader cannot know: a pair without stable() (the 2026 Aerodrome V2) priced on the volatile curve under-asks a balanced stable pool and over-asks a skewed one",
+      "status": "blocked",
+      "guard": "answersStable",
+      "test": "test_SolidlyAsk_UnknownCurve_AsksNothing",
+      "note": "aero-nova 2026-10-26. Core.answersStable gates the replicated curve in solidlyAskOut and legQuoteImpact: only a pair that answers stable() with an ABI bool has a curve; any other asks and quotes 0 when its own getAmountOut does not answer. Mutants [754]-[756]."
     }
   ]
 }

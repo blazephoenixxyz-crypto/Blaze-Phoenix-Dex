@@ -242,7 +242,8 @@ contract BlazePhoenixHub {
     /// @notice Which kinds each discovery mode can register: the salt-slot <-> kind coherence
     ///         of `addFactory`, as DATA. Row `m` is bits 16m..16m+15; bit `k` set = kind `k`
     ///         admissible under mode `m`. Modes that fix no salt family (0-3 ask, 7 V3-CL,
-    ///         8 tombstone) admit every routable kind but the Gate's; 4 (V2 salt) only V2; 5 (V3 salt)
+    ///         8 tombstone) admit every routable kind but the Gate's; 4 (V2 salt) V2 and Solidly (the
+    ///         2026 Aerodrome V2 factories, one per curve, salt the pair alone); 5 (V3 salt)
     ///         KINDS_V3_SALT; 6 (clone) only Solidly; 9 (V4 derive) only V4. Rows 10-15 are
     ///         empty. 16 bits per row is enough because KINDS_ROUTABLE has no bit >= 16 (pinned).
     ///         Mode 8 never reaches its row: MODES_VALID refuses it first, and stays the one
@@ -252,7 +253,7 @@ contract BlazePhoenixHub {
         | (KINDS_LOOKUP << 16)                                                     // 1
         | (KINDS_LOOKUP << 32)                                                     // 2
         | (KINDS_LOOKUP << 48)                                                     // 3
-        | ((uint256(1) << BPC.KIND_V2) << (16 * MODE_CREATE2_V2))                  // 4
+        | (((uint256(1) << BPC.KIND_V2) | (uint256(1) << BPC.KIND_SOLIDLY)) << (16 * MODE_CREATE2_V2)) // 4
         | (KINDS_V3_SALT << (16 * MODE_CREATE2_V3))                                // 5
         | ((uint256(1) << BPC.KIND_SOLIDLY) << (16 * MODE_CREATE2_CLONE))          // 6
         | (KINDS_LOOKUP << (16 * MODE_CREATE2_V3CL))                               // 7
@@ -1883,7 +1884,8 @@ contract BlazePhoenixHub {
         //   Algebra (`dyn`) -> 0, the sentinel that tells the reader to MEASURE live
         //     (`quoteV3Fee`). That is rule R2 (L511-512), which only existed at the
         //     `addFactory` door — this door never had it.
-        //   Static V3 -> `getV3Fee(pool)`, measured.
+        //   Static V3 -> the tier its derivation is keyed by, when the pool answers it;
+        //     else 0, the live read (`_concRowFee`; aero-nova: a fee() answer is a snapshot).
         //   V2 / Solidly -> `fee()` does not exist, so 0, and `effV2Fee(0) = 30`: the
         //     house's single producer answers, instead of the caller.
         // The `dyn` of `v3StateAndDynFee` discriminates by SHAPE (slot0 fails and
@@ -1955,7 +1957,11 @@ contract BlazePhoenixHub {
             if (!proven) return;
             // The row's fee is neither calldata's (REG-01) nor the pool's snapshot (aero-nova):
             // the fee its derivation is keyed by, when the pool agrees, else 0, the live read.
-            feeReg = _concRowFee(pool, kind, idFee);
+            // A frame too short for the read's whole budget writes 0 instead of reverting: the
+            // Router swallows this call, and a revert that hands its gas back would make the
+            // cheapest gas limit the one that skips registration. Either answer prices the pool
+            // at its own fee; only a later quote's cost differs. (+1_000: up to the read's check.)
+            feeReg = gasleft() < BPC.CL_FEE_FLOOR + 1_000 ? 0 : _concRowFee(pool, kind, idFee);
         }
         _register(key, pool, t0, t1, _born(kind, feeReg, false), depthWad);
         // initial tick + stamp wall-clock activity time
@@ -2003,6 +2009,8 @@ contract BlazePhoenixHub {
     ///      block, and a row born at one block's answer priced every later quote at it.
     ///      Agreement is asked because a key is not always the fee: a row the operator wired with
     ///      tiers on a mode that derives by spacing lists its first tier on every hit.
+    ///      A frame too short for the read's whole budget reverts here (`getV3Fee`): the
+    ///      operator's door lets it, the swap door asks first (`recordSwap`).
     function _concRowFee(address pool, uint8 kind, uint24 idFee) private view returns (uint24) {
         if (kind != BPC.KIND_V3 || idFee == 0) return 0;
         return BPC.getV3Fee(pool) == idFee ? idFee : 0;
@@ -2221,7 +2229,10 @@ contract BlazePhoenixHub {
             // the swap door would write (`_concRowFee`: its derivation's tier when the pool
             // agrees, else 0, the live read; a pool no wired factory derives reads live); a pair
             // row keeps the declared one, which may be the only source of a fork's tier (no pair
-            // reports its fee) and binds the operator alone.
+            // reports its fee) and binds the operator alone. Starved, the two doors part: the
+            // swap door, which the Router swallows, writes 0 rather than revert cheaply; this one
+            // lets the fee read's floor revert, so the operator's estimate covers the read and an
+            // agreeing tier is never lost to the gas limit.
             (bool proven, uint8 k) = BPC.provenShape(pool, kind);
             if (!proven) revert HubE(4);
             kind = k;

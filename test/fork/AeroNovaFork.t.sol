@@ -438,11 +438,12 @@ contract AeroNovaClFeeGasFork is Test {
         }
     }
 
-    function _profile(string memory label, address pool) internal {
+    function _profile(string memory label, address pool) internal returns (uint256 gMin, uint24 fRef) {
         uint256 reads = _collect(pool);
-        (bool okRef, uint24 fRef,) = reader.readAt(pool, 5_000_000);
+        bool okRef;
+        (okRef, fRef,) = reader.readAt(pool, 5_000_000);
         assertTrue(okRef && fRef != 0, "fee() answers with ample gas");
-        uint256 gMin = _gMin(pool, fRef, true, false, false);
+        gMin = _gMin(pool, fRef, true, false, false);
         uint256 gOk = _gMin(pool, fRef, true, true, false);
         _coolAll();
         (,, uint256 spent) = reader.readAt(pool, 5_000_000);
@@ -555,8 +556,48 @@ contract AeroNovaClFeeGasFork is Test {
         }
         console2.log("leaves", cnt, "spent max", top);
         console2.log("argmax leaf", topLeaf, "spent min", low);
+        // META-GUARD of the measurement: the Core's constants come from this maximum.
+        uint256 wR = _readerWindow();
+        assertEq(topLeaf, ARGMAX_LEAF, "the argmax G5 reads");
+        assertEq(top - wR, BPC.CL_FEE_COST, "CL_FEE_COST is the measured maximum, net of the reader's window");
         _toStructuralMaxAt(WORST, true, topLeaf);
-        _profile("argmax leaf + heaviest caller branches", WORST);
+        (uint256 gMin,) = _profile("argmax leaf + heaviest caller branches", WORST);
+        assertLe(gMin, BPC.CL_FEE_GAS, "the budget reaches the measured maximum");
+    }
+
+    /// The reader's own window (the static gas between its two GAS reads): a read of an account
+    /// without code costs the access and nothing else, 2 600 cold, 100 warm. Warm is measured
+    /// inside ONE call (readWarm): the test's top-level calls do not keep accounts warm.
+    function _readerWindow() internal returns (uint256 w) {
+        address empty = address(uint160(uint256(keccak256("aero-nova: an account without code"))));
+        assertEq(empty.code.length, 0, "an account without code");
+        (,, uint256 cold) = reader.readAt(empty, 100_000);
+        (,, uint256 warm) = reader.readWarm(empty, 100_000);
+        w = warm - 100;
+        assertEq(cold - 2_600, w, "the window is the same cold and warm");
+        console2.log("reader window", w);
+    }
+
+    // -- G5: the Core's own read at the measured maximum ---------------------------------------
+    //  The Core measures `spent` as the reader does, around its own CALL, but two compiled
+    //  instances of the read differ by the static gas of the ops between their two GAS reads
+    //  (the window): the reader's is not the Core's. At the argmax leaf, cold, under the
+    //  heaviest caller branches, the Core's quote must be the pool's fee: neither the budget
+    //  nor the trust threshold may refuse the measured maximum.
+    uint256 internal constant ARGMAX_LEAF = 65_530; // G3all, log s3a-fork-leaves.log
+
+    function test_G5_CoreQuotesTheMeasuredMaximum() public {
+        _toStructuralMaxAt(WORST, true, ARGMAX_LEAF);
+        _heavyCaller(WORST);
+        vm.txGasPrice(block.basefee + 1e15);
+        _collect(WORST);
+        _coolAll();
+        (bool ok, uint24 fRef, uint256 spent) = reader.readAt(WORST, 5_000_000);
+        assertTrue(ok && fRef == 450, "the pool's fee at the maximum (G3all)");
+        console2.log("reader spent at the argmax, cold", spent);
+        assertEq(spent - _readerWindow(), BPC.CL_FEE_COST, "this is the maximum the constants come from");
+        _coolAll();
+        assertEq(reader.coreQuoteFee(WORST), fRef, "the Core quotes the pool's fee at the measured maximum, cold");
     }
 
     function test_G4_ClFee_MevTaxBranch_AndWarmRead_HeaviestSampled() public {

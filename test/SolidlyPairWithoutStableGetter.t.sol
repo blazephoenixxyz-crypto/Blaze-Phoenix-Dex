@@ -83,6 +83,37 @@ contract CapHungryStablePair {
     }
 }
 
+/// @dev The same appetite on a stable pair: its registration's stable bit is read right only
+///      on the cap.
+contract CapHungryTrueStablePair {
+    function stable() external view returns (bool) {
+        if (gasleft() < 99_000) revert();
+        return true;
+    }
+}
+
+/// @dev A pair that answers stable() with a word that is not an ABI bool, holds reserves, and
+///      answers no quote ask: it has no curve the Core can replicate.
+contract NonBoolStablePair {
+    address public token0;
+    address public token1;
+    uint112 internal r0;
+    uint112 internal r1;
+
+    constructor(address a, address b, uint112 x, uint112 y) {
+        (token0, token1) = a < b ? (a, b) : (b, a);
+        (r0, r1) = (x, y);
+    }
+
+    function stable() external pure returns (uint256) {
+        return 7;
+    }
+
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (r0, r1, uint32(block.timestamp));
+    }
+}
+
 /// @dev No stable(), and a total-fee ask that pays something for nothing.
 contract SomethingForNothingPair {
     function getAmountOutWithTotalFee(uint256 amountIn, address) external pure returns (uint256) {
@@ -125,6 +156,10 @@ contract SolidlyPairWithoutStableGetterTest is Test {
 
     function shaped(address p) external view returns (bool) {
         return BPC.isSolidlyShaped(p);
+    }
+
+    function stableOf(address p) external view returns (bool) {
+        return BPC.solidlyStable(p);
     }
 
     function legQuote(Leg calldata leg, address tIn, address tOut, uint256 amt)
@@ -210,6 +245,15 @@ contract SolidlyPairWithoutStableGetterTest is Test {
         assertGt(BPC.solidlyAskOut(address(old), 1e18, old.token0(), true, false, 0), 0, "control: a pair that answers stable() keeps the replicated curve");
     }
 
+    /// The curve's gate is the ABI-bool answer, not any answer to stable(): a word above 1 says
+    /// nothing about the curve, so the ask is 0 there too.
+    function test_SolidlyAsk_StableWordNotABool_AsksNothing() public {
+        NonBoolStablePair p = new NonBoolStablePair(address(tA), address(tB), 1_000e18, 2_000e18);
+        MockERC20(p.token0()).mint(address(p), 1_000e18);
+        MockERC20(p.token1()).mint(address(p), 2_000e18);
+        assertEq(BPC.solidlyAskOut(address(p), 1e18, p.token0(), true, false, 0), 0, "a stable() word that is not a bool is no curve");
+    }
+
     function test_LegQuote_UnknownCurve_QuotesNothing() public {
         NoStableGetterPair p = _pair(1_000e18, 2_000e18);
         (address t0, address t1) = (p.token0(), p.token1());
@@ -249,10 +293,75 @@ contract SolidlyPairWithoutStableGetterTest is Test {
         assertGt(refusals, 0, "the sweep starts below the gas a probe needs");
     }
 
+    // RED-STRIP-BEGIN: answersStable does not exist before the fix.
+    function answers(address p) external view returns (bool) {
+        return BPC.answersStable(p);
+    }
+
+    /// The same sweep on the stable() ask alone: a cold pair that answers stable() is either
+    /// answered or refused, never read as a pair that does not answer.
+    function _askSweep(address pool) internal returns (uint256 oks, uint256 refusals) {
+        for (uint256 g = 60_000; g <= 260_000; g += 251) {
+            vm.cool(pool);
+            try this.answers{gas: g}(pool) returns (bool y) {
+                assertTrue(y, string.concat("the cold stable() ask was starved at gas ", vm.toString(g)));
+                ++oks;
+            } catch (bytes memory err) {
+                assertEq(err.length, 0, "a refusal is the out-of-gas signature");
+                ++refusals;
+            }
+        }
+    }
+    // RED-STRIP-END
+
+    /// The shape alone cannot see the floor's cold-access term. A starved first ask (stable(),
+    /// cold) hands the shape to the second ask (the total-fee ask), which holds the same floor
+    /// after the cold access is paid: whenever that floor lets it run, the first ask had the whole
+    /// cap, so a floor without the 2_600 refuses there instead of reading wrong (mutant [759]
+    /// lived on the shape sweep, 2026-10-27). So the stable() ask is swept alone too: it is the
+    /// shape's first ask and the gate of the replicated-curve fallback.
     function test_ShapeUnderEveryGas_ColdStableAnswer_GetsTheWholeCap() public {
         address p = address(new CapHungryStablePair());
         (uint256 oks, uint256 refusals) = _sweep(p);
         assertGt(oks, 0, "the sweep reaches the gas that reads the pair");
         assertGt(refusals, 0, "the sweep starts below the gas a probe needs");
+        // RED-STRIP-BEGIN: answersStable does not exist before the fix.
+        (oks, refusals) = _askSweep(p);
+        assertGt(oks, 0, "the sweep reaches the gas that answers the stable() ask");
+        assertGt(refusals, 0, "the sweep starts below the gas the stable() ask needs");
+        // RED-STRIP-END
     }
+
+    /// The registration's stable bit (`solidlyStable`, bit 5 of the row) is the same ask: a stable
+    /// pair is never written volatile because its probe ran starved.
+    function test_StableBitUnderEveryGas_NeverReadsVolatile() public {
+        address p = address(new CapHungryTrueStablePair());
+        uint256 oks;
+        uint256 refusals;
+        for (uint256 g = 60_000; g <= 260_000; g += 251) {
+            vm.cool(p);
+            try this.stableOf{gas: g}(p) returns (bool y) {
+                assertTrue(y, string.concat("the stable bit was read from a starved probe at gas ", vm.toString(g)));
+                ++oks;
+            } catch (bytes memory err) {
+                assertEq(err.length, 0, "a refusal is the out-of-gas signature");
+                ++refusals;
+            }
+        }
+        assertGt(oks, 0, "the sweep reaches the gas that reads the pair");
+        assertGt(refusals, 0, "the sweep starts below the gas a probe needs");
+    }
+
+    // RED-STRIP-BEGIN: the floor does not exist before the fix.
+    /// ASK_GAS_FLOOR is derived, and tight at its EIP-150 term: at A = GAS_CAP * 64 / 63 left at
+    /// the call the callee gets the whole cap, one less and it does not. The 3_000 above A is the
+    /// cold account access (2_600) and the opcodes up to the call; the cap-hungry sweeps above are
+    /// its measurement (a floor without the 2_600 starves them).
+    function test_TheAskFloorIsDerived() public pure {
+        uint256 a = BPC.GAS_CAP * 64 / 63;
+        assertGe(a - a / 64, BPC.GAS_CAP, "at A the callee gets the whole cap");
+        assertLt((a - 1) - (a - 1) / 64, BPC.GAS_CAP, "and A is the least that does");
+        assertEq(BPC.ASK_GAS_FLOOR, a + 3_000, "the floor is A plus the cold access and the opcodes");
+    }
+    // RED-STRIP-END
 }
