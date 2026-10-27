@@ -47,14 +47,27 @@ contract MonoslotContractTest is Test {
     /// licenca sobrevive bit a bit — kind, fee, tier, conc, emaIn/Out, regBlk,
     /// lastUpdateTs, a flag de bridge (bit 7) e os reservados [6:1].
     function testFuzz_TickSlot_SoTocaNosSeusCampos(
-        uint256 slot, bool anchored, uint256 depthWad, uint32 ts
+        uint256 slot, bool anchored, uint256 depthWad, uint32 ts, uint8 shape
     ) public pure {
+        // One run in four is a slot never stamped (lastTs == 0), by construction: the arm where
+        // no interval closes, which a free uint256 reached once in 2^32 runs.
+        if (bound(shape, 0, 3) == 0) slot &= ~(uint256(0xFFFFFFFF) << 64);
         uint256 depois = BPC.tickSlot(slot, anchored, depthWad, ts);
         assertEq((slot ^ depois) & ~TICK_LICENSE, 0,
             "tickSlot sangrou para fora de {swapCount, tau, bucket}");
-        // o relogio so anda com um tick ancorado que fecha um intervalo (lastTs != 0)
-        if (!anchored || BPC.decodeLastUpdateTs(slot) == 0)
-            assertEq(BPC.decodeTau(depois), BPC.decodeTau(slot), "tau mexeu sem ancora");
+        // tau is WRITTEN on every arm, and asserted on every arm: an anchored tick that closes an
+        // interval (lastTs != 0) takes it as tau when tau is 0, else moves tau 2^-3 of the gap
+        // (TAU_EMA_SHIFT, by value); any other tick leaves it.
+        uint256 lastTs = BPC.decodeLastUpdateTs(slot);
+        uint256 tau = BPC.decodeTau(slot);
+        uint256 want = tau;
+        if (anchored && lastTs != 0) {
+            uint256 dt = ts > lastTs ? ts - lastTs : 0;
+            if (tau == 0) want = dt;
+            else if (dt >= tau) want = tau + (dt - tau) / 8;
+            else want = tau - (tau - dt) / 8;
+        }
+        assertEq(BPC.decodeTau(depois), want, "tau is not the clock's own next value");
         assertEq(BPC.decodeBucket(depois), BPC.depthBucket(depthWad),
             "bucket nao re-derivado da profundidade nova");
     }
@@ -176,15 +189,19 @@ contract DiscoveryRefreshTest is Test {
 
     /// PORTA QUENTE (o REFRESH): segundo swap incrementa a contagem, actualiza
     /// o lastUpdateTs e RE-BUCKETA com a profundidade nova — a liquidez mudou, o
-    /// registo acompanha. Um unico vm.roll, callsite unico (stale-cache).
+    /// registo acompanha. One vm.warp, one callsite (stale-cache): the refresh is anchored and
+    /// closes a 100 s interval, so both time fields it WRITES differ from the insertion's and
+    /// are asserted by value: tau (the first interval) and lastUpdateTs (the refresh's stamp).
     function test_PortaQuente_RefrescaContagemEBalde() public {
         MockPair p = _pair();
         _rec(address(p), KIND_V3, DEPTH_RASA);
-        vm.roll(block.number + 7);
-        _rec(address(p), KIND_V3, DEPTH_FUNDA);
+        uint256 tIns = block.timestamp;
+        vm.warp(tIns + 100);
+        _rec(address(p), KIND_V3, DEPTH_FUNDA | BPC.TICK_ANCHORED);
         uint256 s = hub.getSlot(hub.keyOf(address(p), TA, TB));
         assertEq(BPC.decodeSwapCount(s), 2, "refresh tem de contar do valor decaido + 1");
-        assertEq(BPC.decodeTau(s), 0, "profundidade sem bit de ancora: o relogio nao anda");
+        assertEq(BPC.decodeTau(s), 100, "the first anchored interval since insertion is tau");
+        assertEq(BPC.decodeLastUpdateTs(s), tIns + 100, "the refresh stamps lastUpdateTs");
         assertEq(BPC.decodeBucket(s), BPC.depthBucket(DEPTH_FUNDA),
             "o balde tem de seguir a profundidade NOVA, nao a da insercao");
     }

@@ -224,8 +224,33 @@ contract LifecycleMetricsTest is Test {
         console2.log("registered pools:", regRevive);
         console2.log("vitality sum after reactivation:", vitRevive);
         console2.log("(hot vitality sum was:", vitHot);
-        assertLt(vitRevive, vitHot,
-            "R3: a swap after full decay must not restore the pre-decay vitality");
+
+        // Every figure above, by value (one swap ticks all four pools, every leg anchored).
+        // Hot: five swaps 60 s apart leave each pool count 5, tau 60, so step h = 4 * 60 = 240
+        // and v = 5 * 24 576 / 240 = 512 per pool.
+        assertEq(vitHot, 4 * 512, "hot: count 5 on a 240 s step scores 512 per pool");
+        // TTL + 1 = 3 601 s later the count has halved 15 times (3 601 / 240): live, scored 0,
+        // floored to 1 per pool.
+        assertEq(vitBeforeDecay, 4, "an hour on: 15 steps, still live, the floor of 1 per pool");
+        // One fixed step (24 576 s) further is 117 of these pools' own steps (28 177 / 240),
+        // past the 31 a count survives: dead. The old fixed step would still score 2 per pool.
+        assertEq(vitOneStep, 0, "one fixed step later the pools' own clock has killed them");
+        // (vitDead == 0 is pinned with the report-grade assertions below.)
+        // R3, by value. The revive swap counts from what survives on the OLD clock: nothing,
+        // so count 1. Its interval since the last hot swap, dt = 814 609 s, moves tau by the
+        // EMA: 60 + (814 609 - 60) / 8 = 101 878. Score 24 576 / (4 * 101 878) = 0, floor 1.
+        assertEq(regRevive, 4, "the revive swap reaches the same four pools");
+        assertEq(vitRevive, 4, "R3: a swap after full decay scores the floor, not the old history");
+        // The sum alone cannot see a tick that skips the decay: count 6 on that tau also
+        // floors to 1. The count per pool can.
+        PoolInfo[] memory revived = hub.getActivePools(address(tokenIn), address(tokenOut));
+        for (uint256 i; i < revived.length; ++i) {
+            uint256 slot = hub.getSlot(hub.keyOf(revived[i].pool, revived[i].token0, revived[i].token1));
+            assertEq(BPC.decodeSwapCount(slot), 1,
+                "R3: the revive swap counts from the decayed zero, not from the hot five");
+            assertEq(BPC.decodeTau(slot), 101_878, "the revive interval moved tau by its EMA");
+            assertEq(BPC.decodeLastUpdateTs(slot), uint32(t), "the revive swap stamps its time");
+        }
 
         // Report-grade assertions: the measurement itself must be meaningful.
         // regCold is 0 BY DESIGN — in the cold phase the pools are reachable only through

@@ -16,8 +16,11 @@ pragma solidity 0.8.36;
 //   - the clock: the first anchored interval IS tau, later ones move it by 2^-k, over the
 //     PREVIOUS stamp, and it converges;
 //   - tau = 0 and the extremes of tau never divide by zero or overflow;
+//   - any clock, read and ticked, is its definition, written here by hand (fuzz, every regime
+//     drawn by construction);
+//   - a tick decays the count on the OLD clock before it moves it; the count saturates;
 //   - dust moves no clock: neither a tick without the anchor bit nor a trade under 2^-16 of the
-//     depth;
+//     depth, nor a zero leg, nor a trade on a pool with no depth;
 //   - the score is a rate: equal counts on different clocks score in inverse ratio.
 //
 // forge test --match-path test/PoolClockDifferential.t.sol -vv
@@ -78,6 +81,34 @@ contract PoolClockDifferentialTest is Test {
         return (slot & ~TAU_MASK) | (uint256(tau) << 224);
     }
 
+    uint256 constant LAST_TS_MASK = uint256(0xFFFFFFFF) << 64;
+
+    /// Any slot, restamped at a lastTs in [1, 2^32 - 1 - 40 * S] (so 40 steps after it still fit
+    /// 32 bits), on the fixed clock (tau = S / m) or the unmeasured one (tau = 0).
+    function _fixedClockSlot(uint256 slot, uint32 lastTs, bool unmeasured) internal pure returns (uint256) {
+        lastTs = uint32(bound(lastTs, 1, type(uint32).max - 40 * S));
+        slot = (slot & ~LAST_TS_MASK) | (uint256(lastTs) << 64);
+        return _withTau(slot, unmeasured ? 0 : uint32(S / M));
+    }
+
+    /// THE DEFINITION, by hand, not the Core's arithmetic: a clock of tau seconds steps once per
+    /// m taus (an unmeasured clock, tau 0, once per S); each whole step since the stamp halves the
+    /// count; 32 whole steps kill the slot, as does never having been stamped; the score is the
+    /// surviving count per step in trades per S, and a live slot never scores below 1. Steps
+    /// are counted by walking the deadlines (stamp + n * step <= now) and the count is halved by
+    /// division: no shift and no division of the age, so a slip in either is not mirrored here.
+    function _byDefinition(uint32 lastTs, uint32 count, uint32 tau, uint32 ts)
+        internal pure returns (bool dead, uint256 c, uint256 v)
+    {
+        uint256 step = M * uint256(tau);
+        if (tau == 0) step = S;
+        if (lastTs == 0 || uint256(lastTs) + 32 * step <= ts) return (true, 0, 0);
+        c = count;
+        for (uint256 n = 1; uint256(lastTs) + n * step <= ts; ++n) c /= 2;
+        v = c * S / step;
+        if (v == 0) v = 1;
+    }
+
     function _slot(uint32 lastTs, uint32 count, uint32 tau) internal pure returns (uint256) {
         return BPC.encodeSlot(true, 500, 1, 2, 0, lastTs, 0, 0, count, 0, tau);
     }
@@ -94,16 +125,27 @@ contract PoolClockDifferentialTest is Test {
     // ─── 1. THE DIFFERENTIAL ───────────────────────────────────────────────────────────────
 
     /// At tau = S / m the step is S: every slot, at every instant, scores what it scored before
-    /// the clock existed, to the wei. Kills "score division removed" (v = c * S) and any change
-    /// of the horizon.
-    function testFuzz_FixedClock_IsTodaysVitality(uint256 slot, uint32 ts, bool unmeasured) public pure {
-        slot = _withTau(slot, unmeasured ? 0 : uint32(S / M));
+    /// the clock existed, to the wei. Kills "score division removed" (v = c * S), any change of
+    /// the horizon, and "an unmeasured clock has no prior step" (tau 0, h = 0). The instant is
+    /// drawn within 40 steps of the slot's own stamp: 32 of the 40 are live, where the count
+    /// halves, 8 are dead. A free uint32 pair (stamp, now) was live in ~2e-4 of the runs and
+    /// compared 0 with 0; the clock running backwards and the never-stamped slot are in
+    /// test_FixedClock_Cases.
+    function testFuzz_FixedClock_IsTodaysVitality(uint256 slot, uint32 lastTs, uint256 age, bool unmeasured)
+        public
+        pure
+    {
+        slot = _fixedClockSlot(slot, lastTs, unmeasured);
+        uint32 ts = BPC.decodeLastUpdateTs(slot) + uint32(bound(age, 0, 40 * S));
         assertEq(BPC.vitality(slot, ts), _vitalityOld(slot, ts), "vitality moved at the fixed clock");
     }
 
-    function testFuzz_FixedClock_IsTodaysDecayedCount(uint256 slot, uint32 ts, bool unmeasured) public {
+    function testFuzz_FixedClock_IsTodaysDecayedCount(uint256 slot, uint32 lastTs, uint256 age, bool unmeasured)
+        public
+    {
         ClockHarness h = new ClockHarness();
-        slot = _withTau(slot, unmeasured ? 0 : uint32(S / M));
+        slot = _fixedClockSlot(slot, lastTs, unmeasured);
+        uint32 ts = BPC.decodeLastUpdateTs(slot) + uint32(bound(age, 0, 40 * S));
         assertEq(h.decayed(slot, ts), _decayedOld(slot, ts), "decayed count moved at the fixed clock");
     }
 
@@ -184,28 +226,72 @@ contract PoolClockDifferentialTest is Test {
 
     // ─── 4. ZERO AND THE EXTREMES ──────────────────────────────────────────────────────────
 
-    /// Any tau, any instant: no revert, and dead exactly past 32 steps of m * tau (tau 0 reads
-    /// the prior step S). tau at its 32-bit ceiling does not overflow the step.
-    function testFuzz_AnyClock_NoDivisionByZeroOrOverflow(uint32 lastTs, uint32 count, uint32 tau, uint32 ts)
-        public
-        pure
-    {
-        lastTs = uint32(bound(lastTs, 1, type(uint32).max));
+    /// Any clock, read and ticked, is its definition (_byDefinition, and the EMA written from the
+    /// clock's own words): the score, the decayed count, and an anchored tick's new tau and count,
+    /// all exact. The regimes are drawn by construction, not by luck: 1/8 unmeasured (tau 0, the
+    /// prior step S); 1/8 free (any tau up to its 32-bit ceiling, any instant: no division by
+    /// zero, no overflow); 1/4 an interval shorter than tau (the EMA's downward arm); 1/2 an
+    /// instant within 40 steps of m * tau (32 live, where the count halves, and 8 dead).
+    function testFuzz_AnyClock_DecaysAndTicksByItsDefinition(
+        uint32 lastTs, uint32 count, uint32 tau, uint256 age, uint8 regime
+    ) public pure {
+        uint32 ts;
+        regime %= 8;
+        if (regime == 1) {
+            lastTs = uint32(bound(lastTs, 1, type(uint32).max));
+            ts = uint32(age);
+        } else {
+            lastTs = uint32(bound(lastTs, 1, type(uint32).max - 40 * M * 10_000));
+            tau = regime == 0 ? 0 : uint32(bound(tau, 1, 10_000));
+            if (regime == 2 || regime == 3) age = bound(age, 0, tau - 1);
+            else age = bound(age, 0, 40 * (regime == 0 ? S : M * tau));
+            ts = lastTs + uint32(age);
+        }
         uint256 s = _slot(lastTs, count, tau);
-        uint256 v = BPC.vitality(s, ts);
-        uint256 h = tau == 0 ? S : uint256(tau) * M;
-        uint256 age = ts > lastTs ? ts - lastTs : 0;
-        if (age / h > 31) assertEq(v, 0, "past 32 steps must be dead");
-        else assertGt(v, 0, "a live slot never scores 0");
-        // a tick on any clock keeps tau inside its samples and its 32 bits
+        (, uint256 c, uint256 v) = _byDefinition(lastTs, count, tau, ts);
+        assertEq(BPC.vitality(s, ts), v, "the score is not the definition's");
+        assertEq(BPC._decayedSwapCount(s, ts), c, "the decayed count is not the definition's");
+
+        // An anchored tick: the count it carries is what survives plus this trade, at most the
+        // field's ceiling; the first interval IS tau, a later one moves it by 2^-k of the gap.
         uint256 t = BPC.tickSlot(s, true, 1e18, ts);
         uint256 dt = ts > lastTs ? ts - lastTs : 0;
-        uint256 nt = BPC.decodeTau(t);
-        if (tau == 0) assertEq(nt, dt, "first interval");
-        else {
-            assertLe(nt, tau > dt ? tau : dt, "tau left its samples (above)");
-            assertGe(nt, tau < dt ? tau : dt, "tau left its samples (below)");
-        }
+        uint256 want;
+        if (tau == 0) want = dt;
+        else if (dt >= tau) want = tau + (dt - tau) / 2 ** K;
+        else want = tau - (tau - dt) / 2 ** K;
+        assertEq(BPC.decodeTau(t), want, "the tick moved tau off its EMA");
+        assertEq(BPC.decodeSwapCount(t), c == type(uint32).max ? c : c + 1,
+            "the tick did not count from what survives on the old clock");
+    }
+
+    /// A tick that closes an interval longer than the step (dt > m * tau) decays the count on the
+    /// clock that ran over that interval, the OLD tau, and only then moves tau. 64 trades on a
+    /// 100 s clock (step 400 s) ticked 1 200 s later: 3 steps, 64 / 2^3 = 8, plus this trade, 9;
+    /// tau moves to 100 + (1 200 - 100) / 2^3 = 237. Decayed on the new clock (step 948 s) the
+    /// same interval is one step: 64 / 2 + 1 = 33. Kills "the count decays after tau moves".
+    function test_Tick_CountDecaysOnTheOldClock_ThenTheClockMoves() public pure {
+        uint32 t0 = 1_000_000;
+        uint256 t = BPC.tickSlot(_slot(t0, 64, 100), true, 1e18, t0 + 1_200);
+        assertEq(BPC.decodeSwapCount(t), 9, "the count decays on the clock that ran over the interval");
+        assertEq(BPC.decodeTau(t), 237, "and the clock moves by 2^-k of the gap");
+        // The same interval unanchored moves no clock and decays the count alike.
+        t = BPC.tickSlot(_slot(t0, 64, 100), false, 1e18, t0 + 1_200);
+        assertEq(BPC.decodeSwapCount(t), 9, "unanchored: same decay");
+        assertEq(BPC.decodeTau(t), 100, "unanchored: same clock");
+    }
+
+    /// A count at its 32-bit ceiling stays there: the trade counts as far as the field goes,
+    /// never wraps to 0 and never carries into tau above it. One under the ceiling reaches it.
+    /// Kills "the saturation removed".
+    function test_Tick_CountSaturatesAtItsCeiling() public pure {
+        uint32 t0 = 1_000_000;
+        uint32 max = type(uint32).max;
+        uint256 t = BPC.tickSlot(_slot(t0, max, 100), true, 1e18, t0 + 10);
+        assertEq(BPC.decodeSwapCount(t), max, "the ceiling holds");
+        assertEq(BPC.decodeTau(t), 100 - (100 - 10) / 2 ** K, "and tau is its own: nothing carried into it");
+        t = BPC.tickSlot(_slot(t0, max - 1, 100), true, 1e18, t0 + 10);
+        assertEq(BPC.decodeSwapCount(t), max, "one under the ceiling is counted to it");
     }
 
     function test_SmallestClock_IsSafe() public pure {
@@ -261,6 +347,36 @@ contract PoolClockDifferentialTest is Test {
         w = BPC.tickDepth18(address(p), BPC.KIND_V2, t0, t1, address(0), bytes32(0),
                             (thr - 1) * 4_000 / 1e12, thr - 1, !zf18);
         assertEq(w, depth, "dust from the other side anchors nothing");
+    }
+
+    /// Nothing anchors without a trade or without a depth. A zero leg on a dust pool: its
+    /// threshold (1 000 wei >> 16) is 0 and 0 >= 0, so only `a != 0` refuses it. A real trade
+    /// on a pool whose depth reads 0: 0 >> 16 is 0 too, so only `depth != 0` refuses it. Kills the
+    /// removal of either guard.
+    function test_TickDepth_NoTradeOrNoDepth_AnchorsNothing() public {
+        ClockToken a = new ClockToken(18);
+        ClockToken b = new ClockToken(18);
+        (address t0, address t1) = address(a) < address(b) ? (address(a), address(b)) : (address(b), address(a));
+        MockV2Pair dust = new MockV2Pair(t0, t1);
+        dust.setReserves(1_000, 1_000);
+        a.mint(address(dust), 1_000);
+        b.mint(address(dust), 1_000);
+        uint256 depth = BPC.registryDepth18(address(dust), BPC.KIND_V2, t0, t1, address(0), bytes32(0));
+        assertEq(depth, 1_000, "setup: a pool 1 000 wei deep");
+        assertEq(depth >> 16, 0, "setup: its threshold rounds to 0");
+        uint256 w = BPC.tickDepth18(address(dust), BPC.KIND_V2, t0, t1, address(0), bytes32(0), 5, 0, true);
+        assertEq(w, depth, "a leg that paid nothing anchors nothing");
+        w = BPC.tickDepth18(address(dust), BPC.KIND_V2, t0, t1, address(0), bytes32(0), 0, 5, false);
+        assertEq(w, depth, "a leg that took nothing anchors nothing");
+        // control: one wei each way anchors the dust pool (1 >= 0)
+        w = BPC.tickDepth18(address(dust), BPC.KIND_V2, t0, t1, address(0), bytes32(0), 1, 1, true);
+        assertEq(w, depth | BPC.TICK_ANCHORED, "control: a trade on the dust pool anchors");
+
+        MockV2Pair empty = new MockV2Pair(t0, t1);
+        assertEq(BPC.registryDepth18(address(empty), BPC.KIND_V2, t0, t1, address(0), bytes32(0)), 0,
+            "setup: a pool with no depth");
+        w = BPC.tickDepth18(address(empty), BPC.KIND_V2, t0, t1, address(0), bytes32(0), 1e18, 1e18, true);
+        assertEq(w, 0, "a trade on a pool with no depth anchors nothing");
     }
 
     // ─── 6. THE SCORE IS A RATE ────────────────────────────────────────────────────────────

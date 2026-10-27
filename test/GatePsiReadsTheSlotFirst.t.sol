@@ -281,6 +281,12 @@ contract GatePsiReadsTheSlotFirstTest is Test {
         vm.warp(T0);
         _store(w, (type(uint256).max & ~LAST_TS) | (T0 << 64));
         _allBuckets(address(w), 6_144, "every field set");
+        // That word holds count == tau == regBlk, so a reader that took one of those fields for
+        // another scored the same 6 144. Distinct fields: count 2^32 - 1, tau 2^20, only the stamp
+        // besides: v = (2^32 - 1) * 24 576 / (4 * 2^20) = 25 165 823 (floor), which neither field
+        // read twice (6 144), nor the two swapped (1), nor tau read from regBlk (2^32 - 1) gives.
+        _store(w, (uint256(type(uint32).max) << 160) | (uint256(1 << 20) << 224) | (T0 << 64));
+        _allBuckets(address(w), 25_165_823, "count and tau distinct");
         _store(w, uint256(5) << 160);
         _allBuckets(address(w), 0, "never stamped");
         _store(w, (uint256(9) << 160) | ((T0 + 1_000) << 64));
