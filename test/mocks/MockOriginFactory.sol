@@ -13,7 +13,7 @@ import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
 ///         than `MAX_FACTORIES` allows uses ONE factory with a fee tier per pool (`Origin.tiers`),
 ///         as a V3 factory lists one pool per tier.
 ///         `forget` makes it stop listing every pool: the only state, after the fix, in which a
-///         row the swap door wrote is vouched for by no factory (`Solver._mutedVotes`).
+///         row the swap door wrote is vouched for by no factory (`BlazePhoenixMath._mutedVotes`).
 contract MockOriginFactory {
     address public token0;
     address public token1;

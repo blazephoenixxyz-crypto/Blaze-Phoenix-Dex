@@ -6,6 +6,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
+import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 
 // A size limit that only runs when someone remembers it is a size hope.
 /// @notice The size limit, checked where nothing can stop it running.
@@ -32,6 +33,10 @@ import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 ///         `BlazePhoenixCore` is absent because it is a DELEGATECALL-linked library and has no
 ///         constructor to call here; the CI table still covers it, and it sits far from the
 ///         limit (6,477 of 24,576).
+///
+///         `BlazePhoenixMath` (D10, 2026-10-26) is a linked library too, but the Solver's own
+///         size depends on it holding the hop's arithmetic, so it is measured where the test
+///         environment linked it: `address(BlazePhoenixMath)`.
 contract DeployedSizeGateTest is Test {
     /// @dev The hard protocol limit. Not a policy choice.
     uint256 constant EIP_170_LIMIT = 24_576;
@@ -67,6 +72,7 @@ contract DeployedSizeGateTest is Test {
         _check("Solver", address(solver));
         _check("Router", address(router));
         _check("Quoter", address(quoter));
+        _check("Math", address(BlazePhoenixMath));
     }
 
     /// @dev The margin, published rather than merely respected. A number that only has to stay
@@ -85,6 +91,7 @@ contract DeployedSizeGateTest is Test {
         _margin("Solver", address(solver).code.length);
         _margin("Router", address(router).code.length);
         _margin("Quoter", address(quoter).code.length);
+        _margin("Math", address(BlazePhoenixMath).code.length);
 
         assertLt(address(router).code.length, PROJECT_GATE, "the Router must have room");
         assertLt(address(hub).code.length, PROJECT_GATE, "the Hub must have room");

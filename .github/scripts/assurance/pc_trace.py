@@ -14,7 +14,7 @@ replayed pc the artefact's opcode must equal the traced opcode, and a frame that
 is abandoned and counted. A replay with a single mismatch is no bound, and `--check` says so.
 
 Which artefact a frame runs is learned, not assumed: every step of every frame at an address is
-replayed under each of the five release objects, and the one that agrees with all of them wins.
+replayed under each of the six release objects, and the one that agrees with all of them wins.
 A prefix is not enough - contracts from the same pipeline open with the same dispatcher skeleton,
 and a sixty-step prefix once named the Hub's frames Core. Only when no object agrees in full does
 the sixty-step prefix decide, so that a real disagreement in a shipped contract is still reported.
@@ -44,7 +44,7 @@ TRACES = os.path.join(ROOT, "out", "pc-trace")
 if "--traces" in sys.argv:
     TRACES = sys.argv[sys.argv.index("--traces") + 1]
 
-SHIPPED = ("Core", "Quoter", "Solver", "Router", "Hub")
+SHIPPED = ("Core", "Quoter", "Solver", "Math", "Router", "Hub")
 LIB_REF = re.compile(r"__\$[0-9a-fA-F]{34}\$__")
 OPN = {0x56: "JUMP", 0x57: "JUMPI", 0xf1: "CALL", 0xf2: "CALLCODE", 0xf4: "DELEGATECALL",
        0xfa: "STATICCALL", 0x5c: "TLOAD", 0x5d: "TSTORE"}
@@ -232,7 +232,7 @@ def main():
                 union[c] |= executed[c]
                 for op, pcs in ops_at[c].items():
                     ops_union[c][op] |= pcs
-        print(f"{name}: {len(steps)} steps, {len(frames)} frames, {replayed} replayed against the five artefacts")
+        print(f"{name}: {len(steps)} steps, {len(frames)} frames, {replayed} replayed against the six artefacts")
 
     print(f"\n{'trace':22} {'artefact':8} {'steps':>7} {'mismatch':>8} {'pcs run':>8} {'code':>7}  of the RELEASE code section")
     for name, c, chk, mm, ex, nc in rows:

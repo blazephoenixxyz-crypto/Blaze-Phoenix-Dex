@@ -19,7 +19,7 @@ import re
 import sys
 
 ROUTER = sys.argv[1] if len(sys.argv) > 1 else "src/BlazePhoenixRouter.sol"
-OTHERS = ["src/BlazePhoenixHub.sol", "src/BlazePhoenixSolver.sol",
+OTHERS = ["src/BlazePhoenixHub.sol", "src/BlazePhoenixSolver.sol", "src/BlazePhoenixMath.sol",
           "src/BlazePhoenixQuoter.sol", "src/BlazePhoenixCore.sol"]
 
 # function -> (number of self-balance reads, the baseline that makes each one a delta)

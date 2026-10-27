@@ -13,7 +13,7 @@ pragma solidity 0.8.36;
 // Option (b): only mass a factory vouches for (or an operator curated) votes the band's base.
 // A row the Router wrote for whoever swapped first (tier 2) of a pair-shaped or concentrated-
 // shaped kind still quotes and still executes, but its depth does not move the depth-weighted
-// median (`Solver._depthWeightedMedian`, masked by `Solver._mutedVotes`) - unless the Solver's
+// median (`Math._depthWeightedMedian`, masked by `Math._mutedVotes`) - unless the Solver's
 // discovery sweep found the same pool at a registered factory, in
 // which case its code is the factory's and its mass is the market's. When no live candidate
 // may vote, the set falls back to the vote it always had. Red on 31cd55d: the forged pair,

@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  INV-7 @ d96c32b53f626694beda7da9393a8b86cebdb647
 //
-//  The register row this pins: the remainder seat, chosen today by `Solver._seatTheSplit`
+//  The register row this pins: the remainder seat, chosen today by `Math._seatTheSplit`
 //  (SHARED_QUANTITIES.md).
 //
 //  Claim (whitepaper-v2.2 App. B, §9.6): "Ψ ranks and truncates candidates; no
