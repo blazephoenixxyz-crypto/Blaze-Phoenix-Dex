@@ -416,6 +416,14 @@
       "guard": "_hookRefusedIn",
       "test": "test_ARouteWithNoHopsCannotExecute",
       "note": "opencode OC-06, 2026-10-27. _hookRefusedIn mirrored the RouterE(3) shape checks of Router._execute in a loop over the hops; on zero hops the loop never ran and it answered false, so previewRoute called a hand-built empty route with a positive totalOut executable. It now refuses n == 0 as Router._swap does. The exact doors already returned 0 on zero hops. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Mutant C-f2 OC-06."
+    },
+    {
+      "id": "SOK-QUOTER-ENCODE-PASSED-DEADLINE",
+      "class": "The encode doors return canExecute and the swap bytes for a deadline already behind the block, which Router._swap refuses with RouterE(4)",
+      "status": "blocked",
+      "guard": "_encode",
+      "test": "test_APassedDeadlineCannotExecute",
+      "note": "opencode OC-03, 2026-10-27. previewAndEncode and previewAndEncodeWithMinOut copied the deadline into the bytes and never asked it. Both now share _encode, which asks block.timestamp > deadline as Router._swap does, withholds canExecute and returns empty bytes. The other doors hold no deadline. Sibling OC-05 (an amount above uint128, RouterE(3) in Router._checkedSwap) did not reproduce: in the V2 fixture Solver.findBestRoutePlan reverts (panic 0x11) before any preview is packed. No funds at risk. Mutant C-f2 OC-03."
     }
   ]
 }

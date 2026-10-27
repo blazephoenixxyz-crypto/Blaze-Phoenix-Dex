@@ -243,10 +243,7 @@ contract BlazePhoenixQuoter {
     ) external view returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
         pv = _pack(plan.best, 0);
-        if (pv.canExecute) {
-            call = abi.encodeCall(IRouterExec.swapExactIn,
-                (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));
-        }
+        call = _encode(pv, amountIn, recipient, deadline);
     }
 
     /// @notice The same, with a caller-tightened floor folded into the encoded bytes.
@@ -256,6 +253,18 @@ contract BlazePhoenixQuoter {
     ) external view returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
         pv = _pack(plan.best, userMinOut);
+        call = _encode(pv, amountIn, recipient, deadline);
+    }
+
+    /// @dev The encode doors' bytes, and the one refusal of the Router that reads an argument
+    ///      only these doors hold: `Router._swap` refuses a deadline behind the block with
+    ///      RouterE(4) before it moves a token. The doors copied the deadline into the bytes and
+    ///      never asked it, so a call that could not settle came back executable, bytes and all
+    ///      (opencode OC-03). Asked here, as `_swap` asks it; the Preview says so too.
+    function _encode(Preview memory pv, uint256 amountIn, address recipient, uint256 deadline)
+        private view returns (bytes memory call)
+    {
+        if (block.timestamp > deadline) pv.canExecute = false;
         if (pv.canExecute) {
             call = abi.encodeCall(IRouterExec.swapExactIn,
                 (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));

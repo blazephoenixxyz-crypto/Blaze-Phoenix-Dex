@@ -4078,6 +4078,11 @@ M = [
       old='        if (n == 0 || n > 3) return true;                         // Router: no hops, MAX_HOPS\n',
       new='        if (n > 3) return true; // MUTANT: zero hops not refused\n',
       teste='test_ARouteWithNoHopsCannotExecute'),
+ dict(nome='OC-03: the encode doors do not ask the deadline the Router refuses with RouterE(4)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (block.timestamp > deadline) pv.canExecute = false;\n',
+      new='        // MUTANT: the deadline is not asked\n',
+      teste='test_APassedDeadlineCannotExecute'),
 ]
 
 def run(t):

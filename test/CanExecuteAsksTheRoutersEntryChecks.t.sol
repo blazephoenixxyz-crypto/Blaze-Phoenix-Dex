@@ -12,6 +12,10 @@ pragma solidity 0.8.36;
 // of `Router._execute` but returned false for zero hops - its loop never ran - while
 // `Router._swap` refuses `route.hops.length == 0` with RouterE(3). Red at c516601:
 // canExecute == true for a hand-built empty route with a positive totalOut.
+//
+// OC-03 (dx/it0051): a deadline behind the block. `Router._swap` refuses it with RouterE(4); both
+// encode doors take the deadline, copied it into the bytes, and never asked it. Red at c516601:
+// canExecute == true and the bytes non-empty.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
@@ -74,5 +78,27 @@ contract CanExecuteAsksTheRoutersEntryChecksTest is Test {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         router.swapExactIn(empty, AMOUNT_IN, 1, user, deadline);
+    }
+
+    /// @notice OC-03: a deadline behind the block is one the Router refuses with RouterE(4), so
+    ///         neither encode door may call the route executable or hand out its bytes.
+    function test_APassedDeadlineCannotExecute() public {
+        vm.warp(1_000);
+        uint256 deadline = block.timestamp - 1;
+        (BlazePhoenixQuoter.Preview memory pv, bytes memory call) =
+            quoter.previewAndEncode(address(tA), address(tB), AMOUNT_IN, user, deadline);
+        (BlazePhoenixQuoter.Preview memory pvMin, bytes memory callMin) =
+            quoter.previewAndEncodeWithMinOut(address(tA), address(tB), AMOUNT_IN, 1, user, deadline);
+        assertGt(pv.effectiveMinOut, 0, "premise: a floor, so the Router reaches its deadline check");
+        assertGe(pv.netOut, pv.effectiveMinOut, "premise: the route itself clears its floor");
+        assertFalse(pv.canExecute, "a passed deadline is one the Router refuses");
+        assertEq(call.length, 0, "no bytes for a call the Router refuses");
+        assertFalse(pvMin.canExecute, "the same through the door with a caller's floor");
+        assertEq(callMin.length, 0, "and no bytes through it either");
+        Route memory route = pv.route;
+        uint256 minOut = pv.effectiveMinOut;
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(4)));
+        router.swapExactIn(route, AMOUNT_IN, minOut, user, deadline);
     }
 }
