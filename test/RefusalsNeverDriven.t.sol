@@ -196,7 +196,7 @@ contract BubblingV4Manager {
             // Bubble the EXACT revert bytes — the whole point of this mock.
             assembly { revert(add(ret, 0x20), mload(ret)) }
         }
-        return ret;
+        return abi.decode(ret, (bytes)); // v4-core: the callback's bytes, unchanged
     }
 
     function swap(V4PoolKey calldata, SwapParams calldata p, bytes calldata) external returns (int256) {

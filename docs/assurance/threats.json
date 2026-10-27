@@ -440,6 +440,14 @@
       "guard": "answersStable",
       "test": "test_SolidlyAsk_UnknownCurve_AsksNothing",
       "note": "aero-nova 2026-10-26. Core.answersStable gates the replicated curve in solidlyAskOut and legQuoteImpact: only a pair that answers stable() with an ABI bool has a curve; any other asks and quotes 0 when its own getAmountOut does not answer. Mutants [852]-[854]."
+    },
+    {
+      "id": "SOK-LEG-DELTA-DONATION",
+      "class": "tokenOut that lands on the Router inside a leg's measurement window (the leg input's transfer hook, the V3 callback, the V4 settle, a pair paying more than asked) counted as the leg's output: it carries an over-attested leg past the per-leg floor and the attestation into the Hub (the Penpie shape: a balance delta credited with funds the measured action did not produce)",
+      "status": "blocked",
+      "guard": "_execScaled",
+      "test": "test_ADonationInsideTheLegWindowIsNotTheLegsOutput",
+      "note": "DEX-11, 2026-10-27. _execScaled measures got as the Router's own tokenOut delta across the venue call; the window also spans the input transfer, the venue's code and its callback. The delta may not exceed declared, what the venue says it paid: V2/Solidly the outAmt the Router asks of the pair, V3/Algebra/Gate the out side swap returns, V4 the recv unlockCallback takes (returned through PoolManager.unlock). Else RouterE(20); a fee-on-transfer tokenOut delivers less and passes. Red at ae5f1ae: the V2 donation and the over-paying pair settled. V3, V4 and Gate donations: test_V3_ADonationInsideTheCallbackIsNotTheLegsOutput, test_V4_ADonationInsideTheSettleIsNotTheLegsOutput, test_Gate_ADonationInsideTheCallbackIsNotTheLegsOutput. Mutants DEX-11 G1, G1-V3, G1-V4, G1-Gate, V3 declared, V4 declared, lock. Limits: a V3 pool that reports more than it pays raises its own ceiling; a Gate wrapper declares the Router's delta across its adapter's exec, so a donation inside exec raises the declaration with it (a kind-9 leg writes nothing to the Hub: _recordHits skips it); on V2, V3 and V4 legs a tokenOut that credits more than it was sent is refused (fails closed)."
     }
   ]
 }
