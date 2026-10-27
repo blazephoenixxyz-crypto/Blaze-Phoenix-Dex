@@ -432,6 +432,14 @@
       "guard": "_poolTwiceInAHop",
       "test": "test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery",
       "note": "opencode OC-07, 2026-10-27. _exact priced each leg against the initial state; the second leg on the same pool meets the pool the first moved. Red at c516601: one V2 pair, an order of 0.1% of its reserves split in two legs, exactOut 5 bps over delivery, so a userMinOut taken from it is refused. The Solver merges a pool's legs and never plans it; previewRouteExact takes routes built off-chain. Fails closed: exactOut 0, as for a leg the Router refuses. Mutant C-f2 OC-07."
+    },
+    {
+      "id": "SOK-QUOTE-FROZEN-CL-FEE",
+      "class": "The quote prices a concentrated pool at the fee its registry row carries - the pool's fee() in the block it was registered - while the swap pays the pool's fee now",
+      "status": "blocked",
+      "guard": "quoteV3Fee",
+      "test": "test_AFeeThatRoseIsPromisedAsThePoolChargesIt",
+      "note": "DEX-17 (revisao-total K5; opencode dx/it0020), 2026-10-27. provenShape writes a CL pool's fee() into its row at registration, and quoteV3Fee returned that key first ('static key is truth'), so the Solver's leg and the preview priced the registration block's fee; the Router's floor asks the pool (cfgFee 0) and the pool charges its own. Measured on Base: Slipstream WETH/USDC sp=100 answers fee() 549 and 564 in consecutive blocks, 150..937 across 35 samples. Red at 2a384f0: registered at 150, charging 937, netOut 997050419999003087 > delivered 996265623599004655, so a userMinOut taken from the preview is refused; registered at 937, charging 150, the venue priced worse than it is (test_AFeeThatFellIsPromisedAsThePoolChargesIt). quoteV3Fee now asks fee() of a pool that is not Algebra-shaped first, one staticcall per CL quote; the key answers only for a pool whose fee() does not; Algebra keeps its order. No funds at risk: the floor was already live. Mutant C-f2 DEX-17."
     }
   ]
 }

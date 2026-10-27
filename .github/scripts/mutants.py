@@ -4088,6 +4088,11 @@ M = [
       old='        if (_poolTwiceInAHop(route)) exactOut = 0;\n',
       new='        // MUTANT: no fail-closed for a pool twice in a hop\n',
       teste='test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery'),
+ dict(nome='DEX-17: the quote prices a CL pool at its row key, not at the fee the pool charges now',
+      f='src/BlazePhoenixCore.sol',
+      old='        uint24 f = dyn ? 0 : getV3Fee(pool); // CL: the fee lives on the pool, asked now\n',
+      new='        uint24 f = cfgFee != 0 || dyn ? 0 : getV3Fee(pool); // MUTANT: the row key first\n',
+      teste='test_AFeeThatRoseIsPromisedAsThePoolChargesIt'),
 ]
 
 def run(t):

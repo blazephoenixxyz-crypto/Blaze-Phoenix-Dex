@@ -1192,13 +1192,26 @@ library BlazePhoenixCore {
     ///         correct source. A pool where fee() also fails still fail-closes
     ///         exactly as before — this can only widen coverage, never weaken
     ///         the INV-20 guarantee.
+    ///         THE POOL BEFORE THE KEY (DEX-17, revisao-total K5, 2026-10-27).
+    ///         A registered CL row carries the fee() of the block it was
+    ///         written in (`provenShape`), and that key won here: the quote
+    ///         priced the registration block's fee while the swap pays the
+    ///         pool's fee now, and the Router's floor asks the pool (cfgFee 0).
+    ///         A dynamic-fee CL pool moves it per block - measured on Base,
+    ///         Slipstream WETH/USDC sp=100: 549 then 564 in consecutive
+    ///         blocks, 150..937 across 35 samples - so the preview promised
+    ///         the old fee and a userMinOut taken from it was refused. A pool
+    ///         that is not Algebra-shaped is asked first, one staticcall per
+    ///         CL quote; the key answers only for a pool whose fee() does not.
+    ///         Algebra keeps its order: its measured fee comes with the price.
     function quoteV3Fee(address pool, uint24 cfgFee, uint24 dynFee, bool dyn)
         internal view returns (uint24)
     {
-        if (cfgFee != 0) return cfgFee;   // static key is truth
+        uint24 f = dyn ? 0 : getV3Fee(pool); // CL: the fee lives on the pool, asked now
+        if (f != 0) return f;
+        if (cfgFee != 0) return cfgFee;   // a pool whose fee() does not answer: the key
         if (dyn) return dynFee;           // Algebra: measured live fee
-        uint24 f = getV3Fee(pool);        // CL: the fee lives on the pool
-        return f != 0 ? f : 0xFFFFFF;     // still unmeasurable -> fail closed
+        return 0xFFFFFF;                  // still unmeasurable -> fail closed
     }
 
     function token0Of(address pool) internal view returns (address t) {
