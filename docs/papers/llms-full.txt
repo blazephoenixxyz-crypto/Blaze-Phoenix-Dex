@@ -480,17 +480,16 @@ The wrapped sibling of the same pair — $c_{0} = \mathtt{0x4200…0006}$ (WETH)
 
 **The cost ladder.** The scan that produces candidate ids is a ladder, cheapest rung first, because a naïve sweep over every fee-and-spacing combination would be an unacceptable gas bill on the solving path:
 
-| Rung | What it tries | Cost when it hits |
+| Rung | What it tries | Cost |
 |---|---|---|
-| 1 | The tier pattern already learned for this token pair | one probe — the steady-state path |
-| 2 | A provenance check before paying for a cold scan | one read |
+| 1 | Whether the manager holds any of each side: its unlock flag, then its balance of each side that is neither a bridge nor WETH | at most two transient reads and two balance reads; a measured zero ends the scan |
+| 2 | The tier patterns already learned for the pair's two tokens | one probe per learned code, at most two |
 | 3 | The canonical Uniswap tiers, batched through `extsload(bytes32[])` | one call for the batch |
-| 4 | The `(fee, spacing)` pairs the registration row declares | bounded by the registration |
-| 5 | The cold-start generator grid — fee $= 10{,}000\,j$, spacing $= 100\,j$, $j$ descending from `V4_GRID_MAX = 99` | at most `V4_GRID_PROBES = 40` probed |
+| 4 | The `(fee, spacing)` pairs the registration row declares | one call for the batch, bounded by the registration |
 
-The whole scan stops at `V4_CAP = 8` proven pools. Two properties fall out of the construction rather than from a check: a hooked pool can never be emitted by this scan — it derives *hookless* ids, and a hooked pool's hookless id does not exist in the manager, so it fails the liveness proof before any policy question is asked — and duplicate ids from different tier guesses collapse to one candidate, so one pool cannot saturate the funnel by aliasing. Probe order is itself a policy, because the cap is spent by whatever is probed first: a pair against the chain's native asset has two keys in V4, native and wrapped, and the native key was measured to be the deeper one on the chains served when the ordering was decided (3.76× on Base, 292× on Robinhood Chain), so it is probed first.
+Rung 1 rests on custody, not on a heuristic. Every V4 pool keeps its tokens in the one manager, so if the manager holds none of a token, no V4 pool can pay it out and probing the pair's tiers is cold reads for nothing (`Hub._pmHoldsNone`). The check fails open: a bridge token is never asked, nor is the WETH side, whose custody is split between WETH and native ETH; a manager inside an unlock is scanned, because balances move inside the callback; a read that reverts, runs past its gas cap or answers under one word is not a measurement; and a donation can only switch the scan back on. No count stops the scan. Every rung runs on every scan and the registration bounds what it emits: at most two learned codes, and the four canonical tiers and the row's declared pairs on the pair's own key and, for a pair against the chain's native asset, on the native key as well. Two properties fall out of the construction rather than from a check: a hooked pool can never be emitted by this scan — it derives *hookless* ids, and a hooked pool's hookless id does not exist in the manager, so it fails the liveness proof before any policy question is asked — and duplicate ids from different tier guesses collapse to one candidate, so one pool cannot fill the funnel by aliasing. Until 2026-10-27 the scan stopped at eight proven pools and probe order was a policy, because the cap was spent by whatever was probed first: dust planted at the early cells used up the eight before a deep pool at a later cell was reached. The cap is gone, and so is the cold-start grid of generator tiers that followed every miss: dust now reaches the Solver's funnel (§10.2), and an exotic tier is reached by a learned code or a declared pair. A pair against the chain's native asset has two keys in V4, native and wrapped, and the native key was measured to be the deeper one on the chains served (3.76× on Base, 292× on Robinhood Chain); both are emitted, the native key first.
 
-*FIG-2 — The V4 derive-and-prove ladder: five rungs from the learned tier pattern to the bounded generator grid, each candidate id proven live against the manager's storage before it counts toward the cap of eight; hooked ids never exist on this path. (figure in the PDF edition)*
+*FIG-2 — The V4 derive-and-prove ladder: four rungs from the manager's custody check to the row's declared tiers, each candidate id proven live against the manager's storage before it is emitted; hooked ids never exist on this path. (figure in the PDF edition)*
 
 **The permissionless door.** Anyone may call `claimV4(c0, c1, fee, tickSpacing)` and have a hookless pool admitted, because the claim carries its own proof: the id is recomputed from the submitted key and read back from the manager's storage, so a false claim resolves to zeros and admits nothing (`HubE(9)`). Three further conditions gate the door: one side of the pair must be a routable bridge coin, so that a seat in the capped registry is never spent on a pair the router can never cross; the effective fee must be quotable under the fee gate below; and the claim must clear the same admission margin a swap-driven registration clears (§9), with the pool's measured liquidity as its depth. The registry can be taught by the public and cannot be lied to by it.
 
@@ -599,7 +598,7 @@ where $\mathrm{addr}_{20}$ takes the last twenty bytes of the hash. The Core spe
 | 6 | Solidly clone CREATE2 | pure arithmetic | `keccak256(packed(t0,t1,stable))`, origin = factory |
 | 7 | CL CREATE2 | pure arithmetic | `keccak256(encode(t0,t1,tickSpacing))`, origin = factory |
 | 8 | *retired* | freed by the Curve excision; a tombstone — `MODES_VALID = 0x2FF` refuses it | — |
-| 9 | V4 derive-scan | derive hookless poolIds and prove them live on the PoolManager (§5.1) | grid ≤ 99 tiers, ≤ 40 probed cold, stop at 8 pools |
+| 9 | V4 derive-scan | derive hookless poolIds and prove them live on the PoolManager (§5.1) | 4 canonical tiers and the row's declared pairs, on the native key too when one side is WETH, plus ≤ 2 learned codes; no probe when the manager holds none of a side |
 
 Modes 0–3 are one `staticcall` each; modes 4–7 are zero calls and require only the correct init-code hash; mode 9 serves the one family whose pools cannot be located either way.
 
@@ -611,7 +610,7 @@ Modes 0–3 are one `staticcall` each; modes 4–7 are zero calls and require on
 
 **The boundary between deriving and asking is empirical.** Clone-based venues such as Velodrome and Aerodrome stay on factory-call even though their init-code hash is known, because their CREATE2 origin lives inside an internal deterministic-clone deployer rather than the factory — the address is not reproducible from public inputs, so the protocol asks. Uniswap V3 is the flagship case in the other direction: its init-code hash is one constant on every chain because the same pool bytecode is deployed everywhere, and the identity `derived == getPool` holds on forks of Ethereum, Arbitrum, Optimism and Base against each chain's own factories (§17). Derive where the arithmetic is sound, ask where it is not, and verify everything either way.
 
-**Discovery consumes the table row by row.** For each of at most `MAX_FACTORIES = 16` registered factories the Hub probes every declared `(fee, spacing)` combination — Solidly rows in both stable and volatile flavours, a V4 row reserving up to eight — so the scan's worst case is fixed by the registration, not by the chain's mood. The configuration surface is guarded at the door (§9): a structurally impossible venue cannot be stored.
+**Discovery consumes the table row by row.** For each of at most `MAX_FACTORIES = 16` registered factories the Hub probes every declared `(fee, spacing)` combination — Solidly rows in both stable and volatile flavours, a V4 row reserving twice its declared pairs plus ten (the four canonical tiers and the declared pairs on each of the native and wrapped keys, and two learned codes) — so the scan's worst case is fixed by the registration, not by the chain's mood. The configuration surface is guarded at the door (§9): a structurally impossible venue cannot be stored.
 
 ## §8 The Monoslot
 

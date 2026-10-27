@@ -151,6 +151,14 @@
       "note": "Bounty #82 (root: dex-12). psi multiplies a swap count that costs one dust swap per unit by a depth weight that doubles per decade, so eight shallow pools pumped a few times each took every funnel seat. The funnel now measures every row it cuts with Core.registryDepth18 and always seats the deepest; taking that seat costs more mass than the deepest venue holds, in a pool whose price a trade can take."
     },
     {
+      "id": "SOK-V4-SCAN-CAP-DUST",
+      "class": "Dust planted at the early cells of the V4 scan spends its count and hides a deep pool",
+      "status": "blocked",
+      "guard": "_scanV4",
+      "test": "test_DustAtTheEarlyCells_CannotHideADeepPool",
+      "note": "Report 3317 (Seavia Resources). The V4 derive scan stopped at eight proven pools (V4_CAP) and the cap was spent by whatever was probed first: one-wei hookless pools at the cells probed before the deep book (the native key's tiers, a code learned through claimV4, the canonical tiers) used up the eight, discovery never listed the deep pool and the Solver never quoted it. Since 2026-10-27 no count stops the scan: every stage runs on every scan, the registration's table bounds what it lists (discoverFor reserves 2 * fees.length + 10 slots per V4 row), and the dust reaches the Solver's funnel (SOK-FUNNEL-DUST-PSI)."
+    },
+    {
       "id": "SOK-FORGED-RESERVES-BAND",
       "class": "A pair registered honest forges its reserves afterwards and a recoverable donation buys the band",
       "status": "blocked",
