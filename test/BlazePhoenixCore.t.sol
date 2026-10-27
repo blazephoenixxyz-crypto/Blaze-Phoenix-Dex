@@ -118,7 +118,7 @@ contract BlazePhoenixCoreTest is Test {
         assertEq(BPC.decodeKind(slot), 1);
         assertEq(BPC.decodeSwapCount(slot), 444);
         assertEq(BPC.decodeLastUpdateTs(slot), 111);
-        assertEq(BPC.decodeLastBlk(slot), 666);
+        assertEq(BPC.decodeTau(slot), 666);
     }
 
     function test_EncodeSlot_ConcentrationBitsNeverOverlapDepthBucket() public {
@@ -273,9 +273,9 @@ contract BlazePhoenixCoreTest is Test {
     function test_TickSlot_IncrementsSwapCountAndResetsBucket() public pure {
         uint256 slot = BPC.encodeSlot(true, 30, 0, 0, 0, 100, 0, 0, 5, 0, 0);
         uint256 slotWithBucket = BPC.setBucket(slot, 9);
-        uint256 ticked = BPC.tickSlot(slotWithBucket, 999, 1e18, 100); // same instant as lastTs: no decay
+        uint256 ticked = BPC.tickSlot(slotWithBucket, true, 1e18, 100); // same instant as lastTs: no decay
         assertEq(BPC.decodeSwapCount(ticked), 6);
-        assertEq(BPC.decodeLastBlk(ticked), 999);
+        assertEq(BPC.decodeTau(ticked), 0, "a zero interval leaves the clock unmeasured");
         assertEq(BPC.decodeBucket(ticked), BPC.depthBucket(1e18), "bucket is recomputed from the new depth");
     }
 

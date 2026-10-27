@@ -188,6 +188,11 @@ contract LifecycleMetricsTest is Test {
         // on its own registry: re-seeding these four keys here would overwrite the
         // vitality history that phases 5 and 6 below measure.)
 
+        // The history R3 protects, read while the pools are hot. Since each pool decays on its
+        // own clock (2026-10-27), a pair swapped every minute has decayed to its floor within
+        // the hour of phase 4: read after it, "before decay" would already be decayed.
+        (, uint256 vitHot,) = _vitalitySnapshot(uint32(t));
+
         console2.log("");
         console2.log("=== PHASE 4: TTL lapses ===");
         t += TTL + 1;
@@ -202,11 +207,12 @@ contract LifecycleMetricsTest is Test {
         // one decay step
         uint256 tStep = t + DECAY_STEP;
         (, uint256 vitOneStep,) = _vitalitySnapshot(uint32(tStep));
-        console2.log("vitality sum after 1 decay step (~6.8h):", vitOneStep);
-        // full decay horizon (32 steps ~ 9.1 days)
+        console2.log("vitality sum 24 576 s later:", vitOneStep);
+        // past the old fixed horizon (33 * 24 576 s ~ 9.4 days), far past these pools' own
+        // (32 * m * tau, tau ~ the minute between their swaps)
         uint256 tDead = t + (DECAY_STEP * 33);
         (, uint256 vitDead,) = _vitalitySnapshot(uint32(tDead));
-        console2.log("vitality sum past the 32-step horizon (~9.1d):", vitDead);
+        console2.log("vitality sum past the horizon (~9.4d):", vitDead);
 
         console2.log("");
         console2.log("=== PHASE 6: R3 check - reactivation must NOT restore history ===");
@@ -217,8 +223,8 @@ contract LifecycleMetricsTest is Test {
         console2.log("reactivating swap, gas:", gReviveSwap);
         console2.log("registered pools:", regRevive);
         console2.log("vitality sum after reactivation:", vitRevive);
-        console2.log("(pre-decay vitality sum was:", vitBeforeDecay);
-        assertLt(vitRevive, vitBeforeDecay,
+        console2.log("(hot vitality sum was:", vitHot);
+        assertLt(vitRevive, vitHot,
             "R3: a swap after full decay must not restore the pre-decay vitality");
 
         // Report-grade assertions: the measurement itself must be meaningful.

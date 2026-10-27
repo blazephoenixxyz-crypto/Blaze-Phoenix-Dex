@@ -2297,10 +2297,6 @@ contract BlazePhoenixRouter {
                     // stores a V4 row everywhere else (`Hub.claimV4`, `_admitV4`).
                     regPool = address(uint160(uint256(pid)));
                 }
-                // ONE PRODUCER of the depth every registry door seals (Core.registryDepth18):
-                // the operator's door measures with it too since the ninth wave (dex-17). The
-                // per-family rules, and the defects that shaped them, live with the code there.
-                uint256 depth = BPC.registryDepth18(leg.pool, leg.kind, t0, t1, v4mgr, pid);
                 // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
                 // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend
                 // after the protocol fee and after any capacity clamp. The quote is scaled by
@@ -2309,6 +2305,13 @@ contract BlazePhoenixRouter {
                 uint256 sc  = hopScale[h];
                 uint256 inM = BPC.mulDiv(leg.amountIn,    sc, 1e18);
                 uint256 outM = BPC.mulDiv(leg.expectedOut, sc, 1e18);
+                // ONE PRODUCER of the depth every registry door seals (Core.registryDepth18):
+                // the operator's door measures with it too since the ninth wave (dex-17). The
+                // per-family rules, and the defects that shaped them, live with the code there.
+                // Its top bit says whether this trade anchors the pool's clock (tickDepth18).
+                uint256 depth = BPC.tickDepth18(
+                    leg.pool, leg.kind, t0, t1, v4mgr, pid, inM, outM, leg.zeroForOne
+                );
                 try hub.recordSwap(
                     regPool, leg.kind, leg.fee, leg.hooks,
                     t0, t1, inM, outM, depth

@@ -2433,7 +2433,10 @@ library BlazePhoenixCore {
     //      bits  [159:128] = emaOut (uint32)
     //      bits  [191:160] = swapCount (uint32)
     //      bits  [223:192] = regBlk (uint32)
-    //      bits  [255:224] = lastBlk (uint32)
+    //      bits  [255:224] = tau (uint32): the pool's OWN clock, seconds between its anchored
+    //                        ticks (EMA, see tickSlot); 0 = not yet measured. Carried the
+    //                        last-touch block until 2026-10-27, written on every tick and read
+    //                        by nothing: a block means a different time on every chain.
 
     function encodeSlot(
         bool   active,
@@ -2446,7 +2449,7 @@ library BlazePhoenixCore {
         uint32 emaOut,
         uint32 swapCount,
         uint32 regBlk,
-        uint32 lastBlk
+        uint32 tau
     ) internal pure returns (uint256 s) {
         unchecked {
             s = active ? uint256(1) : uint256(0);
@@ -2461,7 +2464,7 @@ library BlazePhoenixCore {
             s |= uint256(emaOut)     << 128;
             s |= uint256(swapCount)  << 160;
             s |= uint256(regBlk)     << 192;
-            s |= uint256(lastBlk)    << 224;
+            s |= uint256(tau)        << 224;
         }
     }
 
@@ -2469,7 +2472,7 @@ library BlazePhoenixCore {
     function decodeKind(uint256 s)      internal pure returns (uint8)   { return uint8(s >> 32); }
     function decodeFee(uint256 s)       internal pure returns (uint24)  { return uint24(s >> 8); }
     function decodeSwapCount(uint256 s) internal pure returns (uint32)  { return uint32(s >> 160); }
-    function decodeLastBlk(uint256 s)   internal pure returns (uint32)  { return uint32(s >> 224); }
+    function decodeTau(uint256 s)       internal pure returns (uint32)  { return uint32(s >> 224); }
     function decodeLastUpdateTs(uint256 s) internal pure returns (uint32) { return uint32(s >> 64); }
     /// @dev Risk tier, bits [47:40]: 0 = CURATED (seedPool by an operator),
     ///      2 = permissionless (recordSwap, claimV4). Written once by
@@ -2498,37 +2501,58 @@ library BlazePhoenixCore {
         return uint256(1) << b;
     }
 
-    /// @notice Decay step, in wall-clock seconds. Vitality is right-shifted
-    ///         once per step elapsed since lastUpdateTs; full decay (shift >
-    ///         31) hits at 32 × this constant ≈ 9.1 days. Expressed in real
-    ///         time (not blocks) so the decay window means the same duration
-    ///         on every chain — Base/Arbitrum block times differ from L1 by
-    ///         6-50×, which silently warped a block-counted window. Matches
-    ///         the original design intent (65 536 blocks @ 12s ≈ 9 days); the
-    ///         previous implementation shifted every 16 blocks instead of
-    ///         every 2 048, decaying to zero ~128× faster than documented.
+    /// @notice The unit of time of the vitality RATE, and the decay step of a pool whose own
+    ///         clock is not yet measured (tau == 0). A scale, never a deadline for a measured pool:
+    ///         no decision compares a measured pool's age against it. It keeps the score
+    ///         continuous with the count it replaced: a pool read at h == this step scores its
+    ///         decayed count to the wei (test/PoolClockDifferential.t.sol). Origin: the design's
+    ///         65 536 blocks @ 12 s ≈ 9 days, taken to wall-clock time so it meant the same on every
+    ///         chain; the implementation before that shifted every 16 blocks instead of 2 048.
     uint256 internal constant VITALITY_DECAY_STEP_SECONDS = 24_576;
 
-    /// @notice Vitality score from slot (decay over a wall-clock window).
-    /// @dev    Reads lastUpdateTs (bits [95:64]), stamped in wall-clock time
-    ///         by the Hub on every tick/register (see
-    ///         BlazePhoenixHub._stampTs) — no new slot field needed.
+    /// @notice THE POOL'S OWN CLOCK (2026-10-27). A fixed step decayed a pool that trades every
+    ///         minute and one that trades every week at the same pace: the busy pool kept a
+    ///         stale row for 9 days, the weekly pool died between two honest trades. Each row now
+    ///         carries tau, its mean time between anchored ticks, and decays one step per
+    ///         `VITALITY_STEPS_PER_TAU` taus. Both constants are pure numbers; every time in the
+    ///         decay is the pool's own. `TAU_EMA_SHIFT` weighs a new interval by 2^-k, and m
+    ///         steps per tau put a pool that falls silent to death after 32 * m of its own
+    ///         intervals. Fixed on 11 761 real swap intervals (2026-10-27: a fast and a medium
+    ///         pool on Base and on Arbitrum, a long-tail one on Arbitrum, every swap replayed
+    ///         through this clock): at k = 3, m = 4 no live pool died between two of its own
+    ///         swaps (0 / 11 761; m = 2 lost 3, m = 3 one), and a stopped one died after 83 to
+    ///         249 of its mean intervals, minutes for the fast pools, weeks for the long tail.
+    ///         m divides 24 576, so tau = 24 576 / m reads the fixed step to the wei.
+    uint256 internal constant TAU_EMA_SHIFT = 3;
+    uint256 internal constant VITALITY_STEPS_PER_TAU = 4;
+
+    /// @notice A tick ANCHORS the clock only when it moved at least 2^-16 (~0.15 bps) of the
+    ///         pool's mass. The rule the Gate's wrappers already apply to their own ticks
+    ///         (W5-C1), now ONE constant for both producers of a tick: dust pays gas and moves
+    ///         no clock.
+    uint8 internal constant MATERIAL_SHIFT = 16;
+
+    /// @notice The bit of the Router's depth word that says "this trade anchors the clock".
+    ///         `Hub.recordSwap` reads it and clears it before the depth is used (`tickDepth18`).
+    uint256 internal constant TICK_ANCHORED = 1 << 255;
+
+    /// @notice Vitality score from slot: the pool's estimated trade RATE, in trades per
+    ///         `VITALITY_DECAY_STEP_SECONDS`, decayed on the pool's own clock.
+    /// @dev    With a step of m * tau the decayed count of a pool trading at its own pace settles
+    ///         near 2m whatever that pace [derived: m intervals per step, weights sum_j 2^-j = 2],
+    ///         so the count alone no longer tells a busy pool from a quiet one. Divided by the
+    ///         step it does: v = count * 2^-shift / h, comparable across pools and chains.
     function vitality(uint256 slot, uint32 currentTs) internal pure returns (uint256 v) {
-        // Single source of truth for the decay arithmetic (see _decayedSwapCount) —
-        // vitality() adds only its ranking policy on top, never a second copy of the
-        // maths. R5: a figure computed in two places will diverge.
-        v = uint256(_decayedSwapCount(slot, currentTs));
-        if (v != 0) return v;
-        // v == 0 covers two states the scorer must tell apart: (a) the slot is DEAD —
-        // empty, never ticked, or past the 32-step full-decay horizon — which scores a
-        // true 0 and drops the pool from ranking, and (b) a LIVE slot whose count merely
-        // rounded away under the shift, floored to 1 so a real pool never vanishes.
-        // An empty slot decodes lastTs == 0: case (a), a true 0.
-        uint32 lastTs = decodeLastUpdateTs(slot);
-        if (lastTs == 0) return 0;
-        uint32 age = currentTs > lastTs ? currentTs - lastTs : 0;
-        if (age / VITALITY_DECAY_STEP_SECONDS > 31) return 0;
-        return 1;
+        // Single source of truth for the decay arithmetic (see _decay) — vitality() adds only
+        // its ranking policy on top, never a second copy of the maths. R5: a figure computed in
+        // two places will diverge.
+        (uint256 c, uint256 h) = _decay(slot, currentTs);
+        // h == 0 is DEAD — empty, never ticked, or past the 32-step full-decay horizon — which
+        // scores a true 0 and drops the pool from ranking. A LIVE slot whose rate merely
+        // rounded away is floored to 1 so a real pool never vanishes.
+        if (h == 0) return 0;
+        v = c * VITALITY_DECAY_STEP_SECONDS / h;
+        if (v == 0) v = 1;
     }
 
     /// @notice Composite fitness of a pool given its slot, bridge bit and
@@ -2546,27 +2570,33 @@ library BlazePhoenixCore {
         if (isConcentrated)  f += (f * 500)   / BPS;
     }
 
-    /// @dev True decayed swapCount as of currentTs — no scoring floor (unlike vitality(), which
-    ///      floors a decayed-to-zero live slot to 1 for display/ranking). 0 here genuinely means
-    ///      no activity survives the decay window. Shared by vitality() and tickSlot() so a
-    ///      reactivation counts from what actually remains, never from the pre-decay historical
-    ///      total (see R3 of docs/INVARIANTS_AND_TIME.md in the Staking repository,
+    /// @dev THE DECAY, the one place its arithmetic lives: the swapCount that survives at
+    ///      currentTs and the step h it decayed by; h == 0 means dead (empty slot, never ticked,
+    ///      or more than 31 steps since lastUpdateTs). The step is m * tau, or
+    ///      `VITALITY_DECAY_STEP_SECONDS` while tau is unmeasured. No scoring floor here (unlike
+    ///      vitality(), which floors a decayed-to-zero live slot to 1): tickSlot counts a
+    ///      reactivation from what actually remains, never from the pre-decay historical total
+    ///      (R3 of docs/INVARIANTS_AND_TIME.md in the Staking repository,
     ///      https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking: "price by what
-    ///      remains, never a historical scalar" — swapCount was previously a raw cumulative
-    ///      counter that never reset in storage, so a single dust swap after a full decay
-    ///      instantly restored the pool's entire historical vitality). vitality() delegates its
-    ///      decay arithmetic here and adds only its dead-vs-floored ranking policy, so the maths
-    ///      exists in exactly one place.
-    function _decayedSwapCount(uint256 slot, uint32 currentTs) internal pure returns (uint32) {
-        // An empty slot decodes lastTs == 0 and returns 0 on the next line.
+    ///      remains, never a historical scalar" — swapCount was once a raw cumulative counter
+    ///      that never reset in storage, so a single dust swap after a full decay instantly
+    ///      restored the pool's entire historical vitality).
+    function _decay(uint256 slot, uint32 currentTs) internal pure returns (uint256 c, uint256 h) {
+        // An empty slot decodes lastTs == 0: dead.
         uint32 lastTs = decodeLastUpdateTs(slot);
-        if (lastTs == 0) return 0;
-        uint32 swapCount = decodeSwapCount(slot);
-        uint32 age = currentTs > lastTs ? currentTs - lastTs : 0;
-        if (age < VITALITY_DECAY_STEP_SECONDS) return swapCount;
-        uint256 shift = age / VITALITY_DECAY_STEP_SECONDS;
-        if (shift > 31) return 0;
-        return uint32(uint256(swapCount) >> shift);
+        if (lastTs == 0) return (0, 0);
+        uint256 tau = decodeTau(slot);
+        // tau < 2^32 and m is a small constant: no overflow, and h != 0 on both arms.
+        h = tau == 0 ? VITALITY_DECAY_STEP_SECONDS : tau * VITALITY_STEPS_PER_TAU;
+        uint256 shift = (currentTs > lastTs ? currentTs - lastTs : 0) / h;
+        if (shift > 31) return (0, 0);
+        c = uint256(decodeSwapCount(slot)) >> shift;
+    }
+
+    /// @dev The decayed swapCount alone, for tickSlot's base.
+    function _decayedSwapCount(uint256 slot, uint32 currentTs) internal pure returns (uint32) {
+        (uint256 c, ) = _decay(slot, currentTs);
+        return uint32(c);
     }
 
     // =========================================================================
@@ -2750,6 +2780,31 @@ library BlazePhoenixCore {
         if (held < depth) depth = held;
     }
 
+    /// @notice `registryDepth18` for a pool that has just traded, with the trade's CLOCK ANCHOR
+    ///         in the top bit (`TICK_ANCHORED`): the Router's one call per executed leg. Same
+    ///         producer, same two decimals reads. The anchor is the Gate's materiality rule
+    ///         (`MATERIAL_SHIFT`) against the depth: the trade's shorter side, normalised, is at
+    ///         least 2^-16 of the pool's short side. ONE TOKEN ON BOTH SIDES OF THE COMPARISON
+    ///         [derived]: at the pool's price the two legs of a trade carry equal value, as do the
+    ///         two sides of the depth (virtual reserves for the concentrated arms), so the side
+    ///         with fewer normalised units is the same token in both. The Hub alone could not
+    ///         ask this: it is handed the pair in the pool's order and no decimals.
+    function tickDepth18(
+        address pool, uint8 kind, address t0, address t1, address v4mgr, bytes32 pid,
+        uint256 amtIn, uint256 amtOut, bool zeroForOne
+    ) public view returns (uint256 depth) {
+        uint8 dc0 = decimalsOf(t0);
+        uint8 dc1 = decimalsOf(t1);
+        depth = registryDepth18Dec(pool, kind, t0, dc0, t1, dc1, v4mgr, pid);
+        // A saturated depth (to18 saturates) must not read as the flag: clamp below the bit.
+        // Its bucket is 15 either way.
+        if (depth >= TICK_ANCHORED) depth = TICK_ANCHORED - 1;
+        uint256 a = to18(amtIn, zeroForOne ? dc0 : dc1);
+        uint256 b = to18(amtOut, zeroForOne ? dc1 : dc0);
+        if (b < a) a = b;
+        if (a != 0 && depth != 0 && a >= depth >> MATERIAL_SHIFT) depth |= TICK_ANCHORED;
+    }
+
     /// @notice THE ONE PRODUCER of "the mass a pool physically holds", normalised: the larger of
     ///         its two holdings in 18 decimals (the least cap with f(a, 0) = a and f(0, b) = b; see
     ///         the concentrated arm of `registryDepth18`). Read by the registry's concentrated arm,
@@ -2774,18 +2829,35 @@ library BlazePhoenixCore {
     uint256 internal constant GATE_QUOTE_GAS = 500_000;
 
     /// @notice Update the slot after a swap. Increments swap count (from its currently-decayed
-    ///         base, not the raw historical total), refreshes last-block, and (optionally)
-    ///         re-buckets depth.
+    ///         base, not the raw historical total), moves the pool's clock when the tick is
+    ///         `anchored`, and (optionally) re-buckets depth. Every caller stamps lastUpdateTs
+    ///         AFTER this returns, so the lastTs read here is still the previous tick's.
+    /// @dev    THE CLOCK. dt = currentTs - lastTs, the interval this tick closes. The first
+    ///         anchored interval after registration IS tau; every later one moves tau by 2^-k of
+    ///         the difference, an exponential mean in shifts. A tick that is not anchored (dust,
+    ///         a registration, a claim) and a slot never stamped (lastTs == 0: no interval to
+    ///         close) leave tau where it was. Bounded by its samples, so it fits its 32 bits.
     function tickSlot(
-        uint256 slot, uint32 currentBlock, uint256 newDepthWad, uint32 currentTs
+        uint256 slot, bool anchored, uint256 newDepthWad, uint32 currentTs
     ) internal pure returns (uint256) {
+        // The count decays on the clock that ran over the interval: the OLD tau.
         uint32 sc = _decayedSwapCount(slot, currentTs);
         unchecked { sc = sc == type(uint32).max ? sc : sc + 1; }
-        // clear swapCount + lastBlk + bucket
+        uint32 tau = decodeTau(slot);
+        uint32 lastTs = decodeLastUpdateTs(slot);
+        if (anchored && lastTs != 0) {
+            uint32 dt = currentTs > lastTs ? currentTs - lastTs : 0;
+            unchecked {
+                if (tau == 0) tau = dt;
+                else if (dt >= tau) tau += (dt - tau) >> TAU_EMA_SHIFT;
+                else tau -= (tau - dt) >> TAU_EMA_SHIFT;
+            }
+        }
+        // clear swapCount + tau + bucket
         uint256 s = slot
             & ~((uint256(0xFFFFFFFF) << 160) | (uint256(0xFFFFFFFF) << 224) | (uint256(0xF) << 60));
         s |= uint256(sc) << 160;
-        s |= uint256(currentBlock) << 224;
+        s |= uint256(tau) << 224;
         s |= uint256(depthBucket(newDepthWad)) << 60;
         return s;
     }

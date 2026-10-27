@@ -272,14 +272,15 @@ contract GatePsiReadsTheSlotFirstTest is Test {
     }
 
     /// Quantity: psi of slots no swap writes, at every bucket. A count of 2^32 - 1 with every
-    /// other field set (a stale bucket 15 among them) stamped now: v = 2^32 - 1, and only the
-    /// live bucket counts. A count of 5 never stamped (lastUpdateTs 0): v = 0, from a word that
+    /// other field set (a stale bucket 15 among them, and tau, the slot's own clock, at its
+    /// ceiling) stamped now: v = count * 24 576 / (m * tau) = 24 576 / 4 (m = 4, 2026-10-27;
+    /// it read 2^32 - 1 on the fixed step), and only the live bucket counts. A count of 5 never stamped (lastUpdateTs 0): v = 0, from a word that
     /// is not empty. A count of 9 stamped 1 000 s in the future: age 0, v = 9.
     function test_GatePsi_IsTheGatesPsiForSlotsNoSwapWrites() public {
         BlazePhoenixGateWrapper w = _wrapper();
         vm.warp(T0);
         _store(w, (type(uint256).max & ~LAST_TS) | (T0 << 64));
-        _allBuckets(address(w), type(uint32).max, "every field set");
+        _allBuckets(address(w), 6_144, "every field set");
         _store(w, uint256(5) << 160);
         _allBuckets(address(w), 0, "never stamped");
         _store(w, (uint256(9) << 160) | ((T0 + 1_000) << 64));

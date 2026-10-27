@@ -1066,7 +1066,7 @@ contract BlazePhoenixHub {
         // of defaulting to bucket 0 (psi ~1) — otherwise the pool that just won
         // admission on its depth becomes the pair's weakest slot / next eviction
         // target the instant it is registered.
-        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthTok, uint32(block.timestamp)));
+        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], false, depthTok, uint32(block.timestamp)));
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
 
@@ -1741,6 +1741,9 @@ contract BlazePhoenixHub {
         address tA, address tB, uint256 amtIn, uint256 amtOut, uint256 depthWad
     ) external onlyRouter whenLive {
         if (pool == address(0) || amtIn == 0) return;
+        // The Router's depth word carries the clock anchor in its top bit (Core.tickDepth18).
+        bool anchored = depthWad >= BPC.TICK_ANCHORED;
+        depthWad &= BPC.TICK_ANCHORED - 1;
         // SIBLING CHANNEL. `addFactory` closes the kinds it does not accept; this is the Hub's
         // SECOND registration door and it had no closure at all — this codebase's defect
         // signature ("a fix applied to ONE of two symmetric channels") inside the excision itself.
@@ -1775,7 +1778,7 @@ contract BlazePhoenixHub {
             // contract's gate. The swap itself already executed and is unaffected.
             if (!_held(pool, BPC.decodeKind(s), t0, t1)) return;
             // existing pool — tick + stamp wall-clock activity time
-            uint256 newSlot = BPC.tickSlot(s, uint32(block.number), depthWad, uint32(block.timestamp));
+            uint256 newSlot = BPC.tickSlot(s, anchored, depthWad, uint32(block.timestamp));
             $.slot[key] = _stampTs(newSlot);
             // Hookless V4 leg: refresh the tokens' learned pattern code
             // (discovery-hint metadata only — never fitness; see INV-16
@@ -1961,8 +1964,8 @@ contract BlazePhoenixHub {
             feeReg = gasleft() < BPC.CL_FEE_FLOOR + 1_000 ? 0 : _concRowFee(pool, kind, idFee);
         }
         _register(key, pool, t0, t1, _born(kind, feeReg, false), depthWad);
-        // initial tick + stamp wall-clock activity time
-        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], uint32(block.number), depthWad, uint32(block.timestamp)));
+        // initial tick + stamp wall-clock activity time (a registration closes no interval)
+        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], false, depthWad, uint32(block.timestamp)));
         emit Volume(key, amtIn, amtOut);
     }
 
@@ -1970,13 +1973,10 @@ contract BlazePhoenixHub {
     ///      wall-clock time. The field is otherwise write-once at registration and
     ///      is read by nothing on-chain except the Solver's discovery-freshness
     ///      gate — so repurposing it as "last activity time" is behaviour-neutral
-    ///      for fitness/eviction. It is NOT `lastBlk` that feeds that judgment, despite this
-    ///      line once having asserted it: the Core's `vitality` and `_decayedSwapCount` read
-    ///      `decodeLastUpdateTs`, and `decodeLastBlk` has NOT ONE caller in src/ — its only
-    ///      readers are three test assertions about the encoding itself. `lastBlk` is written
-    ///      on every tick and never read; it is recorded as such in the Monoslot's dead-bit
-    ///      census, and the decision to prune it or reserve it for statistical vitality
-    ///      belongs to the owner.
+    ///      for fitness/eviction. The Core's `vitality` and `_decay` read `decodeLastUpdateTs`
+    ///      and `decodeTau`, the pool's own clock in bits [255:224]. Those bits carried a
+    ///      last-touch block until 2026-10-27, written on every tick and read by nothing (the
+    ///      Monoslot's dead-bit census); the owner reserved them for the clock.
     function _stampTs(uint256 s) private view returns (uint256) {
         return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);
     }
@@ -2174,7 +2174,7 @@ contract BlazePhoenixHub {
         return BPC.encodeSlot(
             true, fee, kind, trusted ? 0 : 2, 0,
             uint32(block.timestamp), 0, 0, 0,
-            uint32(block.number), uint32(block.number)
+            uint32(block.number), 0     // tau 0: the clock is not measured until a second tick
         );
     }
 

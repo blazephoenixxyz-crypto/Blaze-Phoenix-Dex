@@ -16,7 +16,7 @@ import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 ///   - DepthBucketDecimals: o balde de profundidade e os decimais.
 ///
 /// O que NINGUEM pinava:
-///   (A) O CONTRATO DO MONOSLOT — "tickSlot toca APENAS {swapCount, lastBlk,
+///   (A) O CONTRATO DO MONOSLOT — "tickSlot toca APENAS {swapCount, tau,
 ///       bucket}". Onze campos num uint256; uma escrita que sangre para fora
 ///       da sua mascara corrompe kind/fee/bridge-flag em silencio. E a classe
 ///       do "Monoslot bit 6" e do conc-vs-bucket que os comentarios do src ja
@@ -39,7 +39,7 @@ import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 // ─── (A) O CONTRATO DO MONOSLOT ─────────────────────────────────────────────
 contract MonoslotContractTest is Test {
     /// bits que o tickSlot TEM licenca para tocar:
-    ///   swapCount [191:160] · lastBlk [255:224] · bucket [63:60]
+    ///   swapCount [191:160] · tau [255:224] · bucket [63:60]
     uint256 constant TICK_LICENSE =
         (uint256(0xFFFFFFFF) << 160) | (uint256(0xFFFFFFFF) << 224) | (uint256(0xF) << 60);
 
@@ -47,12 +47,14 @@ contract MonoslotContractTest is Test {
     /// licenca sobrevive bit a bit — kind, fee, tier, conc, emaIn/Out, regBlk,
     /// lastUpdateTs, a flag de bridge (bit 7) e os reservados [6:1].
     function testFuzz_TickSlot_SoTocaNosSeusCampos(
-        uint256 slot, uint32 blk, uint256 depthWad, uint32 ts
+        uint256 slot, bool anchored, uint256 depthWad, uint32 ts
     ) public pure {
-        uint256 depois = BPC.tickSlot(slot, blk, depthWad, ts);
+        uint256 depois = BPC.tickSlot(slot, anchored, depthWad, ts);
         assertEq((slot ^ depois) & ~TICK_LICENSE, 0,
-            "tickSlot sangrou para fora de {swapCount, lastBlk, bucket}");
-        assertEq(BPC.decodeLastBlk(depois), blk, "lastBlk nao foi escrito");
+            "tickSlot sangrou para fora de {swapCount, tau, bucket}");
+        // o relogio so anda com um tick ancorado que fecha um intervalo (lastTs != 0)
+        if (!anchored || BPC.decodeLastUpdateTs(slot) == 0)
+            assertEq(BPC.decodeTau(depois), BPC.decodeTau(slot), "tau mexeu sem ancora");
         assertEq(BPC.decodeBucket(depois), BPC.depthBucket(depthWad),
             "bucket nao re-derivado da profundidade nova");
     }
@@ -62,15 +64,15 @@ contract MonoslotContractTest is Test {
     /// tickSlot) — tem de sair 0.
     function testFuzz_EncodeDecode_Identidade(
         bool active, uint24 fee, uint8 kind, uint8 tier, uint16 conc,
-        uint32 ts, uint32 emaIn, uint32 emaOut, uint32 sc, uint32 regBlk, uint32 lastBlk
+        uint32 ts, uint32 emaIn, uint32 emaOut, uint32 sc, uint32 regBlk, uint32 tau
     ) public pure {
-        uint256 s = BPC.encodeSlot(active, fee, kind, tier, conc, ts, emaIn, emaOut, sc, regBlk, lastBlk);
+        uint256 s = BPC.encodeSlot(active, fee, kind, tier, conc, ts, emaIn, emaOut, sc, regBlk, tau);
         assertEq(BPC.isActive(s), active);
         assertEq(BPC.decodeFee(s), fee);
         assertEq(BPC.decodeKind(s), kind);
         assertEq(BPC.decodeSwapCount(s), sc);
         assertEq(uint32(s >> 192), regBlk,               "regBlk [223:192] (sem decoder proprio)");
-        assertEq(BPC.decodeLastBlk(s), lastBlk);
+        assertEq(BPC.decodeTau(s), tau);
         assertEq(BPC.decodeLastUpdateTs(s), ts);
         assertEq(uint8(s >> 40), tier,                    "tier [47:40]");
         assertEq((s >> 48) & 0xFFF, uint256(conc) & 0xFFF, "conc [59:48] mascarado a 12 bits");
@@ -173,7 +175,7 @@ contract DiscoveryRefreshTest is Test {
     }
 
     /// PORTA QUENTE (o REFRESH): segundo swap incrementa a contagem, actualiza
-    /// o lastBlk e RE-BUCKETA com a profundidade nova — a liquidez mudou, o
+    /// o lastUpdateTs e RE-BUCKETA com a profundidade nova — a liquidez mudou, o
     /// registo acompanha. Um unico vm.roll, callsite unico (stale-cache).
     function test_PortaQuente_RefrescaContagemEBalde() public {
         MockPair p = _pair();
@@ -182,7 +184,7 @@ contract DiscoveryRefreshTest is Test {
         _rec(address(p), KIND_V3, DEPTH_FUNDA);
         uint256 s = hub.getSlot(hub.keyOf(address(p), TA, TB));
         assertEq(BPC.decodeSwapCount(s), 2, "refresh tem de contar do valor decaido + 1");
-        assertEq(BPC.decodeLastBlk(s), uint32(block.number), "lastBlk do refresh");
+        assertEq(BPC.decodeTau(s), 0, "profundidade sem bit de ancora: o relogio nao anda");
         assertEq(BPC.decodeBucket(s), BPC.depthBucket(DEPTH_FUNDA),
             "o balde tem de seguir a profundidade NOVA, nao a da insercao");
     }
