@@ -18,8 +18,10 @@ pragma solidity 0.8.36;
 //  pair, "so the bonus can no longer reorder anything".
 //
 //  The operator's door now asks the swap door's questions of the same producers:
-//  `Core.provenShape` for the family and the fee, and `Core.registryDepth18` - the
-//  measurement `_recordHits` hands the registry after every swap - for the depth.
+//  `Core.provenShape` for the family, `Hub._concRowFee` for a concentrated row's fee
+//  (the tier its derivation is keyed by when the pool agrees, else 0, the live read:
+//  aero-nova 2026-10-26, a fee() snapshot is not a key), and `Core.registryDepth18` -
+//  the measurement `_recordHits` hands the registry after every swap - for the depth.
 //
 //  Reported by mohaseenbasha (dex-16, dex-17, dex-12), ninth bounty wave.
 // =============================================================================
@@ -77,12 +79,27 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
         hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(A), address(B));
     }
 
+    /// The declared 500 never prices a pool that charges 3000. No wired factory derives this
+    /// pool, so its row reads the pool live (0); a derived one carries its tier (below).
     function test_TheOperatorDoorWritesTheFeeTheShapeReports() public {
         MockV3Pool p = new MockV3Pool(address(A), address(B), 3000);
         p.setState(uint160(BPC.Q96), 1e21);
         hub.seedPool(address(p), BPC.KIND_V3, 500, address(0), address(A), address(B));
-        assertEq(BPC.decodeFee(hub.getSlot(_key(address(p)))), 3000,
+        uint24 row = BPC.decodeFee(hub.getSlot(_key(address(p))));
+        assertEq(row, 0, "a pool no wired factory derives must read live, not keep a snapshot");
+        assertEq(BPC.quoteV3Fee(address(p), row, 0, false), 3000,
             "the registry kept the declared fee, not the one the pool reports");
+    }
+
+    /// The same door, the same producer as the swap door: a pool a wired factory derives at the
+    /// tier it charges is written at that tier, a static key no quote has to ask again.
+    function test_TheOperatorDoorWritesTheDerivedTierWhenThePoolAgrees() public {
+        MockV3Pool p = new MockV3Pool(address(A), address(B), 3000);
+        p.setState(uint160(BPC.Q96), 1e21);
+        Origin.wire(hub, address(p), address(A), address(B), BPC.KIND_V3, 3000);
+        hub.seedPool(address(p), BPC.KIND_V3, 500, address(0), address(A), address(B));
+        assertEq(BPC.decodeFee(hub.getSlot(_key(address(p)))), 3000,
+            "a derived tier the pool agrees with is the row's static fee");
     }
 
     // ── dex-17: a seeded row is born at the depth measured at the door ─────────
@@ -144,8 +161,9 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
 
     /// Four real shapes - a V2 pair, a Solidly pair, a V3 pool, an Algebra pool - each declared
     /// as each of the four families. A pair declared concentrated, or a concentrated pool declared
-    /// a pair, is refused; within a family the shape decides the kind, a concentrated pool writes
-    /// the fee it reports, and every admitted row is sealed at the bucket the one depth producer
+    /// a pair, is refused; within a family the shape decides the kind, a concentrated pool no
+    /// wired factory derives reads its fee live (row 0, priced at what it charges), and every
+    /// admitted row is sealed at the bucket the one depth producer
     /// measures at the door.
     function test_EveryShapeUnderEveryDeclaredFamilyIsWrittenAsTheShapeAnswers() public {
         uint8[4] memory fam = [BPC.KIND_V2, BPC.KIND_SOLIDLY, BPC.KIND_V3, BPC.KIND_ALGEBRA];
@@ -161,8 +179,10 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
                 hub.seedPool(pool, fam[d], 30, address(0), address(A), address(B));
                 uint256 slot = hub.getSlot(_key(pool));
                 assertEq(BPC.decodeKind(slot), fam[s], "the row's family is not the one the shape answers");
-                assertEq(BPC.decodeFee(slot), s == 2 ? 3000 : s == 3 ? 0 : 30,
+                assertEq(BPC.decodeFee(slot), s >= 2 ? 0 : 30,
                     "the row's fee is not the one the shape reports");
+                if (s == 2) assertEq(BPC.quoteV3Fee(pool, uint24(BPC.decodeFee(slot)), 0, false), 3000,
+                    "a concentrated row must price at the fee its pool charges");
                 assertEq(BPC.decodeBucket(slot),
                     BPC.depthBucket(BPC.registryDepth18(pool, fam[s], t0, t1, address(0), bytes32(0))),
                     "the row is not sealed at the depth measured at the door");

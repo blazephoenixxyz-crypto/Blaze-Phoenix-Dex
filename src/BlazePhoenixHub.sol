@@ -242,7 +242,8 @@ contract BlazePhoenixHub {
     /// @notice Which kinds each discovery mode can register: the salt-slot <-> kind coherence
     ///         of `addFactory`, as DATA. Row `m` is bits 16m..16m+15; bit `k` set = kind `k`
     ///         admissible under mode `m`. Modes that fix no salt family (0-3 ask, 7 V3-CL,
-    ///         8 tombstone) admit every routable kind but the Gate's; 4 (V2 salt) only V2; 5 (V3 salt)
+    ///         8 tombstone) admit every routable kind but the Gate's; 4 (V2 salt) V2 and Solidly (the
+    ///         2026 Aerodrome V2 factories, one per curve, salt the pair alone); 5 (V3 salt)
     ///         KINDS_V3_SALT; 6 (clone) only Solidly; 9 (V4 derive) only V4. Rows 10-15 are
     ///         empty. 16 bits per row is enough because KINDS_ROUTABLE has no bit >= 16 (pinned).
     ///         Mode 8 never reaches its row: MODES_VALID refuses it first, and stays the one
@@ -252,7 +253,7 @@ contract BlazePhoenixHub {
         | (KINDS_LOOKUP << 16)                                                     // 1
         | (KINDS_LOOKUP << 32)                                                     // 2
         | (KINDS_LOOKUP << 48)                                                     // 3
-        | ((uint256(1) << BPC.KIND_V2) << (16 * MODE_CREATE2_V2))                  // 4
+        | (((uint256(1) << BPC.KIND_V2) | (uint256(1) << BPC.KIND_SOLIDLY)) << (16 * MODE_CREATE2_V2)) // 4
         | (KINDS_V3_SALT << (16 * MODE_CREATE2_V3))                                // 5
         | ((uint256(1) << BPC.KIND_SOLIDLY) << (16 * MODE_CREATE2_CLONE))          // 6
         | (KINDS_LOOKUP << (16 * MODE_CREATE2_V3CL))                               // 7
@@ -1883,7 +1884,8 @@ contract BlazePhoenixHub {
         //   Algebra (`dyn`) -> 0, the sentinel that tells the reader to MEASURE live
         //     (`quoteV3Fee`). That is rule R2 (L511-512), which only existed at the
         //     `addFactory` door — this door never had it.
-        //   Static V3 -> `getV3Fee(pool)`, measured.
+        //   Static V3 -> the tier its derivation is keyed by, when the pool answers it;
+        //     else 0, the live read (`_concRowFee`; aero-nova: a fee() answer is a snapshot).
         //   V2 / Solidly -> `fee()` does not exist, so 0, and `effV2Fee(0) = 30`: the
         //     house's single producer answers, instead of the caller.
         // The `dyn` of `v3StateAndDynFee` discriminates by SHAPE (slot0 fails and
@@ -1909,7 +1911,7 @@ contract BlazePhoenixHub {
         // the LEGITIMATE pool drop out of the `getActivePools` filter (L1156,
         // `pi.hooks == address(0) || isHookLive(pi.hooks)`).
         // DERIVE, DON'T DECLARE — the last of this door's three trusted fields.
-        // `fee` is already refuted by measurement below and `hooks` is forced to
+        // `fee` is already replaced below (`_concRowFee`) and `hooks` is forced to
         // zero, but `kind` came through raw from calldata. That was the wrong
         // field to leave unverified: `kind` is the very `if` that decides
         // whether `fee` gets measured at all, so the one unrefuted input
@@ -1924,10 +1926,10 @@ contract BlazePhoenixHub {
         uint24 feeReg = fee;
         if (!BPC.kindHasAny(kind, BPC.A_CONC_SING)) {
             // The refutation lives in the Core (`provenShape`), where the operator's door asks
-            // the same question: one producer of "what family is this pool, and what fee does
-            // its row carry". Skips registration on a contradiction, as above.
+            // the same question: one producer of "what family is this pool". Skips registration
+            // on a contradiction, as above.
             bool proven;
-            (proven, kind, feeReg) = BPC.provenShape(pool, kind);
+            (proven, kind) = BPC.provenShape(pool, kind);
             if (!proven) return;
             // WHAT IT HOLDS, NOT WHAT IT SAYS (duxun D1). Read after the swap the pool has just
             // executed: a reserve-shaped pool whose reserves exceed its holdings reports mass
@@ -1950,7 +1952,16 @@ contract BlazePhoenixHub {
             // tokens (measured: test_Create2HitOnOtherTokens_IsRefusedByThePairCheck). Asked
             // last, after the cheap reads: the scan is the costly one, and every check here only
             // skips, so the order changes the gas, never the answer.
-            if (!_derivedByFactory(pool, t0, t1)) return;
+            uint24 idFee;
+            (proven, idFee) = _derivedByFactory(pool, t0, t1);
+            if (!proven) return;
+            // The row's fee is neither calldata's (REG-01) nor the pool's snapshot (aero-nova):
+            // the fee its derivation is keyed by, when the pool agrees, else 0, the live read.
+            // A frame too short for the read's whole budget writes 0 instead of reverting: the
+            // Router swallows this call, and a revert that hands its gas back would make the
+            // cheapest gas limit the one that skips registration. Either answer prices the pool
+            // at its own fee; only a later quote's cost differs. (+1_000: up to the read's check.)
+            feeReg = gasleft() < BPC.CL_FEE_FLOOR + 1_000 ? 0 : _concRowFee(pool, kind, idFee);
         }
         _register(key, pool, t0, t1, _born(kind, feeReg, false), depthWad);
         // initial tick + stamp wall-clock activity time
@@ -1976,13 +1987,33 @@ contract BlazePhoenixHub {
     /// @dev True iff a wired factory derives `pool` for (t0, t1): it is among `discoverFor`'s
     ///      hits. Reusing the discovery scan, not a second derivation, keeps one producer of the
     ///      answer, so admission by swap can never accept a pool discovery would not list.
-    function _derivedByFactory(address pool, address t0, address t1) private view returns (bool) {
+    ///      `idFee` is the fee of that hit: the tier the derivation was keyed by.
+    function _derivedByFactory(address pool, address t0, address t1)
+        private view returns (bool, uint24 idFee)
+    {
         PoolInfo[] memory hits = discoverFor(t0, t1);
         for (uint256 i; i < hits.length; ) {
-            if (hits[i].pool == pool) return true;
+            if (hits[i].pool == pool) return (true, hits[i].fee);
             unchecked { ++i; }
         }
-        return false;
+        return (false, 0);
+    }
+
+    /// @dev The registry fee of a non-V4 row, given the fee its derivation is keyed by (`idFee`,
+    ///      0 when none). A pair row: 0 (review 2026-09-02; a pair's fee() answers in the unit
+    ///      of its fork, per-mille or ppm, and poisoned the row read as bps; effV2Fee(0) is the
+    ///      house's 30 bps and Solidly measures live). An Algebra row: 0, its fee is dynamic.
+    ///      A V3 row: `idFee` when the pool answers it, else 0. 0 is the LIVE read (`quoteV3Fee`
+    ///      asks the pool on every quote); a nonzero fee is a static key, so it is written only
+    ///      when it is an identity, never a snapshot: the 2026 Aerodrome CL fee() moves every
+    ///      block, and a row born at one block's answer priced every later quote at it.
+    ///      Agreement is asked because a key is not always the fee: a row the operator wired with
+    ///      tiers on a mode that derives by spacing lists its first tier on every hit.
+    ///      A frame too short for the read's whole budget reverts here (`getV3Fee`): the
+    ///      operator's door lets it, the swap door asks first (`recordSwap`).
+    function _concRowFee(address pool, uint8 kind, uint24 idFee) private view returns (uint24) {
+        if (kind != BPC.KIND_V3 || idFee == 0) return 0;
+        return BPC.getV3Fee(pool) == idFee ? idFee : 0;
     }
 
     function _canInsert(bytes32[] storage ks, uint256 newDepth, bool bridged) private view returns (bool) {
@@ -2195,12 +2226,20 @@ contract BlazePhoenixHub {
             // wrote kind and fee as declared, and nothing re-reads a row after it is written - a
             // swap only ticks it - so a V3 pool seeded at 500 kept 500 against its own 3000.
             // A declaration the shape contradicts is refused; a concentrated row takes the fee
-            // its pool reports; a pair row keeps the declared one, which may be the only source
-            // of a fork's tier (no pair reports its fee) and binds the operator alone.
-            (bool proven, uint8 k, uint24 f) = BPC.provenShape(pool, kind);
+            // the swap door would write (`_concRowFee`: its derivation's tier when the pool
+            // agrees, else 0, the live read; a pool no wired factory derives reads live); a pair
+            // row keeps the declared one, which may be the only source of a fork's tier (no pair
+            // reports its fee) and binds the operator alone. Starved, the two doors part: the
+            // swap door, which the Router swallows, writes 0 rather than revert cheaply; this one
+            // lets the fee read's floor revert, so the operator's estimate covers the read and an
+            // agreeing tier is never lost to the gas limit.
+            (bool proven, uint8 k) = BPC.provenShape(pool, kind);
             if (!proven) revert HubE(4);
             kind = k;
-            if (BPC.kindHas(k, BPC.A_CONC_POOL)) fee = f;
+            if (BPC.kindHas(k, BPC.A_CONC_POOL)) {
+                (, uint24 idFee) = _derivedByFactory(pool, t0, t1);
+                fee = _concRowFee(pool, k, idFee);
+            }
         }
         // BORN AT THE DEPTH MEASURED AT THIS DOOR (ninth wave, mohaseenbasha dex-17). A deep
         // pool seeded cold at bucket 0 ranked below dust swapped twice, fell out of the
