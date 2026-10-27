@@ -229,8 +229,9 @@ contract BlazePhoenixSolver {
         // G2 (D10): the library this Solver delegatecalls is the one it was compiled against.
         // The linker sets its address (a PUSH20 at every call site: no storage, no setter), and
         // its code is pinned here, once, at deploy. A library with no state-changing function
-        // carries no deploy-address guard, so its deployed code is exactly `runtimeCode`, linked
-        // to the same Core. A wrong or empty address, or any other build, refuses to deploy.
+        // carries no deploy-address guard, and it links no other library (the Core it uses is
+        // all internal), so its deployed code is exactly `runtimeCode`: the pin covers the
+        // Math's own code. A wrong or empty address, or any other build, refuses to deploy.
         if (address(BlazePhoenixMath).codehash != keccak256(type(BlazePhoenixMath).runtimeCode)) revert SolverE(6);
         hub = IHubR(hub_);
         gate = gate_;

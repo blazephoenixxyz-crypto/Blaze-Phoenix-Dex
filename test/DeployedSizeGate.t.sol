@@ -31,8 +31,8 @@ import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 ///         because of that guard, not instead of it.
 ///
 ///         `BlazePhoenixCore` is absent because it is a DELEGATECALL-linked library and has no
-///         constructor to call here; the CI table still covers it, and it sits far from the
-///         limit (6,477 of 24,576).
+///         constructor to call here; the CI table still covers it (20,753 of 24,576 on the
+///         release profile, 2026-10-27, after `v4HeldShare` became internal - G alpha3).
 ///
 ///         `BlazePhoenixMath` (D10, 2026-10-26) is a linked library too, but the Solver's own
 ///         size depends on it holding the hop's arithmetic, so it is measured where the test

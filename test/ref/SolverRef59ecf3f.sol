@@ -2,8 +2,11 @@
 //
 // TEST-ONLY FROZEN REFERENCE (D10, 2026-10-26). This is src/BlazePhoenixSolver.sol at commit
 // 59ecf3f, the last Solver that computed each hop's band, weights, funnel cut and seat inline,
-// before that arithmetic moved to src/BlazePhoenixMath.sol. Besides this note, two lines differ
-// from that file: the contract name and the import path. It is never deployed; it exists so that
+// before that arithmetic moved to src/BlazePhoenixMath.sol. Besides this note, three things differ
+// from that file: the contract name, the import path, and the held-share call, which goes to
+// `CoreHeldShareRef` below instead of `BPC` (G alpha3, 2026-10-27: `Core.v4HeldShare` became
+// internal; the wrapper keeps it behind a DELEGATECALL, as in 59ecf3f, so this reference stays
+// under EIP-170 and runs the same code). It is never deployed; it exists so that
 // test/MathBoundarySameAnswer.t.sol can hold the new Solver to the old answer, to the wei.
 //
 // =============================================================================
@@ -63,6 +66,15 @@ import {
     BlazePhoenixCore as BPC,
     PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx
 } from "../../src/BlazePhoenixCore.sol";
+
+/// The public entry `Core.v4HeldShare` had at 59ecf3f, as a linked library of its own.
+library CoreHeldShareRef {
+    function v4HeldShare(
+        address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar
+    ) public view returns (uint256) {
+        return BPC.v4HeldShare(manager, poolId, tickSpacing, zeroForOne, d, bar);
+    }
+}
 
 interface IHubR {
     function getActivePools(address tA, address tB) external view returns (PoolInfo[] memory);
@@ -1235,7 +1247,7 @@ contract SolverRef59ecf3f {
         bool zfo = p.token0 == tIn;
         (address c0, address c1) = BPC.v4LegCurrencies(p.kind, p.token0, p.token1, true);
         bytes32 pid = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
-        return BPC.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core (size)
+        return CoreHeldShareRef.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core (size)
     }
 
     /// @dev The capacity clamp of a concentrated leg (MAX_CONC_DRAIN_BPS), one rule for the

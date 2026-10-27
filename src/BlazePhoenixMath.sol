@@ -361,7 +361,7 @@ library BlazePhoenixMath {
         bool zfo = p.token0 == tIn;
         (address c0, address c1) = BPC.v4LegCurrencies(p.kind, p.token0, p.token1, true);
         bytes32 pid = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
-        return BPC.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core (size)
+        return BPC.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core, inlined
     }
 
     /// @dev THE DEPTH-WEIGHTED MEDIAN of the rates. It is the base of the band.

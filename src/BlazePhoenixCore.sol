@@ -2176,10 +2176,11 @@ library BlazePhoenixCore {
     ///         output side at the current price, both raw units of tokenOut. Only ever lowers `d`,
     ///         never to zero. `bar` is the walk's ranking gate (`v4WalkRank`): the maximum reads
     ///         the sixteen-stretch held, `0` the deep one (S2).
-    /// @dev    Here, not in the Solver, for size: one library call instead of two.
+    /// @dev    Internal: it compiles into its one caller, `BlazePhoenixMath._heldShare`, so the
+    ///         Math links no Core and the walk it needs ships in the Math (size: Core -2,900 B).
     function v4HeldShare(
         address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar
-    ) public view returns (uint256) {
+    ) internal view returns (uint256) {
         (uint160 sp, uint128 liq, , , ) = v4SqrtAndLiq(manager, poolId);
         uint256 vOut = mulDiv(liq, zeroForOne ? sp : Q96, zeroForOne ? Q96 : sp);
         (, uint256 held, ) = _v4Walk(manager, poolId, type(uint256).max, 0, tickSpacing, zeroForOne, bar);
