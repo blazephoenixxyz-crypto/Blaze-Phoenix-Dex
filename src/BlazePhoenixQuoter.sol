@@ -785,7 +785,27 @@ contract BlazePhoenixQuoter {
         // `_priceLeg`, and that claim was returned as execution-grade. Asked of `_pack`'s own
         // producer; the route keeps its attestation, the scalar says the Router will not fill.
         if (_hookRefusedIn(route)) exactOut = 0;
+        // A POOL TWICE IN ONE HOP (opencode OC-07, 2026-10-27). Every leg above is priced against
+        // the pool as it stands before the swap; the Router runs the legs in turn, and the second
+        // meets the pool the first moved. On a V2 pair with a fee the split in sequence pays less
+        // than the legs priced side by side (measured: 5 bps over delivery, one pair, an order of
+        // 0.1% of its reserves), so the scalar over-promised. The Solver merges a pool's legs and
+        // never plans it; a route built off-chain can. No exact figure: fail closed, as above.
+        if (_poolTwiceInAHop(route)) exactOut = 0;
         return (route, exactOut);
+    }
+
+    /// @dev True when two legs of one hop name the same pool (a V4 leg: the same poolId).
+    function _poolTwiceInAHop(Route memory route) private pure returns (bool) {
+        for (uint256 h; h < route.hops.length; ++h) {
+            Leg[] memory legs = route.hops[h].legs;
+            for (uint256 i = 1; i < legs.length; ++i) {
+                for (uint256 j; j < i; ++j) {
+                    if (legs[i].pool == legs[j].pool) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /// @dev What the Router delivers for `route` when it charges the protocol fee on an input:

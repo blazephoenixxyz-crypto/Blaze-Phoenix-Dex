@@ -4083,6 +4083,11 @@ M = [
       old='        if (block.timestamp > deadline) pv.canExecute = false;\n',
       new='        // MUTANT: the deadline is not asked\n',
       teste='test_APassedDeadlineCannotExecute'),
+ dict(nome='OC-07: a pool twice in one hop keeps the exact figure priced side by side',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (_poolTwiceInAHop(route)) exactOut = 0;\n',
+      new='        // MUTANT: no fail-closed for a pool twice in a hop\n',
+      teste='test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery'),
 ]
 
 def run(t):

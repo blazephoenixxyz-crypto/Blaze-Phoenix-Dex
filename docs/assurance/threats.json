@@ -424,6 +424,14 @@
       "guard": "_encode",
       "test": "test_APassedDeadlineCannotExecute",
       "note": "opencode OC-03, 2026-10-27. previewAndEncode and previewAndEncodeWithMinOut copied the deadline into the bytes and never asked it. Both now share _encode, which asks block.timestamp > deadline as Router._swap does, withholds canExecute and returns empty bytes. The other doors hold no deadline. Sibling OC-05 (an amount above uint128, RouterE(3) in Router._checkedSwap) did not reproduce: in the V2 fixture Solver.findBestRoutePlan reverts (panic 0x11) before any preview is packed. No funds at risk. Mutant C-f2 OC-03."
+    },
+    {
+      "id": "SOK-QUOTER-EXACT-POOL-TWICE-IN-HOP",
+      "class": "The exact scalar of a route with the same pool twice in one hop prices every leg against the pool before the swap, while the Router runs the legs in turn: it promises more than delivery",
+      "status": "blocked",
+      "guard": "_poolTwiceInAHop",
+      "test": "test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery",
+      "note": "opencode OC-07, 2026-10-27. _exact priced each leg against the initial state; the second leg on the same pool meets the pool the first moved. Red at c516601: one V2 pair, an order of 0.1% of its reserves split in two legs, exactOut 5 bps over delivery, so a userMinOut taken from it is refused. The Solver merges a pool's legs and never plans it; previewRouteExact takes routes built off-chain. Fails closed: exactOut 0, as for a leg the Router refuses. Mutant C-f2 OC-07."
     }
   ]
 }
