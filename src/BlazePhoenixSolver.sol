@@ -326,7 +326,9 @@ contract BlazePhoenixSolver {
         // completes and ranks above the build at the cap leads; otherwise the plan built at
         // the cap stands. The fallback stays the runner-up read above. A solve that cannot
         // hand the walk its whole budget stops with empty revert data (out of gas, RouterE(17)
-        // at the automatic door) - never a different plan.
+        // at the automatic door) - never a different plan. The walk's assembly return is this
+        // external function's own return (its last statement), so nothing is skipped.
+        // slither-disable-next-line incorrect-return
         if (m.bestHeld) _walkOnItsOwnBudget(plan, bk, m.bestU);
     }
 

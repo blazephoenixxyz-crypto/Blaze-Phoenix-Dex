@@ -91,7 +91,9 @@ contract BlazePhoenixGate {
     mapping(uint8 => Pending) public pendingOf;
     mapping(address => bool) public isWrapper;
     /// Every wrapper of the sorted pair (t0, t1), in creation order: venueKey << 160 | wrapper,
-    /// 0 past the last. Grow-only, like the wrappers themselves; `create` is the one writer.
+    /// 0 past the last. Grow-only, like the wrappers themselves; `create` is the one writer
+    /// (through a storage reference, which Slither does not follow).
+    // slither-disable-next-line uninitialized-state
     mapping(address => mapping(address => uint256[GATE_MAX_WRAPPERS])) private _pairWrappers;
 
     // Parameters of the wrapper under construction, read back by its constructor.
