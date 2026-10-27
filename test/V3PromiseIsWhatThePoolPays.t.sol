@@ -93,7 +93,7 @@ contract V3PromiseIsWhatThePoolPays is Test {
     }
 
     /// A preview that says `canExecute` must not be refused by the Router.
-    function test_Red_CanExecuteMustNotBeRefused() public {
+    function test_V3_Red_CanExecuteMustNotBeRefused() public {
         (BlazePhoenixQuoter.Preview memory pv,,) = quoter.previewPlan(address(A), address(B), AMT);
         assertTrue(pv.canExecute, "preview must say the route is executable");
         console2.log("netOut          :", pv.netOut);
@@ -104,7 +104,7 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertGe(got, pv.effectiveMinOut, "delivered below the floor the preview encoded");
     }
 
-    function test_ThePublishedFloorNeverExceedsWhatTheVenueCanPay() public {
+    function test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay() public {
         RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
         assertEq(plan.best.hops.length, 1, "premise: one hop");
         Leg memory lg = plan.best.hops[0].legs[0];
@@ -121,12 +121,12 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertGe(got, plan.best.singleOutFloor, "delivered below the floor the plan published");
     }
 
-    /// The leg attests what its pool pays, and the figure that ranked it is that same one.
-    function test_TheLegAttestsWhatThePoolPays_AndRankingIsThatFigure() public view {
+    /// The leg attests what its pool pays. The ranking is not pinned here: it reads the
+    /// single-range figure (`Solver._paysWhatItWalks`: "the ranking is untouched").
+    function test_V3_TheLegAttestsWhatThePoolPays() public view {
         RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
         Leg memory lg = plan.best.hops[0].legs[0];
         assertApproxEqAbs(lg.expectedOut, _pays(lg.amountIn), 4, "the leg attests other than what the pool pays");
-        assertEq(plan.best.totalOut, lg.expectedOut, "the ranking figure and the promise are two numbers");
     }
 
     /// One producer: the attestation and the Router's in-frame quote, read back from its own
@@ -134,7 +134,7 @@ contract V3PromiseIsWhatThePoolPays is Test {
     /// takes its fee off the output and funds the leg with the whole input: the frame quotes
     /// the input the plan attested (with the fee off the input it quotes a smaller one, and
     /// past the edge of the range the two figures differ by the book, not by the producer).
-    function test_Parity_TheLegAttestsWhatTheRouterQuotesInFrame() public {
+    function test_V3_Parity_TheLegAttestsWhatTheRouterQuotesInFrame() public {
         hub.addBridge(address(B));
         RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
         assertEq(plan.best.hops.length, 1, "one hop");
@@ -156,6 +156,20 @@ contract V3PromiseIsWhatThePoolPays is Test {
         }
         assertTrue(found, "ExecutionProof missing");
         assertEq(attested, quoted, "the plan's attestation and the Router's in-frame quote are two numbers");
+    }
+
+    /// The door that solves in the transaction (`swapBestExactIn` -> `_solve`) settles on the
+    /// same two producers: the promise of the plan built at the cap, walked at the end of
+    /// `findBestRoutePlan`, and the Router's in-frame quote. The plan it solves is the one the
+    /// Solver answers here (R1: the state's, never the gas's), and the route pays at least the
+    /// floor that plan published.
+    function test_V3_TheDoorThatSolvesSettlesAtItsPlansFloor() public {
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
+        (BlazePhoenixQuoter.Preview memory pv,,) = quoter.previewPlan(address(A), address(B), AMT);
+        assertTrue(pv.canExecute, "premise: the preview says the route is executable");
+        vm.prank(user);
+        uint256 got = router.swapBestExactIn(address(A), address(B), AMT, pv.netOut, user, block.timestamp + 1);
+        assertGe(got, plan.best.singleOutFloor, "the door that solves delivered below the floor its plan published");
     }
 
     /// At the edge of the range: the input that takes the price exactly to the next initialized
@@ -192,6 +206,38 @@ contract V3PromiseIsWhatThePoolPays is Test {
         vm.prank(user);
         uint256 got = router.swapExactIn(plan.best, amt, plan.best.singleOutFloor, user, block.timestamp + 1);
         assertGe(got, plan.best.singleOutFloor, "delivered below the floor the plan published");
+    }
+
+    // --- a promise only falls -------------------------------------------------------------
+
+    uint128 constant THICKER = 1e22;  // the book past the edge, deeper than the range at the price
+
+    /// A book that THICKENS past the edge of the range around the price pays more than the
+    /// single-range figure the plan was ranked on. The walk finishes inside the reads and finds
+    /// that more; the promise stays the band, because a promise only falls
+    /// (`Solver._paysWhatItWalks`). The band is read off the same book with its spacing hidden,
+    /// where the walk cannot start and answers the single-range figure.
+    function test_ABookThatThickensPastTheEdgeIsPromisedNoMoreThanTheBand() public {
+        MockERC20 x = new MockERC20("XXX", "XXX");
+        MockERC20 y = new MockERC20("YYY", "YYY");
+        bool z = address(x) < address(y);
+        MockV3TickPool t = new MockV3TickPool(address(x), address(y), FEE, TS);
+        t.initialize(z ? int24(1) : int24(59));
+        t.addPosition(0, 60, THICK);
+        if (z) t.addPosition(-600, 0, THICKER);
+        else t.addPosition(60, 660, THICKER);
+        x.mint(address(t), 1e21);
+        y.mint(address(t), 1e21);
+        hub.seedPool(address(t), BPC.KIND_V3, FEE, address(0), address(x), address(y));
+
+        Leg memory lg = solver.findBestRoutePlan(address(x), address(y), AMT).best.hops[0].legs[0];
+        assertEq(lg.pool, address(t), "premise: the book is the leg");
+        (, uint256 pays, , , ) = t.specSwap(lg.amountIn, z, z ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE);
+        t.lieAboutTheSpacing(0);
+        Leg memory band = solver.findBestRoutePlan(address(x), address(y), AMT).best.hops[0].legs[0];
+        assertEq(band.amountIn, lg.amountIn, "premise: the same order on the same leg");
+        assertGt(pays, band.expectedOut + band.expectedOut / 10_000, "premise: past the edge the book pays more than the band");
+        assertEq(lg.expectedOut, band.expectedOut, "the promise rose above the figure the plan was ranked on");
     }
 
     // --- the rebuild's own return, and books that lie about their tick ------------------------
