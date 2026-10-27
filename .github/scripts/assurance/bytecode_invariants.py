@@ -57,6 +57,22 @@ REQUIRED_SOMEWHERE = {
     0x5c: "TLOAD",          # the reentrancy lock and the fee-on-transfer probes are transient
     0x5d: "TSTORE",
 }
+# Opcodes forbidden in ONE contract only. BlazePhoenixMath is the linked library: the other
+# contracts reach it by DELEGATECALL, so its code runs with THEIR storage and THEIR balance. A
+# write there is a write to the caller's slots (transient ones too: the lock, the fee ledger and
+# the fee-on-transfer probes are transient), a call or a create there is made as the caller, and
+# a delegatecall there hands the caller's storage to whatever it names. It is arithmetic and must
+# stay arithmetic: none of these may appear in its runtime.
+FORBIDDEN_IN = {
+    "BlazePhoenixMath": {
+        0x55: "SSTORE",
+        0x5d: "TSTORE",
+        0xf0: "CREATE",
+        0xf1: "CALL",
+        0xf4: "DELEGATECALL",
+        0xf5: "CREATE2",
+    },
+}
 
 LIB_REF = re.compile(r"__\$[0-9a-fA-F]{34}\$__")
 
@@ -183,6 +199,10 @@ for p in sorted(glob.glob(os.path.join(OUT, "BlazePhoenix*.sol", "*.json"))):
         if op in ops:
             problems.append(f"{name}: emits {label}, which nothing in this system may do")
         row[label] = op in ops
+    for op, label in FORBIDDEN_IN.get(name, {}).items():
+        if op in ops:
+            problems.append(f"{name}: emits {label}, which this contract may never do - it runs "
+                            f"by DELEGATECALL inside its caller")
     for op, label in REQUIRED_SOMEWHERE.items():
         row[label] = op in ops
     rows.append(row)
