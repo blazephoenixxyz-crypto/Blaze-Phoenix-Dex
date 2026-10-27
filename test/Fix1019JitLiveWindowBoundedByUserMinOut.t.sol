@@ -518,8 +518,9 @@ abstract contract F19H15Base is Test {
     //  that clears admission can be flash/JIT-inflated for the claim call and
     //  collapsed in the same transaction. The persisted bucket stays high, but
     //  every consumer that could ANCHOR a later swap re-measures the book live:
-    //  the funnel's live-depth cap (`_capByLiveDepth`) and the median's vote
-    //  weights (`depths` from `_quoteWithDepth`), not `$.slot[key]`. This test
+    //  the funnel's live measure (`_dropDust`; `_capByLiveDepth` before
+    //  poda-1027) and the median's vote weights (`depths` from
+    //  `_quoteWithDepth`), not `$.slot[key]`. This test
     //  pins that the admission bar and the anchor bar are DIFFERENT reads.
     //    · JIT state: off-market V4 book with 1e24 liq -> claim admitted, the
     //      stored bucket is the JIT-liq bucket, the min-psi squatter is evicted;
@@ -792,7 +793,13 @@ contract Fix1019JitLiveWindowTest is F19H15Base {
         W.solver = L.sol;
         W.router = L.rtr;
         W.hub.setRoles(address(L.rtr), address(L.sol), address(this));
-        _fillOffSquatters(W, 15, 2e16, 1e16);
+        // The squatters hold real mass: 3e19 at the short side, ~42 ppm of the pair's depth
+        // while the JIT book is live. Since poda-1027 the Solver drops a row under 25 ppm of
+        // the pair before it is quoted (`_dropDust`), so dust squatters (2e16/1e16 before)
+        // leave the fill to the JIT book itself, which this state-only manager cannot
+        // execute. The residual pinned here is unchanged: the live anchor steers the fill
+        // onto an executable off-market venue.
+        _fillOffSquatters(W, 15, 6e19, 3e19);
         MockV3Pool curated = new MockV3Pool(address(W.a), address(W.b), POOL_FEE);
         curated.setState(SQRT_P_1, LIQ);
         W.a.mint(address(curated), HOLD);

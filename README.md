@@ -251,8 +251,8 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 6 | `src/*.sol` |
-| Test declarations | 2,332 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 350 | `test/**/*.t.sol` |
+| Test declarations | 2,340 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 351 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 31 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |

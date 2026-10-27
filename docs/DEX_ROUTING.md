@@ -78,8 +78,9 @@ init-code hash works across chains for Uniswap-V3-shaped venues.
 > | harness local (mock) | 95.663 de 208.844 |
 > | **fork da Base @49.800.000** | **75k de 2,17M = 3,4%** |
 >
-> O custo dominante é a **cotação** — até 8 candidatos por par (`MAX_CANDIDATES`),
-> 3 pares por solve, cada um com `universalQuote` (delegatecall + staticcalls à
+> O custo dominante é a **cotação** — até 8 candidatos por par (`MAX_CANDIDATES`, à
+> data; desde a poda-1027 nenhuma contagem corta o funil: cota-se cada linha do par que
+> não é pó, medida contra o resto do par em `Solver._dropDust`), 3 pares por solve, cada um com `universalQuote` (delegatecall + staticcalls à
 > pool). E o portão de frescura que saltaria a descoberta **quase nunca dispara**:
 > `MIN_FRESH_VENUES = 3` por par, mas o `recordSwap` só regista as pernas
 > **executadas** (1-2 por par desde o colapso single-leg), logo `rn < 3` sempre.
