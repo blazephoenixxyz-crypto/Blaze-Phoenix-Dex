@@ -448,6 +448,14 @@
       "guard": "dryQuoteCall",
       "test": "test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands",
       "note": "3330 (imnw313), 2026-10-27. _exact prices the plan as committed, then _fundedOut prices the route as the Router funds it; a Gate adapter with no view price is asked quoteCall both times, and the Balancer V3 Vault's quote runs the swap and returns without unwinding it. The funded pass met the venue the first pass had moved and exactOut fell under the floor it promises (PoC on a Base fork at block 52,900,000: 326 bps under delivery on a 0.01 ETH WETH->RATE route, 1,444 bps split over two legs). Red in a unit fixture (a constant-product venue whose query writes its reserves): exactOut 991241419527741341670 against a floor of 993218161492991487486, 19.9 bps under, and the venue's input reserve 1,997.2e18 above where the preview found it (both passes kept). Under-promise: the Router's floor holds and no funds move. The Quoter now asks quoteCall in a frame of its own that always reverts (dryQuoteCall), as _simConc and _simV4 unwind the swaps they run; the answer travels in the revert data, under GATE_QUOTE_GAS. The adapter is not changed, so any venue whose simulation writes is covered."
+    },
+    {
+      "id": "SOK-QUOTER-ENCODE-FLOOR-AS-FUNDED",
+      "class": "The encode doors return canExecute and the swap bytes for a floor the venues, funded as the Router funds the route, cannot meet, which the Router refuses with RouterE(5)",
+      "status": "blocked",
+      "guard": "_fundedOut",
+      "test": "test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded",
+      "note": "3336 (Ash), 2026-10-27. The encode doors' canExecute was the plan preview's: _pack takes the protocol fee off the gross output, while the Router takes it off the input wherever no single hop into a bridge takes it off the output, and a venue's output is an integer step function of its input. On a deep V3 pool (1 bp, price 1, liquidity 1e30, a step of about 12.6 wei) 1013 in with a caller's floor of 1000 previewed netOut 1006 and encoded bytes the Router refused with RouterE(5) for a delivery of 997; red in the repo on that counterexample and in a fuzz over amounts and floors near the estimate. The iron floor is not at stake (965). _encode now asks _fundedOut, the funding pass the exact door has run since 1f1c4bf, and withholds canExecute and the bytes when it is under effectiveMinOut; the preview's figures are unchanged. The two encode doors are no longer view (selectors unchanged; call them by eth_call, like previewPlanExact). No funds at risk: the Router's floor held and the call reverted. Mutant C-f2 3336."
     }
   ]
 }

@@ -239,34 +239,46 @@ contract BlazePhoenixQuoter {
     ///      inside them, so the transaction carries the floor the preview promised.
     ///      When the preview says the route cannot execute, the bytes are EMPTY on purpose: a
     ///      caller cannot submit a transaction this function already knows will not settle.
-    ///      View-only, no state, no Solver re-run beyond the preview's own.
+    ///      Not `view` since 2026-10-27 (3336): the floor inside the bytes is asked of the
+    ///      venues as the Router funds the route, by the dry-run `previewPlanExact` runs, so
+    ///      call it by eth_call, like `previewPlanExact`. Every dry-run reverts: no state is
+    ///      kept. No Solver re-run beyond the preview's own.
     function previewAndEncode(
         address tIn, address tOut, uint256 amountIn, address recipient, uint256 deadline
-    ) external view returns (Preview memory pv, bytes memory call) {
+    ) external returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
         pv = _pack(plan.best, 0);
         call = _encode(pv, amountIn, recipient, deadline);
     }
 
-    /// @notice The same, with a caller-tightened floor folded into the encoded bytes.
+    /// @notice The same, with a caller-tightened floor folded into the encoded bytes. Not `view`,
+    ///         for the same reason; call it by eth_call.
     function previewAndEncodeWithMinOut(
         address tIn, address tOut, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
-    ) external view returns (Preview memory pv, bytes memory call) {
+    ) external returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
         pv = _pack(plan.best, userMinOut);
         call = _encode(pv, amountIn, recipient, deadline);
     }
 
-    /// @dev The encode doors' bytes, and the one refusal of the Router that reads an argument
-    ///      only these doors hold: `Router._swap` refuses a deadline behind the block with
-    ///      RouterE(4) before it moves a token. The doors copied the deadline into the bytes and
-    ///      never asked it, so a call that could not settle came back executable, bytes and all
-    ///      (opencode OC-03). Asked here, as `_swap` asks it; the Preview says so too.
+    /// @dev The encode doors' bytes, and two refusals of the Router the plan preview does not
+    ///      ask. `Router._swap` refuses a deadline behind the block with RouterE(4) before it
+    ///      moves a token. The doors copied the deadline into the bytes and never asked it, so a
+    ///      call that could not settle came back executable, bytes and all (opencode OC-03).
+    ///      Asked here, as `_swap` asks it; the Preview says so too.
+    ///      The Router refuses a delivery under the floor the bytes carry with RouterE(5), and
+    ///      it funds the route as `_fundedOut` does: the fee off the input wherever no single hop
+    ///      into a bridge takes it off the output. The preview's `netOut` takes it off the
+    ///      output, and a venue's output is a step function of its input: on a deep pool the
+    ///      delivery fell a step under an estimate that cleared the caller's floor, and the
+    ///      bytes were refused (3336, Ash). So the floor is asked of the venues as the Router
+    ///      funds them, the question the exact door asks; the preview's figures are unchanged.
     function _encode(Preview memory pv, uint256 amountIn, address recipient, uint256 deadline)
-        private view returns (bytes memory call)
+        private returns (bytes memory call)
     {
         if (block.timestamp > deadline) pv.canExecute = false;
+        if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;
         if (pv.canExecute) {
             call = abi.encodeCall(IRouterExec.swapExactIn,
                 (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));

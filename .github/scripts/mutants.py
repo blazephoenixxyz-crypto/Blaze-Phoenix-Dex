@@ -4098,6 +4098,11 @@ M = [
       old='                legOut = _dryQuoteCall(leg.pool, leg.zeroForOne, legIn);\n',
       new='                legOut = IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn); // MUTANT\n',
       teste='test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands'),
+ dict(nome='C-f2 3336: the encode doors do not ask the floor of the venues as the Router funds the route',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;\n',
+      new='        // MUTANT C-f2 3336: the floor is not asked of the venues as funded\n',
+      teste='test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded'),
 ]
 
 def run(t):

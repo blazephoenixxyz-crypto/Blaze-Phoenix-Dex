@@ -54,7 +54,7 @@ id (`Core:82`). A `RoutePlan` is a best route plus a fallback (`Core:115`).
 | `Solver.findBestRoutePlan` | `view` | the best route and a runner-up (`Solver:258`) |
 | `Quoter.previewPlan` | `view` | a `Preview` of the best route plus the fallback (`Quoter:192`) |
 | `Quoter.previewPlanWithMinOut` | `view` | the same, with the caller's tighter minimum folded in (`Quoter:204`) |
-| `Quoter.previewAndEncode`, `previewAndEncodeWithMinOut` | `view` | the `Preview` and the exact calldata of a `swapExactIn` call with `effectiveMinOut` inside it; the bytes are empty when `canExecute` is false (`Quoter:222-244`) |
+| `Quoter.previewAndEncode`, `previewAndEncodeWithMinOut` | not `view` since 2026-10-27; meant for `eth_call` | the `Preview` and the exact calldata of a `swapExactIn` call with `effectiveMinOut` inside it; the bytes are empty when `canExecute` is false, and `canExecute` asks the floor of the venues as the Router funds the route (the dry-run of `previewPlanExact`) (`Quoter:222-244`) |
 | `Quoter.previewRoute` | `view` | the `Preview` of a route supplied by the caller (`Quoter:248`) |
 | `Quoter.batchQuote` | `view` | one `Preview` per entry, up to `MAX_BATCH` (`Quoter:255-268`) |
 | `Quoter.previewPlanExact` | not `view`; meant for `eth_call` | the route and `exactOut`, the execution-grade net output, re-priced by dry-running the concentrated-liquidity legs (`Quoter:572-586`) |
