@@ -27,6 +27,8 @@ pragma solidity 0.8.36;
 //    with WALK_GAS at 1.5M (mutant [697]) the frame runs out and every leg keeps the cap.
 //  The sentinel bounds the own call to (1.8M, 2.3M): the frame then stays above
 //  1.5M by at least ~190k and under WALK_GAS by at least 200k.
+//  N1 (fix-n1-1027): the self-call asks for the WALK build with bit 8 of `bk` (a call
+//  without it and with no fallen book builds nothing and reverts); the own call sets it.
 //
 //  forge test --match-path test/CapacityWalkNeedsItsWholeBudget.t.sol -vv
 // =============================================================================
@@ -105,11 +107,12 @@ contract CapacityWalkNeedsItsWholeBudgetTest is Test {
         }
     }
 
-    /// The rebuild alone, as the Solver calls itself (build 0, the direct one; the rank to
-    /// beat does not change the work), from the test frame: its gas.
+    /// The rebuild alone, as the Solver calls itself (build 0, the direct one, with bit 8 of
+    /// `bk`: the leader was held, build it again with WALK - N1; the rank to beat does not
+    /// change the work), from the test frame: its gas.
     function _rebuildGas() internal returns (uint256 used) {
         bytes memory cd = abi.encodePacked(
-            abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (tIn, tOut, IN)), uint256(0), uint256(0)
+            abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (tIn, tOut, IN)), uint256(1 << 8), uint256(0)
         );
         vm.prank(address(solver));
         uint256 g0 = gasleft();

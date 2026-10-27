@@ -24,6 +24,13 @@ pragma solidity 0.8.36;
 //  `Core.v3PaysOnBudget`: the pool's book walked on V3_PAY_READS reads, the single-range
 //  figure kept (the band) when the walk cannot finish inside them. The edge and the hostile
 //  books below pass at the red as well: each one is a guard whose red is its mutant.
+//
+//  N1 (reports/plano-1026/onda5/N1-fix.md): the fix promised the leader what its books pay and
+//  left the ranking on the band, so a venue that paid more than the walked leg was passed over
+//  for it. Red at 027a26c: beside a 1e18/1e18 V2 pair, the plan settles 140427106070046065,
+//  and 384887155267496486 when the book is held, where the pair alone settles
+//  498547894994324565. The leader now answers for what its books pay: when a promise falls
+//  the build is rebuilt without the books that fell, and the better of the two leads.
 // =============================================================================
 
 import {Test, Vm, console2} from "forge-std/Test.sol";
@@ -34,6 +41,7 @@ import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC, Leg, RoutePlan} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3TickPool} from "./mocks/MockV3TickPool.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract V3PromiseIsWhatThePoolPays is Test {
     BlazePhoenixHub    hub;
@@ -121,8 +129,8 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertGe(got, plan.best.singleOutFloor, "delivered below the floor the plan published");
     }
 
-    /// The leg attests what its pool pays. The ranking is not pinned here: it reads the
-    /// single-range figure (`Solver._paysWhatItWalks`: "the ranking is untouched").
+    /// The leg attests what its pool pays. The ranking is not pinned here: a build ranks on the
+    /// single-range figure, and the leader answers for what its books pay (N1, below).
     function test_V3_TheLegAttestsWhatThePoolPays() public view {
         RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
         Leg memory lg = plan.best.hops[0].legs[0];
@@ -295,7 +303,109 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertGe(got, plan.best.singleOutFloor, "delivered below the floor the plan published");
     }
 
-    // The walk that promises the plan built at the cap runs after the rebuild's self-call, in
+    /// N1 (reports/plano-1026/onda5/X-dex01b.md X4): a venue that pays more than the walked leg
+    /// is not passed over for it. The thick range ends one tick ahead of the order, so the band
+    /// (the single range) promises more for AMT than a 1e18/1e18 V2 pair pays, and the book,
+    /// walked, pays far less. The route settles no less than the better venue alone pays, at
+    /// the door that takes the plan and at the door that solves in the transaction. Oracles:
+    /// the specification's swap for the pool, x*y=k at 0.3 % for the pair. The Router funds any
+    /// route with the order less its fee (`_pairAlone`); the premises compare the venues on the
+    /// whole order, as the Solver ranks them.
+    function test_AVenueThatPaysMoreThanTheWalkedLegIsNotPassedOver() public {
+        MockV2Pair pair = new MockV2Pair(address(A), address(B));
+        A.mint(address(pair), 1e18);
+        B.mint(address(pair), 1e18);
+        pair.setReserves(1e18, 1e18);
+        hub.seedPool(address(pair), BPC.KIND_V2, 30, address(0), address(A), address(B));
+        uint256 pairPays = _pairPays(AMT);
+        (uint160 sp, , , , , , ) = pool.slot0();
+        assertGt(BPC.outV3(AMT, sp, pool.liquidity(), FEE, _zfo(), _limit()), pairPays, "premise: the band ranks the pool above the pair");
+        uint256 poolPays = _pays(AMT);
+        assertLt(poolPays, pairPays, "premise: the pool, walked, pays less than the pair");
+        pairPays = _pairAlone();
+
+        uint256 snap = vm.snapshotState();
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
+        vm.prank(user);
+        uint256 got = router.swapExactIn(plan.best, AMT, 1, user, block.timestamp + 1);
+        console2.log("the pair pays alone :", pairPays);
+        console2.log("the pool pays alone :", poolPays);
+        console2.log("the plan settles    :", got);
+        assertGe(got, pairPays, "the plan settles below what the pair alone pays");
+
+        vm.revertToState(snap);
+        vm.prank(user);
+        got = router.swapBestExactIn(address(A), address(B), AMT, 1, user, block.timestamp + 1);
+        console2.log("the door that solves:", got);
+        assertGe(got, pairPays, "the door that solves settles below what the pair alone pays");
+    }
+
+    /// What the 1e18/1e18 pair pays for `amt`: x*y=k at 0.3 %.
+    function _pairPays(uint256 amt) internal pure returns (uint256) {
+        return amt * 997 * 1e18 / (1e18 * 1000 + amt * 997);
+    }
+
+    /// What the pair alone settles for AMT through the Router: every route is funded with the
+    /// order less the protocol's fee, taken off the input and rounded up (`Router._chargeHopFee`).
+    function _pairAlone() internal pure returns (uint256) {
+        return _pairPays(AMT - BPC.mulDivUp(AMT, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
+    }
+
+    uint256 constant HOLDS = 2e18;    // the held book's output: the band of AMT is above 30 % of it
+
+    /// N1, held: the same book holding HOLDS of its output, so the band of AMT is above the cap
+    /// (30 % of what the pool holds) and every build ranks the leg at the cap, while the book,
+    /// walked, pays less than the pair. The rebuild of a held leader once kept the cap as a
+    /// floor under the walk; the route settles no less than the better venue alone pays.
+    function test_AHeldLegIsRankedOnWhatItPaysNotOnItsCap() public {
+        MockERC20 c = new MockERC20("CCC", "CCC");
+        MockERC20 d = new MockERC20("DDD", "DDD");
+        bool z = address(c) < address(d);
+        uint160 lim = z ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE;
+        MockV3TickPool q = new MockV3TickPool(address(c), address(d), FEE, TS);
+        q.initialize(z ? int24(1) : int24(59));
+        q.addPosition(0, 60, THICK);
+        q.addPosition(-887220, 887220, THIN);
+        c.mint(address(q), 1e21);
+        d.mint(address(q), HOLDS);
+        hub.seedPool(address(q), BPC.KIND_V3, FEE, address(0), address(c), address(d));
+        MockV2Pair pair = new MockV2Pair(address(c), address(d));
+        c.mint(address(pair), 1e18);
+        d.mint(address(pair), 1e18);
+        pair.setReserves(1e18, 1e18);
+        hub.seedPool(address(pair), BPC.KIND_V2, 30, address(0), address(c), address(d));
+        uint256 pairPays = _pairPays(AMT);
+        // 3_000 = the Solver's MAX_CONC_DRAIN_BPS.
+        uint256 cap = BPC.mulDiv(HOLDS, 3_000, BPC.BPS);
+        (uint160 sp, , , , , , ) = q.slot0();
+        uint256 band = BPC.outV3(AMT, sp, q.liquidity(), FEE, z, lim);
+        (, uint256 qPays, , , ) = q.specSwap(AMT, z, lim);
+        assertGt(band, cap, "premise: the band is above the cap, the leg is held");
+        assertLe(band, HOLDS, "premise: the pool holds what the band asks");
+        assertGt(cap, pairPays, "premise: at the cap the leg ranks above the pair");
+        assertLt(qPays, pairPays, "premise: the book, walked, pays less than the pair");
+        pairPays = _pairAlone();
+
+        c.mint(user, 2 * AMT);
+        vm.prank(user);
+        c.approve(address(router), type(uint256).max);
+        uint256 snap = vm.snapshotState();
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), AMT);
+        vm.prank(user);
+        uint256 got = router.swapExactIn(plan.best, AMT, 1, user, block.timestamp + 1);
+        console2.log("the pair pays alone :", pairPays);
+        console2.log("the pool pays alone :", qPays);
+        console2.log("the plan settles    :", got);
+        assertGe(got, pairPays, "the plan settles below what the pair alone pays");
+
+        vm.revertToState(snap);
+        vm.prank(user);
+        got = router.swapBestExactIn(address(c), address(d), AMT, 1, user, block.timestamp + 1);
+        console2.log("the door that solves:", got);
+        assertGe(got, pairPays, "the door that solves settles below what the pair alone pays");
+    }
+
+    // The walk that promises the plan built at the cap runs before the rebuild's self-call, in
     // the solve itself: a revert inside it would be the whole solve's. Each book below is one a
     // step of the walk could not take without reverting; the walk answers the band instead.
 
