@@ -10,6 +10,11 @@ pragma solidity 0.8.36;
 //         every token and for ETH, at least what they were seeded with (plus
 //         what was donated to them); a third party's call never lowers it.
 //     A2  no recipient gains more of tokenOut than the venues gave up in it.
+//     A3  a cyclic route (tokenIn == tokenOut) charges its payer no more than
+//         its hop 0 committed: the rest of the pull goes back to the payer (H9,
+//         the cyclic producer of `residIn` in SHARED_QUANTITIES.md). A2 cannot
+//         see this one since 3310: the output is capped at what the venues
+//         declared, so an unrefunded residual stays in the Router.
 //     C   a door or a callback reached at the delegated EOA never settles: the
 //         EOA is not a Router, whatever code it points at.
 //  B. TRUTH.
@@ -180,6 +185,9 @@ contract DirtyWorldHandler is Test {
     mapping(uint256 => uint256) public settledDoor;
     uint256 public a2Breaches;
     bytes public lastA2;
+    uint256 public a3Checked;
+    uint256 public a3Breaches;
+    bytes public lastA3;
     uint256 public b3Breaches;
     bytes public lastB3;
     uint256 public b4Breaches;
@@ -405,7 +413,8 @@ contract DirtyWorldHandler is Test {
         address tOut = r.hops[r.hops.length - 1].tokenOut;
         uint256[9] memory vb = _venueBals(tOut);
         uint256 rb = MockERC20(tOut).balanceOf(RECIP);
-        (bool ok, uint256 got,) = _call(door, address(w.router), r, amt, minOut, _payer());
+        address payer = _payer();
+        (bool ok, uint256 got,) = _call(door, address(w.router), r, amt, minOut, payer);
         if (!ok) { revertedKind[kind]++; return; }
         settledKind[kind]++;
         settledDoor[door]++;
@@ -416,6 +425,20 @@ contract DirtyWorldHandler is Test {
             b3Breaches++; lastB3 = abi.encode(kind, door, amt, got, gain, minOut);
         }
         if (attest != 0 && got < attest / 4) { b4Breaches++; lastB4 = abi.encode(kind, door, amt, got, attest); }
+        _a3(r, payer, amt, kind, door);
+    }
+
+    /// A3 (H9): a settled cyclic route spent no more of the payer's input than its hop 0's legs
+    /// committed; the payer was minted exactly `amt` and approved nothing else.
+    function _a3(Route memory r, address payer, uint256 amt, uint256 kind, uint256 door) internal {
+        address t = r.hops[0].tokenIn;
+        if (t != r.hops[r.hops.length - 1].tokenOut || door == 2) return;
+        a3Checked++;
+        uint256 committed;
+        for (uint256 i; i < r.hops[0].legs.length; ++i) committed += r.hops[0].legs[i].amountIn;
+        uint256 left = MockERC20(t).balanceOf(payer);
+        uint256 spent = left < amt ? amt - left : 0;
+        if (spent > committed) { a3Breaches++; lastA3 = abi.encode(kind, door, amt, spent, committed); }
     }
 
     function _bestPair(uint256 s) internal view returns (address, address) {
@@ -770,6 +793,7 @@ contract DirtyWorldInvariantTest is Test {
         assertGt(handler.seedVEth(), 0, "hyp: the delegated EOA's ETH seed is zero (A1 vacuous)");
         // A2
         assertEq(handler.a2Breaches(), 0, "A2: a recipient got more than the venues produced");
+        assertEq(handler.a3Breaches(), 0, "A3: a cyclic route charged its payer more than its hop 0 committed");
         // C
         assertEq(handler.delegatedSettled(), 0, "C: a door settled at the delegated EOA");
         assertEq(handler.callbackSettled(), 0, "C: a stranger's callback call settled");
@@ -820,6 +844,7 @@ contract DirtyWorldInvariantTest is Test {
             assertGt(handler.settledKind(mustSettle[i]), 0, string.concat("live: route kind did not settle ", vm.toString(mustSettle[i])));
         }
         assertEq(handler.settledKind(6), 0, "live: the self-hop settled");
+        assertGt(handler.a3Checked(), 0, "live: A3 never checked a settled cyclic route");
         assertGt(handler.revertedKind(4), 0, "live: the paused afterSwap leg was not refused");
         assertGt(handler.settledDoor(1), 0, "live: permit2 door");
         assertGt(handler.settledDoor(2), 0, "live: native door");

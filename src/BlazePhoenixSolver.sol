@@ -65,7 +65,6 @@ interface IHubR {
     function psisOf(address[] calldata pools, address[] calldata tAs, address[] calldata tBs)
         external view returns (uint256[] memory);
     function getSlot(bytes32 key) external view returns (uint256);
-    function keyOf(address pool, address tA, address tB) external pure returns (bytes32);
     function bridge(uint8 i) external view returns (address);
     function isBridgeToken(address t) external view returns (bool);
     function v4PoolManager() external view returns (address);
@@ -1325,7 +1324,9 @@ contract BlazePhoenixSolver {
         if (rn < MIN_FRESH_VENUES) return false;
         uint256 fresh;
         for (uint256 i; i < rn; ) {
-            uint256 s = hub.getSlot(hub.keyOf(reg[i].pool, reg[i].token0, reg[i].token1));
+            // The row's key in this frame (`BPC.pairKey`, the word `Hub.keyOf` returns): one
+            // external call per registered pool instead of two.
+            uint256 s = hub.getSlot(BPC.pairKey(reg[i].pool, reg[i].token0, reg[i].token1));
             // Only CURATED rows (tier 0, seedPool by an operator) can vouch
             // for coverage. A permissionless row (tier 2: recordSwap, claimV4)
             // is written by whoever swapped first, so counting it let three

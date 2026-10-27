@@ -482,6 +482,14 @@
       "note": "opencode OC-07, 2026-10-27. _exact priced each leg against the initial state; the second leg on the same pool meets the pool the first moved. Red at c516601: one V2 pair, an order of 0.1% of its reserves split in two legs, exactOut 5 bps over delivery, so a userMinOut taken from it is refused. The Solver merges a pool's legs and never plans it; previewRouteExact takes routes built off-chain. Fails closed: exactOut 0, as for a leg the Router refuses. Mutant [883]."
     },
     {
+      "id": "SOK-QUOTER-EXACT-DECLARED-HOP-AMOUNT",
+      "class": "The exact scalar of a route built off-chain whose hop declares an amountIn other than its legs' sum: the exact door capped and split by the declared figure, the Router caps and splits by the legs' sum, so the scalar promised more than delivery",
+      "status": "blocked",
+      "guard": "_exact",
+      "test": "test_HopZeroCommitmentFundsTheLegsTheRouterFunds",
+      "note": "Q773 (from hop 1) and T04 (hop 0), 2026-10-27. The Router never reads hop.amountIn: it caps what reaches a hop at the legs' committed sum and splits it by that sum, and at hop 0 it takes the protocol fee on min(order, sum) before the cap. _exact divided by the declared figure and, at hop 0, took the fee after the cap. Red at 3293d7f: a direct route into a bridge (where _fundedOut does not bound the scalar) whose hop 0 declared half its legs' sum was promised about twice the fill, and the Router refused the route the door returned (RouterE(5)); an order above the commitment was quoted the fee out of the committed legs (test_HopZeroFeeIsTakenBeforeTheCapAsTheRouterTakesIt). The Solver's own plans declare the legs' sum; previewRouteExact takes routes built off-chain. The Quoter now divides by the legs' sum at every hop and charges hop 0 as the Router does; the Router is unchanged."
+    },
+    {
       "id": "SOK-QUOTE-FROZEN-CL-FEE",
       "class": "The quote prices a concentrated pool at the fee its registry row carries - the pool's fee() in the block it was registered - while the swap pays the pool's fee now",
       "status": "blocked",
