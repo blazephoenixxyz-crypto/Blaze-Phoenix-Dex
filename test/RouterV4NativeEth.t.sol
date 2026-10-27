@@ -100,7 +100,7 @@ contract MockV4ManagerNative {
     function unlock(bytes calldata data) external returns (bytes memory) {
         (bool ok, bytes memory ret) = msg.sender.call(abi.encodeWithSignature("unlockCallback(bytes)", data));
         require(ok, "unlock: callback reverted");
-        return ret;
+        return abi.decode(ret, (bytes)); // v4-core: the callback's bytes, unchanged
     }
 
     function swap(V4PoolKey calldata key, SwapParams calldata p, bytes calldata) external returns (int256) {

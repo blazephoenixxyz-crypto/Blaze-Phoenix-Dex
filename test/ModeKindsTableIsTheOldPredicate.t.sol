@@ -11,6 +11,7 @@ import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 /// predicate of main 85720ef (before the table), copied verbatim from
 /// BlazePhoenixHub.sol:173-179 (KINDS_ROUTABLE), 230-239 (MODES_VALID, modes, KINDS_V3_SALT)
 /// and 716-748 (the checks). The only edit to the copy: `revert HubE(5)` -> `return false`.
+/// One cell changed since, marked where it is: (4, SOLIDLY) admitted (aero-nova, 2026-10-26).
 /// Domain, in three sweeps (one test each; the two whole-grid sweeps pause gas metering):
 ///   - the whole grid: mode 0..255 x kind 0..255, empty fees/spacings, once per initHash {0, 1};
 ///   - the extras: mode 0..15 x kind 0..15 x initHash {0, 1} x 7 shapes of fees/spacings
@@ -51,7 +52,8 @@ contract ModeKindsTableIsTheOldPredicateTest is Test {
             mode >= MODE_CREATE2_V2
                 && mode != MODE_V4_DERIVE && initHash == bytes32(0)
         ) return false;
-        if (mode == MODE_CREATE2_V2 && kind != BPC.KIND_V2)      return false;
+        // aero-nova: `&& kind != BPC.KIND_SOLIDLY` added; the rest of the copy is 85720ef's.
+        if (mode == MODE_CREATE2_V2 && kind != BPC.KIND_V2 && kind != BPC.KIND_SOLIDLY) return false;
         if (mode == MODE_CREATE2_CLONE && kind != BPC.KIND_SOLIDLY) return false;
         if (kind == BPC.KIND_EXTERNAL && mode != MODE_CREATE2_V3) return false;
         if (mode == MODE_CREATE2_V3) {
@@ -159,13 +161,13 @@ contract ModeKindsTableIsTheOldPredicateTest is Test {
     }
 
     /// @notice The whole (mode, kind) grid with an init-code hash: the 5 lookup kinds in each
-    ///         of the modes 0-3 and 7 (25), plus (4, V2), (5, V3), (5, ALGEBRA), (5, EXTERNAL),
-    ///         (6, SOLIDLY) and (9, V4): 31.
+    ///         of the modes 0-3 and 7 (25), plus (4, V2), (4, SOLIDLY) (aero-nova), (5, V3),
+    ///         (5, ALGEBRA), (5, EXTERNAL), (6, SOLIDLY) and (9, V4): 32.
     function test_AddFactoryAdmitsExactlyThe85720efCellsWithAHash() public {
         vm.pauseGasMetering(); // 65 536 calls are above the test gas limit; the proof is the tally
         _shape(0);
         ih_ = bytes32(uint256(1));
-        _judge(_sweep(256, 256), 31);
+        _judge(_sweep(256, 256), 32);
     }
 
     /// @notice The fee/spacing extras on every mode with a row and every kind below 16: the

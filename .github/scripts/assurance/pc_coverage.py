@@ -73,7 +73,7 @@ Usage: python3 pc_coverage.py <bytecode-coverage dir> [repo root] [--check] [--c
 """
 import os, re, sys, json, glob
 
-SHIPPED = ["BlazePhoenixCore", "BlazePhoenixQuoter", "BlazePhoenixSolver",
+SHIPPED = ["BlazePhoenixCore", "BlazePhoenixQuoter", "BlazePhoenixSolver", "BlazePhoenixMath",
            "BlazePhoenixRouter", "BlazePhoenixHub"]
 PROBES = [
     # (artefact name, source file, the function the suite calls, the functions it never calls)
@@ -285,7 +285,7 @@ if __name__ == "__main__":
         T["instr"] += n; T["seed"] += len(seed); T["closed"] += len(marked); T["viol"] += bad
 
     g = T["instr"] or 1
-    print(f"\ninstructions in the five shipped runtime objects : {T['instr']}")
+    print(f"\ninstructions in the {len(SHIPPED)} shipped runtime objects    : {T['instr']}")
     print(f"  carrying a positive recorded hit count         : {T['seed']:7}  {T['seed']/g:6.1%}")
     print(f"  PROVEN EXECUTED (seed + forced successors)     : {T['closed']:7}  {T['closed']/g:6.1%}")
     print(f"  no execution evidence                          : {g-T['closed']:7}  {1-T['closed']/g:6.1%}")

@@ -7,10 +7,12 @@ pragma solidity 0.8.36;
 // honest venue's mass, pumped with 3-10 dust swaps each, out-ranked it, took all eight
 // funnel seats, and the honest venue was cut before it was quoted: a victim who signed
 // 99.5 % of the Solver's quote received about half of the honest output, every floor
-// passing. The funnel now always seats the row holding the most mass measured now:
-// Solver._capByLiveDepth measures every row and names the deepest, Solver._seatDeepest
-// gives it the last seat. Red on 982c1de: the honest pool is absent from the route in
-// every test below except the two controls, which are green on both trees.
+// passing. The 10-14 fix seated the row holding the most mass measured now in the last
+// seat (Solver._capByLiveDepth, Solver._seatDeepest). Since poda-1027 there are no seats:
+// no count cuts the funnel, and a row is dropped only as dust, under 25 ppm of the rest of
+// its pair (Solver._dropDust; test/DustIsMeasuredAgainstThePair.t.sol). Red on 982c1de: the
+// honest pool is absent from the route in every test below except the two controls, which
+// are green on both trees.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";

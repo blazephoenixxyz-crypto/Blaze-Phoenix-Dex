@@ -45,7 +45,7 @@ contract FeeV4Manager {
         (bool ok, bytes memory ret) = msg.sender.call(abi.encodeWithSignature("unlockCallback(bytes)", data));
         if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
         require(pendingOwe == 0, "CurrencyNotSettled");
-        return ret;
+        return abi.decode(ret, (bytes)); // v4-core: the callback's bytes, unchanged
     }
     function swap(V4PoolKey calldata key, SwapParams calldata p, bytes calldata) external returns (int256) {
         bytes32 pid = keccak256(abi.encode(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks));

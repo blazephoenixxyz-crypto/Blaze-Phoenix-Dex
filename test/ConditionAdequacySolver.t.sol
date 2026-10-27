@@ -585,9 +585,9 @@ contract CASplitGateAlt is CABase {
 
 // =============================================================================
 //  _topKPools: the discovery dedup (1295 c1) and the fitness selection's three
-//  conjuncts (1340), driven through the only regime where order is fatal —
-//  more candidates than MAX_CANDIDATES(8), where the guillotine falls BEFORE
-//  anything is quoted.
+//  conjuncts (1340), driven through the regime where order was fatal until
+//  poda-1027 — more candidates than MAX_CANDIDATES(8), where the guillotine fell
+//  BEFORE anything was quoted. No count cuts the funnel now (Solver._dropDust).
 // =============================================================================
 contract CATopK is CABase {
     /// L1295 c1 (`!dup`). A pool both registered and discoverable must enter

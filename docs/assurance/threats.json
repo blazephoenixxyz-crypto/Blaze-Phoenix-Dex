@@ -146,9 +146,17 @@
       "id": "SOK-FUNNEL-DUST-PSI",
       "class": "Cheap activity pumps the ranking score and cuts the deepest venue before it is quoted",
       "status": "blocked",
-      "guard": "_seatDeepest",
+      "guard": "_dropDust",
       "test": "test_SeededHonestVenueSurvivesTenDustSwapsPerPool",
-      "note": "Bounty #82 (root: dex-12). psi multiplies a swap count that costs one dust swap per unit by a depth weight that doubles per decade, so eight shallow pools pumped a few times each took every funnel seat. The funnel now measures every row it cuts with Core.registryDepth18 and always seats the deepest; taking that seat costs more mass than the deepest venue holds, in a pool whose price a trade can take."
+      "note": "Bounty #82 (root: dex-12). psi multiplies a swap count that costs one dust swap per unit by a depth weight that doubles per decade, so eight shallow pools pumped a few times each took every funnel seat. From 2026-10-13 the funnel measured every row it cut and always seated the deepest (_seatDeepest). Since 2026-10-27 no count cuts the funnel, so there is no seat to buy: psi only orders the rows, and the only rows dropped are dust, each measured by Core.registryDepth18Dec against the rest of its own pair and dropped under 25 ppm of it (the split gate's bar). The deepest row is never dust, nor is a rare token's pool alone on its pair."
+    },
+    {
+      "id": "SOK-V4-SCAN-CAP-DUST",
+      "class": "Dust planted at the early cells of the V4 scan spends its count and hides a deep pool",
+      "status": "blocked",
+      "guard": "_scanV4",
+      "test": "test_DustAtTheEarlyCells_CannotHideADeepPool",
+      "note": "Report 3317 (Seavia Resources). The V4 derive scan stopped at eight proven pools (V4_CAP) and the cap was spent by whatever was probed first: one-wei hookless pools at the cells probed before the deep book (the native key's tiers, a code learned through claimV4, the canonical tiers) used up the eight, discovery never listed the deep pool and the Solver never quoted it. Since 2026-10-27 no count stops the scan: every stage runs on every scan, the registration's table bounds what it lists (discoverFor reserves 2 * fees.length + 10 slots per V4 row), and the dust reaches the Solver, whose funnel drops it against the pair's measured depth (_dropDust, SOK-FUNNEL-DUST-PSI)."
     },
     {
       "id": "SOK-FORGED-RESERVES-BAND",
@@ -400,6 +408,110 @@
       "guard": "_gateVital",
       "test": "test_GatedAuto_HotWrapperSettlesUnderTheSolveBudget",
       "note": "F1 of the gatedauto-1022 review. Core._gateVital, the one reader of Gate.vitalOf, copies only words 1-2 into scratch (returndatacopy(0x00, 0x20, 0x40) after returndatasize() >= 0x60). Before: the whole answer at 0x00, psi on 0x40; measured 33 988 102 gas for gateQuote with depth at psi 2^22 and RouterE(17) at the best door. The class is held by the Scratch memory guard in ci.yml (no assembly call or copy with a literal output below 0x80 may end past 0x40). Mutants [693]-[697]."
+    },
+    {
+      "id": "GATED-AUTO-PSI-SHORTCUT",
+      "class": "A score answered without its producer: a reader that skips the Gate's vitalOf for a wrapper the Gate would score above 0 drops that wrapper from the funnel (as one that reads the decay on another clock, or without vitality's floor, does to a live wrapper), and one that trusts a slot it could not read seats or cuts a pool on a word nobody wrote",
+      "status": "blocked",
+      "guard": "gatePsi",
+      "test": "test_GatePsi_IsTheGatesPsiAlongAWrappersLife",
+      "note": "H1 (gas-h1-1026). Core.gatePsi reads the wrapper's vitalSlot through _askWord (capped at GAS_CAP) and answers 0 itself only for a slot READ at vitality 0 by Core.vitality at uint32(block.timestamp), the function and the timestamp Gate.vitalOf runs: empty (lastUpdateTs 0) or dead by decay (its last stamp 32 steps or more ago). Core.psi (v * 2^bucket) is then 0 at every depth bucket, the answer Gate.vitalOf gives after its depth read. Any other slot, and a read that fails (no code, a revert, a short answer), asks the Gate as before. Pinned against gatePsi at 59ecf3f and by hand over buckets 0..15: vitality 0, 1, 3, the floor, both sides of the 32-step horizon, slots no swap writes, any slot (fuzz); by vm.expectCall the call not made (an unused wrapper, a dead one) and made once (a used one, one at the floor a second before the horizon); the saving by gas probes from cold accounts (8 957 against 47 908 gas, mock adapter); a burning read costs GAS_CAP and under 20k more. Mutants [826]-[838]."
+    },
+    {
+      "id": "AERO-NOVA-SWALLOWED-OOG-FEE",
+      "class": "A view the planner trusts that catches its own callee's failure and answers a fallback: a fee() whose hook wraps a TWAP observe in try/catch answers the BASE fee when the observe runs out of gas, so the caller's gas limit, or an attacker growing the oracle ring, chooses the fee a plan prices",
+      "status": "blocked",
+      "guard": "CL_FEE_TRUST",
+      "test": "test_ASwallowedFailureFiveForwardsDeepIsNotTaken",
+      "note": "aero-nova 2026-10-26 (the 2026 Aerodrome CL pools). Core.getV3Fee reads on its own budget CL_FEE_GAS, refuses to read on less than CL_FEE_FLOOR (empty revert), and does not take an answer that spent CL_FEE_TRUST or more: a failure swallowed at forwarding depth <= 5 has consumed at least that (EIP-150), and an honest read at the measured structural maximum (CL_FEE_COST, Base fork) stays below it. Mutants [839]-[844]."
+    },
+    {
+      "id": "AERO-NOVA-FEE-SNAPSHOT-KEY",
+      "class": "A per-block dynamic fee written into a registry row as a static key: every later quote prices the pool at the fee of the block it was registered in",
+      "status": "blocked",
+      "guard": "_concRowFee",
+      "test": "test_ASpacingKeyedRowFromASwapReadsTheFeeLive",
+      "note": "aero-nova 2026-10-26. Hub._concRowFee is the one producer of a non-V4 row's fee at both doors: a V3 row carries the tier its derivation is keyed by only when the pool answers it, else 0, the live read; never the pool's fee() answer. The swap door writes 0 when starved, the operator's door reverts. Mutants [845]-[849]."
+    },
+    {
+      "id": "AERO-NOVA-STARVED-PROBE",
+      "class": "A probe read on caller-chosen gas: a pool that reverts early when starved (the 2026 Aerodrome pairs check gasleft() before their fee module) reads as one that has no answer, so the sender's gas limit re-labels a Solidly pair as V2 or writes a stable pair volatile",
+      "status": "blocked",
+      "guard": "ASK_GAS_FLOOR",
+      "test": "test_ShapeUnderEveryGas_PairWithoutStableGetter_NeverReadsV2",
+      "note": "aero-nova 2026-10-26. Core._askWord reverts empty (the house's out-of-gas signature) on less than ASK_GAS_FLOOR = GAS_CAP * 64 / 63 + 3 000, so every shape, stable and quote ask either gets the whole GAS_CAP or does not answer. Mutants [855]-[857]."
+    },
+    {
+      "id": "AERO-NOVA-UNKNOWN-CURVE",
+      "class": "A replicated-curve fallback applied to a pair whose curve the reader cannot know: a pair without stable() (the 2026 Aerodrome V2) priced on the volatile curve under-asks a balanced stable pool and over-asks a skewed one",
+      "status": "blocked",
+      "guard": "answersStable",
+      "test": "test_SolidlyAsk_UnknownCurve_AsksNothing",
+      "note": "aero-nova 2026-10-26. Core.answersStable gates the replicated curve in solidlyAskOut and legQuoteImpact: only a pair that answers stable() with an ABI bool has a curve; any other asks and quotes 0 when its own getAmountOut does not answer. Mutants [852]-[854]."
+    },
+    {
+      "id": "SOK-LEG-DELTA-DONATION",
+      "class": "tokenOut that lands on the Router inside a leg's measurement window (the leg input's transfer hook, the V3 callback, the V4 settle, a pair paying more than asked) counted as the leg's output: it carries an over-attested leg past the per-leg floor and the attestation into the Hub (the Penpie shape: a balance delta credited with funds the measured action did not produce)",
+      "status": "blocked",
+      "guard": "_execScaled",
+      "test": "test_ADonationInsideTheLegWindowIsNotTheLegsOutput",
+      "note": "DEX-11, 2026-10-27. _execScaled measures got as the Router's own tokenOut delta across the venue call; the window also spans the input transfer, the venue's code and its callback. The delta may not exceed declared, what the venue says it paid: V2/Solidly the outAmt the Router asks of the pair, V3/Algebra/Gate the out side swap returns, V4 the recv unlockCallback takes (returned through PoolManager.unlock). Else RouterE(20); a fee-on-transfer tokenOut delivers less and passes. Red at ae5f1ae: the V2 donation and the over-paying pair settled. V3, V4 and Gate donations: test_V3_ADonationInsideTheCallbackIsNotTheLegsOutput, test_V4_ADonationInsideTheSettleIsNotTheLegsOutput, test_Gate_ADonationInsideTheCallbackIsNotTheLegsOutput. Mutants DEX-11 G1, G1-V3, G1-V4, G1-Gate, V3 declared, V4 declared, lock. Limits: a V3 pool that reports more than it pays raises its own ceiling; a Gate wrapper declares the Router's delta across its adapter's exec, so a donation inside exec raises the declaration with it (a kind-9 leg writes nothing to the Hub: _recordHits skips it); on V2, V3 and V4 legs a tokenOut that credits more than it was sent is refused (fails closed)."
+    },
+    {
+      "id": "SOK-QUOTER-NO-HOPS-EXECUTABLE",
+      "class": "canExecute on a route with no hops, which Router._swap refuses with RouterE(3) before it moves a token",
+      "status": "blocked",
+      "guard": "_hookRefusedIn",
+      "test": "test_ARouteWithNoHopsCannotExecute",
+      "note": "opencode OC-06, 2026-10-27. _hookRefusedIn mirrored the RouterE(3) shape checks of Router._execute in a loop over the hops; on zero hops the loop never ran and it answered false, so previewRoute called a hand-built empty route with a positive totalOut executable. It now refuses n == 0 as Router._swap does. The exact doors already returned 0 on zero hops. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Mutant [881]."
+    },
+    {
+      "id": "SOK-QUOTER-ENCODE-PASSED-DEADLINE",
+      "class": "The encode doors return canExecute and the swap bytes for a deadline already behind the block, which Router._swap refuses with RouterE(4)",
+      "status": "blocked",
+      "guard": "_encode",
+      "test": "test_APassedDeadlineCannotExecute",
+      "note": "opencode OC-03, 2026-10-27. previewAndEncode and previewAndEncodeWithMinOut copied the deadline into the bytes and never asked it. Both now share _encode, which asks block.timestamp > deadline as Router._swap does, withholds canExecute and returns empty bytes. The other doors hold no deadline. Sibling OC-05 (an amount above uint128, RouterE(3) in Router._checkedSwap) did not reproduce: in the V2 fixture Solver.findBestRoutePlan reverts (panic 0x11) before any preview is packed. No funds at risk. Mutant [882]."
+    },
+    {
+      "id": "SOK-QUOTER-EXACT-POOL-TWICE-IN-HOP",
+      "class": "The exact scalar of a route with the same pool twice in one hop prices every leg against the pool before the swap, while the Router runs the legs in turn: it promises more than delivery",
+      "status": "blocked",
+      "guard": "_poolTwiceInAHop",
+      "test": "test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery",
+      "note": "opencode OC-07, 2026-10-27. _exact priced each leg against the initial state; the second leg on the same pool meets the pool the first moved. Red at c516601: one V2 pair, an order of 0.1% of its reserves split in two legs, exactOut 5 bps over delivery, so a userMinOut taken from it is refused. The Solver merges a pool's legs and never plans it; previewRouteExact takes routes built off-chain. Fails closed: exactOut 0, as for a leg the Router refuses. Mutant [883]."
+    },
+    {
+      "id": "SOK-QUOTE-FROZEN-CL-FEE",
+      "class": "The quote prices a concentrated pool at the fee its registry row carries - the pool's fee() in the block it was registered - while the swap pays the pool's fee now",
+      "status": "blocked",
+      "guard": "quoteV3Fee",
+      "test": "test_AFeeThatRoseIsPromisedAsThePoolChargesIt",
+      "note": "DEX-17 (revisao-total K5; opencode dx/it0020), 2026-10-27. provenShape writes a CL pool's fee() into its row at registration, and quoteV3Fee returned that key first ('static key is truth'), so the Solver's leg and the preview priced the registration block's fee; the Router's floor asks the pool (cfgFee 0) and the pool charges its own. Measured on Base: Slipstream WETH/USDC sp=100 answers fee() 549 and 564 in consecutive blocks, 150..937 across 35 samples. Red at 2a384f0: registered at 150, charging 937, netOut 997050419999003087 > delivered 996265623599004655, so a userMinOut taken from the preview is refused; registered at 937, charging 150, the venue priced worse than it is (test_AFeeThatFellIsPromisedAsThePoolChargesIt). quoteV3Fee now asks fee() of a pool that is not Algebra-shaped first, one staticcall per CL quote; the key answers only for a pool whose fee() does not; Algebra keeps its order. No funds at risk: the floor was already live. Mutant [884]."
+    },
+    {
+      "id": "SOK-QUOTER-GATE-QUOTECALL-STATE",
+      "class": "A Gate leg priced by quoteCall on a venue that prices by running the swap leaves the venue moved inside the eth_call, and the next pricing of the leg in the same preview meets a venue the Router will not",
+      "status": "blocked",
+      "guard": "dryQuoteCall",
+      "test": "test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands",
+      "note": "3330 (imnw313), 2026-10-27. _exact prices the plan as committed, then _fundedOut prices the route as the Router funds it; a Gate adapter with no view price is asked quoteCall both times, and the Balancer V3 Vault's quote runs the swap and returns without unwinding it. The funded pass met the venue the first pass had moved and exactOut fell under the floor it promises (PoC on a Base fork at block 52,900,000: 326 bps under delivery on a 0.01 ETH WETH->RATE route, 1,444 bps split over two legs). Red in a unit fixture (a constant-product venue whose query writes its reserves): exactOut 991241419527741341670 against a floor of 993218161492991487486, 19.9 bps under, and the venue's input reserve 1,997.2e18 above where the preview found it (both passes kept). Under-promise: the Router's floor holds and no funds move. The Quoter now asks quoteCall in a frame of its own that always reverts (dryQuoteCall), as _simConc and _simV4 unwind the swaps they run; the answer travels in the revert data, under GATE_QUOTE_GAS. The adapter is not changed, so any venue whose simulation writes is covered."
+    },
+    {
+      "id": "SOK-QUOTER-ENCODE-FLOOR-AS-FUNDED",
+      "class": "The encode doors return canExecute and the swap bytes for a floor the venues, funded as the Router funds the route, cannot meet, which the Router refuses with RouterE(5)",
+      "status": "blocked",
+      "guard": "_fundedOut",
+      "test": "test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded",
+      "note": "3336 (Ash), 2026-10-27. The encode doors' canExecute was the plan preview's: _pack takes the protocol fee off the gross output, while the Router takes it off the input wherever no single hop into a bridge takes it off the output, and a venue's output is an integer step function of its input. On a deep V3 pool (1 bp, price 1, liquidity 1e30, a step of about 12.6 wei) 1013 in with a caller's floor of 1000 previewed netOut 1006 and encoded bytes the Router refused with RouterE(5) for a delivery of 997; red in the repo on that counterexample and in a fuzz over amounts and floors near the estimate. The iron floor is not at stake (965). _encode now asks _fundedOut, the funding pass the exact door has run since 1f1c4bf, and withholds canExecute and the bytes when it is under effectiveMinOut; the preview's figures are unchanged. The two encode doors are no longer view (selectors unchanged; call them by eth_call, like previewPlanExact). No funds at risk: the Router's floor held and the call reverted. Mutant [886]."
+    },
+    {
+      "id": "OUT-DELTA-RESTATEMENT",
+      "class": "tokenOut that grows on the Router between toutStart and the final measurement outside a measured leg window (a rebase or a reflection fired by the hop-0 input's transfer, a fee push or a sweep) or inside a blind leg (no attestation, no in-frame quote, so no DEX-11 comparison) counted as the swap's output: the balance delta paid the growth of the stranded balance to the swapper",
+      "status": "blocked",
+      "guard": "outCap",
+      "test": "test_ARestatementBeforeTheLastHopStaysWithTheStrandedBalance",
+      "note": "3310, 2026-10-27. The mirror of #45 (received capped at amountIn): _execute caps totalReceived, the balance delta against toutStart, at outCap: the declared figures _execScaled returns for the legs that make tokenOut, less the scaled input of the legs that spend it and the fee _chargeHopFee charges in it, each subtraction floored at zero (hop 0 of a cyclic route spends its input, measured against baseIn, before any leg made tokenOut). Red at 59ecf3f (4 of 8) and at c516601 after DEX-11 (3 of 8: a hop-0 restatement, a blind V3 leg, the loose A->C->B->C shape); green with the cap. A fee-on-transfer tokenOut measures less and passes; the excess stays with the rescue. Mutants [887]-[896] (3310 cap x3, made, sum, handed, handed floor, fee, fee floor, lift); the cap also hides a lost toutStart from an honest venue's swap, so TOUT-nobase now pairs with the fee-on-transfer swap and h11-1019 P2 with the loose shape (their old pairs pass mutated). Escapes: a venue that declares more than it pays raises the cap; with a fee-on-transfer tokenOut a restatement inside the transfer deficit still pays; tokenOut an intermediate hop leaves unspent (a V3/V4 partial fill) stays with the rescue; the hop scaling and the hop fee base of hop h>=1 are still uncapped deltas."
     }
   ]
 }

@@ -3,8 +3,8 @@
 
 A native V4 pool's currency0 is address(0), and every reader that builds its key has to put the
 chain's coin on the right side first. That substitution was written by hand five times outside the
-Router (Quoter `_hookRefusedIn` and `_simV4`, Solver `_capByLiveDepth`, `_heldShare` and
-`_quoteWithDepth`); all five then called Core.v4LegCurrencies, the orientation producer. The Router
+Router (Quoter `_hookRefusedIn` and `_simV4`, Solver `_capByLiveDepth`, `_heldShare` - in
+BlazePhoenixMath since D10 - and `_quoteWithDepth`); all five then called Core.v4LegCurrencies, the orientation producer. The Router
 keeps its own producer, Core.nativeMapVerified, because it settles and may only ever touch the
 canonical WETH (test/Fusion1020V4LegCurrencies.t.sol proves the two name the same pool on every leg
 the Router admits). Since 2026-10-21 (#52 seal) the Quoter asks nativeMapVerified too, fed the

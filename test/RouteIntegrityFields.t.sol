@@ -282,21 +282,22 @@ contract RouteIntegrityFieldsTest is Test {
         pair.sync();
     }
 
-    /// A V2 pair executed under the Solidly kind: the pair's own getAmountOut does not
-    /// exist, so the Router prices the leg with the Solidly curve at the fee ceiling and
-    /// a 2 % haircut, and asks the pair for that smaller amount. It settles; the caller
-    /// receives less than the honest route and the difference stays in the pair.
-    function test_PairKindLie_V2AsSolidly_SettlesForLess() public {
+    /// A V2 pair executed under the Solidly kind: the pair answers neither its own
+    /// getAmountOut nor stable(), so it has no curve the Core can replicate (aero-nova,
+    /// 2026-10-26): the ask is 0 and the leg reverts before any token moves. Before, the
+    /// Router priced it on a guessed curve at the fee ceiling less 2 % and it settled for less.
+    function test_PairKindLie_V2AsSolidly_IsRefused() public {
         uint256 amt = 1e18;
         V2PairK honest = _newPair(); V2PairK lied = _newPair();
         Route memory rHonest = _pairRoute(honest, BPC.KIND_V2, amt);
         Route memory rLie = _pairRoute(lied, BPC.KIND_SOLIDLY, amt);
         vm.prank(user);
-        uint256 gotHonest = router.swapExactIn(rHonest, amt, 1, user, block.timestamp + 1);
+        assertGt(router.swapExactIn(rHonest, amt, 1, user, block.timestamp + 1), 0, "control: the honest kind settles");
+        uint256 before = IERC20B(c0).balanceOf(user);
         vm.prank(user);
-        uint256 gotLie = router.swapExactIn(rLie, amt, 1, user, block.timestamp + 1);
-        assertLt(gotLie, gotHonest, "the kind lie delivers less than the honest route");
-        assertGe(gotLie, gotHonest * 95 / 100, "and not more than five percent less (measured cost of the lie)");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
+        router.swapExactIn(rLie, amt, 1, user, block.timestamp + 1);
+        assertEq(IERC20B(c0).balanceOf(user), before, "nothing moved");
     }
 
     /// A V2 pair executed under the V3 kind: the pair has no V3 swap selector, so the

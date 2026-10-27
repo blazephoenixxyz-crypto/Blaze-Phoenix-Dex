@@ -170,6 +170,8 @@ contract BlazePhoenixQuoter {
     /// @dev The payload both quote callbacks revert with. Tagged, so a venue's own
     ///      revert data can never be read as a quote, whatever its length.
     error QuoteDeltas(int256 d0, int256 d1);
+    /// @dev The payload `dryQuoteCall` reverts with: a Gate adapter's `quoteCall` answer.
+    error GateQuoteCall(uint256 out);
 
     constructor(address hub_, address solver_) {
         if (hub_ == address(0) || solver_ == address(0)) revert QuoterE(3);
@@ -237,25 +239,46 @@ contract BlazePhoenixQuoter {
     ///      inside them, so the transaction carries the floor the preview promised.
     ///      When the preview says the route cannot execute, the bytes are EMPTY on purpose: a
     ///      caller cannot submit a transaction this function already knows will not settle.
-    ///      View-only, no state, no Solver re-run beyond the preview's own.
+    ///      Not `view` since 2026-10-27 (3336): the floor inside the bytes is asked of the
+    ///      venues as the Router funds the route, by the dry-run `previewPlanExact` runs, so
+    ///      call it by eth_call, like `previewPlanExact`. Every dry-run reverts: no state is
+    ///      kept. No Solver re-run beyond the preview's own.
     function previewAndEncode(
         address tIn, address tOut, uint256 amountIn, address recipient, uint256 deadline
-    ) external view returns (Preview memory pv, bytes memory call) {
+    ) external returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
         pv = _pack(plan.best, 0);
-        if (pv.canExecute) {
-            call = abi.encodeCall(IRouterExec.swapExactIn,
-                (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));
-        }
+        call = _encode(pv, amountIn, recipient, deadline);
     }
 
-    /// @notice The same, with a caller-tightened floor folded into the encoded bytes.
+    /// @notice The same, with a caller-tightened floor folded into the encoded bytes. Not `view`,
+    ///         for the same reason; call it by eth_call.
     function previewAndEncodeWithMinOut(
         address tIn, address tOut, uint256 amountIn, uint256 userMinOut,
         address recipient, uint256 deadline
-    ) external view returns (Preview memory pv, bytes memory call) {
+    ) external returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
         pv = _pack(plan.best, userMinOut);
+        call = _encode(pv, amountIn, recipient, deadline);
+    }
+
+    /// @dev The encode doors' bytes, and two refusals of the Router the plan preview does not
+    ///      ask. `Router._swap` refuses a deadline behind the block with RouterE(4) before it
+    ///      moves a token. The doors copied the deadline into the bytes and never asked it, so a
+    ///      call that could not settle came back executable, bytes and all (opencode OC-03).
+    ///      Asked here, as `_swap` asks it; the Preview says so too.
+    ///      The Router refuses a delivery under the floor the bytes carry with RouterE(5), and
+    ///      it funds the route as `_fundedOut` does: the fee off the input wherever no single hop
+    ///      into a bridge takes it off the output. The preview's `netOut` takes it off the
+    ///      output, and a venue's output is a step function of its input: on a deep pool the
+    ///      delivery fell a step under an estimate that cleared the caller's floor, and the
+    ///      bytes were refused (3336, Ash). So the floor is asked of the venues as the Router
+    ///      funds them, the question the exact door asks; the preview's figures are unchanged.
+    function _encode(Preview memory pv, uint256 amountIn, address recipient, uint256 deadline)
+        private returns (bytes memory call)
+    {
+        if (block.timestamp > deadline) pv.canExecute = false;
+        if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;
         if (pv.canExecute) {
             call = abi.encodeCall(IRouterExec.swapExactIn,
                 (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));
@@ -422,9 +445,12 @@ contract BlazePhoenixQuoter {
     }
 
     /// @dev True when the Router refuses `route` before it moves a token. Its SHAPE first,
-    ///      the RouterE(3) checks of `Router._execute` in their order: at most MAX_HOPS hops;
-    ///      each hop has 1..5 legs and two different tokens, and starts where the previous one
-    ///      ended and never at the route's input again; no hookless leg after a hooked one;
+    ///      the RouterE(3) checks of `Router._swap` and `Router._execute` in their order: at
+    ///      least one hop (until 2026-10-27 the loop below never ran on zero hops and an empty
+    ///      route with a positive claim previewed executable; opencode OC-06) and at most
+    ///      MAX_HOPS hops; each hop has 1..5 legs and two different tokens, and starts where
+    ///      the previous one ended and never at the route's input again; no hookless leg
+    ///      after a hooked one;
     ///      every leg trades its hop's pair as `Router._legTokens` reads it - the pool's own
     ///      token0/token1 by direction, or a single-tick leg's counter token (auxId). Until
     ///      2026-10-23 only the V4 refusals below were asked, so a hand-built route with a
@@ -443,7 +469,7 @@ contract BlazePhoenixQuoter {
     ///      refused, as the Router refuses it with RouterE(8) (seal 2026-10-21).
     function _hookRefusedIn(Route memory route) private view returns (bool) {
         uint256 n = route.hops.length;
-        if (n > 3) return true;                                   // Router MAX_HOPS
+        if (n == 0 || n > 3) return true;                         // Router: no hops, MAX_HOPS
         bool sawHooked;
         for (uint256 h; h < n; ) {
             Hop memory hop = route.hops[h];
@@ -546,6 +572,33 @@ contract BlazePhoenixQuoter {
         if (reason.length != 68) return (0, 0);
         if (bytes4(reason) != QuoteDeltas.selector) return (0, 0);
         assembly { d0 := mload(add(reason, 36)) d1 := mload(add(reason, 68)) }
+    }
+
+    /// @notice A Gate wrapper's `quoteCall`, asked in a frame that always reverts; the Quoter's
+    ///         own frame, refused to any other caller. Some venues price only by running the
+    ///         swap: the Balancer V3 Vault's `quote` runs it and returns without unwinding it,
+    ///         so within one eth_call the second pricing of a leg (`_fundedOut`, after `_exact`)
+    ///         met the venue the first had moved and the exact scalar fell under delivery
+    ///         (3330, 2026-10-27). The revert unwinds whatever the venue's simulation wrote, as
+    ///         it unwinds the swaps `_simConc` and `_simV4` run; the answer travels in the revert
+    ///         data. Under GATE_QUOTE_GAS; a failure is 0.
+    function dryQuoteCall(address wrapper, bool zeroForOne, uint256 amtIn) external {
+        if (msg.sender != address(this)) revert QuoterE(6);
+        uint256 out;
+        try IGateWrapperQ(wrapper).quoteCall{gas: GATE_QUOTE_GAS}(zeroForOne, amtIn) returns (uint256 o) {
+            out = o;
+        } catch {}
+        revert GateQuoteCall(out);
+    }
+
+    /// @dev `dryQuoteCall`'s answer: 0 unless the frame reverted with its own payload (an
+    ///      out-of-gas or an undecodable answer reverts it without one).
+    function _dryQuoteCall(address wrapper, bool zeroForOne, uint256 amtIn) private returns (uint256 out) {
+        try this.dryQuoteCall(wrapper, zeroForOne, amtIn) {} catch (bytes memory r) {
+            if (r.length == 36 && bytes4(r) == GateQuoteCall.selector) {
+                assembly { out := mload(add(r, 36)) }
+            }
+        }
     }
 
     /// @notice Exact-in dry-run on a concentrated pool (V3/Algebra family).
@@ -773,7 +826,27 @@ contract BlazePhoenixQuoter {
         // `_priceLeg`, and that claim was returned as execution-grade. Asked of `_pack`'s own
         // producer; the route keeps its attestation, the scalar says the Router will not fill.
         if (_hookRefusedIn(route)) exactOut = 0;
+        // A POOL TWICE IN ONE HOP (opencode OC-07, 2026-10-27). Every leg above is priced against
+        // the pool as it stands before the swap; the Router runs the legs in turn, and the second
+        // meets the pool the first moved. On a V2 pair with a fee the split in sequence pays less
+        // than the legs priced side by side (measured: 5 bps over delivery, one pair, an order of
+        // 0.1% of its reserves), so the scalar over-promised. The Solver merges a pool's legs and
+        // never plans it; a route built off-chain can. No exact figure: fail closed, as above.
+        if (_poolTwiceInAHop(route)) exactOut = 0;
         return (route, exactOut);
+    }
+
+    /// @dev True when two legs of one hop name the same pool (a V4 leg: the same poolId).
+    function _poolTwiceInAHop(Route memory route) private pure returns (bool) {
+        for (uint256 h; h < route.hops.length; ++h) {
+            Leg[] memory legs = route.hops[h].legs;
+            for (uint256 i = 1; i < legs.length; ++i) {
+                for (uint256 j; j < i; ++j) {
+                    if (legs[i].pool == legs[j].pool) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /// @dev What the Router delivers for `route` when it charges the protocol fee on an input:
@@ -865,7 +938,9 @@ contract BlazePhoenixQuoter {
             // A Gate wrapper is priced by its own adapter through the ONE producer the Solver
             // plans with (BPC.gateQuote: the Router's identity, BPC.gateWrapperLive, then the
             // view `quote` under GATE_QUOTE_GAS), then here only the eth_call `quoteCall` when
-            // the view has no answer. A failure is 0, never the plan's point. A pool that is
+            // the view has no answer, asked in a frame that reverts (`dryQuoteCall`, 3330): a
+            // venue that prices by running the swap leaves nothing behind for the next pricing.
+            // A failure is 0, never the plan's point. A pool that is
             // not an admitted Gate's wrapper for this hop and fee, or whose family has no live
             // adapter, prices 0. Each adapter answer runs under GATE_QUOTE_GAS, so one leg
             // cannot spend the whole quote's gas.
@@ -873,9 +948,7 @@ contract BlazePhoenixQuoter {
             (live, legOut, ) = BPC.gateQuote(
                 address(hub), leg.pool, tIn, tOut, leg.fee, leg.zeroForOne, legIn, false);
             if (live && legOut == 0) {
-                try IGateWrapperQ(leg.pool).quoteCall{gas: GATE_QUOTE_GAS}(leg.zeroForOne, legIn) returns (uint256 o) {
-                    legOut = o;
-                } catch {}
+                legOut = _dryQuoteCall(leg.pool, leg.zeroForOne, legIn);
             }
         } else {
             // SOLIDLY — priced via the ONE Core dispatcher, exactly like

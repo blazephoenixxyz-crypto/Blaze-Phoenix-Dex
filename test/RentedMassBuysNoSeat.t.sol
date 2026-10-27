@@ -18,9 +18,10 @@ pragma solidity 0.8.36;
 //
 //  Reported by Seavia Resources through the bug bounty programme; this file is
 //  their proof of concept. Since 2026-10-07 the cached bucket still records the
-//  instant (the probe below still reads it), but wherever rows are RANKED against
-//  each other in the funnel the Solver caps it by what the pool holds at that
-//  moment (`Solver._capByLiveDepth`): the rented seat is worth an empty book.
+//  instant (the probe below still reads it), but wherever rows are weighed against
+//  each other in the funnel the Solver measures what the pool holds at that moment
+//  (`Solver._capByLiveDepth` until poda-1027, `Solver._dropDust` since, where no
+//  count cuts the funnel): the rented seat is worth an empty book.
 //
 //  Run:
 //    forge test --match-path 'test/RentedMassBuysNoSeat.t.sol' -vv

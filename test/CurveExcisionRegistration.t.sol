@@ -137,4 +137,42 @@ contract CurveExcisionRegistrationTest is Test {
         assertTrue(hub.getSlot(hub.keyOf(address(p), t0, t1)) != 0,
             "um kind vivo tem de entrar pela mesma porta");
     }
+
+    /// Red against mutant [34] of .github/scripts/mutants.py at 59ecf3f; green on 59ecf3f.
+    ///
+    /// THE SAME DOOR, ON A ROW THAT ALREADY EXISTS. The test above only reaches the COLD path
+    /// (an empty row), and there the kinds gate has a second judge since 96d4d17:
+    /// `Core.provenShape` refuses a kind with no readable shape, and every kind outside
+    /// KINDS_EXECUTABLE has none. The HOT path (`s != 0`) asks no such question: it ticks the
+    /// row before any shape is read, so the kinds gate is the only thing between a swap the
+    /// Router cannot have executed and a fresher, more active row.
+    function test_AnExcisedKindNeverTicksARegisteredRow() public {
+        MockERC20 a = new MockERC20("A", "A");
+        MockERC20 b = new MockERC20("B", "B");
+        MockV2Pair p = new MockV2Pair(address(a), address(b));
+        (address t0, address t1) = (p.token0(), p.token1());
+        a.mint(address(p), 1e21);
+        b.mint(address(p), 1e21);
+        p.setReserves(1e21, 1e21);
+        Origin.wire(hub, address(p), t0, t1, BPC.KIND_V2, 30);
+        bytes32 key = hub.keyOf(address(p), t0, t1);
+
+        // The row exists: one live swap seated it.
+        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), t0, t1, 1e18, 1e18, 1e21);
+        uint256 seated = hub.getSlot(key);
+        assertEq(BPC.decodeSwapCount(seated), 1, "setup: the live swap must seat the row with one swap");
+
+        // The three tombstones, each at a depth that would move the row's bucket if it ticked.
+        uint8[3] memory excised = [uint8(2), uint8(3), uint8(7)];
+        for (uint256 i; i < 3; ++i) {
+            hub.recordSwap(address(p), excised[i], 30, address(0), t0, t1, 1e18, 1e18, 1e27);
+            assertEq(hub.getSlot(key), seated,
+                "a swap under an excised kind ticked a registered row through the recordSwap door");
+        }
+
+        // CONTROL: the same call under a live kind does tick the row, so the equality above is
+        // the gate's refusal and not a door that ticks nothing.
+        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), t0, t1, 1e18, 1e18, 1e21);
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 2, "a live kind must tick the same row");
+    }
 }

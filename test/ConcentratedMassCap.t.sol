@@ -471,7 +471,7 @@ contract ConcentratedEmptyBookTest is Test {
     }
 
     /// @dev Since 2026-10-07 a concentrated book holding none of the output token has no
-    ///      weight in a split beside a pool that can pay (`Solver._seatTheSplit`), so the
+    ///      weight in a split beside a pool that can pay (`Math._seatTheSplit`), so the
     ///      split clamp no longer decides that case. It still decides when EVERY survivor is
     ///      such a book - no weight is zeroed then - and this is the witness for that arm:
     ///      two empty books alone on a pair must leave it with no route.

@@ -91,6 +91,8 @@ ALLOW = [
      "As above: the PEM banner the rule looks for."),
     (".github/scripts/check_no_secrets.py", "xox",
      "As above."),
+    (".github/scripts/mutants.py", "mstore(0x00, 0xddca3f43",
+     "The fee() selector left-aligned in a word, copied from BlazePhoenixCore.getV3Fee by the aero-nova mutant."),
 ]
 
 

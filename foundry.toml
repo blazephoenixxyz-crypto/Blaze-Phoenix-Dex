@@ -7,7 +7,7 @@ solc_version = "0.8.36"
 evm_version = "cancun"
 bytecode_hash = "none"
 optimizer = true
-# via_ir stays ON: several functions (Solver._buildHop/_weights, Router.
+# via_ir stays ON: several functions (Solver._buildHop, Math._weights, Router.
 # _execute) are written assuming the via-IR pipeline's stack-slot folding —
 # turning it off would likely hit "stack too deep". What's dialed back is
 # optimizer_runs: 999999 makes the Yul optimizer extremely memory-hungry, and

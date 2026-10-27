@@ -51,6 +51,8 @@ contract StrandedRegimeHandler {
     uint256 public twoHopSwaps;        // A -> B -> T settlements: hop 1 spends the bridge balance
     uint256 public divergentAttempts;
     uint256 public divergentSettled;
+    uint256 public divergentLive;              // attempted while the Router was not paused
+    uint256 public divergentRefusedByLegGuard; // of those, refused with RouterE(3): the leg-pair guard's code
     uint256 public mintedA;
     uint256 public mintedB;
     uint256 public mintedT;
@@ -179,6 +181,19 @@ contract StrandedRegimeHandler {
         A.approve(address(router), amt);
 
         address t0 = poolTB.token0();
+        // THE LEG MUST REACH THE GUARD IT AIMS AT. The Router's in-frame quote reads the reserve on
+        // the LEG's input side (T) and refuses with RouterE(8), BEFORE the leg-pair check, a pair
+        // holding less of the HOP's input token (A) than that reserve (bounty #85, f9d3c77). With
+        // no A on poolTB every attempt died there, and the campaign stopped telling the guard from
+        // its absence: mutant [249] (`||` -> `&&`) survived it. poolTB's T reserve grows with every
+        // two-hop route, so its A is topped up to that reserve on each attempt
+        // (test/LegDivergentStrandedDrain.t.sol mints the same A in its setUp).
+        {
+            (uint112 r0, uint112 r1,) = poolTB.getReserves();
+            uint256 rT = address(T) == t0 ? r0 : r1;
+            uint256 heldA = A.balanceOf(address(poolTB));
+            if (heldA < rT) { A.mint(address(poolTB), rT - heldA); mintedA += rT - heldA; }
+        }
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({
             pool: address(poolTB), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
@@ -193,10 +208,17 @@ contract StrandedRegimeHandler {
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
         });
 
-        unchecked { ++divergentAttempts; }
+        bool live = !router.paused();      // a paused Router answers RouterE(2) before any leg is read
+        unchecked { ++divergentAttempts; if (live) ++divergentLive; }
         try router.swapExactIn(r, amt, 1, recipient, block.timestamp + 1) returns (uint256) {
             unchecked { ++divergentSettled; }
-        } catch {}
+        } catch (bytes memory err) {
+            // On this route (one hop, one unhooked leg, A != B, amount > 0) no other RouterE(3) of
+            // the swap path can fire: here it is `legIn != hop.tokenIn || legOutRaw != hop.tokenOut`.
+            if (live && keccak256(err) == keccak256(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)))) {
+                unchecked { ++divergentRefusedByLegGuard; }
+            }
+        }
     }
 
     /// ADMIN ACTION 1 - the treasuries move while routes are in flight.
@@ -335,6 +357,15 @@ contract MetaStrandedRegimeInvariantTest is StdInvariant, Test {
         assertGt(handler.twoHopSwaps(), 0, "no two-hop route through the seeded bridge coin ever settled - the bridge baseline was never exercised");
         assertGt(handler.divergentAttempts(), 0,
             "the divergent-leg action was never called - the drain guard was never pushed on");
+        // Red against mutant [249] of .github/scripts/mutants.py at 59ecf3f; green on 59ecf3f.
+        // Attempted is not enough either: a divergent leg refused by ANOTHER check (the in-frame
+        // quote's RouterE(8), see swapDivergent) leaves `invariant_DivergentLegNeverSettles` at
+        // zero with the leg-pair guard weakened or gone. Every divergent leg the unpaused Router
+        // could execute must be refused with the guard's own code, and at least one must have been.
+        assertGt(handler.divergentRefusedByLegGuard(), 0,
+            "no divergent leg was refused by the leg-pair guard itself - another check refused them first");
+        assertEq(handler.divergentRefusedByLegGuard(), handler.divergentLive(),
+            "a divergent leg the unpaused Router could execute was not refused by the leg-pair guard itself");
         // NON-VACUITY FOR THE NEW AXIS. A composition campaign whose configuration
         // never actually moved is a swap campaign with extra code: these two gates
         // are what make the interleaving a measured fact rather than an intention.
