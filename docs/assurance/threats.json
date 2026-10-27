@@ -456,6 +456,54 @@
       "guard": "_execScaled",
       "test": "test_ADonationInsideTheLegWindowIsNotTheLegsOutput",
       "note": "DEX-11, 2026-10-27. _execScaled measures got as the Router's own tokenOut delta across the venue call; the window also spans the input transfer, the venue's code and its callback. The delta may not exceed declared, what the venue says it paid: V2/Solidly the outAmt the Router asks of the pair, V3/Algebra/Gate the out side swap returns, V4 the recv unlockCallback takes (returned through PoolManager.unlock). Else RouterE(20); a fee-on-transfer tokenOut delivers less and passes. Red at ae5f1ae: the V2 donation and the over-paying pair settled. V3, V4 and Gate donations: test_V3_ADonationInsideTheCallbackIsNotTheLegsOutput, test_V4_ADonationInsideTheSettleIsNotTheLegsOutput, test_Gate_ADonationInsideTheCallbackIsNotTheLegsOutput. Mutants DEX-11 G1, G1-V3, G1-V4, G1-Gate, V3 declared, V4 declared, lock. Limits: a V3 pool that reports more than it pays raises its own ceiling; a Gate wrapper declares the Router's delta across its adapter's exec, so a donation inside exec raises the declaration with it (a kind-9 leg writes nothing to the Hub: _recordHits skips it); on V2, V3 and V4 legs a tokenOut that credits more than it was sent is refused (fails closed)."
+    },
+    {
+      "id": "SOK-QUOTER-NO-HOPS-EXECUTABLE",
+      "class": "canExecute on a route with no hops, which Router._swap refuses with RouterE(3) before it moves a token",
+      "status": "blocked",
+      "guard": "_hookRefusedIn",
+      "test": "test_ARouteWithNoHopsCannotExecute",
+      "note": "opencode OC-06, 2026-10-27. _hookRefusedIn mirrored the RouterE(3) shape checks of Router._execute in a loop over the hops; on zero hops the loop never ran and it answered false, so previewRoute called a hand-built empty route with a positive totalOut executable. It now refuses n == 0 as Router._swap does. The exact doors already returned 0 on zero hops. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Mutant [881]."
+    },
+    {
+      "id": "SOK-QUOTER-ENCODE-PASSED-DEADLINE",
+      "class": "The encode doors return canExecute and the swap bytes for a deadline already behind the block, which Router._swap refuses with RouterE(4)",
+      "status": "blocked",
+      "guard": "_encode",
+      "test": "test_APassedDeadlineCannotExecute",
+      "note": "opencode OC-03, 2026-10-27. previewAndEncode and previewAndEncodeWithMinOut copied the deadline into the bytes and never asked it. Both now share _encode, which asks block.timestamp > deadline as Router._swap does, withholds canExecute and returns empty bytes. The other doors hold no deadline. Sibling OC-05 (an amount above uint128, RouterE(3) in Router._checkedSwap) did not reproduce: in the V2 fixture Solver.findBestRoutePlan reverts (panic 0x11) before any preview is packed. No funds at risk. Mutant [882]."
+    },
+    {
+      "id": "SOK-QUOTER-EXACT-POOL-TWICE-IN-HOP",
+      "class": "The exact scalar of a route with the same pool twice in one hop prices every leg against the pool before the swap, while the Router runs the legs in turn: it promises more than delivery",
+      "status": "blocked",
+      "guard": "_poolTwiceInAHop",
+      "test": "test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery",
+      "note": "opencode OC-07, 2026-10-27. _exact priced each leg against the initial state; the second leg on the same pool meets the pool the first moved. Red at c516601: one V2 pair, an order of 0.1% of its reserves split in two legs, exactOut 5 bps over delivery, so a userMinOut taken from it is refused. The Solver merges a pool's legs and never plans it; previewRouteExact takes routes built off-chain. Fails closed: exactOut 0, as for a leg the Router refuses. Mutant [883]."
+    },
+    {
+      "id": "SOK-QUOTE-FROZEN-CL-FEE",
+      "class": "The quote prices a concentrated pool at the fee its registry row carries - the pool's fee() in the block it was registered - while the swap pays the pool's fee now",
+      "status": "blocked",
+      "guard": "quoteV3Fee",
+      "test": "test_AFeeThatRoseIsPromisedAsThePoolChargesIt",
+      "note": "DEX-17 (revisao-total K5; opencode dx/it0020), 2026-10-27. provenShape writes a CL pool's fee() into its row at registration, and quoteV3Fee returned that key first ('static key is truth'), so the Solver's leg and the preview priced the registration block's fee; the Router's floor asks the pool (cfgFee 0) and the pool charges its own. Measured on Base: Slipstream WETH/USDC sp=100 answers fee() 549 and 564 in consecutive blocks, 150..937 across 35 samples. Red at 2a384f0: registered at 150, charging 937, netOut 997050419999003087 > delivered 996265623599004655, so a userMinOut taken from the preview is refused; registered at 937, charging 150, the venue priced worse than it is (test_AFeeThatFellIsPromisedAsThePoolChargesIt). quoteV3Fee now asks fee() of a pool that is not Algebra-shaped first, one staticcall per CL quote; the key answers only for a pool whose fee() does not; Algebra keeps its order. No funds at risk: the floor was already live. Mutant [884]."
+    },
+    {
+      "id": "SOK-QUOTER-GATE-QUOTECALL-STATE",
+      "class": "A Gate leg priced by quoteCall on a venue that prices by running the swap leaves the venue moved inside the eth_call, and the next pricing of the leg in the same preview meets a venue the Router will not",
+      "status": "blocked",
+      "guard": "dryQuoteCall",
+      "test": "test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands",
+      "note": "3330 (imnw313), 2026-10-27. _exact prices the plan as committed, then _fundedOut prices the route as the Router funds it; a Gate adapter with no view price is asked quoteCall both times, and the Balancer V3 Vault's quote runs the swap and returns without unwinding it. The funded pass met the venue the first pass had moved and exactOut fell under the floor it promises (PoC on a Base fork at block 52,900,000: 326 bps under delivery on a 0.01 ETH WETH->RATE route, 1,444 bps split over two legs). Red in a unit fixture (a constant-product venue whose query writes its reserves): exactOut 991241419527741341670 against a floor of 993218161492991487486, 19.9 bps under, and the venue's input reserve 1,997.2e18 above where the preview found it (both passes kept). Under-promise: the Router's floor holds and no funds move. The Quoter now asks quoteCall in a frame of its own that always reverts (dryQuoteCall), as _simConc and _simV4 unwind the swaps they run; the answer travels in the revert data, under GATE_QUOTE_GAS. The adapter is not changed, so any venue whose simulation writes is covered."
+    },
+    {
+      "id": "SOK-QUOTER-ENCODE-FLOOR-AS-FUNDED",
+      "class": "The encode doors return canExecute and the swap bytes for a floor the venues, funded as the Router funds the route, cannot meet, which the Router refuses with RouterE(5)",
+      "status": "blocked",
+      "guard": "_fundedOut",
+      "test": "test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded",
+      "note": "3336 (Ash), 2026-10-27. The encode doors' canExecute was the plan preview's: _pack takes the protocol fee off the gross output, while the Router takes it off the input wherever no single hop into a bridge takes it off the output, and a venue's output is an integer step function of its input. On a deep V3 pool (1 bp, price 1, liquidity 1e30, a step of about 12.6 wei) 1013 in with a caller's floor of 1000 previewed netOut 1006 and encoded bytes the Router refused with RouterE(5) for a delivery of 997; red in the repo on that counterexample and in a fuzz over amounts and floors near the estimate. The iron floor is not at stake (965). _encode now asks _fundedOut, the funding pass the exact door has run since 1f1c4bf, and withholds canExecute and the bytes when it is under effectiveMinOut; the preview's figures are unchanged. The two encode doors are no longer view (selectors unchanged; call them by eth_call, like previewPlanExact). No funds at risk: the Router's floor held and the call reverted. Mutant [886]."
     }
   ]
 }
