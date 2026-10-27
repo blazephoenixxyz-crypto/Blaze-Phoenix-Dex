@@ -285,6 +285,7 @@ contract ConcentratedEmptyBookTest is Test {
     uint112 constant DEEP       = uint112(1_000_000e18);
     uint128 constant DECLARED_L = uint128(1e33);
     uint256 constant DUST       = 1e15;
+    uint256 constant ONE_SIDED  = 1_000e18;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -486,13 +487,26 @@ contract ConcentratedEmptyBookTest is Test {
     }
 
     /// @dev Differential: the same door, same order, same block, with and without the
-    ///      empty book seated. An empty book must never cost the user anything. It is
-    ///      not asserted EQUAL, and the reason was measured: the book keeps the minimum
-    ///      split weight (1 in 10,001), its share is cut to nothing by the clamp and,
-    ///      as the last leg, has no leg after it to flow to - so the committed input is
-    ///      999.90001 A where it was 1,000 A. The fee is taken on the commitment (the
-    ///      "hop commitment" row of SHARED_QUANTITIES.md), and the user received
-    ///      0.00028 B MORE. The direction is the property; the size is the fee on 0.01%.
+    ///      book seated. A book that cannot pay tokenOut must never cost the user anything.
+    ///      The direction is the property, not equality. When this test was written the
+    ///      empty book kept the minimum split weight (1 in 10,001), its share was cut to
+    ///      nothing by the clamp and, as the last leg, had no leg after it to flow to - so
+    ///      the committed input was 999.90001 A where it was 1,000 A. The fee is taken on
+    ///      the commitment (the "hop commitment" row of SHARED_QUANTITIES.md), and the user
+    ///      received 0.00028 B MORE.
+    ///
+    ///      Re-armed on 3e150b4, red against mutant [281] (`Math._seatTheSplit` keeps such a
+    ///      book's weight) and green without it. Since poda-1027 a book empty on BOTH sides
+    ///      never reaches `_seatTheSplit`: it measures depth 0 (the lesser of what L declares
+    ///      and the mass it holds) and `Solver._dropDust` drops it as dust. On 3e150b4 the
+    ///      first phase delivers exactly what the door delivers without it, the plan beside
+    ///      it is the same with [281] applied, and [281] passed this test (mutation guard,
+    ///      PR #112). So the second phase seats the same book keeping the input it was paid:
+    ///      1,000 A and no B. It survives the funnel and reaches the split holding none of
+    ///      tokenOut. Measured on 3e150b4, it gets no leg either way; its weight is what
+    ///      moves. With [281] applied the two honest legs split 499.975 A / 500.025 A instead
+    ///      of 500 / 500, and the user receives 993714420386790948581 where it receives
+    ///      993714420388024547366 without the book.
     function test_AnEmptyBookSeatedBesideTheRouteNeverCostsTheUserAnything() public {
         // A second honest pool, so the order really splits. Beside ONE honest pool the
         // min-split gate collapsed every plan to a single leg, and no clamp decided anything.
@@ -511,14 +525,31 @@ contract ConcentratedEmptyBookTest is Test {
         uint256 without = tokenB.balanceOf(USER) - before;
         assertGe(without, _honestOut(ORDER), "setup: the door must at least match the honest pool alone");
         vm.revertToState(snap);
+        uint256 unseated = vm.snapshotState();
 
         _seat(DUST);
         assertEq(hub.getPool(_key()), address(book), "setup: the dust swap must have seated the book");
         before = tokenB.balanceOf(USER);
         vm.prank(USER);
         router.swapBestExactIn(address(tokenA), address(tokenB), ORDER, 1, USER, block.timestamp + 1);
+        emit log_named_uint("delivered beside the empty book", tokenB.balanceOf(USER) - before);
         assertGe(tokenB.balanceOf(USER) - before, without,
             "seating an empty book cost the user part of the delivery");
+        vm.revertToState(unseated);
+
+        // The same book, holding none of tokenB but the input side it was paid in.
+        book.setKeepInput(true);
+        _seat(ONE_SIDED);
+        assertEq(hub.getPool(_key()), address(book), "setup: the swap must have seated the one-sided book");
+        assertEq(tokenB.balanceOf(address(book)), 0, "setup: the one-sided book must hold no tokenB");
+        assertGt(BPC.decodeBucket(hub.getSlot(_key())), 0, "setup: the one-sided book must be sealed at the mass it holds");
+        before = tokenB.balanceOf(USER);
+        vm.prank(USER);
+        router.swapBestExactIn(address(tokenA), address(tokenB), ORDER, 1, USER, block.timestamp + 1);
+        emit log_named_uint("delivered without the book", without);
+        emit log_named_uint("delivered beside the one-sided book", tokenB.balanceOf(USER) - before);
+        assertGe(tokenB.balanceOf(USER) - before, without,
+            "a book holding none of tokenOut cost the user part of the delivery");
     }
 
     /// @dev What the depth cap buys: the believability band is anchored by MASS.
