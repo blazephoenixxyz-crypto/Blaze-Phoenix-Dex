@@ -4073,6 +4073,11 @@ M = [
       old='            out = uint256(-recv);\n',
       new='            out = uint256(-recv) - 1; // MUTANT\n',
       teste='test_Control_OutputChargedRouteKeepsThePlainDeduction'),
+ dict(nome='OC-06: the canExecute shape check lets a route with no hops through',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (n == 0 || n > 3) return true;                         // Router: no hops, MAX_HOPS\n',
+      new='        if (n > 3) return true; // MUTANT: zero hops not refused\n',
+      teste='test_ARouteWithNoHopsCannotExecute'),
 ]
 
 def run(t):

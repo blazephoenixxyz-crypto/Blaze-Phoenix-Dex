@@ -408,6 +408,14 @@
       "guard": "_execScaled",
       "test": "test_ADonationInsideTheLegWindowIsNotTheLegsOutput",
       "note": "DEX-11, 2026-10-27. _execScaled measures got as the Router's own tokenOut delta across the venue call; the window also spans the input transfer, the venue's code and its callback. The delta may not exceed declared, what the venue says it paid: V2/Solidly the outAmt the Router asks of the pair, V3/Algebra/Gate the out side swap returns, V4 the recv unlockCallback takes (returned through PoolManager.unlock). Else RouterE(20); a fee-on-transfer tokenOut delivers less and passes. Red at ae5f1ae: the V2 donation and the over-paying pair settled. V3, V4 and Gate donations: test_V3_ADonationInsideTheCallbackIsNotTheLegsOutput, test_V4_ADonationInsideTheSettleIsNotTheLegsOutput, test_Gate_ADonationInsideTheCallbackIsNotTheLegsOutput. Mutants DEX-11 G1, G1-V3, G1-V4, G1-Gate, V3 declared, V4 declared, lock. Limits: a V3 pool that reports more than it pays raises its own ceiling; a Gate wrapper declares the Router's delta across its adapter's exec, so a donation inside exec raises the declaration with it (a kind-9 leg writes nothing to the Hub: _recordHits skips it); on V2, V3 and V4 legs a tokenOut that credits more than it was sent is refused (fails closed)."
+    },
+    {
+      "id": "SOK-QUOTER-NO-HOPS-EXECUTABLE",
+      "class": "canExecute on a route with no hops, which Router._swap refuses with RouterE(3) before it moves a token",
+      "status": "blocked",
+      "guard": "_hookRefusedIn",
+      "test": "test_ARouteWithNoHopsCannotExecute",
+      "note": "opencode OC-06, 2026-10-27. _hookRefusedIn mirrored the RouterE(3) shape checks of Router._execute in a loop over the hops; on zero hops the loop never ran and it answered false, so previewRoute called a hand-built empty route with a positive totalOut executable. It now refuses n == 0 as Router._swap does. The exact doors already returned 0 on zero hops. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Mutant C-f2 OC-06."
     }
   ]
 }

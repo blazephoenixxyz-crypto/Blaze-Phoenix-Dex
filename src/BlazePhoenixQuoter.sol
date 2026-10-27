@@ -422,9 +422,12 @@ contract BlazePhoenixQuoter {
     }
 
     /// @dev True when the Router refuses `route` before it moves a token. Its SHAPE first,
-    ///      the RouterE(3) checks of `Router._execute` in their order: at most MAX_HOPS hops;
-    ///      each hop has 1..5 legs and two different tokens, and starts where the previous one
-    ///      ended and never at the route's input again; no hookless leg after a hooked one;
+    ///      the RouterE(3) checks of `Router._swap` and `Router._execute` in their order: at
+    ///      least one hop (until 2026-10-27 the loop below never ran on zero hops and an empty
+    ///      route with a positive claim previewed executable; opencode OC-06) and at most
+    ///      MAX_HOPS hops; each hop has 1..5 legs and two different tokens, and starts where
+    ///      the previous one ended and never at the route's input again; no hookless leg
+    ///      after a hooked one;
     ///      every leg trades its hop's pair as `Router._legTokens` reads it - the pool's own
     ///      token0/token1 by direction, or a single-tick leg's counter token (auxId). Until
     ///      2026-10-23 only the V4 refusals below were asked, so a hand-built route with a
@@ -443,7 +446,7 @@ contract BlazePhoenixQuoter {
     ///      refused, as the Router refuses it with RouterE(8) (seal 2026-10-21).
     function _hookRefusedIn(Route memory route) private view returns (bool) {
         uint256 n = route.hops.length;
-        if (n > 3) return true;                                   // Router MAX_HOPS
+        if (n == 0 || n > 3) return true;                         // Router: no hops, MAX_HOPS
         bool sawHooked;
         for (uint256 h; h < n; ) {
             Hop memory hop = route.hops[h];
