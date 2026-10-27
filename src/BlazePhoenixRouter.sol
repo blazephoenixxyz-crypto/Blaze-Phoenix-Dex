@@ -319,6 +319,7 @@ contract BlazePhoenixRouter {
     // paying the protocol fee, 16 = the fee was paid twice on an anchored route,
     // 17 = the in-transaction search of swapBestExactIn ran out of SOLVE_GAS,
     // 18 = the swap executes at an address other than the Router's own (an EIP-7702 delegation)
+    // 20 = a leg's measured delta exceeds what its venue declared it paid (DEX-11)
 
     // Every privileged door in this contract is gated by onlyControl, so all
     // administrative power ends permanently at renounceControl(). Keep it that
@@ -1721,12 +1722,14 @@ contract BlazePhoenixRouter {
         }
 
         uint8 k = leg.kind;
+        // What the venue declares it paid the Router for this leg (DEX-11, read after `got`).
+        uint256 declared;
         // Tombstone 3 left this dispatch in the EIP-170 dead-code pass: the venue
         // that lived there did not expose getReserves(), so the old _execV2Amt path
         // always computed outAmt == 0 and reverted RouterE(8). The `else` below
         // reverts directly — same result, fewer bytes.
         if (BPC.kindHas(k, BPC.A_RESERVES)) {
-            _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
+            declared = _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
         } else if (BPC.kindHas(k, BPC.A_CONC_POOL) || k == BPC.KIND_EXTERNAL) {
             // KIND_EXTERNAL is an IDENTITY, not an attribute: a Gate wrapper speaks the V3
             // swap/callback ABI, so it settles through the same callback and the same
@@ -1738,15 +1741,21 @@ contract BlazePhoenixRouter {
             // hop's own tokens and fee.
             if (k == BPC.KIND_EXTERNAL && !BPC.gateWrapperLive(address(hub), leg.pool, tokenIn, legOutRaw, leg.fee))
                 revert RouterE(19);
-            _execV3Amt(leg, tokenIn, amt);
+            declared = _execV3Amt(leg, tokenIn, amt);
         } else if (BPC.kindHas(k, BPC.A_CONC_SING)) {
-            _execV4Amt(leg, tokenIn, amt);
+            declared = _execV4Amt(leg, tokenIn, amt);
         } else {
             revert RouterE(8);
         }
 
         if (guard) {
             got = BPC.balanceOf(legOut, address(this)) - balBefore;
+            // DEX-11 (Penpie class). The window above also spans the transfer of the leg input,
+            // the venue's callback and the venue's own code: tokenOut that lands on the Router
+            // there counted as this leg's output, carried an over-attested leg past the floor
+            // below and its attestation into the Hub (_recordHits). The delta may not exceed what
+            // the venue declares it paid; less is fine (a fee-on-transfer tokenOut).
+            if (got > declared) revert RouterE(20);
 
             // Base attested by the caller, pro-rata to the amount ACTUALLY spent.
             uint256 bound = (leg.expectedOut != 0 && leg.amountIn != 0)
@@ -1911,7 +1920,10 @@ contract BlazePhoenixRouter {
     /// @dev EXPERIMENT: fused push-then-swap engine (V2 + Solidly). Same
     ///      liquidation ABI (IUniswapV2Pair.swap), same FoT measurement block,
     ///      differing only in outAmt derivation, selected by isV2.
-    function _execPairAmt(Leg calldata leg, address tokenIn, uint256 amt, bool isV2) private {
+    /// @return outAmt the output the Router asks of the pair: what the pair declares it pays (DEX-11).
+    function _execPairAmt(Leg calldata leg, address tokenIn, uint256 amt, bool isV2)
+        private returns (uint256 outAmt)
+    {
         uint256 rIn; uint256 rOut;
         if (isV2) {
             (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);
@@ -1941,7 +1953,6 @@ contract BlazePhoenixRouter {
             if (isV2) { rIn = rInB; rOut = leg.zeroForOne ? r1b : r0b; }
             _noteFot(BPC.mulDiv(realIn, BPC.BPS, amt));
         }
-        uint256 outAmt;
         if (isV2) {
             outAmt = BPC.outV2(askIn, rIn, rOut, BPC.effV2Fee(leg.fee));
         } else {
@@ -1954,7 +1965,8 @@ contract BlazePhoenixRouter {
         IUniswapV2Pair(leg.pool).swap(a0, a1, address(this), "");
     }
 
-    function _execV3Amt(Leg calldata leg, address tokenIn, uint256 amt) private {
+    /// @return declared the out side the pool (or Gate wrapper) returns from swap, negated (DEX-11).
+    function _execV3Amt(Leg calldata leg, address tokenIn, uint256 amt) private returns (uint256 declared) {
         uint256 sP = TSLOT_POOL;
         uint256 sT = TSLOT_TOKEN;
         uint256 sA = TSLOT_AMT;
@@ -1965,13 +1977,17 @@ contract BlazePhoenixRouter {
         uint160 limit = leg.zeroForOne
             ? BPC.MIN_SQRT_PRICE_PLUS_ONE
             : BPC.MAX_SQRT_PRICE_MINUS_ONE;
-        IUniswapV3PoolMin(pool).swap(
+        (int256 a0, int256 a1) = IUniswapV3PoolMin(pool).swap(
             address(this), leg.zeroForOne, int256(amt), limit, ""
         );
         assembly { tstore(sP, 0) tstore(sT, 0) tstore(sA, 0) }
+        // The pool pays the out side, so it comes back negative; a non-negative one declares nothing.
+        int256 o = leg.zeroForOne ? a1 : a0;
+        unchecked { if (o < 0) declared = uint256(-o); }
     }
 
-    function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private {
+    /// @return declared the amount unlockCallback took from the PoolManager (DEX-11).
+    function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private returns (uint256 declared) {
         address mgr = hub.v4PoolManager();
         if (mgr == address(0)) revert RouterE(8);
         if (leg.hooks != address(0)) {
@@ -2035,7 +2051,10 @@ contract BlazePhoenixRouter {
             currency0: c0, currency1: c1, fee: leg.fee,
             tickSpacing: leg.tickSpacing, hooks: leg.hooks
         });
-        IV4PoolManager(mgr).unlock(abi.encode(key, leg.zeroForOne, amt, bytes("")));
+        // The PoolManager returns unlockCallback's bytes unchanged (v4-core PoolManager.unlock).
+        declared = abi.decode(
+            IV4PoolManager(mgr).unlock(abi.encode(key, leg.zeroForOne, amt, bytes(""))), (uint256)
+        );
         assembly { tstore(sI, 0) tstore(sO, 0) }
     }
 
@@ -2186,7 +2205,7 @@ contract BlazePhoenixRouter {
         } else {
             IV4PoolManager(mgr).take(tOut, address(this), recv);
         }
-        return "";
+        return abi.encode(recv);
     }
 
     // =========================================================================

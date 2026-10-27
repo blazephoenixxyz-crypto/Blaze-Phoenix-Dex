@@ -56,7 +56,7 @@ contract PricedV4Manager {
         // Without it a callback that skipped its settle passed here, and only the fork
         // job - with the real PoolManager - could see it (V4 campaign, 2026-09-23).
         require(pendingOwe == 0, "CurrencyNotSettled");
-        return ret;
+        return abi.decode(ret, (bytes)); // v4-core: the callback's bytes, unchanged
     }
     function swap(V4PoolKey calldata key, SwapParams calldata p, bytes calldata) external returns (int256) {
         if (probe != address(0)) { address pr = probe; probe = address(0); IMidSwapProbe(pr).poke(); }
