@@ -127,22 +127,41 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
     }
 
     /// Red against mutant [270] of .github/scripts/mutants.py at 59ecf3f; green on 59ecf3f.
+    /// Re-armed on 3e150b4, red against [270] there and green without it: since poda-1027 no
+    /// count cuts the funnel (`Solver._dropDust` weighs every row's live depth against the
+    /// pair's) and `_seatDeepest` is gone, so the bucket a row was born at no longer decides
+    /// whether it is quoted, and eight warm dust rows passed this test with every seeded row
+    /// born at bucket 0 (mutation guard, PR #112).
     ///
-    /// THE FUNNEL GUARANTEES ONE SEAT, NOT TWO. Since bounty #82 (98f9ac2) the Solver measures
-    /// every row when the funnel cuts and `_seatDeepest` hands its last seat to the deepest one,
-    /// whatever its bucket: that seat alone keeps the test above green with every seeded row born
-    /// at bucket 0. A second deep pool has no such seat. Only the bucket it was born at ranks it
-    /// above warm dust, so it is quoted, and the order is split across both deep pools.
+    /// WHERE THE BUCKET STILL RANKS A ROW: THE PAIR'S SIXTEEN SEATS. `_register` evicts the row
+    /// of lowest psi (vitality x 2^bucket, ties to the shallower bucket) and `_canInsert` admits
+    /// a newcomer only above the weakest incumbent's psi plus a quarter. A seeded row has never
+    /// been swapped (vitality 1), so only its bucket ranks it above warm dust. Born at the
+    /// bucket measured at the door, the two deep rows score 512 and 256 against warm dust's 3,
+    /// and a newcomer at bucket 1 (weight 2) is refused (2 > 3 + 3/4 is false). Born at bucket
+    /// 0, each deep row scores 1: the same newcomer is admitted (2 > 1 + 1/4) over the first of
+    /// them and a second one evicts the other - and an evicted row is never swapped to be
+    /// corrected. Both deep rows must keep their seats, and the order both pools' depth.
     function test_ASecondSeededDeepPoolOutranksWarmDustWithoutTheGuaranteedSeat() public {
         MockV2Pair deeper = _v2(1e24);
         MockV2Pair deep = _v2(5e23);
         hub.seedPool(address(deeper), BPC.KIND_V2, 30, address(0), address(A), address(B));
         hub.seedPool(address(deep), BPC.KIND_V2, 30, address(0), address(A), address(B));
-        for (uint256 i; i < 8; ++i) {                     // the funnel keeps eight
+        for (uint256 i; i < 14; ++i) {                    // with the two deep rows, the pair's 16 (MAX_SLOTS)
             MockV2Pair dust = _v2(1e14);
             hub.seedPool(address(dust), BPC.KIND_V2, 30, address(0), address(A), address(B));
             _warm(address(dust), 1e14, 3);
         }
+        assertEq(hub.getActivePools(address(A), address(B)).length, 16, "setup: the pair must hold its sixteen rows");
+        // Two newcomers at the swap door, each a pool a wired factory derives (rizki-3107), at
+        // depth bucket 1.
+        for (uint256 i; i < 2; ++i) {
+            MockV2Pair newcomer = _v2(1e16);
+            Origin.wire(hub, address(newcomer), address(A), address(B), BPC.KIND_V2, 30);
+            hub.recordSwap(address(newcomer), BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, 1e16);
+        }
+        assertEq(hub.getPool(_key(address(deeper))), address(deeper), "a seeded deep pool was evicted below warm dust");
+        assertEq(hub.getPool(_key(address(deep))), address(deep), "the second seeded deep pool was evicted below warm dust");
         uint256 order = 1e23;
         // Two equal-price constant-product pools at the same fee, split in proportion to their
         // reserves, pay what one pool holding both would: the most this order can get.
