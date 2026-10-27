@@ -4062,6 +4062,17 @@ M = [
       old='            if (got > declared) revert RouterE(20);\n',
       new='            // MUTANT: the venue declaration is not compared\n',
       teste='test_Gate_ADonationInsideTheCallbackIsNotTheLegsOutput'),
+    # --- C-f2 (27-10; renumerar no merge) ---
+ dict(nome='DEX-10 V2: a smaller K on the quote side only - the Quoter prices a V2 leg one bp short of the pair',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            (legOut, ) = BPC.universalQuote(qc, legIn);\n',
+      new='            (legOut, ) = BPC.universalQuote(qc, legIn); legOut -= legOut / 10000; // MUTANT\n',
+      teste='test_ExactOut_OneHop_IsThePoolMathCeilingLessTheFeeRoundedUp'),
+ dict(nome='DEX-10 V3: the quote side only - the Quoter dry-run reads one wei short of what the pool pays',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            out = uint256(-recv);\n',
+      new='            out = uint256(-recv) - 1; // MUTANT\n',
+      teste='test_Control_OutputChargedRouteKeepsThePlainDeduction'),
 ]
 
 def run(t):
