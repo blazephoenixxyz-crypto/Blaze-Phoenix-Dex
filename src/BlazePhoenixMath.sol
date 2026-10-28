@@ -118,33 +118,16 @@ library BlazePhoenixMath {
         // (the sort machinery and the anchor die with the block — stack).
         uint256 kept;
         {
-            // Median of the non-zero rates. We sort a COPY of `rates` (insertion
-            // sort over the funnel's non-dust rows) so the per-index association in
-            // `rates`/`depths` survives for the band filter below. Zero entries
-            // (dead pools) bubble to the bottom of the copy and are skipped.
-            uint256[] memory sortedRates = new uint256[](n);
-            for (uint256 i; i < n; ) { sortedRates[i] = rates[i]; unchecked { ++i; } }
-            for (uint256 i = 1; i < n; ) {
-                uint256 key = sortedRates[i];
-                uint256 j = i;
-                while (j > 0 && sortedRates[j - 1] > key) {
-                    sortedRates[j] = sortedRates[j - 1];
-                    unchecked { --j; }
-                }
-                sortedRates[j] = key;
-                unchecked { ++i; }
-            }
-            // sortedRates is now ascending; zeros (dead pools) sit at the
-            // front. Count them here — all-zero means nothing quotable.
-            uint256 firstNonZero;
-            while (firstNonZero < n && sortedRates[firstNonZero] == 0) {
-                unchecked { ++firstNonZero; }
-            }
-            if (firstNonZero == n) return (0, 0, 0, psis);
-            uint256 medianIdx = firstNonZero + ((n - firstNonZero) / 2);
-            if (medianIdx >= n) medianIdx = n - 1;  // guard: never index past end
-            uint256 median = sortedRates[medianIdx];
-            if (median == 0) return (0, 0, 0, psis);
+            // Median of the non-zero rates. ONE ORDER PER HOP (M11): `ord` lists the
+            // live rows (rate > 0; dead pools have no opinion on the price) by rate,
+            // ascending, ties in row order (a stable insertion sort of the indices),
+            // so the per-index association in `rates`/`depths` survives for the band
+            // filter below. Every weighted median of the hop walks this same order
+            // with its own votes (`_wMedian`) instead of sorting the pairs again.
+            uint256[] memory ord = _byRate(rates, n);
+            uint256 m = ord.length;
+            if (m == 0) return (0, 0, 0, psis);   // all dead: nothing quotable
+            uint256 median = rates[ord[m / 2]];
 
             // Band base: the CAPITAL ANCHOR when one exists (any candidate
             // holds a non-zero real tokenOut balance); plain median only as
@@ -175,7 +158,7 @@ library BlazePhoenixMath {
             // donation cannot move; V4 depth is its measured liquidity, capped for
             // the vote by what its book holds (`_heldShare`). Falls back to the
             // median only when no candidate reports depth.
-            uint256 base = _depthWeightedMedian(rates, depths, n, cands, tIn, hub);
+            uint256 base = _depthWeightedMedian(rates, depths, n, cands, tIn, hub, ord);
             // Zero-base guard (devil's-advocate): a live candidate can have
             // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
             // depth/capital anchor could set base=0 and collapse the band to
@@ -398,7 +381,7 @@ library BlazePhoenixMath {
     ///      re-read with the deep walk (`V4_WALK_DEEP_STEPS`) and the median taken again.
     function _depthWeightedMedian(
         uint256[] memory rates, uint256[] memory depths, uint256 n, PoolInfo[] memory cands, address tIn,
-        IHubMath hub
+        IHubMath hub, uint256[] memory ord
     ) private view returns (uint256 base)
     {
         uint256[] memory w = new uint256[](n);
@@ -422,7 +405,7 @@ library BlazePhoenixMath {
                 w[i] = mute & (1 << i) != 0 ? 0 : d;
                 unchecked { ++i; }
             }
-            base = _wMedian(rates, w, n);
+            base = _wMedian(rates, w, ord);
             if (pass == 0) {
                 if (cut == 0) return base;
                 first = base;
@@ -475,48 +458,45 @@ library BlazePhoenixMath {
         }
     }
 
-    /// @dev The weighted median itself: rates with their votes `w`, dead pools excluded.
-    function _wMedian(uint256[] memory rates, uint256[] memory w, uint256 n) private pure returns (uint256) {
-        uint256[] memory r = new uint256[](n);
-        uint256[] memory d = new uint256[](n);
+    /// @dev The live rows (rate > 0) ordered by rate, ascending, ties in row order: a stable
+    ///      insertion sort of the indices. The hop's one order (`_select`, M11).
+    function _byRate(uint256[] memory rates, uint256 n) private pure returns (uint256[] memory ord) {
+        ord = new uint256[](n);
         uint256 m;
-        uint256 massa;
         for (uint256 i; i < n; ) {
-            // Dead pools (rate 0) do not vote: they have no opinion on the price.
-            if (rates[i] > 0) {
-                r[m] = rates[i];
-                d[m] = w[i];
-                massa += w[i];
+            uint256 kr = rates[i];
+            if (kr > 0) {
+                uint256 j = m;
+                while (j > 0 && rates[ord[j - 1]] > kr) {
+                    ord[j] = ord[j - 1];
+                    unchecked { --j; }
+                }
+                ord[j] = i;
                 unchecked { ++m; }
             }
             unchecked { ++i; }
         }
+        assembly ("memory-safe") { mstore(ord, m) }
+    }
+
+    /// @dev The weighted median itself: rates with their votes `w`, walked in the hop's order
+    ///      `ord` (live rows by rate, ties in row order; dead pools excluded, they have no opinion
+    ///      on the price). Mass travels with its rate: the walk reads row ord[i]'s rate and vote.
+    function _wMedian(uint256[] memory rates, uint256[] memory w, uint256[] memory ord) private pure returns (uint256) {
+        uint256 m = ord.length;
+        uint256 massa;
+        for (uint256 i; i < m; ) { massa += w[ord[i]]; unchecked { ++i; } }
         if (m == 0 || massa == 0) return 0;
-        // Insertion sort of the PAIRS by rate, over the band. Sorting the pairs is what
-        // sets this apart from sorting rates alone: mass has to travel with its rate.
-        for (uint256 i = 1; i < m; ) {
-            uint256 kr = r[i];
-            uint256 kd = d[i];
-            uint256 j = i;
-            while (j > 0 && r[j - 1] > kr) {
-                r[j] = r[j - 1];
-                d[j] = d[j - 1];
-                unchecked { --j; }
-            }
-            r[j] = kr;
-            d[j] = kd;
-            unchecked { ++i; }
-        }
         // Walk up to HALF the mass. `(massa + 1) / 2` instead of `acc * 2 >= massa` so that there
         // is no chance of overflow in the double of a sum of depths.
         uint256 metade = (massa + 1) / 2;
         uint256 acc;
         for (uint256 i; i < m; ) {
-            acc += d[i];
-            if (acc >= metade) return r[i];
+            acc += w[ord[i]];
+            if (acc >= metade) return rates[ord[i]];
             unchecked { ++i; }
         }
-        return r[m - 1];
+        return rates[ord[m - 1]];
     }
 
     /// @dev Allocation weights for the band's survivors, normalized to [1..10000]:
