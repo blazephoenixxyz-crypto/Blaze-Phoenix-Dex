@@ -429,10 +429,9 @@ contract BlazePhoenixSolver {
         uint256 b;
         uint256 x;
         assembly ("memory-safe") { a := calldataload(o) b := calldataload(add(o, 0x20)) x := calldataload(add(o, 0x40)) }
-        _candsOf(m, address(uint160(a)), address(uint160(b)));
-        uint256 e = m.lists;
+        (, , uint256 e) = _candsOf(m, address(uint160(a)), address(uint160(b)));
         assembly ("memory-safe") {
-            for {} e { e := mload(e) } { if and(eq(mload(add(e, 0x20)), a), eq(mload(add(e, 0x40)), b)) { break } }
+            mstore(add(e, 0xa0), 0)   // the list changes: its kept first stage (`_firstStage`) goes
             let c := mload(add(e, 0x60))
             let n := mload(c)
             for { let s := add(c, 0x20) let z := add(s, shl(5, n)) } lt(s, z) { s := add(s, 0x20) } {
@@ -518,7 +517,7 @@ contract BlazePhoenixSolver {
     function _planDirect(Melhores memory m, address tIn, address tOut, uint256 amountIn)
         private view
     {
-        (PoolInfo[] memory cands, uint256 dec) = _candsOf(m, tIn, tOut);
+        (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, tIn, tOut);
         if (cands.length == 0) return;
         // PER-HOP CEILING, not the global one: a direct route is ONE hop, and
         // the 4-legs-per-hop limit applies to it like to any other. It used to
@@ -580,14 +579,18 @@ contract BlazePhoenixSolver {
             if (used >= room) return;
             uint256 budget = room - used;
             if (budget > MAX_LEGS_PER_STAGE) budget = MAX_LEGS_PER_STAGE;
-            (PoolInfo[] memory cands, uint256 dec) = _candsOf(m, path[i], path[i + 1]);
+            (PoolInfo[] memory cands, uint256 dec, uint256 e) = _candsOf(m, path[i], path[i + 1]);
             if (cands.length == 0) return;
             // Pass 0 builds the stage on the promise. Pass 1 runs only when the stage before
             // ranked above its promise: it quotes this stage again on that rank, for the
             // judgement alone. The stage's rank is the larger of the two lower bounds.
             uint256 rk;
             for (uint256 k; ; ) {
-                (Hop memory h, uint256 up, bool hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), (i == 0 ? m.walk | CUT : m.walk) | dec << 8);
+                Hop memory h;
+                uint256 up;
+                bool hh;
+                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), m.walk | CUT | dec << 8);
+                else (h, up, hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), m.walk | dec << 8);
                 if (hh) held = true;
                 if (k == 0) {
                     if (h.expectedOut == 0 || h.legs.length == 0) return;
@@ -1267,11 +1270,14 @@ contract BlazePhoenixSolver {
     ///      array it is handed, in place, and the next topology must start from the list as
     ///      built. The rows are shared: nothing downstream writes a PoolInfo field (only
     ///      `_topKPools` does, on its own rows, before it returns).
-    ///      `m.lists` heads a chain of [next, tA, tB, list, decimals] in memory; 0 is none.
-    function _candsOf(Melhores memory m, address tA, address tB) private view returns (PoolInfo[] memory c, uint256 dec) {
+    ///      `m.lists` heads a chain of [next, tA, tB, list, decimals, first stage] in memory; 0 is
+    ///      none. `e` is the pair's entry; its sixth word is `_firstStage`'s (0: none kept).
+    function _candsOf(Melhores memory m, address tA, address tB)
+        private view returns (PoolInfo[] memory c, uint256 dec, uint256 e)
+    {
         uint256 a = uint160(tA);
         uint256 b = uint160(tB);
-        uint256 e = m.lists;
+        e = m.lists;
         assembly ("memory-safe") {
             for {} e { e := mload(e) } {
                 if and(eq(mload(add(e, 0x20)), a), eq(mload(add(e, 0x40)), b)) { c := mload(add(e, 0x60)) dec := mload(add(e, 0x80)) break }
@@ -1287,7 +1293,8 @@ contract BlazePhoenixSolver {
                 mstore(add(n, 0x40), b)
                 mstore(add(n, 0x60), c)
                 mstore(add(n, 0x80), dec)
-                mstore(0x40, add(n, 0xa0))
+                mstore(add(n, 0xa0), 0)
+                mstore(0x40, add(n, 0xc0))
                 e := n
             }
             m.lists = e;
@@ -1298,6 +1305,79 @@ contract BlazePhoenixSolver {
             mcopy(d, c, l)
             mstore(0x40, add(d, l))
             c := d
+        }
+    }
+
+    /// @dev ONE FIRST STAGE PER BRIDGE PER SOLVE (M10). The first stage of a bridge route,
+    ///      tIn -> bs[i], is the same build in every topology that opens on bs[i] (the two-hop one
+    ///      and the three-hop ones over it): the same list, the same input `amountIn`, the same
+    ///      mode (CUT on the first hop) and the same budget, MAX_LEGS_PER_STAGE, which every
+    ///      first stage gets because a route keeps at most two stages after it. `_buildHop` is a
+    ///      function of those and of the state, and the solve is a static call, so a second build
+    ///      can only return what the first returned: it is built once and kept in the pair's
+    ///      entry (`_candsOf`), keyed on its input, budget and mode. The later stages are not
+    ///      kept: each is built on what the stage before produced, which differs by topology, and
+    ///      its second pass reads the list as the first one permuted it (`_planViaBridges`); a
+    ///      first stage has no second pass (it is quoted on an exact input).
+    ///      THE KEPT BUILD IS NEVER HANDED OUT: each read gets its own copy, as each read of a list
+    ///      does. A route may scale its hops in place (`_paysWhatItWalks`) and reorder their legs
+    ///      (`_orderLegs`), and the leader and the runner-up may open on the same bridge. A list
+    ///      that changes (`_sitsOut`) drops its kept build.
+    function _firstStage(
+        uint256 e, address tA, address tB, uint256 amt, PoolInfo[] memory c, uint8 budget, uint256 mode
+    ) private view returns (Hop memory h, uint256 up, bool held) {
+        uint256 key = mode << 8 | budget;
+        uint256 r;
+        assembly ("memory-safe") { r := mload(add(e, 0xa0)) }
+        if (r != 0) {
+            uint256 hit;
+            assembly ("memory-safe") {
+                if and(eq(mload(r), amt), eq(mload(add(r, 0x20)), key)) {
+                    hit := mload(add(r, 0x40))
+                    up := mload(add(r, 0x60))
+                    held := mload(add(r, 0x80))
+                }
+            }
+            if (hit != 0) {
+                hit = _copyHop(hit);
+                assembly ("memory-safe") { h := hit }
+                return (h, up, held);
+            }
+        }
+        (h, up, held) = _buildHop(tA, tB, amt, c, budget, mode);
+        uint256 kept;
+        assembly ("memory-safe") { kept := h }
+        kept = _copyHop(kept);
+        assembly ("memory-safe") {
+            r := mload(0x40)
+            mstore(r, amt)
+            mstore(add(r, 0x20), key)
+            mstore(add(r, 0x40), kept)
+            mstore(add(r, 0x60), up)
+            mstore(add(r, 0x80), held)
+            mstore(0x40, add(r, 0xa0))
+            mstore(add(e, 0xa0), r)
+        }
+    }
+
+    /// @dev A copy of a hop that shares no memory with it: the Hop's five words, its legs array
+    ///      and each Leg (Core's struct: ten one-word members, 0x140 bytes).
+    function _copyHop(uint256 h) private pure returns (uint256 c) {
+        assembly ("memory-safe") {
+            c := mload(0x40)
+            mcopy(c, h, 0xa0)
+            let ls := mload(add(h, 0x80))
+            let n := mload(ls)
+            let nl := add(c, 0xa0)
+            mstore(nl, n)
+            let q := add(nl, shl(5, add(n, 1)))
+            for { let i := 0 } lt(i, n) { i := add(i, 1) } {
+                mcopy(q, mload(add(ls, shl(5, add(i, 1)))), 0x140)
+                mstore(add(nl, shl(5, add(i, 1))), q)
+                q := add(q, 0x140)
+            }
+            mstore(add(c, 0x80), nl)
+            mstore(0x40, q)
         }
     }
 
