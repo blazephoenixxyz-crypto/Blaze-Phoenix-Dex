@@ -4513,7 +4513,7 @@ M = [
       old='        return (out < f ? out : f, left);\n',
       new='        return (out, left); // MUTANT\n',
       teste='test_ABookThatThickensPastTheEdgeIsPromisedNoMoreThanTheBand'),
- # --- N1 (DEX-01, 2026-10-27): labels [n1-1]-[n1-5] ---
+ # --- N1 (DEX-01, 2026-10-27): labels [n1-1]-[n1-7] ([n1-6], [n1-7] added 2026-10-28, tests-vs-bugs) ---
  # The leader answers for what its books pay: the plan built at the cap is walked before the
  # rebuild is decided; a promise that fell rebuilds the leader's topology without the books that
  # fell (`_sitsOut`), and a build leads only above the leader's rank less what its books did not
@@ -4545,6 +4545,16 @@ M = [
       old='            if lt(gas(), add(div(mul(WALK_GAS, 64), 63), 20000)) { revert(0, 0) }\n',
       new='            if lt(gas(), add(WALK_GAS, 20000)) { revert(0, 0) } // MUTANT [n1-5]\n',
       teste='test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing'),
+ dict(nome='N1 [n1-6]: the rebuild must beat the leader\'s rank at the cap, not what its books pay, and the pair it passed over stays passed over',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
+      new='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU, fl); // MUTANT [n1-6]\n',
+      teste='test_AVenueThatPaysMoreThanTheWalkedLegIsNotPassedOver'),
+ dict(nome='N1 [n1-7]: the rebuild has no bar, and a build that pays less than the walked leader takes its place',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
+      new='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, 0, fl); // MUTANT [n1-7]\n',
+      teste='test_ARebuildThatPaysLessThanTheWalkedLeaderLeavesItInPlace'),
  # --- G52 (wave 5.2 gas, 2026-10-28): labels [930]-[945] ---
  # Two gas mechanisms that must change no answer, to the wei. M10 (`Solver._firstStage`): the
  # first stage of a bridge route, tIn -> bs[i], is built once per solve, kept in the pair's

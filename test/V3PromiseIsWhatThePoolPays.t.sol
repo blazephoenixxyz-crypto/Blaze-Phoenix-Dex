@@ -405,6 +405,48 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertGe(got, pairPays, "the door that solves settles below what the pair alone pays");
     }
 
+    /// N1, the rebuild's bar from below: a rebuild leads only above what the leader's books pay.
+    /// The same book beside a pair as deep in A as the one above that gives a fifth as much B:
+    /// out of the band, so the band ranks the book alone first; its promise falls to what the
+    /// book pays walked, so the build is rebuilt without it, and that build (the pair alone)
+    /// pays less than the walked book. The leader's plan stands: the route settles no less than
+    /// the book, walked, settles alone, at both doors. The pair is deep enough that its route
+    /// clears the Solver's impact ceiling (MAX_ROUTE_IMPACT_BPS, 9,000): a pair a tenth as deep
+    /// measures 9,091 bps there, is refused at any bar, and leaves the bar untested.
+    /// Oracles: the specification's swap for the book, x*y=k at 0.3 % for the pair, each on the
+    /// order less the protocol's fee, as the Router funds any route (`_pairAlone`).
+    function test_ARebuildThatPaysLessThanTheWalkedLeaderLeavesItInPlace() public {
+        MockV2Pair pair = new MockV2Pair(address(A), address(B));
+        A.mint(address(pair), 1e18);
+        B.mint(address(pair), 2e17);
+        // The pair sorts its tokens: A's reserve is reserve0 only when A sorts first.
+        bool aIs0 = pair.token0() == address(A);
+        pair.setReserves(aIs0 ? 1e18 : 2e17, aIs0 ? 2e17 : 1e18);
+        hub.seedPool(address(pair), BPC.KIND_V2, 30, address(0), address(A), address(B));
+        uint256 net = AMT - BPC.mulDivUp(AMT, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 bookAlone = _pays(net);
+        uint256 pairAlone = net * 997 * 2e17 / (1e18 * 1000 + net * 997);
+        (uint160 sp, , , , , , ) = pool.slot0();
+        assertGt(BPC.outV3(AMT, sp, pool.liquidity(), FEE, _zfo(), _limit()), _pays(AMT), "premise: the book's promise falls below its band");
+        assertGt(bookAlone, pairAlone, "premise: the build without the book pays less than the book, walked");
+        assertLt(BPC.impactV2Bps(AMT, 1e18), 9_000, "premise: the pair's route clears the impact ceiling");
+
+        uint256 snap = vm.snapshotState();
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), AMT);
+        vm.prank(user);
+        uint256 got = router.swapExactIn(plan.best, AMT, 1, user, block.timestamp + 1);
+        console2.log("the book pays alone :", bookAlone);
+        console2.log("the pair pays alone :", pairAlone);
+        console2.log("the plan settles    :", got);
+        assertGe(got, bookAlone, "the plan settles below what the walked book alone pays");
+
+        vm.revertToState(snap);
+        vm.prank(user);
+        got = router.swapBestExactIn(address(A), address(B), AMT, 1, user, block.timestamp + 1);
+        console2.log("the door that solves:", got);
+        assertGe(got, bookAlone, "the door that solves settles below what the walked book alone pays");
+    }
+
     // The walk that promises the plan built at the cap runs before the rebuild's self-call, in
     // the solve itself: a revert inside it would be the whole solve's. Each book below is one a
     // step of the walk could not take without reverting; the walk answers the band instead.
