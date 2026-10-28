@@ -11,7 +11,7 @@
 //      The arithmetic of one hop's choice: the band (where the market is), the
 //      split weights (who deserves the order), the funnel cut and the seat of the
 //      remainder (who takes it). It reasons over figures the Solver has already
-//      measured, plus the three Hub reads the band's vote needs. Moved out of the
+//      measured, plus the two Hub reads the band's vote needs. Moved out of the
 //      Solver unchanged except for its exits and the `hub` argument (D10, owner's
 //      decision 2026-10-26), so the Solver keeps room under its size ceiling.
 //
@@ -32,10 +32,10 @@ pragma solidity 0.8.36;
 
 import {BlazePhoenixCore as BPC, PoolInfo} from "./BlazePhoenixCore.sol";
 
-/// @notice The three Hub reads the band's vote needs (`_mutedVotes`, `_heldShare`).
+/// @notice The two Hub reads the band's vote needs (`_mutedVotes`, `_heldShare`); the slot's key
+///         is `BPC.pairKey`, computed here rather than asked of the Hub (T16).
 interface IHubMath {
     function getSlot(bytes32 key) external view returns (uint256);
-    function keyOf(address pool, address tA, address tB) external pure returns (bytes32);
     function v4PoolManager() external view returns (address);
 }
 
@@ -453,7 +453,7 @@ library BlazePhoenixMath {
             if (rates[i] > 0) {
                 PoolInfo memory p = cands[i];
                 if (!p.active && BPC.kindHasAny(p.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)
-                    && BPC.decodeTier(hub.getSlot(hub.keyOf(p.pool, p.token0, p.token1))) != 0) mute |= 1 << i;
+                    && BPC.decodeTier(hub.getSlot(BPC.pairKey(p.pool, p.token0, p.token1))) != 0) mute |= 1 << i;
                 else voters = 1;
             }
             unchecked { ++i; }

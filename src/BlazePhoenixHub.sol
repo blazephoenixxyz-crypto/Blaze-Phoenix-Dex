@@ -1712,9 +1712,9 @@ contract BlazePhoenixHub {
         return BPC.reservesHeld(pool, kind, t0, t1);
     }
 
+    /// @notice A pool's registry key: the Core's one producer, `BPC.pairKey` (pool, pair sorted).
     function keyOf(address pool, address tA, address tB) public pure returns (bytes32) {
-        (address s0, address s1) = BPC.sortTokens(tA, tB);
-        return keccak256(abi.encodePacked(pool, s0, s1));
+        return BPC.pairKey(pool, tA, tB);
     }
 
     // ─── Promotion via swap (Router-only) ──────────────────────────────
