@@ -4654,6 +4654,11 @@ M = [
       old='                f := and(mload(0x00), 0xffffff)',
       new='                f := and(mload(0x00), 0xffff) // MUTANT',
       teste='testFuzz_ADirtyFeeWordIsReadByItsLowTwentyFourBits'),
+ dict(nome='suites-1028 [964]: _decay has no lastTs == 0 arm, so a never-stamped slot with a long tau is alive on its count',
+      f='src/BlazePhoenixCore.sol',
+      old='        if (lastTs == 0) return (0, 0);',
+      new='        // MUTANT [964]',
+      teste='test_FixedClock_Cases'),
 ]
 
 def run(t):
