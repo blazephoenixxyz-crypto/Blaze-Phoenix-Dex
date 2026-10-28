@@ -10,7 +10,9 @@ canonical WETH (test/Fusion1020V4LegCurrencies.t.sol proves the two name the sam
 the Router admits). Since 2026-10-21 (#52 seal) the Quoter asks nativeMapVerified too, fed the
 Router's WETH through Hub.weth(): on a leg the Router REFUSES (no WETH side) the orientation
 producer still named a pool, and the preview endorsed what the execution reverted with RouterE(8)
-(test/Seal1021NativeParity.t.sol). The Solver keeps v4LegCurrencies on registry rows.
+(test/Seal1021NativeParity.t.sol). The Solver keeps v4LegCurrencies on registry rows, and so,
+since 2026-10-28, does the Router's `_recordHits`: the executed leg's registry id is
+v4LegCurrencies(kind, t0, t1, true), t0 the WETH side _execV4Amt proved (fusion phase 2).
 
 What the guard checks, over src/*.sol with comments stripped:
   1. A HAND DERIVATION is a test against KIND_V4_NATIVE whose branch (the block or statement an
@@ -42,9 +44,6 @@ CENSUS = {
     ("BlazePhoenixRouter.sol", "_execV4Amt"):
         "the Router's execution arm: the callback unwraps and wraps, so the native side must be "
         "the canonical WETH (RouterE(8) otherwise), not whatever side zeroForOne points at.",
-    ("BlazePhoenixRouter.sol", "_recordHits"):
-        "the executed leg's registry id: t0 is the WETH side because _execV4Amt proved it. Same "
-        "form as v4LegCurrencies(kind, t0, t1, true); moving it is fusion phase 2 (Router margin).",
     ("BlazePhoenixQuoter.sol", "_hookRefusedIn"):
         "the preview's key check: the Router's producer (nativeMapVerified) on the Router's WETH "
         "(Hub.weth), so a native leg naming no WETH side is refused as _execV4Amt refuses it (8).",

@@ -66,15 +66,15 @@ contract CoreMathFuzzFromV1Test is Test {
     // ─── slot codec: encode/decode round-trips across ALL fields; bucket isolation from fee/kind ───
     function testFuzz_slotCodec(
         uint24 fee, uint8 kind, uint8 tier, uint16 conc,
-        uint32 ts, uint32 sc, uint32 regBlk, uint32 lastBlk, uint8 bkt
+        uint32 ts, uint32 sc, uint32 regBlk, uint32 tau, uint8 bkt
     ) public pure {
         kind = uint8(_b(kind, 0, 7));
-        uint256 s = BPC.encodeSlot(true, fee, kind, tier, conc, ts, 0, 0, sc, regBlk, lastBlk);
+        uint256 s = BPC.encodeSlot(true, fee, kind, tier, conc, ts, 0, 0, sc, regBlk, tau);
         assertTrue(BPC.isActive(s), "slot: active lost");
         assertEq(BPC.decodeFee(s), fee, "slot: fee lost");
         assertEq(BPC.decodeKind(s), kind, "slot: kind lost");
         assertEq(BPC.decodeSwapCount(s), sc, "slot: swapCount lost");
-        assertEq(BPC.decodeLastBlk(s), lastBlk, "slot: lastBlk lost");
+        assertEq(BPC.decodeTau(s), tau, "slot: tau lost");
         // setBucket must not corrupt fee/kind (adjacent fields in the packed layout).
         uint256 s2 = BPC.setBucket(s, bkt);
         assertEq(BPC.decodeBucket(s2), bkt & 0xF, "slot: bucket wrong");

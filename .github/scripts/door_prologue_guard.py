@@ -5,7 +5,9 @@ The Router has four public doors that take a user's funds (swapExactIn, swapExac
 swapExactInNative, swapBestExactIn). Their prologue is not one function: it is a set of clauses
 copied into each door or into the private helper the door goes through. A1 (a zero minOut is
 refused) and #45 (an inflated pull is clamped to what was asked for) were each fixed in one door
-first and found missing in a sibling. Until the prologue is a single producer, this census makes
+first and found missing in a sibling. Since 2026-10-28 the measured pull (PULL0, the #45 clamp and
+the FOT note) is one producer, `_received`, which the three doors that pull a token reach (the two
+`transferFrom` doors through `_pull`); CAP and A1 are still one copy per door. This census makes
 "every door carries every clause" a tested fact instead of an accident of copying.
 
 Pinned per door, over the door's body plus the helpers it reaches (comments stripped):
@@ -18,7 +20,7 @@ Pinned per door, over the door's body plus the helpers it reaches (comments stri
 Router-wide: `_swap` and `_swapPrePulled` open with the deadline check and are the only callers
 of `_execute` (whose first statement, the SELF check, frame_custody_guard.py pins);
 selfExecutePrePulled opens with its self-only check; and every external function that takes a
-`deadline` is a door named below. A new door, a door that loses a clause, or a fourth copy of
+`deadline` is a door named below. A new door, a door that loses a clause, or a second copy of
 the clamp goes red until it is reviewed and the census moves with it.
 
 Exit 0 when the census holds, 1 with ::error:: lines otherwise.
@@ -31,13 +33,14 @@ ROUTER = sys.argv[1] if len(sys.argv) > 1 else "src/BlazePhoenixRouter.sol"
 
 # door -> (functions whose bodies form its prologue, in call order; FOT copies expected, why)
 DOORS = {
-    "swapExactIn": (["swapExactIn", "_checkedSwap", "_swap"], 1, "clamped in _swap"),
-    "swapExactInWithPermit2": (["swapExactInWithPermit2"], 1, "clamped in the door"),
+    "swapExactIn": (["swapExactIn", "_checkedSwap", "_swap", "_pull", "_received"], 1,
+                    "clamped in _received, through _pull"),
+    "swapExactInWithPermit2": (["swapExactInWithPermit2", "_received"], 1, "clamped in _received"),
     "swapExactInNative": (["swapExactInNative"], 0,
                           "no clamp: the input is msg.value wrapped by WETH.deposit, measured as "
                           "the Router's WETH balance delta; nothing is pulled from a token that "
                           "could over-deliver [inferred from WETH9's deposit, not a Router check]"),
-    "swapBestExactIn": (["swapBestExactIn"], 1, "clamped in the door"),
+    "swapBestExactIn": (["swapBestExactIn", "_pull", "_received"], 1, "clamped in _received, through _pull"),
 }
 SELF_ONLY = "selfExecutePrePulled"
 DEADLINE_HELPERS = ("_swap", "_swapPrePulled")
@@ -125,10 +128,14 @@ for door, (chain, fot_want, _why) in DOORS.items():
     if not TERMINAL.search(text):
         errors.append(f"Door guard: {door} does not end in _swap / _swapPrePulled / selfExecutePrePulled.")
 
+# Every copy of the clamp sits in a function some door reaches. Counted per distinct function, so
+# the one producer that three doors share counts once.
 clamps = len(re.findall(CLAUSE["FOT"], code))
-if clamps != fot_total:
-    errors.append(f"Door guard: the #45 clamp appears {clamps}x in the Router, {fot_total}x inside the "
-                  f"doors; a copy outside a door is a fourth channel nobody pinned.")
+in_doors = sum(len(re.findall(CLAUSE["FOT"], function(fn)[1] or ""))
+               for fn in {f for chain, _, _ in DOORS.values() for f in chain})
+if clamps != in_doors:
+    errors.append(f"Door guard: the #45 clamp appears {clamps}x in the Router, {in_doors}x in functions the "
+                  f"doors reach; a copy outside a door is a channel nobody pinned.")
 
 # --- the two helpers own the deadline and are the only way into _execute -----------------------
 for fn in DEADLINE_HELPERS:
@@ -154,4 +161,5 @@ if errors:
         print(f"::error::{e}")
     sys.exit(1)
 print(f"door prologue census: {len(DOORS)} doors, each with whenLive+nrEntrant, CAP and A1 before the "
-      f"pull, PULL0, {fot_total} #45 clamp(s), and the deadline in {'/'.join(DEADLINE_HELPERS)}")
+      f"pull, PULL0, {fot_total} door(s) through {clamps} #45 clamp(s), and the deadline in "
+      f"{'/'.join(DEADLINE_HELPERS)}")

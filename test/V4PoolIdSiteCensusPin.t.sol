@@ -5,9 +5,12 @@ pragma solidity 0.8.36;
 //  The Router's V4 pool-id derivations, counted.
 //
 //  Three Router functions derive a V4 pool id from coordinates of their own -
-//  `_v4LegQuote`, `_execV4Amt` and `_recordHits` (a native and a common arm) - and
-//  two of them first normalise the native side through `nativeMapVerified`. They
-//  agree by the convention they share, so a fifth derivation, or a normalisation
+//  `_v4LegQuote`, `_execV4Amt` and `_recordHits` - one call each. The first two
+//  normalise the native side through `nativeMapVerified`; `_recordHits` (one call
+//  for both V4 kinds since 2026-10-28, two arms before) asks the Core's orientation
+//  producer, `v4LegCurrencies` with zeroForOne = true: t0 is the WETH side
+//  `_execV4Amt` proved, the orientation a registry row has. They agree by the
+//  convention they share, so a fourth derivation, or a normalisation
 //  that disappears from one door without the other knowing, is the forgotten-sibling
 //  shape this codebase has paid for before. This pins the structure (source text,
 //  like HookSieveCensusPin); it does not prove semantics. If it fails, re-derive
@@ -19,8 +22,10 @@ import {Test} from "forge-std/Test.sol";
 contract V4PoolIdSiteCensusPinTest is Test {
     function test_RouterV4PoolIdSitesAreUnchanged() public view {
         string memory src = vm.readFile("src/BlazePhoenixRouter.sol");
-        assertEq(_count(src, "BPC.computeV4PoolId("), 4,
+        assertEq(_count(src, "BPC.computeV4PoolId("), 3,
             "a V4 pool-id derivation appeared in or left the Router: re-derive the convention");
+        assertEq(_count(src, "BPC.v4LegCurrencies("), 1,
+            "the registry arm's orientation appeared in or left the Router: re-derive the convention");
         assertEq(_count(src, "BPC.nativeMapVerified("), 2,
             "a native normalisation appeared in or left the Router: a door may be left unnormalised");
     }

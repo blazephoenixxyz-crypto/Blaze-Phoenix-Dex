@@ -443,7 +443,7 @@ Storage is the dominant cost of doing anything on the EVM: a cold `SLOAD` is 2,1
 | 128–159 | `emaOut` | 32 | reserved for an output-volume EMA; as above |
 | 160–191 | `swapCount` | 32 | activity count, saturating at $2^{32}-1$ |
 | 192–223 | `regBlk` | 32 | registration block |
-| 224–255 | `lastBlk` | 32 | last-touch block |
+| 224–255 | `tau` | 32 | the pool's own clock: mean seconds between its anchored ticks (0 = not yet measured) |
 
 *FIG-4 — Monoslot bit layout: one 256-bit word, fourteen named fields, the concentration field masked to twelve bits so it can never bleed into the depth bucket. (figure in the PDF edition)*
 
@@ -485,14 +485,14 @@ $$
 
 The depth bucket $b = \min(15, \lfloor \log_{10}(d / 10^{15}) \rfloor)$ enters through its weight $2^{b}$: each decade of depth doubles the weight, so depth counts sub-linearly — a deep pool is firmly favoured, but a merely healthy pool is not erased by a giant. A pool on a bridge pair earns +25 %, because bridges are the connective tissue of the liquidity graph; a concentrated pool earns a further +5 %. The bridge bonus is read live from the pair by one producer (`_pairBridged`) rather than from a bit frozen at registration, and within a pair it is uniform, so it can never reorder pools of the same pair.
 
-**The decay — one mechanism.** Activity decays with idleness by a single wall-clock rule (`_decayedSwapCount`):
+**The decay — one mechanism, on the pool's own clock.** Activity decays with idleness by a single wall-clock rule (`_decay`), whose step is the pool's own: $h = m\,\tau$, where $\tau$ is the mean time between the pool's anchored trades, and the score is the decayed count per step, as a rate per $S = 24{,}576$ s:
 
 $$
-V(s,t) \;=\; \mathrm{swapCount}(s) \;\gg\; \left\lfloor \frac{t - t_{\mathrm{last}}}{24{,}576\ \mathrm{s}} \right\rfloor, \qquad V = 0 \ \text{once the shift exceeds } 31.
+c(s,t) \;=\; \mathrm{swapCount}(s) \;\gg\; \left\lfloor \frac{t - t_{\mathrm{last}}}{h} \right\rfloor, \qquad V(s,t) \;=\; \frac{c(s,t)\, S}{h}, \qquad V = 0 \ \text{once the shift exceeds } 31.
 $$
 ^e11
 
-The step is `VITALITY_DECAY_STEP_SECONDS = 24,576` — about 6.8 hours — and thirty-two halvings extinguish any score, so a silent pool reaches zero and full evictability after 786,432 s, about 9.1 days. A single swap revives it, and revival is honest: the count resumes from what the decay left standing, never from the pre-decay total, so one dust swap after a long silence cannot restore a pool's accumulated rank. The scorer keeps two zeros apart: a *dead* slot — empty, never ticked, or past the horizon — scores a true zero and drops from ranking, while a *live* slot whose small count merely rounded away under the shift is floored to one, so a real, recently touched pool never vanishes on a rounding artefact. The window is in wall-clock seconds deliberately: a block-counted window means a different real duration on every chain, and an earlier implementation that shifted every 16 blocks decayed to zero about 128× faster than documented.
+Each tick that moved at least $2^{-16}$ of the pool's mass (the Gate's materiality rule, `MATERIAL_SHIFT`) moves $\tau$ by $2^{-k}$ of the gap between its interval and $\tau$; the first such interval after registration is $\tau$; dust counts but moves no clock. With $k = 3$ and $m = 4$, fixed on 11,761 real swap intervals on Base and Arbitrum (no live pool died between two of its own swaps), thirty-two halvings extinguish any score after $32\,m\,\tau$ of silence: minutes for a pool that trades every few seconds, weeks for one that trades a few times a week. Until $\tau$ is measured the step is `VITALITY_DECAY_STEP_SECONDS = 24,576` s (about 6.8 hours, 9.1 days to zero), and at $\tau = S/m$ the score is the old count to the wei. Before 2026-10-27 every pool decayed on that one fixed step, which kept a busy pool's stale row for nine days and killed a weekly pool between two honest trades. A single swap revives it, and revival is honest: the count resumes from what the decay left standing, never from the pre-decay total, so one dust swap after a long silence cannot restore a pool's accumulated rank. The scorer keeps two zeros apart: a *dead* slot — empty, never ticked, or past the horizon — scores a true zero and drops from ranking, while a *live* slot whose small count merely rounded away under the shift is floored to one, so a real, recently touched pool never vanishes on a rounding artefact. The window is in wall-clock seconds deliberately: a block-counted window means a different real duration on every chain, and an earlier implementation that shifted every 16 blocks decayed to zero about 128× faster than documented.
 
 *FIG-5 — Vitality decay: a count of 4,096 halves every 24,576 s and reaches zero after 32 steps; a swap at day 4 revives from the decayed base, not from the historical total. (figure in the PDF edition)*
 
@@ -1329,7 +1329,7 @@ Every quantitative claim in this paper reduces to one of the following. Each is 
 | E8 | CREATE2 derivation | $\mathrm{pool} = \mathrm{addr}_{20}(\mathrm{keccak256}(\mathtt{0xff} \Vert \mathrm{origin} \Vert \mathrm{salt} \Vert \mathrm{initCodeHash}))$ | Core `create2Address`, `deriveAddress` | §7 |
 | E9 | Monoslot packing | $s = a \,\vert\, f\!\ll\!8 \,\vert\, k\!\ll\!32 \,\vert\, r\!\ll\!40 \,\vert\, (c\wedge\mathtt{0xFFF})\!\ll\!48 \,\vert\, b\!\ll\!60 \,\vert\, \dots \,\vert\, B_{\mathrm{last}}\!\ll\!224$ | Core `encodeSlot` | §8 |
 | E10 | Vitality Field | $\Psi = V \cdot 2^{b} \cdot (1 + 0.25\,\mathbf{1}_{\mathrm{bridge}}) \cdot (1 + 0.05\,\mathbf{1}_{\mathrm{conc}})$ | Core `psi` | §9.2 |
-| E11 | Activity decay | $V = \mathrm{swapCount} \gg \lfloor (t - t_{\mathrm{last}})/24{,}576 \rfloor$; 0 once the shift exceeds 31 | Core `_decayedSwapCount` | §9.2 |
+| E11 | Activity decay | $V = (\mathrm{swapCount} \gg \lfloor (t - t_{\mathrm{last}})/h \rfloor)\,S/h$, $h = m\tau$ ($S$ while $\tau = 0$); 0 once the shift exceeds 31 | Core `_decay`, `vitality` | §9.2 |
 | E12 | Depth bucket | $b = \min(15, \lfloor \log_{10}(d/10^{15}) \rfloor)$ | Core `depthBucket` | §9.2 |
 | E13 | Eviction hurdle | $2^{b(d_{\mathrm{new}})} > \Psi_{\mathrm{worst}} + \lfloor \Psi_{\mathrm{worst}}/4 \rfloor$ | Hub `_canInsert` | §9.3 |
 | E14 | Split gate | keep the split iff $\mathrm{out}_{\mathrm{split}} \ge \mathrm{out}_{\mathrm{single}}\cdot(1 + 25/10^{6})$, $\mathrm{out}_{\mathrm{single}}$ the better of the deepest and the best-rate candidate at full size | Solver `_buildHop` | §10.4 |
