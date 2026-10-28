@@ -151,10 +151,14 @@ contract DustIsMeasuredAgainstThePairTest is Test {
     /// mass at the market price) pumped until each out-ranks the second honest venue on
     /// psi. With eight seats the deepest took the last one and the second honest venue,
     /// the best priced, was cut before it was quoted. Every row here holds far more than
-    /// 25 ppm of its pair, so all ten are quoted and the best priced venue is routed.
+    /// 25 ppm of its pair, so all ten are quoted and the best priced venue is routed. It is
+    /// 0.5% better priced: since MED (2026-10-28) the band is the one of no arbitrage, which
+    /// keeps a 0.3% venue up to about 0.9% above a 0.3% base (BlazePhoenixMath, THE BAND),
+    /// so the 1% this test used until then put the venue out of the band, and the test read
+    /// the band instead of the count.
     function test_ASecondHonestVenue_IsNotCutByCount() public {
         _honest(2_000_000e18, 2_000_000e18);
-        MockV2Pair h2 = _honest(1_000_000e18, 1_010_000e18);
+        MockV2Pair h2 = _honest(1_000_000e18, 1_005_000e18);
         MockV2Pair[8] memory a;
         for (uint256 i; i < 8; ++i) a[i] = _vouched(100_000e18, 100_000e18);
         for (uint256 i; i < 8; ++i) for (uint256 k; k < 6; ++k) _dust(a[i]);
