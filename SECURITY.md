@@ -36,6 +36,9 @@ and the reporting window.
 
 ## Out of scope
 
+Behaviour that is by design or bounded by a documented limit is listed, with where each is
+documented, in [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md). Read it before reporting.
+
 - Third-party code: pools, tokens, bridges, wallets, RPC providers, Cloudflare, GitHub, unless our code consumes them unsafely.
 - Limits the whitepaper already states and bounds (for example the ≈2.7 % sandwich cap on a 1 %-of-depth trade, or quote staleness under your signed minimum), unless you beat the stated bound.
 - Anything already in `/security/advisories` or a Hall of Fame register: a finding that is already fixed and published.
