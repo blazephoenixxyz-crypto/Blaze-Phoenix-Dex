@@ -1371,8 +1371,10 @@ M = [
       teste='test_ConcentratedDepthIsTheDeclaredL_NotThePhysicalMass'),
  dict(nome='REG-03: the V4 registry row goes back to the DECLARED pool',
       f='src/BlazePhoenixRouter.sol',
-      old='                        : BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);',
-      new='                        : bytes32(uint256(uint160(leg.pool))); // MUTANT',
+      # Re-anchored 2026-10-28: the id is one call on the Core's orientation producer
+      # (v4LegCurrencies, zeroForOne = true) for both V4 kinds. Same guard, same watcher.
+      old='                    pid = BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks);',
+      new='                    pid = bytes32(uint256(uint160(leg.pool))); // MUTANT',
       teste='test_V4LegDeclaredPoolIsNeverConfirmed'),
  dict(nome='BP-15: hops stop having to chain',
       f='src/BlazePhoenixRouter.sol',
@@ -1404,7 +1406,9 @@ M = [
       old="        _admitOnRegistration(_store(), hooks);",
       new="        // MUTANT",
       teste="test_SeedPoolRefusesARevokedHook"),
-    dict(nome='FOT-01 door: the Permit2 pull stops noting the measured net ratio', f='src/BlazePhoenixRouter.sol', old='        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        // Tokens are now on the Router; skip the user-pull in the core path.', new='        // MUTANT\n        // Tokens are now on the Router; skip the user-pull in the core path.', teste='test_Permit2Door_AsymTax25_NominalFloorWouldRefuse_MeasuredRepriceSettles'),
+    # Re-anchored 2026-10-28: the three pulling doors measure through one producer, `_received`.
+    # Paired with the Permit2 test, the kill proves that door reads through it.
+    dict(nome='FOT-01 door: the Permit2 pull stops noting the measured net ratio', f='src/BlazePhoenixRouter.sol', old='        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));', new='        // MUTANT', teste='test_Permit2Door_AsymTax25_NominalFloorWouldRefuse_MeasuredRepriceSettles'),
     dict(nome="PIN-01 Solver side: the per-stage leg budget widens past the executor's mirror", f='src/BlazePhoenixSolver.sol', old='    uint8   internal constant MAX_LEGS_PER_STAGE   = 4;', new='    uint8   internal constant MAX_LEGS_PER_STAGE   = 6;', teste='test_Seam2_SolverMaxSplit_ExecutesThroughRouter'),
     dict(nome="REG-01: the registry fee comes from calldata again instead of the pool's shape", f='src/BlazePhoenixHub.sol', old='            feeReg = gasleft() < BPC.CL_FEE_FLOOR + 1_000 ? 0 : _concRowFee(pool, kind, idFee);', new='            idFee; // MUTANT: the calldata fee stays (aero-nova: the row fee is _concRowFee now)', teste='test_FeeForjadaNoCalldataNaoEntraNoRegisto'),
     dict(nome="BRIDGE-02: the preview names hop 0's output instead of the hop the fee is anchored on", f='src/BlazePhoenixQuoter.sol', old='        return (uint8(n - 1), feeHop == type(uint256).max ? address(0) : route.hops[feeHop].tokenIn);', new='        return (uint8(n - 1), route.hops[0].tokenOut);', teste='test_TokenInIsABridge_TheAnchorIsHopZero'),
@@ -1756,8 +1760,9 @@ M = [
       teste="test_ReclaimOfALivePoolPushesNoSecondV4Entry"),
  dict(nome="classic door: the measured pull stops noting the net ratio",
       f="src/BlazePhoenixRouter.sol",
-      old="        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);",
-      new="        else if (received == amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn)); // MUTANT\n        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);",
+      # Re-anchored 2026-10-28: the note lives in the one producer, `_received`, reached via `_pull`.
+      old="        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));",
+      new="        else if (received == amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn)); // MUTANT",
       teste="test_ClassicDoor_AsymTax25_NominalFloorIsRepricedAndSettles"),
  dict(nome="discovery: a factory-call row lists the same pool once per fee",
       f="src/BlazePhoenixHub.sol",
@@ -2453,8 +2458,9 @@ M = [
       teste="test_DirtyWorld_ScriptedWalkIsLiveAndClean"),
  dict(nome="dw-1020 H-02 family: the classic door reads tokenIn received without its baseline",
       f="src/BlazePhoenixRouter.sol",
-      old="        // work with what was actually received.\n        uint256 balBefore = BPC.balanceOf(tokenIn, address(this));\n        BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);\n        uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;",
-      new="        // work with what was actually received.\n        uint256 balBefore = BPC.balanceOf(tokenIn, address(this));\n        BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);\n        uint256 received = BPC.balanceOf(tokenIn, address(this)); // MUTANT",
+      # Re-anchored 2026-10-28: the baseline is subtracted in the one producer, `_received`.
+      old="        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;",
+      new="        received = BPC.balanceOf(tokenIn, address(this)); // MUTANT",
       teste="test_DirtyWorld_ScriptedWalkIsLiveAndClean"),
  dict(nome="cb-1020: unlockCallback no longer checks that the caller is the manager",
       f="src/BlazePhoenixRouter.sol",

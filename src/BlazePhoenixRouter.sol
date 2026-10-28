@@ -503,23 +503,7 @@ contract BlazePhoenixRouter {
             IPermit2.SignatureTransferDetails({ to: address(this), requestedAmount: amountIn }),
             msg.sender, signature
         );
-        uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
-        if (received == 0) revert RouterE(8);
-        // FOT-01: THE PULL IS A MEASURED TRANSFER TOO. The leg loop marks
-        // TSLOT_FOT when the Router->pool transfer delivers less (see
-        // `_execPairAmt`), but the INPUT pull measured here never marked it. On
-        // an ASYMMETRICALLY taxed token — taxes transferFrom, exempts transfer,
-        // or exempts the pool — no leg sees a discrepancy, `fotSeen` stays at
-        // zero, and the floor block applies `route.singleOutFloor` exactly as it
-        // came from the plan: sized for the NOMINAL amountIn, against an output
-        // produced from `received`. The honest swap died in RouterE(5).
-        // (On a token that taxes EVERY transfer the loop already caught it —
-        // which is why the defect is of this subclass, not of all FoT.)
-        // #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
-        // restating balances the Router already held (rebase/reflection inside transferFrom),
-        // and counting it as received would sweep that foreign balance to the payer.
-        if (received > amountIn) received = amountIn;
-        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
+        uint256 received = _received(tokenIn, balBefore, amountIn);
         // Tokens are now on the Router; skip the user-pull in the core path.
         return _swapPrePulled(route, received, userMinOut, recipient, deadline, msg.sender);
     }
@@ -605,25 +589,7 @@ contract BlazePhoenixRouter {
             plan.best.hops.length == 0 || plan.best.hops[0].tokenIn != tokenIn
                 || plan.best.hops[plan.best.hops.length - 1].tokenOut != tokenOut
         ) revert RouterE(3); // fail-closed
-        uint256 balBefore = BPC.balanceOf(tokenIn, address(this));
-        BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
-        uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
-        if (received == 0) revert RouterE(8);
-        // FOT-01: THE PULL IS A MEASURED TRANSFER TOO. The leg loop marks
-        // TSLOT_FOT when the Router->pool transfer delivers less (see
-        // `_execPairAmt`), but the INPUT pull measured here never marked it. On
-        // an ASYMMETRICALLY taxed token — taxes transferFrom, exempts transfer,
-        // or exempts the pool — no leg sees a discrepancy, `fotSeen` stays at
-        // zero, and the floor block applies `route.singleOutFloor` exactly as it
-        // came from the plan: sized for the NOMINAL amountIn, against an output
-        // produced from `received`. The honest swap died in RouterE(5).
-        // (On a token that taxes EVERY transfer the loop already caught it —
-        // which is why the defect is of this subclass, not of all FoT.)
-        // #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
-        // restating balances the Router already held (rebase/reflection inside transferFrom),
-        // and counting it as received would sweep that foreign balance to the payer.
-        if (received > amountIn) received = amountIn;
-        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
+        uint256 received = _pull(tokenIn, amountIn);
         // TSLOT_FOT is TRANSIENT storage on the Router's account, so it survives
         // the external self-call below (same transaction, same account).
         return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);
@@ -670,29 +636,47 @@ contract BlazePhoenixRouter {
         if (block.timestamp > deadline) revert RouterE(4);
         if (route.hops.length == 0 || amountIn == 0) revert RouterE(3);
         address tokenIn  = route.hops[0].tokenIn;
-        // Measure the actual receive against the requested pull. Fee-on-
-        // transfer / deflationary tokens deliver less than they advertise; we
-        // work with what was actually received.
+        uint256 received = _pull(tokenIn, amountIn);
+        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);
+    }
+
+    /// @dev The classic pull, one copy for the two doors that take `tokenIn` with `transferFrom`
+    ///      (`_swap` and `swapBestExactIn`). Measure the actual receive against the
+    ///      requested pull. Fee-on-transfer / deflationary tokens deliver less than they
+    ///      advertise; we work with what was actually received.
+    function _pull(address tokenIn, uint256 amountIn) private returns (uint256) {
         uint256 balBefore = BPC.balanceOf(tokenIn, address(this));
         BPC.safeTransferFrom(tokenIn, msg.sender, address(this), amountIn);
-        uint256 received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
+        return _received(tokenIn, balBefore, amountIn);
+    }
+
+    /// @dev THE AMOUNT A PULL DELIVERED, measured by one producer for the three doors that pull
+    ///      `tokenIn` from the payer: `_swap` (swapExactIn), `swapExactInWithPermit2` and
+    ///      `swapBestExactIn`. Each door used to carry its own copy of these lines, so FOT-01 and
+    ///      #45 were each written three times: three producers of one quantity. The caller takes
+    ///      `balBefore` and pulls; this measures the delta. The native door measures its WETH wrap
+    ///      with its own two lines and no clamp (door_prologue_guard.py, its census row).
+    ///
+    ///      FOT-01: THE PULL IS A MEASURED TRANSFER TOO. The leg loop marks
+    ///      TSLOT_FOT when the Router->pool transfer delivers less (see
+    ///      `_execPairAmt`), but the INPUT pull measured here never marked it. On
+    ///      an ASYMMETRICALLY taxed token — taxes transferFrom, exempts transfer,
+    ///      or exempts the pool — no leg sees a discrepancy, `fotSeen` stays at
+    ///      zero, and the floor block applies `route.singleOutFloor` exactly as it
+    ///      came from the plan: sized for the NOMINAL amountIn, against an output
+    ///      produced from `received`. The honest swap died in RouterE(5).
+    ///      (On a token that taxes EVERY transfer the loop already caught it —
+    ///      which is why the defect is of this subclass, not of all FoT.)
+    ///      #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
+    ///      restating balances the Router already held (rebase/reflection inside transferFrom),
+    ///      and counting it as received would sweep that foreign balance to the payer.
+    function _received(address tokenIn, uint256 balBefore, uint256 amountIn)
+        private returns (uint256 received)
+    {
+        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
-        // FOT-01: THE PULL IS A MEASURED TRANSFER TOO. The leg loop marks
-        // TSLOT_FOT when the Router->pool transfer delivers less (see
-        // `_execPairAmt`), but the INPUT pull measured here never marked it. On
-        // an ASYMMETRICALLY taxed token — taxes transferFrom, exempts transfer,
-        // or exempts the pool — no leg sees a discrepancy, `fotSeen` stays at
-        // zero, and the floor block applies `route.singleOutFloor` exactly as it
-        // came from the plan: sized for the NOMINAL amountIn, against an output
-        // produced from `received`. The honest swap died in RouterE(5).
-        // (On a token that taxes EVERY transfer the loop already caught it —
-        // which is why the defect is of this subclass, not of all FoT.)
-        // #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
-        // restating balances the Router already held (rebase/reflection inside transferFrom),
-        // and counting it as received would sweep that foreign balance to the payer.
         if (received > amountIn) received = amountIn;
         else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
-        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);
     }
 
     function _swapPrePulled(
@@ -2283,11 +2267,12 @@ contract BlazePhoenixRouter {
                     // zeroForOne. For a native pool t0 is the WETH side by that same construction
                     // (the leg executed, so _execV4Amt proved it), and the pool's real currency0
                     // is address(0) - substitute it, keeping this pid identical to the one quote
-                    // and execution used.
+                    // and execution used. The substitution is the Core's orientation producer,
+                    // `v4LegCurrencies` with `zeroForOne = true`: the orientation a registry row
+                    // has, t0 the wrapped side (fusion phase 2, v4_identity_guard.py).
                     if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
-                    pid = leg.kind == BPC.KIND_V4_NATIVE
-                        ? BPC.computeV4PoolId(address(0), t1, leg.fee, leg.tickSpacing, leg.hooks)
-                        : BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks);
+                    (address c0, address c1) = BPC.v4LegCurrencies(leg.kind, t0, t1, true);
+                    pid = BPC.computeV4PoolId(c0, c1, leg.fee, leg.tickSpacing, leg.hooks);
                     // The pool that executed, not the pool that was named. Same `pid`
                     // the quote and the swap used, truncated the way the registry
                     // stores a V4 row everywhere else (`Hub.claimV4`, `_admitV4`).
