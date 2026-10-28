@@ -28,7 +28,7 @@
 
 ## BlazePhoenix in one sentence
 
-BlazePhoenix is the fully on-chain DEX aggregator — the route is computed inside the transaction that executes it — paired with an oracle-free staking engine that proves its own solvency on every transaction. It runs on Base, Ethereum, Optimism, Arbitrum and Robinhood Chain.
+BlazePhoenix is the fully on-chain DEX aggregator — the route is computed inside the transaction that executes it — paired with an oracle-free staking engine that proves its own solvency on every transaction. V2, the generation now in development, targets Base, Optimism, Arbitrum, Robinhood Chain and further L2s and is not planned for Ethereum L1. The V1 generation deployed today runs on Base, Ethereum, Optimism, Arbitrum and Robinhood Chain.
 
 **Swap** in the [app](https://blazephoenix.xyz/?tab=swap) · **integrate** with the [SDK](https://github.com/blazephoenixxyz-crypto/SDK) (`npm i @blazephoenix/sdk`) · **connect an agent** to the [MCP server](https://github.com/blazephoenixxyz-crypto/blazephoenix-mcp) (`https://blazephoenix.xyz/mcp`, no key)
 
@@ -74,8 +74,9 @@ Each item links to the place where it can be checked. The full list is at [https
 ## Overview
 
 BlazePhoenix-Dex finds, prices and executes a swap **inside the transaction that settles it**.
-There is no off-chain routing server to trust: discovery, solving and execution run in five
-Solidity + Yul contracts, and the price you are quoted is computed by the same evaluator that
+There is no off-chain routing server to trust: discovery, solving and execution run in
+Solidity + Yul contracts (Router, Solver, Hub, Quoter, Gate and the Math library, over the Core
+library), and the price you are quoted is computed by the same evaluator that
 sets the floor the swap must clear.
 
 The core idea is a single asymmetry. A pool's *reported* fields (advertised liquidity, depth, fee
@@ -137,6 +138,8 @@ flowchart TD
     S -->|discover| H[Hub · registry + discovery]
     H -->|"V2 / V3 / Algebra / Solidly"| F[(Factories)]
     H -->|"Uniswap V4 · incl. native ETH"| PM[(V4 PoolManager)]
+    H -->|"Balancer · Curve, through wrappers"| G[Gate · wrapper factory]
+    G -->|"pinned adapter per family"| X[(External venues)]
     S -->|"quote each leg via one evaluator"| C[Core · measured math]
     R -->|"execute + measure delta at the seam"| V{{Live venues}}
     C -.->|"same evaluator prices the floor"| R
@@ -148,10 +151,12 @@ flowchart TD
 | **Router** | Pulls input, executes the plan leg by leg, measures the real balance delta at each seam, and enforces the output floor. A transient reentrancy lock spans the whole swap, pool callbacks included. |
 | **Solver** | Builds the best route and split from measured marginal output and measured capital, never from self-reported liquidity. |
 | **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. |
-| **Core** | The shared measured-math library: constant product, concentrated liquidity, the Solidly stable curve, Algebra dynamic fee, Uniswap V4. One evaluator prices both the quote and the floor. |
+| **Gate** | One factory row in front of venues the Core cannot read natively (Balancer V2 and V3, Curve StableSwap-NG, Curve Twocrypto-NG and Tricrypto-NG). It creates a thin immutable wrapper per venue at a derived address; the wrapper looks like a Uniswap V3 pair to the Router and forwards what it measured arriving to the family's adapter. The output is the delta measured at the recipient, never a value the adapter returns. |
+| **Core** | The shared measured-math library: constant product, concentrated liquidity, the Solidly stable curve, Algebra dynamic fee, Uniswap V4. One evaluator prices both the quote and the floor. Each venue's vitality decays on its own clock, an exponential average of the interval between its own capital-anchored ticks, so a venue that trades every minute and one that trades weekly are each judged by their own rhythm. |
+| **Math** | The stateless library that makes one hop's choice (the band, the split weights, the funnel cut). The Solver calls it once per hop and pins its codehash at deploy. |
 | **Quoter** | Read-only preview surface: `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg, and `previewAndEncode` for ready-to-sign calldata. |
 
-All five stay under the EIP-170 limit of 24,576 bytes, enforced in CI with a margin and asserted
+Every deployable contract stays under the EIP-170 limit of 24,576 bytes, enforced in CI with a margin and asserted
 inside the suite itself (`test/DeployedSizeGate.t.sol`). The full transaction path, step by step,
 is in [docs/SWAP_TRANSACTION_FLOW.md](docs/SWAP_TRANSACTION_FLOW.md); the natspec reference for
 every contract is regenerated from the source whenever it changes on `main`, and published at
@@ -159,14 +164,24 @@ every contract is regenerated from the source whenever it changes on `main`, and
 
 ## Supported venues
 
+Native to the Core:
 Uniswap **V2**, **V3** and **V4** (including **native-ETH V4** pools) ·
 **Algebra** (dynamic fee, Camelot/QuickSwap class) ·
 **Solidly** stable and volatile (Aerodrome/Velodrome class).
 
-Curve and Balancer support was removed in August 2026: few L2s carry them, and they cost bytecode
-in five contracts. Their kind numbers (2, 3, 7) are permanently retired rather than reused,
-because `decodeKind` reads the kind from Monoslot bits and reassigning a number would reinterpret
-every pool already recorded under it. A CI guard fails the build if an excised symbol returns.
+Through the Gate, one adapter per family:
+**Balancer V2** · **Balancer V3** · **Curve StableSwap-NG** · **Curve Twocrypto-NG and Tricrypto-NG**.
+
+A Gate adapter is immutable and leaves no allowance standing; after each call it may hold no more
+of either token than before. It is admitted by a 48-hour propose and accept step, with its code
+scanned for `DELEGATECALL`, `CALLCODE` and `SELFDESTRUCT` and its codehash pinned, and the pin is
+checked on every swap. A venue that can only be priced by simulation is quoted by `eth_call`; the
+execution floors are the Router's own and never read that quote.
+
+Curve and Balancer were removed from the Core's native kinds in August 2026 and returned behind
+the Gate. The retired kind numbers (2, 3, 7) are never reused, because `decodeKind` reads the
+kind from Monoslot bits and reassigning a number would reinterpret every venue already recorded
+under it. A CI guard fails the build if an excised symbol returns.
 
 ## Integrate
 
@@ -353,7 +368,8 @@ Full roll and terms: [`SECURITY_HALL_OF_FAME.md`](SECURITY_HALL_OF_FAME.md).
 ## Repository map
 
 ```
-src/                    the five contracts: Router, Solver, Hub, Core, Quoter
+src/                    Router, Solver, Hub, Quoter, Gate, with the Core and Math libraries
+src/adapters/           the Gate's adapters: Balancer V2 and V3, Curve StableSwap-NG and Twocrypto/Tricrypto-NG
 test/                   unit, property, parity, stateful invariants, regressions
   fork/                 suites against live chain liquidity, and the pins of what is deployed
   formal/               Halmos specifications and composition proofs

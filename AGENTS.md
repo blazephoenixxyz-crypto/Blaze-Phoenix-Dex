@@ -6,8 +6,8 @@ when they disagree, those files win. Machine-readable project context is in [`ll
 
 ## What this repository is
 
-An on-chain DEX aggregator for the EVM in Solidity 0.8.36 + Yul: `src/` holds five contracts
-(Router, Solver, Hub, Core, Quoter), `test/` holds the suite, `.github/scripts/` holds the guards
+An on-chain DEX aggregator for the EVM in Solidity 0.8.36 + Yul: `src/` holds the Router, Solver, Hub,
+Quoter and Gate, the Core and Math libraries, and the Gate's adapters in `src/adapters/`; `test/` holds the suite, `.github/scripts/` holds the guards
 that judge the suite. The design discipline is **metrological**: every quantity the contracts act on
 is measured from the pool or proven by derivation, never taken from calldata as a fact.
 
