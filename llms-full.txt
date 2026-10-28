@@ -935,7 +935,8 @@ repository* button. Plain form:
 > https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex
 
 The Technical Whitepaper, Version 2.3, is registered as DOI
-[10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091) (text CC BY 4.0); Version 2.2
+[10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091) (the deposited text is CC BY 4.0; the other documentation in this repository is
+not, and [NOTICE](NOTICE) applies); Version 2.2
 stays archived at [10.5281/zenodo.22526574](https://doi.org/10.5281/zenodo.22526574).
 
 **License.** [Business Source License 1.1](LICENSE). Copyright © 2026 Mitra. Effective 1 July 2026;
