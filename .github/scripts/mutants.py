@@ -4608,6 +4608,11 @@ M = [
       old='    uint256 internal constant TAU_EMA_SHIFT = 3;',
       new='    uint256 internal constant TAU_EMA_SHIFT = 4; // MUTANT [963]',
       teste='testFuzz_AnyClock_DecaysAndTicksByItsDefinition'),
+ dict(nome='suites-1028 [964]: _decay has no lastTs == 0 arm, so a never-stamped slot with a long tau is alive on its count',
+      f='src/BlazePhoenixCore.sol',
+      old='        if (lastTs == 0) return (0, 0);',
+      new='        // MUTANT [964]',
+      teste='test_FixedClock_Cases'),
 ]
 
 def run(t):

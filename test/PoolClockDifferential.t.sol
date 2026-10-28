@@ -162,6 +162,8 @@ contract PoolClockDifferentialTest is Test {
             assertEq(BPC.vitality(_withTau(s, 0), at[i]), _vitalityOld(s, at[i]), "case, unmeasured");
         }
         assertEq(BPC.vitality(_slot(0, 5, tau), t0), 0, "never stamped is dead");
+        // A tau so long the horizon never closes: only the lastTs == 0 arm can kill a never-stamped slot.
+        assertEq(BPC.vitality(_slot(0, 5, type(uint32).max), t0), 0, "never stamped is dead, whatever its tau");
         assertEq(BPC.vitality(s, t0 + uint32(32 * S) - 1), 1, "last live step floors to 1");
         assertEq(BPC.vitality(s, t0 + uint32(32 * S)), 0, "32 steps: dead, not rounded");
     }
