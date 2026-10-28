@@ -4442,6 +4442,28 @@ M = [
       old='            uint256 s = hub.getSlot(BPC.pairKey(reg[i].pool, reg[i].token0, reg[i].token1));',
       new='            uint256 s = hub.getSlot(BPC.pairKey(reg[i].pool, reg[i].token0, reg[i].token0)); // MUTANT',
       teste='test_ThreeCuratedRows_StillSkipDiscovery'),
+
+ # hunt2-1027 (2026-10-27): the tests of the second hunt, each with the guard it watches. Renumber on merge.
+ dict(nome="hunt2-1027 P2 [897]: the Permit2 door pull is no longer capped at the ask (#45), a rebase surplus restating the Router's foreign tokenIn is swept to the payer",
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (received > amountIn) received = amountIn;\n        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        // Tokens are now on the Router; skip the user-pull in the core path.\n',
+      new='        if (received > amountIn) received = received; // MUTANT [897]\n        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        // Tokens are now on the Router; skip the user-pull in the core path.\n',
+      teste='test_P2_FotRebaseUpPull_NeverSpendsTheRoutersForeignBalance_Permit2'),
+ dict(nome="hunt2-1027 P2 [898]: the best-route door pull is no longer capped at the ask (#45), a rebase surplus restating the Router's foreign tokenIn is swept to the payer",
+      f='src/BlazePhoenixRouter.sol',
+      old="        if (received > amountIn) received = amountIn;\n        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        // TSLOT_FOT is TRANSIENT storage on the Router's account, so it survives\n",
+      new="        if (received > amountIn) received = received; // MUTANT [898]\n        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        // TSLOT_FOT is TRANSIENT storage on the Router's account, so it survives\n",
+      teste='test_P2_FotRebaseUpPull_NeverSpendsTheRoutersForeignBalance_Best'),
+ dict(nome="hunt2-1027 P2 [899]: the exact door pull is no longer capped at the ask (#45), a rebase surplus restating the Router's foreign tokenIn is swept to the payer",
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (received > amountIn) received = amountIn;\n        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);\n',
+      new='        if (received > amountIn) received = received; // MUTANT [899]\n        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));\n        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);\n',
+      teste='test_P2_FotRebaseUpPull_NeverSpendsTheRoutersForeignBalance_Exact'),
+ dict(nome='hunt2-1027 P4 [900]: Gate.vitalOf asks the venue for its depth with all the gas instead of GATE_QUOTE_GAS, a gas-bomb venue burns the caller\'s budget',
+      f='src/BlazePhoenixGate.sol',
+      old='try x.quote{gas: BPC.GATE_QUOTE_GAS}(true, 0) returns (uint256, uint256 d) {',
+      new='try x.quote(true, 0) returns (uint256, uint256 d) { // MUTANT [900]',
+      teste='test_P4_HostileVenueQuoteBurnsGas_OnlyRemovesItself'),
 ]
 
 def run(t):
