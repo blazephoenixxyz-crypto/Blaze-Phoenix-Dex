@@ -3,8 +3,8 @@
  "question": "does any stateful invariant notice when a guard disappears? Until this file, 0 of 183 mutants named an invariant.",
  "invariants_declared": 40,
  "mutants": 15,
- "killed": 14,
- "survived": 1,
+ "killed": 13,
+ "survived": 2,
  "invariants_shown_falsifiable": [
   "invariant_ActiveEntriesTradeThePair",
   "invariant_DeliveredNeverBelowTheProtocolFloor",
@@ -244,16 +244,15 @@
    "id": "TOUT-nobase",
    "file": "src/BlazePhoenixRouter.sol",
    "mutation": {
-    "old": "uint256 totalReceived = BPC.balanceOf(tokenOut, address(this)) - toutStart;",
-    "new": "uint256 totalReceived = BPC.balanceOf(tokenOut, address(this));"
+    "old": "uint256 totalReceived = _bal(tokenOut) - toutStart;",
+    "new": "uint256 totalReceived = _bal(tokenOut);"
    },
-   "aimed_at": "invariant_StrandedMoneyIsNeverSwept / HoldsNothingBeyondTheSeed",
-   "status": "killed",
-   "killed_by": [
-    "invariant_HoldsNothingBeyondTheSeed",
-    "invariant_StrandedMoneyIsNeverSwept"
-   ],
-   "seconds": 26
+   "aimed_at": "invariant_StrandedMoneyIsNeverSwept / HoldsNothingBeyondTheSeed (sentinel: expected to SURVIVE the invariants since 3310)",
+   "status": "survived",
+   "killed_by": [],
+   "seconds": 26,
+   "reading": "expected survivor since 3310 (2026-10-27): the output delta is now cut back to outCap, what the legs' venues declared they paid, so the unbased delta no longer reaches the payer in the campaign universes and both stranded-regime invariants stay green (re-measured on current main, default seed, release settings). Only a unit test watches it: test_AFeeOnTransferOutputIsPaidWhatArrived dies under this mutant (mutants.py), because with a fee-on-transfer tokenOut less arrives than was declared and the stranded balance would make up the difference.",
+   "history": "killed by both invariants when first measured (2026-09-05, against the old BPC.balanceOf spelling of the line); no longer killed after 3310 added the output cap."
   }
  ],
  "invariants_shown_falsifiable_count": 20

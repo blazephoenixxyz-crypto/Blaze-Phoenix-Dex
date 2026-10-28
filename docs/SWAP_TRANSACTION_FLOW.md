@@ -152,6 +152,8 @@ The check is made on what arrived, not on what was promised along the way.
 | `Fee(token, amount, toT1, toT2)` | declared `Router:256`, emitted in `_payFee` at `Router:698` | one event per fee payment |
 | `Hub.recordSwap` per executed leg | `_recordHits` (`Router:1570`, `Router:2111`) | reported only after every floor has passed; wrapped in `try/catch`, so a registry failure does not revert the swap (`Router:2170-2173`) |
 
+Note on the block field: on Arbitrum and Robinhood Chain `block.number` returns the parent L1 block number, so the `blockNumber` in `ExecutionProof` is an L1 number on those chains. Slot aging does not depend on it: vitality and psi are computed only from `block.timestamp` (`Core:2516-2531`, `Core:2536`; `Gate:255`, `Gate:264`), so the same wall-clock age gives the same score on every supported chain. The block number is stored in the slot's `lastBlk` field but is not an input to the ranking.
+
 ## 8. Revert codes
 
 `RouterE(code)` is the Router's single error (`Router:263`). The codes are listed at
