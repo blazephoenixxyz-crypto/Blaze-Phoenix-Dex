@@ -383,6 +383,7 @@ CITATION.cff            how to cite this repository
 | [docs/DEX_ROUTING.md](docs/DEX_ROUTING.md) | how a route is discovered, priced and split |
 | [docs/AUDIT_METHOD.md](docs/AUDIT_METHOD.md) | what the audit apparatus guarantees, and what it does not |
 | [docs/BOUNTY_METHOD.md](docs/BOUNTY_METHOD.md) | how a security report is reproduced, judged and credited |
+| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | what is by design, a documented limit or out of scope, before you report it |
 | [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) | the assurance instruments: method, definitions, limits |
 | [TESTING.md](TESTING.md) | how the suite is organised and extended |
 | [Whitepaper v2.2](docs/papers/whitepaper-v2.2.md) · [Litepaper v2.2](docs/papers/litepaper-v2.2.md) | the design and its mathematics ([PDF editions](docs/papers)) |
