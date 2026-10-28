@@ -249,8 +249,8 @@ jobs:
         # M7: the Router's four value doors each carry whenLive+nrEntrant, the uint128 cap and the
         # zero-minOut refusal before the pull, the zero-received refusal and the #45 clamp after
         # it, and reach _execute only through the two helpers that open with the deadline check.
-        # Fails on a door that loses a clause, a new door that takes a deadline, or a fourth
-        # copy of the clamp.
+        # Fails on a door that loses a clause, a new door that takes a deadline, or a second
+        # copy of the clamp (one producer, _received, since 2026-10-28).
         run: python3 .github/scripts/door_prologue_guard.py
 
       - name: Scratch memory guard (a raw call writes into 0x00-0x3f, never over 0x40)

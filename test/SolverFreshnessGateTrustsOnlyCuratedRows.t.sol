@@ -156,7 +156,7 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
     /// The whole refresh is ONE line, `Hub._stampTs` — the
     /// `ts` argument `tickSlot` receives is contractually IGNORED, which the
     /// Monoslot suite pins as algebra (`DiscoveryRefreshMonoslot`,
-    /// TICK_LICENSE = {swapCount, lastBlk, bucket}: `lastUpdateTs` is not in it).
+    /// TICK_LICENSE = {swapCount, tau, bucket}: `lastUpdateTs` is not in it).
     /// Nothing else in `test/` reaches this path: the suite that pins the
     /// freshness gate only ever warps AWAY from activity, never back into it.
     /// FALSIFIER: neutralise `_stampTs` (`return s`) and this test goes red

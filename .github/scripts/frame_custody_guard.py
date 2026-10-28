@@ -29,10 +29,11 @@ CENSUS = {
     "_bal": (1, "the one producer of a swap-path self-balance: raw less this transaction's "
                 "TSLOT_KEPT; every caller below subtracts its own baseline"),
     "_push": (2, "gone = before - after around one fee push; only the undelivered rest is booked"),
-    "swapExactInWithPermit2": (2, "received = after - balBefore"),
+    "swapExactInWithPermit2": (1, "balBefore, the baseline _received subtracts"),
     "swapExactInNative": (2, "received = after - balBefore"),
-    "swapBestExactIn": (2, "received = after - balBefore"),
-    "_swap": (2, "received = after - balBefore"),
+    "_pull": (1, "balBefore, taken before the transferFrom; _received subtracts it"),
+    "_received": (1, "received = after - balBefore, the baseline its caller took before its pull "
+                     "(the one producer of the measured pull since 2026-10-28)"),
     "_chargeHopFee": (1, "bal - foreignBase (foreignBase = this call's baseline)"),
     "_hopScaleImpactAndQuote": (1, "bal - foreignBase"),
     "_execute": (8, "tinStart/toutStart/bridgeBase are the baselines; refunds pay resid - baseIn "

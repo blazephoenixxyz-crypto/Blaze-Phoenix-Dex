@@ -20,7 +20,7 @@ pragma solidity 0.8.36;
 //  Doutrina violada (I-measure / H1): os dados do proponente sao COORDENADAS
 //  que o contrato MEDE, nao factos que o contrato GRAVA.
 //
-//  PERMANENCIA: `Core.tickSlot` limpa swapCount/lastBlk/bucket e preserva os
+//  PERMANENCIA: `Core.tickSlot` limpa swapCount/tau/bucket e preserva os
 //  bits da fee; `recordSwap` auto-guarda em `slot != 0`. Uma fee envenenada no
 //  primeiro swap fica ate despejo ou `seedPool` do operador.
 //

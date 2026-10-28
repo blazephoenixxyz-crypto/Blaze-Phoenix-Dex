@@ -237,7 +237,8 @@ contract BlazePhoenixGate {
     /// The registry fitness of one of this Gate's wrappers, in the Hub's units, at no Hub byte:
     ///  - identity: zeros unless this Gate created `w` and its family has a live adapter (a
     ///    cleared family cannot execute, so it does not rank);
-    ///  - vitality: the wrapper's use count (`vitalSlot`, material swaps only), decayed by Core;
+    ///  - vitality: the wrapper's use rate (`vitalSlot`, material swaps only), decayed by Core
+    ///    on the wrapper's own clock;
     ///  - depth18: the adapter's declared depth, read under BPC.GATE_QUOTE_GAS, capped by the
     ///    shorter of the venue pool's two normalised holdings (BPC.shortSide18, the formula of
     ///    every pair depth the registry produces and of the adapters' own word): an adapter
@@ -290,8 +291,10 @@ contract BlazePhoenixGateWrapper {
     /// A swap counts as use only when it moves at least 2^-16 (~0.15 bps) of the venue pool's
     /// holding on BOTH sides: the input against the venue's balance of the input token, the
     /// output against its balance of the output token, each in its own token (no cross-token
-    /// comparison). Dust pays gas and buys no vitality (W5-C1).
-    uint8 public constant MATERIAL_SHIFT = 16;
+    /// comparison). Dust pays gas and buys no vitality (W5-C1). The Core's constant: the same
+    /// rule anchors a Hub row's clock (Core.tickDepth18), and a material tick here anchors this
+    /// wrapper's.
+    uint8 public constant MATERIAL_SHIFT = BPC.MATERIAL_SHIFT;
 
     address public immutable gate;
     address public immutable token0;
@@ -304,7 +307,8 @@ contract BlazePhoenixGateWrapper {
     bytes32 public immutable aux1;
 
     /// The Hub's slot layout, written only by `swap`: swapCount (from its decayed base),
-    /// lastBlk and lastUpdateTs, through Core's tickSlot and stampTs. Read by Gate.vitalOf.
+    /// tau (its own clock) and lastUpdateTs, through Core's tickSlot and stampTs. Read by
+    /// Gate.vitalOf.
     uint256 public vitalSlot;
 
     bool transient private _locked;
@@ -366,7 +370,7 @@ contract BlazePhoenixGateWrapper {
         //    A venue empty of the output makes its threshold 0, so nothing out is never use.
         if (out != 0 && paid >= vIn >> MATERIAL_SHIFT && out >= vOut >> MATERIAL_SHIFT) {
             uint32 ts = uint32(block.timestamp);
-            vitalSlot = BPC.stampTs(BPC.tickSlot(vitalSlot, uint32(block.number), 0, ts), ts);
+            vitalSlot = BPC.stampTs(BPC.tickSlot(vitalSlot, true, 0, ts), ts);
         }
         _locked = false;
     }
