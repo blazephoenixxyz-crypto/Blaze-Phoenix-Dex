@@ -179,10 +179,13 @@ contract Bounty1013TopKResistsDustPsiTest is Test {
     /// CONTROL 2 — the live-depth cap still guards every seat but the deepest. Eight pools
     /// registered at 5M a side and pumped, then drained to 5k: their cached bucket out-ranks
     /// both honest venues, their live mass does not. The second honest venue (better priced)
-    /// is not the deepest, so only the cap keeps it in the funnel.
+    /// is not the deepest, so only the cap keeps it in the funnel. It is 0.5% better priced:
+    /// since MED (2026-10-28) the band is the one of no arbitrage, which keeps a 0.3% venue up
+    /// to about 0.9% above a 0.3% base (BlazePhoenixMath, THE BAND), so the 2% this control
+    /// used until then put the venue out of the band before the funnel was asked.
     function test_control_LiveCapStillSeatsTheSecondHonestVenue() public {
         _honest(2_000_000e18, 2_000_000e18, true);
-        MockV2Pair h2 = _honest(1_000_000e18, 1_020_000e18, true);
+        MockV2Pair h2 = _honest(1_000_000e18, 1_005_000e18, true);
         for (uint256 i; i < 8; ++i) {
             MockV2Pair d = _vouched(5_000_000e18, 5_000_000e18);
             _dust(d); _dust(d);

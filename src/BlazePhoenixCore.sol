@@ -169,6 +169,13 @@ library BlazePhoenixCore {
 
     uint256 internal constant WAD        = 1e18;
     uint256 internal constant BPS        = 10_000;
+    /// @dev A fee, in pips, that no read here can see (a Gate wrapper's; `_quoteArms`): above
+    ///      1e6, which no venue charges. The band reads any fee of 1e6 or more as not known
+    ///      (`BlazePhoenixMath._inBand`). 24 bits, the width the Solver packs it in.
+    uint256 internal constant FEE_UNKNOWN = 0xFFFFFF;
+    /// @dev The replicated Solidly curve's ask, in BPS of the curve's own figure: 200 bps
+    ///      under, for the pair's K rounding that cannot be observed there (`_solidlyAsk`).
+    uint256 internal constant SOLIDLY_CURVE_ASK_BPS = 9_800;
     uint256 internal constant Q96        = 0x1000000000000000000000000;
     uint256 internal constant GAS_CAP    = 100_000;
     /// @notice The gas a frame must hold for a one-word ask of a pool to hand it the whole
@@ -1404,19 +1411,36 @@ library BlazePhoenixCore {
     ///         executor settles on and the quote channel promises. Its own `getAmountOut` less
     ///         one wei, the rounding margin that keeps the pair's K check satisfied; on forks
     ///         without the selector (an answer <= 1), the replicated curve at the live fee less
-    ///         200 bps, because the pool's K rounding cannot be observed there. Only a pair that
-    ///         answers stable() has a curve to replicate: for any other the `stable` flag is
-    ///         nobody's word (the volatile curve on a stable pool under-asks a balanced pool and
-    ///         over-asks a skewed one), so its ask is 0 (aero-nova, 2026-10-26).
+    ///         200 bps (SOLIDLY_CURVE_ASK_BPS), because the pool's K rounding cannot be observed
+    ///         there. Only a pair that answers stable() has a curve to replicate: for any other
+    ///         the `stable` flag is nobody's word (the volatile curve on a stable pool under-asks
+    ///         a balanced pool and over-asks a skewed one), so its ask is 0 (aero-nova, 2026-10-26).
     function solidlyAskOut(
         address pool, uint256 amountIn, address tokenIn, bool zeroForOne, bool stable, uint256 cfgFee
     ) public view returns (uint256 out) {
+        (out, ) = _solidlyAsk(pool, amountIn, tokenIn, zeroForOne, stable, cfgFee, false);
+    }
+
+    /// @dev `solidlyAskOut`, and with `wantFee` the fee that ask charged, in pips: the band
+    ///      prices a venue from it (MED, `universalProbe`). The pair's own figure charges the
+    ///      factory's fee (`readDynamicFee`, the fee the pair reads itself); the replicated
+    ///      curve's haircut is a charge as well, so there the fee is 1 - (1 - f)(9800 / BPS).
+    ///      A fee read of BPS (no address behind factory()) gives 1e6: not known, to the band.
+    function _solidlyAsk(
+        address pool, uint256 amountIn, address tokenIn, bool zeroForOne, bool stable, uint256 cfgFee,
+        bool wantFee
+    ) private view returns (uint256 out, uint256 fee) {
         out = solidlyGetAmountOut(pool, amountIn, tokenIn);
-        if (out > 1) { unchecked { return out - 1; } }
-        if (!answersStable(pool)) return 0;
+        if (out > 1) {
+            unchecked { --out; }
+            if (wantFee) fee = readDynamicFee(pool, stable, cfgFee) * 100;
+            return (out, fee);
+        }
+        if (!answersStable(pool)) return (0, 0);
         (uint256 r0, uint256 r1) = getReserves(pool);
         (uint256 rIn, uint256 rOut) = zeroForOne ? (r0, r1) : (r1, r0);
-        out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * 9800) / BPS;
+        out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * SOLIDLY_CURVE_ASK_BPS) / BPS;
+        if (wantFee) fee = 1_000_000 - (BPS - readDynamicFee(pool, stable, cfgFee)) * SOLIDLY_CURVE_ASK_BPS / 100;
     }
 
     function outSolidly(
@@ -1765,13 +1789,24 @@ library BlazePhoenixCore {
     function universalQuote(QuoteCtx memory c, uint256 amountIn)
         public view returns (uint256 out, uint256 depthWad)
     {
-        if (amountIn == 0) return (0, 0);
+        (out, depthWad, , , ) = _quoteArms(c, amountIn, type(uint256).max, false);
+    }
+
+    /// @dev The arms of `universalQuote`, `universalQuoteRank` and `universalProbe`: one body,
+    ///      so the three answer from the same reads. `rank` and `hi` are `out` except on a V4
+    ///      key (`_v4Quote`). `fee` is the fee the arm charged, in pips; FEE_UNKNOWN on a Gate
+    ///      wrapper, whose fee no read here can see. A Solidly arm reads its fee only when
+    ///      `wantFee` (its ask does not need it, `_solidlyAsk`); every other arm has it in hand.
+    function _quoteArms(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee)
+        private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi, uint256 fee)
+    {
+        if (amountIn == 0) return (0, 0, 0, 0, 0);
         // KIND_EXTERNAL: the Gate wrapper's one producer, identity first (`gateQuote`). Its
         // depth is the Gate's `vitalOf`, the registry fitness depth of the wrapper.
         if (c.kind == KIND_EXTERNAL) {
             (, out, depthWad) = gateQuote(
                 c.hub, c.pool, c.tokenIn, c.tokenOther, c.fee, c.zeroForOne, amountIn, true);
-            return (out, depthWad);
+            return (out, depthWad, out, out, FEE_UNKNOWN);
         }
         uint8 k = c.kind;
         // Tombstone 3 left this branch (an EIP-170 dead-code pass): the venue
@@ -1788,13 +1823,13 @@ library BlazePhoenixCore {
             // recoverable donation of tokenOut that captured the band. Asked here, every
             // consumer of this dispatcher (probe, split, single leg, Quoter) sees the lie as a
             // dead pool. Inert on an honest pair: reserves never exceed balances.
-            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0);
+            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0, 0, 0, 0);
             // UniV2/Sushi charge 0.30%. fee==0 (no fee list) -> 30 bps default,
             // so the quote matches the pool's x*y=k (else "K" revert on exec).
             uint24 v2fee = effV2Fee(c.fee);
             out      = outV2(amountIn, rI, rO, v2fee);
             depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
-            return (out, depthWad);
+            return (out, depthWad, out, out, uint256(v2fee) * 100);
         }
         if (kindHas(k, A_CONC_POOL)) {
             // One read yields the price AND, for a dynamic-fee (Algebra) pool,
@@ -1810,7 +1845,8 @@ library BlazePhoenixCore {
             // `ticks()` getter drags 4 slots the quote does not use, against one
             // batchable `extsload`). V4 goes first because that is where the
             // error was measured; extending to V3 is the same change, one read up.
-            out      = outV3(amountIn, sp, liq, quoteV3Fee(c.pool, c.fee, dynFee, isDyn), c.zeroForOne, 0);
+            fee      = quoteV3Fee(c.pool, c.fee, dynFee, isDyn);
+            out      = outV3(amountIn, sp, liq, uint24(fee), c.zeroForOne, 0);
             // depthWad must be TOKEN-DENOMINATED to be comparable across venue
             // families: the Solver's band anchor picks max(depths[]) across V2
             // (min(r0,r1), linear token units) and V3 candidates alike. Raw L is
@@ -1829,13 +1865,13 @@ library BlazePhoenixCore {
             uint8 dOt3 = _decOther(c);
             (uint8 b0, uint8 b1) = c.zeroForOne ? (dIn3, dOt3) : (dOt3, dIn3);
             depthWad = depthFromL18(liq, sp, b0, b1);
-            return (out, depthWad);
+            return (out, depthWad, out, out, fee);
         }
         if (k == KIND_SOLIDLY) {
             (uint256 r0, uint256 r1) = getReserves(c.pool);
             (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
             // Same door as the V2 arm (bounty #85): a pair holding less than it declares is dead.
-            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0);
+            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0, 0, 0, 0);
             // THE EXECUTOR'S ASK, from the executor's own producer. The pair is
             // never asked for its whole `getAmountOut`: `_execPairAmt` asks one
             // wei less, the rounding margin its K check needs, and on forks
@@ -1844,9 +1880,9 @@ library BlazePhoenixCore {
             // Solidly delivery - so a one-leg preview had no buffer to absorb it
             // and published a netOut the Router refused as userMinOut (dex-13,
             // ninth wave). One function now answers both questions.
-            out = solidlyAskOut(c.pool, amountIn, c.tokenIn, c.zeroForOne, c.stable, c.fee);
+            (out, fee) = _solidlyAsk(c.pool, amountIn, c.tokenIn, c.zeroForOne, c.stable, c.fee, wantFee);
             depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
-            return (out, depthWad);
+            return (out, depthWad, out, out, fee);
         }
         if (kindHasAny(k, A_CONC_SING)) {
             // Both V4 kinds quote identically and deliberately share this branch:
@@ -1867,8 +1903,7 @@ library BlazePhoenixCore {
             // slot0 when this reads it. A caller-built leg on the explicit door
             // stays bounded by the Router's iron floor re-derived from realised
             // output and by userMinOut.
-            (out, depthWad, , ) = _v4Quote(c, amountIn, type(uint256).max);
-            return (out, depthWad);
+            return _v4Quote(c, amountIn, bar);
         }
     }
 
@@ -1881,15 +1916,56 @@ library BlazePhoenixCore {
     function universalQuoteRank(QuoteCtx memory c, uint256 amountIn, uint256 bar)
         public view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
     {
-        if (amountIn != 0 && kindHasAny(c.kind, A_CONC_SING)) return _v4Quote(c, amountIn, bar);
-        (out, depthWad) = universalQuote(c, amountIn);
-        rank = out;
-        hi = out;
+        (out, depthWad, rank, hi, ) = _quoteArms(c, amountIn, bar, false);
+    }
+
+    /// @notice WHAT THE BAND READS OFF A PROBE (MED, 2026-10-28): `universalQuoteRank` at bar 0 -
+    ///         the vote's `depthWad` and the ranking figure `rank` - and the two numbers that let
+    ///         the Solver's band judge a venue's PRICE instead of its rate after fee
+    ///         (`BlazePhoenixMath._inBand`): `fee`, what that figure charged, in pips (FEE_UNKNOWN
+    ///         or more: not known), and `err`, in WAD, a bound on how far the fee-free price
+    ///         rank * 1e6 / (1e6 - fee) / amountIn can sit from the venue's spot, either side
+    ///         (WAD: no bound).
+    /// @dev    THE BOUND. On one constant-product curve (a V2 or volatile Solidly pair, the one
+    ///         range `outV3` quotes, a V4 walk that stays in its range) the fee-free price sits
+    ///         under the spot by i = a(1-f)/(x + a(1-f)) exactly, and i = o/y, at most a/x: the
+    ///         output over the out-side reserve, the input over the in-side one. `depthWad` is the
+    ///         short side min(x, y) in 18 decimals, so min(a, o) / depthWad >= i. Then rounding,
+    ///         with n = floor(a * (1e6 - f) / 1e6) the input the curve is handed. Output side: its
+    ///         floor, the -1 of a Solidly ask, the sqrt price `outV3` floors (zeroForOne), which
+    ///         lifts o by up to L / 2^96 wei, and a unit each of the 1e18 rate the Solver forms
+    ///         and the price `_select` forms: 3 * WAD / o + 2 * a / o. Input side (V3, V4): n sits
+    ///         under a(1 - f) by less than a wei, 1/n of the price; `outV3`'s floors on
+    ///         n * sqrtP / 2^96 (zeroForOne) and on L * dSqrt / sqrtNew (the other way) each cost
+    ///         under 1 / sqrt(n * o) <= (1/n + 1/o) / 2, and its floor on dSqrt = n * 2^96 / L
+    ///         under L / (2^96 * n). While L <= 2^96 the two ways total, to first order, under
+    ///         1.5/n + 1.5/(o - 1) and 2.5/n + 1.5/o: 3 * WAD / n and 3 * WAD / o cover them
+    ///         (2026-10-28: without the first a 62-wei probe behind a 54.66% fee read 0.42% under
+    ///         its spot with e = 1.25e-6, test/MedianProbeErrorBound.t.sol). NOT BOUNDED here,
+    ///         and written down as limits: a V4 walk that crosses into thinner ticks, a Solidly
+    ///         stable curve away from both of its asymptotes, a V3 range whose L is above 2^96
+    ///         (its sqrt price floors then move the output by L / 2^96 wei), and a Gate wrapper's
+    ///         impact (no reserve to read; its rounding is counted, and impact only lowers a rate,
+    ///         which a row of unknown fee is never judged on).
+    function universalProbe(QuoteCtx memory c, uint256 amountIn)
+        public view returns (uint256 depthWad, uint256 rank, uint256 fee, uint256 err)
+    {
+        (, depthWad, rank, , fee) = _quoteArms(c, amountIn, 0, true);
+        if (rank == 0) return (depthWad, 0, fee, WAD);
+        err = (3 * WAD + 2 * amountIn) / rank + 1;
+        if (c.kind != KIND_EXTERNAL) {
+            uint256 n = fee < 1_000_000 ? mulDiv(amountIn, 1_000_000 - fee, 1_000_000) : amountIn;
+            uint256 a18 = to18(amountIn, _decIn(c));
+            uint256 o18 = to18(rank, _decOther(c));
+            uint256 m = a18 < o18 ? a18 : o18;
+            err = n == 0 || m >= depthWad ? WAD : err + 3 * WAD / n + mulDivUp(m, WAD, depthWad);
+        }
+        if (err > WAD) err = WAD;
     }
 
     /// @dev The V4 arm of `universalQuote`, the one producer for both entry points.
     function _v4Quote(QuoteCtx memory c, uint256 amountIn, uint256 bar)
-        private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
+        private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi, uint256 fee)
     {
         // H12 (2026-10-19). On a dynamic-fee key the hook with BEFORE_SWAP_FLAG (1 << 7)
         // sets the swap's LP fee by what it RETURNS (v4-core Pool.swap: the override wins
@@ -1898,7 +1974,7 @@ library BlazePhoenixCore {
         // pool's own swap, so slot0 is the fee charged. The Router's in-frame promise
         // (`v4LegOut`) is untouched: a caller-built leg keeps its floors and userMinOut.
         if (c.fee == 0x800000) {
-            if (uint160(c.hooks) & 0x80 != 0) return (0, 0, 0, 0);
+            if (uint160(c.hooks) & 0x80 != 0) return (0, 0, 0, 0, 0);
         }
         {
             (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
@@ -1907,7 +1983,7 @@ library BlazePhoenixCore {
                 v4SqrtAndLiq(c.v4Manager, pid);
             // sp == 0 needs no branch of its own: the walk re-reads this slot0 word and
             // answers zeros, and depthFromL18 is 0 at sp == 0.
-            if (liq == 0) return (0, 0, 0, 0);
+            if (liq == 0) return (0, 0, 0, 0, 0);
             // THE WALK, for ranking and for the promise alike. The single-tick form assumed
             // the current liquidity went on for ever: it ranked a pool holding one tick of
             // range as deep and let it take the whole route (dex-19, ninth wave), while its
@@ -1917,7 +1993,8 @@ library BlazePhoenixCore {
             // pool's own answer: a range with nothing beyond it is ranked for what it holds,
             // and liquidity beyond the current range is counted where it is. V2 has no ticks
             // to walk and needs none: its curve is its whole book.
-            (out, rank, hi) = _v4Walk(c.v4Manager, pid, amountIn, effV4Fee(c.fee, lpF, pF, c.zeroForOne), c.tickSpacing, c.zeroForOne, bar);
+            fee = effV4Fee(c.fee, lpF, pF, c.zeroForOne);
+            (out, rank, hi) = _v4Walk(c.v4Manager, pid, amountIn, uint24(fee), c.tickSpacing, c.zeroForOne, bar);
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by

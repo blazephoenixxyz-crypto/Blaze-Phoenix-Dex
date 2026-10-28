@@ -21,6 +21,22 @@ pragma solidity 0.8.36;
 //
 // The rows also log the cold gas of both Solvers on the same state: the boundary's overhead is
 // measured here, not estimated.
+//
+// MED (2026-10-28) changes the band by design: it judges prices against the fees that bound
+// them (BlazePhoenixMath, THE BAND), where the Solver of 8938b6a judged rates against ±5% of
+// their median (MEDIAN_FILTER_BPS), so the two Solvers part wherever the two bands keep
+// different books. Every row here is drawn where they cannot: each book either at the market
+// or 20% from it, the rows of a pair within about 0.3% of each other or far apart. A V2 book
+// at 1.00, the wide V4 book at tick 0 and the narrow one within 20 ticks of it (0.2%) sit
+// inside both bands with any of them as the base (the tightest edge, a 0.3% book under a
+// 0.01% base, is 0.31% before the error bounds widen it, and a probe of at most 9e17 moves no
+// V2 book of 1e21 or more by 0.1%, nor leaves the narrow range, which holds about L * 2e-4
+// with L >= 1e22); the books at 1.20 and 0.80 sit outside both from any other. A probe whose
+// own impact pushes a shallow book's rate 5% under the median's left the old band and stays
+// in the new one (the error bound covers it), so the fixed rows keep their orders where the
+// probes move every book by less than that. Rate order and price order agree across those
+// groups, so the base falls in the same group and the kept set is the same; nothing else the
+// hop computes reads the band.
 
 import {Test} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";
@@ -208,9 +224,12 @@ contract MathBoundarySameAnswerTest is Test {
     }
 
     /// Nine curated books, some in the band and some out, against a budget of four legs:
-    /// the funnel cut and the seat of the remainder decide, at sizes from dust to the depth.
+    /// the funnel cut and the seat of the remainder decide, at sizes from dust to near a
+    /// shallow book's depth. Until MED (2026-10-28) the books in the band sat 1-3% apart
+    /// and the largest order was 1M: the band of no arbitrage drops the first, and at 1M
+    /// the probe's own impact took the 50k and 100k books out of the old band (header).
     function test_D10_SameAnswer_FunnelCutAndSeat() public {
-        uint16[9] memory pct = [uint16(100), 100, 101, 99, 103, 97, 108, 90, 100];
+        uint16[9] memory pct = [uint16(100), 100, 100, 100, 100, 100, 120, 80, 100];
         for (uint256 i; i < 9; ++i) {
             uint256 d = (i + 1) * 50_000e18;
             _v2(tA, tB, d, d * pct[i] / 100);
@@ -218,16 +237,16 @@ contract MathBoundarySameAnswerTest is Test {
         _row("9 books, dust", tA, tB, 1e18);
         _row("9 books, 1k", tA, tB, 1_000e18);
         _row("9 books, 100k", tA, tB, 100_000e18);
-        _row("9 books, 1M", tA, tB, 1_000_000e18);
-        _row("9 books, 1M, the other way", tB, tA, 1_000_000e18);
+        _row("9 books, 200k", tA, tB, 200_000e18);
+        _row("9 books, 200k, the other way", tB, tA, 200_000e18);
     }
 
     /// Discovered rows beside curated ones: the band's vote reads which rows are vouched.
     function test_D10_SameAnswer_CuratedBesideDiscovered() public {
         _v2(tA, tB, 400_000e18, 400_000e18);
-        _v2(tA, tB, 300_000e18, 303_000e18);
+        _v2(tA, tB, 300_000e18, 300_900e18);       // 1.003 (1.01 until MED, header)
         _v2Found(tA, tB, 2_000_000e18, 1_000_000e18);
-        _v2Found(tA, tB, 500_000e18, 495_000e18);
+        _v2Found(tA, tB, 500_000e18, 498_500e18);  // 0.997 (0.99 until MED)
         _row("2 curated, 2 discovered", tA, tB, 100_000e18);
         _row("the other way", tB, tA, 100_000e18);
     }
@@ -257,7 +276,7 @@ contract MathBoundarySameAnswerTest is Test {
         for (uint256 i; i < 2; ++i) {
             _v2(tA, x, 300_000e18 * (i + 1), 300_000e18 * (i + 1));
             _v2(x, tB, 300_000e18 * (i + 1), 301_000e18 * (i + 1));
-            _v2(tA, y, 100_000e18, 100_000e18 + i * 1_000e18);
+            _v2(tA, y, 100_000e18, 100_000e18 + i * 300e18);   // 1.003 (1.01 until MED, header)
             _v2(x, y, 200_000e18, 200_000e18);
             _v2(y, tB, 100_000e18, 100_000e18);
         }
@@ -316,12 +335,13 @@ contract MathBoundarySameAnswerTest is Test {
 
     // ─── fuzz ────────────────────────────────────────────────────────────────
 
-    /// A V2 book of depth 1e21..1e24 at one of ten rates around 1 (some inside the band, some
-    /// outside), curated or discovered.
+    /// A V2 book of depth 1e21..1e24 at the market or 20% from it (header: until MED it drew
+    /// ten rates, 1-6% from 1 among them, which the two bands now judge apart), curated or
+    /// discovered.
     function _v2Rand(address a, address b, uint256 w) internal {
-        uint16[10] memory pct = [uint16(100), 100, 101, 99, 103, 97, 106, 94, 120, 80];
+        uint16[4] memory pct = [uint16(100), 100, 120, 80];
         uint256 d = 1e21 * (1 + w % 1000);
-        uint256 rb = d * pct[(w >> 16) % 10] / 100;
+        uint256 rb = d * pct[(w >> 16) % 4] / 100;
         if ((w >> 32) % 4 == 0) _v2Found(a, b, d, rb);
         else _v2(a, b, d, rb);
     }
@@ -346,10 +366,10 @@ contract MathBoundarySameAnswerTest is Test {
         }
         if ((seed >> 12) & 1 == 1) _v4(3000, 60, 0, -887220, 887220, uint128(1e22 * (1 + _w(seed, 300) % 1000)));
         if ((seed >> 13) & 1 == 1) {
-            int24 t = int24(int256(_w(seed, 301) % 1201)) - 600;
+            int24 t = int24(int256(_w(seed, 301) % 41)) - 20;   // 600 ticks until MED (header)
             _v4(100, 1, t, t - 4, t + 4, uint128(1e22 * (1 + _w(seed, 302) % 10_000)));
         }
-        uint256 amt = (1 + (seed >> 16) % 9) * 10 ** (15 + (seed >> 24) % 10);
+        uint256 amt = (1 + (seed >> 16) % 9) * 10 ** (15 + (seed >> 24) % 5);   // to 9e24 until MED (header)
         (bool ok, uint256 selects, , ) = _same(tA, tB, amt, gasleft());
         if (ok && nDirect > 1) assertGt(selects, 0, "precondition: a pair with several books reaches the library");
         _same(tA, tB, amt, SOLVE_GAS);

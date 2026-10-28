@@ -603,14 +603,20 @@ the mechanism, not the sample:
   states it between the arms: two ulps, one per arm, plus the two output floors.
 - **MR-R1 / MR-R3.** With one pool priced 10¹⁰ away from the other, the plan paid 35 % less than
   the outlier alone, and a deep mispriced pool displaced a shallow honest one. That is the Solver's
-  median filter (`MEDIAN_FILTER_BPS`, ±5 %) refusing to believe an outlier — the relations hold over
-  pools it admits, so the domain keeps the two prices within ±4 %. Since 2026-10-27 a pool under
+  band (`MEDIAN_FILTER_BPS`, ±5 % around the median rate, until 2026-10-28; since MED the band of no
+  arbitrage, the two fees widened by the two probes' error bounds) refusing to believe an outlier —
+  the relations hold over pools it admits. MR-R1 and MR-R3 compare the plan with a pool the band
+  may drop, so since MED their domain keeps the two prices within ±0.5 %, inside the band whichever
+  pool sets the median; over the ±4 % kept until then the new band met a plan 1.9 % under the pool
+  it dropped (MR-R1) and a pool whose arrival lowered the plan 2.7 % (MR-R3). The other relations
+  keep ±4 %. Since 2026-10-27 a pool under
   `MIN_SPLIT_IMPROVEMENT_PPM` (25 ppm) of the rest of its pair is dropped before it is quoted
   (`Solver._dropDust`), so the domain also keeps the two depths within 1:10⁴. Measured on the CI
   seed before it was written: a pool at 7.7 ppm of the other, priced 3.97 % better, would have paid
   309 bps more on an order of 0.85 % of its reserve (MR-R1), and a deep pool added beside a 5 ppm
   one replaced it at 311 bps less (MR-R3); both plans were the deep pool alone, to the wei. MR-R1d
-  pins that cost: the dust pool is not quoted, and the best single pool pays at most the band more.
+  pins that cost: the dust pool is not quoted, and the best single pool pays at most the price gap
+  more.
 - **MR-R4.** Replayed leg by leg: a pool whose depth weight floors to the minimum (1 of 10,000
   against the deepest) is **kept** as a dust leg when it was registered first and **cut** when
   registered second. Both plans are sound; they differ by what one weight unit of the amount earns

@@ -17,14 +17,22 @@ pragma solidity 0.8.36;
 //    MR-R1d a dust pool is not quoted, and that costs at most the price band
 //
 //  Domains: reserves in [1e20, 1e30] (well inside uint112), the two pools' spot
-//  prices within ±4% of each other (the Solver's median filter drops a pool whose
-//  rate strays more than MEDIAN_FILTER_BPS from the base — a relation over pools
-//  it deliberately refuses to believe would be a relation about the filter, and
-//  that is tested elsewhere), amountIn at most 1% of the shallower pool's input
-//  reserve. MEASURED before the band was written: with one pool priced 1e10 away
-//  from the other, the plan paid 35% less than the outlier pool alone (MR-R1) and
-//  a deep mispriced pool displaced a shallow honest one (MR-R3) — both the filter
-//  doing its job. MR-R4 is stated to one wei: the split's rounding depends on the
+//  prices within ±4% of each other, amountIn at most 1% of the shallower pool's
+//  input reserve. A relation over pools the Solver deliberately refuses to believe
+//  would be a relation about the band, and that is tested elsewhere. MEASURED before
+//  the band was written: with one pool priced 1e10 away from the other, the plan paid
+//  35% less than the outlier pool alone (MR-R1) and a deep mispriced pool displaced a
+//  shallow honest one (MR-R3) — both the band doing its job. Since MED (2026-10-28)
+//  the band is the one of no arbitrage (BlazePhoenixMath, THE BAND; until then ±5%
+//  around the median rate, MEDIAN_FILTER_BPS): two 0.3% pools stay within 0.997^2
+//  below and 1/0.997^3 above the median's price (-0.6% / +0.9%), widened by the two
+//  probes' error bounds, and a pool further than that is believed to be off the
+//  market. MR-R1 and MR-R3 compare the plan with a pool the band may drop, so they
+//  keep the two prices within ±0.5% of each other, inside the band whichever pool is
+//  the median. MEASURED 2026-10-28 over ±4%: MR-R1 met a plan 1.9% under the pool the
+//  band dropped, and MR-R3 a pool whose arrival lowered the plan 2.7% (the deeper
+//  pool set the median and the cheaper one left). MR-R1d, MR-R2, MR-R4 and MR-R5 hold
+//  whatever the band keeps and keep ±4%. MR-R4 is stated to one wei: the split's rounding depends on the
 //  order legs are allocated, and a minimum-weight pool is kept or cut by its position.
 //  MR-R1 and MR-R3 also keep the two depths within 1:10^4 of each other. Since
 //  poda-1027 a pool under MIN_SPLIT_IMPROVEMENT_PPM (25 ppm) of the rest of its pair
@@ -33,7 +41,7 @@ pragma solidity 0.8.36;
 //  was written: a pool at 7.7 ppm of the other, priced 3.97 % better, would have paid
 //  309 bps more on an order of 0.85 % of its reserve (MR-R1), and a deep pool added
 //  next to a 5 ppm one replaced it at 311 bps less (MR-R3); both plans were the deep
-//  pool alone, to the wei. MR-R1d pins that cost: never more than the price band.
+//  pool alone, to the wei. MR-R1d pins that cost: never more than the price gap.
 //
 //  forge test --match-path test/RouteMetamorphicRelations.t.sol
 // =============================================================================
@@ -92,12 +100,14 @@ contract RouteMetamorphicRelationsTest is Test {
     }
 
     /// @dev `_two` with the second depth within 1:10^4 of the first: at 100 ppm of each other
-    ///      or more, neither pool is dust at any price in the band.
+    ///      or more, neither pool is dust at any price in the domain. And the two prices within
+    ///      ±0.5% of each other, inside the band whichever pool is the median (header); `_two`
+    ///      keeps a deviation that is already inside its own ±4%.
     function _twoAboveDust(uint256 r1, uint256 r2, uint256 r3, uint256 r4) private pure returns (Pool[] memory) {
         uint256 rA1 = bound(r1, 1e22, 1e28);
         uint256 lo = rA1 / 1e4 > 1e22 ? rA1 / 1e4 : 1e22;
         uint256 hi = rA1 * 1e4 < 1e28 ? rA1 * 1e4 : 1e28;
-        return _two(rA1, r2, bound(r3, lo, hi), r4);
+        return _two(rA1, r2, bound(r3, lo, hi), bound(r4, 9950, 10_050));
     }
 
     function _amt(uint256 a, Pool[] memory ps) private pure returns (uint256) {
@@ -142,9 +152,9 @@ contract RouteMetamorphicRelationsTest is Test {
     }
 
     /// MR-R1d, the dust side of MR-R1 and MR-R3. A pool at most 1/50,000 of the other (under
-    /// 21 ppm at any price in the band) is dropped before it is quoted, so on an order it could
+    /// 21 ppm at any price in the domain) is dropped before it is quoted, so on an order it could
     /// take it is not there to win: the plan is the deep pool alone, to the wei. What that costs
-    /// is the price gap and never more: inside the ±4 % band the best single pool pays at most
+    /// is the price gap and never more: inside the ±4 % domain the best single pool pays at most
     /// 4 % more, plus the deep pool's impact at this size (under 2e-7).
     function testFuzz_MRR1d_ADustPoolIsNotQuotedAndCostsAtMostTheBand(uint256 a, uint256 r1, uint256 r2, uint256 r3, uint256 r4) public {
         uint256 rA1 = bound(r1, 1e27, 1e28);
@@ -152,7 +162,7 @@ contract RouteMetamorphicRelationsTest is Test {
         a = _amt(a, ps);
         uint256 got = _plan(_universe(ps), a).best.totalOut;
         assertEq(got, _cp(a, ps[0].rA, ps[0].rB), "MR-R1d: the dust pool was quoted: the plan is not the deep pool alone");
-        assertGe(got * 10_401, _bestSingle(a, ps) * 10_000, "MR-R1d: dropping the dust pool cost more than the band");
+        assertGe(got * 10_401, _bestSingle(a, ps) * 10_000, "MR-R1d: dropping the dust pool cost more than the price gap");
     }
 
     /// MR-R1 is not vacuous: where a split wins it is TAKEN, and with the weights the
@@ -177,11 +187,16 @@ contract RouteMetamorphicRelationsTest is Test {
 
     /// The allocator weighs by depth, not by price, and the paper says so. This pins how
     /// far that sits from the price-aware optimum (marginal prices equalised) at a large
-    /// trade between two equal-depth pools whose prices differ by 4 %: within 20 bps of
-    /// the optimum, while beating the best single pool by more than 250 bps. Measured
-    /// 2026-09-07 at 17.1 and 19.2 bps; the number here is the bound, not the sample.
-    function test_SplitQuality_DepthWeightedIsWithin20bpsOfPriceAware() public {
-        uint256[2] memory devs = [uint256(9600), 10400];
+    /// trade between two equal-depth pools whose prices differ by 0.5 %: within 1 bp of
+    /// the optimum, while beating the best single pool by more than 250 bps. The loss is
+    /// second order in the price gap, so the band bounds it. Until MED (2026-10-28) the band
+    /// kept two pools 4 % apart, and this test pinned 20 bps there (measured 2026-09-07 at
+    /// 17.1 and 19.2 bps); the band of no arbitrage keeps two 0.3 % pools within about
+    /// -0.6 % / +0.9 % of each other, and at +0.9 % the oracle's own 50 / 50 split sits
+    /// 0.98 bps from its optimum at this size. Measured 2026-10-28 at 0.23 and 0.29 bps;
+    /// the number here is the bound, not the sample.
+    function test_SplitQuality_DepthWeightedIsWithin1bpOfPriceAware() public {
+        uint256[2] memory devs = [uint256(9950), 10050];
         for (uint256 d; d < 2; ++d) {
             Pool[] memory ps = _pools(1e28, 1e28, 1e28, 1e28 * devs[d] / 10_000);
             uint256 a = 1e27;
@@ -189,7 +204,8 @@ contract RouteMetamorphicRelationsTest is Test {
             uint256 got = _plan(s, a).best.totalOut;
             uint256 optimum = _bestSplit(a, ps);
             uint256 single = _bestSingle(a, ps);
-            assertGe(got + optimum * 20 / 10_000, optimum, "within 20 bps of the price-aware optimum");
+            emit log_named_decimal_uint("bps from the price-aware optimum", optimum > got ? (optimum - got) * 1e6 / optimum : 0, 2);
+            assertGe(got + optimum / 10_000, optimum, "within 1 bp of the price-aware optimum");
             assertGt(got, single + single * 250 / 10_000, "and more than 250 bps above the best single pool");
         }
     }
@@ -225,7 +241,7 @@ contract RouteMetamorphicRelationsTest is Test {
         // (1 of 10,000 against the deepest) is KEPT as a dust leg when it was registered
         // first and CUT when it was registered second. The two plans are both sound; they
         // differ by what one weight unit of the amount earns in one pool versus the other,
-        // which inside the ±4% band is below one part in ten thousand of the output
+        // which inside the ±4% domain is below one part in ten thousand of the output
         // (observed: 3e-7). The bound is that weight unit, plus the split's floors.
         uint256 diff = fwd > bwd ? fwd - bwd : bwd - fwd;
         assertLe(diff, fwd / 10_000 + 16, "MR-R4: registration order moved the plan by more than one weight unit of the split");

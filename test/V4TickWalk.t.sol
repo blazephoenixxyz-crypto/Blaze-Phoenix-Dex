@@ -225,7 +225,11 @@ contract V4TickWalkTest is Test {
         l[1] = -6000; h[1] = 6000; q[1] = 1e24;
         _book(-59, l, h, q);
         hub.addV4(t0, t1, FEE, TS, address(0));
-        _v2(1e24, 985e21);                                            // honest, but worse: 0.985
+        // Honest, but worse: 0.990 against the V4 pool's 0.9941 (tick -59). Since MED
+        // (2026-10-28) the band is the one of no arbitrage (BlazePhoenixMath, THE BAND): two
+        // 0.3% pools stay within about -0.6% / +0.9% of each other, and the 0.985 used until
+        // then sat 0.93% under the V4 pool, so the band dropped one of the two.
+        _v2(1e24, 990e21);
         RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, ORDER);
         bool v4;
         for (uint256 i; i < plan.best.hops[0].legs.length; ++i) {
@@ -242,6 +246,6 @@ contract V4TickWalkTest is Test {
         (uint256 got, uint256 spent) = _swapBest();
         emit log_named_uint("delivered      ", got);
         assertEq(spent, ORDER, "the order was only partly filled");
-        assertGt(got, BPC.outV2(ORDER, 1e24, 985e21, 30), "the route delivered less than the worse pool alone");
+        assertGt(got, BPC.outV2(ORDER, 1e24, 990e21, 30), "the route delivered less than the worse pool alone");
     }
 }

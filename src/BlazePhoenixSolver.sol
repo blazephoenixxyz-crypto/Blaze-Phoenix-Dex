@@ -633,17 +633,21 @@ contract BlazePhoenixSolver {
         if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, uint8(mode >> 16), uint8(mode >> 8)); return (hop, up, f != 0); }
 
         // =========================================================================
-        //  STAGE 1 — MARGINAL-RATE MEDIAN FILTER  (single probe pass)
+        //  STAGE 1 — MARGINAL-PRICE MEDIAN AND NO-ARBITRAGE BAND  (single probe pass)
         //
         //  We quote each candidate with a PROBE size (= amountIn / 100) that
         //  is small enough that each pool's marginal rate is essentially its
-        //  spot price (negligible impact). Then we compute the median of
-        //  those marginal rates and filter pools whose marginal rate
-        //  deviates from the base by more than MEDIAN_FILTER_BPS (±5%, in BlazePhoenixMath).
+        //  spot price after its fee. Then BlazePhoenixMath takes the depth-weighted
+        //  median of the PRICES (the rate before the fee the probe charged) and
+        //  keeps the pools whose price no arbitrage could have closed against it:
+        //  the band's width is the two fees and the two quotes' error bounds, never
+        //  a fixed number of bps (MED, 2026-10-28; `BlazePhoenixMath._inBand`).
+        //  The weights, the split and the gate below still read the RATE, after fee:
+        //  the fee is an honest cost, judged where the output is judged.
         //
         //  GAS: the probe-size quote is computed exactly ONCE per candidate
-        //  here, capturing BOTH the marginal rate AND the depth in the same
-        //  call (_quoteWithDepth). Previously this identical probe quote was
+        //  here, capturing the marginal rate, the depth, the fee and the error
+        //  bound in the same call (BPC.universalProbe). Previously this identical probe quote was
         //  recomputed three times — once for the median, once for the band
         //  filter, once for the depth pass — each re-reading the pool's
         //  state (V3 sqrtP+liquidity, V2 reserves, or a V4 singleton
@@ -680,6 +684,9 @@ contract BlazePhoenixSolver {
         // probe pass and reused by the band filter and the depth weighting.
         uint256[] memory rates  = new uint256[](n);
         uint256[] memory depths = new uint256[](n);
+        // The band's own figures, per candidate: the fee the probe charged, in pips (bits 0-23;
+        // 1e6 or more: not known), and the bound on the probe's error, in WAD (bits 24 up).
+        uint256[] memory fe     = new uint256[](n);
         // DECIMALS HOISTING. Every candidate in this loop is a pool of the
         // SAME pair, so they hold the SAME two tokens — only orientation changes.
         // Reading `decimals()` in there cost 2,339 gas PER CANDIDATE (measured;
@@ -708,7 +715,7 @@ contract BlazePhoenixSolver {
         // — so it is not "capital at risk". An attacker won the anchor with a donation,
         // centred the band on their bad rate and filtered the honest deep pool OUT.
         //
-        // TODAY's anchor is `BlazePhoenixMath._depthWeightedMedian(rates, depths, n)`, and it uses
+        // TODAY's anchor is `BlazePhoenixMath._depthWeightedMedian` (of the prices), and it uses
         // `depths`: getReserves (V2/Solidly), getLiquidity (V3), measured liquidity (V4)
         // — quantities a donation does not move. It does NOT use this loop's `balsOut`.
         //
@@ -724,9 +731,10 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < n; ) {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (, uint256 d, uint256 o, ) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_, 0);
+            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
+                fe[i]     = f | e << 24;
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
                 // V3/BP-18 (CRITICAL, devil's-advocate): a V4 pool's address is a
                 // codeless truncated poolId whose balanceOf ANYONE can fund with
@@ -790,7 +798,7 @@ contract BlazePhoenixSolver {
             uint256 top;
             assembly ("memory-safe") { top := mload(0x40) }
             (nKept, n, sumPsi, map, psis) =
-                BlazePhoenixMath.select(rates, depths, balsOut, cands, tIn, IHubMath(address(hub)), budget);
+                BlazePhoenixMath.select(rates, depths, balsOut, fe, cands, tIn, IHubMath(address(hub)), budget);
             // G3: the answer must be exactly the canonical encoding of what was decoded. The ABI
             // decoder accepts a longer returndata, so the length is checked against the encoding
             // of the decoded values themselves.
@@ -1199,6 +1207,14 @@ contract BlazePhoenixSolver {
     function _quoteWithDepth(
         PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
     ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
+        (out, depth, rank, hi) = BPC.universalQuoteRank(_ctx(cand, tIn, dIn1, dOt1), amt, bar);
+    }
+
+    /// @dev The Core's quote context of `cand` for an input of `tIn`: one builder for the
+    ///      quote (`_quoteWithDepth`) and the band's probe (`BPC.universalProbe`, `_buildHop`).
+    function _ctx(PoolInfo memory cand, address tIn, uint8 dIn1, uint8 dOt1)
+        private view returns (QuoteCtx memory c)
+    {
         bool zfo = cand.token0 == tIn;
         // Native V4: PoolInfo carries the pair in WETH-canonical form with token0 = the
         // wrapped-native side (the registry's orientation contract - see Hub._readPoolInfo).
@@ -1207,7 +1223,7 @@ contract BlazePhoenixSolver {
         // poolId. zeroForOne needs no branch: token0 == tIn already means "input is
         // currency0" under this orientation. Every other kind passes through untouched.
         (address qIn, address other) = BPC.v4LegCurrencies(cand.kind, tIn, zfo ? cand.token1 : cand.token0, zfo);
-        QuoteCtx memory c = QuoteCtx({
+        c = QuoteCtx({
             kind:        cand.kind,
             pool:        cand.pool,
             zeroForOne:  zfo,
@@ -1229,7 +1245,6 @@ contract BlazePhoenixSolver {
             decIn1:      dIn1,
             decOther1:   dOt1
         });
-        (out, depth, rank, hi) = BPC.universalQuoteRank(c, amt, bar);
     }
 
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than

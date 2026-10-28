@@ -5,8 +5,9 @@ pragma solidity 0.8.36;
 //
 // M10 (Solver._firstStage): the first stage of a bridge route, tIn -> bs[i], is built once per
 // solve and every later topology opening on bs[i] reads a copy of that build. M11
-// (BlazePhoenixMath._byRate): a hop orders its live rates once, and the plain median and every
-// weighted median of the hop walk that one order instead of sorting again.
+// (BlazePhoenixMath._byRate, `_byPrice` since MED): a hop orders its live rates (its prices since
+// MED) once, and the plain median and every weighted median of the hop walk that one order
+// instead of sorting again.
 //
 // `SolverRef653` is the Solver of 653b1dc with its own frozen library `MathRef653` (both
 // literal, renamed). Both Solvers read the same Hub and the same state, and each call must come
@@ -16,6 +17,18 @@ pragma solidity 0.8.36;
 // runner-up opening on the same bridge, held grids whose rebuild runs WALK on the leader's
 // topology, V4 books whose cut votes run the median three times. The fuzz row draws up to three
 // bridges, books on every pair between tIn, tOut and the bridges, V4 books and amounts.
+//
+// MED (2026-10-28) changes the band by design: it judges prices against the fees that bound
+// them (BlazePhoenixMath, THE BAND), where the Solver of 653b1dc judged rates against ±5% of
+// their median (MEDIAN_FILTER_BPS), so the two Solvers part wherever the two bands keep
+// different books. Every row here is drawn where they cannot: each book either at the market
+// or 20% from it. A V2 book at 1.00, the wide V4 book at tick 0 and the narrow one within 20
+// ticks of it (0.2%) sit inside both bands with any of them as the base (the tightest edge,
+// a 0.3% book under a 0.01% base, is 0.31% before the error bounds widen it, and a probe of
+// at most 9e17 moves no V2 book of 1e21 or more by 0.1%, nor leaves the narrow range, which
+// holds about L * 2e-4 with L >= 1e22); the books at 1.20 and 0.80 sit outside both from any
+// other. Rate order and price order agree across those groups, so the base falls in the same
+// group and the kept set is the same; nothing else the hop computes reads the band.
 // The rows log the cold gas of both Solvers on the same state.
 
 import {Test} from "forge-std/Test.sol";
@@ -284,8 +297,9 @@ contract G52SameAnswerTest is Test {
         _row("the other way", tB, tA, 40_000e18);
     }
 
-    /// The band's base decides the route: three books whose rates are further apart than the
-    /// band (+-MEDIAN_FILTER_BPS), listed so that row order and rate order differ, and the
+    /// The band's base decides the route: three books whose rates are further apart than
+    /// either band (±5% at 653b1dc, the band of no arbitrage since MED), listed so that row
+    /// order and rate order differ, and the
     /// heaviest one at the top rate. A median that walked the votes in row order, or summed
     /// the mass over the wrong rows, would centre the band on another book.
     function test_G52_SameAnswer_MedianPicksTheBand() public {
@@ -602,12 +616,13 @@ contract G52SameAnswerTest is Test {
 
     // ─── fuzz ────────────────────────────────────────────────────────────────
 
-    /// A V2 book of depth 1e21..1e24 at one of ten rates around 1 (some inside the band, some
-    /// outside), curated or discovered.
+    /// A V2 book of depth 1e21..1e24 at the market or 20% from it (header: until MED it drew
+    /// ten rates, 1-6% from 1 among them, which the two bands now judge apart), curated or
+    /// discovered.
     function _v2Rand(address a, address b, uint256 w) internal {
-        uint16[10] memory pct = [uint16(100), 100, 101, 99, 103, 97, 106, 94, 120, 80];
+        uint16[4] memory pct = [uint16(100), 100, 120, 80];
         uint256 d = 1e21 * (1 + w % 1000);
-        uint256 rb = d * pct[(w >> 16) % 10] / 100;
+        uint256 rb = d * pct[(w >> 16) % 4] / 100;
         if ((w >> 32) % 4 == 0) _v2Found(a, b, d, rb);
         else _v2(a, b, d, rb);
     }
@@ -634,10 +649,10 @@ contract G52SameAnswerTest is Test {
         }
         if ((seed >> 12) & 1 == 1) _v4(3000, 60, 0, -887220, 887220, uint128(1e22 * (1 + _w(seed, 500) % 1000)));
         if ((seed >> 13) & 1 == 1) {
-            int24 t = int24(int256(_w(seed, 501) % 1201)) - 600;
+            int24 t = int24(int256(_w(seed, 501) % 41)) - 20;   // 600 ticks until MED (header)
             _v4(100, 1, t, t - 4, t + 4, uint128(1e22 * (1 + _w(seed, 502) % 10_000)));
         }
-        uint256 amt = (1 + (seed >> 16) % 9) * 10 ** (15 + (seed >> 24) % 10);
+        uint256 amt = (1 + (seed >> 16) % 9) * 10 ** (15 + (seed >> 24) % 5);   // to 9e24 until MED (header)
         _same(tA, tB, amt, gasleft());
         _same(tA, tB, amt, SOLVE_GAS);
         _same(tB, tA, amt, gasleft());

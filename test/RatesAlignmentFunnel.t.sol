@@ -34,7 +34,10 @@ contract RatesAlignmentFunnelTest is Test {
         X = _pool(800_000e18,  800_000e18, 20);  // psi 1o, profundidade ultima
         Y = _pool(1_000_000e18, 1_000_000e18, 16);
         Z = _pool(950_000e18,  950_000e18, 12);
-        W = _pool(900_000e18,  936_000e18,  8);  // MELHOR TAXA (1.04), 3a mais funda
+        // MED (2026-10-28): W a 1.005, dentro da banda de nao-arbitragem (BlazePhoenixMath,
+        // THE BAND: uma pool de 0.3% fica ate cerca de 0.9% acima de uma base de 0.3%); a 1.04
+        // usada ate entao punha-a fora da banda antes do funil.
+        W = _pool(900_000e18,  904_500e18,  8);  // MELHOR TAXA (1.005), 3a mais funda
         V = _pool(850_000e18,  850_000e18,  4);
     }
 
@@ -62,7 +65,7 @@ contract RatesAlignmentFunnelTest is Test {
         Leg[] memory legs = p.best.hops[0].legs;
         for (uint256 i; i < legs.length; i++) emit log_named_address("perna", legs[i].pool);
         emit log_named_address("W (melhor taxa)", address(W));
-        uint256 soW = _v2out(ORDER, 900_000e18, 936_000e18);
+        uint256 soW = _v2out(ORDER, 900_000e18, 904_500e18);
         emit log_named_uint("totalOut", p.best.totalOut);
         emit log_named_uint("perna unica em W", soW);
         assertGe(p.best.totalOut, soW, "o gate devia ter avaliado a perna unica em W");

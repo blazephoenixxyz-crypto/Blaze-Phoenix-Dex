@@ -88,6 +88,9 @@ contract GateBaseCoherenceTest is BlazePhoenixGateTest {
     /// at a 1000:1 price. Expected: the pair anchors the band, the lie is out, the door settles.
     /// RED at 1b4f2d4: the wrapper voted the long side (1e24) against the pair's short side
     /// (3e21), centred the band on the lie, was planned, and the best door reverted RouterE(5).
+    /// Since MED (2026-10-28) the wrapper does not vote while the pair's stated fee does
+    /// (BlazePhoenixMath._mutedVotes), so its depth's side no longer reaches the band here; the
+    /// side is watched where it is produced (test_Coherence_A_SameMassSameDepthOnBothDoors).
     function test_Coherence_A_DeeperAnchorHoldsAtAnyPrice() public {
         MockGateVenue v = _asymVenue(1_000_000e18, 1_000e18, 10);   // honest price 1000:1
         _accept(HFAM, address(hostile));

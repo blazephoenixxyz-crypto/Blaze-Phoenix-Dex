@@ -26,7 +26,9 @@
 //      M3  THE SAME ANSWER AS BEFORE. The code is the Solver's own, moved verbatim
 //          except for its exits and the `hub` argument (a library cannot read the
 //          Solver's immutables). The only new code is the map that tells the
-//          Solver where each survivor came from.
+//          Solver where each survivor came from. One answer has changed since, on
+//          purpose: the band (MED, 2026-10-28) judges each venue's PRICE, and its
+//          width is the fees and the quotes' error, not a number of bps.
 // =============================================================================
 pragma solidity 0.8.36;
 
@@ -41,39 +43,67 @@ interface IHubMath {
 
 library BlazePhoenixMath {
 
-    /// @notice Band filter for the split allocation. After quoting each candidate, the market
-    ///         baseline is computed and pools whose rate departs from it by more than
-    ///         MEDIAN_FILTER_BPS are excluded.
+    /// @notice THE BAND (MED, 2026-10-28). After the probe pass the hop's market is the
+    ///         depth-weighted median of the venues' PRICES (`_depthWeightedMedian`), and a
+    ///         venue stays in the split only where an honest market can put its price beside
+    ///         that base's (`_inBand`).
     ///
-    ///         WHY A MEDIAN AND NOT THE BEST: the best pool's rate may itself be
-    ///         manipulated (a low-liquidity pool with a stale price pretending to offer the
-    ///         world). To move a median, an attacker has to move more than HALF — and one
-    ///         pool is not enough.
+    ///         WHY A MEDIAN AND NOT THE BEST: the best venue's figure may itself be forged (a
+    ///         thin pool with a stale price pretending to offer the world). To move a median an
+    ///         attacker has to move more than HALF of the depth mass, not one pool (the history
+    ///         of that claim is in `_depthWeightedMedian`).
     ///
-    ///         CORRECTION NOTE (2026-08-21). This paragraph said exactly this and had been FALSE
-    ///         for a long time: the baseline had become the rate of the SINGLE deepest pool, an
-    ///         estimator with a ZERO BREAKDOWN POINT — one forged sensor captured it whole. The
-    ///         written justification and the real estimator had diverged, and the most reassuring
-    ///         prose was the one describing the defence that no longer existed.
-    ///         Today the baseline is the DEPTH-WEIGHTED MEDIAN (see `_depthWeightedMedian`),
-    ///         which restores the property this paragraph claims — and improves it: the majority is
-    ///         counted in DEPTH MASS and not in pool count, so not even half a dozen dust
-    ///         pools get a vote. Breakdown point: 0 -> 50% of the mass.
+    ///         WHY PRICES, NOT RATES. A probe measures the rate AFTER the venue's fee. The band on
+    ///         rates (+-5%, MEDIAN_FILTER_BPS until 2026-10-28) read a fee as a price: a pool
+    ///         charging 10% at the honest price sat 10% under an honest 0.3% venue, became the
+    ///         base with half the mass, and pushed the honest venue out over the top - the user
+    ///         paid the 10% (test/MedianFeeCapture.t.sol). The band reads
+    ///         p_i = r_i * 1e6 / (1e6 - f_i), f_i the fee the probe itself charged
+    ///         (`BPC.universalProbe`).
     ///
-    ///         BAND OF 500 bps (±5%) — owner's decision, 2026-08-21, widened from 400.
-    ///         The goal is not to EXCLUDE a genuinely better pool: the band is symmetric, so
-    ///         widening admits both those up to 5% above the baseline and those 5% below.
-    ///         It stays tight enough for what it was made for: Solidly-stable curves on
-    ///         LST/WETH pairs typically land 20-40% out, and those are still excluded.
+    ///         THE WIDTH IS NO-ARBITRAGE, NOT A NUMBER OF BPS (owner's rule). Two honest venues at
+    ///         rest leave no round trip to take, so their spots satisfy
+    ///         (1-f_i)(1-f*) <= s_i / s* <= 1 / ((1-f_i)(1-f*)); a measured price sits within its
+    ///         probe's bound e of its spot, s(1-e) <= p <= s / (1-e). With
+    ///         k_i = (1-f_i)(1-f*)(1-e_i)(1-e*), every honest venue at rest has
+    ///         k_i <= p_i / p* <= 1 / k_i. The band keeps row i iff
+    ///             below:  p_i >= p* * k_i
+    ///             above:  p_i * k_i * (1-f*) <= p*        (the base's fee counted twice)
+    ///         and both hold for every honest venue at rest: the band never drops one.
     ///
-    ///         WHAT THIS COSTS, said where it is decided: a 5% worse pool also gets in, and since
-    ///         the weights are by DEPTH, a deep pool that is 5% worse can take a large share.
-    ///         If one day only the good side is wanted, the band must stop being symmetric — and
-    ///         that is a change of PREDICATE and not of number, so it is not done by shortcut.
-    uint16  internal constant MEDIAN_FILTER_BPS    = 500;   // ±5% (owner's decision, 2026-08-21)
+    ///         WHY THE BASE'S FEE TWICE ABOVE. With k_i alone a base holding half the mass does not
+    ///         need the honest price: parked on the no-arbitrage edge,
+    ///         p* = p_h (1-f_h)(1-f*)(1-e_h)(1-e*), it leaves a round trip of only about e_h + e*
+    ///         open, which on a deep book pays no arbitrageur's gas, drops the honest venue h over
+    ///         the top, and charges the user 1 - (1-f*)^2 against h (19% at f* = 10%). Counted
+    ///         twice, dropping h needs a round trip G between h and the base with
+    ///         1 + G > 1 / (1-f*), and the user's loss against h, 1 - (1-f*)^2 / (1+G), stays under
+    ///         1 - (1+G)^-3 <= 3G: hurting the user by L leaves at least L/3 open to whoever closes
+    ///         it. Below, k_i alone loses nothing: a row dropped there has a measured rate under
+    ///         the base's own, r_i < p* (1-f_i)^2 (1-f*)(1-e_i)(1-e*) <= r*.
+    ///
+    ///         A FEE NOBODY KNOWS (fee >= 1e6: a Gate wrapper). Its price is read as its rate, a
+    ///         floor of the truth. Above it is judged with f_i = 0 (its rate already carries its
+    ///         fee, so the bound above holds for it as written); below it is never judged. Its
+    ///         mass does not vote while a row with a stated fee does (`_mutedVotes`), and a base
+    ///         whose fee is unknown states no width: every live row is kept.
+    ///
+    ///         WHAT THIS COSTS, said where it is decided. (1) The band is as narrow as the fees:
+    ///         where the venues charge 0.05%, an honest venue that lags the base by more than the
+    ///         round trip is dropped until an arbitrageur closes the gap; the +-5% kept it.
+    ///         (2) A venue at a fair price with a large fee is now IN the band, where the +-5% on
+    ///         rates left it out. The split weighs by depth; its gate guarantees the best
+    ///         surviving leg alone, not the split a narrower band would have made. (3) A fee near
+    ///         100% leaves k_i near 0 and passes both edges; such a venue's rate is near 0, and
+    ///         the gate weighs rates. (4) Not bounded: the arbitrageur's gas, and the quote shapes
+    ///         `BPC.universalProbe` lists as limits.
+    uint256 private constant PIPS     = 1_000_000;           // a fee's whole, in pips
+    uint256 private constant FEE_MASK = 0xFFFFFF;            // `fe` bits 0-23: the probe's fee
+    uint256 private constant NONE     = type(uint256).max;   // `_wMedian`: no row votes
 
     /// @notice THE ARITHMETIC OF ONE HOP, in one call (D10). It takes the probe pass the
-    ///         Solver measured (`rates`, `depths`, `balsOut`, index-aligned to `cands`) and
+    ///         Solver measured (`rates`, `depths`, `balsOut`, and `fe`, the fee and error bound
+    ///         each probe carried, see THE BAND; index-aligned to `cands`) and
     ///         returns what `BlazePhoenixSolver._buildHop` used to compute in place: how many
     ///         candidates the band keeps (`nBand`), how many legs the funnel keeps (`n`), their
     ///         weights (`psis`, `sumPsi`) and `map`, where position i now holds the candidate
@@ -85,7 +115,7 @@ library BlazePhoenixMath {
     ///         own arrays: same order, same aliases, to the wei. The second pass of
     ///         `_planViaBridges` reads the permuted `cands` again.
     function select(
-        uint256[] memory rates, uint256[] memory depths, uint256[] memory balsOut,
+        uint256[] memory rates, uint256[] memory depths, uint256[] memory balsOut, uint256[] memory fe,
         PoolInfo[] memory cands, address tIn, IHubMath hub, uint256 budget
     ) public view returns (
         uint256 nBand, uint256 n, uint256 sumPsi, uint256[] memory map, uint256[] memory psis
@@ -93,7 +123,7 @@ library BlazePhoenixMath {
         uint256 len = cands.length;
         uint256[] memory orig = new uint256[](len);
         assembly ("memory-safe") { mcopy(add(orig, 0x20), add(cands, 0x20), shl(5, len)) }
-        (nBand, n, sumPsi, psis) = _select(rates, depths, balsOut, cands, tIn, hub, budget);
+        (nBand, n, sumPsi, psis) = _select(rates, depths, balsOut, fe, cands, tIn, hub, budget);
         map = new uint256[](len);
         for (uint256 j; j < len; ) {
             uint256 p;
@@ -110,7 +140,7 @@ library BlazePhoenixMath {
     ///      `nBand = 0`. A band of one returns `nBand = 1`, and the Solver quotes the lone
     ///      survivor itself.
     function _select(
-        uint256[] memory rates, uint256[] memory depths, uint256[] memory balsOut,
+        uint256[] memory rates, uint256[] memory depths, uint256[] memory balsOut, uint256[] memory fe,
         PoolInfo[] memory cands, address tIn, IHubMath hub, uint256 budget
     ) private view returns (uint256 nBand, uint256 n, uint256 sumPsi, uint256[] memory psis) {
         n = cands.length;
@@ -118,16 +148,19 @@ library BlazePhoenixMath {
         // (the sort machinery and the anchor die with the block — stack).
         uint256 kept;
         {
-            // Median of the non-zero rates. ONE ORDER PER HOP (M11): `ord` lists the
-            // live rows (rate > 0; dead pools have no opinion on the price) by rate,
+            // The band judges PRICES (MED, see THE BAND): each rate with the fee its probe
+            // charged put back. The weights, the funnel cut, the seat and the split's gate
+            // below still read the RATES, what the user is paid.
+            uint256[] memory prices = _prices(rates, fe, n);
+            // Median of the non-zero prices. ONE ORDER PER HOP (M11): `ord` lists the
+            // live rows (price > 0; dead pools have no opinion on the price) by price,
             // ascending, ties in row order (a stable insertion sort of the indices),
-            // so the per-index association in `rates`/`depths` survives for the band
+            // so the per-index association in `prices`/`depths` survives for the band
             // filter below. Every weighted median of the hop walks this same order
             // with its own votes (`_wMedian`) instead of sorting the pairs again.
-            uint256[] memory ord = _byRate(rates, n);
+            uint256[] memory ord = _byPrice(prices, n);
             uint256 m = ord.length;
             if (m == 0) return (0, 0, 0, psis);   // all dead: nothing quotable
-            uint256 median = rates[ord[m / 2]];
 
             // Band base: the CAPITAL ANCHOR when one exists (any candidate
             // holds a non-zero real tokenOut balance); plain median only as
@@ -158,14 +191,12 @@ library BlazePhoenixMath {
             // donation cannot move; V4 depth is its measured liquidity, capped for
             // the vote by what its book holds (`_heldShare`). Falls back to the
             // median only when no candidate reports depth.
-            uint256 base = _depthWeightedMedian(rates, depths, n, cands, tIn, hub, ord);
-            // Zero-base guard (devil's-advocate): a live candidate can have
-            // rates[i]==0 (mulDiv floor on a tiny raw price) yet depths[i]>=1, so a
-            // depth/capital anchor could set base=0 and collapse the band to
-            // hi=lo=0, killing an otherwise routable hop. median is guaranteed
-            // non-zero here (the median==0 early-return above), so fall back to it.
-            if (base == 0) base = median;
-            kept = _inBand(rates, n, base);   // the band itself: one producer (S2 check too)
+            uint256 base = _depthWeightedMedian(prices, fe, depths, n, cands, tIn, hub, ord);
+            // No-vote guard (devil's-advocate): where no live row carries a vote (every
+            // live depth 0, or every vote muted to nothing) the weighted median has no row
+            // to answer, and the base falls back to the plain median's row, which is live.
+            if (base == NONE) base = ord[m / 2];
+            kept = _inBand(prices, fe, n, base);   // the band itself: one producer (S2 check too)
         }
 
         // Band filter reuses the cached probe rates — no second probe quote.
@@ -347,7 +378,8 @@ library BlazePhoenixMath {
         return BPC.v4HeldShare(mgr, pid, p.tickSpacing, zfo, d, bar);   // the scale itself: Core, inlined
     }
 
-    /// @dev THE DEPTH-WEIGHTED MEDIAN of the rates. It is the base of the band.
+    /// @dev THE DEPTH-WEIGHTED MEDIAN of the prices (MED). It answers the base of the band as a
+    ///      ROW, whose fee and error set the band's width (`_inBand`); NONE when no row votes.
     ///
     ///      WHAT IT REPLACES, AND WHY. The base was the rate of the SINGLE deepest pool
     ///      (`maxDepth`/`depthRate`). In robust statistics that is an estimator with ZERO
@@ -355,7 +387,8 @@ library BlazePhoenixMath {
     ///      And the code itself confessed the weakness a few lines from here: "active-tick
     ///      L is cheap to inflate with a one-spacing position... does NOT make it impossible...
     ///      deferred".
-    ///      Worse, there was a WRONG FACT WRITTEN DOWN: the `MEDIAN_FILTER_BPS` comment justified
+    ///      Worse, there was a WRONG FACT WRITTEN DOWN: the band's comment (then on
+    ///      `MEDIAN_FILTER_BPS`) justified
     ///      the safety with "to move the median, an attacker has to move more than half the
     ///      pools" — when the base had NOT been the median for a long time.
     ///
@@ -369,7 +402,7 @@ library BlazePhoenixMath {
     ///      sense. This was the premise missing before — and the same one that allowed removing
     ///      the per-family normalization of the weights.
     ///
-    ///      DEGENERATES WELL: a pool that alone holds >50% of the mass returns its own rate,
+    ///      DEGENERATES WELL: a pool that alone holds >50% of the mass returns its own row,
     ///      which is the old behaviour — and correct, because then it IS the market. With equal
     ///      weights, it is the plain median.
     ///
@@ -380,14 +413,14 @@ library BlazePhoenixMath {
     ///      held figure can change the filter's outcome. Only when they differ is each cut vote
     ///      re-read with the deep walk (`V4_WALK_DEEP_STEPS`) and the median taken again.
     function _depthWeightedMedian(
-        uint256[] memory rates, uint256[] memory depths, uint256 n, PoolInfo[] memory cands, address tIn,
-        IHubMath hub, uint256[] memory ord
+        uint256[] memory prices, uint256[] memory fe, uint256[] memory depths, uint256 n,
+        PoolInfo[] memory cands, address tIn, IHubMath hub, uint256[] memory ord
     ) private view returns (uint256 base)
     {
         uint256[] memory w = new uint256[](n);
         uint256 cut;     // bit i: candidate i's sixteen-stretch vote is under its depth
         uint256 first;   // the median under the sixteen-stretch votes
-        uint256 mute = _mutedVotes(rates, n, cands, hub);
+        uint256 mute = _mutedVotes(prices, fe, n, cands, hub);
         // Pass 0: the sixteen-stretch votes (the vote as it always was). Pass 1: the uncut
         // depths. Pass 2: the cut votes re-read deep. One call site each: the Solver is the
         // contract closest to EIP-170.
@@ -395,7 +428,7 @@ library BlazePhoenixMath {
             for (uint256 i; i < n; ) {
                 uint256 d = depths[i];
                 if (pass == 0
-                    ? rates[i] > 0 && d > 1 && BPC.kindHas(cands[i].kind, BPC.A_CONC_SING)
+                    ? prices[i] > 0 && d > 1 && BPC.kindHas(cands[i].kind, BPC.A_CONC_SING)
                     : pass == 2 && cut & (1 << i) != 0)
                 {
                     uint256 h = _heldShare(cands[i], d, tIn, pass == 0 ? type(uint256).max : 0, hub);
@@ -405,12 +438,12 @@ library BlazePhoenixMath {
                 w[i] = mute & (1 << i) != 0 ? 0 : d;
                 unchecked { ++i; }
             }
-            base = _wMedian(rates, w, ord);
+            base = _wMedian(w, ord);
             if (pass == 0) {
                 if (cut == 0) return base;
                 first = base;
             } else if (pass == 1) {
-                if (_inBand(rates, n, base) == _inBand(rates, n, first)) return first;
+                if (_inBand(prices, fe, n, base) == _inBand(prices, fe, n, first)) return first;
             } else {
                 return base;
             }
@@ -428,12 +461,21 @@ library BlazePhoenixMath {
     ///      its mass stops choosing the base. V4 rows are not muted: their book lives in the
     ///      PoolManager, whose code nobody swaps. A set where nobody may vote keeps the vote it
     ///      always had (mask 0): a pair with no curated and no factory-born venue is no worse.
-    function _mutedVotes(uint256[] memory rates, uint256 n, PoolInfo[] memory cands, IHubMath hub)
-        private view returns (uint256 mute)
-    {
+    ///      MED (2026-10-28): a row whose fee is unknown (fee >= 1e6, a Gate wrapper) is muted too
+    ///      while a row with a stated fee still votes. Its price is read as its rate, under the
+    ///      truth by a fee nobody knows, so its mass pulls the median to the cheap side, onto a
+    ///      lagging venue that the honest one is then judged against. Where no stated row votes,
+    ///      the blind rows keep the vote (and a blind base keeps every row, `_inBand`).
+    function _mutedVotes(
+        uint256[] memory prices, uint256[] memory fe, uint256 n, PoolInfo[] memory cands, IHubMath hub
+    ) private view returns (uint256 mute) {
         uint256 voters;
+        uint256 blind;    // bit i: row i is live and its fee is unknown
+        uint256 stated;   // bit i: row i is live and its fee is stated
         for (uint256 i; i < n; ) {
-            if (rates[i] > 0) {
+            if (prices[i] > 0) {
+                if ((fe[i] & FEE_MASK) >= PIPS) blind |= 1 << i;
+                else stated |= 1 << i;
                 PoolInfo memory p = cands[i];
                 if (!p.active && BPC.kindHasAny(p.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)
                     && BPC.decodeTier(hub.getSlot(hub.keyOf(p.pool, p.token0, p.token1))) != 0) mute |= 1 << i;
@@ -442,32 +484,77 @@ library BlazePhoenixMath {
             unchecked { ++i; }
         }
         if (voters == 0) mute = 0;
+        if ((stated & ~mute) != 0) mute |= blind;
     }
 
-    /// @dev The band around `base` (+-MEDIAN_FILTER_BPS): bit i set = candidate i's rate is live
-    ///      and inside it (n < 256: the funnel is bounded by the pair's table, sixteen registry
-    ///      slots, the wired rows' cells and four wrappers). One producer for the filter in `_select`
-    ///      and for the S2 check above.
-    function _inBand(uint256[] memory rates, uint256 n, uint256 base) private pure returns (uint256 set) {
-        uint256 hi = BPC.mulDiv(base, BPC.BPS + MEDIAN_FILTER_BPS, BPC.BPS);
-        uint256 lo = BPC.mulDiv(base, BPC.BPS - MEDIAN_FILTER_BPS, BPC.BPS);
+    /// @dev THE BAND around row `b`, the base (see THE BAND): bit i set = row i is live and its
+    ///      price sits where an honest market at rest can put it beside the base's. `fe[i]` packs
+    ///      the fee row i's probe charged, in pips (bits 0-23; 1e6 or more: unknown), and the
+    ///      probe's error bound, in WAD (bits 24 up). b >= n (no base) keeps nothing. n < 256: the
+    ///      funnel is bounded by the pair's table, sixteen registry slots, the wired rows' cells
+    ///      and four wrappers. One producer for the filter in `_select` and for the S2 check
+    ///      above. Every product rounds down, which only widens the band: rounding never drops an
+    ///      honest row.
+    function _inBand(uint256[] memory prices, uint256[] memory fe, uint256 n, uint256 b)
+        private pure returns (uint256 set)
+    {
+        if (b >= n) return 0;
+        uint256 pb = prices[b];
+        uint256 fb = fe[b] & FEE_MASK;
+        uint256 kb;   // (1-f*)(1-e*), WAD
+        uint256 up;   // 1-f*, pips: the base's fee once more, above
+        if (fb < PIPS) {
+            kb = _keep(fb, fe[b] >> 24);
+            up = PIPS - fb;
+        }
         for (uint256 i; i < n; ) {
-            uint256 r = rates[i];
-            if (r > 0 && r >= lo && r <= hi) set |= 1 << i;
+            uint256 p = prices[i];
+            if (p > 0) {
+                if (fb >= PIPS) set |= 1 << i;   // the base states no width: every live row
+                else {
+                    uint256 f = fe[i] & FEE_MASK;
+                    uint256 k = _keep(f < PIPS ? f : 0, fe[i] >> 24) * kb / BPC.WAD;   // k_i
+                    if (BPC.mulDiv(p, k * up / PIPS, BPC.WAD) <= pb
+                        && (f >= PIPS || p >= BPC.mulDiv(pb, k, BPC.WAD))) set |= 1 << i;
+                }
+            }
             unchecked { ++i; }
         }
     }
 
-    /// @dev The live rows (rate > 0) ordered by rate, ascending, ties in row order: a stable
+    /// @dev (1 - f)(1 - e) in WAD, rounded down: f a fee in pips under 1e6, e a bound in WAD
+    ///      (more than WAD reads as WAD: no bound, nothing kept by it).
+    function _keep(uint256 f, uint256 e) private pure returns (uint256) {
+        if (e > BPC.WAD) e = BPC.WAD;
+        return (PIPS - f) * 1e12 * (BPC.WAD - e) / BPC.WAD;
+    }
+
+    /// @dev THE PRICES THE BAND JUDGES (MED): p_i = r_i * 1e6 / (1e6 - f_i), the probe's rate with
+    ///      the fee it charged put back; p_i = r_i where that fee is unknown (1e6 or more), a floor
+    ///      of the truth. A rate over max / 1e6 saturates at max instead of reverting the solve.
+    ///      Dead rows stay 0.
+    function _prices(uint256[] memory rates, uint256[] memory fe, uint256 n)
+        private pure returns (uint256[] memory p)
+    {
+        p = new uint256[](n);
+        for (uint256 i; i < n; ) {
+            uint256 r = rates[i];
+            uint256 f = fe[i] & FEE_MASK;
+            p[i] = f >= PIPS ? r : r > type(uint256).max / PIPS ? type(uint256).max : r * PIPS / (PIPS - f);
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev The live rows (price > 0) ordered by price, ascending, ties in row order: a stable
     ///      insertion sort of the indices. The hop's one order (`_select`, M11).
-    function _byRate(uint256[] memory rates, uint256 n) private pure returns (uint256[] memory ord) {
+    function _byPrice(uint256[] memory prices, uint256 n) private pure returns (uint256[] memory ord) {
         ord = new uint256[](n);
         uint256 m;
         for (uint256 i; i < n; ) {
-            uint256 kr = rates[i];
+            uint256 kr = prices[i];
             if (kr > 0) {
                 uint256 j = m;
-                while (j > 0 && rates[ord[j - 1]] > kr) {
+                while (j > 0 && prices[ord[j - 1]] > kr) {
                     ord[j] = ord[j - 1];
                     unchecked { --j; }
                 }
@@ -479,24 +566,25 @@ library BlazePhoenixMath {
         assembly ("memory-safe") { mstore(ord, m) }
     }
 
-    /// @dev The weighted median itself: rates with their votes `w`, walked in the hop's order
-    ///      `ord` (live rows by rate, ties in row order; dead pools excluded, they have no opinion
-    ///      on the price). Mass travels with its rate: the walk reads row ord[i]'s rate and vote.
-    function _wMedian(uint256[] memory rates, uint256[] memory w, uint256[] memory ord) private pure returns (uint256) {
+    /// @dev The weighted median itself: the votes `w`, walked in the hop's order `ord` (live rows
+    ///      by price, ties in row order; dead pools excluded, they have no opinion on the price).
+    ///      Mass travels with its row: the walk reads row ord[i]'s vote and answers that ROW (its
+    ///      price, fee and error make the band); NONE when no row votes.
+    function _wMedian(uint256[] memory w, uint256[] memory ord) private pure returns (uint256) {
         uint256 m = ord.length;
         uint256 massa;
         for (uint256 i; i < m; ) { massa += w[ord[i]]; unchecked { ++i; } }
-        if (m == 0 || massa == 0) return 0;
+        if (m == 0 || massa == 0) return NONE;
         // Walk up to HALF the mass. `(massa + 1) / 2` instead of `acc * 2 >= massa` so that there
         // is no chance of overflow in the double of a sum of depths.
         uint256 metade = (massa + 1) / 2;
         uint256 acc;
         for (uint256 i; i < m; ) {
             acc += w[ord[i]];
-            if (acc >= metade) return rates[ord[i]];
+            if (acc >= metade) return ord[i];
             unchecked { ++i; }
         }
-        return rates[ord[m - 1]];
+        return ord[m - 1];
     }
 
     /// @dev Allocation weights for the band's survivors, normalized to [1..10000]:

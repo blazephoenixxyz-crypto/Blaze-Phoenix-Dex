@@ -24,10 +24,14 @@ pragma solidity 0.8.36;
 //  (never enough to trigger the cut) and SplitGateSeesEverySurvivor.t.sol
 //  with THREE to five whose depth spread never makes a shallow pool the best.
 //
-//  BOUND. The cut can only discard pools INSIDE the +/-5% believability band, so
-//  the discarded best single is at most MEDIAN_FILTER_BPS better priced than
-//  the kept one; the measured ceiling over a 40k-trial random search is
-//  ~475 bps, and it is reached exactly at the +5% band edge (below).
+//  BOUND. The cut can only discard pools INSIDE the believability band, so the
+//  discarded best single is at most the band's width better priced than the kept
+//  one; with the band of the time (+/-5%, MEDIAN_FILTER_BPS) the measured ceiling
+//  over a 40k-trial random search was ~475 bps, reached exactly at the +5% edge.
+//  Since MED (2026-10-28) the band is the one of no arbitrage (BlazePhoenixMath,
+//  THE BAND): two 0.3% pools stay within about -0.6% / +0.9% of each other, so the
+//  shallow pool here is priced 0.5% better (1.0499 until then, now outside), and a
+//  pool past that edge leaves by the band itself (test_R2_LossIsBoundedByTheBand).
 //
 //  Reported by AnonSecure through the bug bounty programme (and found a day
 //  later, independently, by our own economic review); this file is their proof
@@ -76,13 +80,13 @@ contract SplitGateSeesTheWholeBandTest is Test {
         return (aFee * rOut) / (rIn * 1000 + aFee);
     }
 
-    /// Four deep pools 1e30/1e30 (rate 1.00, weight 10000) and one shallow pool
-    /// 1e28/1.0499e28 (rate ~1.0499, weight 100). The shallow rate sits inside
-    /// the +5% band around the depth-weighted median (which the four deep pools
-    /// anchor at 1.00), so it is a legitimate survivor; the four deep pools
-    /// exactly fill the leg budget, so it is the one the funnel cut discards.
+    /// Four deep pools 1e30/1e30 (price 1.00, weight 10000) and one shallow pool
+    /// 1e28/1.005e28 (price 1.005, weight 100). The shallow price sits inside the
+    /// band around the depth-weighted median (which the four deep pools anchor at
+    /// 1.00), so it is a legitimate survivor; the four deep pools exactly fill the
+    /// leg budget, so it is the one the funnel cut discards.
     function _pools() internal returns (MockV2Pair shallow) {
-        shallow = _pool(1e28, 1e28 * 10499 / 10000); // 1.0499e28
+        shallow = _pool(1e28, 1e28 * 10050 / 10000); // 1.005e28
         for (uint256 i; i < 4; ++i) _pool(1e30, 1e30);
     }
 
@@ -91,7 +95,7 @@ contract SplitGateSeesTheWholeBandTest is Test {
     function test_R2_FunnelCutExcludesTheBestSinglePool() public {
         MockV2Pair shallow = _pools();
 
-        uint256 sAlone = _cp(ORDER, 1e28, 1e28 * 10499 / 10000);
+        uint256 sAlone = _cp(ORDER, 1e28, 1e28 * 10050 / 10000);
         uint256 dAlone = _cp(ORDER, 1e30, 1e30);
 
         RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), ORDER);
@@ -127,10 +131,10 @@ contract SplitGateSeesTheWholeBandTest is Test {
         h2.setRoles(address(this), address(s2), address(this));
 
         MockV2Pair p0 = new MockV2Pair(address(A), address(B));
-        A.mint(address(p0), 1e28); B.mint(address(p0), 1e28 * 10499 / 10000);
+        A.mint(address(p0), 1e28); B.mint(address(p0), 1e28 * 10050 / 10000);
         (uint256 r0, uint256 r1) = address(A) < address(B)
-            ? (uint256(1e28), uint256(1e28 * 10499 / 10000))
-            : (uint256(1e28 * 10499 / 10000), uint256(1e28));
+            ? (uint256(1e28), uint256(1e28 * 10050 / 10000))
+            : (uint256(1e28 * 10050 / 10000), uint256(1e28));
         p0.setReserves(uint112(r0), uint112(r1));
         h2.seedPool(address(p0), BPC.KIND_V2, 30, address(0), address(A), address(B));
         for (uint256 i; i < 3; ++i) {
@@ -140,18 +144,22 @@ contract SplitGateSeesTheWholeBandTest is Test {
             h2.seedPool(address(d), BPC.KIND_V2, 30, address(0), address(A), address(B));
         }
 
-        uint256 sAlone = _cp(ORDER, 1e28, 1e28 * 10499 / 10000);
+        uint256 sAlone = _cp(ORDER, 1e28, 1e28 * 10050 / 10000);
         RoutePlan memory plan = s2.findBestRoutePlan(address(A), address(B), ORDER);
         emit log_named_uint("control plan.totalOut", plan.best.totalOut);
         emit log_named_uint("control best single  ", sAlone);
         assertGe(plan.best.totalOut, sAlone, "control: no cut, so the plan pays the best single");
     }
 
-    /// BOUND - the cut can only discard pools inside the +/-5% band, so the loss
-    /// is capped by the band. Sweep the shallow pool's price across the band and
-    /// assert the loss never exceeds the band ceiling (measured max ~475 bps).
+    /// BOUND - sweep the shallow pool's price from the deep pools' up to the +5% edge of
+    /// the band of the time (the loss then measured at most ~475 bps, while the gate saw
+    /// only the cut's survivors). Since the gate measures every survivor of the band
+    /// (2026-10-07), inside the band the plan pays the pool the cut dropped: no loss. Past
+    /// the band's edge (about +0.9% for two 0.3% pools since MED, 2026-10-28) the band
+    /// drops that pool itself, by design, and the plan pays the deep pools: under the
+    /// dropped pool by its price gap and no more.
     function test_R2_LossIsBoundedByTheBand() public {
-        uint256[9] memory devs = [uint256(10_000), 10_050, 10_100, 10_200, 10_300, 10_350, 10_400, 10_450, 10_499];
+        uint256[9] memory devs = [uint256(10_000), 10_030, 10_050, 10_080, 10_100, 10_200, 10_300, 10_400, 10_499];
         for (uint256 d; d < devs.length; ++d) {
             BlazePhoenixHub h = new BlazePhoenixHub(address(this));
             h.initialize(address(this), address(0));
@@ -174,7 +182,8 @@ contract SplitGateSeesTheWholeBandTest is Test {
             uint256 loss = plan.best.totalOut < best ? (best - plan.best.totalOut) * 10_000 / best : 0;
             emit log_named_uint("dev bps / loss bps", devs[d]);
             emit log_named_uint("   loss bps       ", loss);
-            assertLe(loss, 500, "the cut's loss can never exceed the band width");
+            if (devs[d] <= 10_080) assertEq(loss, 0, "inside the band the plan pays the pool the cut dropped");
+            else assertLe(loss, devs[d] - 10_000, "past the band the loss is the price gap and no more");
         }
     }
 }

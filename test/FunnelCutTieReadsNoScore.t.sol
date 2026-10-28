@@ -66,7 +66,13 @@ contract FunnelCutTieReadsNoScoreTest is Test {
         for (uint256 i; i < 5; i++) p[i] = _pair(300e18, 300e18 * yPerX[i]);
     }
 
-    function _band() internal { _pools([uint256(2000), 2000, 2000, 2040, 1960]); }
+    /// Five prices inside the band. Since MED (2026-10-28) the band is the one of no arbitrage
+    /// (BlazePhoenixMath, THE BAND): two 0.3% pools stay within about -0.6% / +0.9% of each
+    /// other, widened by the two probes' error bounds (here about 0.33% each: a probe of a
+    /// hundredth of the order is a third of a percent of each pool). The +-2% this fixture
+    /// used until then put the best and the worst pool out of the band, the cut had three
+    /// pools for four legs and dropped none; at +-0.5% all five stay and the cut drops one.
+    function _band() internal { _pools([uint256(2000), 2000, 2000, 2010, 1990]); }
 
     function _pair(uint256 x, uint256 y) internal returns (MockV2Pair q) {
         q = new MockV2Pair(address(X), address(Y));
