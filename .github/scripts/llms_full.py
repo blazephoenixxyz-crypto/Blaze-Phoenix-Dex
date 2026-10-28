@@ -22,6 +22,7 @@ DOCS = [
     ("docs/AUDIT_METHOD.md",                        "What the audit guarantees"),
     ("docs/BOUNTY_METHOD.md",                       "How a report is handled"),
     ("SECURITY.md",                                 "Security policy and bounty terms"),
+    ("docs/KNOWN_ISSUES.md",                        "Known issues, out of scope and by design"),
     ("SECURITY_HALL_OF_FAME.md",                    "Security Hall of Fame"),
     ("TESTING.md",                                  "Testing"),
     ("CONTRIBUTING.md",                             "Contributing"),

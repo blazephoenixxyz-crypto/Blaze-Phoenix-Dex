@@ -348,6 +348,7 @@ its behalf:
 - [What the audit guarantees](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/docs/AUDIT_METHOD.md): the guarantee chain, the mutation guard, the register, the artefact instruments, and what is not claimed
 - [How a report is handled](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/docs/BOUNTY_METHOD.md): receipt, red-first reproduction, six verdicts including derivative credit, severity, awards as floors
 - [Security policy and bounty terms](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY.md): disclosure address, scope, severity bands, safe harbour
+- [Known issues, out of scope and by design](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/docs/KNOWN_ISSUES.md): behaviour that is deliberate or bounded by a documented limit, each with where it is documented
 - [Security Hall of Fame](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/SECURITY_HALL_OF_FAME.md): every credited researcher, names only
 - [Testing](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/TESTING.md): how the suite is organised, every gate's command, what a test must satisfy
 - [Contributing](https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-Dex/main/CONTRIBUTING.md): red before green, the pre-PR checklist, house conventions
