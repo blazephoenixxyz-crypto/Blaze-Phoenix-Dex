@@ -374,7 +374,7 @@ test/                   unit, property, parity, stateful invariants, regressions
   fork/                 suites against live chain liquidity, and the pins of what is deployed
   formal/               Halmos specifications and composition proofs
   hunt/                 regressions for findings from adversarial review
-  mocks/                venue mocks: V2 pair, V3 pool, Solidly pair, Permit2, ERC-20
+  mocks/                venue mocks: V2 pair, V3 and Algebra pool, Solidly pair, Gate adapters, Permit2, ERC-20
 certora/                Certora Prover specifications and harnesses
 .github/workflows/      ci · assurance · security · formal-explore · closure-claim · docs · graph
 .github/scripts/        registers, the mutation guard, generated-file checks, the assurance instruments

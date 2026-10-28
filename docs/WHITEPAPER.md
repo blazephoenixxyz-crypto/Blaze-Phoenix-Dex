@@ -2,6 +2,11 @@
 
 **Version 1.0 · Technical Whitepaper**
 
+> Historical document. It describes the first reconstruction of this repository and is
+> kept for the record; its venue list, contract count and status no longer match the code.
+> The current design is in [papers/whitepaper-v2.2.md](papers/whitepaper-v2.2.md) and in the
+> Technical Whitepaper v2.3 (DOI [10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091)).
+
 > Status: unaudited research/engineering preview. This document describes the
 > design as implemented and validated by the test campaign in `TESTING.md`. It is
 > **not** a security attestation — see *Status & limitations*. Nothing here is an

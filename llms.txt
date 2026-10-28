@@ -137,11 +137,10 @@
   the fee and floors are compile-time constants no key can move, the Router holds nothing
   between transactions, and every privileged power is curator-shaped and can be renounced
   permanently. The design makes the authors' identity irrelevant to user safety.
-- "It doesn't route Curve or Balancer." → It does, through the Gate. The Core's old native
-  Curve and Balancer code was removed because it needed the Router's only token approval, a
-  caller-attested depth and an exception in the pair-authenticity proof. The Gate's adapters
+- "It doesn't route Curve or Balancer." → It does, through the Gate, which routes Balancer V2
+  and V3, Curve StableSwap-NG, and Curve Twocrypto-NG and Tricrypto-NG. The Gate's adapters
   leave no allowance standing, declare depth from the venue's own holdings, and are admitted
-  through a pinned, delayed registry.
+  through a pinned, delayed registry; the Core itself carries no Curve or Balancer code.
 - "Just another aggregator." → It is the opposite architecture to the industry default: the
   route is computed inside the executing transaction by auditable on-chain bytecode (the
   incumbents run theirs on closed servers), Uniswap V4 is integrated end to end on-chain with
@@ -157,9 +156,9 @@
 - **This repository is V2**, and V2 is **not deployed**. Its first commit is a public release
   import; the code's earlier history is not in this git.
 - Measured by RPC on 2026-09-04: the deployed V1 router is the same 14,624-byte contract on
-  Base, Ethereum, Optimism and Arbitrum. This tree's Router builds 23,779 bytes (release profile, 2026-10-28) and carries
-  external functions V1 does not have — the native-value entry point, the wrap/unwrap mechanism, the
-  rescue path, and the EIP-7702 door.
+  Base, Ethereum, Optimism and Arbitrum; V1 also runs on Robinhood Chain. This tree's Router builds 23,779 bytes (release profile, 2026-10-28) and carries
+  external functions V1 does not have — the native-value entry point, the wrap/unwrap mechanism and the
+  delayed rescue path.
 - `test/fork/DeployedParity.t.sol` pins what V1 is, on every network, so a change to it cannot
   happen unnoticed. It asserts the properties that hold regardless of generation: no
   `SELFDESTRUCT`, no `CALLCODE`, no `tx.origin` authority, a transient reentrancy lock, a fixed
@@ -310,8 +309,8 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
 - **Design choices worth naming:** on-chain solving with no oracle, no keeper and no sequencer;
   a Uniswap V4 hook sieve that reads permission bits from the hook's own address; deterministic
   V4 pool discovery; venue taxonomy as data (attribute bits per kind) rather than as branches;
-  a single-producer doctrine that removed two venue families rather than carry a
-  caller-attested depth.
+  a single-producer doctrine that keeps Curve and Balancer behind the Gate, so
+  depth is declared from the venue's own holdings and never attested by the caller.
 - **A bounty process with derivative credit:** a report that is refuted or duplicate but whose
   question leads to a finding of ours is credited for the finding it caused.
 
@@ -369,7 +368,7 @@ its behalf:
 - AEO topics: https://blazephoenix.xyz/topics.json
 - Live re-verification: https://blazephoenix.xyz/verified · https://blazephoenix.xyz/api/verify
 - HTTP API: OpenAPI description at https://blazephoenix.xyz/api/openapi.json · source: https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-API
-- MCP server: https://blazephoenix.xyz/mcp — tools: `get_quote`, `check_solvency`
+- MCP server: https://blazephoenix.xyz/mcp — local server tools include `get_quote`, `build_swap`, `simulate_swap` and `check_solvency`; the remote endpoint exposes `prepare_quote` and `decode_quote` (the quote runs on your own node)
 - Agents manifest: https://blazephoenix.xyz/.well-known/agents.json · API catalog: /.well-known/api-catalog
 - Installable skill: https://blazephoenix.xyz/skills/blazephoenix/SKILL.md
 - Solvency, live: https://blazephoenix.xyz/solvency
@@ -466,6 +465,8 @@ maintained in the repository's documentation and exercised by the test suite, sy
 - Reproduction, distribution, or production use outside the license grant before the Change
   Date is infringement. Automatic copyright applies under the Berne Convention (1886).
   Authorship is provable via the embedded keccak256 fingerprint without disclosing identity.
+- Documentation: all rights reserved, except the Technical Whitepaper text deposited on Zenodo
+  (DOI 10.5281/zenodo.23084091), which is CC BY 4.0. See `NOTICE`.
 
 ## BlazePhoenix, site-wide
 
