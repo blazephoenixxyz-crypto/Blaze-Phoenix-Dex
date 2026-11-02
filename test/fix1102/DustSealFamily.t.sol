@@ -11,9 +11,11 @@ pragma solidity 0.8.36;
 //   first      the first anchored interval moves tau 1/8 of the way from 24576/4 = 6144
 //              (3545-C2, 3575)
 //   pure       Core.tickSlot alone: no EMA dead zone, no interval closed inside the stamped
-//              second (3545-C3a, 3545-C3b)
-//   v4         the learned V4 code survives a refused, an idempotent and a dust claim, and an
-//              unanchored tick on a registered V4 row (3537 x3 + sibling)
+//              second (3545-C3a, 3545-C3b); an hourly cadence settles its count at 2m = 8, the
+//              chord of coordinator decision 2
+//   v4         the learned V4 code survives a refused, an idempotent and a dust claim, an
+//              unanchored tick on a registered V4 row, and an unanchored swap that registers
+//              a new V4 row (3537 x3 + 2 siblings)
 // RED at b46b183: every test here fails on that tree; GREEN once the seal lands. No fork: the real
 // Hub and Core with the repo's mocks. The clock of item 7 (3536/3554) is not family A.
 
@@ -234,6 +236,16 @@ contract DustSealFamilyTest is Test {
         assertEq(BPC.decodeTau(s), 86_400, "RED 3545-C3b: zero-length intervals moved tau");
         assertEq(BPC.decodeSwapCount(s), 1, "RED 3545-C3b: zero-length intervals were counted");
     }
+
+    /// Coordinator decision 2: inside a step the count decays on the chord. At tau 3600 (h = 4 h)
+    /// each hourly anchor keeps c - floor(c / 8) and adds 1: 1, 2, ..., 8, then 8 forever, the 2m
+    /// of `vitality`. Oracle 8 after 64 anchors; the stair of b46b183 never decays inside a step
+    /// and counts 1 + 64 = 65.
+    function test_Decision2_AnHourlyCadenceSettlesTheCountAtTwoM() public pure {
+        uint256 s = _pureTicks(3_600, 1, 3_600, 64);
+        assertEq(BPC.decodeTau(s), 3_600, "precondition: the cadence is the clock");
+        assertEq(BPC.decodeSwapCount(s), 8, "RED decision 2: the count did not settle at 2m");
+    }
 }
 
 /// Motor 5 (A3): the V4 code a token learned. Harness = test/mocks/MockV4ScanManager with the real
@@ -344,5 +356,19 @@ contract DustSealFamilyV4Test is Test {
         uint256 before = _learned();
         hub.recordSwap(row, BPC.KIND_V4, 3000, address(0), address(x), address(brg), 1e18, 1e18, DEEP);
         assertEq(hub.v4CodeOf(address(x)), before, "RED 3537: an unanchored tick rewrote the learned code");
+    }
+
+    /// 3537 sibling, new row (A3): an unanchored swap that registers a hookless V4 row (its tier
+    /// recovered from the canonical tiers) must not rewrite the code either. The native arm of
+    /// the same door has no test here.
+    function test_3537NewRow_AnUnanchoredSwapThatRegistersAV4RowLeavesTheLearnedCodeUnchanged() public {
+        hub.setRoles(address(this), address(this), address(this)); // the test is the Router
+        address row = _plant(address(x), address(brg), 3000, 60, DEEP);
+        _teach();
+        uint256 before = _learned();
+        hub.recordSwap(row, BPC.KIND_V4, 3000, address(0), address(x), address(brg), 1e18, 1e18, DEEP);
+        (address t0, address t1) = BPC.sortTokens(address(x), address(brg));
+        assertGt(hub.getSlot(hub.keyOf(row, t0, t1)), 0, "precondition: the swap registered the V4 row");
+        assertEq(hub.v4CodeOf(address(x)), before, "RED 3537: an unanchored swap registering a V4 row rewrote the code");
     }
 }

@@ -2582,7 +2582,8 @@ library BlazePhoenixCore {
     /// @notice Vitality score from slot: the pool's estimated trade RATE, in trades per
     ///         `VITALITY_DECAY_STEP_SECONDS`, decayed on the pool's own clock.
     /// @dev    With a step of m * tau the decayed count of a pool trading at its own pace settles
-    ///         near 2m whatever that pace [derived: m intervals per step, weights sum_j 2^-j = 2],
+    ///         at 2m whatever that pace [derived: an interval is 1/m of a step, so on the chord of
+    ///         `_decay` each tick keeps c - c / (2m) and adds 1; the fixed point is c = 2m],
     ///         so the count alone no longer tells a busy pool from a quiet one. Divided by the
     ///         step it does: v = count * 2^-shift / h, comparable across pools and chains.
     function vitality(uint256 slot, uint32 currentTs) internal pure returns (uint256 v) {
@@ -2631,9 +2632,14 @@ library BlazePhoenixCore {
         uint256 tau = decodeTau(slot);
         // tau < 2^32 and m is a small constant: no overflow, and h != 0 on both arms.
         h = tau == 0 ? VITALITY_DECAY_STEP_SECONDS : tau * VITALITY_STEPS_PER_TAU;
-        uint256 shift = (currentTs > lastTs ? currentTs - lastTs : 0) / h;
+        uint256 age = currentTs > lastTs ? currentTs - lastTs : 0;
+        uint256 shift = age / h;
         if (shift > 31) return (0, 0);
         c = uint256(decodeSwapCount(slot)) >> shift;
+        // Inside a step the count falls on the chord from c to c/2, not on a stair that only
+        // drops at the step's end (coordinator decision 2, fix-1102). c < 2^32 and the rest
+        // r < h <= 2^34: no overflow; c * r / (2h) < c / 2: no underflow.
+        unchecked { c -= c * (age % h) / (2 * h); }
     }
 
     /// @dev The decayed swapCount alone, for tickSlot's base.
@@ -2861,8 +2867,8 @@ library BlazePhoenixCore {
     }
 
     /// @notice Stamp lastUpdateTs (bits [95:64]) with `ts`: the field `vitality` decays from.
-    ///         The Gate's wrappers stamp through here; the Hub's `_stampTs` is the same formula
-    ///         over block.timestamp (folding it here is a follow-up, kept out of the Hub's bytes).
+    ///         The Gate's wrappers stamp through here after `tickSlot`, which since fix-1102 stamps
+    ///         an anchored tick itself: the wrapper's stamp is then the same value, a no-op.
     function stampTs(uint256 s, uint32 ts) internal pure returns (uint256) {
         return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(ts) << 64);
     }
@@ -2871,38 +2877,40 @@ library BlazePhoenixCore {
     ///         the Gate's `vitalOf` depth read, so one hostile adapter cannot drain either.
     uint256 internal constant GATE_QUOTE_GAS = 500_000;
 
-    /// @notice Update the slot after a swap. Increments swap count (from its currently-decayed
-    ///         base, not the raw historical total), moves the pool's clock when the tick is
-    ///         `anchored`, and (optionally) re-buckets depth. Every caller stamps lastUpdateTs
-    ///         AFTER this returns, so the lastTs read here is still the previous tick's.
-    /// @dev    THE CLOCK. dt = currentTs - lastTs, the interval this tick closes. The first
-    ///         anchored interval after registration IS tau; every later one moves tau by 2^-k of
-    ///         the difference, an exponential mean in shifts. A tick that is not anchored (dust,
-    ///         a registration, a claim) and a slot never stamped (lastTs == 0: no interval to
-    ///         close) leave tau where it was. Bounded by its samples, so it fits its 32 bits.
+    /// @notice Update the slot after a swap. Re-buckets depth on every tick; the pool's clock
+    ///         (swapCount, tau, lastUpdateTs) moves ONLY on an `anchored` tick that closes a real
+    ///         interval (fix-1102 family A, the dust seal). Such a tick counts one more trade from
+    ///         the currently-decayed base (not the raw historical total) and stamps lastUpdateTs:
+    ///         this is the one writer of the clock, no caller stamps after it.
+    /// @dev    THE CLOCK. dt = currentTs - lastTs, the interval this tick closes. Every anchored
+    ///         interval moves tau 2^-k of the way to dt, rounded up, so a steady cadence is
+    ///         reached instead of stalling in a dead zone; the first one (tau == 0, unmeasured)
+    ///         moves from the fixed step's 24 576 / m, so no single interval is read whole. A
+    ///         tick that is not anchored (dust, a registration, a claim) or lands inside the
+    ///         stamped second (dt == 0) leaves the clock as it was; a slot never stamped
+    ///         (lastTs == 0) is counted and stamped, closing no interval. tau stays between its
+    ///         old value and dt, so it fits its 32 bits.
     function tickSlot(
         uint256 slot, bool anchored, uint256 newDepthWad, uint32 currentTs
     ) internal pure returns (uint256) {
+        uint256 s = setBucket(slot, depthBucket(newDepthWad));
+        uint32 lastTs = decodeLastUpdateTs(slot);
+        if (!anchored || (lastTs != 0 && currentTs <= lastTs)) return s;
         // The count decays on the clock that ran over the interval: the OLD tau.
         uint32 sc = _decayedSwapCount(slot, currentTs);
         unchecked { sc = sc == type(uint32).max ? sc : sc + 1; }
-        uint32 tau = decodeTau(slot);
-        uint32 lastTs = decodeLastUpdateTs(slot);
-        if (anchored && lastTs != 0) {
-            uint32 dt = currentTs > lastTs ? currentTs - lastTs : 0;
+        uint256 tau = decodeTau(slot);
+        if (lastTs != 0) {
+            if (tau == 0) tau = VITALITY_DECAY_STEP_SECONDS / VITALITY_STEPS_PER_TAU;
+            uint256 dt = currentTs - lastTs;
             unchecked {
-                if (tau == 0) tau = dt;
-                else if (dt >= tau) tau += (dt - tau) >> TAU_EMA_SHIFT;
-                else tau -= (tau - dt) >> TAU_EMA_SHIFT;
+                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT) - 1) >> TAU_EMA_SHIFT;
+                else tau -= (tau - dt + (uint256(1) << TAU_EMA_SHIFT) - 1) >> TAU_EMA_SHIFT;
             }
         }
-        // clear swapCount + tau + bucket
-        uint256 s = slot
-            & ~((uint256(0xFFFFFFFF) << 160) | (uint256(0xFFFFFFFF) << 224) | (uint256(0xF) << 60));
-        s |= uint256(sc) << 160;
-        s |= uint256(tau) << 224;
-        s |= uint256(depthBucket(newDepthWad)) << 60;
-        return s;
+        // clear swapCount + tau + lastUpdateTs, then write the three
+        s &= ~((uint256(0xFFFFFFFF) << 160) | (uint256(0xFFFFFFFF) << 224) | (uint256(0xFFFFFFFF) << 64));
+        return s | (uint256(sc) << 160) | (tau << 224) | (uint256(currentTs) << 64);
     }
 
     // =========================================================================
