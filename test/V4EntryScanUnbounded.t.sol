@@ -194,13 +194,16 @@ contract V4EntryScanUnboundedTest is Test {
         address poolLate = _poolAddr(lA, lB, ODD_FEE, ODD_TS);
 
         // Tick the EARLY row: the scan stops almost immediately.
+        // fix-1102 A: was a bare depth (1e18) on both ticks, because every hookless V4 tick taught the code;
+        // now the Router's anchor bit on both, because only an anchored tick reaches _noteV4Code
+        // (BlazePhoenixHub.sol:1789)
         uint256 g0 = gasleft();
-        hub.recordSwap(poolEarly, BPC.KIND_V4, ODD_FEE, address(0), eA, eB, 1, 1, 1e18);
+        hub.recordSwap(poolEarly, BPC.KIND_V4, ODD_FEE, address(0), eA, eB, 1, 1, 1e18 | BPC.TICK_ANCHORED);
         uint256 costEarly = g0 - gasleft();
 
         // Tick the LATE row: same work, but the scan walks past the flood.
         uint256 g1 = gasleft();
-        hub.recordSwap(poolLate, BPC.KIND_V4, ODD_FEE, address(0), lA, lB, 1, 1, 1e18);
+        hub.recordSwap(poolLate, BPC.KIND_V4, ODD_FEE, address(0), lA, lB, 1, 1, 1e18 | BPC.TICK_ANCHORED);
         uint256 costLate = g1 - gasleft();
 
         emit log_named_uint("recordSwap gas, entry at index 0        ", costEarly);

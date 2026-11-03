@@ -153,14 +153,16 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
     /// `recordSwap`'s existing-row branch ticks the row and re-stamps its
     /// wall-clock activity time, so a pair that keeps being
     /// routed through keeps vouching for coverage past the TTL of its own seed.
-    /// The whole refresh is ONE line, `Hub._stampTs` — the
-    /// `ts` argument `tickSlot` receives is contractually IGNORED, which the
-    /// Monoslot suite pins as algebra (`DiscoveryRefreshMonoslot`,
-    /// TICK_LICENSE = {swapCount, tau, bucket}: `lastUpdateTs` is not in it).
+    /// Since fix-1102 the whole refresh is `Core.tickSlot`, the clock's one
+    /// writer: it stamps `ts` only on an ANCHORED tick (a material trade, the
+    /// Router's TICK_ANCHORED bit) that closes a real interval, so dust no
+    /// longer refreshes a curated row (BlazePhoenixCore.sol:2898, :2913;
+    /// `Hub._stampTs` is gone).
     /// Nothing else in `test/` reaches this path: the suite that pins the
     /// freshness gate only ever warps AWAY from activity, never back into it.
-    /// FALSIFIER: neutralise `_stampTs` (`return s`) and this test goes red
-    /// while its four siblings stay green.
+    /// FALSIFIER: make `tickSlot` keep the old stamp (`lastTs` for `currentTs`
+    /// at BlazePhoenixCore.sol:2913) and this test goes red while the four
+    /// gate tests above stay green.
     function test_CuratedRowsKeptFreshByActivity_StillSkipDiscovery() public {
         MockV2Pair[3] memory seeded;
         for (uint256 i; i < 3; ) {
@@ -179,8 +181,10 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
         for (uint256 i; i < 3; ) {
             bytes32 key = hub.keyOf(address(seeded[i]), address(tokenA), address(tokenB));
             uint256 before = BPC.decodeSwapCount(hub.getSlot(key));
+            // fix-1102 A: was a bare depth (1e18), because any tick counted and stamped; now the Router's
+            // anchor bit, because only an anchored tick moves the count and the stamp (BlazePhoenixCore.sol:2898)
             hub.recordSwap(address(seeded[i]), BPC.KIND_V2, 30, address(0),
-                           address(tokenA), address(tokenB), 1, 1, 1e18);
+                           address(tokenA), address(tokenB), 1, 1, 1e18 | BPC.TICK_ANCHORED);
             uint256 nowSlot = hub.getSlot(key);
             assertEq(uint8(nowSlot >> 40), 0, "activity must re-stamp a curated row without re-tiering it");
             assertEq(BPC.decodeSwapCount(nowSlot), before + 1, "the tick counted the swap");
@@ -191,16 +195,20 @@ contract SolverFreshnessGateTrustsOnlyCuratedRowsTest is Test {
             "a curated row ticked within the TTL vouches again: the sweep is skipped, as designed");
     }
 
-    /// Concordance of two copies of one formula (0 B): `Hub._stampTs` and `Core.stampTs`, which
-    /// the Gate's wrappers stamp through, write the same field from the same clock. A slot the Hub
-    /// stamped is a fixed point of Core's stamp at the same timestamp, so a moved field or a
-    /// shifted clock in either copy shows here. Folding the two is the follow-up the Core notes.
+    /// Concordance of two copies of one formula (0 B): the Hub's row stamp and `Core.stampTs`, which
+    /// the Gate's wrappers stamp through, write the same field from the same clock. Since fix-1102
+    /// `Hub._stampTs` is gone and the Hub's stamp is `Core.tickSlot`'s, written only on an anchored
+    /// tick (BlazePhoenixCore.sol:2913). A slot the Hub stamped is a fixed point of Core's stamp at
+    /// the same timestamp, so a moved field or a shifted clock in either copy shows here.
     function test_HubStampTs_AgreesWithCoreStampTs() public {
         MockV2Pair p = _pair(10_000e18, 10_000e18);
         hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
         vm.warp(block.timestamp + 1_234);
         bytes32 key = hub.keyOf(address(p), address(tokenA), address(tokenB));
-        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB), 1, 1, 1e18);
+        // fix-1102 A: was a bare depth (1e18), because any tick stamped through Hub._stampTs; now the Router's
+        // anchor bit, because only an anchored tick stamps lastUpdateTs (BlazePhoenixCore.sol:2898, :2913)
+        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB), 1, 1,
+                       1e18 | BPC.TICK_ANCHORED);
         uint256 s = hub.getSlot(key);
         assertEq(uint32(s >> 64), uint32(block.timestamp), "the Hub stamped lastUpdateTs = now");
         assertEq(s, BPC.stampTs(s, uint32(block.timestamp)), "the Hub's stamp is the Core's stamp");

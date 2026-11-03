@@ -78,25 +78,31 @@ contract Bounty1013TopKResistsDustPsiTest is Test {
         }
     }
 
-    /// One dust swap tA -> tB through the Router: registers the pool and ticks its count.
-    function _dust(MockV2Pair p) internal {
-        uint256 dust = 1e15;
+    /// One swap of `amt` tA -> tB through the Router: the first registers the pool; a later one
+    /// ticks its count only if it is material, at least 2^-16 of the pool's depth
+    /// (BlazePhoenixCore.sol:2854), and lands after the second the row last stamped (:2898).
+    function _trade(MockV2Pair p, uint256 amt) internal {
         (uint112 r0, uint112 r1, ) = p.getReserves();
         bool aIs0 = p.token0() == address(tA);
-        uint256 exp = BPC.outV2(dust, aIs0 ? r0 : r1, aIs0 ? r1 : r0, 30) / 2;
-        tA.mint(atk, dust);
+        uint256 exp = BPC.outV2(amt, aIs0 ? r0 : r1, aIs0 ? r1 : r0, 30) / 2;
+        tA.mint(atk, amt);
         vm.startPrank(atk);
-        tA.approve(address(router), dust);
+        tA.approve(address(router), amt);
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({pool: address(p), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
-            zeroForOne: aIs0, stable: false, amountIn: dust, expectedOut: exp, auxId: bytes32(0)});
+            zeroForOne: aIs0, stable: false, amountIn: amt, expectedOut: exp, auxId: bytes32(0)});
         Hop[] memory hops = new Hop[](1);
-        hops[0] = Hop({tokenIn: address(tA), tokenOut: address(tB), amountIn: dust, expectedOut: exp, legs: legs});
+        hops[0] = Hop({tokenIn: address(tA), tokenOut: address(tB), amountIn: amt, expectedOut: exp, legs: legs});
         Route memory r = Route({hops: hops, totalOut: exp, singleOut: exp, singleOutFloor: 1, expectedImpactBps: 0,
             confidenceWad: 0, estGas: 0, hasSurplus: true, isV4Bundle: false});
-        router.swapExactIn(r, dust, 1, atk, block.timestamp + 1);
+        // fix-1102 A: was block.timestamp + 1; now the cheatcode's clock, because the pump warps first and a via_ir build may reuse a stale block.timestamp (test/DimensionsTime.t.sol:11-14)
+        router.swapExactIn(r, amt, 1, atk, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
     }
+
+    /// One dust swap, 1e15, under 2^-16 of every pool it is sent to here: it registers a pool
+    /// and never moves its clock (BlazePhoenixCore.sol:2898).
+    function _dust(MockV2Pair p) internal { _trade(p, 1e15); }
 
     function _routes(Route memory r, address pool) internal pure returns (bool) {
         for (uint256 x; x < r.hops.length; ++x)
@@ -111,21 +117,36 @@ contract Bounty1013TopKResistsDustPsiTest is Test {
         vm.startPrank(user);
         tA.approve(address(router), ORDER);
         uint256 b0 = tB.balanceOf(user);
-        router.swapExactIn(r, ORDER, r.totalOut * 995 / 1000, user, block.timestamp + 1);
+        // fix-1102 A: was block.timestamp + 1; now the cheatcode's clock, because _attack warps first and a via_ir build may reuse a stale block.timestamp (test/DimensionsTime.t.sol:11-14)
+        router.swapExactIn(r, ORDER, r.totalOut * 995 / 1000, user, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
         got = tB.balanceOf(user) - b0;
     }
 
-    /// Eight attacker pools at a 2:1 price against the taker, each pumped `pumps` times;
-    /// the honest 1M/1M venue must stay in the route and the victim must be paid what the
-    /// honest venue paid before the pump (the pre-pump plan, same code, honest state).
+    /// Eight attacker pools at a 2:1 price against the taker, each pumped `pumps` times with
+    /// material trades a minute apart and then sent `pumps` dust swaps; the honest 1M/1M venue
+    /// must stay in the route and the victim must be paid what the honest venue paid before the
+    /// pump (the pre-pump plan, same code, honest state).
     function _attack(bool seeded, uint256 pumps, uint256 atkA, uint256 atkB) internal {
         MockV2Pair h = _honest(1_000_000e18, 1_000_000e18, seeded);
         MockV2Pair[8] memory a;
         for (uint256 i; i < 8; ++i) a[i] = _vouched(atkA, atkB);
         RoutePlan memory p0 = solver.findBestRoutePlan(address(tA), address(tB), ORDER);
         assertTrue(_routes(p0.best, address(h)), "setup: the honest venue routes before the pump");
-        for (uint256 i; i < 8; ++i) for (uint256 k; k < pumps; ++k) _dust(a[i]);
+        // fix-1102 A: was `pumps` dust swaps per pool in one second, because each one ticked the count; now `pumps` material trades a minute apart (1/1000 of the tA side, ~32x the 2^-16 floor), because only an anchored tick after the stamped second moves the clock (BlazePhoenixCore.sol:2898)
+        uint256 t = vm.getBlockTimestamp();
+        for (uint256 k; k < pumps; ++k) {
+            t += 60;
+            vm.warp(t);
+            for (uint256 i; i < 8; ++i) _trade(a[i], atkA / 1000);
+        }
+        // The dust the pump used to send, in a second of its own: it counts nothing and pumps no psi.
+        vm.warp(t + 1);
+        for (uint256 i; i < 8; ++i) {
+            uint256 psiA = hub.getPsi(address(a[i]), address(tA), address(tB));
+            for (uint256 k; k < pumps; ++k) _dust(a[i]);
+            assertEq(hub.getPsi(address(a[i]), address(tA), address(tB)), psiA, "dust pumped the psi");
+        }
         // The pump is real: every attacker row out-ranks the honest one on psi.
         address[] memory pl = new address[](2);
         address[] memory t0 = new address[](2);

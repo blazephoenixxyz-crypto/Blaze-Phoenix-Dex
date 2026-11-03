@@ -384,9 +384,24 @@ contract Rizki3107FakePairSeatTest is Test {
         hub.seedPool(address(warm), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
         MockV2Pair[] memory fill = _fill(14, 1_000e18);       // honest + warm + 14 = 16 rows
         _age(60);
-        uint256 d = BPC.registryDepth18(address(warm), BPC.KIND_V2, address(tokenA), address(tokenB), address(0), bytes32(0));
+        // fix-1102 A: dust no longer warms a row. The 1e15 trade this test used to warm it with is below
+        // 2^-16 of the row's depth, so it carries no anchor and psi stays 0 (BlazePhoenixCore.sol:2854, :2898).
+        uint256 dust = BPC.tickDepth18(
+            address(warm), BPC.KIND_V2, address(tokenA), address(tokenB), address(0), bytes32(0), 1e15, 1e15, true);
+        assertLt(dust, BPC.TICK_ANCHORED, "non-vacuity: 1e15 is dust against this row");
         vm.prank(address(router));
-        hub.recordSwap(address(warm), BPC.KIND_V2, 0, address(0), address(tokenA), address(tokenB), 1e15, 1e15, d);
+        hub.recordSwap(address(warm), BPC.KIND_V2, 0, address(0), address(tokenA), address(tokenB), 1e15, 1e15, dust);
+        assertEq(hub.getPsi(address(warm), address(tokenA), address(tokenB)), 0, "dust does not warm a row");
+        // fix-1102 A: was a 1e15 trade handed the bare depth, which warmed the row because every tick
+        // counted; now only an anchored tick counts (BlazePhoenixCore.sol:2898) and 1e15 is dust here
+        // (100e18 >> 16 > 1e15, BlazePhoenixCore.sol:2854), so the trade is 1e18 and the depth word is
+        // the Router's own producer, anchor bit included (Core.tickDepth18).
+        uint256 out = BPC.outV2(1e18, 100e18, 100e18, 30);
+        uint256 d = BPC.tickDepth18(
+            address(warm), BPC.KIND_V2, address(tokenA), address(tokenB), address(0), bytes32(0), 1e18, out, true);
+        assertGe(d, BPC.TICK_ANCHORED, "non-vacuity: the warming trade is material, so it anchors");
+        vm.prank(address(router));
+        hub.recordSwap(address(warm), BPC.KIND_V2, 0, address(0), address(tokenA), address(tokenB), 1e18, out, d);
         assertGt(hub.getPsi(address(warm), address(tokenA), address(tokenB)), 0, "non-vacuity: the shallow row is warm");
         assertEq(hub.getPsi(address(fill[0]), address(tokenA), address(tokenB)), 0, "non-vacuity: the rest are at psi 0");
         _seedFresh();

@@ -356,10 +356,17 @@ contract RouterPhysicalMassCapTest is Test {
         _fund(s1, DEEP + AMT);
         pair.setReserves(uint112(DEEP), uint112(DEEP));   // declaration <= holdings
         _seed();
+        // fix-1102 A: was the registration's second; now one later, because a tick inside the
+        // stamped second is not counted (BlazePhoenixCore.sol:2898).
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         Route memory r = _routeFromSlot(0);
+        // fix-1102 A: was expectedOut 0; now the pair's quote, as the Solver writes it
+        // (BlazePhoenixSolver.sol:781), because a trade with no output side never anchors the clock
+        // (BlazePhoenixRouter.sol:2288, BlazePhoenixCore.sol:2853-2854). Fee in bps (Core.outV2).
+        r.hops[0].legs[0].expectedOut = BPC.outV2(AMT, DEEP, DEEP, 30);
         vm.prank(user);
-        uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        uint256 got = router.swapExactIn(r, AMT, 1, user, vm.getBlockTimestamp() + 1);
 
         assertGt(got, 0, "control: an honest deep pair must still route");
         assertEq(_swapCount(), 1, "control: the row must still be ticked");

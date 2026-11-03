@@ -14,6 +14,12 @@ pragma solidity 0.8.36;
 // so any divergence in any branch (dead slot vs floored-to-1 live slot, the 32-step horizon,
 // the never-ticked sentinel, timestamp underflow) fails loudly.
 //
+// fix-1102 A (coordinator decision 2) then changed the decay on purpose: inside a step the count
+// falls on the chord from its stair value toward half of it, so r seconds past a step's deadline
+// vitality is the pre-refactor value v less v * r / (2 * STEP) (BlazePhoenixCore.sol:2642). The
+// fuzz below compares each instant with that sealed reference, and each step's deadline, where
+// r = 0 and the chord is null, with the pre-refactor function itself: there the equivalence holds.
+//
 // forge test --match-contract VitalityRefactorEquivalence -vv
 
 import {Test} from "forge-std/Test.sol";
@@ -40,6 +46,23 @@ contract VitalityRefactorEquivalenceTest is Test {
         if (v == 0) v = 1;
     }
 
+    /// Seconds past the last whole-STEP deadline since the stamp; 0 when the clock runs backwards
+    /// (age 0) or stands on a deadline.
+    function _intoStep(uint256 slot, uint32 currentTs) internal pure returns (uint256) {
+        uint32 lastTs = BPC.decodeLastUpdateTs(slot);
+        if (currentTs <= lastTs) return 0;
+        uint256 age = currentTs - lastTs;
+        return age - (age / STEP) * STEP;
+    }
+
+    /// The sealed reference, from the decision, not from the Core: these slots carry tau = 0, so
+    /// their step is STEP; inside it the count falls on the chord toward half of its stair value
+    /// and loses v * r / (2 * STEP), less than v / 2, so a floored 1 stays 1 and a dead 0 stays 0.
+    function _vitalitySealed(uint256 slot, uint32 currentTs) internal pure returns (uint256 v) {
+        v = _vitalityOld(slot, currentTs);
+        v -= v * _intoStep(slot, currentTs) / (2 * STEP);
+    }
+
     /// Broad fuzz over the whole encoded-slot domain.
     function testFuzz_vitality_refactorIsBehaviourPreserving(
         uint24 fee, uint8 kind, uint8 tier, uint16 conc,
@@ -47,8 +70,13 @@ contract VitalityRefactorEquivalenceTest is Test {
     ) public pure {
         kind = uint8(bound(kind, 0, 7));
         uint256 slot = BPC.encodeSlot(true, fee, kind, tier, conc, lastTs, 0, 0, swapCount, 0, 0);
-        assertEq(BPC.vitality(slot, currentTs), _vitalityOld(slot, currentTs),
-            "vitality diverged from its pre-refactor behaviour");
+        // fix-1102 A: was _vitalityOld at every instant because the count stood on a stair; now the sealed reference, the stair less the chord inside the step (BlazePhoenixCore.sol:2642)
+        assertEq(BPC.vitality(slot, currentTs), _vitalitySealed(slot, currentTs),
+            "vitality diverged from its sealed reference");
+        // At that step's deadline the chord is null: the pre-refactor behaviour, to the wei.
+        uint32 atStep = currentTs - uint32(_intoStep(slot, currentTs));
+        assertEq(BPC.vitality(slot, atStep), _vitalityOld(slot, atStep),
+            "vitality diverged from its pre-refactor behaviour at a step's deadline");
     }
 
     /// The empty slot is its own sentinel and never reaches the codec.
@@ -76,10 +104,23 @@ contract VitalityRefactorEquivalenceTest is Test {
         uint256 shift = bound(stepSeed, 0, 33);
         uint32 ts = uint32(uint256(lastTs) + shift * STEP);
         assertEq(BPC.vitality(slot, ts), _vitalityOld(slot, ts), "step-multiple boundary");
-        // one second either side of each multiple
-        assertEq(BPC.vitality(slot, ts + 1), _vitalityOld(slot, ts + 1), "boundary +1s");
+        // one second either side of each multiple: inside a step, so the sealed reference
+        // fix-1102 A: was _vitalityOld because the count stood on its stair; now that stair less the chord, 1 s and STEP - 1 s into the step (BlazePhoenixCore.sol:2642)
+        assertEq(BPC.vitality(slot, ts + 1), _vitalitySealed(slot, ts + 1), "boundary +1s");
         if (ts > lastTs) {
-            assertEq(BPC.vitality(slot, ts - 1), _vitalityOld(slot, ts - 1), "boundary -1s");
+            assertEq(BPC.vitality(slot, ts - 1), _vitalitySealed(slot, ts - 1), "boundary -1s");
+        }
+    }
+
+    /// psi of a vitality v on this slot: the depth bucket's weight, then the bridge and
+    /// concentration bonuses.
+    function _psiOf(uint256 slot, uint256 v, bool bridge, bool conc) internal pure returns (uint256 expected) {
+        if (v != 0) {
+            uint256 w = BPC.bucketWeight(BPC.decodeBucket(slot));
+            if (w == 0) w = 1;
+            expected = v * w;
+            if (bridge) expected += (expected * 2_500) / BPC.BPS;
+            if (conc) expected += (expected * 500) / BPC.BPS;
         }
     }
 
@@ -92,15 +133,12 @@ contract VitalityRefactorEquivalenceTest is Test {
         uint256 slot = BPC.encodeSlot(true, 3000, 1, 0, 0, lastTs, 0, 0, swapCount, 0, 0);
         slot = BPC.setBucket(slot, uint8(bound(bucket, 0, 15)));
 
-        uint256 vOld = _vitalityOld(slot, currentTs);
-        uint256 expected;
-        if (vOld != 0) {
-            uint256 w = BPC.bucketWeight(BPC.decodeBucket(slot));
-            if (w == 0) w = 1;
-            expected = vOld * w;
-            if (bridge) expected += (expected * 2_500) / BPC.BPS;
-            if (conc) expected += (expected * 500) / BPC.BPS;
-        }
-        assertEq(BPC.psi(slot, currentTs, bridge, conc), expected, "psi diverged after the refactor");
+        // fix-1102 A: was psi of _vitalityOld at every instant because the count stood on a stair; now psi of the sealed reference, the stair less the chord (BlazePhoenixCore.sol:2642)
+        assertEq(BPC.psi(slot, currentTs, bridge, conc), _psiOf(slot, _vitalitySealed(slot, currentTs), bridge, conc),
+            "psi diverged from its sealed reference");
+        // At that step's deadline the chord is null: psi is the pre-refactor one, to the wei.
+        uint32 atStep = currentTs - uint32(_intoStep(slot, currentTs));
+        assertEq(BPC.psi(slot, atStep, bridge, conc), _psiOf(slot, _vitalityOld(slot, atStep), bridge, conc),
+            "psi diverged after the refactor at a step's deadline");
     }
 }
