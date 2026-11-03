@@ -23,7 +23,7 @@ contract FakeWrapperAI {
 }
 
 /// Algebra Integral adapter (Blackhole CLMM custom venues) behind the real wrapper. Red-first at
-/// REDCOMMIT: every test below was written before the adapter body, against a stub with the
+/// b8d4b82: every test below was written before the adapter body, against a stub with the
 /// same ABI; the guard each one watches has its mutant in .github/scripts/mutants.py ([AI-..]).
 /// Oracles: values fixed by an independent Python model of Algebra's exact-input loop
 /// (SwapCalculation, PriceMovementMath, TokenDeltaMath, TickMath; build report), the mock
@@ -188,7 +188,7 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         assertEq(d, 1_000e18, "1 000 of the 6-decimal token is the short side");
     }
 
-    function test_AI_Quote_AmtInZeroOrAboveInt256_IsZero_WithDepth() public {
+    function test_AI_Quote_AmtInZeroOrAboveInt256_IsZero_WithDepth() public view {
         (address vp, bytes32 a0, bytes32 a1) = _leg(w);
         uint256 big = uint256(type(int256).max) + 1;
         (uint256 q, uint256 d) = adapter.quote(vp, a0, a1, true, 0);
