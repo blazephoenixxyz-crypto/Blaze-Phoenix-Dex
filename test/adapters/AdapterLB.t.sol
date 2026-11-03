@@ -361,11 +361,18 @@ contract AdapterLBTest is AdapterHarness {
         gate.create(address(t0), address(t1), KEY + 1, abi.encode(uint256(50)));
     }
 
+    /// Each creation sits behind its own external call: with dynamic test linking an inline `new`
+    /// is a cheatcode call, and an expected revert on it ends the test body at the first creation.
     function test_LB_Constructor_ZeroAddress_Refused() public {
         vm.expectRevert(_aerr(0));
-        new BlazePhoenixAdapterLB(address(gate), address(0));
+        this.deployLB(address(gate), address(0));
         vm.expectRevert(_aerr(0));
-        new BlazePhoenixAdapterLB(address(0), address(factory));
+        this.deployLB(address(0), address(factory));
+        assertGt(this.deployLB(address(gate), address(factory)).code.length, 0, "control: both addresses set deploys");
+    }
+
+    function deployLB(address g, address f) external returns (address) {
+        return address(new BlazePhoenixAdapterLB(g, f));
     }
 
     // ─── hooks: `_hooksOk`, the pair's hooks of now, on every exec, quote and quoteCall ───

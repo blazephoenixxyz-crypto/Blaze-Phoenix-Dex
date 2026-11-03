@@ -152,6 +152,8 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         assertFalse(_hasApproveSelector(address(adapter)), "the venue pulls by callback, never by allowance");
     }
 
+    /// `_out` is the one body behind quote and quoteCall (SHARED_QUANTITIES): the walk, the
+    /// adapter's quoteCall and the swap give one number, the model's.
     function test_AI_QuoteEqualsQuoteCallEqualsExecution_BothWays() public {
         (address vp, bytes32 a0, bytes32 a1) = _leg(w);
         (uint256 q, ) = adapter.quote(vp, a0, a1, true, 15e18);
@@ -230,7 +232,7 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         assertEq(_swap(w, true, 1e18), q, "and the swap agrees");
     }
 
-    // ─── who may call: ExtAdapterBase (SHARED_QUANTITIES), then the callback ───
+    // ─── who may call: ExtAdapterBase._requireWrapper (SHARED_QUANTITIES), then the callback ───
 
     function test_AI_ExecFromNonWrapper_Refused() public {
         (address vp, bytes32 a0, bytes32 a1) = _leg(w);
@@ -269,6 +271,20 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         vm.prank(address(venue));
         vm.expectRevert(_aerr(6));
         adapter.algebraSwapCallback(1, 0, "");
+        assertEq(this.execThenLateCallback(), _aerr(6), "a late callback in the exec's transaction is refused");
+    }
+
+    /// One top-level call, so one transaction under `isolate` (transient storage is cleared between
+    /// top-level calls): a real exec as the wrapper, then the venue calls back on its own, asking
+    /// 1 wei of input the adapter happens to hold. Returns the revert data, empty if it paid.
+    function execThenLateCallback() external returns (bytes memory err) {
+        (address vp, bytes32 a0, bytes32 a1) = _leg(w);
+        t0.mint(address(adapter), 1e18);
+        vm.prank(w);
+        adapter.exec(vp, a0, a1, true, 1e18, address(this));
+        t0.mint(address(adapter), 1);
+        vm.prank(address(venue));
+        try adapter.algebraSwapCallback(1, 0, "") {} catch (bytes memory e) { err = e; }
     }
 
     function test_AI_Callback_AsksMoreThanAmtIn_Refused() public {
@@ -373,14 +389,21 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         _assertLive(w2);
     }
 
+    /// Each creation sits behind its own external call: with dynamic test linking an inline `new`
+    /// is a cheatcode call, and an expected revert on it ends the test body at the first creation.
     function test_AI_Constructor_ZeroArgument_Refused() public {
         (address g, address f, address dp, bytes32 ih) = (address(gate), address(factory), address(factory.deployer()), INIT);
         vm.expectRevert(_aerr(0));
-        new BlazePhoenixAdapterAlgebraIntegral(g, address(0), dp, ih);
+        this.deployAI(g, address(0), dp, ih);
         vm.expectRevert(_aerr(0));
-        new BlazePhoenixAdapterAlgebraIntegral(g, f, address(0), ih);
+        this.deployAI(g, f, address(0), ih);
         vm.expectRevert(_aerr(0));
-        new BlazePhoenixAdapterAlgebraIntegral(g, f, dp, bytes32(0));
+        this.deployAI(g, f, dp, bytes32(0));
+        assertGt(this.deployAI(g, f, dp, ih).code.length, 0, "control: the same call with every argument set deploys");
+    }
+
+    function deployAI(address g, address f, address dp, bytes32 ih) external returns (address) {
+        return address(new BlazePhoenixAdapterAlgebraIntegral(g, f, dp, ih));
     }
 
     // ─── plugins after create: `_pluginOk` on every exec, quote and quoteCall ───
