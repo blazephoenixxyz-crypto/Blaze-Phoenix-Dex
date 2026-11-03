@@ -6,6 +6,7 @@ import {BlazePhoenixCore as BPC, Route} from "../../../src/BlazePhoenixCore.sol"
 import {BlazePhoenixRouter} from "../../../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../../../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixAdapterLB} from "../../../src/adapters/BlazePhoenixAdapterLB.sol";
+import {BlazePhoenixAdapterAlgebraIntegral} from "../../../src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol";
 import {S9Lib} from "./proto/S9Lib.sol";
 
 /// @notice S9 gas battery on the Avalanche fork (FORK_BLOCK), without a plan: this tree has no
@@ -14,9 +15,11 @@ import {S9Lib} from "./proto/S9Lib.sol";
 ///         Router.swapBestExactIn) and the fourth (on-chain with a plan) is written as "na".
 /// @dev    Hub rows: Uniswap V3 (mode 5), Pharaoh V3 (mode 3, the mode whose execution
 ///         AvaxCoreV3 checks), the Blackhole base Algebra row (mode 5, kind 6, as in
-///         AvaxBlackholeCore) and the Gate with the LFJ v2.1, LFJ v2.2 and Pharaoh DLMM adapters:
-///         one wrapper per chosen LBPair (TVL >= 1k USD, highest first, at most 4 per sorted
-///         pair, 3 where a Blackhole custom venue >= 1k USD keeps a slot for its own adapter).
+///         AvaxBlackholeCore) and the Gate with the LFJ v2.1, LFJ v2.2 and Pharaoh DLMM adapters
+///         and the Algebra Integral adapter: one wrapper per chosen LBPair (TVL >= 1k USD,
+///         highest first, at most 4 per sorted pair, 3 where a Blackhole custom venue >= 1k USD
+///         keeps a slot) and, in that slot, one on the pair's top Blackhole custom venue (six
+///         pairs hold one >= 1k USD).
 ///         Bridges: WAVAX, USDC, BTC.b (AvaxForkBase). Cells: celulas-avax.tsv refiltered to
 ///         these venues and bridges, at most 2 hops, one test per fee regime of the Quoter
 ///         (Quoter.sol:820-835). Each cell ASSERTS that the quoted swap succeeds and pays the
@@ -46,6 +49,12 @@ contract AvaxS9BatteryTest is S9Lib {
     address internal constant BH_FACTORY = 0x512eb749541B7cf294be882D636218c84a5e9E5F;
     bytes32 internal constant BH_INIT = 0xeaa3eea3233916c82fe1281a51bd9cde844b7c4673c0714ca0028a57f5634752;
 
+    // Blackhole custom venues, Gate family 4 (the Algebra Integral adapter, as in AvaxAIFork): the
+    // factory's CREATE2 deployer, and the two custom deployers of the venues the battery mounts.
+    address internal constant BH_DEPLOYER = 0x9B2441037E286d5Bf9456a3BE7b5273fe28DbA1e;
+    address internal constant BH_CUSTOM_5D43 = 0x5D433A94A4a2aA8f9AA34D8D15692Dc2E9960584;
+    address internal constant BH_CUSTOM_DCFC = 0xDcFccf2e8c4EfBba9127B80eAc76c5A122125d29;
+
     // Liquidity Book factories; Gate family 1, 2, 3 in this order (as in AvaxLB).
     address internal constant LB21_FACTORY = 0x8e42f2F4101563bF679975178e880FD87d3eFd4e;
     address internal constant LB22_FACTORY = 0xb43120c4745967fa9b93E79C149E66B0f2D6Fe0c;
@@ -59,19 +68,21 @@ contract AvaxS9BatteryTest is S9Lib {
     /// quoted swap and of the on-chain swap (0 = passes). A record of the block, not a pass
     /// list: a pinned cell that passes, finds no route or fails with another error fails its
     /// test like any other cell, so a fix in src shows up here as a red cell to unpin.
-    /// RouterE(5), 44 quoted and 37 on-chain. The site of each, from a run with every site's
-    /// code renamed: the leg floor of `_execScaled` (38 quoted, 34 on-chain), the route floor
-    /// `amountOut < effMin` (6 quoted, 2 on-chain: c002, c014, c055, c056, c063, c064) and the
-    /// hop check of `_execScaled` (1 on-chain: c118). Both floors rest on the Router's in-frame
-    /// quote, which prices a V3 leg at the liquidity of its current band (no boundary clamp,
-    /// Core `outV3`): the leg floor through the coverage lift (half the in-frame quote, the
-    /// MIN_QUOTE_COVERAGE_BPS bound) and the route floor through the protocol floor (the
-    /// in-frame quote of the final hop). Where the next bands are thin that quote sits far above
-    /// what the leg pays, and an honest route trips the floor. With the lift and the protocol
-    /// floor both removed every quoted cell passes; 5 on-chain cells still fail, at the hop
-    /// check (c118, c119, c120) and at the leg floor on the plan's own figure (c173, c181,
-    /// routed in 3 hops). RouterE(17), 11 on-chain: the Solver runs past SOLVE_GAS.
-    bytes internal constant KNOWN = hex"0205050305050405050b05050c05050e05051700111800111f05112005112105052205052905052a05053705113805113f05114005115800115f05116005117305057405057600057705057805057b05057c05057f05058005058305058405058705058805059d05059e0505a10505a20505a50505a60505a90505aa0505ad0505b50505c70505c80505cd0505ce0505";
+    /// RouterE(5), 43 quoted and 36 on-chain. The site of each, from a run with every site's
+    /// code renamed: the leg floor of `_execScaled` (37 quoted, 33 on-chain), the route floor
+    /// `amountOut < effMin` (6 quoted: c002, c014, c055, c056, c063, c064; 2 on-chain: c002,
+    /// c014) and the per-hop budget of `_execute` (1 on-chain: c118). Both floors rest on the
+    /// Router's in-frame quote, which prices a V3 leg at the liquidity of its current band (no
+    /// boundary clamp, Core `outV3`): the leg floor through the coverage lift (half the in-frame
+    /// quote, the MIN_QUOTE_COVERAGE_BPS bound) and the route floor through the protocol floor
+    /// (the in-frame quote of the final hop). Where the next bands are thin that quote sits far
+    /// above what the leg pays, and an honest route trips the floor. With the lift and the
+    /// protocol floor both removed every quoted cell passes; 4 on-chain cells still fail, at the
+    /// per-hop budget (c118, c119, c120) and at the leg floor on the plan's own figure (c173,
+    /// routed in 3 hops). RouterE(17), 13 on-chain: the Solver runs past SOLVE_GAS. Two of
+    /// them, c086 and c087, pass without the family-4 wrappers: on the same route the Solver's
+    /// search costs 1.9M and 3.3M gas more with them.
+    bytes internal constant KNOWN = hex"0205050305050405050b05050c05050e05051700111800111f05112005112105052205052905052a05053705113805113f05114005115600115700115800115f05116005117305057405057600057705057805057b05057c05057f05058005058305058405058705058805059d05059e0505a10505a20505a50505a60505a90505aa0505ad0505c70505c80505cd0505ce0505";
 
     // Cells, 4 bytes each: id (cNNN, the order of the refiltered list), token in, token out (the
     // index in _tok), amount in thousands of USD. Generated from the refiltered cell list.
@@ -101,20 +112,24 @@ contract AvaxS9BatteryTest is S9Lib {
         _addUniV3Row();
         _addPharaohV3Row(MODE_CALL_V3CL);
         _addRow(BH_FACTORY, BPC.KIND_ALGEBRA, MODE_CREATE2_V3, BH_INIT, new uint24[](1), new int24[](0));
-        _mountLB();
+        _mountGate();
     }
 
-    /// @dev propose -> ADAPTER_DELAY -> accept for the three families, back to the block's own
+    /// @dev propose -> ADAPTER_DELAY -> accept for the four families, back to the block's own
     ///      time (the Algebra and LB fees read it), one wrapper per chosen LBPair (hint = its bin
-    ///      step), then the Gate's Hub row with the venue keys in use.
-    function _mountLB() internal {
+    ///      step) and per chosen Blackhole custom venue (hint = its deployer), then the Gate's Hub
+    ///      row with the venue keys in use.
+    function _mountGate() internal {
         address[3] memory fac = [LB21_FACTORY, LB22_FACTORY, DLMM_FACTORY];
         for (uint8 f = 1; f <= 3; ++f) {
             gate.proposeAdapter(f, address(new BlazePhoenixAdapterLB(address(gate), fac[f - 1])));
         }
+        gate.proposeAdapter(
+            4, address(new BlazePhoenixAdapterAlgebraIntegral(address(gate), BH_FACTORY, BH_DEPLOYER, BH_INIT))
+        );
         uint256 t0 = block.timestamp;
         vm.warp(t0 + gate.ADAPTER_DELAY());
-        for (uint8 f = 1; f <= 3; ++f) gate.acceptAdapter(f);
+        for (uint8 f = 1; f <= 4; ++f) gate.acceptAdapter(f);
         vm.warp(t0);
         // family, slot, sorted pair, bin step, name; TVL in USD at FORK_BLOCK
         _lb(1, 1, BTCB, USDC, 10, "lb21/10"); // 961806
@@ -136,8 +151,15 @@ contract AvaxS9BatteryTest is S9Lib {
         _lb(1, 1, WAVAX, USDC, 20, "lb21/20"); // 169270
         _lb(2, 1, SAVAX, WAVAX, 5, "lb22/5"); // 100747
         _lb(1, 1, SAVAX, WAVAX, 5, "lb21/5"); // 1934
-        uint24[] memory keys = new uint24[](4);
-        (keys[0], keys[1], keys[2], keys[3]) = (_key(1, 1), _key(2, 1), _key(3, 1), _key(3, 2));
+        // family 4, slot 1: the pair's top Blackhole custom venue, by its deployer; TVL in USD
+        _bh(WAVAX, USDC, BH_CUSTOM_5D43, "bh-custom/5d43"); // 521551
+        _bh(BTCB, WAVAX, BH_CUSTOM_5D43, "bh-custom/5d43"); // 99988
+        _bh(BTCB, USDC, BH_CUSTOM_5D43, "bh-custom/5d43"); // 68427
+        _bh(SAVAX, WAVAX, BH_CUSTOM_DCFC, "bh-custom/dcfc"); // 3271
+        _bh(WAVAX, BLACK, BH_CUSTOM_5D43, "bh-custom/5d43"); // 2259
+        _bh(USDC, BLACK, BH_CUSTOM_5D43, "bh-custom/5d43"); // 2162
+        uint24[] memory keys = new uint24[](5);
+        (keys[0], keys[1], keys[2], keys[3], keys[4]) = (_key(1, 1), _key(2, 1), _key(3, 1), _key(3, 2), _key(4, 1));
         _addRow(address(gate), BPC.KIND_EXTERNAL, MODE_CREATE2_V3, gate.WRAPPER_INIT_HASH(), keys, new int24[](0));
     }
 
@@ -152,6 +174,16 @@ contract AvaxS9BatteryTest is S9Lib {
             venueName[w] = name;
         } catch (bytes memory err) {
             console2.log(string.concat("S9|lb-skip|", name, "|", _sym(a), "-", _sym(b), "|", vm.toString(err)));
+        }
+    }
+
+    /// @dev One Algebra Integral wrapper. A venue the adapter refuses (a plugin with BEFORE_SWAP
+    ///      or DYNAMIC_FEE, for one) is logged and left out, as in _lb.
+    function _bh(address a, address b, address deployer, string memory name) internal {
+        try gate.create(a, b, _key(4, 1), abi.encode(deployer)) returns (address w) {
+            venueName[w] = name;
+        } catch (bytes memory err) {
+            console2.log(string.concat("S9|bh-skip|", name, "|", _sym(a), "-", _sym(b), "|", vm.toString(err)));
         }
     }
 
