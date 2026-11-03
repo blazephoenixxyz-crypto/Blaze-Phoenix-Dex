@@ -107,21 +107,44 @@ contract RegistryDoorsMeasureWhatTheyWriteTest is Test {
         p.setReserves(uint112(r), uint112(r));
     }
 
-    /// @dev Warm a row to `n` recorded swaps at its own measured depth.
-    function _warm(address pool, uint256 depthWad, uint32 n) internal {
-        while (BPC.decodeSwapCount(hub.getSlot(_key(pool))) < n) {
-            hub.recordSwap(pool, BPC.KIND_V2, 30, address(0),
-                           address(A), address(B), 1, 1, depthWad);
+    /// @dev One round per unmeasured tau, 24 576 / 4 = 6 144 s: an anchored tick that closes an
+    ///      interval of exactly tau leaves tau where it is, so after n rounds a row counts n and
+    ///      scores a vitality of exactly n (n * 24 576 / (6 144 * 4)), the warm rows of the PoC
+    ///      (BlazePhoenixCore.sol:2904, :2907, :2598).
+    uint256 constant ROUND = BPC.VITALITY_DECAY_STEP_SECONDS / BPC.VITALITY_STEPS_PER_TAU;
+
+    /// @dev Warm `rows` to `n` recorded swaps each, at their own measured depth.
+    function _warm(address[] memory rows, uint256 depthWad, uint32 n) internal {
+        // fix-1102 A: was unanchored ticks in one second until the count reached n, because dust moved the clock; now n rounds of material swaps ROUND apart, because an unanchored tick or one inside the stamped second moves nothing (BlazePhoenixCore.sol:2898)
+        uint256 amt = depthWad >> BPC.MATERIAL_SHIFT;   // the least material trade (BlazePhoenixCore.sol:2854)
+        for (uint32 k; k < n; ++k) {
+            vm.warp(block.timestamp + ROUND);
+            for (uint256 i; i < rows.length; ++i) {
+                hub.recordSwap(rows[i], BPC.KIND_V2, 30, address(0),
+                               address(A), address(B), amt, amt, depthWad | BPC.TICK_ANCHORED);
+            }
+        }
+        // The dust the old loop sent, in a second of its own: it counts nothing and pumps no psi.
+        vm.warp(block.timestamp + 1);
+        for (uint256 i; i < rows.length; ++i) {
+            assertEq(BPC.decodeSwapCount(hub.getSlot(_key(rows[i]))), n, "setup: the row is warm");
+            uint256 psi0 = hub.getPsi(rows[i], address(A), address(B));
+            for (uint32 k; k < n; ++k) {
+                hub.recordSwap(rows[i], BPC.KIND_V2, 30, address(0),
+                               address(A), address(B), 1, 1, depthWad);
+            }
+            assertEq(hub.getPsi(rows[i], address(A), address(B)), psi0, "dust pumped the psi");
         }
     }
 
     /// @dev Eight rivals at `r` a side, each warmed to 3 swaps.
     function _fillFunnelWithWarmDust(uint256 r) internal {
+        address[] memory rows = new address[](8);
         for (uint256 i; i < 8; ++i) {
-            MockV2Pair d = _v2(r);
-            hub.seedPool(address(d), BPC.KIND_V2, 30, address(0), address(A), address(B));
-            _warm(address(d), r, 3);
+            rows[i] = address(_v2(r));
+            hub.seedPool(rows[i], BPC.KIND_V2, 30, address(0), address(A), address(B));
         }
+        _warm(rows, r, 3);
     }
 
     function _routedAndOut(address pool) internal returns (bool routed, uint256 out, bool planned) {

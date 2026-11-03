@@ -63,10 +63,32 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
 
     function _key(address pool) internal view returns (bytes32) { return hub.keyOf(pool, address(A), address(B)); }
 
-    /// Swaps recorded until the row's count reaches `n`, each at the given measured depth.
-    function _warm(address pool, uint256 depthWad, uint32 n) internal {
-        while (BPC.decodeSwapCount(hub.getSlot(_key(pool))) < n) {
-            hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, depthWad);
+    /// One round per unmeasured tau, 24 576 / 4 = 6 144 s: an anchored tick that closes an interval
+    /// of exactly tau leaves tau where it is, so after n rounds a row counts n and scores a vitality
+    /// of exactly n (n * 24 576 / (6 144 * 4)): the warm dust each test below prices
+    /// (BlazePhoenixCore.sol:2904, :2907, :2598).
+    uint256 constant ROUND = BPC.VITALITY_DECAY_STEP_SECONDS / BPC.VITALITY_STEPS_PER_TAU;
+
+    /// Swaps recorded until each row's count reaches `n`, each at the given measured depth.
+    function _warm(address[] memory rows, uint256 depthWad, uint32 n) internal {
+        // fix-1102 A: was unanchored ticks in one second until the count reached n, because dust moved the clock; now n rounds of material swaps ROUND apart, because an unanchored tick or one inside the stamped second moves nothing (BlazePhoenixCore.sol:2898)
+        uint256 amt = depthWad >> BPC.MATERIAL_SHIFT;   // the least material trade (BlazePhoenixCore.sol:2854)
+        for (uint32 k; k < n; ++k) {
+            vm.warp(block.timestamp + ROUND);
+            for (uint256 i; i < rows.length; ++i) {
+                hub.recordSwap(rows[i], BPC.KIND_V2, 30, address(0), address(A), address(B), amt, amt,
+                    depthWad | BPC.TICK_ANCHORED);
+            }
+        }
+        // The dust the old loop sent, in a second of its own: it counts nothing and pumps no psi.
+        vm.warp(block.timestamp + 1);
+        for (uint256 i; i < rows.length; ++i) {
+            assertEq(BPC.decodeSwapCount(hub.getSlot(_key(rows[i]))), n, "setup: the row is warm");
+            uint256 psi0 = hub.getPsi(rows[i], address(A), address(B));
+            for (uint32 k; k < n; ++k) {
+                hub.recordSwap(rows[i], BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, depthWad);
+            }
+            assertEq(hub.getPsi(rows[i], address(A), address(B)), psi0, "dust pumped the psi");
         }
     }
 
@@ -107,11 +129,12 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
     function test_ASeededDeepPoolIsNotCutFromTheFunnelByWarmDust() public {
         MockV2Pair deep = _v2(1e24);
         hub.seedPool(address(deep), BPC.KIND_V2, 30, address(0), address(A), address(B));
+        address[] memory dust = new address[](8);
         for (uint256 i; i < 8; ++i) {                     // the funnel keeps eight
-            MockV2Pair dust = _v2(1e14);
-            hub.seedPool(address(dust), BPC.KIND_V2, 30, address(0), address(A), address(B));
-            _warm(address(dust), 1e14, 3);
+            dust[i] = address(_v2(1e14));
+            hub.seedPool(dust[i], BPC.KIND_V2, 30, address(0), address(A), address(B));
         }
+        _warm(dust, 1e14, 3);
         uint256 order = 1e21;
         uint256 deepAlone = BPC.outV2(order, 1e24, 1e24, 30);
         try solver.findBestRoutePlan(address(A), address(B), order) returns (RoutePlan memory plan) {
@@ -147,11 +170,12 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
         MockV2Pair deep = _v2(5e23);
         hub.seedPool(address(deeper), BPC.KIND_V2, 30, address(0), address(A), address(B));
         hub.seedPool(address(deep), BPC.KIND_V2, 30, address(0), address(A), address(B));
+        address[] memory dust = new address[](14);
         for (uint256 i; i < 14; ++i) {                    // with the two deep rows, the pair's 16 (MAX_SLOTS)
-            MockV2Pair dust = _v2(1e14);
-            hub.seedPool(address(dust), BPC.KIND_V2, 30, address(0), address(A), address(B));
-            _warm(address(dust), 1e14, 3);
+            dust[i] = address(_v2(1e14));
+            hub.seedPool(dust[i], BPC.KIND_V2, 30, address(0), address(A), address(B));
         }
+        _warm(dust, 1e14, 3);
         assertEq(hub.getActivePools(address(A), address(B)).length, 16, "setup: the pair must hold its sixteen rows");
         // Two newcomers at the swap door, each a pool a wired factory derives (rizki-3107), at
         // depth bucket 1.
@@ -184,11 +208,12 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
         hub.addBridge(address(B));
         // Sixteen incumbents (MAX_SLOTS), each at depth bucket 1 (weight 2) and three swaps:
         // fitness 6 bare, 7 with the bridge term.
+        address[] memory inc = new address[](16);
         for (uint256 i; i < 16; ++i) {
-            MockV2Pair inc = _v2(5e16);
-            hub.seedPool(address(inc), BPC.KIND_V2, 30, address(0), address(A), address(B));
-            _warm(address(inc), 5e16, 3);
+            inc[i] = address(_v2(5e16));
+            hub.seedPool(inc[i], BPC.KIND_V2, 30, address(0), address(A), address(B));
         }
+        _warm(inc, 5e16, 3);
         // A newcomer at depth bucket 3 (weight 8). With the term on both sides it scores 10
         // against a bar of 7 + 7/4 = 8; without it on its own side, 8 against 8.
         MockV2Pair newcomer = _v2(5e18);

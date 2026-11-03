@@ -16,7 +16,8 @@ contract BlazePhoenixCoreTest is Test {
 
         uint32 age = uint32(BPC.VITALITY_DECAY_STEP_SECONDS) - 1;
         uint256 v = BPC.vitality(slot, lastTs + age);
-        assertEq(v, swapCount, "vitality should equal swapCount before first decay step");
+        // fix-1102 A: was 777 because the count stood whole until the step's end; now 389 = 777 - 777 * 24 575 / (2 * 24 576), the chord one second short of the first step, not yet a halving and nowhere near the 128x bug's dead 0 (BlazePhoenixCore.sol:2642)
+        assertEq(v, 389, "vitality one second before the first decay step is the count on its chord");
     }
 
     function test_Vitality_HalvesEveryDecayStep() public {
@@ -273,10 +274,14 @@ contract BlazePhoenixCoreTest is Test {
     function test_TickSlot_IncrementsSwapCountAndResetsBucket() public pure {
         uint256 slot = BPC.encodeSlot(true, 30, 0, 0, 0, 100, 0, 0, 5, 0, 0);
         uint256 slotWithBucket = BPC.setBucket(slot, 9);
-        uint256 ticked = BPC.tickSlot(slotWithBucket, true, 1e18, 100); // same instant as lastTs: no decay
-        assertEq(BPC.decodeSwapCount(ticked), 6);
+        uint256 ticked = BPC.tickSlot(slotWithBucket, true, 1e18, 100); // same instant as lastTs: inside the stamped second
+        // fix-1102 A: was 6 because every tick counted; now 5 because a tick inside the stamped second counts nothing (BlazePhoenixCore.sol:2898)
+        assertEq(BPC.decodeSwapCount(ticked), 5, "a tick inside the stamped second does not count");
         assertEq(BPC.decodeTau(ticked), 0, "a zero interval leaves the clock unmeasured");
         assertEq(BPC.decodeBucket(ticked), BPC.depthBucket(1e18), "bucket is recomputed from the new depth");
+        // One second later the tick counts: 5 decayed 1 s on the unmeasured step (chord 5 * 1 / (2 * 24 576) = 0), plus this trade (BlazePhoenixCore.sol:2900-2901).
+        ticked = BPC.tickSlot(slotWithBucket, true, 1e18, 101);
+        assertEq(BPC.decodeSwapCount(ticked), 6, "a tick one second after the stamp counts");
     }
 
     // ─── outV2 / outV3 / sortTokens / hasCode ───────────────────────────

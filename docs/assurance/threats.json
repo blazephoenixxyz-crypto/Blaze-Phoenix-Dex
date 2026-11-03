@@ -520,6 +520,14 @@
       "guard": "outCap",
       "test": "test_ARestatementBeforeTheLastHopStaysWithTheStrandedBalance",
       "note": "3310, 2026-10-27. The mirror of #45 (received capped at amountIn): _execute caps totalReceived, the balance delta against toutStart, at outCap: the declared figures _execScaled returns for the legs that make tokenOut, less the scaled input of the legs that spend it and the fee _chargeHopFee charges in it, each subtraction floored at zero (hop 0 of a cyclic route spends its input, measured against baseIn, before any leg made tokenOut). Red at 59ecf3f (4 of 8) and at c516601 after DEX-11 (3 of 8: a hop-0 restatement, a blind V3 leg, the loose A->C->B->C shape); green with the cap. A fee-on-transfer tokenOut measures less and passes; the excess stays with the rescue. Mutants [887]-[896] (3310 cap x3, made, sum, handed, handed floor, fee, fee floor, lift); the cap also hides a lost toutStart from an honest venue's swap, so TOUT-nobase now pairs with the fee-on-transfer swap and h11-1019 P2 with the loose shape (their old pairs pass mutated). Escapes: a venue that declares more than it pays raises the cap; with a fee-on-transfer tokenOut a restatement inside the transfer deficit still pays; tokenOut an intermediate hop leaves unspent (a V3/V4 partial fill) stays with the rescue; the hop scaling and the hop fee base of hop h>=1 are still uncapped deltas."
+    },
+    {
+      "id": "REG-DUST-CLOCK",
+      "class": "A write without mass (a dust swap, a registration, a claim) moves a registry row's clock or a token's learned V4 tier: the swap count that psi multiplies, the stamp that decay, discovery freshness and the funnel read, the first sample of tau",
+      "status": "blocked",
+      "guard": "tickSlot",
+      "test": "test_3555_TwentyDustTicksLeaveThePsiOfTheRowEqualToItsCleanTwin",
+      "note": "fix-1102, 2026-11-02 (reports 3536, 3537, 3545, 3552, 3554, 3555, 3575, 3645, 3652, 3663). Until then every Hub.recordSwap tick counted and the Hub stamped lastUpdateTs, dust included, and only tau read the anchor: dust pumped psi, kept a stale row fresh and a shallow seat warm, and the first interval was read whole. Core.tickSlot is now the one writer of the count, tau and the stamp, and moves them only on an anchored tick (Core.tickDepth18: the shorter side at least the depth >> MATERIAL_SHIFT) past the stamped second; a row is born with count 0 and no tick; the first interval moves tau an eighth of the way from the unmeasured step; inside a decay step the count falls on the chord. claimV4 writes v4CodeOf only after the row is admitted, the recordSwap doors only on an anchored tick, and a lighter witness never rewrites a heavier one. Each report is a case in test/fix1102/DustSealFamily.t.sol: the dust-touched row equals its clean twin."
     }
   ]
 }

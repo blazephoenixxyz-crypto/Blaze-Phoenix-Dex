@@ -231,7 +231,10 @@ contract HubAuthorityLayerTest is Test {
 
         vm.prank(ROUTER);
         hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), TOK_A, TOK_B, 1e18, 1e18, 1e18);
-        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1,
+        // fix-1102 A: was swapCount 1 because the registration ticked the new row; now 0 with lastUpdateTs = now because the row is born unticked and stamped at birth (BlazePhoenixHub.sol:2168)
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 0,
+            "the hub was never paused: the stranger's freeze was refused");
+        assertEq(BPC.decodeLastUpdateTs(hub.getSlot(key)), block.timestamp,
             "the hub was never paused: the stranger's freeze was refused");
     }
 
@@ -286,7 +289,10 @@ contract HubAuthorityLayerTest is Test {
         vm.prank(ROUTER);
         hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), TOK_A, TOK_B, 1e18, 1e18, 1e18);
 
-        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1,
+        // fix-1102 A: was swapCount 1 because the registration ticked the new row; now 0 with lastUpdateTs = now because the row is born unticked and stamped at birth (BlazePhoenixHub.sol:2168)
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 0,
+            "unpausing must restore the learning path, not leave it dead");
+        assertEq(BPC.decodeLastUpdateTs(hub.getSlot(key)), block.timestamp,
             "unpausing must restore the learning path, not leave it dead");
     }
 

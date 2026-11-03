@@ -987,7 +987,7 @@ contract BlazePhoenixGateTest is Test {
     }
 
     /// The wrapper of `_wrapper` over a venue holding 2e30 a side: its depth is in bucket 15
-    /// (weight 2^15), so 128 material swaps lift vitalOf's psi to 2^22.
+    /// (weight 2^15), so material swaps a block (12 s) apart lift vitalOf's psi past 2^22.
     function _deepWrapper() internal returns (BlazePhoenixGateWrapper w) {
         w = _wrapper();
         adapter.setDeclaredDepth(type(uint128).max);   // capped by what the venue holds
@@ -996,9 +996,22 @@ contract BlazePhoenixGateTest is Test {
         venue.sync();
     }
 
-    /// 128 material swaps (each above 1/2^MATERIAL_SHIFT of both venue sides): use, not a cheatcode.
+    /// Material swaps (each above 1/2^MATERIAL_SHIFT of both venue sides): use, not a cheatcode.
+    /// A burst inside one second is one use: its second swap moves no psi. Then 128 swaps a
+    /// block (12 s) apart: tau settles at 12 and the count at 15 (Core._decay's chord keeps
+    /// c - c / 8 of an interval, the tick adds 1), so v = 15 * 24 576 / (4 * 12) = 7 680 and
+    /// psi = 7 680 * 2^15 = 251 658 240 (BlazePhoenixCore.sol:2589, :2628, :2893).
     function _heat(BlazePhoenixGateWrapper w) internal returns (uint256 psi) {
-        for (uint256 i; i < 128; i++) _swapDirect(w, 4e25);
+        _swapDirect(w, 4e25);
+        (, , uint256 one) = gate.vitalOf(address(w));
+        _swapDirect(w, 4e25);
+        (, , psi) = gate.vitalOf(address(w));
+        assertEq(psi, one, "setup: a burst inside one second does not pump psi");
+        // fix-1102 A: was 128 swaps in one second, psi 128 * 2^15 = 2^22 because every tick counted; now 12 s apart, psi 7 680 * 2^15, because a tick inside the stamped second leaves the clock as it was (BlazePhoenixCore.sol:2898)
+        for (uint256 i; i < 128; i++) {
+            vm.warp(block.timestamp + 12);
+            _swapDirect(w, 4e25);
+        }
         (, , psi) = gate.vitalOf(address(w));
         assertGe(psi, uint256(1) << 22, "setup: psi is 2^22 or more");
     }
