@@ -93,6 +93,9 @@ ALLOW = [
      "As above."),
     (".github/scripts/mutants.py", "mstore(0x00, 0xddca3f43",
      "The fee() selector left-aligned in a word, copied from BlazePhoenixCore.getV3Fee by the aero-nova mutant."),
+    (".github/scripts/mutants.py", "mstore(0x00, 0x781a891",
+     "The getLBHooksParameters() selector left-aligned in a word, copied from BlazePhoenixAdapterLB._hooksParameters "
+     "by mutant [LB-36] (0x781a8915, and 0x781a8916 in the mutant)."),
 ]
 
 

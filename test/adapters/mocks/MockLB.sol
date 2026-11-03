@@ -76,7 +76,7 @@ contract MockLBPair {
     /// | 2 the read reverts with data | 3 the read answers 16 bytes
     uint8 public hooksMode;
     bool public swapOutReverts;
-    bool internal _locked;
+    bool internal _entered;
 
     constructor(address x, address y) {
         (X, Y) = (x, y);
@@ -139,8 +139,8 @@ contract MockLBPair {
     }
 
     function swap(bool swapForY, address to) external returns (bytes32 amountsOut) {
-        if (_locked) revert ReentrancyGuardReentrantCall();
-        _locked = true;
+        if (_entered) revert ReentrancyGuardReentrantCall();
+        _entered = true;
         // PUSH: what arrived above the books, input side only (0.8 checked: a balance below the
         // books panics, as BinHelper.received does).
         uint256 received = swapForY
@@ -149,7 +149,7 @@ contract MockLBPair {
         if (received == 0) revert LBPair__InsufficientAmountIn();
         bytes32 hp = hooksParameters;
         bytes32 amountsIn = swapForY ? bytes32(received) : bytes32(received << 128);
-        // beforeSwap runs locked, after the input is measured.
+        // beforeSwap runs inside the guard, after the input is measured.
         if ((uint256(hp) & BEFORE_SWAP) != 0) _hook(hp, BEFORE_SWAP_SEL, to, swapForY, amountsIn);
         (uint256 left, uint256 out, uint256 fee) = _swapOut(received, swapForY);
         if (left != 0) revert LBPair__OutOfLiquidity();
@@ -167,8 +167,8 @@ contract MockLBPair {
             amountsOut = bytes32(out);
         }
         require(IMockLBToken(swapForY ? Y : X).transfer(to, out), "mock: pay");
-        _locked = false;
-        // afterSwap runs unlocked.
+        _entered = false;
+        // afterSwap runs after the guard is released.
         if ((uint256(hp) & AFTER_SWAP) != 0) _hook(hp, AFTER_SWAP_SEL, to, swapForY, amountsOut);
     }
 

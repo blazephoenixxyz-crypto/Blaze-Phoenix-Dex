@@ -23,7 +23,7 @@ contract FakeWrapperLB {
 /// Liquidity Book adapter (LFJ v2.1 / v2.2, Pharaoh DLMM) behind the real wrapper. Red-first at
 /// 0cb3af4: every test below was written before the adapter body, against a stub with the
 /// same ABI; the guard each one watches has its mutant in .github/scripts/mutants.py
-/// ([LB-01].. in the build report, renumbered on integration). Oracles: the mock pair's own
+/// ([LB-01]..[LB-46], the build report's tags kept). Oracles: the mock pair's own
 /// maths (test/adapters/mocks/MockLB.sol) and values fixed by hand at 1 X = 2 Y and 30 bps.
 contract AdapterLBTest is AdapterHarness {
     uint8 internal constant FAM = 1;
@@ -213,7 +213,7 @@ contract AdapterLBTest is AdapterHarness {
     // ─── the venue's answer, taken only when it is the whole answer ───
 
     /// An amtIn above uint128 is not truncated into a smaller one: the quote is 0.
-    function test_LB_Quote_AmtInAboveUint128_IsZero_NotTruncated() public {
+    function test_LB_Quote_AmtInAboveUint128_IsZero_NotTruncated() public view {
         BlazePhoenixGateWrapper x = BlazePhoenixGateWrapper(w);
         (bytes32 a0, bytes32 a1) = (x.aux0(), x.aux1());
         uint256 big = (uint256(1) << 128) + 10e18;
@@ -257,7 +257,7 @@ contract AdapterLBTest is AdapterHarness {
         assertEq(adapter.quoteCall(address(pair), a0, a1, true, 1e18), 0, "quoteCall");
     }
 
-    // ─── who may call ───
+    // ─── who may call: ExtAdapterBase._requireWrapper (SHARED_QUANTITIES) ───
 
     function test_LB_ExecFromNonWrapper_Refused() public {
         BlazePhoenixGateWrapper x = BlazePhoenixGateWrapper(w);
@@ -353,7 +353,7 @@ contract AdapterLBTest is AdapterHarness {
         gate.create(address(t0), address(t1), KEY + 1, abi.encode(uint256(type(uint16).max) + 1 + BS));
     }
 
-    /// AFTER_SWAP runs with the pair unlocked, inside our exec: refused at create.
+    /// AFTER_SWAP runs after the pair releases its reentrancy guard, inside our exec: refused at create.
     function test_LB_Resolve_AfterSwapHookRefused() public {
         MockLBPair p = _pair(address(t1), address(t0), 50);
         p.setHooks(_hp(LIVE_FLAGS | AFTER_SWAP, address(new MockLBHooks())));
@@ -368,7 +368,7 @@ contract AdapterLBTest is AdapterHarness {
         new BlazePhoenixAdapterLB(address(0), address(factory));
     }
 
-    // ─── hooks: the pair's current hooks, on every exec, quote and quoteCall ───
+    // ─── hooks: `_hooksOk`, the pair's hooks of now, on every exec, quote and quoteCall ───
 
     function test_LB_Hooks_AfterSwapSetAfterCreate_Refused() public {
         _assertLive(w);

@@ -33,9 +33,9 @@ interface ILBPair {
 ///         IDENTITY: the pair is the factory's record of (t0, t1, binStep), asked once at
 ///         `resolve`; the hint names the bin step, never the pair.
 ///         HOOKS (v2.2 / DLMM; v2.1 has none): of the flags only BEFORE_SWAP and AFTER_SWAP run
-///         inside a swap. AFTER_SWAP runs with the pair unlocked inside our exec and is refused;
-///         BEFORE_SWAP runs locked and returns no amounts, and is admitted only with the hook the
-///         curator saw at create. Checked on every exec, quote and quoteCall against the pair's
+///         inside a swap. AFTER_SWAP runs after the pair has released its reentrancy guard,
+///         inside our exec, and is refused; BEFORE_SWAP runs inside the guard and returns no
+///         amounts, and is admitted only with the hook the curator saw at create. Checked on every exec, quote and quoteCall against the pair's
 ///         hooks of now (the factory's hooks manager changes them at any time).
 ///         aux0 = X0 (token0 is tokenX) | HOOKED (the pair answered getLBHooksParameters).
 ///         aux1 = the BEFORE_SWAP hook pinned at create (0 when none).
