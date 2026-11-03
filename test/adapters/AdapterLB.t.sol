@@ -21,7 +21,7 @@ contract FakeWrapperLB {
 }
 
 /// Liquidity Book adapter (LFJ v2.1 / v2.2, Pharaoh DLMM) behind the real wrapper. Red-first at
-/// <red-commit>: every test below was written before the adapter body, against a stub with the
+/// 0cb3af4: every test below was written before the adapter body, against a stub with the
 /// same ABI; the guard each one watches has its mutant in .github/scripts/mutants.py
 /// ([LB-01].. in the build report, renumbered on integration). Oracles: the mock pair's own
 /// maths (test/adapters/mocks/MockLB.sol) and values fixed by hand at 1 X = 2 Y and 30 bps.
