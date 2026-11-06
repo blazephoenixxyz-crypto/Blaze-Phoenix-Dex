@@ -16,7 +16,7 @@ pragma solidity 0.8.36;
 // Before MED (b4138ee) the +-5% band on rates left C out of the minority, and in the majority C
 // set the base and took the whole order (-9.68%). The Solver now keeps a leg of a split of three
 // or more only while the split with it pays at least MIN_SPLIT_IMPROVEMENT_PPM more than the
-// split without it (Solver, EVERY LEG PAYS FOR ITS PLACE). Red at 3975a50 before that.
+// split without it (`Solver._placed`, EVERY LEG PAYS FOR ITS PLACE). Red at 3975a50 before that.
 // The pins hold the seat of the remainder through a trial: when a leg leaves, the legs that stay
 // split the order to the wei as they do without it, the seat where
 // `BlazePhoenixMath._seatTheSplit` puts it, whether the leg that left held it or not. A third
