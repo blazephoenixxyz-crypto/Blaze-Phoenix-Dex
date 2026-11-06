@@ -4755,7 +4755,7 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads);\n',
       new='                    (g.expectedOut, ) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads); // MUTANT\n',
-      teste='test_3073_WalkBudget_ThreeBridgesSixBooks_Settles'),
+      teste='test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan'),
  dict(nome='DEX-01 fed read [913]: a read of the book is made on whatever gas the frame holds',
       f='src/BlazePhoenixCore.sol',
       old='        assembly ("memory-safe") { if lt(gas(), ASK_GAS_FLOOR) { revert(0, 0) } }\n',

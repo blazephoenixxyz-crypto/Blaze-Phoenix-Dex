@@ -99,6 +99,7 @@ contract CapacityWalkBudgetTest is Test {
     int24   constant TS   = 60;
     uint256 constant IN   = 200e18;             // F ~166e18 > cap 120e18, F <= HELD
     uint256 constant HELD = 400e18;
+    uint256 constant UNHELD = 1_000e18;         // cap 300e18 >= F: no cap binds, even on one book
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -196,7 +197,8 @@ contract CapacityWalkBudgetTest is Test {
     function test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles() public { _grid(3, 3); _fits("3 bridges, 3 books per pair", SEARCH_GAS * 3 / 4); }
     /// No build of this grid is held: the search alone, inside the search's share. Since DEX-01
     /// the plan's concentrated legs are walked by `Core.v3PaysOnBudget` on V3_PAY_READS reads for
-    /// the whole route, inside the same share (mutant [912]: twelve reads for each leg do not fit).
+    /// the whole route, inside the same share (that the reads are the route's is
+    /// `test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan`).
     function test_3073_WalkBudget_ThreeBridgesSixBooks_Settles() public { _grid(3, 6); _fits("3 bridges, 6 books per pair", SEARCH_GAS); }
 
     // ─── Held legs: the door settles the plan quoted, the walk on its own budget ──
@@ -260,6 +262,43 @@ contract CapacityWalkBudgetTest is Test {
         Leg memory l0 = legs[0];
         assertGt(BPC.v4WalkOut(l0.pool, bytes32(0), l0.amountIn, 0, 0, l0.zeroForOne), cap, "precondition: a whole walk pays past the cap");
         for (uint256 i; i < legs.length; ++i) assertEq(legs[i].expectedOut, cap, "the walk's own budget, not the caller's gas, keeps the cap");
+    }
+
+    function _burnBook(uint256 k) internal {
+        BurnBookPool p = new BurnBookPool(t0, t1, uint24(500 + k * 1000));
+        p.setState(SP, L);
+        MockERC20(t0).mint(address(p), UNHELD);
+        MockERC20(t1).mint(address(p), UNHELD);
+        hub.seedPool(address(p), BPC.KIND_V3, uint24(500 + k * 1000), address(0), t0, t1);
+        touched.push(address(p));
+    }
+
+    function _coldPlan() internal returns (uint256 used, RoutePlan memory plan) {
+        _cool();
+        uint256 g0 = gasleft();
+        plan = solver.findBestRoutePlan(t0, t1, IN);
+        used = g0 - gasleft();
+    }
+
+    /// The walk's V3_PAY_READS reads are the plan's, not each leg's. Books whose every read burns
+    /// its whole GAS_CAP, each holding UNHELD, so no cap binds and the search walks none of them:
+    /// the only book reads of the plan are its promise's. Three more such books then cost the
+    /// plan less than the one walk the budget allows, V3_PAY_READS * GAS_CAP. Relative, not a
+    /// ceiling: both plans are measured cold on the same build (mutant [912]: twelve reads for
+    /// each leg walk every book).
+    function test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan() public {
+        _burnBook(0);
+        (uint256 g1, RoutePlan memory one) = _coldPlan();
+        for (uint256 k = 1; k < 4; ++k) _burnBook(k);
+        (uint256 g4, RoutePlan memory four) = _coldPlan();
+        emit log_named_uint("plan gas, cold, 1 hostile book", g1);
+        emit log_named_uint("plan gas, cold, 4 hostile books", g4);
+        assertEq(one.best.hops[0].legs.length, 1, "precondition: one book, one leg");
+        assertEq(four.best.hops[0].legs.length, 4, "precondition: every hostile book is a leg");
+        uint256 cap = BPC.mulDiv(UNHELD, 3_000, BPC.BPS);
+        assertLe(one.best.hops[0].legs[0].expectedOut, cap, "precondition: no cap binds");
+        for (uint256 i; i < 4; ++i) assertLe(four.best.hops[0].legs[i].expectedOut, cap, "precondition: no cap binds");
+        assertLt(g4, g1 + BPC.V3_PAY_READS * BPC.GAS_CAP, "each leg of the plan walked on reads of its own");
     }
 
     /// T3 on a walk that changes the plan (four books holding 100e18 each: a cap of 30e18 per
