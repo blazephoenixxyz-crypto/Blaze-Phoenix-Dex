@@ -18,7 +18,7 @@ pragma solidity 0.8.36;
 //
 //  MEASURED (FOUNDRY_PROFILE=release): 395 refusals, 207 answers, the first at gas 347,105.
 //
-//  The walk is new in DEX-01, so there is no base to be red at: the red is mutant [913] of
+//  The walk is new in DEX-01, so there is no base to be red at: the red is mutant [1007] of
 //  .github/scripts/mutants.py, the guard removed.
 //
 //  forge test --match-path test/V3WalkNeverAnswersAStarvedRead.t.sol -vv

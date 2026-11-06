@@ -284,7 +284,7 @@ contract CapacityWalkBudgetTest is Test {
     /// its whole GAS_CAP, each holding UNHELD, so no cap binds and the search walks none of them:
     /// the only book reads of the plan are its promise's. Three more such books then cost the
     /// plan less than the one walk the budget allows, V3_PAY_READS * GAS_CAP. Relative, not a
-    /// ceiling: both plans are measured cold on the same build (mutant [912]: twelve reads for
+    /// ceiling: both plans are measured cold on the same build (mutant [1006]: twelve reads for
     /// each leg walk every book).
     function test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan() public {
         _burnBook(0);
