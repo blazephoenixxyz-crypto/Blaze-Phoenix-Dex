@@ -243,6 +243,8 @@ contract AdapterInfinityCLTest is AdapterHarness {
         assertEq(hook1.calls(), 2, "the second pinned hook ran");
     }
 
+    /// `_requireHookPinned` at resolve, and again at exec and quoteCall (SHARED_QUANTITIES): the
+    /// pin is the hook's code, so the same address with other code neither trades nor quotes.
     function test_InfCL_PinnedHook_Runs_ThenCodeChanges_ExecRefused() public {
         bytes32 hid = _pool(address(hook), 69, FEE);
         address w2 = gate.create(address(t0), address(t1), KEY + 1, abi.encode(hid));
