@@ -3,7 +3,9 @@ pragma solidity 0.8.36;
 
 import {AdapterHarness, GateQuoteArm} from "./AdapterHarness.sol";
 import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
-import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
+import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
 import {
     BlazePhoenixAdapterAlgebraIntegral, IAlgebraCustomFactory, IAlgebraVenue
 } from "../../src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol";
@@ -475,16 +477,20 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         address[] memory cold = new address[](1);
         cold[0] = _venueOf(w2);
         (uint256 out, , ) = _armUnderCap(w2, true, 40e18, cold);
+        assertEq(_quoterPrice(w2, KEY + 1, 40e18, 30_000_000), out, "the real Quoter prices the floor at the capped walk");
         assertEq(_swap(w2, true, 40e18), out, "the capped walk is the swap");
     }
 
     function test_AI_Walk_PastTheCap_IsZero_NotARevert() public {
         _ladder(address(0xD92), OVER);
         address w2 = _wrap(address(0xD92), KEY + 1);
+        // The real Quoter, not a mirror of its arm: Core.gateQuote's view `quote`, then
+        // dryQuoteCall's `quoteCall`, each under GATE_QUOTE_GAS, on a bounded budget (the route
+        // is priced on two passes, two capped answers each). Mutant [AI-42] (quoteCall on
+        // gasleft()) prices the leg or runs the budget out.
+        assertEq(_quoterPrice(w2, KEY + 1, 40e18, 3_000_000), 0, "past the cap: 0, and the caller goes on");
         GateQuoteArm arm = new GateQuoteArm();
         vm.cool(_venueOf(w2));
-        (uint256 capped, , ) = arm.price(w2, true, 40e18, GATE_QUOTE_GAS);
-        assertEq(capped, 0, "past the cap: 0, and the caller goes on");
         (uint256 free, , ) = arm.price(w2, true, 40e18, 30_000_000);
         assertGt(free, 0, "without the cap the walk answers");
         assertEq(_swap(w2, true, 40e18), free, "and it is the swap");
@@ -505,6 +511,29 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
 
     function _venueOf(address wr) internal view returns (address vp) {
         (vp, , ) = _leg(wr);
+    }
+
+    /// The real Quoter's price of the kind-9 leg `wr` (venue key `key`, t0 in), cold venue: a
+    /// Hub that admitted this Gate, and `previewRouteExact`, whose `_priceLeg` asks
+    /// Core.gateQuote, then dryQuoteCall when the view answers 0. `budget` is the caller's gas.
+    function _quoterPrice(address wr, uint24 key, uint256 amt, uint256 budget) internal returns (uint256) {
+        BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
+        hub.initialize(address(this), address(0xBEEF));
+        hub.setRoles(address(this), address(this), address(this));
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = key;
+        hub.addFactory(address(gate), BPC.KIND_EXTERNAL, 5, gate.WRAPPER_INIT_HASH(), fees, new int24[](0));
+        BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
+        Leg[] memory l = new Leg[](1);
+        l[0] = Leg({pool: wr, hooks: address(0), kind: BPC.KIND_EXTERNAL, fee: key, tickSpacing: 0,
+            zeroForOne: true, stable: false, amountIn: amt, expectedOut: 0, auxId: bytes32(0)});
+        Hop[] memory hs = new Hop[](1);
+        hs[0] = Hop({tokenIn: address(t0), tokenOut: address(t1), amountIn: amt, expectedOut: 0, legs: l});
+        Route memory r = Route({hops: hs, totalOut: 0, singleOut: 0, singleOutFloor: 0, expectedImpactBps: 0,
+            confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+        vm.cool(_venueOf(wr));
+        (Route memory q, ) = quoter.previewRouteExact{gas: budget}(r, amt);
+        return q.hops[0].legs[0].expectedOut;
     }
 
     function _quoteGas(MockAlgebraVenue v) internal returns (uint256 g, uint256 out) {

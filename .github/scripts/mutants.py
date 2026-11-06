@@ -5277,6 +5277,16 @@ M = [
       old="        BPC.safeTransfer(_tIn, msg.sender, uint256(owed));",
       new="        assembly (\"memory-safe\") { pop(delegatecall(gas(), caller(), 0, 0, 0, 0)) } BPC.safeTransfer(_tIn, msg.sender, uint256(owed)); // MUTANT [AI-40]",
       teste="test_AI_CodeIsCleanForTheGate"),
+ dict(nome="adapters [AI-41]: the Core's GATE_QUOTE_GAS falls under the AI walk's floor of ticks (24 crossings at ~13.5k each)",
+      f="src/BlazePhoenixCore.sol",
+      old="    uint256 internal constant GATE_QUOTE_GAS = 500_000;",
+      new="    uint256 internal constant GATE_QUOTE_GAS = 200_000; // MUTANT [AI-41]",
+      teste="test_AI_Walk_FloorOfTicksFitsUnderTheCap"),
+ dict(nome="adapters [AI-42]: the Quoter's quoteCall arm runs on all the gas left, so an AI walk past the cap prices",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        try IGateWrapperQ(wrapper).quoteCall{gas: GATE_QUOTE_GAS}(zeroForOne, amtIn) returns (uint256 o) {",
+      new="        try IGateWrapperQ(wrapper).quoteCall{gas: gasleft()}(zeroForOne, amtIn) returns (uint256 o) { // MUTANT [AI-42]",
+      teste="test_AI_Walk_PastTheCap_IsZero_NotARevert"),
 ]
 
 def run(t):
