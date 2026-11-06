@@ -125,7 +125,9 @@ contract AdapterLBTest is AdapterHarness {
     }
 
     /// exec's own return (advisory: the wrapper measures at the recipient) is the output side
-    /// of the pair's word: X in the low 128 bits, Y in the high.
+    /// of the pair's word: X in the low 128 bits, Y in the high. Interface only: the wrapper's
+    /// `swap`, exec's one caller, discards the return (IExtAdapter: "advisory and never read"),
+    /// so [LB-19] is equivalent on every wrapper path; there the recipient's balance is pinned.
     function test_LB_ExecReturnsTheOutputSideOfTheVenueWord() public {
         BlazePhoenixGateWrapper x = BlazePhoenixGateWrapper(w);
         (bytes32 a0, bytes32 a1) = (x.aux0(), x.aux1());

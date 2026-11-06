@@ -126,6 +126,10 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         _assertEmpty(address(adapter), w, address(venue));
     }
 
+    /// exec's own return (advisory: the wrapper measures at the recipient) is the output side of
+    /// the venue's deltas, both ways. Interface only: the wrapper's `swap`, exec's one caller,
+    /// discards the return (IExtAdapter: "advisory and never read"), so [AI-02] is equivalent on
+    /// every wrapper path; there the recipient's balance is pinned.
     function test_AI_ExecReturnsTheOutputSideOfTheVenue() public {
         (address vp, bytes32 a0, bytes32 a1) = _leg(w);
         t0.mint(address(adapter), 1e18);
