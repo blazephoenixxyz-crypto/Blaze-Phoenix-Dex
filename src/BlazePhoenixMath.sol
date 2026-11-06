@@ -92,8 +92,10 @@ library BlazePhoenixMath {
     ///         where the venues charge 0.05%, an honest venue that lags the base by more than the
     ///         round trip is dropped until an arbitrageur closes the gap; the +-5% kept it.
     ///         (2) A venue at a fair price with a large fee is now IN the band, where the +-5% on
-    ///         rates left it out. The split weighs by depth; its gate guarantees the best
-    ///         surviving leg alone, not the split a narrower band would have made. (3) A fee near
+    ///         rates left it out. The split weighs by depth, and such a venue took its depth's
+    ///         share: a leg of a split of three or more now stays only while it pays for its
+    ///         place (Solver, EVERY LEG PAYS FOR ITS PLACE), and the gate still measures every
+    ///         survivor alone. (3) A fee near
     ///         100% leaves k_i near 0 and passes both edges; such a venue's rate is near 0, and
     ///         the gate weighs rates. (4) Not bounded: the arbitrageur's gas, and the quote shapes
     ///         `BPC.universalProbe` lists as limits.
@@ -282,8 +284,8 @@ library BlazePhoenixMath {
     ///      bounty). The last leg takes the rounding and every wei a clamp frees, so whoever
     ///      sits last is paid more than its weight. The order reaching here is the funnel's,
     ///      which ranks on psi, so the seat is chosen here instead: the deepest survivor by
-    ///      measured weight, ties to the lowest address. Swapped in lockstep with the same
-    ///      three arrays the funnel cut moves.
+    ///      measured weight, ties to the lowest address (`seatOf`). Swapped in lockstep with the
+    ///      same three arrays the funnel cut moves.
     function _seatTheSplit(
         PoolInfo[] memory cands, uint256[] memory w, uint256[] memory bals,
         uint256[] memory rates, uint256 n, uint256 sum
@@ -302,11 +304,7 @@ library BlazePhoenixMath {
         }
         if (n < 2) return sum;
         uint256 last = n - 1;
-        uint256 bi = last;
-        for (uint256 i; i < last; ) {
-            if (w[i] > w[bi] || (w[i] == w[bi] && cands[i].pool < cands[bi].pool)) bi = i;
-            unchecked { ++i; }
-        }
+        uint256 bi = seatOf(cands, w, n);
         if (bi != last) {
             (cands[bi], cands[last]) = (cands[last], cands[bi]);
             (w[bi], w[last])         = (w[last], w[bi]);
@@ -314,6 +312,20 @@ library BlazePhoenixMath {
             (rates[bi], rates[last]) = (rates[last], rates[bi]);
         }
         return sum;
+    }
+
+    /// @dev THE SEAT ITSELF (INV-7): of the first `m` candidates, the deepest by measured weight
+    ///      `w`, a tie to the lowest address; `m - 1` when none beats the last. One rule, read
+    ///      where the split is made (`_seatTheSplit`) and where a leg leaves it
+    ///      (`BlazePhoenixSolver._leave`). Internal: the Solver compiles it in, so it still enters
+    ///      this library only through `select`.
+    function seatOf(PoolInfo[] memory cands, uint256[] memory w, uint256 m) internal pure returns (uint256 bi) {
+        uint256 last = m - 1;
+        bi = last;
+        for (uint256 i; i < last; ) {
+            if (w[i] > w[bi] || (w[i] == w[bi] && cands[i].pool < cands[bi].pool)) bi = i;
+            unchecked { ++i; }
+        }
     }
 
     /// @dev Selection-sort the top-`budget` survivors by weight to the front of

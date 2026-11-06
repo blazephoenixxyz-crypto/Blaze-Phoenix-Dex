@@ -4035,8 +4035,8 @@ M = [
       teste='test_D10_SameAnswer_BandAgainstAnOutlier'),
  dict(nome="D10 replay: the hop keeps its own order and ignores the library's map",
       f='src/BlazePhoenixSolver.sol',
-      old='            for (uint256 i; i < cands.length; ) { cands[i] = c0[map[i]]; balsOut[i] = b0[map[i]]; unchecked { ++i; } }',
-      new='            for (uint256 i; i < cands.length; ) { cands[i] = c0[i]; balsOut[i] = b0[i]; unchecked { ++i; } } // MUTANT',
+      old='            for (uint256 i; i < cands.length; ) { cands[i] = c0[map[i]]; balsOut[i] = b0[map[i]]; rates[i] = r0[map[i]]; unchecked { ++i; } }',
+      new='            for (uint256 i; i < cands.length; ) { cands[i] = c0[i]; balsOut[i] = b0[i]; rates[i] = r0[i]; unchecked { ++i; } } // MUTANT',
       teste='test_D10_SameAnswer_FunnelCutAndSeat'),
  dict(nome='D10 map: the library answers the identity instead of the moves it made',
       f='src/BlazePhoenixMath.sol',
@@ -4946,6 +4946,48 @@ M = [
       old='                    if (BPC.mulDiv(p, k * up / PIPS, BPC.WAD) <= pb\n',
       new='                    if ((f >= PIPS || BPC.mulDiv(p, k * up / PIPS, BPC.WAD) <= pb) // MUTANT [980]\n',
       teste='test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand'),
+ # --- EVERY LEG PAYS FOR ITS PLACE (the split after MED, 2026-10-28): labels [981]-[987] ---
+ # In a split of three legs or more, the leg whose probe paid least (`rates`, replayed with the
+ # candidates by the library's map; a tie to the lower address) is tried while another leg pays on
+ # average at least that rate, and the split without it (the same weights, the seat where
+ # `BlazePhoenixMath.seatOf` puts it) is kept unless the split with it pays
+ # MIN_SPLIT_IMPROVEMENT_PPM more (`Solver._placed`). Red at 3975a50: a 10% venue at the fair
+ # price beside two 0.3% venues took its depth's share of the order (test/SplitLegPaysForItsPlace.t.sol).
+ dict(nome='PLACE [981]: a leg on trial never leaves, and beside a 10% venue at 1.02x the honest depth the gate settles on one honest venue',
+      f='src/BlazePhoenixSolver.sol',
+      old='            if (totalOut + up >= BPC.mulDiv(o2 + u2, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000)) break;',
+      new='            break; // MUTANT [981]',
+      teste='test_AMajorityVenueBehindATenPercentFeeNeverLowersTheSplit'),
+ dict(nome="PLACE [982]: the probe rates keep the funnel's order while the candidates follow the library's map, and the trial reads another venue's rate",
+      f='src/BlazePhoenixSolver.sol',
+      old='            for (uint256 i; i < cands.length; ) { cands[i] = c0[map[i]]; balsOut[i] = b0[map[i]]; rates[i] = r0[map[i]]; unchecked { ++i; } }',
+      new='            for (uint256 i; i < cands.length; ) { cands[i] = c0[map[i]]; balsOut[i] = b0[map[i]]; rates[i] = r0[i]; unchecked { ++i; } } // MUTANT [982]',
+      teste='test_AMinorityVenueBehindATenPercentFeeNeverLowersTheSplit'),
+ dict(nome='PLACE [983]: when the leg on trial held the seat, the seat goes to the leg before it, not to the deepest left',
+      f='src/BlazePhoenixSolver.sol',
+      old='            _swap(c, b, w, r, BlazePhoenixMath.seatOf(c, w, n - 1), s);',
+      new='            // MUTANT [983]',
+      teste='test_Pin_TheSeatGoesToTheDeepestWhenItsLegLeaves'),
+ dict(nome='PLACE [984]: a leg leaves by one swap with the seat, and the seat moves to the leg before it',
+      f='src/BlazePhoenixSolver.sol',
+      old='            _swap(c, b, w, r, j, s);\n',
+      new='            _swap(c, b, w, r, j, n - 1); return; // MUTANT [984]\n',
+      teste='test_Pin_TheSeatStaysWhenAnotherLegLeaves'),
+ dict(nome='PLACE [985]: a leg on trial always leaves, and a 5% venue that pays for its place is dropped',
+      f='src/BlazePhoenixSolver.sol',
+      old='            if (totalOut + up >= BPC.mulDiv(o2 + u2, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000)) break;',
+      new='            // MUTANT [985]',
+      teste='test_AThirdVenueThatPaysForItsPlaceKeepsIt'),
+ dict(nome='PLACE [986]: the leg that left keeps its weight in the sum, and the seat takes its share',
+      f='src/BlazePhoenixSolver.sol',
+      old='            sumPsi -= psis[j];',
+      new='            // MUTANT [986]',
+      teste='testFuzz_AVenueBehindATenPercentFeeNeverLowersTheSplit'),
+ dict(nome='PLACE [987]: the leg whose probe paid most is tried, and the 10% venue is never on trial',
+      f='src/BlazePhoenixSolver.sol',
+      old='                    if (j == n || rates[i] < rates[j] || (rates[i] == rates[j] && p < cands[j].pool)) j = i;',
+      new='                    if (j == n || rates[i] > rates[j] || (rates[i] == rates[j] && p < cands[j].pool)) j = i; // MUTANT [987]',
+      teste='test_AMinorityVenueBehindATenPercentFeeNeverLowersTheSplit'),
 ]
 
 def run(t):

@@ -37,6 +37,23 @@ pragma solidity 0.8.36;
 // probes move every book by less than that. Rate order and price order agree across those
 // groups, so the base falls in the same group and the kept set is the same; nothing else the
 // hop computes reads the band.
+//
+// EVERY LEG PAYS FOR ITS PLACE (Solver, 2026-10-28) changes the split by design: in a split of
+// three or more legs, the leg whose probe paid least is tried when another leg pays at least
+// that rate on average, and it leaves unless the split with it pays MIN_SPLIT_IMPROVEMENT_PPM
+// more than the split without it, where the Solver of 8938b6a kept every leg its weight gave a
+// share. The two Solvers part wherever a leg leaves, so every row is drawn where none does. A
+// book at the market of depth d pays phi * d / (d + phi * a) a unit on an input a (phi = 1 - its
+// fee), so leg i's average reaches book j's probe rate iff s_i / d_i <= p / d_j, s_i the share
+// of leg i and p = amountIn / 100 the probe; the weights give each leg about amountIn * d_i / D,
+// so where the legs pay one fee a trial needs d_j <= D / 100. The books at the market share
+// one fee (0.3%: the V2 books and the wide V4 book) and depths within a factor of 10 (1e22 to
+// 1e23), so the shallowest of a hop's at most four legs (MAX_LEGS_PER_STAGE) holds at least
+// D / 31. The narrow book, behind 0.01%, pays more on average than any 0.3% probe, so it is
+// drawn beside one direct book and no wide one: a split of two, which the rule never tries. In
+// the fixed row with a 0.05% book beside two 0.3% books the trial runs, and the leg it tries
+// pays for its place: the V2 book holds as much as the wide 0.3% book (a thousandth of it until
+// this rule), and the split without either puts near half the order on the other.
 
 import {Test} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";
@@ -252,13 +269,13 @@ contract MathBoundarySameAnswerTest is Test {
     }
 
     /// Concentrated books vote with what they hold (test/V4MedianMassIsHeld.t.sol's shapes),
-    /// beside a V2 book.
+    /// beside a V2 book. The V2 book held 1_000e18 until EVERY LEG PAYS FOR ITS PLACE (header).
     function test_D10_SameAnswer_V4BooksVoteWithWhatTheyHold() public {
         _v4(3000, 60, 0, -887220, 887220, 1e24);
         _v4(100, 1, 584, 580, 588, 3e24);
         _row("a wide book and a narrow range", tA, tB, 1e21);
         _v4(500, 10, 0, -887220, 887220, 2e23);
-        _v2(tA, tB, 1_000e18, 1_000e18);
+        _v2(tA, tB, 1_000_000e18, 1_000_000e18);
         _row("and a second wide book and a V2 book", tA, tB, 1e21);
         _row("the other way", tB, tA, 1e21);
         _v4(10_000, 200, 584, -200, 1200, 2e28);
@@ -335,12 +352,12 @@ contract MathBoundarySameAnswerTest is Test {
 
     // ─── fuzz ────────────────────────────────────────────────────────────────
 
-    /// A V2 book of depth 1e21..1e24 at the market or 20% from it (header: until MED it drew
-    /// ten rates, 1-6% from 1 among them, which the two bands now judge apart), curated or
-    /// discovered.
+    /// A V2 book of depth 1e22..1e23 at the market or 20% from it, curated or discovered
+    /// (header: until MED it drew ten rates, 1-6% from 1 among them, which the two bands now
+    /// judge apart; until EVERY LEG PAYS FOR ITS PLACE its depth ran 1e21..1e24).
     function _v2Rand(address a, address b, uint256 w) internal {
         uint16[4] memory pct = [uint16(100), 100, 120, 80];
-        uint256 d = 1e21 * (1 + w % 1000);
+        uint256 d = 1e22 + (w % 1000) * 9e19;
         uint256 rb = d * pct[(w >> 16) % 4] / 100;
         if ((w >> 32) % 4 == 0) _v2Found(a, b, d, rb);
         else _v2(a, b, d, rb);
@@ -353,7 +370,8 @@ contract MathBoundarySameAnswerTest is Test {
     /// Pools, rates, depths, bridges, concentrated books and amounts drawn from one seed: both
     /// Solvers give the same bytes, both ways, with all the gas and at the door's budget.
     function testFuzz_D10_SameAnswer(uint256 seed) public {
-        uint256 nDirect = 1 + seed % 9;
+        bool narrow = (seed >> 13) & 1 == 1;   // beside one direct book and no wide one (header)
+        uint256 nDirect = narrow ? 1 : 1 + seed % 9;
         for (uint256 i; i < nDirect; ++i) _v2Rand(tA, tB, _w(seed, i));
         if ((seed >> 8) & 1 == 1) {
             address x = _token();
@@ -364,8 +382,8 @@ contract MathBoundarySameAnswerTest is Test {
                 _v2Rand(x, tB, _w(seed, 200 + i));
             }
         }
-        if ((seed >> 12) & 1 == 1) _v4(3000, 60, 0, -887220, 887220, uint128(1e22 * (1 + _w(seed, 300) % 1000)));
-        if ((seed >> 13) & 1 == 1) {
+        if (!narrow && (seed >> 12) & 1 == 1) _v4(3000, 60, 0, -887220, 887220, uint128(1e22 + (_w(seed, 300) % 1000) * 9e19));
+        if (narrow) {
             int24 t = int24(int256(_w(seed, 301) % 41)) - 20;   // 600 ticks until MED (header)
             _v4(100, 1, t, t - 4, t + 4, uint128(1e22 * (1 + _w(seed, 302) % 10_000)));
         }
