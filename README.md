@@ -271,7 +271,7 @@ above is the place for it.
 | Fork suites against live liquidity | 32 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 992 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 993 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |

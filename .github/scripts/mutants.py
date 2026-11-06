@@ -5287,6 +5287,11 @@ M = [
       old="        try IGateWrapperQ(wrapper).quoteCall{gas: GATE_QUOTE_GAS}(zeroForOne, amtIn) returns (uint256 o) {",
       new="        try IGateWrapperQ(wrapper).quoteCall{gas: gasleft()}(zeroForOne, amtIn) returns (uint256 o) { // MUTANT [AI-42]",
       teste="test_AI_Walk_PastTheCap_IsZero_NotARevert"),
+ dict(nome="adapters [AI-43]: Core.gateQuote's view quote runs under a cap below the AI floor walk; the Quoter's quoteCall fallback hides it",
+      f="src/BlazePhoenixCore.sol",
+      old="            let ok := staticcall(GATE_QUOTE_GAS, pool, add(cd, 32), mload(cd), 0x00, 0x20)",
+      new="            let ok := staticcall(200000, pool, add(cd, 32), mload(cd), 0x00, 0x20) // MUTANT [AI-43]",
+      teste="test_AI_Walk_FloorOfTicksFitsUnderTheCap"),
 ]
 
 def run(t):

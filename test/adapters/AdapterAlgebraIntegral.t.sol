@@ -477,6 +477,16 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         address[] memory cold = new address[](1);
         cold[0] = _venueOf(w2);
         (uint256 out, , ) = _armUnderCap(w2, true, 40e18, cold);
+        // Core.gateQuote's own view arm, the Solver's price (universalQuote has no quoteCall
+        // fallback): it must price the floor under GATE_QUOTE_GAS by itself. Mutant [AI-43]
+        // (that staticcall on a lower cap) zeroes it here, while the Quoter's dryQuoteCall
+        // would walk again and hide it.
+        BlazePhoenixHub hub = _hubAdmitting(KEY + 1);
+        vm.cool(_venueOf(w2));
+        (bool live, uint256 got, ) =
+            BPC.gateQuote(address(hub), w2, address(t0), address(t1), KEY + 1, true, 40e18, false);
+        assertTrue(live, "the Hub admitted this Gate's leg");
+        assertEq(got, out, "Core.gateQuote prices the floor under its own cap");
         assertEq(_quoterPrice(w2, KEY + 1, 40e18, 30_000_000), out, "the real Quoter prices the floor at the capped walk");
         assertEq(_swap(w2, true, 40e18), out, "the capped walk is the swap");
     }
@@ -513,16 +523,22 @@ contract AdapterAlgebraIntegralTest is AdapterHarness {
         (vp, , ) = _leg(wr);
     }
 
-    /// The real Quoter's price of the kind-9 leg `wr` (venue key `key`, t0 in), cold venue: a
-    /// Hub that admitted this Gate, and `previewRouteExact`, whose `_priceLeg` asks
-    /// Core.gateQuote, then dryQuoteCall when the view answers 0. `budget` is the caller's gas.
-    function _quoterPrice(address wr, uint24 key, uint256 amt, uint256 budget) internal returns (uint256) {
-        BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
+    /// A Hub whose admin admitted this Gate under kind 9 for venue key `key`: the registry
+    /// Core.gateQuote's identity check reads (a deploy precondition, set here, not asserted).
+    function _hubAdmitting(uint24 key) internal returns (BlazePhoenixHub hub) {
+        hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0xBEEF));
         hub.setRoles(address(this), address(this), address(this));
         uint24[] memory fees = new uint24[](1);
         fees[0] = key;
         hub.addFactory(address(gate), BPC.KIND_EXTERNAL, 5, gate.WRAPPER_INIT_HASH(), fees, new int24[](0));
+    }
+
+    /// The real Quoter's price of the kind-9 leg `wr` (venue key `key`, t0 in), cold venue: a
+    /// Hub that admitted this Gate, and `previewRouteExact`, whose `_priceLeg` asks
+    /// Core.gateQuote, then dryQuoteCall when the view answers 0. `budget` is the caller's gas.
+    function _quoterPrice(address wr, uint24 key, uint256 amt, uint256 budget) internal returns (uint256) {
+        BlazePhoenixHub hub = _hubAdmitting(key);
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
         Leg[] memory l = new Leg[](1);
         l[0] = Leg({pool: wr, hooks: address(0), kind: BPC.KIND_EXTERNAL, fee: key, tickSpacing: 0,
