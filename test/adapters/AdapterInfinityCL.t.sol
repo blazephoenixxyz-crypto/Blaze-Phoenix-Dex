@@ -184,6 +184,20 @@ contract AdapterInfinityCLTest is AdapterHarness {
         gate.create(address(t0), address(t1), KEY + 1, abi.encode(xid));
     }
 
+    /// Each side of the pair is checked on its own, whatever the address order: a pool that
+    /// shares t1 but not t0, and one that shares t0 but not t1 (resolve never reads their code).
+    function test_InfCL_Resolve_EachSideOfThePair_RefusedAlone() public {
+        address lo = address(uint160(address(t1)) - 1); // the pool (lo, t1): only currency0 differs
+        address hi = address(uint160(address(t0)) + 1); // the pool (t0, hi): only currency1 differs
+        assertTrue(lo != address(t0) && hi != address(t1), "fixture: t0 and t1 are not adjacent");
+        bytes32 i0 = cl.initialize(_key(lo, address(t1), address(0), 0, FEE), uint160(Q96), 1000e18);
+        bytes32 i1 = cl.initialize(_key(address(t0), hi, address(0), 0, FEE), uint160(Q96), 1000e18);
+        vm.expectRevert(_aerr(3));
+        gate.create(address(t0), address(t1), KEY + 1, abi.encode(i0));
+        vm.expectRevert(_aerr(3));
+        gate.create(address(t0), address(t1), KEY + 2, abi.encode(i1));
+    }
+
     function test_InfCL_Resolve_MalformedHint_Refused() public {
         vm.expectRevert(_aerr(8));
         gate.create(address(t0), address(t1), KEY + 1, abi.encodePacked(bytes20(id)));
@@ -344,13 +358,36 @@ contract AdapterInfinityCLTest is AdapterHarness {
     bool internal _lockRan;
     uint256 internal _dLocked;
     uint256 internal _vLocked;
+    bool internal _lockQuotes;
+    uint256 internal _qLocked;
 
     /// The Vault's lock callback, with this test as the locker.
     function lockAcquired(bytes calldata) external returns (bytes memory) {
         _lockRan = true;
         (, _dLocked) = BlazePhoenixGateWrapper(w).quote(true, 0);
         (, _vLocked, ) = gate.vitalOf(w);
+        if (_lockQuotes) {
+            _qLocked = BlazePhoenixGateWrapper(w).quoteCall(true, 1e18);
+            vm.prank(w);
+            vm.expectRevert(abi.encodeWithSelector(MockInfVault.LockerAlreadySet.selector, address(this)));
+            adapter.quoteCall(address(vault), id, bytes32(0), true, 1e18);
+        }
         return "";
+    }
+
+    /// A 36-byte revert that is not this adapter's QuoteOut is never read as an output, and is
+    /// bubbled as it came: the Vault's LockerAlreadySet(address) while another contract holds the
+    /// lock, and this adapter's own Panic(0x11) at an amount past int256 (-int256(2 ** 255)).
+    function test_InfCL_QuoteCall_A36ByteRevertNotQuoteOut_IsNoQuote() public {
+        assertEq(BlazePhoenixGateWrapper(w).quoteCall(true, 1e18), _out(1e18), "control: unlocked, the arm quotes");
+        _lockQuotes = true;
+        vault.lock(abi.encode(uint256(0)));
+        assertTrue(_lockRan, "anti-vacuity: quoted inside another locker's lock");
+        assertEq(_qLocked, 0, "LockerAlreadySet(address) has QuoteOut's length: not an out");
+        assertEq(BlazePhoenixGateWrapper(w).quoteCall(true, 2 ** 255), 0, "Panic(0x11) has QuoteOut's length: not an out");
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", uint256(0x11)));
+        adapter.quoteCall(address(vault), id, bytes32(0), true, 2 ** 255);
     }
 
     function test_InfCL_Depth18_OnlyForTheGatesWrapper() public {

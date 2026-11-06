@@ -4859,6 +4859,21 @@ M = [
       old='        HOOK_CODEHASH1 = _pin(refHooks[1]);',
       new='        HOOK_CODEHASH1 = bytes32(0); // MUTANT [IC40]',
       teste='test_InfCL_Constructor_PinsAreTheRefHooksCodehash'),
+ dict(nome='adapters-bsc [IC41]: Infinity CL matches only currency1 of the pool to the pair',
+      f='src/adapters/BlazePhoenixAdapterInfinityCL.sol',
+      old='        if (key.currency0 != t0 || key.currency1 != t1) revert AdapterE(3);',
+      new='        if (key.currency1 != t1) revert AdapterE(3); // MUTANT [IC41]',
+      teste='test_InfCL_Resolve_EachSideOfThePair_RefusedAlone'),
+ dict(nome='adapters-bsc [IC42]: Infinity CL reads any 36-byte revert of the lock as QuoteOut',
+      f='src/adapters/BlazePhoenixAdapterInfinityCL.sol',
+      old='            if (r.length != 36 || bytes4(r) != QuoteOut.selector) {',
+      new='            if (r.length != 36) { // MUTANT [IC42]',
+      teste='test_InfCL_QuoteCall_A36ByteRevertNotQuoteOut_IsNoQuote'),
+ dict(nome='adapters-bsc [IC43]: Infinity CL matches only currency0 of the pool to the pair',
+      f='src/adapters/BlazePhoenixAdapterInfinityCL.sol',
+      old='        if (key.currency0 != t0 || key.currency1 != t1) revert AdapterE(3);',
+      new='        if (key.currency0 != t0) revert AdapterE(3); // MUTANT [IC43]',
+      teste='test_InfCL_Resolve_EachSideOfThePair_RefusedAlone'),
 ]
 
 def run(t):
