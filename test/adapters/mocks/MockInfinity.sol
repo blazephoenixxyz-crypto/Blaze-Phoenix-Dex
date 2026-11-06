@@ -91,7 +91,9 @@ interface IMockBeforeSwap {
 /// `initialize` records poolIdToPoolKey[keccak256(abi.encode(key))]; `swap` refuses a key of
 /// another manager, an amount of zero, an uninitialised pool, and a price limit outside
 /// (MIN_SQRT_RATIO, current) / (current, MAX_SQRT_RATIO) (CLPool.sol:212-214); it calls the hook's
-/// beforeSwap when bit 6 of the bitmap is set and the caller is not the hook; exact-in only:
+/// beforeSwap when bit 6 of the bitmap is set and the caller is not the hook, and a revert of the
+/// hook reaches the caller only inside the ERC-7751 envelope WrappedError(hook, selector, reason,
+/// HookCallFailed) (Hooks.sol:77-83, CustomRevert.sol:13-47); exact-in only:
 /// consumed = min(amount, maxIn) (a pool that runs out of liquidity before the limit), out =
 /// consumed * (1e6 - fee) / 1e6 * rate / 1e18, accounted to the caller at the Vault (input
 /// negative) and returned as the BalanceDelta.
@@ -100,6 +102,8 @@ contract MockInfCLPoolManager {
     error SwapAmountCannotBeZero();
     error PoolNotInitialized();
     error InvalidSqrtPriceLimit(uint160 current, uint160 limit);
+    error WrappedError(address target, bytes4 selector, bytes reason, bytes details);
+    error HookCallFailed();
 
     uint160 internal constant MIN_SQRT_RATIO = 4295128739;
     uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
@@ -144,7 +148,9 @@ contract MockInfCLPoolManager {
                          : (p.sqrtPriceLimitX96 <= sp || p.sqrtPriceLimitX96 >= MAX_SQRT_RATIO)) {
             revert InvalidSqrtPriceLimit(sp, uint160(p.sqrtPriceLimitX96));
         }
-        if (uint256(key.parameters) & (1 << 6) != 0 && msg.sender != key.hooks) IMockBeforeSwap(key.hooks).beforeSwap(msg.sender);
+        if (uint256(key.parameters) & (1 << 6) != 0 && msg.sender != key.hooks) {
+            _callHook(key.hooks, abi.encodeCall(IMockBeforeSwap.beforeSwap, (msg.sender)));
+        }
         require(p.amountSpecified < 0, "mock: exact-in only");
         uint256 amt = uint256(-p.amountSpecified);
         uint256 used = maxIn[id] != 0 && maxIn[id] < amt ? maxIn[id] : amt;
@@ -153,6 +159,13 @@ contract MockInfCLPoolManager {
         (int256 a0, int256 a1) = p.zeroForOne ? (-int256(used), int256(out)) : (int256(out), -int256(used));
         d = (a0 << 128) | int256(uint256(uint128(int128(a1))));
         MockInfVault(vault).accountAppBalanceDelta(key.currency0, key.currency1, d, msg.sender);
+    }
+
+    /// Hooks.callHook: on a revert, CustomRevert.bubbleUpAndRevertWith(hook, bytes4(data),
+    /// HookCallFailed.selector), whose assembly lays out the ABI encoding of this error.
+    function _callHook(address h, bytes memory data) internal {
+        (bool ok, bytes memory r) = h.call(data);
+        if (!ok) revert WrappedError(h, bytes4(data), r, abi.encodePacked(HookCallFailed.selector));
     }
 }
 

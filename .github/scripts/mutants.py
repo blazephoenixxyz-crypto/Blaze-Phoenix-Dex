@@ -4874,6 +4874,16 @@ M = [
       old='        if (key.currency0 != t0 || key.currency1 != t1) revert AdapterE(3);',
       new='        if (key.currency0 != t0) revert AdapterE(3); // MUTANT [IC43]',
       teste='test_InfCL_Resolve_EachSideOfThePair_RefusedAlone'),
+ dict(nome='adapters-bsc [IC44]: Infinity CL leaves _inExec set after exec, so a later Vault callback in the tx runs',
+      f='src/adapters/BlazePhoenixAdapterInfinityCL.sol',
+      old='recipient));\n        _inExec = false;',
+      new='recipient));\n        // MUTANT [IC44]',
+      teste='test_InfCL_VaultCallbackAfterOwnExec_Refused'),
+ dict(nome='adapters-bsc [IC45]: Infinity CL leaves _inExec set after quoteCall, so a later Vault callback in the tx runs',
+      f='src/adapters/BlazePhoenixAdapterInfinityCL.sol',
+      old='        }\n        _inExec = false;',
+      new='        }\n        // MUTANT [IC45]',
+      teste='test_InfCL_VaultCallbackAfterOwnQuoteCall_Refused'),
 ]
 
 def run(t):

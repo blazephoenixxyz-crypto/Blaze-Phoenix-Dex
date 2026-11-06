@@ -152,10 +152,51 @@ contract AdapterInfinityCLTest is AdapterHarness {
         assertEq(hook.lastRet(), _aerr(6));
     }
 
+    /// Defence in depth. The deployed Vault calls `lockAcquired` only on the locker, inside the
+    /// `lock` that locker opened (one call site, Vault.sol:78), and this adapter locks only from
+    /// its own `exec` and `quoteCall`. The mock's `poke` is a Vault that calls back out of turn:
+    /// the three tests below pin the `_inExec` half of the guard, not a path the live Vault offers.
     function test_InfCL_VaultCallbackOutsideOwnExec_Refused() public {
         t0.mint(address(adapter), 1e18); // something to steal, were the callback open
         vm.expectRevert(_aerr(6));
         vault.poke(address(adapter), abi.encodeCall(adapter.lockAcquired, (abi.encode(uint256(1)))));
+    }
+
+    /// The flag is cleared when the exec returns. Transient storage lives until the end of the
+    /// transaction: the exec and the callback after it run inside one call frame of the test
+    /// (`this.runThenPoke`), the same transaction whether or not the runner isolates its calls.
+    function test_InfCL_VaultCallbackAfterOwnExec_Refused() public {
+        this.runThenPoke(true);
+    }
+
+    /// The same after a quoteCall, whose lock ends in a revert the adapter catches.
+    function test_InfCL_VaultCallbackAfterOwnQuoteCall_Refused() public {
+        this.runThenPoke(false);
+    }
+
+    function runThenPoke(bool exec) external {
+        require(msg.sender == address(this), "test only");
+        if (exec) {
+            assertEq(_swap(w, true, 1e18), _out(1e18), "the exec ran");
+        } else {
+            assertEq(BlazePhoenixGateWrapper(w).quoteCall(true, 1e18), _out(1e18), "the quoteCall ran");
+            _settled();
+        }
+        _pokeWithAPayloadThatPaysAThief();
+    }
+
+    /// A well-formed exec payload: were the callback open, the bait in the adapter would be paid
+    /// into the Vault and the output taken to the thief.
+    function _pokeWithAPayloadThatPaysAThief() internal {
+        address thief = makeAddr("thief");
+        t0.mint(address(adapter), 1e18);
+        bytes memory steal = abi.encode(
+            false, _key(address(t0), address(t1), address(0), 0, FEE), true, uint256(1e18), address(t0), address(t1), thief
+        );
+        vm.expectRevert(_aerr(6));
+        vault.poke(address(adapter), abi.encodeCall(adapter.lockAcquired, (steal)));
+        assertEq(t1.balanceOf(thief), 0, "nothing reached the thief");
+        assertEq(t0.balanceOf(address(adapter)), 1e18, "the bait stayed where it was");
     }
 
     function test_InfCL_ExecFromNonWrapper_Refused() public {
@@ -272,14 +313,23 @@ contract AdapterInfinityCLTest is AdapterHarness {
     }
 
     /// Only the adapter's own path produces QuoteOut: a hook reverting with that payload is a
-    /// failed swap (QuoteSwapFailed of its bytes), not a price.
+    /// failed swap, not a price. The pool manager wraps every hook revert in the ERC-7751
+    /// WrappedError (Hooks.sol:83), so the forged bytes arrive as its reason and the adapter
+    /// reports QuoteSwapFailed of the whole envelope.
     function test_InfCL_QuoteCall_HookForgingTheOut_NotRead() public {
+        // Both selectors are PUSH32 literals in the deployed CLPoolManager 0xa0Ff…058b at block
+        // 131960000: the mock's envelope is the venue's.
+        assertEq(MockInfCLPoolManager.WrappedError.selector, bytes4(0x90bfb865), "WrappedError");
+        assertEq(MockInfCLPoolManager.HookCallFailed.selector, bytes4(0xa9e35b2f), "HookCallFailed");
         bytes32 fid = _pool(address(hook2), 69, FEE);
         address wf = gate.create(address(t0), address(t1), KEY + 1, abi.encode(fid));
         assertEq(BlazePhoenixGateWrapper(wf).quoteCall(true, 1e18), 0, "the forged out is not a quote");
         bytes memory forged = abi.encodeWithSelector(BlazePhoenixAdapterInfinityCL.QuoteOut.selector, uint256(1e30));
+        bytes memory wrapped = abi.encodeWithSelector(
+            bytes4(0x90bfb865), address(hook2), ForgingHook.beforeSwap.selector, forged, abi.encodePacked(bytes4(0xa9e35b2f))
+        );
         vm.prank(wf);
-        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixAdapterInfinityCL.QuoteSwapFailed.selector, forged));
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixAdapterInfinityCL.QuoteSwapFailed.selector, wrapped));
         adapter.quoteCall(address(vault), fid, bytes32(0), true, 1e18);
     }
 
