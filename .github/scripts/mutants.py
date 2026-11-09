@@ -330,11 +330,11 @@ M = [
       old="                    if (h + 1 != route.hops.length) revert RouterE(5);",
       new="                    // MUTANT",
       teste="test_BlindLegOnHopZeroIsRefused"),
- dict(nome="N5: the blind-leg rule keys on the output token instead of the last hop",
-      f="src/BlazePhoenixRouter.sol",
-      old="                    if (h + 1 != route.hops.length) revert RouterE(5);",
-      new="                    if (hop.tokenOut != tokenOut) revert RouterE(5); // MUTANT",
-      teste="test_Matrix_BlindLegOnAnEarlierHopThatAlsoMakesTheOutput"),
+ # retired 2026-11-09 (hops2): N5: the blind-leg rule keys on the output token instead of the last hop
+ # EQUIVALENT in effect since MAX_HOPS = 2: on every route whose hop 1 passes Router:1124 and :1146
+ # the two predicates agree. They differ only on a malformed hop 1 with hop0.tokenOut == hop1.tokenOut,
+ # where the original refuses at hop 0 with RouterE(5) and the mutant at hop 1 with RouterE(3); nothing
+ # moves either way, and a test on the code would pin the order of validation. Successors: [1019], [1021].
  dict(nome="NM-002 residual: a zero-input leg is counted as blind (over-tight, breaks honest routes)",
       f="src/BlazePhoenixRouter.sol",
       # Re-watched 2026-09-22: under test_Control_TwoHonestLegsSettle this was
@@ -1317,11 +1317,14 @@ M = [
  # FLOOR-01: the anchor goes back to "the LAST hop DECLARED" instead of "the last hop that
  # MOVED". A trailing hop carrying amountIn = 0 then anchors the floor on its own zero and
  # mulDivUp(0, ...) removes the protocol floor entirely.
- dict(nome="FLOOR-01: the floor anchors on the last DECLARED hop instead of the last that moved",
-      f="src/BlazePhoenixRouter.sol",
-      old="            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))",
-      new="            if (h + 1 == route.hops.length)",
-      teste="test_TrailingHopThatMovesNothingCannotZeroTheProtocolFloor"),
+ # retired 2026-11-09 (hops2): FLOOR-01: the floor anchors on the last DECLARED hop instead of the last that moved
+ # EQUIVALENT since MAX_HOPS = 2 for an honest tokenOut: the two differ only on a last hop with
+ # hopGot == 0, hopBase > 0 and no blind leg, and hopGot == 0 without a blind leg means no leg ran, so
+ # every quote and hopBase are 0 and both write the same anchor. The three-hop tail it pinned is refused
+ # at the ceiling ([1016]); the two-hop analogue is the witness
+ # test_TwoHops_TrailingHopThatMovesNothing_DeliversNothingAndIsRefused. Residual, inferred: only a lying
+ # balanceOf on hop 1's input together with a lying tokenOut tells the two apart, and there the original
+ # is the permissive side; not pinned, since a test would fix the side of a predicate.
 
  # FLOOR-02: the leg count goes back to the DECLARED legs of the hop instead of the executed
  # mask, so padding with zero-amount legs shaves FLOOR_PER_LEG_BPS each.
@@ -1437,11 +1440,11 @@ M = [
       old='                if (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == tokenIn) revert RouterE(3);',
       new='                // MUTANT',
       teste='test_Discontinuous_StrandedTokenHop_RevertsRouterE3'),
- dict(nome='N1 (Seavia): a route may come back for its input token and spend the uncommitted pull fee-free',
-      f='src/BlazePhoenixRouter.sol',
-      old='                if (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == tokenIn) revert RouterE(3);',
-      new='                if (hop.tokenIn != route.hops[h - 1].tokenOut) revert RouterE(3); // MUTANT',
-      teste='test_POC_AnchorStarvedByDeclaredCommitment'),
+ # retired 2026-11-09 (hops2): N1 (Seavia): a route may come back for its input token and spend the uncommitted pull fee-free
+ # EQUIVALENT since MAX_HOPS = 2: the arm `|| hop.tokenIn == tokenIn` (Router:1146) runs only at h = 1
+ # and decides alone only when hop 1's input is both hop 0's output and hop 0's input, so hop 0 is a
+ # self-hop, already refused at Router:1124 at h = 0. [1020] pins the input visit on routes of one and
+ # two hops.
  dict(nome='D1 / W4-05: the Solidly fallback fee loses its ceiling',
       f='src/BlazePhoenixCore.sol',
       old='        fee = (cfgFee == 0 || cfgFee > V2_FEE_CEILING_BPS) ? 30 : cfgFee;',
@@ -2003,11 +2006,11 @@ M = [
       old='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))',
       new='            if (route.hops[h].tokenOut == tokenOut && hopGot != 0)',
       teste='test_FullyBlindLastHop_FinalHopQuote_AnchorsTheFloor_ThinFillRefused'),
- dict(nome='floor anchor: a blind last hop only raises the anchor, never lowers an earlier one',
-      f='src/BlazePhoenixRouter.sol',
-      old='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))',
-      new='            if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || hopBlind))',
-      teste='test_BlindLastHop_DeclaringNothing_CannotDisarmAnEarlierAnchor'),
+ # retired 2026-11-09 (hops2): floor anchor: a blind last hop only raises the anchor, never lowers an earlier one
+ # EQUIVALENT since MAX_HOPS = 2: on a valid two-hop route hop0.tokenOut = hop1.tokenIn (Router:1146)
+ # != hop1.tokenOut (Router:1124) = tokenOut (Router:996), so only the last hop writes the anchor and it
+ # gets there with finalHopQuote == 0: `hopBase > finalHopQuote` is hopBase > 0 and, when false, the
+ # mutant writes 0 over 0. Successors: [1010]-[1014].
  dict(nome='funnel cut: a weight tie keeps the better marginal rate',
       f='src/BlazePhoenixMath.sol',
       old='                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]',
@@ -5091,6 +5094,37 @@ M = [
       old='        if (n == 0 || n > MAX_HOPS) return true;                  // Router: no hops, MAX_HOPS\n',
       new='        if (n == 0 || n > MAX_HOPS + 1) return true; // MUTANT\n',
       teste='test_Matrix_BlindLegOnHopZero_IsRefused_ThreeHopOutputShapeRefusedAtTheCeiling'),
+ # hops2 (2026-11-09): the funnel cut's weight order and its tie rule, and the split gate inside the band, on fixtures that stay valid with two hops (test/FunnelCutTieReadsNoScore.t.sol, test/SplitGateSeesTheWholeBand.t.sol).
+ dict(nome='hops2 [1050]: funnel cut: the weight order is inverted and the cut keeps the lightest survivors',
+      f='src/BlazePhoenixMath.sol',
+      old='                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]\n',
+      new='                if (psis[j] < psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi] // MUTANT\n',
+      teste='test_FunnelCut_DistinctWeights_KeepsTheHeaviest'),
+ dict(nome='hops2 [1051]: funnel cut: the weight order is inverted and real mass is the pool the cut drops',
+      f='src/BlazePhoenixMath.sol',
+      old='                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]\n',
+      new='                if (psis[j] < psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi] // MUTANT\n',
+      teste='test_FunnelCut_RealMass_MovesThePayout'),
+ dict(nome='hops2 [1052]: funnel cut (f909422): a weight tie keeps the lower index, the psi order the candidates arrived in',
+      f='src/BlazePhoenixMath.sol',
+      old='                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]\n                    || (rates[j] == rates[bi] && cands[j].pool < cands[bi].pool)))) bi = j;\n',
+      new='                if (psis[j] > psis[bi]) bi = j; // MUTANT\n',
+      teste='test_FunnelCut_WeightTie_AllocationDoesNotReadThePsiOrder'),
+ dict(nome='hops2 [1053]: funnel cut (f909422): under any timing a weight tie keeps the lower index, the psi order',
+      f='src/BlazePhoenixMath.sol',
+      old='                if (psis[j] > psis[bi] || (psis[j] == psis[bi] && (rates[j] > rates[bi]\n                    || (rates[j] == rates[bi] && cands[j].pool < cands[bi].pool)))) bi = j;\n',
+      new='                if (psis[j] > psis[bi]) bi = j; // MUTANT\n',
+      teste='testFuzz_FunnelCut_WeightTie_AnyTiming_PaysTheSame'),
+ dict(nome='hops2 [1054]: C2 (AnonSecure): inside the band the gate measures only the survivors of the cut',
+      f='src/BlazePhoenixSolver.sol',
+      old='            for (uint256 i; i < nBand; ) {',
+      new='            for (uint256 i; i < n; ) { // MUTANT',
+      teste='test_R2_LossIsBoundedByTheBand'),
+ dict(nome='hops2 [1055]: MR-R1: the split gate never collapses to the best single, even with no cut',
+      f='src/BlazePhoenixSolver.sol',
+      old='                hMax <= sR &&   // no single chosen: sR == 0 and the bound below fails\n',
+      new='                false && // MUTANT\n',
+      teste='test_R2_Control_OneDeepPoolFewer_NoCut_PaysTheBestSingle'),
 ]
 
 def run(t):
