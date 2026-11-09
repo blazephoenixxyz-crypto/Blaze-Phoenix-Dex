@@ -203,3 +203,75 @@ contract ForgingHook {
 }
 
 contract OtherHook { function ok() external pure returns (uint256) { return 2; } }
+
+/// Faithful to infinity-core BinPoolManager.sol:133-177 / BinPool.sol:111-215 where the adapter
+/// touches it: `initialize` records poolIdToPoolKey[keccak256(abi.encode(key))] and the active
+/// bin; `swap` refuses an amount of zero and an uninitialised pool, calls the hook's beforeSwap
+/// as the CL mock does (BinHooks calls the shared Hooks.callHook: the same ERC-7751 envelope);
+/// exact-in only, and an exact-in spends the whole input or reverts BinPool__OutOfLiquidity (the
+/// bin loop ends only at amountsLeft == 0, BinPool.sol:188-199): `maxIn` is what the bins can
+/// take; out = amt * (1e6 - fee) / 1e6 * rate / 1e18, and an out of 0 is
+/// BinPool__InsufficientAmountUnSpecified (BinPool.sol:203). `getBin` answers each bin's own
+/// reserves, so a read of the wrong bin is seen.
+contract MockInfBinPoolManager {
+    error PoolNotInitialized();
+    error AmountSpecifiedIsZero();
+    error BinPool__OutOfLiquidity();
+    error BinPool__InsufficientAmountUnSpecified();
+    error WrappedError(address target, bytes4 selector, bytes reason, bytes details);
+    error HookCallFailed();
+
+    address public vault;
+    mapping(bytes32 => IInfinityCLPoolManager.PoolKey) internal keys;
+    mapping(bytes32 => uint24) public activeIdOf;
+    mapping(bytes32 => mapping(uint24 => uint256)) internal binOf; // reserveX << 128 | reserveY
+    mapping(bytes32 => uint256) public maxIn;
+    mapping(bytes32 => mapping(bool => uint256)) public rateOf;
+
+    constructor(address v) { vault = v; }
+
+    function initialize(IInfinityCLPoolManager.PoolKey memory key, uint24 activeId) external returns (bytes32 id) {
+        id = keccak256(abi.encode(key));
+        (keys[id], activeIdOf[id]) = (key, activeId);
+    }
+
+    function setBin(bytes32 id, uint24 binId, uint128 rx, uint128 ry) external { binOf[id][binId] = uint256(rx) << 128 | ry; }
+    function setActiveId(bytes32 id, uint24 a) external { activeIdOf[id] = a; }
+    function setMaxIn(bytes32 id, uint256 m) external { maxIn[id] = m; }
+    function setRate(bytes32 id, bool swapForY, uint256 r) external { rateOf[id][swapForY] = r; }
+
+    function poolIdToPoolKey(bytes32 id) external view returns (address, address, address, address, uint24, bytes32) {
+        IInfinityCLPoolManager.PoolKey memory k = keys[id];
+        return (k.currency0, k.currency1, k.hooks, k.poolManager, k.fee, k.parameters);
+    }
+
+    function getSlot0(bytes32 id) external view returns (uint24, uint24, uint24) {
+        return (activeIdOf[id], 0, keys[id].fee);
+    }
+
+    function getBin(bytes32 id, uint24 binId) external view returns (uint128, uint128, uint256, uint256) {
+        uint256 b = binOf[id][binId];
+        return (uint128(b >> 128), uint128(b), 0, 0);
+    }
+
+    function swap(IInfinityCLPoolManager.PoolKey memory key, bool swapForY, int128 amountSpecified, bytes calldata)
+        external returns (int256 d)
+    {
+        if (amountSpecified == 0) revert AmountSpecifiedIsZero();
+        bytes32 id = keccak256(abi.encode(key));
+        if (keys[id].poolManager == address(0)) revert PoolNotInitialized();
+        if (uint256(key.parameters) & (1 << 6) != 0 && msg.sender != key.hooks) {
+            (bool ok, bytes memory r) = key.hooks.call(abi.encodeCall(IMockBeforeSwap.beforeSwap, (msg.sender)));
+            if (!ok) revert WrappedError(key.hooks, IMockBeforeSwap.beforeSwap.selector, r, abi.encodePacked(HookCallFailed.selector));
+        }
+        require(amountSpecified < 0, "mock: exact-in only");
+        uint256 amt = uint256(-int256(amountSpecified));
+        if (maxIn[id] != 0 && amt > maxIn[id]) revert BinPool__OutOfLiquidity();
+        uint256 r = rateOf[id][swapForY];
+        uint256 out = amt * (1e6 - key.fee) / 1e6 * (r == 0 ? 1e18 : r) / 1e18;
+        if (out == 0) revert BinPool__InsufficientAmountUnSpecified();
+        (int256 a0, int256 a1) = swapForY ? (-int256(amt), int256(out)) : (int256(out), -int256(amt));
+        d = (a0 << 128) | int256(uint256(uint128(int128(a1))));
+        MockInfVault(vault).accountAppBalanceDelta(key.currency0, key.currency1, d, msg.sender);
+    }
+}
