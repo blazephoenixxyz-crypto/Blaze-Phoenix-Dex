@@ -994,13 +994,16 @@ M = [
       old="        if (!$.isBridge[t0] && $.v4CodeOf[t0] != c) $.v4CodeOf[t0] = c;",
       new="        if ($.v4CodeOf[t0] != c) $.v4CodeOf[t0] = c; // MUTANT",
       teste="test_bridgeSide_neverLearnsACode_counterpartDoes"),
- # Router:1003 `bt != tokenOut` deliberately has NO entry: the campaign found the
- # arm inert and reading confirmed why - line 1078 prices a hop whose input is
- # tokenOut against `toutStart`, never against bridgeBase, so the arm skips a
- # read nobody consumes. The property (holds-nothing on the A -> C -> B -> C
- # topology) is pinned by test_strandedTokenOut_isNotScaledIntoAnIntermediateHop
- # and carried by the `toutStart` branch of 1078, which is the line a mutant
- # should target if that branch ever gains one.
+ # Router:1056 `bt != tokenOut` and Router:1147 `hop.tokenIn == tokenOut ? toutStart : ...`
+ # deliberately have NO entry: both are EQUIVALENT since MAX_HOPS = 2 (2026-11-06). :1147 runs
+ # only for h != 0, so h = 1 is the last hop, whose tokenOut is the route's (Router:996): a hop 1
+ # whose input is tokenOut is a self-hop, refused at Router:1124 in the same iteration, before
+ # :1147. :1056 reads bt = hop 0's output = hop 1's input, which is not tokenOut on any route
+ # :1124/:1146 let through; where it is, hop 1 is refused and nothing moves. History: until
+ # 2026-11-06 the arm was found inert and the toutStart branch carried the holds-nothing
+ # property of the three-hop A -> C -> B -> C topology. That shape is now past the ceiling
+ # (test_strandedTokenOut_throughAnIntermediateHop_isPastTheCeiling) and its two-hop property
+ # is pinned by test_strandedTokenOut_isNeitherPaidNorSpent_twoHops (test/McdcInertsClosed.t.sol).
  # ── Security Closure build pass (2026-09-03): C1 authority, C2 Router cap, C3 addFactory re-arm, C4 T19 re-admission, C5 temporal orderings, C6 outV3 twin ──
  dict(nome='hub authority: onlyAdmin - the identity check is gone',
       f='src/BlazePhoenixHub.sol',
@@ -5125,6 +5128,22 @@ M = [
       old='                hMax <= sR &&   // no single chosen: sR == 0 and the bound below fails\n',
       new='                false && // MUTANT\n',
       teste='test_R2_Control_OneDeepPoolFewer_NoCut_PaysTheBestSingle'),
+ # hops2 (2026-11-09): the ceiling refuses A -> C -> B -> C at the Router and in the preview, and on two hops a stranded tokenOut is neither paid nor spent (test/McdcInertsClosed.t.sol).
+ dict(nome='hops2 [1056]: MAX_HOPS Router: the hop ceiling is gone, and A -> C -> B -> C (tokenOut as an intermediate) runs again',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (route.hops.length > MAX_HOPS) revert RouterE(3);',
+      new='        // MUTANT',
+      teste='test_strandedTokenOut_throughAnIntermediateHop_isPastTheCeiling'),
+ dict(nome="hops2 [1057]: MAX_HOPS Quoter: the preview's hop ceiling is gone, and A -> C -> B -> C previews as executable",
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (n == 0 || n > MAX_HOPS) return true;                  // Router: no hops, MAX_HOPS\n',
+      new='        if (n == 0) return true; // MUTANT\n',
+      teste='test_strandedTokenOut_throughAnIntermediateHop_isPastTheCeiling'),
+ dict(nome="hops2 [1058]: the tokenOut baseline is zero, so a stranded tokenOut makes up the tax the last hop's output paid (two hops)",
+      f='src/BlazePhoenixRouter.sol',
+      old='        uint256 toutStart = tokenIn == tokenOut ? baseIn : _bal(tokenOut);',
+      new='        uint256 toutStart = tokenIn == tokenOut ? baseIn : 0; // MUTANT',
+      teste='test_strandedTokenOut_isNeitherPaidNorSpent_twoHops'),
 ]
 
 def run(t):
