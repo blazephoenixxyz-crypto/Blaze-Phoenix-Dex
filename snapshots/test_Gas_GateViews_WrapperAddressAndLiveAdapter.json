@@ -1,0 +1,11 @@
+{
+  "liveAdapter_balancerV2": "8140",
+  "liveAdapter_balancerV3": "8140",
+  "liveAdapter_curveCryptoNG": "8140",
+  "liveAdapter_curveNG": "8140",
+  "wrapperAddress_balancerV2": "1704",
+  "wrapperAddress_balancerV3": "1704",
+  "wrapperAddress_curveCryptoNG": "1704",
+  "wrapperAddress_curveNG": "1704",
+  "wrappersOf": "10750"
+}

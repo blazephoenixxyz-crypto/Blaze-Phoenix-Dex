@@ -93,6 +93,8 @@ ALLOW = [
      "As above."),
     (".github/scripts/mutants.py", "mstore(0x00, 0xddca3f43",
      "The fee() selector left-aligned in a word, copied from BlazePhoenixCore.getV3Fee by the aero-nova mutant."),
+    (".github/scripts/mutants.py", "mstore(m, 0xe76c01e4",
+     "The globalState() selector left-aligned in a word, copied from the Algebra read in BlazePhoenixCore by the gas-1106 G2-6 mutant."),
 ]
 
 

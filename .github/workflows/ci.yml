@@ -305,7 +305,7 @@ jobs:
         run: python3 .github/scripts/check_targets.py
 
   mutation-guard:
-    name: mutation guard (shard ${{ matrix.shard }} of 8)
+    name: mutation guard (shard ${{ matrix.shard }} of 9)
     runs-on: ubuntu-latest
     # Its own job since 2026-10-07, in four parallel shards. Inside `test` the guard took 80 of
     # the job's 90 minutes at ~271 mutants and was cancelled (runs 37653877143, 37653884792);
@@ -318,11 +318,13 @@ jobs:
     # ~190 mutants left without a verdict (runs 40417743525, 40424845798). Eight: ~37 fast, ~52 slow,
     # ~55 at 800. Unbuffered output, so a cancelled shard still shows every verdict it reached.
     # Add shards, not minutes, when 15 + 0.4 * (mutants / shards) passes 60.
+    # Nine since the gas ledgers (2026-11-09): 940 mutants give 15 + 0.4 * 940 / 8 = 62.0 on
+    # eight shards and 56.8 on nine.
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -330,6 +332,10 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: the gas ledgers' snapshots (snapshots/*.json) are this binary's measurement,
+          # and every run of the guard checks them (mutants.py, SNAPSHOT_FLAGS).
+          version: v1.8.5
 
       - name: Mutation guard (os guardas tem de ter testes que os apanhem)
         # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
@@ -347,7 +353,7 @@ jobs:
         # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
         env:
           MUTANTS_SHARD: ${{ matrix.shard }}
-          MUTANTS_SHARDS: 8
+          MUTANTS_SHARDS: 9
           PYTHONUNBUFFERED: "1"
         run: python3 .github/scripts/mutants.py
 
@@ -650,7 +656,13 @@ jobs:
   gas-metrics:
     name: gas metrics (offline ledger)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30 since the snapshot gate below (2026-11-09): both steps share one release compile, and a
+    # full one takes 10.8 min on a fast runner and 15.3 on a slow one (see mutation-guard).
+    timeout-minutes: 30
+    env:
+      # The profile the snapshots were measured in and the mutation guard checks them in. Its
+      # codegen settings are the default profile's, so the reporting step measures the same code.
+      FOUNDRY_PROFILE: release
     steps:
       - uses: actions/checkout@v7
         with:
@@ -658,6 +670,9 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: the committed snapshots are this binary's measurement.
+          version: v1.8.5
 
       - name: Measure gas ledger (offline harness, reporting-only)
         # Not a pass/fail correctness gate - surfaces the MEASURED gas ledger
@@ -666,3 +681,24 @@ jobs:
         # regressions are visible per-commit and the warm/cold numbers stay
         # current instead of being trusted from a stale one-off measurement.
         run: forge test --match-contract "LifecycleMetrics|SecurityArchitectureGas|Sstore2RegistryGas|DiscoveryModeGas" -vv
+
+      - name: Gas ledgers match their snapshots (test/gas, a gate)
+        # Each gas ledger in test/gas/ writes one snapshot group named after its test
+        # (snapshots/<test>.json): the gas of each window it measures, each top-level call its own
+        # transaction (isolate, set in foundry.toml and asserted by the tests). With the check on,
+        # forge fails the run when a committed number moved; a run that passes rewrites every group
+        # it ran. The check compares only the entries both sides hold, so the git line fails on an
+        # entry that was added, renamed or dropped and on a group that was added or renamed, and the
+        # loop on a committed group that no test writes any more. A gas change therefore lands only
+        # with its snapshots regenerated in the same commit.
+        # Offline: local mocks and harnesses only, no RPC and no secret.
+        env:
+          FORGE_SNAPSHOT_CHECK: "true"
+        run: |
+          forge test --match-path "test/gas/**"
+          git status --porcelain -- snapshots/
+          test -z "$(git status --porcelain -- snapshots/)"
+          for s in snapshots/*.json; do
+            grep -qw "function $(basename "$s" .json)" test/gas/*.t.sol \
+              || { echo "::error::$s: no test in test/gas writes this group"; exit 1; }
+          done
