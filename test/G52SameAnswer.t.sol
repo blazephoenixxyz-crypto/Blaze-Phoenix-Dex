@@ -9,14 +9,21 @@ pragma solidity 0.8.36;
 // MED) once, and the plain median and every weighted median of the hop walk that one order
 // instead of sorting again.
 //
+// History: M10 left on 2026-11-06 with the three-hop topologies (MAX_HOPS 2, TOPOLOGIES 4: the
+// direct route and one two-hop route over each bridge slot), and `_firstStage` and `_copyHop`
+// with it. With two hops no topology of the main loop shares a pair with another, so a kept
+// first stage was read by none. What this file guards now is the same answer as the reference,
+// to the wei (the reference aligned to TOPOLOGIES 4 and five legs a stage, its header), on the
+// shapes M10 decided on, rewritten to two hops; each rewritten row carries its own History note.
+//
 // `SolverRef653` is the Solver of 653b1dc with its own frozen library `MathRef653` (both
 // literal, renamed). Both Solvers read the same Hub and the same state, and each call must come
 // back with the same success and the same returndata bytes, with all the gas and at the door's
-// budget (SOLVE_GAS). The fixed rows are the shapes the mechanisms decide on: bridge routes
-// whose first stage is shared by three topologies (two-hop and three-hop), the leader and the
-// runner-up opening on the same bridge, held grids whose rebuild runs WALK on the leader's
-// topology, V4 books whose cut votes run the median three times. The fuzz row draws up to three
-// bridges, books on every pair between tIn, tOut and the bridges, V4 books and amounts.
+// budget (SOLVE_GAS). The fixed rows are the shapes the mechanisms decide on: bridge routes over
+// every bridge slot, the runner-up handed out beside a leader that walks and falls, held grids
+// whose rebuild runs WALK on the leader's topology, V4 books whose cut votes run the median
+// three times. The fuzz row draws up to three bridges, books on every pair between tIn, tOut and
+// the bridges, V4 books and amounts.
 //
 // MED (2026-10-28) changes the band by design: it judges prices against the fees that bound
 // them (BlazePhoenixMath, THE BAND), where the Solver of 653b1dc judged rates against ±5% of
@@ -203,49 +210,85 @@ contract G52SameAnswerTest is Test {
 
     // ─── fixed rows ──────────────────────────────────────────────────────────
 
-    /// Calls and static calls into any of `pools` among the recorded accesses of one solve.
-    function _reads(address s, bytes memory q, address[] memory pools) internal returns (uint256 c) {
+    /// The recorded accesses of one cold solve of `s`.
+    function _accesses(address s, bytes memory q) internal returns (VmSafe.AccountAccess[] memory recs) {
         _cool();
         vm.startStateDiffRecording();
         (bool ok, ) = s.staticcall(q);
-        VmSafe.AccountAccess[] memory recs = vm.stopAndReturnStateDiff();
+        recs = vm.stopAndReturnStateDiff();
         assertTrue(ok, "precondition: the row has a route");
+    }
+
+    /// Calls and static calls into any of `pools` among `recs`.
+    function _reads(VmSafe.AccountAccess[] memory recs, address[] memory pools) internal pure returns (uint256 c) {
         for (uint256 i; i < recs.length; ++i) {
             if (recs[i].kind != VmSafe.AccountAccessKind.Call && recs[i].kind != VmSafe.AccountAccessKind.StaticCall) continue;
             for (uint256 k; k < pools.length; ++k) if (recs[i].account == pools[k]) { ++c; break; }
         }
     }
 
-    /// M10, counted: three bridges, two books on every pair. The Solver of 653b1dc builds each
-    /// first stage tIn -> bs[i] in three topologies (the two-hop one and the two three-hop ones
-    /// over bs[i]); the Solver builds it once, so the books of the first stages are read less,
-    /// the books of the last stages (built on what the stage before produced) as often, and the
-    /// answer is the same.
-    function test_G52_EachFirstStageIsBuiltOnce() public {
+    /// Registry reads of the pair (a, b), either order (`Hub.getActivePools`), among `recs`.
+    function _listed(VmSafe.AccountAccess[] memory recs, address a, address b) internal view returns (uint256 c) {
+        for (uint256 i; i < recs.length; ++i) {
+            bytes memory d = recs[i].data;
+            if (recs[i].account != address(hub) || d.length < 0x44) continue;
+            if (bytes4(d) != BlazePhoenixHub.getActivePools.selector) continue;
+            address x;
+            address y;
+            assembly ("memory-safe") { x := mload(add(d, 0x24)) y := mload(add(d, 0x44)) }
+            if ((x == a && y == b) || (x == b && y == a)) ++c;
+        }
+    }
+
+    /// Each pair is read once in the main loop, and its books as often as by the reference.
+    /// Three bridges, two books on every pair, the pairs between two bridges included. The four
+    /// topologies read tIn -> tOut and, over each bridge, tIn -> bs[i] and bs[i] -> tOut: each of
+    /// those pairs is listed from the registry once per solve, and both Solvers call its books
+    /// the same number of times. A pair between two bridges sits on no two-hop route: neither
+    /// Solver lists it or calls its books. A stage quoted twice where the rank before it did not
+    /// rise above its promise (the S2 pass run on every stage) calls its books twice.
+    /// History: until 2026-11-06 this row was M10's, `test_G52_EachFirstStageIsBuiltOnce`: the
+    /// Solver of 653b1dc built each first stage in three topologies (the two-hop one and the two
+    /// three-hop ones over bs[i]), the Solver once, and the Solver called the first-stage books
+    /// less (fN < fR). With two hops both build each first stage once: 30 calls each.
+    function test_G52_EachPairIsReadOnce() public {
         address[3] memory b = [_token(), _token(), _token()];
         for (uint256 i; i < 3; ++i) hub.addBridge(b[i]);
+        address[] memory direct = new address[](2);
         address[] memory first = new address[](6);
         address[] memory last = new address[](6);
+        address[] memory between = new address[](6);
         for (uint256 k; k < 2; ++k) {
-            _v2(tA, tB, 5_000e18 * (k + 1), 5_000e18 * (k + 1));
+            direct[k] = _v2(tA, tB, 5_000e18 * (k + 1), 5_000e18 * (k + 1));
             for (uint256 i; i < 3; ++i) {
                 first[2 * i + k] = _v2(tA, b[i], 300_000e18 * (k + 1), 300_000e18 * (k + 1));
                 last[2 * i + k] = _v2(b[i], tB, 300_000e18 * (k + 1), 300_000e18 * (k + 1));
-                for (uint256 j; j < i; ++j) _v2(b[j], b[i], 200_000e18 * (k + 1), 200_000e18 * (k + 1));
+                for (uint256 j; j < i; ++j) {
+                    between[2 * (i * (i - 1) / 2 + j) + k] = _v2(b[j], b[i], 200_000e18 * (k + 1), 200_000e18 * (k + 1));
+                }
             }
         }
         bytes memory q = abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (tA, tB, 1_000e18));
-        uint256 fN = _reads(address(solver), q, first);
-        uint256 fR = _reads(address(ref), q, first);
-        uint256 lN = _reads(address(solver), q, last);
-        uint256 lR = _reads(address(ref), q, last);
-        emit log_named_uint("first-stage book reads, 653b1dc", fR);
-        emit log_named_uint("first-stage book reads, now", fN);
-        emit log_named_uint("last-stage book reads, 653b1dc", lR);
-        emit log_named_uint("last-stage book reads, now", lN);
-        assertGt(fR, 0, "precondition: the reference reads the first-stage books");
-        assertLt(fN, fR, "each first stage is built once per solve, not once per topology");
-        assertEq(lN, lR, "the last stages are built as before");
+        VmSafe.AccountAccess[] memory rN = _accesses(address(solver), q);
+        VmSafe.AccountAccess[] memory rR = _accesses(address(ref), q);
+        emit log_named_uint("direct book reads, 653b1dc", _reads(rR, direct));
+        emit log_named_uint("direct book reads, now", _reads(rN, direct));
+        emit log_named_uint("first-stage book reads, 653b1dc", _reads(rR, first));
+        emit log_named_uint("first-stage book reads, now", _reads(rN, first));
+        emit log_named_uint("last-stage book reads, 653b1dc", _reads(rR, last));
+        emit log_named_uint("last-stage book reads, now", _reads(rN, last));
+        assertGt(_reads(rR, first), 0, "precondition: the reference reads the first-stage books");
+        assertEq(_reads(rN, direct), _reads(rR, direct), "the direct books are called as by the reference");
+        assertEq(_reads(rN, first), _reads(rR, first), "the first-stage books are called as by the reference");
+        assertEq(_reads(rN, last), _reads(rR, last), "the last-stage books are called as by the reference");
+        assertEq(_reads(rN, between), 0, "no two-hop route calls a book between two bridges");
+        assertEq(_reads(rR, between), 0, "no two-hop route calls a book between two bridges (reference)");
+        assertEq(_listed(rN, tA, tB), 1, "the direct pair is listed once per solve");
+        for (uint256 i; i < 3; ++i) {
+            assertEq(_listed(rN, tA, b[i]), 1, "each first-stage pair is listed once per solve");
+            assertEq(_listed(rN, b[i], tB), 1, "each last-stage pair is listed once per solve");
+            for (uint256 j; j < i; ++j) assertEq(_listed(rN, b[j], b[i]), 0, "no pair between two bridges is listed");
+        }
         (bool ok, , ) = _same(tA, tB, 1_000e18, gasleft());
         assertTrue(ok, "precondition: the row has a route");
     }
@@ -353,18 +396,23 @@ contract G52SameAnswerTest is Test {
         _row("N1 rebuild drops a first-stage book", tA, tB, 1e18);
     }
 
-    /// M10's copy, on the runner-up: three bridges, and only b0 opens from tIn, so the leader and
-    /// the runner-up both open on b0 (b0 -> b1 and b0 -> b2), each reading the first stage the
-    /// two-hop topology kept. The leader's first-stage book promised more than it pays, and its
-    /// walk (`_paysWhatItWalks`) writes what it pays into its legs AFTER the runner-up was handed
-    /// out as the fallback: a first stage the two shared would carry that write into the fallback.
-    function test_G52_SameAnswer_RunnerUpSharesTheWalkedFirstStage() public {
+    /// The runner-up handed out beside a leader that walks and falls. Two bridges, the
+    /// runner-up's b1 in the slot before the leader's b0, so the leader displaces it in the
+    /// judgement (`_considera`). tA -> b0 is a thick tick one step deep (a book whose promise
+    /// falls on its walk, test/V3PromiseIsWhatThePoolPays.t.sol's) beside a small V2 pair, and
+    /// b0 -> tB a deep V2 pair; tA -> b1 -> tB are deep V2 pairs at 0.99. The leader's walk
+    /// (`_paysWhatItWalks`) writes what its books pay into its legs after the runner-up was read
+    /// as the fallback, and its fallen book sends the solve into the rebuild that drops it (N1):
+    /// the fallback must come back as the runner-up was built, over b1, not as the leader walked.
+    /// History: until 2026-11-06 this row was `test_G52_SameAnswer_RunnerUpSharesTheWalkedFirstStage`:
+    /// three bridges, the leader and the runner-up both opening on b0 through three hops, each
+    /// reading the first stage M10 kept, and its copy (`_copyHop`, [930] [936] [937]) kept the
+    /// walk out of the fallback. With two hops no two routes share a stage.
+    function test_G52_SameAnswer_RunnerUpBesideAFallenLeader() public {
         address b0 = _token();
         address b1 = _token();
-        address b2 = _token();
-        hub.addBridge(b0);
         hub.addBridge(b1);
-        hub.addBridge(b2);
+        hub.addBridge(b0);
         bool zq = tA < b0;
         MockV3TickPool q = new MockV3TickPool(tA, b0, 3000, 60);
         q.initialize(zq ? int24(1) : int24(59));
@@ -376,28 +424,21 @@ contract G52SameAnswerTest is Test {
         hub.seedPool(address(q), BPC.KIND_V3, 3000, address(0), tA, b0);
         touched.push(address(q));
         _v2(tA, b0, 1e18, 1e18);
-        _v2(b0, b1, 1e21, 1e21);
+        _v2(b0, tB, 1e21, 1e21);
+        _v2(tA, b1, 1e21, 0.99e21);
         _v2(b1, tB, 1e21, 1e21);
-        _v2(b0, b2, 1e21, 0.99e21);
-        _v2(b2, tB, 1e21, 1e21);
-        // Premises: both routes open on b0 through three hops, and the leader's walk fell (the
-        // self-call that drops books, calldata past 0xa4, runs).
-        RoutePlan memory plan = solver.findBestRoutePlan(tA, tB, 1e18);
+        // Premises, read on the Solver of 653b1dc (the oracle): the leader opens on b0, the
+        // runner-up on b1, and the leader's book fell on its walk (the self-call that drops
+        // books, calldata past 0xa4, runs). A Solver that answers otherwise fails the comparison.
+        RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e18);
+        assertEq(plan.best.hops.length, 2, "precondition: a bridge route leads");
+        assertEq(plan.best.hops[0].tokenOut, b0, "precondition: the leader opens on b0");
         assertTrue(plan.hasFallback, "precondition: a runner-up is handed out");
-        assertEq(plan.fallbackRoute.hops.length, 3, "precondition: the runner-up is a three-hop route");
-        assertEq(plan.fallbackRoute.hops[0].tokenOut, b0, "precondition: the runner-up opens on b0");
-        bytes memory qd = abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (tA, tB, 1e18));
-        _cool();
-        vm.startStateDiffRecording();
-        (bool ok, ) = address(solver).staticcall(qd);
-        VmSafe.AccountAccess[] memory recs = vm.stopAndReturnStateDiff();
-        assertTrue(ok, "precondition: the row has a route");
-        bool drops;
-        for (uint256 i; i < recs.length; ++i) {
-            if (recs[i].account == address(solver) && recs[i].accessor == address(solver) && recs[i].data.length > 0xa4) drops = true;
-        }
+        assertEq(plan.fallbackRoute.hops.length, 2, "precondition: the runner-up is a bridge route");
+        assertEq(plan.fallbackRoute.hops[0].tokenOut, b1, "precondition: the runner-up opens on b1");
+        (, bool drops) = _rebuilds(address(ref), tA, tB, 1e18);
         assertTrue(drops, "precondition: the leader's first-stage book fell on its walk (N1)");
-        _row("runner-up shares the walked first stage", tA, tB, 1e18);
+        _row("runner-up beside a leader that walked and fell", tA, tB, 1e18);
     }
 
     /// M11's one order lists the LIVE rows only, and the weighted median sums and walks exactly
@@ -458,19 +499,20 @@ contract G52SameAnswerTest is Test {
         assertEq(ps[1], ps[2], "precondition: one psi");
     }
 
-    /// M10 on a held first stage read by a HIT. Two bridges; tA -> b0 is a V3 book holding
+    /// A held first stage asks for the WALK rebuild. One bridge; tA -> b0 is a V3 book holding
     /// 1.5e18 of b0, so a 1e18 order quotes ~0.996e18, above its cap (30% of what it holds) and
-    /// under what it holds: the book is held. b0 -> b1 -> tB are deep V2 pairs; no pool on
-    /// (tA, tB), (b0, tB) or (tA, b1). The two-hop topology over b0 builds the first stage (the
-    /// miss) and stops at its empty second stage; the three-hop one over (b0, b1) reads it (the
-    /// hit) and leads, held by its first stage alone. Held, the leader is rebuilt with WALK on
-    /// its own budget and the walked route (~0.99e18 against ~0.45e18 at the cap) is the
-    /// answer: a hit that dropped the held flag would skip the rebuild and answer the cap.
-    function test_G52_SameAnswer_HeldFirstStageReadByAHit() public {
+    /// under what it holds: the book is held. b0 -> tB is a deep V2 pair; no pool on (tA, tB).
+    /// The route over b0 leads, held by its first stage alone (`_planViaBridges` carries the
+    /// mark of each stage into `held`); held, the leader is rebuilt with WALK on its own budget
+    /// and the walked route (~0.99e18 against ~0.45e18 at the cap) is the answer: a route that
+    /// dropped its first stage's mark would skip the rebuild and answer the cap.
+    /// History: until 2026-11-06 this row was `test_G52_SameAnswer_HeldFirstStageReadByAHit`:
+    /// two bridges, and the three-hop route over (b0, b1) led on the first stage M10 kept for it
+    /// (the hit), whose held flag the kept build carried ([940]). With two hops the stage is
+    /// built by the one route that reads it, and its mark travels in `held`.
+    function test_G52_SameAnswer_HeldFirstStageAsksTheWalk() public {
         address b0 = _token();
-        address b1 = _token();
         hub.addBridge(b0);
-        hub.addBridge(b1);
         MockV3TickPool q = new MockV3TickPool(tA, b0, 3000, 60);
         q.initialize(0);
         q.addPosition(-887220, 887220, 1e21);
@@ -478,22 +520,23 @@ contract G52SameAnswerTest is Test {
         MockERC20(b0).mint(address(q), 1.5e18);
         hub.seedPool(address(q), BPC.KIND_V3, 3000, address(0), tA, b0);
         touched.push(address(q));
-        _v2(b0, b1, 1e21, 1e21);
-        _v2(b1, tB, 1e21, 1e21);
-        // Premises, read on the Solver of 653b1dc (the oracle): the answer is the three-hop route
+        _v2(b0, tB, 1e21, 1e21);
+        // Premises, read on the Solver of 653b1dc (the oracle): the answer is the two-hop route
         // walked past its cap, and it came from the rebuild the held flag asks for (the
         // self-call's bk carries bit 8). A Solver that answers otherwise fails the comparison.
         RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e18);
-        assertEq(plan.best.hops.length, 3, "precondition: the three-hop route over (b0, b1) leads");
+        assertEq(plan.best.hops.length, 2, "precondition: the two-hop route over b0 leads");
         assertEq(plan.best.hops[0].tokenOut, b0, "precondition: it opens on b0");
         assertGt(plan.best.hops[0].expectedOut, 0.9e18, "precondition: the answer is the walked build, past the cap");
-        assertTrue(_rebuildAsked(address(ref), tA, tB, 1e18), "precondition: the held leader is rebuilt with WALK");
-        _row("held first stage read by a hit", tA, tB, 1e18);
+        (bool walk, ) = _rebuilds(address(ref), tA, tB, 1e18);
+        assertTrue(walk, "precondition: the held leader is rebuilt with WALK");
+        _row("held first stage asks the walk", tA, tB, 1e18);
     }
 
-    /// True when the solve of `s` makes a self-call carrying the rebuild bit (bk >> 8 != 0,
-    /// `findBestRoutePlan`).
-    function _rebuildAsked(address s, address a, address b, uint256 amt) internal returns (bool asked) {
+    /// The self-calls of one solve of `s`: `walk` when one carries the rebuild bit (bk >> 8 != 0,
+    /// `findBestRoutePlan`), `drops` when one carries books past bk and u (calldata past 0xa4,
+    /// the books whose promise fell, N1).
+    function _rebuilds(address s, address a, address b, uint256 amt) internal returns (bool walk, bool drops) {
         bytes memory q = abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (a, b, amt));
         _cool();
         vm.startStateDiffRecording();
@@ -506,52 +549,61 @@ contract G52SameAnswerTest is Test {
             if (dta.length < 0xa4) continue;
             uint256 bk;
             assembly ("memory-safe") { bk := mload(add(dta, 0x84)) }
-            if (bk >> 8 != 0) asked = true;
+            if (bk >> 8 != 0) walk = true;
+            if (dta.length > 0xa4) drops = true;
         }
     }
 
-    /// M10 carries the first stage's RANK through a hit (test/V4FragmentationRanking.t.sol's Q2m
+    /// A fragmented first stage leads on its RANK (test/V4FragmentationRanking.t.sol's Q2m
     /// book). tA -> b0 is an honest V4 book with one-wei dust on the twenty ticks the order walks
     /// first, so its sixteen-stretch promise is cut more than tenfold while the deep walk reads
-    /// the book; b0 -> b1 -> tB are deep V2 pairs and tA -> tB a shallower V2 pair (~8.3e21).
-    /// The two-hop topology over b0 builds the first stage (the miss); the three-hop one over
-    /// (b0, b1) reads it (the hit) and is judged on the stage's rank, not on its promise: a hit
-    /// that dropped the rank would hand the order to the shallower direct pair.
-    function test_G52_SameAnswer_FragmentedFirstStageRankThroughAHit() public {
+    /// the book; b0 -> tB is a deep V2 pair and tA -> tB a shallower V2 pair (~8.3e21). The
+    /// route over b0 quotes its second stage again on the first stage's rank (S2) and is judged
+    /// on `r - p` above its promise (`_considera`): judged on its promise, or on a lift clamped
+    /// to it, it would hand the order to the shallower direct pair.
+    /// History: until 2026-11-06 this row was `test_G52_SameAnswer_FragmentedFirstStageRankThroughAHit`:
+    /// two bridges, and the three-hop route over (b0, b1) led on the first stage M10 kept for it
+    /// (the hit), whose rank the kept build carried ([941]). With two hops the stage is built by
+    /// the one route that reads it, and its rank travels in `r`.
+    function test_G52_SameAnswer_FragmentedFirstStageLeadsOnItsRank() public {
         address b0 = _token();
-        address b1 = _token();
         hub.addBridge(b0);
-        hub.addBridge(b1);
         _v4On(tA, b0, 100, 1, 0, -20_000, 20_000, uint128(1e24));
         (address c0, address c1) = tA < b0 ? (tA, b0) : (b0, tA);
         bytes32 pid = BPC.computeV4PoolId(c0, c1, 100, 1, address(0));
         (int24 lo, int24 hi) = tA < b0 ? (int24(-20), int24(0)) : (int24(0), int24(20));
         for (int24 t = lo; t < hi; ++t) mgr.addPosition(pid, t, t + 1, 1, 1);
-        _v2(b0, b1, 1e24, 1e24);
-        _v2(b1, tB, 1e24, 1e24);
+        _v2(b0, tB, 1e24, 1e24);
         _v2(tA, tB, 5e22, 5e22);
         (uint256 promise_, uint256 rank, ) = BPC.v4WalkRank(address(mgr), pid, 1e22, 100, 1, tA < b0, 0);
         assertLt(promise_ * 10, 1e22, "precondition: the first stage's promise is cut more than tenfold");
         assertGt(rank, 1e22 * 98 / 100, "precondition: the deep walk reads the book");
-        // Premise, read on the Solver of 653b1dc (the oracle): the three-hop route leads on its
-        // rank. A Solver that hands the order elsewhere fails the comparison.
+        // Premises, read on the Solver of 653b1dc (the oracle): the two-hop route leads on its
+        // rank, the direct pair behind it. A Solver that hands the order elsewhere fails the
+        // comparison.
         RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e22);
-        assertEq(plan.best.hops.length, 3, "precondition: the three-hop route over (b0, b1) leads on its rank");
-        _row("fragmented first stage, rank through a hit", tA, tB, 1e22);
+        assertEq(plan.best.hops.length, 2, "precondition: the two-hop route over b0 leads on its rank");
+        assertTrue(plan.hasFallback, "precondition: a runner-up");
+        assertEq(plan.fallbackRoute.hops.length, 1, "precondition: the direct pair is the runner-up");
+        _row("fragmented first stage leads on its rank", tA, tB, 1e22);
     }
 
-    /// M10's sixth word starts at zero. Once `_buildHop` has replayed the map of its call to
-    /// `BlazePhoenixMath.select`, it moves the free pointer back to where that block began, and
-    /// what the block wrote stays above it, `b0` among it (the copy of the rows' tokenOut
-    /// balances). The next allocations land on it. A new `_candsOf` entry writes its first five
-    /// words and zeroes the sixth, the first stage it keeps (0: none); an entry laid on a balance
-    /// would take the balance for the address of a kept build and run out of gas reading it.
-    /// The direct pair holds one deep book and n - 1 small books at 0.8 of its rate: the band keeps one and
+    /// A new `_candsOf` entry laid on a released build writes every word that is read of it.
+    /// Once `_buildHop` has replayed the map of its call to `BlazePhoenixMath.select`, it moves
+    /// the free pointer back to where that block began, and what the block wrote stays above it
+    /// (the copy of the rows' tokenOut balances among it). The next allocations land on it. A new
+    /// entry writes its five words [next, tA, tB, list, decimals]; one that left its link
+    /// unwritten would hand the walk of the chain a stale word for the address of the entry
+    /// before it, and a balance read as an address runs the solve out of gas. The direct pair
+    /// holds one deep book and n - 1 small books at 0.8 of its rate: the band keeps one and
     /// `_singleLeg` follows, so little is written over the block. tA -> x0 holds two deep books
-    /// and x0 -> tB one, and topology 1 makes the (tA, x0) entry. With n = 15 that entry's sixth
-    /// word falls on a small book's balance (measured with a probe, reports/plano-1026/onda5/
-    /// G52-N1-MED-serie.md); each row more moves the balances 13 words up, so n = 14, 15, 16 meet
-    /// the entry under a shift of the layout from 17 words down to 24 words up.
+    /// and x0 -> tB one; topology 1 lays the (tA, x0) entry over the direct build's released
+    /// block, and the (x0, tB) read walks the chain through it. n = 14, 15, 16 lay the entry
+    /// over three layouts of that block.
+    /// History: until 2026-11-06 the entry had a sixth word, the first stage M10 kept (0: none),
+    /// which `_candsOf` zeroed; with n = 15 it fell on a small book's balance (measured with a
+    /// probe, reports/plano-1026/onda5/G52-N1-MED-serie.md), and an entry that kept it unzeroed
+    /// took the balance for a kept build and ran out of gas reading it. The sixth word left with M10.
     function test_G52_SameAnswer_NewEntryOverAReleasedBuild() public {
         for (uint256 n = 14; n <= 16; ++n) {
             uint256 s = vm.snapshotState();
@@ -579,40 +631,10 @@ contract G52SameAnswerTest is Test {
         }
     }
 
-    /// M10 keeps the first stages only. A later stage is built on what the stage before
-    /// produced, so each topology builds it again from the pair's list, and that list must reach
-    /// it as built: `_candsOf` hands out a copy (gas51), because `_buildHop` compacts the list it
-    /// is handed. Two bridges: tA -> b0 is a shallower book (1% of impact on the order), b0 -> tB
-    /// three books in seed order (deep, one at 0.8 of the rate, deep), tA -> b1 and b1 -> b0 deep; no pool on
-    /// (tA, tB) or (b1, tB). The two-hop route over b0 builds b0 -> tB first: its band drops the
-    /// book at 0.8 and the compaction moves the second deep book over it, so the list it was
-    /// handed reads [deep, deep', deep']. The three-hop route over (b1, b0) builds b0 -> tB again
-    /// as its third stage and leads; handed the compacted list, that stage would seat three legs,
-    /// one book promised twice.
-    function test_G52_SameAnswer_LaterStageReadsTheListAsBuilt() public {
-        address b0 = _token();
-        address b1 = _token();
-        hub.addBridge(b0);
-        hub.addBridge(b1);
-        _v2(tA, b0, 1e23, 1e23);
-        // The book at 0.8 holds as much tB as the deep ones (its short side, so its registry
-        // depth and psi are theirs and the funnel keeps the seed order).
-        address[3] memory q = [_v2(b0, tB, 1e24, 1e24), _v2(b0, tB, 1.25e24, 1e24), _v2(b0, tB, 1e24, 1e24)];
-        _v2(tA, b1, 1e24, 1e24);
-        _v2(b1, b0, 1e24, 1e24);
-        _seedOrder(b0, tB, q);
-        // Premises, read on the Solver of 653b1dc (the oracle): the three-hop route over (b1, b0)
-        // leads and its last stage seats the two deep books; the two-hop route over b0, which
-        // built b0 -> tB first, is the runner-up.
-        RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e21);
-        assertEq(plan.best.hops.length, 3, "precondition: the three-hop route leads");
-        assertEq(plan.best.hops[0].tokenOut, b1, "precondition: it opens on b1");
-        assertEq(plan.best.hops[2].legs.length, 2, "precondition: its last stage seats the two deep books");
-        assertTrue(plan.hasFallback, "precondition: a runner-up");
-        assertEq(plan.fallbackRoute.hops.length, 2, "precondition: the two-hop route over b0 is the runner-up");
-        assertEq(plan.fallbackRoute.hops[1].legs.length, 2, "precondition: its band dropped the book at 0.8");
-        _row("a later stage built by two topologies", tA, tB, 1e21);
-    }
+    // History: until 2026-11-06 `test_G52_SameAnswer_LaterStageReadsTheListAsBuilt` built b0 -> tB
+    // in two topologies (the last stage of a two-hop and of a three-hop route) and killed gas51
+    // [821], the kept list handed out itself. With two hops the only pair read twice in one solve
+    // is the rebuild's, in the self-call: [821] is killed in test/SolveBuildsEachPairOnce.t.sol.
 
     // ─── fuzz ────────────────────────────────────────────────────────────────
 

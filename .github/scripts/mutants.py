@@ -4079,6 +4079,10 @@ M = [
       new="            d := c // MUTANT [821]",
       # G52 (2026-10-28): re-pointed. A first stage is kept (M10) and no longer built twice, so the
       # shared first-stage pair of the gas51 test no longer reads the list again; a later stage does.
+      # hops2 (2026-11-09): OPEN. The test below left with the three-hop topologies, and on two hops
+      # this mutant survives all of G52SameAnswer, MathBoundarySameAnswer and CapacityWalkBudget.
+      # Its killer is still to be written (a held, fallen rebuild of a pair whose first build
+      # compacts the list); until then this entry names a test that no longer exists.
       teste="test_G52_SameAnswer_LaterStageReadsTheListAsBuilt"),
  dict(nome="gas51 [822]: the key forgets the pair's second token",
       f="src/BlazePhoenixSolver.sol",
@@ -5144,6 +5148,32 @@ M = [
       old='        uint256 toutStart = tokenIn == tokenOut ? baseIn : _bal(tokenOut);',
       new='        uint256 toutStart = tokenIn == tokenOut ? baseIn : 0; // MUTANT',
       teste='test_strandedTokenOut_isNeitherPaidNorSpent_twoHops'),
+ # hops2 (2026-11-09): G52 on the two-hop Solver: each pair read once, the runner-up beside a fallen leader, the held first stage, the rank of a fragmented first stage and the list link (test/G52SameAnswer.t.sol).
+ dict(nome='hops2 [1059]: G52: every bridge stage is quoted again, on its rank or not, and calls its books twice',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (k != 0 || r <= p) break;',
+      new='                if (k != 0) break; // MUTANT',
+      teste='test_G52_EachPairIsReadOnce'),
+ dict(nome='hops2 [1060]: G52: a leader that displaces the best so far is handed out as its own runner-up, and its walk writes into the fallback',
+      f='src/BlazePhoenixSolver.sol',
+      old='m.secR = m.bestR; m.bestU = u; m.bestR = r; m.bestHeld = held; }',
+      new='m.secR = r; m.bestU = u; m.bestR = r; m.bestHeld = held; } // MUTANT',
+      teste='test_G52_SameAnswer_RunnerUpBesideAFallenLeader'),
+ dict(nome='hops2 [1061]: G52: a bridge route keeps the held mark of its later stage only, and a held first stage answers its cap without the WALK rebuild',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (hh) held = true;\n',
+      new='                if (hh) held = i != 0; // MUTANT\n',
+      teste='test_G52_SameAnswer_HeldFirstStageAsksTheWalk'),
+ dict(nome="hops2 [1062]: G52: a bridge route's rank lifts it by at most its promise, and a fragmented first stage loses to a shallower pair",
+      f='src/BlazePhoenixSolver.sol',
+      old='        _considera(m, route, r - p, held);',
+      new='        _considera(m, route, r - p < p ? r - p : p, held); // MUTANT',
+      teste='test_G52_SameAnswer_FragmentedFirstStageLeadsOnItsRank'),
+ dict(nome='hops2 [1063]: G52: a new list entry leaves its link unwritten, and the walk of the chain reads a released build for the entry before it',
+      f='src/BlazePhoenixSolver.sol',
+      old='                mstore(n, e)\n',
+      new='                // MUTANT\n',
+      teste='test_G52_SameAnswer_NewEntryOverAReleasedBuild'),
 ]
 
 def run(t):
