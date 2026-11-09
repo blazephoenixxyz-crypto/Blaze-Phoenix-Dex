@@ -4884,6 +4884,11 @@ M = [
       old='        }\n        _inExec = false;',
       new='        }\n        // MUTANT [IC45]',
       teste='test_InfCL_VaultCallbackAfterOwnQuoteCall_Refused'),
+ dict(nome="adapters-bsc [IC46]: the Core's GATE_QUOTE_GAS falls under the gas the Infinity CL leg's quoteCall spends",
+      f='src/BlazePhoenixCore.sol',
+      old='    uint256 internal constant GATE_QUOTE_GAS = 500_000;',
+      new='    uint256 internal constant GATE_QUOTE_GAS = 60_000; // MUTANT [IC46]',
+      teste='test_InfCL_QuoteArm_UnderGateQuoteGas'),
 ]
 
 def run(t):
