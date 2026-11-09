@@ -4,7 +4,6 @@ pragma solidity 0.8.36;
 import {AdapterHarness} from "../../adapters/AdapterHarness.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
 import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../../../src/BlazePhoenixGate.sol";
-import {BlazePhoenixCore as BPC} from "../../../src/BlazePhoenixCore.sol";
 import {
     BlazePhoenixAdapterInfinityCL, IInfinityCLPoolManager, IInfinityVault
 } from "../../../src/adapters/BlazePhoenixAdapterInfinityCL.sol";
@@ -155,7 +154,13 @@ contract BscInfinityCLFork is AdapterHarness {
         (uint160 sp,,,) = IInfinityCLPoolManager(CL).getSlot0(USDT_U_15);
         assertEq(o, 0, "a CL leg is priced only by quoteCall");
         assertGt(d, 0);
-        assertEq(d, BPC.depthFromL18(IInfinityCLPoolManager(CL).getLiquidity(USDT_U_15), sp, 18, 18));
+        // The oracle is not the Core's depthFromL18, the function under test: the two live reads are
+        // pinned at FORK_BLOCK and the depth is derived from them off-chain. The virtual sides at the
+        // price, floored: L * 2^96 / sp of USDT and L * sp / 2^96 of U, both tokens in 18 decimals;
+        // the depth is the shorter one, U's (P < 1 at tick -6).
+        assertEq(sp, 79207778552616586454630729555, "live sqrtPriceX96 at FORK_BLOCK");
+        assertEq(IInfinityCLPoolManager(CL).getLiquidity(USDT_U_15), 1861814672722618875862458518, "live L");
+        assertEq(d, 1861335661753796199613787866, "depth18: the shorter virtual side, U's");
         IInfinityVault(VAULT).lock(abi.encode(w));
         assertTrue(_ran, "anti-vacuity: the read ran inside the live Vault's lock");
         assertEq(_dInside, 0, "no depth while the Vault has a locker");
