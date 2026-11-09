@@ -11,7 +11,8 @@ pragma solidity 0.8.36;
 // budget would each change an answer without any other test having a reason to look.
 //
 // So the answer is compared whole. `SolverRefPoda1027` is the Solver of 8938b6a (59ecf3f plus
-// poda's dust rule), literally (the code before the move); both Solvers read the same Hub and the same state, and each call must
+// poda's dust rule), literally (the code before the move), over the Core of cb1d7d9 frozen as
+// `CoreRefCb1d7d9`, so an answer the live Core changes turns a row red; both Solvers read the same Hub and the same state, and each call must
 // come back with the same success and the same returndata bytes. The fixed rows are the shapes
 // the moved code decides on (an outlier against the band, a funnel cut over more candidates
 // than legs, concentrated books voting with what they hold, bridge stages whose second pass
@@ -45,6 +46,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {SolverRefPoda1027} from "./ref/SolverRefPoda1027.sol";
+import {CoreRefCb1d7d9} from "./ref/CoreRefCb1d7d9.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV4TickManager} from "./mocks/MockV4TickManager.sol";
@@ -84,6 +86,7 @@ contract MathBoundarySameAnswerTest is Test {
         touched.push(address(mgr));
         touched.push(address(BlazePhoenixMath));
         touched.push(address(BPC));
+        touched.push(address(CoreRefCb1d7d9));
     }
 
     // ─── fixtures ────────────────────────────────────────────────────────────

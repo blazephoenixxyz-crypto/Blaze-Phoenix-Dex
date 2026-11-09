@@ -37,6 +37,7 @@ pragma solidity 0.8.36;
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../src/BlazePhoenixGate.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -373,5 +374,30 @@ contract GatePsiReadsTheSlotFirstTest is Test {
         assertEq(q, 0, "psi 0 at 59ecf3f");
         assertGt(eagerGas, BPC.GATE_QUOTE_GAS * 63 / 64, "the neighbour: at 59ecf3f the adapter burned its cap");
         assertLt(lazyGas, 50_000, "gatePsi never reaches the adapter");
+    }
+
+    // ─── the same property as calls, not gas (INV-S6) ───
+
+    /// Quantity: the calls gatePsi makes for a wrapper nobody used, recorded. Its psi is its own
+    /// slot's answer, so no call reaches the Gate and none reaches the adapter behind it,
+    /// whatever that adapter would burn. Kills [morf-1f] (the depth read paid before the slot,
+    /// [831]) and [morf-1g] (a slot read that never floors to 0, [832]) by the calls made, where
+    /// the two tests above kill them by the gas spent.
+    function test_GatePsi_AnUnusedWrapperNeverCallsTheGate() public {
+        address w = _burningWrapper();
+        vm.startStateDiffRecording();
+        (, uint256 p) = probe.lazy{gas: 3_000_000}(address(gate), w);
+        VmSafe.AccountAccess[] memory acc = vm.stopAndReturnStateDiff();
+        uint256 toGate;
+        uint256 toWrapper;
+        for (uint256 i; i < acc.length; ++i) {
+            VmSafe.AccountAccessKind k = acc[i].kind;
+            if (k != VmSafe.AccountAccessKind.Call && k != VmSafe.AccountAccessKind.StaticCall) continue;
+            if (acc[i].account == address(gate)) ++toGate;
+            if (acc[i].account == w) ++toWrapper;
+        }
+        assertEq(p, 0, "psi 0");
+        assertGt(toWrapper, 0, "the neighbour: gatePsi reads the wrapper's slot");
+        assertEq(toGate, 0, "an unused wrapper's psi never calls the Gate");
     }
 }

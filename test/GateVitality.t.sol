@@ -55,6 +55,16 @@ contract GateDeclaringAdapter is MockGateAdapter {
     }
 }
 
+/// Declares, as its depth, the gas it was handed: the depth read's cap made an answer.
+contract GateGasEchoAdapter is MockGateAdapter {
+    constructor(BlazePhoenixGate g, MockGateRegistry r) MockGateAdapter(g, r) {}
+    function quote(address vp, bytes32, bytes32, bool, uint256 amtIn)
+        external view override returns (uint256, uint256)
+    {
+        return (MockGateVenue(vp).quoteSell(amtIn), gasleft());
+    }
+}
+
 /// Answers every getter a wrapper answers, with a use count of 1 000 and an absurd depth, and
 /// names the real Gate: what `vitalOf` would rank if it trusted the address it is asked about.
 contract GateVitalImpostor {
@@ -87,6 +97,8 @@ contract GateVitalityTest is Test {
     uint24 constant KEY2 = uint24(uint256(FAM) << 16 | 2);
     uint8 constant HFAM = 2;
     uint24 constant HKEY = uint24(uint256(HFAM) << 16 | 1);
+    uint8 constant EFAM = 3;
+    uint24 constant EKEY = uint24(uint256(EFAM) << 16 | 1);
     uint256 constant HELD = 1_000_000e18;
     /// HELD >> 16, by hand: 1e24 = 2^24 * 5^24, so the shift is exact (2^8 * 5^24).
     uint256 constant THR = 15_258_789_062_500_000_000;
@@ -358,5 +370,22 @@ contract GateVitalityTest is Test {
         assertEq(v, 0, "the Quoter reads only an admitted Gate");
         (v, , ) = IQuoterVital(address(quoter)).gateVitalOf(address(w), address(t1), address(t0), KEY);
         assertEq(v, 1, "the admitted Gate's wrapper");
+    }
+
+    // ─── the cap as a value, not a gas figure (INV-S6) ───
+
+    /// Quantity: the gas the depth read is handed, declared back as the depth by an adapter
+    /// that answers gasleft(). Through the cap the word stays under GATE_QUOTE_GAS whatever the
+    /// caller holds; uncapped it is 63/64 of the caller's budget (10M here). The venue holds
+    /// HELD (1e24) of both tokens, so the shorter-side cap never cuts the word. Kills [morf-1e]
+    /// (the [632]/[900] mutation) by the answer, where test_GateVital_DepthReadIsGasCapped
+    /// kills it by the gas spent.
+    function test_GateVital_TheDepthReadIsHandedOnlyItsCap() public {
+        GateGasEchoAdapter echo = new GateGasEchoAdapter(gate, reg);
+        _accept(gate, EFAM, address(echo));
+        address w = gate.create(address(t0), address(t1), EKEY, abi.encode(address(venue)));
+        (, uint256 d, ) = IGateVital(address(gate)).vitalOf{gas: 10_000_000}(w);
+        assertGt(d, 0, "the neighbour: the echo declared a depth");
+        assertLt(d, BPC.GATE_QUOTE_GAS, "the depth read is handed at most GATE_QUOTE_GAS");
     }
 }

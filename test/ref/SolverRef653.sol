@@ -56,9 +56,9 @@
 pragma solidity 0.8.36;
 
 import {
-    BlazePhoenixCore as BPC,
+    CoreRefCb1d7d9 as BPC,
     PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx
-} from "../../src/BlazePhoenixCore.sol";
+} from "./CoreRefCb1d7d9.sol";
 import {MathRef653 as BlazePhoenixMath, IHubMathRef653 as IHubMath} from "./MathRef653.sol";
 
 interface IHubRRef653 {
