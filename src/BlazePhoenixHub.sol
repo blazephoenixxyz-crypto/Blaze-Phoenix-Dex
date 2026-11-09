@@ -396,7 +396,8 @@ contract BlazePhoenixHub {
     event Factory_(address indexed factory, uint8 kind, uint8 mode);
     event Bridge_(address indexed token, bool added);
     event V4Add(uint256 indexed idx, address c0, address c1, uint24 fee);
-    /// @dev ids: 0 admin · 1 router · 2 solver · 3 quoter · 4 operator · 5 v4PoolManager.
+    /// @dev ids: 0 admin · 1 router · 2 solver · 3 quoter · 4 operator granted · 5 v4PoolManager ·
+    ///      6 operator revoked (a seat taken away is not logged as a seat given).
     ///      5 is not a "role" in the permission sense — it is the SINGLETON against which the
     ///      extsloads that constitute claimV4's authenticity proof run. It goes here instead of
     ///      in its own event because it IS a protocol address and fits the shape at no cost.
@@ -404,6 +405,11 @@ contract BlazePhoenixHub {
     ///      fixed measurement APPARATUS, and a mutable, unobservable instrument returns a
     ///      perfectly valid number from the wrong place, with no symptom at all.
     event RoleSet(uint8 role, address who);
+    /// @notice The pin a hook's admission wrote: its runtime codehash, or HOOK_REVOKED when the
+    ///         curator revoked it. The value the auto-pause (Layer 3) compares the live code to.
+    event HookPinned(address indexed hook, bytes32 codehash);
+    /// @notice The CREATE2 init hash a factory row derives its pools with (additive to Factory_).
+    event FactoryPinned(address indexed factory, bytes32 initHash);
     /// @notice The emergency switch changed.
     event PausedSet(bool paused);
     event ControlRenounced();
@@ -445,6 +451,8 @@ contract BlazePhoenixHub {
         $.operator[admin_] = true;
         $.v4PoolManager = v4Manager_;
         emit RoleSet(0, admin_);
+        emit RoleSet(4, admin_);
+        emit RoleSet(5, v4Manager_);
     }
 
     /// @notice Permanently surrender the CONTROL powers — the ones that can
@@ -492,7 +500,7 @@ contract BlazePhoenixHub {
         emit RoleSet(1, r); emit RoleSet(2, s); emit RoleSet(3, q);
     }
     function setOperator(address who, bool ok) external onlyControl {
-        _store().operator[who] = ok; emit RoleSet(4, who);
+        _store().operator[who] = ok; emit RoleSet(ok ? 4 : 6, who);
     }
     function setPaused(bool b) external onlyControl { _store().paused = b; emit PausedSet(b); }
     /// @notice THIS ADDRESS IS THE SINGLE LEVER THE V4 HOOK SIEVE RESTS ON, and
@@ -550,7 +558,9 @@ contract BlazePhoenixHub {
         // unknown hook (never listed) has no pin and is the caller's own choice on the
         // explicit door. The sentinel is not a codehash (no runtime hashes to 1), and it
         // does not depend on the hook having code at all.
-        $.hookCodehash[h] = ok ? h.codehash : HOOK_REVOKED;
+        bytes32 pin = ok ? h.codehash : HOOK_REVOKED;
+        $.hookCodehash[h] = pin;
+        emit HookPinned(h, pin);
     }
 
     /// @dev Registering a hooked pool is the admission of its hook: the operator who writes the
@@ -561,7 +571,9 @@ contract BlazePhoenixHub {
         if (hooks == address(0) || $.hookAllowed[hooks]) return;
         if ($.hookCodehash[hooks] == HOOK_REVOKED) revert HubE(8);
         $.hookAllowed[hooks] = true;
-        $.hookCodehash[hooks] = hooks.codehash;
+        bytes32 pin = hooks.codehash;
+        $.hookCodehash[hooks] = pin;
+        emit HookPinned(hooks, pin);
     }
 
     /// @notice Is routing through this hook refused on every door? True for a hook the
@@ -908,6 +920,7 @@ contract BlazePhoenixHub {
             if (mayPin) $.factoryDeployer[factory] = live;
         }
         emit Factory_(factory, kind, mode);
+        emit FactoryPinned(factory, initHash);
         return uint8(row);
     }
 
