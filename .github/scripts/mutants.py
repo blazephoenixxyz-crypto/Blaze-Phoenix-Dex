@@ -4988,6 +4988,11 @@ M = [
       old='                    if (j == n || rates[i] < rates[j] || (rates[i] == rates[j] && p < cands[j].pool)) j = i;',
       new='                    if (j == n || rates[i] > rates[j] || (rates[i] == rates[j] && p < cands[j].pool)) j = i; // MUTANT [987]',
       teste='test_AMinorityVenueBehindATenPercentFeeNeverLowersTheSplit'),
+ dict(nome='PLACE [1080]: a trial whose split without the leg is held leaves the build unheld, and a split refused at the caps is never walked',
+      f='src/BlazePhoenixSolver.sol',
+      old='            if (h2) held = true;   // a held leg leaves the choice unsettled, whichever split is kept',
+      new='            // MUTANT [1080]',
+      teste='test_ATrialRefusedAtTheCapIsSettledByTheWalk'),
 ]
 
 def run(t):

@@ -21,6 +21,10 @@ pragma solidity 0.8.36;
 // split the order to the wei as they do without it, the seat where
 // `BlazePhoenixMath._seatTheSplit` puts it, whether the leg that left held it or not. A third
 // venue that pays for its place keeps it, tried (5%) or not (0.3%).
+// A trial is judged at the caps, as every build is (`Solver._capacity`, MAX_CONC_DRAIN_BPS): where
+// only the split without the leg on trial asks a book past its cap, the trial marks the build held,
+// whichever split is kept, and the walk settles it (`findBestRoutePlan`). Without that mark a trial
+// refused at the caps keeps a 10% venue whose books would pay more without it (mutant [1080]).
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
@@ -29,6 +33,7 @@ import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {MockV3BookPool} from "./mocks/MockV3BookPool.sol";
 import {Origin} from "./mocks/MockOriginFactory.sol";
 
 contract SplitLegPaysForItsPlaceTest is Test {
@@ -40,6 +45,9 @@ contract SplitLegPaysForItsPlaceTest is Test {
     MockERC20 tB;
     address recipient = makeAddr("recipient");
     uint128 constant HONEST_L = 100e18;
+    /// A concentrated book that declares far more liquidity than it holds (`_book`).
+    uint128 constant BOOK_L = 1_000_000e18;
+    uint256 constant BOOK_HELD = 60e18;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -179,5 +187,67 @@ contract SplitLegPaysForItsPlaceTest is Test {
             emit log_named_uint("input to an honest venue, without and with the 10% venue", without[i]);
             assertEq(_inOf(pv, address(h[i])), without[i], "pin: an honest venue's input moved when the 10% venue left");
         }
+    }
+
+    /// A concentrated book at price 1 behind 0.3% (spacing 60, no initialized tick, so its walk and
+    /// its swap settle at one tick): it declares BOOK_L and holds `held` of each token, so the
+    /// Solver weighs it by what it holds and promises at most MAX_CONC_DRAIN_BPS of it.
+    function _book(uint256 held) internal returns (MockV3BookPool p) {
+        p = new MockV3BookPool(address(tA), address(tB), 3000, 60);
+        p.setState(uint160(BPC.Q96), BOOK_L);
+        tA.mint(address(p), held);
+        tB.mint(address(p), held);
+        Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V3, 3000);
+        hub.seedPool(address(p), BPC.KIND_V3, 3000, address(0), address(tA), address(tB));
+    }
+
+    /// Two books holding BOOK_HELD each and the order previewed; then C, an honest venue behind
+    /// 10% holding `lC`, is listed and the same order previewed again (as `_withAndWithout`).
+    function _heldTrial(uint256 amt, uint128 lC) internal returns (uint256 without, uint256 with_, uint256 inC) {
+        // The order runs token1 -> token0: there a flat book's walk pays its single-range quote to
+        // the wei (`Core._v4Step` against `Core.outV3`). Token0 -> token1 the walk rounds the price
+        // up and the quote down, so the walk may pay a wei less, a fall (`_paysWhatItWalks`) that
+        // takes the book out of the rebuild.
+        if (address(tA) < address(tB)) (tA, tB) = (tB, tA);
+        _book(BOOK_HELD);
+        _book(BOOK_HELD);
+        hub.addBridge(address(tB));
+        without = _preview(amt).netOut;
+        MockV3Pool c = _venue(100_000, lC);
+        BlazePhoenixQuoter.Preview memory pv = _preview(amt);
+        with_ = pv.netOut;
+        inC = _inOf(pv, address(c));
+        emit log_named_uint("netOut, the two books", without);
+        emit log_named_uint("netOut, with the 10% venue", with_);
+        emit log_named_uint("input routed to the 10% venue", inC);
+        assertGt(without, 2 * BPC.mulDiv(BOOK_HELD, 3_000, BPC.BPS), "precondition: the walk pays the two books past their caps");
+    }
+
+    /// A TRIAL REFUSED AT THE CAPS IS SETTLED BY THE WALK (`_placed`, the held mark of the split
+    /// without the leg on trial). Two books behind 0.3% hold 60e18 each (cap 18e18) and declare far
+    /// more; C, behind 10%, holds 1000e18. The order, 64e18, splits by what each holds: each book is
+    /// asked about 3.43e18, inside its cap, C about 57.14e18, and the three pay about 55.75e18 with
+    /// no leg held. C is tried: without it each book is asked 32e18, past its cap and inside what it
+    /// holds, so the split of two is judged at the caps (36e18) and refused. No single is held (a
+    /// book alone would pay more than it holds; C alone pays about 54.46e18, inside its cap), so
+    /// only the trial marks the build held. The walk pays the two books about 63.81e18, C leaves,
+    /// and the route is the one the two books give alone. Without the mark the walk never runs and
+    /// C keeps about 89% of the order, about -12.6% (mutant [1080]).
+    function test_ATrialRefusedAtTheCapIsSettledByTheWalk() public {
+        (uint256 without, uint256 with_, uint256 inC) = _heldTrial(64e18, 1_000e18);
+        assertEq(inC, 0, "a 10% venue kept its leg where the books pay more without it");
+        assertGe(with_, without, "a trial refused at the caps lowered the split");
+    }
+
+    /// The same for orders from 61e18 to 66e18 (each book asked half the order: past its cap,
+    /// inside what it holds; a book alone asked more than it holds) and C holding 200e18 to
+    /// 10_000e18 (C alone inside its cap; the split of three above C alone and below the two books
+    /// walked, every leg of it inside its cap).
+    function testFuzz_ATrialRefusedAtTheCapIsSettledByTheWalk(uint256 amt, uint256 lC) public {
+        amt = bound(amt, 61e18, 66e18);
+        lC = bound(lC, 200e18, 10_000e18);
+        (uint256 without, uint256 with_, uint256 inC) = _heldTrial(amt, uint128(lC));
+        assertEq(inC, 0, "a 10% venue kept its leg where the books pay more without it");
+        assertGe(with_, without, "a trial refused at the caps lowered the split");
     }
 }
