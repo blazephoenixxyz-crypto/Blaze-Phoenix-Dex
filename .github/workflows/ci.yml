@@ -465,15 +465,17 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Build the Core probe under two other optimiser settings
+      - name: Build the Core and Math probes under three other code generations
         # test/nversion: the suite executes one binary (the release settings). This lane
-        # compiles the same quote maths at optimizer_runs = 1 and 20000 and asserts the
-        # three binaries agree on fuzzed inputs. A disagreement is a compiler-setting
+        # compiles the same quote maths and band selection at optimizer_runs = 1 and 20000,
+        # and under a Yul step sequence with no FunctionSpecializer (nver3), and asserts the
+        # four binaries agree on fuzzed inputs. A disagreement is a compiler-setting
         # dependence in the source, and would be invisible to a suite that runs under one
         # setting alone.
         run: |
           FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'
           FOUNDRY_PROFILE=nver2 forge build --skip '*.t.sol'
+          FOUNDRY_PROFILE=nver3 forge build --skip '*.t.sol'
 
       - name: Compare the binaries
         # NVERSION_LANE=1 turns the test's "no artefacts" skip into a failure, so the lane
@@ -501,6 +503,22 @@ jobs:
         run: |
           set -o pipefail
           forge build --sizes | tee sizes.txt
+
+      - name: Every size is the committed one (.sizes-snapshot)
+        # The margin check below only fails at 24000. This one fails on ANY byte that moves,
+        # in either direction, and names the contract: a change that spends size updates
+        # .sizes-snapshot in the same commit (sizes_snapshot.py update), so the spend is reviewed.
+        run: |
+          python3 .github/scripts/assurance/sizes_snapshot.py --self-test
+          python3 .github/scripts/assurance/sizes_snapshot.py check .
+
+      - name: The tested binary is the shipped one, on its pin (profile parity)
+        # default vs release on every code-generating setting, both on absolute pins, and what
+        # forge itself resolved for them (a key the toml leaves out takes the default of
+        # whichever forge this runner installed). The self-test proves each guard can go red.
+        run: |
+          python3 .github/scripts/assurance/profile_parity.py --self-test .
+          python3 .github/scripts/assurance/profile_parity.py . --effective
 
       - name: Enforce EIP-170 with margin (< 24000 bytes runtime)
         env:

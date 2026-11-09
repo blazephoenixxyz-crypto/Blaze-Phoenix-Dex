@@ -5384,6 +5384,21 @@ M = [
       old='                q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, dynFee, dyn), leg.zeroForOne, 0);',
       new='                q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, 0, dyn), leg.zeroForOne, 0); // MUTANT [MT5-4]',
       teste='test_AlgebraParity_TwoHops_AttestedFloorRateIsTheEnforcedRate'),
+ dict(nome="INV-S4 [S4-1]: a Core constant the wrapper inlines moves, so the wrapper's creation code and every CREATE2 wrapper address move with it",
+      f='src/BlazePhoenixCore.sol',
+      old='    uint8 internal constant MATERIAL_SHIFT = 16;',
+      new='    uint8 internal constant MATERIAL_SHIFT = 17; // MUTANT [S4-1]',
+      teste='test_GateF2_WrapperInitHash_IsThePinnedLiteral'),
+ dict(nome="INV-S4 [S4-2]: the wrapper's transient lock is never released, so a second swap in the same top-level call is refused as reentry",
+      f='src/BlazePhoenixGate.sol',
+      old='        _locked = false;',
+      new='        // MUTANT [S4-2]',
+      teste='test_GateF2_Wrapper_TwoSwapsInOneCall_BothSettle'),
+ dict(nome="INV-S4 [S4-3]: the gas instrument's 12n reading is labelled execution, so a total is read as if the transaction base were still to be added",
+      f='test/GasInstrumentMode.t.sol',
+      old='        if (diff == 12 * GAS_PROBE_BYTES) mode = "total";',
+      new='        if (diff == 12 * GAS_PROBE_BYTES) mode = "exec"; // MUTANT [S4-3]',
+      teste='test_gasInstrument_mode'),
 ]
 
 def run(t):

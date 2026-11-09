@@ -7,8 +7,15 @@ pragma solidity 0.8.36;
 //  Measures, for the SAME swap from the SAME state:
 //    path A  swapExactIn(route,...)        max calldata / min execution
 //    path B  swapBestExactIn(tIn,tOut,...) min calldata / max execution
-//  reporting execution gas (gasleft delta around the external call, all
-//  relevant accounts vm.cool-ed first to approximate a fresh tx) and exact
+//  reporting gas as a gasleft delta around the external call (all relevant
+//  accounts vm.cool-ed first to approximate a fresh tx). WHICH gas that delta
+//  holds is the instrument's mode: under `isolate = true` (foundry.toml) it is
+//  the transaction's TOTAL (21000 + calldata intrinsic + execution), so never
+//  add the intrinsic again; without isolate, the execution alone.
+//  test/GasInstrumentMode.t.sol asserts which mode a run measures in and prints
+//  it (BENCH|mode|total or exec): put it in the same --match-path to label a
+//  run. Not imported here: any code added to this file recompiles the harness
+//  and moves its readings (measured: S1 solve_warm +6 gas). Also reports exact
 //  calldata bytes (total / zero / nonzero), plus the raw calldata hex so an
 //  off-chain script can feed it to the L2 fee oracles (getL1Fee etc).
 //

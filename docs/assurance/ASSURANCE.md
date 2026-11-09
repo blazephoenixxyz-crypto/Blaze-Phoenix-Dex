@@ -631,13 +631,16 @@ same source, and the compiler is a component: a miscompile, or source that only 
 to mean under one setting, is invisible to a suite that runs under that setting alone.
 
 `test/nversion/` compiles the Core's quote maths (`CoreProbe.sol`, an external surface over the
-internal library) under two more profiles — `nver1` at `optimizer_runs = 1`, `nver2` at
-`20000`, everything else identical to `release` — and `NVersionCore.t.sol` deploys the three
-binaries side by side and asserts equality on fuzzed inputs: `outV2`, `outV3`, `outSolidly`,
-`outSolidlyStable`, `mulDiv`, `mulDivUp`, 3,000 runs each, over the whole input domain. The lane
-first asserts the alternate bytecode **differs** from the shipped one, so it cannot pass by comparing
-a program with itself; and `NVERSION_LANE=1` turns a missing artefact from a skip into a failure,
-so it cannot pass by never having built anything.
+internal library) and the Math's band selection (`MathProbe.sol`, `select`) under three more
+profiles — `nver1` at `optimizer_runs = 1`, `nver2` at `20000`, `nver3` at the release's runs
+under a Yul step sequence with no FunctionSpecializer, everything else identical to `release` —
+and `NVersionCore.t.sol` deploys the four binaries side by side and asserts equality on fuzzed
+inputs: `outV2`, `outV3`, `outSolidly`, `outSolidlyStable`, `mulDiv`, `mulDivUp`, 3,000 runs
+each, over the whole input domain, and the whole answer of `select`, return or revert, byte for
+byte. The lane first asserts each alternate artefact **differs** from the suite's own, compared
+unlinked (deployed code embeds the library's address, so two deployments of one program always
+differ), so it cannot pass by comparing a program with itself; and `NVERSION_LANE=1` turns a
+missing artefact from a skip into a failure, so it cannot pass by never having built anything.
 
 **The three binaries agree.** The compiler was not the finding. The lane's first full-domain run
 made the *reference* revert: `outSolidlyStable` on a pool holding under one unit of each token

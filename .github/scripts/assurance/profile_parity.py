@@ -17,56 +17,142 @@ tunes one profile for a size margin, every check stays green, and the evidence q
 from the thing it is evidence about.
 
 Settings that reach code generation, and are therefore compared: solc version, EVM version,
-optimizer on/off, optimizer runs, and the IR pipeline. Fuzzing and invariant parameters are not
-compared: they change how the suite is run, not what it is run against.
+optimizer on/off, optimizer runs, the IR pipeline, the optimizer details (the Yul step sequence
+lives there: a profile that changes it builds another program from the same source), the
+bytecode hash and the CBOR metadata (both are bytes of the shipped object). Fuzzing and invariant
+parameters are not compared: they change how the suite is run, not what it is run against.
 
-Usage: python3 profile_parity.py <repo_root>
+Parity alone is relative: if both profiles drift together (runs 200 -> 199 in each, a solc bump
+in each), every comparison still agrees. So the default is also pinned to ABSOLUTE values below,
+and a deliberate change edits PINNED in the same commit. Two blind spots of the toml close with
+it: a typo inside optimizer_details.yulDetails is dropped by forge in silence (no warning, the
+effective config shows an empty yulDetails), and any optimizer_details at all differs from the
+pinned absence; a key left out of the toml takes forge's default, which moves with the forge
+release (the CI does not pin forge), and `--effective` reads what forge actually resolved.
+
+One instrument setting is pinned too, though it generates no code: `isolate`. It decides what a
+gasleft() delta around a top-level call measures (the transaction's total, or execution alone)
+and whether transient storage survives from one top-level call to the next, which is the rule
+the transient-lock tests are written on (test/GasInstrumentMode.t.sol observes it).
+
+Usage: python3 profile_parity.py <repo_root> [--effective]
+       python3 profile_parity.py --self-test
 """
-import re, os, sys
-
-ROOT = sys.argv[1] if len(sys.argv) > 1 else "."
-TOML = os.path.join(ROOT, "foundry.toml")
+import json, os, subprocess, sys, tomllib
 
 # profiles whose output is executed or deployed. `smt` is a model-checker profile that produces
-# no artefact anyone runs, so it is deliberately out of scope.
+# no artefact anyone runs, and the nver* profiles are the N-version lane's deliberate other
+# binaries (test/nversion), so they are out of scope.
 COMPARED = ["default", "release"]
-KEYS = ["solc_version", "evm_version", "optimizer", "optimizer_runs", "via_ir"]
+KEYS = ["solc_version", "evm_version", "optimizer", "optimizer_runs", "via_ir",
+        "optimizer_details", "bytecode_hash", "cbor_metadata"]
+# Absolute values, for both compared profiles. None = the key is absent from the toml.
+PINNED = {"solc_version": "0.8.36", "evm_version": "cancun", "optimizer": True, "optimizer_runs": 200,
+          "via_ir": True, "optimizer_details": None, "bytecode_hash": "none", "cbor_metadata": None,
+          "isolate": True}
+# What forge resolves for the same pin (`forge config --json`): absent keys read as its defaults.
+EFFECTIVE = {"solc": "0.8.36", "evm_version": "cancun", "optimizer": True, "optimizer_runs": 200,
+             "via_ir": True, "optimizer_details": None, "bytecode_hash": "none", "cbor_metadata": True,
+             "isolate": True}
 
-text = open(TOML).read()
-sections, cur = {}, None
-for line in text.splitlines():
-    line = line.split("#")[0].strip()
-    m = re.match(r"^\[profile\.([\w.]+)\]$", line)
-    if m:
-        cur = m.group(1); sections.setdefault(cur, {}); continue
-    if cur and "=" in line:
-        k, v = [x.strip() for x in line.split("=", 1)]
-        sections[cur][k] = v.strip('"')
 
-missing = [p for p in COMPARED if p not in sections]
-if missing:
-    print(f"profiles not found in foundry.toml: {', '.join(missing)}")
-    sys.exit(1)
+def problems(text):
+    """Every way the toml `text` lets the tested binary differ from the shipped one, or from the pin."""
+    prof = tomllib.loads(text).get("profile", {})
+    out = [f"profile not found in foundry.toml: {p}" for p in COMPARED if p not in prof]
+    if out:
+        return out
+    for k in KEYS:
+        vals = {p: prof[p].get(k) for p in COMPARED}
+        if len({json.dumps(v, sort_keys=True) for v in vals.values()}) > 1:
+            out.append(f"{k} differs: " + ", ".join(f"{p}={json.dumps(v)}" for p, v in vals.items()))
+    for p in COMPARED:
+        for k, want in PINNED.items():
+            got = prof[p].get(k)
+            if got != want:
+                out.append(f"{p}.{k} = {json.dumps(got)}, pinned {json.dumps(want)}")
+    return out
 
-diffs = []
-for k in KEYS:
-    vals = {p: sections[p].get(k) for p in COMPARED}
-    if len({str(v) for v in vals.values()}) > 1:
-        diffs.append((k, vals))
 
-w = max(len(k) for k in KEYS)
-print(f"{'SETTING':{w}}  " + "  ".join(f"{p:>12}" for p in COMPARED))
-print("-" * (w + 2 + 14 * len(COMPARED)))
-for k in KEYS:
-    print(f"{k:{w}}  " + "  ".join(f"{str(sections[p].get(k)):>12}" for p in COMPARED))
+def effective(root):
+    """The settings forge resolved for each compared profile, against EFFECTIVE."""
+    out = []
+    for p in COMPARED:
+        r = subprocess.run(["forge", "config", "--json"], cwd=root, capture_output=True, text=True,
+                           env={**os.environ, "FOUNDRY_PROFILE": p})
+        if r.returncode != 0:
+            return [f"forge config failed under {p}: {r.stderr.strip()[:200]}"]
+        cfg = json.loads(r.stdout)
+        for k, want in EFFECTIVE.items():
+            if cfg.get(k) != want:
+                out.append(f"effective {p}.{k} = {json.dumps(cfg.get(k))}, pinned {json.dumps(want)}")
+    return out
 
-if diffs:
-    print(f"\n{len(diffs)} code-generating setting(s) differ between the profile the suite runs")
-    print("under and the profile that builds the shipped contract. The suite is evidence about")
-    print("an artefact that does not deploy:")
-    for k, vals in diffs:
-        print(f"  {k}: " + ", ".join(f"{p}={v}" for p, v in vals.items()))
-    sys.exit(1)
 
-print("\nEvery code-generating setting agrees: the artefact the suite executes is the artefact")
-print("that deploys. There is one binary, and the tests ran against it.")
+def self_test(root):
+    """Each mutant of the toml must be red, and the toml as committed must be green."""
+    base = open(os.path.join(root, "foundry.toml")).read()
+    sec = lambda t, p: t.index(f"[profile.{p}]\n") + len(f"[profile.{p}]\n")
+    def put(t, p, line):
+        i = sec(t, p)
+        return t[:i] + line + "\n" + t[i:]
+    def sub_in(t, p, old, new):
+        i = sec(t, p)
+        j = t.index(old, i)
+        return t[:j] + new + t[j + len(old):]
+    def both(t, old, new):
+        n = t.count(old)
+        return t.replace(old, new), n
+    noF = 'optimizer_details = { yul = true, yulDetails = { optimizerSteps = "dhfoDgvulfnTUtnIf:fDnTOcmu" } }'
+    typo = 'optimizer_details = { yul = true, yulDetails = { optimizerStep = "dhfoDgvulfnTUtnIf:fDnTOcmu" } }'
+    runs, nr = both(base, "optimizer_runs = 200\n", "optimizer_runs = 199\n")
+    solc, ns = both(base, 'solc_version = "0.8.36"\n', 'solc_version = "0.8.38"\n')
+    mutants = {
+        "runs 200->199 in every profile": (runs, nr >= 2),
+        "solc 0.8.36->0.8.38 in every profile": (solc, ns >= 2),
+        "noF optimizer steps in release only": (put(base, "release", noF), True),
+        "typo inside yulDetails, in both profiles": (put(put(base, "default", typo), "release", typo), True),
+        "bytecode_hash ipfs in release": (sub_in(base, "release", 'bytecode_hash = "none"', 'bytecode_hash = "ipfs"'), True),
+        "cbor_metadata off in release": (put(base, "release", "cbor_metadata = false"), True),
+        "isolate dropped from default": (base.replace("isolate = true\n", "", 1), "isolate = true\n" in base),
+    }
+    bad = []
+    if problems(base):
+        bad.append("the committed foundry.toml is not green: " + "; ".join(problems(base)))
+    for name, (text, applies) in mutants.items():
+        if not applies or text == base:
+            bad.append(f"mutant did not apply: {name}")
+        elif not problems(text):
+            bad.append(f"mutant passed (should be red): {name}")
+    for b in bad:
+        print(f"::error::profile parity self-test: {b}")
+    print(f"profile parity self-test: {len(mutants)} mutants, {len(mutants) - len(bad)} red as they must be")
+    sys.exit(1 if bad else 0)
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--self-test"]:
+        self_test(args[1] if len(args) > 1 else ".")
+    root = next((a for a in args if not a.startswith("--")), ".")
+    text = open(os.path.join(root, "foundry.toml")).read()
+    prof = tomllib.loads(text).get("profile", {})
+    w = max(len(k) for k in KEYS + list(PINNED))
+    print(f"{'SETTING':{w}}  " + "  ".join(f"{p:>12}" for p in COMPARED) + f"  {'PINNED':>12}")
+    print("-" * (w + 2 + 14 * (len(COMPARED) + 1)))
+    for k in dict.fromkeys(KEYS + list(PINNED)):
+        row = "  ".join(f"{str(prof.get(p, {}).get(k)):>12}" for p in COMPARED)
+        print(f"{k:{w}}  {row}  {str(PINNED.get(k, '-')):>12}")
+    bad = problems(text) + (effective(root) if "--effective" in args else [])
+    if bad:
+        print(f"\n{len(bad)} setting(s) let the binary the suite executes differ from the one that deploys,")
+        print("or moved off the pinned values without the pin moving with them:")
+        for b in bad:
+            print(f"  {b}")
+        sys.exit(1)
+    print("\nEvery code-generating setting agrees and sits on its pin: the artefact the suite executes is")
+    print("the artefact that deploys. There is one binary, and the tests ran against it.")
+
+
+if __name__ == "__main__":
+    main()
