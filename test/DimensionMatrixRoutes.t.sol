@@ -20,18 +20,26 @@ pragma solidity 0.8.36;
 //
 //  The blind pool here fills honestly (full swap liquidity), so a refusal can
 //  only come from the structural rule, never from a floor catching a bad fill.
+//
+//  Since 2026-11-06 a route has at most MAX_HOPS = 2 hops, so each matrix runs
+//  lengths 1..MAX_HOPS and gains one refused row at MAX_HOPS + 1 (RouterE(3)).
+//  At two hops the only way back into the input at hop 1 is a self-hop at
+//  hop 0, which the per-hop rule refuses first: the re-entry arm never decides
+//  alone, and what (2) still pins is the round trip that only ENDS in A.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 
 contract DimensionMatrixRoutesTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixRouter router;
+    BlazePhoenixQuoter quoter;
     MockERC20[4] tk;
 
     address user = address(0xBEEF);
@@ -45,6 +53,7 @@ contract DimensionMatrixRoutesTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         router = new BlazePhoenixRouter(address(hub), address(0xD0D0), address(this), address(0xFEE1), address(0xFEE2));
+        quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
         for (uint256 i; i < 4; ++i) tk[i] = new MockERC20("T", "T");
         tk[0].mint(user, 100 * AMT);
         vm.prank(user);
@@ -109,11 +118,25 @@ contract DimensionMatrixRoutesTest is Test {
         return abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, c);
     }
 
+    /// @dev `_swap` for a cell the rules allow: a refusal fails by assertion and carries its
+    ///      revert data, so a rule that moves reads as the rule, not as a stray revert.
+    function _settle(Route memory r, string memory cell) internal returns (uint256 out) {
+        (bool ok, bytes memory ret) = address(this).call(abi.encodeCall(this._swap, (r)));
+        assertTrue(ok, string.concat(cell, ": refused with ", vm.toString(ret)));
+        out = abi.decode(ret, (uint256));
+        assertGt(out, 0, string.concat(cell, ": settled with nothing"));
+    }
+
     // ── (1) leg state x hop position x route length ─────────────────────────
 
+    /// Lengths 1..MAX_HOPS, every position, every leg state: blind is refused off the last
+    /// hop (RouterE(5)) and settles on it; quoted and attested settle everywhere. One hop past
+    /// the ceiling the route is refused on its length (RouterE(3)), whatever its legs.
+    ///
+    /// History: until 2026-11-06 the lengths ran 1..3 (18 cells).
     function test_Matrix_LegStateByHopPositionByRouteLength() public {
         uint256 cells;
-        for (uint256 n = 1; n <= 3; ++n) {
+        for (uint256 n = 1; n <= MAX_HOPS; ++n) {
             for (uint256 p; p < n; ++p) {
                 for (uint8 s; s < 3; ++s) {
                     LegState st = LegState(s);
@@ -124,21 +147,32 @@ contract DimensionMatrixRoutesTest is Test {
                         vm.expectRevert(_e(5));
                         this._swap(r);
                     } else {
-                        uint256 out = this._swap(r);
-                        assertGt(out, 0, "a cell the rule allows did not settle");
+                        _settle(r, "a cell the rule allows");
                     }
                     vm.revertToState(snap);
                     ++cells;
                 }
             }
         }
-        assertEq(cells, 18, "the matrix is 6 (length, position) pairs x 3 leg states");
+        assertEq(cells, 3 * MAX_HOPS * (MAX_HOPS + 1) / 2,
+            "the matrix is the (length, position) pairs up to MAX_HOPS x 3 leg states");
+
+        Route memory past = _chain(MAX_HOPS + 1, MAX_HOPS, LegState.Quoted);
+        vm.expectRevert(_e(3));
+        this._swap(past);
     }
 
-    /// The cell that decides "last hop", not "a hop that makes the output": in A -> C -> B -> C
-    /// hop 0 also produces the route's output token, but the floor's base is the last hop's,
-    /// so a blind leg on hop 0 would be bounded by nothing. Refused.
-    function test_Matrix_BlindLegOnAnEarlierHopThatAlsoMakesTheOutput() public {
+    /// The cell that decides "last hop", not "a hop that makes the output". In A -> C -> B -> C
+    /// hop 0 also produces the route's output token while the floor's base is the last hop's,
+    /// so a blind leg on hop 0 would be bounded by nothing. That shape needs a third hop: at
+    /// two hops no earlier hop can make the output (hop 1 starts where hop 0 ends and is no
+    /// self-hop). So its length refuses it first, at both doors: the preview, on pools that
+    /// quote and with a positive claim, and the Router, RouterE(3). What the blind-leg rule
+    /// still decides at two hops is the cell beside it: a blind leg on hop 0, RouterE(5).
+    ///
+    /// History: until 2026-11-06 this was test_Matrix_BlindLegOnAnEarlierHopThatAlsoMakesTheOutput,
+    /// the three-hop route alone, refused by the blind-leg rule (RouterE(5)).
+    function test_Matrix_BlindLegOnHopZero_IsRefused_ThreeHopOutputShapeRefusedAtTheCeiling() public {
         Hop[] memory hops = new Hop[](3);
         uint256 half = AMT / 2;
         address a = address(tk[0]);
@@ -155,8 +189,19 @@ contract DimensionMatrixRoutesTest is Test {
         (hops[2], out2) = _hop(tk[1], tk[2], out1);
         Route memory r = Route({hops: hops, totalOut: out2, singleOut: out2, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
-        vm.expectRevert(_e(5));
+        assertEq(r.hops.length, MAX_HOPS + 1, "premise: the route is one hop past the ceiling");
+        assertEq(r.hops[0].tokenOut, r.hops[2].tokenOut, "premise: hop 0 also makes the route's output");
+        Route memory clean = _chain(MAX_HOPS, MAX_HOPS - 1, LegState.Quoted);
+        assertTrue(quoter.previewRoute(clean, 1).canExecute,
+            "premise: the preview passes a clean route of MAX_HOPS hops");
+        assertFalse(quoter.previewRoute(r, 1).canExecute,
+            "CEILING: the preview must refuse the three-hop shape on its length");
+        vm.expectRevert(_e(3));
         this._swap(r);
+
+        Route memory blind0 = _chain(MAX_HOPS, 0, LegState.Blind);
+        vm.expectRevert(_e(5));
+        this._swap(blind0);
     }
 
     // ── (2) input re-entry x hop index ──────────────────────────────────────
@@ -183,23 +228,48 @@ contract DimensionMatrixRoutesTest is Test {
         if (len > 3) x[3] = d;
     }
 
+    /// Lengths 1 and MAX_HOPS: A -> B, A -> B -> C and the round trip A -> B -> A (it only
+    /// ENDS in A) settle; A -> A -> B, the only way to take A again at hop 1, is refused at
+    /// hop 0 as a self-hop (RouterE(3)) before any pool. Length MAX_HOPS + 1 is refused on its
+    /// length, re-entry or not.
+    ///
+    /// History: until 2026-11-06 the re-entry was pinned at hop 2 (A -> B -> A -> C refused,
+    /// A -> B -> C -> A and A -> B -> C -> D settling); those three are the refused row now.
     function test_Matrix_InputReentryByHopIndex() public {
-        // Re-entry of the input at hop 2 (A -> B -> A -> C): refused.
-        Route memory back = _path(_ix(0, 1, 0, 2, 4));
-        vm.expectRevert(_e(3));
-        this._swap(back);
-
-        // Re-entry at hop 2 of a longer detour (A -> B -> C -> A is a round trip, it only ENDS in A): settles.
         uint256 snap = vm.snapshotState();
-        assertGt(this._swap(_path(_ix(0, 1, 2, 0, 4))), 0, "a route that only ends in its input settles");
+        _settle(_path(_ix(0, 1, 0, 0, 2)), "A -> B");
         vm.revertToState(snap);
 
-        // A two-hop round trip (A -> B -> A): settles.
         snap = vm.snapshotState();
-        assertGt(this._swap(_path(_ix(0, 1, 0, 0, 3))), 0, "a round trip settles");
+        _settle(_path(_ix(0, 1, 2, 0, 3)), "a chain through distinct tokens, A -> B -> C");
         vm.revertToState(snap);
 
-        // A chain through distinct tokens (A -> B -> C -> D): settles.
-        assertGt(this._swap(_path(_ix(0, 1, 2, 3, 4))), 0, "a chain through distinct tokens settles");
+        snap = vm.snapshotState();
+        _settle(_path(_ix(0, 1, 0, 0, 3)), "a round trip that only ends in its input, A -> B -> A");
+        vm.revertToState(snap);
+
+        // A -> A -> B: hop 1 takes the input again only because hop 0 is a self-hop.
+        Hop[] memory hops = new Hop[](2);
+        uint256 out0;
+        (hops[0], out0) = _hop(tk[0], tk[1], AMT);
+        hops[0].tokenOut = address(tk[0]);
+        uint256 out1;
+        (hops[1], out1) = _hop(tk[0], tk[1], out0);
+        Route memory again = Route({hops: hops, totalOut: out1, singleOut: out1, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+        vm.expectRevert(_e(3));
+        this._swap(again);
+
+        // One hop past the ceiling, re-entry or not.
+        _pastTheCeiling(0, 2); // A -> B -> A -> C
+        _pastTheCeiling(2, 0); // A -> B -> C -> A
+        _pastTheCeiling(2, 3); // A -> B -> C -> D
+    }
+
+    function _pastTheCeiling(uint256 c, uint256 d) internal {
+        Route memory past = _path(_ix(0, 1, c, d, 4));
+        assertEq(past.hops.length, MAX_HOPS + 1, "premise: one hop past the ceiling");
+        vm.expectRevert(_e(3));
+        this._swap(past);
     }
 }

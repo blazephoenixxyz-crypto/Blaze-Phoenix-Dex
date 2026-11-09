@@ -76,7 +76,7 @@ pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,
-    Route, Hop, Leg, RoutePlan, QuoteCtx
+    Route, Hop, Leg, RoutePlan, QuoteCtx, MAX_HOPS, MAX_LEGS_PER_HOP
 } from "./BlazePhoenixCore.sol";
 
 interface ISolverQ {
@@ -195,7 +195,7 @@ contract BlazePhoenixQuoter {
         uint256 estGas;
         uint256 hops;
         uint256 legs;
-        uint8   topology;          // 0 = direct, 1 = one bridge, 2 = two bridges
+        uint8   topology;          // 0 = direct, 1 = one bridge (MAX_HOPS caps the depth)
         //                            (= hops - 1; was ALWAYS 0 until 2026-08-22)
         address bridgeUsed;
         bool    canExecute;
@@ -445,7 +445,7 @@ contract BlazePhoenixQuoter {
     ///      the RouterE(3) checks of `Router._swap` and `Router._execute` in their order: at
     ///      least one hop (until 2026-10-27 the loop below never ran on zero hops and an empty
     ///      route with a positive claim previewed executable; opencode OC-06) and at most
-    ///      MAX_HOPS hops; each hop has 1..5 legs and two different tokens, and starts where
+    ///      MAX_HOPS hops; each hop has 1..MAX_LEGS_PER_HOP legs and two different tokens, and starts where
     ///      the previous one ended and never at the route's input again; no hookless leg
     ///      after a hooked one;
     ///      every leg trades its hop's pair as `Router._legTokens` reads it - the pool's own
@@ -466,12 +466,12 @@ contract BlazePhoenixQuoter {
     ///      refused, as the Router refuses it with RouterE(8) (seal 2026-10-21).
     function _hookRefusedIn(Route memory route) private view returns (bool) {
         uint256 n = route.hops.length;
-        if (n == 0 || n > 3) return true;                         // Router: no hops, MAX_HOPS
+        if (n == 0 || n > MAX_HOPS) return true;                  // Router: no hops, MAX_HOPS
         bool sawHooked;
         for (uint256 h; h < n; ) {
             Hop memory hop = route.hops[h];
             Leg[] memory legs = hop.legs;
-            if (legs.length == 0 || legs.length > 5 || hop.tokenIn == hop.tokenOut) return true;
+            if (legs.length == 0 || legs.length > MAX_LEGS_PER_HOP || hop.tokenIn == hop.tokenOut) return true;
             if (h != 0 && (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == route.hops[0].tokenIn))
                 return true;
             for (uint256 l; l < legs.length; ) {
@@ -509,13 +509,13 @@ contract BlazePhoenixQuoter {
     /// @dev A REAL CLASSIFIER since 2026-08-22. It used to be dead: it always
     ///      returned `(0, address(0))` and justified itself with "the Solver
     ///      collapses bridge routes into a single hop". **That is false** —
-    ///      the bridge planner has always returned two hops over one bridge, and there are
-    ///      now three-hop routes as well. Consequence: `pv.topology` was ALWAYS 0
+    ///      the bridge planner has always returned two hops over one bridge (and, from
+    ///      2026-08-22 to 2026-11-06, three over two). Consequence: `pv.topology` was ALWAYS 0
     ///      and `pv.bridgeUsed` ALWAYS zero, so any reader (the UI, a metrics
     ///      sweep) using them was reading a constant, not a measurement.
     ///
     ///      Topology derives from the NUMBER OF HOPS, which is the definition:
-    ///      one hop is direct, two go through a bridge, three through two. The
+    ///      one hop is direct, two go through a bridge (MAX_HOPS is two). The
     ///      bridge named is the INPUT token of the hop the Router anchors the
     ///      fee on - the first hop whose input is a registered bridge - so the
     ///      field answers "where is the fee charged?" with the executor's own
@@ -527,7 +527,7 @@ contract BlazePhoenixQuoter {
         uint256 n = route.hops.length;
         if (n == 0 || route.hops[0].legs.length == 0) return (0, address(0));
         if (n == 1) return (0, address(0));                 // direct
-        // 1 = via one bridge (2 hops), 2 = via two bridges (3 hops), ...
+        // 1 = via one bridge (2 hops); a longer route is past MAX_HOPS and never executable
         return (uint8(n - 1), feeHop == type(uint256).max ? address(0) : route.hops[feeHop].tokenIn);
     }
 

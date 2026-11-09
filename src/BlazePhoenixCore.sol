@@ -118,6 +118,32 @@ struct RoutePlan {
     bool  hasFallback;
 }
 
+// How many hops a Route may have, with ONE producer for every place that asks it:
+// `Router._execute` refuses a longer route with RouterE(3) (every door reaches it),
+// `Quoter._hookRefusedIn` previews one as not executable, and the Solver's deepest
+// topology - one bridge, two stages (`_planViaBridges`) - is sized by it, so a ceiling
+// that planner does not build does not compile. 2 since 2026-11-06, by the owner's
+// decision (it was 3 in the Router, the depth of the two-bridge topologies).
+// The hop count had no producer at all (review 2026-09-02): legs were bounded per hop and
+// per route, hops were not. Three consequences, none of them theft - `executedMask`
+// silently stops crediting past leg 255, the exhaustion-regime fee compounds once per hop
+// with no ceiling, and `bridgeBase` is sized by the caller. File-level so it can size an
+// array in the Solver and bound the Router and the Quoter alike.
+uint256 constant MAX_HOPS = 2;
+
+// How many legs a hop may have, with ONE producer for every place that asks it:
+// `Router._execute` refuses a wider hop with RouterE(3), `Quoter._hookRefusedIn`
+// previews one as not executable, and the Solver builds every stage - the direct one
+// and each of a bridge route's - on it as its leg budget, so it never proposes a hop
+// the Router refuses nor stops a leg short of one the Router takes. 5, by the owner's
+// decision of 2026-11-06 ("2 hops e 10 legs"; 2026-11-03: never 6).
+// Until 2026-11-06 the question had three producers that did not agree: the Router's
+// MAX_LEGS_PER_HOP = 5, the Solver's MAX_LEGS_PER_STAGE = 4 and its route-wide
+// MAX_LEGS = 11 (neither 2 x 5 nor 3 x 4). A route now holds at most
+// MAX_HOPS x MAX_LEGS_PER_HOP = 10 legs, and that bound is the product of these two and
+// nothing else: no code needs a route-wide count, so no third constant can drift from it.
+uint8 constant MAX_LEGS_PER_HOP = 5;
+
 // ─── Universal quote context ────────────────────────────────────────────────
 
 struct QuoteCtx {

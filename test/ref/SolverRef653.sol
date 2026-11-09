@@ -2,6 +2,19 @@
 // FROZEN REFERENCE for test/G52SameAnswer.t.sol: src/BlazePhoenixSolver.sol of 653b1dc, literally,
 // except the contract name (SolverRef653), the interface name (IHubRRef653) and the import paths
 // (the library is the frozen MathRef653, imported under the names the body uses).
+//
+// ALIGNED 2026-11-06 TO THE TWO-HOP POLICY (Core's MAX_HOPS = 2): two literals moved with the
+// Solver, TOPOLOGIES 13 -> 4 (the direct route and the three one-bridge routes) and
+// MAX_LEGS_PER_STAGE 4 -> 5 (Core's MAX_LEGS_PER_HOP, every stage's budget in the Solver since
+// that day); the rest is the 653b1dc text. What still differs from the Solver's planners changes
+// no answer. With k < 4, `_planTopology`'s three-hop branch (k >= 4) is unreachable, so
+// `_planViaBridges` always runs n = 2 with bB = 0; each of its stages then gets
+// min(MAX_LEGS + i + 1 - n - used, MAX_LEGS_PER_STAGE) = 5 (room 10 into stage A, 11 into stage
+// B with used <= 5), the Solver's 5, and used <= 10, so `used > MAX_LEGS` (11) never fires.
+// Until that day the reference also judged the nine three-hop topologies (k 4-12); the Solver
+// of 653b1dc did too, so the comparison was whole. It stays whole on the policy the Router
+// executes: the Solver's mechanisms (the hop's one order, M11; the candidate list per pair;
+// N1's rebuild) are held to this text on the four topologies both judge.
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
 //  Version    : 2.0.0
@@ -122,7 +135,9 @@ contract SolverRef653 {
     /// @notice PER-HOP leg ceiling, in any topology — including the direct
     ///         route. 4 since 2026-08-22 (was 3, and the direct route did not even
     ///         respect it: it used the global ceiling).
-    uint8   internal constant MAX_LEGS_PER_STAGE   = 4;
+    ///         5 since 2026-11-06 (4 at 653b1dc): Core's MAX_LEGS_PER_HOP, the Solver's budget
+    ///         for every stage (file header).
+    uint8   internal constant MAX_LEGS_PER_STAGE   = 5;
 
 
     /// @notice Skip the full CREATE2 discovery sweep when the pair already has at
@@ -454,7 +469,9 @@ contract SolverRef653 {
     ///      Bridge topologies only ADD candidates to the judgement: a direct route still wins
     ///      whenever it delivers more, because the comparison is by the output built and not
     ///      by topology depth.
-    uint256 private constant TOPOLOGIES = 13;
+    ///      4 since 2026-11-06 (13 at 653b1dc): two hops, so k 4-12 are no longer judged and
+    ///      their branch below is unreachable (file header).
+    uint256 private constant TOPOLOGIES = 4;
 
     function _planTopology(
         Melhores memory m, uint256 k, address[4] memory bs, address tIn, address tOut, uint256 amountIn

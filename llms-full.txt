@@ -54,8 +54,8 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   calldata-field confirmation matrix, a sound executed-bytecode bound on the shipped binary, and
   a public bug bounty whose every credited researcher is named in its Hall of Fame."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
-  Solidity and Yul. Discovery, quoting, believability filtering, split allocation (up to four
-  legs per hop, eleven per route), multi-hop assembly (up to three hops) and deterministic
+  Solidity and Yul. Discovery, quoting, believability filtering, split allocation (up to five
+  legs per hop, ten per route), multi-hop assembly (up to two hops) and deterministic
   Uniswap V4 pool derivation all run inside the contracts; the only privileged powers are
   curator-shaped and can be permanently renounced. Caller data is treated as a coordinate,
   never a fact: every field an integrator writes is measured from the pool or proven by
@@ -190,11 +190,11 @@ declaration counts, not pass counts.
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
 | Test declarations | 2,555 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 383 | `test/**/*.t.sol` |
+| Test files | 384 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 33 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 916 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 928 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
@@ -778,11 +778,11 @@ above is the place for it.
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
 | Test declarations | 2,555 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 383 | `test/**/*.t.sol` |
+| Test files | 384 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 33 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 916 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 928 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
@@ -2064,18 +2064,21 @@ In short, the route is a proposal and the floor is a verdict.
 
 ## 2. Route topologies
 
-The Solver searches a deliberately small space, with a strict global budget of
-**five legs**:
+The Solver searches a deliberately small space, bounded by two constants of the
+Core that the Router enforces too: at most **two hops** (`MAX_HOPS`) and at most
+**five legs per hop** (`MAX_LEGS_PER_HOP`), so ten legs a route:
 
 - **Direct** — `tIn → tOut` in one hop, splitting the input across up to five
   parallel pools of the pair.
-- **Bridge** — for exotic↔exotic pairs with no single deep venue, route through a
-  canonical intermediary (WETH or USDC), partitioning the five-leg budget between
-  the two stages (typically 3 in, 2 out).
+- **Bridge** — for exotic↔exotic pairs with no single deep venue, route through
+  one registered intermediary (up to three bridge tokens in the Hub, typically WETH
+  or USDC): `tIn → bridge → tOut`, each of the two stages splitting across up to
+  five pools of its pair.
 
-The Solver evaluates direct and both bridge candidates and returns the
-highest-scoring route per trade — direct when a venue is deepest, composed when
-splitting pays.
+The Solver evaluates four topologies - direct and one per bridge slot - and returns
+the highest-scoring route per trade, with the runner-up as a fallback: direct when
+a venue is deepest, composed when splitting or the bridge pays. Until 2026-11-06 it
+also built three-hop routes over two bridges (thirteen topologies).
 
 ## 3. Capital-anchored split
 
@@ -2369,8 +2372,8 @@ hop count.
 | `KINDS_ROUTABLE` / `KINDS_EXECUTABLE` / `KINDS_PAIR_PROOF` | "Which kinds may enter / execute / must prove their pair?" | `Hub` — masks written out longhand, deliberately not derived from one another | `PINNED` (2026-10-20, was UNVERIFIED) | the longhand is intentional (deriving one from another once removed a kind from a gate with the parity test green). Each mask is pinned against theta, the Core's data for what each kind is: `test/KindMaskQuestionSeparation.t.sol` (`test_ExecutableIsEveryKindThetaDescribes`, `test_RoutableIsEveryDescribedKindButTheNative`; mutants 477-478) and `test/PairProofMaskParity.t.sol` (`test_PairProofMaskMatchesTheta`, against `A_PAIR_VER`) |
 | `hookAltersDeltas` bit map | "Does this hook return deltas?" | `Core` (definition), `Router` ×1, `Solver` ×3, `Quoter` ×1 | `PINNED` (bits) | `test/BlazePhoenixCore.t.sol:103-104` pins `1<<3` and `1<<2` by name. Consumer **parity** across the four call sites is untested |
 | `MAX_BRIDGES` ↔ Solver arms | "How many bridges does the planner actually walk?" | `Hub` ×7, `Solver` ×2 | `WEAK` | the coupling is documented in `Hub:106-123` in prose; **DOC-01** found the prose describing a state that does not exist |
-| `MAX_LEGS_PER_STAGE` (4) vs `MAX_LEGS_PER_HOP` (5) | "How many legs fit in one hop?" | `Solver:111` answers 4, `Router:133` answers 5 | `OPEN` | none — finding **PIN-01**. Harmless today because 4 < 5; no test references `MAX_LEGS_PER_HOP` |
-| `MAX_HOPS` (3) | "How many hops fit in one route?" | `Router._execute` (the only door every entry point passes through); the Solver's deepest topology is `_planViaBridges` over two bridges (3) | `PINNED` (added 2026-09-02) | `test/RouteHopCeiling.t.sol` — a 61-hop route is refused, a 3-hop one still routes; mutant 103. PIN-01's missing sibling: until this row there was no producer at all, and `executedMask` past leg 255, the exhaustion-regime fee and `bridgeBase` were all bounded only by nobody sending long routes |
+| `MAX_LEGS_PER_HOP` (5; finding PIN-01) | "How many legs fit in one hop?" | `Core:145`, the one producer since 2026-11-06: the Router refuses a wider hop with `RouterE(3)` (`Router:1124`), the preview withholds `canExecute` (`Quoter._hookRefusedIn`), and the Solver budgets every stage on it, the direct hop and both stages of a bridge route. Until 2026-11-06 the Solver answered 4 (`MAX_LEGS_PER_STAGE`) and the Router 5 (**PIN-01**, harmless while 4 < 5). A route holds `MAX_HOPS` x `MAX_LEGS_PER_HOP` = 10 legs, derived: no code reads a route-wide count, so no constant holds it (the Solver's `MAX_LEGS` = 11 went with the three-hop topologies) | `PINNED` (2026-11-06) | `test/Pin01LegCeiling.t.sol` - five legs settle and six are refused on either hop, at the preview and at the Router, ten over two hops settle, and the Solver builds the direct hop and both bridge stages to five; `test/SeamParity.t.sol` (the Router's cap at the seam, and the widest route, two hops of five); `test/PlanInsideTheCeilings.t.sol` (no route the plan hands out is wider than the Router takes); mutants on the Core constant (4 and 6), on the Router's and the Quoter's checks (one past, one under, the first hop only, the route so far) and on the Solver's direct and bridge budgets (one past, one under) |
+| `MAX_HOPS` (2) | "How many hops fit in one route?" | `Core:132`, the one producer since 2026-11-06 (owner: "Ajusta as topologias a 2 hop"): `Router._execute` refuses a longer route with `RouterE(3)` (`Router:995`, the only door every entry point passes through), `Quoter._hookRefusedIn` withholds `canExecute`, and the Solver sizes the bridge path on it (`address[MAX_HOPS + 1]`, `new Hop[](MAX_HOPS)`) over four topologies (`TOPOLOGIES = 1 + BRIDGE_SLOTS`). Until 2026-11-06 it was 3, in the Router; the Quoter held a literal 3 of its own, and the Solver's deepest topology was three hops over two bridges (thirteen topologies) | `PINNED` (added 2026-09-02; 2 since 2026-11-06) | `test/RouteHopCeilingIsTwo.t.sol` - two hops settle and three are refused, at the preview and at the Router; `test/RouteHopCeiling.t.sol` - a 61-hop route is refused by the ceiling's code, a three-hop chain of distinct tokens is refused and its two-hop control routes; `test/PlanInsideTheCeilings.t.sol` - every route the plan hands out, best and fallback, has at most `MAX_HOPS` hops and settles; mutants on both checks (one past, one under) and on the Solver's path (one hop past). PIN-01's sibling: until 2026-09-02 there was no producer at all, and `executedMask` past leg 255, the exhaustion-regime fee and `bridgeBase` were all bounded only by nobody sending long routes |
 | `feeHop` (the hop the protocol fee anchors on) | "On which hop is the fee taken, and in which bridge?" | `Core.feeCalendar`, the one producer since 2026-10-27 (T01; before, four copies of the scan): the first hop whose input is a registered bridge (`isBridgeToken`, the Hub's mapping, in hop order), and `feeOnOut` for a direct route into a bridge; `Core.paysOnInput` is the one predicate. `Router._execute` runs it inline; the Quoter's `_pack`, `_exact` and `_fundedOut` ask it through `Quoter.feeCalendarOf`, and `_pack` answers both the charge count and `pv.bridgeUsed` from it | `PINNED` (added 2026-09-04, BRIDGE-02) | `test/QuoterBridgeUsedIsTheFeeAnchor.t.sol` — the named bridge is the anchored hop's input on every topology, and a route with no bridged input names none; `test/ExhaustionRegimePreviewParity.t.sol` ties the charge count to delivery |
 | Layer 2 scope (hookless before hooked) | "Over what span may no hookless leg follow a hooked one?" | `Router._execute` (the `sawHooked` flag) and `Solver._assembleRouteMulti` (refuses a hooked leg outside the last hop) | `PINNED` (widened 2026-09-02) | `test/CrossHopHookOrdering.t.sol` — a hooked leg in hop 0 before a hookless hop 1 is refused; a hook in the last hop still routes; mutant 104. The flag was declared inside the hop loop, so the rule closed the intra-hop vector and left the cross-hop one open while its own justification named the route |
 | `Volume` | "How much really went through this pool?" (`amtIn`, `amtOut`) | emitted by `Hub.recordSwap` from the amounts the Router passes, which are `leg.amountIn` / `leg.expectedOut` — **calldata**, not measurements | `PINNED` | `test/VolumeEventFidelity.t.sol` — `amtIn` equals the measured pool delta (VOL_01, mutant paired). `amtOut` is priced by the plan; its overstatement is bounded near +25% by the per-leg floor that consumes the same field, and no on-chain consumer reads it |
@@ -3151,8 +3154,8 @@ The tests were written to **catch**, not to fit. `test/FeeSeals.t.sol` reads non
 numbers: the fee token comes from the rule and the bridge list, the base from the pools' balance
 deltas (what left the Router into the fee hop, or what the previous hop's pools paid out) or the
 recipient's, the fee from the treasuries' deltas, the count from the `Fee` events — over every
-shape the Router accepts (one to three hops; bridge in no, first, middle or last position; one or
-two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
+shape the Router accepts (one or two hops, `MAX_HOPS`; bridge in no, first, middle or last position;
+one or two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
 events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
 
 **How often each test notices each defect** was measured rather than assumed: every fee mutant

@@ -16,17 +16,23 @@ pragma solidity 0.8.36;
 //  the bridge list; the fee base is measured from the POOLS' balance deltas (what left the
 //  Router into the fee hop) and from the recipient's; the fee paid is the treasuries' delta;
 //  the count is the number of Fee events. The property is asserted over every route shape
-//  the Router accepts — hops 1..3, bridge in none / first / middle / last position, one or two
-//  legs per hop — on fuzzed amounts. A bug in any of the three seals (the regime fallback,
-//  the single producer of the hop's commitment, the run-time ledger) moves one of these
-//  numbers, and the detection study (docs/assurance/fee-seal-detection.json) says how often.
+//  the Router accepts — hops 1..MAX_HOPS (two), bridge in none / first / middle / last position,
+//  one or two legs per hop — on fuzzed amounts. A bug in any of the three seals (the regime
+//  fallback, the single producer of the hop's commitment, the run-time ledger) moves one of
+//  these numbers, and the detection study (docs/assurance/fee-seal-detection.json) says how often.
+//
+//  History: until 2026-11-06 the Router took three hops (MAX_HOPS = 3) and the shapes here
+//  included three 3-hop paths (A>C>D>B, A>W>C>B, A>C>W>B); the no-bridge pin was A>C>D>B with
+//  three fees. MAX_HOPS is now 2 (Core's single producer, imported below): the shape table stops
+//  at the ceiling, and the no-bridge pin is the 2-hop A>C>B, which keeps the property (every hop,
+//  the first included, pays on its own measured input).
 //
 //  forge test --match-path test/FeeSeals.t.sol
 // =============================================================================
 import {Test, Vm} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
@@ -63,19 +69,21 @@ contract FeeSealsTest is Test {
         }
     }
 
-    // ── the shapes: a path of token indices, hops = path.length - 1
+    // ── the shapes: a path of token indices, hops = path.length - 1, ordered by length; the
+    //    deepest is MAX_HOPS hops (asserted in the fuzz test: a new ceiling goes red here until
+    //    the shapes of the new depth are written). History: until 2026-11-06 there were ten,
+    //    7 A>C>D>B  8 A>W>C>B  9 A>C>W>B being the 3-hop ones the Router now refuses (RouterE(3)).
+    uint8 constant SHAPES = 7;
+
     function _path(uint8 shape) private pure returns (uint8[] memory p) {
-        // 0 A>B  1 W>A  2 A>W  3 A>C>B  4 W>A>B  5 A>W>B  6 A>C>W  7 A>C>D>B  8 A>W>C>B  9 A>C>W>B
+        // 0 A>B  1 W>A  2 A>W  3 A>C>B  4 W>A>B  5 A>W>B  6 A>C>W
         if (shape == 0) { p = new uint8[](2); p[0]=0; p[1]=1; }
         else if (shape == 1) { p = new uint8[](2); p[0]=4; p[1]=0; }
         else if (shape == 2) { p = new uint8[](2); p[0]=0; p[1]=4; }
         else if (shape == 3) { p = new uint8[](3); p[0]=0; p[1]=2; p[2]=1; }
         else if (shape == 4) { p = new uint8[](3); p[0]=4; p[1]=0; p[2]=1; }
         else if (shape == 5) { p = new uint8[](3); p[0]=0; p[1]=4; p[2]=1; }
-        else if (shape == 6) { p = new uint8[](3); p[0]=0; p[1]=2; p[2]=4; }
-        else if (shape == 7) { p = new uint8[](4); p[0]=0; p[1]=2; p[2]=3; p[3]=1; }
-        else if (shape == 8) { p = new uint8[](4); p[0]=0; p[1]=4; p[2]=2; p[3]=1; }
-        else { p = new uint8[](4); p[0]=0; p[1]=2; p[2]=4; p[3]=1; }
+        else { p = new uint8[](3); p[0]=0; p[1]=2; p[2]=4; }
     }
 
     function _leg(MockV2Pair p, address tIn, uint256 amt) private view returns (Leg memory) {
@@ -151,8 +159,10 @@ contract FeeSealsTest is Test {
 
     /// Every shape, one or two legs, fuzzed amounts: settles, pays as the regime says, in the
     /// rule's token(s), exactly ceil(28 bps) of a base measured from the pools — and nothing else.
+    /// History: until 2026-11-06 the shape was bounded to 0..9, three of them 3-hop (MAX_HOPS = 3).
     function testFuzz_OneFeeOnePlace_EveryShape(uint8 shape, bool twoLegs, uint256 amountSeed) public {
-        shape = uint8(bound(shape, 0, 9));
+        assertEq(_path(SHAPES - 1).length - 1, MAX_HOPS, "the shape table reaches the Router's hop ceiling, no further");
+        shape = uint8(bound(shape, 0, SHAPES - 1));
         uint256 amountIn = bound(amountSeed, 1e12, 1e21);
         uint8[] memory path = _path(shape);
         (address feeToken, uint256 feeHop, bool onOut, bool exhaustion) = _feeSpot(path);
@@ -219,24 +229,27 @@ contract FeeSealsTest is Test {
 
     /// Immunity by exhaustion, pinned from the outside: a route through no bridge coin pays on
     /// every hop, each on the input that hop measured — the policy `ExhaustionRegimePreviewParity`
-    /// ties to the preview, asserted here against the pools rather than the preview.
-    function test_NoBridgeThreeHops_PaysOnEveryHop_ImmunityByExhaustion() public {
-        uint8[] memory path = _path(7);
+    /// ties to the preview, asserted here against the pools rather than the preview. A>C>B, two
+    /// hops (MAX_HOPS): hop 0 pays on the A the user committed, hop 1 on the C that hop 0's pool
+    /// paid out, and the output pays nothing.
+    /// History: until 2026-11-06 (MAX_HOPS = 3) this was
+    /// `test_NoBridgeThreeHops_PaysOnEveryHop_ImmunityByExhaustion`, A>C>D>B with three fees; the
+    /// Router refuses a third hop now, and the property needs only two: the first hop pays too.
+    function test_NoBridgeTwoHops_PaysOnEveryHop_ImmunityByExhaustion() public {
+        uint8[] memory path = _path(3);   // A>C>B
         uint256 amountIn = 1e20;
         Route memory route = _route(path, amountIn, false);
         tok[0].mint(user, amountIn);
         vm.prank(user); tok[0].approve(address(router), amountIn);
         uint256 cBefore = tok[2].balanceOf(address(pools[address(tok[0])][address(tok[2])][0]));
-        uint256 dBefore = tok[3].balanceOf(address(pools[address(tok[2])][address(tok[3])][0]));
         vm.recordLogs();
         vm.prank(user);
         router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
-        assertEq(_feeEvents(vm.getRecordedLogs()), 3, "three hops, no bridge: three fees");
+        assertEq(_feeEvents(vm.getRecordedLogs()), 2, "two hops, no bridge: two fees");
         uint256 cIn = cBefore - tok[2].balanceOf(address(pools[address(tok[0])][address(tok[2])][0]));
-        uint256 dIn = dBefore - tok[3].balanceOf(address(pools[address(tok[2])][address(tok[3])][0]));
+        assertGt(cIn, 0, "hop 0's pool paid C out");
         assertEq(_treasury(address(tok[0])), BPC.mulDivUp(amountIn, 28, 10_000), "hop 0 pays 28 bps of its input, in A");
         assertEq(_treasury(address(tok[2])), BPC.mulDivUp(cIn, 28, 10_000), "hop 1 pays 28 bps of the C it received, in C");
-        assertEq(_treasury(address(tok[3])), BPC.mulDivUp(dIn, 28, 10_000), "hop 2 pays 28 bps of the D it received, in D");
         assertEq(_treasury(address(tok[1])), 0, "nothing charged on the output");
     }
 }

@@ -133,7 +133,7 @@ abstract contract TokenSweepBase is Test {
 
         uint256 achou; uint256 semRota; uint256 proprio;
         uint256 somaLegs; uint256 somaHops; uint256 maxLegs; uint256 maxHops;
-        uint256[3] memory topo;          // 0=directo 1=uma ponte 2=duas pontes
+        uint256[3] memory topo;          // 0=directo 1=uma ponte 2=tres hops (acima do MAX_HOPS desde 2026-11-06)
         // NOVE, nao oito. O `KIND_V4_NATIVE` e 8 — com um array de 8 e um
         // guarda `kd < 8` as pernas nativas nao eram contadas em lado
         // nenhum, e o resumo dizia `legs V4: 0` com a V4 nativa a rotear.
@@ -192,7 +192,7 @@ abstract contract TokenSweepBase is Test {
         }
         console2.log("TOPOLOGIA  directo:", topo[0]);
         console2.log("TOPOLOGIA  uma ponte:", topo[1]);
-        console2.log("TOPOLOGIA  DUAS pontes (3 hops):", topo[2]);
+        console2.log("TOPOLOGIA  3 hops (acima do MAX_HOPS, tem de ser 0):", topo[2]);
         console2.log("legs V2:", porKind[0]);
         console2.log("legs V3:", porKind[1]);
         console2.log("legs V4 wrapped:", porKind[4]);
