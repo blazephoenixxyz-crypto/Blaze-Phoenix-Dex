@@ -18,8 +18,10 @@ pragma solidity 0.8.36;
 //        (stage B is re-quoted on stage A's rank for the judgement). Red on f87364e.
 //   Q2l  ...and that re-quote replaces the promise in the judgement, never adds to it: a better
 //        direct route keeps the order. Green on f87364e too: it guards the fix.
-//   Q2m/Q2n  the same on a two-bridge route, dust on its first stage and on its middle one (the
-//        rank is carried stage by stage). Red on f87364e.
+//   Q2m/Q2n  the same with dust on both stages and on the last one alone (the rank is carried
+//        stage by stage, and the last stage's own deep walk reaches the judgement). Until
+//        2026-11-06 these were three-hop tests on a two-bridge route (red on f87364e); the
+//        two-bridge book is now refused, and its one-bridge analogue fills (Q2k).
 //   ceiling  `v4WalkRank` stops at sixteen only when the rest cannot carry the quote past the
 //        bar, and never below the truth.
 //   B1   the ceiling never saturates under the walk's own figure: on a book whose output
@@ -30,7 +32,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, RoutePlan, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
@@ -241,9 +243,16 @@ contract V4FragmentationRankingTest is Test {
         assertEq(got, 9746738941922775479386, "the clean bridge route's fill moved");
     }
 
-    /// Q2k regression, two bridges: t0 -> b1 on an honest V4 book, b1 -> b2 and b2 -> t1 on V2
-    /// pairs, no shorter route. Pinned values read on f87364e.
-    function test_Q2k_CleanTwoBridgeRouteUnchanged() public {
+    /// Q2k on the two-bridge book: t0 -> b1 on an honest V4 book, b1 -> b2 and b2 -> t1 on V2
+    /// pairs, and no shorter route. Its only route is three hops, past MAX_HOPS: the Solver plans
+    /// none (SolverE(5)), the automatic door passes that refusal through unchanged, and the
+    /// three-hop route assembled by hand from the three one-hop plans is refused at the Router's
+    /// ceiling (RouterE(3)). One pair more, b1 -> t1, gives the two-hop analogue: it is planned
+    /// through b1 with the V4 book on its first stage, and it fills near par.
+    /// History: until 2026-11-06 this was test_Q2k_CleanTwoBridgeRouteUnchanged, which pinned the
+    /// three-hop route's promise (9650478184622023178868) and fill (9623977733739036085623), read
+    /// on f87364e. The Solver builds one bridge per route since then.
+    function test_Q2k_TwoBridgeChainIsRefused_OneBridgeAnalogueFills() public {
         address b1 = address(new MockERC20("B1", "B1"));
         address b2 = address(new MockERC20("B2", "B2"));
         MockERC20(b1).mint(address(mgr), 1e30);
@@ -252,47 +261,97 @@ contract V4FragmentationRankingTest is Test {
         _honestV4Between(t0, b1);
         _v2(b1, b2, 1e24, 1e24);
         _v2(b2, t1, 1e24, 1e24);
-        uint256 promised = solver.findBestRoutePlan(t0, t1, ORDER).best.totalOut;
+        bytes memory noRoute = abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, 5);
+        vm.expectRevert(noRoute);
+        solver.findBestRoutePlan(t0, t1, ORDER);
+        vm.expectRevert(noRoute);
+        vm.prank(user);
+        router.swapBestExactIn(t0, t1, ORDER, 1, user, block.timestamp + 1);
+
+        // The three-hop route, each stage as the Solver plans it alone, on the stage before's promise.
+        RoutePlan memory s0 = solver.findBestRoutePlan(t0, b1, ORDER);
+        RoutePlan memory s1 = solver.findBestRoutePlan(b1, b2, s0.best.totalOut);
+        RoutePlan memory s2 = solver.findBestRoutePlan(b2, t1, s1.best.totalOut);
+        // The hop array is filled before it is attached: `chain` aliases s2.best, so attaching it
+        // first would make s2.best.hops[0] read the new array's own hop 0.
+        Hop[] memory three = new Hop[](MAX_HOPS + 1);
+        three[0] = s0.best.hops[0];
+        three[1] = s1.best.hops[0];
+        three[2] = s2.best.hops[0];
+        Route memory chain = s2.best;
+        chain.hops = three;
+        // The chain holds together, so its hop count is the only thing past a limit.
+        assertEq(chain.hops[0].tokenIn, t0, "the chain starts in t0");
+        assertEq(chain.hops[0].tokenOut, b1, "hop 0 ends in b1");
+        assertEq(chain.hops[1].tokenIn, b1, "hop 1 starts where hop 0 ends");
+        assertEq(chain.hops[1].tokenOut, b2, "hop 1 ends in b2");
+        assertEq(chain.hops[2].tokenIn, b2, "hop 2 starts where hop 1 ends");
+        assertEq(chain.hops[2].tokenOut, t1, "the chain ends in t1");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 3));
+        vm.prank(user);
+        router.swapExactIn(chain, ORDER, 1, user, block.timestamp + 1);
+
+        _v2(b1, t1, 1e24, 1e24);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, ORDER);
+        assertEq(plan.best.hops.length, MAX_HOPS, "the analogue is one bridge, two hops");
+        assertEq(plan.best.hops[0].tokenOut, b1, "the analogue runs through b1");
+        assertEq(plan.best.hops[1].tokenOut, t1, "the analogue ends in t1");
         uint256 got = _swap();
-        assertEq(promised, 9650478184622023178868, "the clean two-bridge route's promise moved");
-        assertEq(got, 9623977733739036085623, "the clean two-bridge route's fill moved");
+        emit log_named_uint("analogue promise     ", plan.best.totalOut);
+        emit log_named_uint("analogue fill        ", got);
+        assertGt(got, 9.5e21, "the one-bridge analogue fills near par");
     }
 
-    /// The Q2m/Q2n book: t0 -> b1 -> b2 -> t1, with the V4 book on stage `v4Stage` (0 or 1) and
-    /// deep V2 pairs on the other two, beside a shallower V2 pair on t0 -> t1 (~8.3e21).
-    function _twoBridgeBook(address b1, address b2, uint256 v4Stage) internal returns (bytes32 pid) {
-        if (v4Stage == 0) { pid = _honestV4Between(t0, b1); _v2(b1, b2, 1e24, 1e24); }
-        else              { _v2(t0, b1, 1e24, 1e24); pid = _honestV4Between(b1, b2); }
-        _v2(b2, t1, 1e24, 1e24);
+    /// The Q2m/Q2n book: t0 -> bridge -> t1 with an honest V4 book on each stage `v4Stages` names
+    /// (bit 0 the first, bit 1 the last) and a deep V2 pair on the other, beside a shallower V2
+    /// pair on t0 -> t1 (~8.3e21). Returns the V4 pool ids (zero on a V2 stage).
+    function _bridgeStages(address bridge, uint256 v4Stages) internal returns (bytes32 pidA, bytes32 pidB) {
+        if (v4Stages & 1 != 0) pidA = _honestV4Between(t0, bridge);
+        else                   _v2(t0, bridge, 1e24, 1e24);
+        if (v4Stages & 2 != 0) pidB = _honestV4Between(bridge, t1);
+        else                   _v2(bridge, t1, 1e24, 1e24);
         _v2(t0, t1, 5e22, 5e22);
     }
 
-    function _twoBridgeAttack(uint256 v4Stage) internal {
-        address b1 = address(new MockERC20("B1", "B1"));
-        address b2 = address(new MockERC20("B2", "B2"));
-        MockERC20(b1).mint(address(mgr), 1e30);
-        MockERC20(b2).mint(address(mgr), 1e30);
-        hub.addBridge(b1);
-        hub.addBridge(b2);
+    /// Dust on every V4 stage of the bridge route; the precondition reads each stage's walk on an
+    /// order of the route's size, so a stage the dust does not truncate fails the test.
+    function _bridgeStageAttack(uint256 v4Stages) internal {
+        address bridge = address(new MockERC20("BR", "BR"));
+        MockERC20(bridge).mint(address(mgr), 1e30);
+        hub.addBridge(bridge);
         uint256 snap = vm.snapshotState();
-        _twoBridgeBook(b1, b2, v4Stage);
+        _bridgeStages(bridge, v4Stages);
         uint256 clean = _swap();
         vm.revertToState(snap);
-        bytes32 pid = _twoBridgeBook(b1, b2, v4Stage);
-        (address a, address b) = v4Stage == 0 ? (t0, b1) : (b1, b2);
-        _fragmentPath(pid, a, b);
+        (bytes32 pidA, bytes32 pidB) = _bridgeStages(bridge, v4Stages);
+        if (v4Stages & 1 != 0) { _fragmentPath(pidA, t0, bridge); _assertCut(pidA, t0 < bridge); }
+        if (v4Stages & 2 != 0) { _fragmentPath(pidB, bridge, t1); _assertCut(pidB, bridge < t1); }
         uint256 dirty = _swap();
         _report(clean, dirty);
-        assertGt(clean, 9.5e21, "control: the two-bridge route fills near par");
-        assertLe(clean > dirty ? clean - dirty : 0, 1e18, "fragmentation moved the order off the two-bridge route");
+        assertGt(clean, 9.5e21, "control: the bridge route fills near par");
+        assertLe(clean > dirty ? clean - dirty : 0, 1e18, "fragmentation moved the order off the bridge route");
     }
 
-    /// Q2m. Q2k on a two-bridge route: dust on its FIRST stage (t0 -> b1).
-    function test_Q2m_FragmentedTwoBridgeFirstStageKeepsTheRoute() public { _twoBridgeAttack(0); }
+    function _assertCut(bytes32 pid, bool zeroForOne) internal view {
+        (uint256 lo, uint256 rank, ) = BPC.v4WalkRank(address(mgr), pid, ORDER, FEE, TS, zeroForOne, 0);
+        assertLt(lo * 10, ORDER, "precondition: the stage's promise is cut more than tenfold");
+        assertGt(rank, ORDER * 98 / 100, "precondition: the deep walk reads the book");
+    }
 
-    /// Q2n. Q2k on a two-bridge route: dust on its MIDDLE stage (b1 -> b2), so the rank has to
-    /// be carried into the last stage from a stage that was itself quoted on a promise.
-    function test_Q2n_FragmentedTwoBridgeMiddleStageKeepsTheRoute() public { _twoBridgeAttack(1); }
+    /// Q2m. Q2k with dust on BOTH stages: the last stage is quoted again on the first stage's
+    /// rank, and that quote is itself truncated, so its own deep walk is what carries the rank
+    /// into the judgement.
+    /// History: until 2026-11-06 this was test_Q2m_FragmentedTwoBridgeFirstStageKeepsTheRoute,
+    /// three hops t0 -> b1 -> b2 -> t1 with dust on the first stage (red on f87364e). With
+    /// MAX_HOPS = 2, dust on the first stage alone is Q2k.
+    function test_Q2m_FragmentedBridgeBothStagesKeepTheRoute() public { _bridgeStageAttack(3); }
+
+    /// Q2n. Q2k with dust on the LAST stage (bridge -> t1): the stage before is exact, so no
+    /// second pass runs, and the rank has to come out of the last stage's own deep walk.
+    /// History: until 2026-11-06 this was test_Q2n_FragmentedTwoBridgeMiddleStageKeepsTheRoute,
+    /// three hops with dust on the middle stage, whose rank was carried into a third (red on
+    /// f87364e). With MAX_HOPS = 2 the stage after the bridge is the last one.
+    function test_Q2n_FragmentedBridgeLastStageKeepsTheRoute() public { _bridgeStageAttack(2); }
 
     /// Q2h. The held vote: a thin V2 pair priced ~5.6% above the honest pool at the probe. Clean,
     /// the honest pool's depth sets the band and the thin pair falls out of it. Fragmented, the
