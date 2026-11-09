@@ -249,6 +249,7 @@ contract AdapterInfinityBinTest is AdapterHarness {
     }
 
     // ─── hooks at resolve (IBinHooks bits 7, 10, 11; dynamic fee); the pin again at exec and quoteCall ───
+    // `_requireHookPinned` (SHARED_QUANTITIES): none, or code with one of the three pinned codehashes.
 
     function _refused(address h, uint16 bitmap, uint24 fee) internal {
         bytes32 hid = _pool(h, bitmap, fee);
