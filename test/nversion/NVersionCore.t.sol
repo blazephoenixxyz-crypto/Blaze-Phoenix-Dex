@@ -31,10 +31,12 @@ contract NVersionCoreTest is Test {
         _load("nver2", "out-nver2");
     }
 
-    /// The Core library has PUBLIC functions (outSolidly), so the probe's artefact carries an
-    /// unlinked placeholder for it. Under each profile the library is deployed from ITS OWN
+    /// The Core library has PUBLIC functions, and a probe that calls one carries an unlinked
+    /// placeholder for the library. Under each profile the library is deployed from ITS OWN
     /// artefact (compiled with the same settings) and the placeholder is replaced by hand — the
-    /// same link the compiler would perform, so the alternate binary is complete.
+    /// same link the compiler would perform, so the alternate binary is complete. Today the probe
+    /// calls none (`outSolidly`, the last one, is internal and inlined like the rest): there is no
+    /// placeholder and the replace below changes nothing.
     function _load(string memory name, string memory dir) private {
         string memory probe = string.concat(dir, "/CoreProbe.sol/CoreProbe.json");
         string memory lib = string.concat(dir, "/BlazePhoenixCore.sol/BlazePhoenixCore.json");

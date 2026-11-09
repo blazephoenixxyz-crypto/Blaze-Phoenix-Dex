@@ -1425,7 +1425,7 @@ library BlazePhoenixCore {
     ///         (0xf140a35a). Returns 0 when the pool exposes neither (caller
     ///         falls back to the replicated curve with a conservative haircut).
     function solidlyGetAmountOut(address pool, uint256 amountIn, address tokenIn)
-        public view returns (uint256 out)
+        internal view returns (uint256 out)
     {
         (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x0ea099c1, amountIn, tokenIn));
         if (!ok) (ok, w) = _askWord(pool, abi.encodeWithSelector(0xf140a35a, amountIn, tokenIn));
@@ -1488,7 +1488,7 @@ library BlazePhoenixCore {
 
     function outSolidly(
         uint256 ain, uint256 rIn, uint256 rOut, uint256 fee, bool stable
-    ) public pure returns (uint256) {
+    ) internal pure returns (uint256) {
         if (ain == 0 || rIn == 0 || rOut == 0) return 0;
         if (!stable) return outV2(ain, rIn, rOut, fee);
         if (fee >= BPS) return 0;
@@ -1599,7 +1599,7 @@ library BlazePhoenixCore {
     function solidlyCurveOut(
         address pool, uint256 ain, uint256 rIn, uint256 rOut,
         bool stable, uint256 cfgFee, address tokenIn
-    ) public view returns (uint256) {
+    ) internal view returns (uint256) {
         uint256 liveFee = readDynamicFee(pool, stable, cfgFee);
         if (!stable) return outV2(ain, rIn, rOut, liveFee);
         address t0 = token0Of(pool);
@@ -1689,7 +1689,7 @@ library BlazePhoenixCore {
     ///         agree on the fee the pool will actually charge at swap time —
     ///         eliminating the K() over-quote race that would otherwise revert.
     function readDynamicFee(address pool, bool stable, uint256 cfgFee)
-        public view returns (uint256 fee)
+        internal view returns (uint256 fee)
     {
         // CEILING ON THE DECLARED FALLBACK — the sibling of `effV2Fee`.
         // `cfgFee` is `leg.fee`, i.e. CALLDATA, at all three call sites of
@@ -3176,15 +3176,17 @@ library BlazePhoenixCore {
     ///         `impactV3Bps` build on top of it. There is still ONE producer of the ratio; what
     ///         stops existing is the obligation to recompute the curve to reach it.
     ///
-    ///         It stays `public` (delegatecall) and not `internal` on purpose: `internal` would
-    ///         be inlined into every caller and the ratio arithmetic (4 mulDiv) would be paid in
-    ///         BYTES in the Router, the contract with the least headroom after the Hub. The gain
-    ///         here is not running the CURVE twice — it is not about saving the traversal.
+    ///         It is `internal`. It was `public` (a delegatecall door) while the Router called it,
+    ///         so that the ratio arithmetic (4 mulDiv) was not paid in BYTES there. Since the
+    ///         Router's quote arms moved here (`legQuoteImpact`, K2) its two callers are both in
+    ///         this library and reach it with a jump: the door was a dispatcher row and an ABI
+    ///         wrapper that no contract called (`test/CoreSurfaceIsTheCalledSurface.t.sol`). The
+    ///         gain here is not running the CURVE twice — it is not about saving the traversal.
     ///
     ///         `out == 0` returns BPS (the maximum, conservative), exactly as before: a pool that
     ///         does not quote is treated as total impact, never as zero impact.
     function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)
-        public pure returns (uint256)
+        internal pure returns (uint256)
     {
         if (out == 0 || amountIn == 0 || sqrtP == 0) return BPS;
         uint256 P = uint256(sqrtP);
