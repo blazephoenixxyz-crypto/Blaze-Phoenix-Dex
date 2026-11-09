@@ -5164,6 +5164,11 @@ M = [
       old='        if (msg.sender != address(VAULT) || !_inExec) revert AdapterE(6);',
       new='        if (msg.sender != address(VAULT) || data.length < 384) revert AdapterE(6); // MUTANT [IB55]',
       teste='test_InfBin_VaultCallbackOutsideOwnExec_Refused'),
+ dict(nome="adapters-bsc [IB56]: the Quoter's dryQuoteCall gives a Gate wrapper's quoteCall 60k gas, under what an Infinity Bin leg spends, not GATE_QUOTE_GAS",
+      f='src/BlazePhoenixQuoter.sol',
+      old='        try IGateWrapperQ(wrapper).quoteCall{gas: GATE_QUOTE_GAS}(zeroForOne, amtIn) returns (uint256 o) {',
+      new='        try IGateWrapperQ(wrapper).quoteCall{gas: 60_000}(zeroForOne, amtIn) returns (uint256 o) { // MUTANT [IB56]',
+      teste='test_InfBin_RealQuoterKind9Route_PricedAtTheVenue_RouterDeliversIt'),
 ]
 
 def run(t):

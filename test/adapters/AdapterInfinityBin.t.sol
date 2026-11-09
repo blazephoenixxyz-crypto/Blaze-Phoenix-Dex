@@ -8,6 +8,10 @@ import {IInfinityCLPoolManager} from "../../src/adapters/BlazePhoenixAdapterInfi
 import {BlazePhoenixAdapterInfinityBin, IInfinityBinPoolManager} from "../../src/adapters/BlazePhoenixAdapterInfinityBin.sol";
 import {MockInfVault, MockInfBinPoolManager, PinnedHook, SecondHook, ForgingHook} from "./mocks/MockInfinity.sol";
 import {MockERC20Dec} from "./mocks/MockERC20Dec.sol";
+import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
+import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
+import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../../src/BlazePhoenixCore.sol";
 
 /// An unpinned hook whose beforeSwap works: the code a pinned hook's address may come to hold.
 contract RogueBinHook { function beforeSwap(address) external {} }
@@ -471,5 +475,59 @@ contract AdapterInfinityBinTest is AdapterHarness {
         (uint256 out, , uint256 gQuoteCall) = _armUnderCap(w, true, 5e18, cold);
         assertEq(out, _out(5e18), "the arm's price is the exec's");
         assertGt(gQuoteCall, 0, "priced by quoteCall: the view answered 0");
+    }
+
+    // ─── the real Quoter and Router: the kind-9 route through this leg ───
+
+    /// The arm above is a copy of the Quoter's; here the Quoter itself prices the route
+    /// (previewRouteExact: Core.gateQuote, then dryQuoteCall under the Quoter's own cap when the
+    /// view answers 0), every account cold as an eth_call starts, at the venue's price, and the
+    /// real Router delivers what the Quoter promised, the Vault settled and no custody left.
+    function test_InfBin_RealQuoterKind9Route_PricedAtTheVenue_RouterDeliversIt() public {
+        (BlazePhoenixQuoter quoter, BlazePhoenixRouter router, BlazePhoenixHub hub) = _quoterAndRouter();
+        uint256 amt = 5e18;
+        (uint256 v, ) = BlazePhoenixGateWrapper(w).quote(true, amt);
+        assertEq(v, 0, "setup: the view has no answer, the arm asks quoteCall");
+        address[8] memory cold =
+            [address(hub), address(gate), w, address(adapter), address(vault), address(bin), address(t0), address(t1)];
+        for (uint256 k; k < cold.length; ++k) vm.cool(cold[k]);
+        (Route memory q, uint256 exactOut) = quoter.previewRouteExact(_kind9Route(amt), amt);
+        assertEq(q.hops[0].legs[0].expectedOut, _out(amt), "the Quoter prices the leg at the venue's price");
+        assertGt(exactOut, 0, "a route to execute");
+        _settled();
+        address u = address(0xA11CE);
+        t0.mint(u, amt);
+        vm.startPrank(u);
+        t0.approve(address(router), type(uint256).max);
+        uint256 out = router.swapExactIn(q, amt, exactOut, u, block.timestamp + 1);
+        vm.stopPrank();
+        assertEq(out, exactOut, "quote == execution, through the real Router");
+        assertEq(t1.balanceOf(u), out, "delivered to the user");
+        _assertEmpty(address(adapter), w, address(vault));
+        _settled();
+    }
+
+    /// A Hub that admits this Gate (its factory row, by which BPC.gateWrapperLive finds `w`), and
+    /// the Quoter and the Router over it.
+    function _quoterAndRouter() internal returns (BlazePhoenixQuoter quoter, BlazePhoenixRouter router, BlazePhoenixHub hub) {
+        hub = new BlazePhoenixHub(address(this));
+        hub.initialize(address(this), address(0xBEEF));
+        hub.setRoles(address(this), address(this), address(this));
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = KEY;
+        hub.addFactory(address(gate), BPC.KIND_EXTERNAL, 5, gate.WRAPPER_INIT_HASH(), fees, new int24[](0)); // 5: MODE_CREATE2_V3
+        quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
+        router = new BlazePhoenixRouter(address(hub), address(0xD0D0), address(this), address(0xFEE1), address(0xFEE2));
+    }
+
+    /// One hop t0 -> t1, one kind-9 leg: the wrapper `w` under its venue key.
+    function _kind9Route(uint256 amt) internal view returns (Route memory) {
+        Leg[] memory l = new Leg[](1);
+        l[0] = Leg({pool: w, hooks: address(0), kind: BPC.KIND_EXTERNAL, fee: KEY, tickSpacing: 0,
+            zeroForOne: true, stable: false, amountIn: amt, expectedOut: 0, auxId: bytes32(0)});
+        Hop[] memory hs = new Hop[](1);
+        hs[0] = Hop({tokenIn: address(t0), tokenOut: address(t1), amountIn: amt, expectedOut: 0, legs: l});
+        return Route({hops: hs, totalOut: 0, singleOut: 0, singleOutFloor: 0, expectedImpactBps: 0,
+            confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
     }
 }
