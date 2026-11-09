@@ -4878,6 +4878,11 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads);\n',
       new='                    (g.expectedOut, ) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads); // MUTANT\n',
+      # hops2 (2026-11-09): OPEN on this branch. The test below no longer kills this mutant.
+      # gas52-main-1106 0387ba5 found it so before hops2 (the mutant plan fits, 10,873,531 gas), and
+      # on two hops the 3x6 grid's cold plan under it is 4,944,962 gas, inside SEARCH_GAS (12M).
+      # That commit pairs it with test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan (one book
+      # against four, relative gas); the pairing is to be checked on two hops when the branches meet.
       teste='test_3073_WalkBudget_ThreeBridgesSixBooks_Settles'),
  dict(nome='DEX-01 fed read [913]: a read of the book is made on whatever gas the frame holds',
       f='src/BlazePhoenixCore.sol',
