@@ -149,27 +149,58 @@ contract AdapterInfinityBinTest is AdapterHarness {
         BlazePhoenixGateWrapper(w).swap(address(this), true, int256(INT128_MAX + 1), 0, "");
     }
 
+    /// Past 2^128 the cast to int128 keeps the low 128 bits: 2^128 + 1e18 would reach the venue
+    /// as 1e18, an ordinary amount. Refused (AdapterE(9)) at quoteCall and at exec all the same.
+    function test_InfBin_AmountPast2Pow128_RefusedNotTruncated() public {
+        uint256 amt = (uint256(1) << 128) + 1e18;
+        assertEq(int256(int128(int256(amt))), 1e18, "anti-vacuity: its low 128 bits are 1e18");
+        assertEq(BlazePhoenixGateWrapper(w).quoteCall(true, amt), 0, "no quote");
+        vm.prank(w);
+        vm.expectRevert(_aerr(9));
+        adapter.quoteCall(address(vault), id, bytes32(0), true, amt);
+        t0.mint(address(this), amt);
+        vm.expectRevert(_aerr(9));
+        BlazePhoenixGateWrapper(w).swap(address(this), true, int256(amt), 0, "");
+    }
+
     // ─── hostile callers of the callback (SETTLE: the lock's deltas are the locker's) ───
 
+    /// A payload the callback would act on: 1e18 of t0 swapped in the plain pool, the output paid
+    /// by the Vault to `thief`. 384 bytes, the length of the adapter's own, so a probe carrying it
+    /// is refused by the guard's sender or `_inExec` half and by nothing else.
+    function _steal(address thief) internal view returns (bytes memory) {
+        return abi.encode(
+            false, _key(address(t0), address(t1), address(0), 0, FEE), true, uint256(1e18), address(t0), address(t1), thief
+        );
+    }
+
     function test_InfBin_LockAcquiredFromNonVault_Refused() public {
+        address thief = makeAddr("thief");
+        assertEq(_steal(thief).length, 384, "anti-vacuity: a payload of the real length");
+        t0.mint(address(adapter), 1e18); // the bait
         vm.expectRevert(_aerr(6));
-        adapter.lockAcquired(abi.encode(uint256(1)));
+        adapter.lockAcquired(_steal(thief));
         // From inside the adapter's own exec: a pinned hook calling the callback mid-swap.
         bytes32 hid = _pool(address(hook), 69, FEE);
         address w2 = gate.create(address(t0), address(t1), KEY + 1, abi.encode(hid));
-        hook.arm(address(adapter), abi.encodeCall(adapter.lockAcquired, (abi.encode(uint256(1)))));
+        hook.arm(address(adapter), abi.encodeCall(adapter.lockAcquired, (_steal(thief))));
         assertEq(_swap(w2, true, 1e18), _out(1e18));
         assertEq(hook.calls(), 1, "anti-vacuity: the hook ran inside the exec");
         assertFalse(hook.lastOk(), "the callback refused the hook");
         assertEq(hook.lastRet(), _aerr(6));
+        assertEq(t1.balanceOf(thief), 0, "nothing reached the thief");
+        assertEq(t0.balanceOf(address(adapter)), 1e18, "the bait stayed where it was");
     }
 
     /// Defence in depth, as in the CL suite: the mock's `poke` is a Vault that calls back out of
     /// turn, so these pin the `_inExec` half of the guard, not a path the live Vault offers.
     function test_InfBin_VaultCallbackOutsideOwnExec_Refused() public {
+        address thief = makeAddr("thief");
         t0.mint(address(adapter), 1e18); // something to steal, were the callback open
         vm.expectRevert(_aerr(6));
-        vault.poke(address(adapter), abi.encodeCall(adapter.lockAcquired, (abi.encode(uint256(1)))));
+        vault.poke(address(adapter), abi.encodeCall(adapter.lockAcquired, (_steal(thief))));
+        assertEq(t1.balanceOf(thief), 0, "nothing reached the thief");
+        assertEq(t0.balanceOf(address(adapter)), 1e18, "the bait stayed where it was");
     }
 
     /// The flag is cleared when the exec (or the quoteCall) returns; both run in one call frame of
@@ -319,6 +350,22 @@ contract AdapterInfinityBinTest is AdapterHarness {
         );
         vm.prank(wf);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixAdapterInfinityBin.QuoteSwapFailed.selector, wrapped));
+        adapter.quoteCall(address(vault), fid, bytes32(0), true, 1e18);
+    }
+
+    /// The same forgery with no envelope (the mock's switch; the live manager wraps a hook's
+    /// revert): the bare QuoteOut leaves the venue's swap, and the adapter's own catch still
+    /// reports it as QuoteSwapFailed, never as an output.
+    function test_InfBin_QuoteCall_RawForgedOutFromTheManager_NotRead() public {
+        bytes32 fid = _pool(address(hook2), 69, FEE);
+        address wf = gate.create(address(t0), address(t1), KEY + 1, abi.encode(fid));
+        bin.setRawHookRevert(true);
+        bytes memory forged = abi.encodeWithSelector(BlazePhoenixAdapterInfinityBin.QuoteOut.selector, uint256(1e30));
+        vm.expectRevert(forged); // anti-vacuity: the venue's swap reverts with the bare 36 bytes
+        bin.swap(_key(address(t0), address(t1), address(hook2), 69, FEE), true, -1e18, "");
+        assertEq(BlazePhoenixGateWrapper(wf).quoteCall(true, 1e18), 0, "the forged out is not a quote");
+        vm.prank(wf);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixAdapterInfinityBin.QuoteSwapFailed.selector, forged));
         adapter.quoteCall(address(vault), fid, bytes32(0), true, 1e18);
     }
 

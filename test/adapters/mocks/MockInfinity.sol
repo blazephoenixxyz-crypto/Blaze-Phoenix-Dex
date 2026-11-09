@@ -227,8 +227,13 @@ contract MockInfBinPoolManager {
     mapping(bytes32 => mapping(uint24 => uint256)) internal binOf; // reserveX << 128 | reserveY
     mapping(bytes32 => uint256) public maxIn;
     mapping(bytes32 => mapping(bool => uint256)) public rateOf;
+    /// Off unless a test sets it: a hook's revert then leaves `swap` raw, without the envelope
+    /// the live manager puts on it, so what the test pins is the adapter's own catch.
+    bool public rawHookRevert;
 
     constructor(address v) { vault = v; }
+
+    function setRawHookRevert(bool on) external { rawHookRevert = on; }
 
     function initialize(IInfinityCLPoolManager.PoolKey memory key, uint24 activeId) external returns (bytes32 id) {
         id = keccak256(abi.encode(key));
@@ -262,6 +267,7 @@ contract MockInfBinPoolManager {
         if (keys[id].poolManager == address(0)) revert PoolNotInitialized();
         if (uint256(key.parameters) & (1 << 6) != 0 && msg.sender != key.hooks) {
             (bool ok, bytes memory r) = key.hooks.call(abi.encodeCall(IMockBeforeSwap.beforeSwap, (msg.sender)));
+            if (!ok && rawHookRevert) assembly { revert(add(r, 32), mload(r)) }
             if (!ok) revert WrappedError(key.hooks, IMockBeforeSwap.beforeSwap.selector, r, abi.encodePacked(HookCallFailed.selector));
         }
         require(amountSpecified < 0, "mock: exact-in only");
