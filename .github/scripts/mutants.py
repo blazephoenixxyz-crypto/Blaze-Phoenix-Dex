@@ -5480,6 +5480,21 @@ M = [
       old="        if (newDepth == 0) return false;",
       new="        // MUTANT [MT6-10]",
       teste="test_SeatDoor_ZeroDepthNewcomerOnAFullPair_NotSeated"),
+ dict(nome="inv-s1-1635: Router FEE: the book is not cleared, seen by two V4 swaps and a V3 swap in one call",
+      f="src/BlazePhoenixRouter.sol",
+      old="            assembly { tstore(sFee, 0) }\n",
+      new=" // MUTANT [inv-s1-1635]\n",
+      teste="test_TwoV4AndOneV3SwapsInOneCall_EachDeliveryPaysExactlyOneFee"),
+ dict(nome="inv-s1-2061: Router V4: the unlock context outlives an unlock whose manager never called back",
+      f="src/BlazePhoenixRouter.sol",
+      old="        );\n        assembly { tstore(sI, 0) tstore(sO, 0) }\n",
+      new="        );\n // MUTANT [inv-s1-2061]\n",
+      teste="test_AManagerThatNeverCalledBack_FindsNoContextLaterInTheCall"),
+ dict(nome="inv-s1-2179: Router V4: the unlock context is not cleared before the callback settles",
+      f="src/BlazePhoenixRouter.sol",
+      old="        // tIn == 0 and reverts(6).\n        assembly { tstore(sI, 0) tstore(sO, 0) }\n",
+      new="        // tIn == 0 and reverts(6).\n // MUTANT [inv-s1-2179]\n",
+      teste="test_AManagerCallingBackAgainWhileItPays_FindsNoContext"),
 ]
 
 def run(t):
