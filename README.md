@@ -266,12 +266,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 2,582 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 385 | `test/**/*.t.sol` |
+| Test declarations | 2,607 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 387 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 33 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 974 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 979 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
