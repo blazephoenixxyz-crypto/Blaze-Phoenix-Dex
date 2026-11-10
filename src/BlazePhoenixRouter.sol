@@ -670,11 +670,16 @@ contract BlazePhoenixRouter {
     ///      #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
     ///      restating balances the Router already held (rebase/reflection inside transferFrom),
     ///      and counting it as received would sweep that foreign balance to the payer.
+    ///      3948: ON A ROUTER THAT HELD NOTHING there is no balance to restate, so the whole
+    ///      delta is this pull's and the clamp would keep the payer's own growth: the swap
+    ///      spends what the route commits and the input sweep returns the rest. With any
+    ///      balance before the pull the two cannot be told apart by measurement and #45 stands.
     function _received(address tokenIn, uint256 balBefore, uint256 amountIn)
         private returns (uint256 received)
     {
         received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
+        if (balBefore == 0 && received > amountIn) return received;
         if (received > amountIn) received = amountIn;
         else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
     }

@@ -5279,6 +5279,18 @@ M = [
       old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
       new='        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return; // MUTANT [fin1111-router-1]',
       teste='test_AShareThatAnswersTrueWithoutMovingIsBooked'),
+ # fin-1111 router (3948). The new line sits above the #45 clamp, whose two lines are untouched:
+ # [897]-[899] and the FOT-01 door mutants keep their anchors.
+ dict(nome='fin1111-router-2 (3948): a pull onto a Router that held nothing is clamped to the ask again, the payer\'s own restated growth stays on the Router',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (balBefore == 0 && received > amountIn) return received;',
+      new='        // MUTANT [fin1111-router-2]',
+      teste='test_RestatedInsideThePull_OnAnEmptyRouter_ReceivedIsTheWholeDelta'),
+ dict(nome='fin1111-router-3 (3948): the whole delta is taken with a balance on the Router before the pull too, so #45 is open again from one wei up',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (balBefore == 0 && received > amountIn) return received;',
+      new='        if (received > amountIn) return received; // MUTANT [fin1111-router-3]',
+      teste='test_Control_WithOneWeiBeforeThePull_ReceivedIsClampedToAmountIn'),
 ]
 
 def run(t):
