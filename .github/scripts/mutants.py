@@ -4993,6 +4993,16 @@ M = [
       old='            if (h2) held = true;   // a held leg leaves the choice unsettled, whichever split is kept',
       new='            // MUTANT [1080]',
       teste='test_ATrialRefusedAtTheCapIsSettledByTheWalk'),
+ dict(nome="outV3 [1081]: the single-range figure keeps its own price step, rounded down (one wei above the pool's swap)",
+      f='src/BlazePhoenixCore.sol',
+      old='            uint256 sqrtNew = _nextSqrtFromInput(sqrtP, liq, amtAfterFee, true);',
+      new='            uint256 sqrtNew = mulDiv(L, P, L + mulDiv(amtAfterFee, P, Q96)); // MUTANT',
+      teste='test_SingleRangeFigureIsWhatThePoolPays'),
+ dict(nome='outV3 [1082]: a price that collapsed (rounded up, it reads 1) is quoted for the whole virtual reserve',
+      f='src/BlazePhoenixCore.sol',
+      old='            if (sqrtNew >= P || sqrtNew <= 1) return 0;',
+      new='            if (sqrtNew >= P) return 0; // MUTANT',
+      teste='test_OutV3_PriceCollapseToZeroQuotesZeroNotWholeReserve'),
 ]
 
 def run(t):
