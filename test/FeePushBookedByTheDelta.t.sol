@@ -19,6 +19,11 @@ pragma solidity 0.8.36;
 //    1 answers true, moves nothing the report
 //    2 answers true, moves half    the partial lie
 //    3 answers false, moves all    the old branch: the delta already ruled there
+//    4 pays, answers true, and restates the Router's balance UP inside the push: the balance
+//      rose, so the delta measured the restatement and not the push; the answer is the only
+//      witness left and the share is NOT booked (a pure-delta push booked it and paid the
+//      slot twice out of the payer's surplus: test/PathologicalTokens.t.sol went red)
+//    5 answers false, moves nothing, and the balance rises: still booked, as before
 //  Dimensions: fee on the input (no bridge), fee on the output (direct route into a bridge),
 //  one swap and two swaps in one transaction, one slot and both slots. Range: fuzz.
 // =============================================================================
@@ -49,8 +54,10 @@ contract AnswerVsDeltaToken {
     function _t(address f, address to, uint256 amt) private returns (bool) {
         uint8 m = shape[to];
         if (m == 1) return true;
+        if (m == 5) { balanceOf[f] += 1; return false; }
         if (m == 2) amt /= 2;
         balanceOf[f] -= amt; balanceOf[to] += amt;
+        if (m == 4) balanceOf[f] *= 2;
         return m != 3;
     }
 }
@@ -164,6 +171,37 @@ contract FeePushBookedByTheDeltaTest is Test {
     function test_AShareThatAnswersTrueWithoutMovingIsBooked() public {
         _inputSide(IN, 1, 1);
         assertEq(router.owed(address(lying), 0) + router.owed(address(lying), 1), 0.28e18, "the whole fee is owed");
+    }
+
+    /// A push that PAID while the token restated the Router's balance up: the balance rose, the
+    /// delta is not a measurement of the push, the answer rules. Red on a pure-delta push
+    /// (owed 0.084e18: the slot paid once by the token and once more by the booking).
+    function test_ASharePaidWhileTheBalanceRestatesUpIsNotBooked() public {
+        lying.setShape(treasury1, 4);
+        Route memory r = _route(address(lying), address(honest), IN);
+        uint256 before = lying.balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(r, IN, 1, user, block.timestamp + 1);
+
+        assertEq(router.owed(address(lying), 0), 0, "slot 0: a share that was paid is not booked");
+        assertEq(router.owed(address(lying), 1), 0, "slot 1: honest push books nothing");
+        assertEq(lying.balanceOf(treasury1), 0.084e18, "slot 0 was paid once");
+        assertEq(lying.balanceOf(treasury2), 0.196e18, "slot 1 was paid once");
+        assertEq(lying.balanceOf(address(router)), 0, "the restated surplus is not left on the Router");
+        // what stayed after the first share doubled: the surplus IN - 0.084e18 went back to the payer
+        assertEq(before - lying.balanceOf(user), 0.084e18, "the payer got the whole surplus back");
+    }
+
+    /// Control: a refusal is booked by the delta even when the balance rose (unchanged).
+    function test_Control_ARefusalWhileTheBalanceRisesIsStillBooked() public {
+        lying.setShape(treasury1, 5);
+        Route memory r = _route(address(lying), address(honest), IN);
+        vm.prank(user);
+        router.swapExactIn(r, IN, 1, user, block.timestamp + 1);
+
+        assertEq(router.owed(address(lying), 0), 0.084e18, "slot 0: the refused share is booked whole");
+        assertEq(lying.balanceOf(treasury1), 0, "slot 0 was not paid");
+        assertEq(lying.balanceOf(address(router)), 0.084e18, "the Router holds the owed share and nothing else");
     }
 
     function test_OnlyTheSlotThatDidNotMoveIsBooked_Slot0() public {

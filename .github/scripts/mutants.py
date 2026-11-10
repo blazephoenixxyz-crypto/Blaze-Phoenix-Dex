@@ -2719,8 +2719,8 @@ M = [
       teste='test_OwedOnABridgeHop_IsNeitherSpentNorSwept'),
  dict(nome='fee seal [488]: the push is no longer gas-capped (a token that burns the gas takes the swap with it)',
       f='src/BlazePhoenixRouter.sol',
-      old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
-      new='        BPC.tryTransfer(token, to, amt, gasleft()); // MUTANT [488]',
+      old='        bool ok = BPC.tryTransfer(token, to, amt, FEE_GAS);',
+      new='        bool ok = BPC.tryTransfer(token, to, amt, gasleft()); // MUTANT [488]',
       teste='test_EveryRefusalShape_DoesNotBlock'),
  dict(nome='fee seal [489]: the rescue sweeps the owed fees too',
       f='src/BlazePhoenixRouter.sol',
@@ -5273,12 +5273,24 @@ M = [
       new='        bool anchored = true; // MUTANT [fix1102-premissa-b-3]',
       teste='test_INV7_SameTradesDifferentTiming_PayDifferently'),
  # fin-1111 router (3688/3995). [488] above was re-anchored on the same line: the push no longer
- # returns on the answer, so its `old` is the bare call.
+ # returns on the answer. The answer is heard only when the balance rose inside the push
+ # (a restatement: the delta is not a measurement there); -1, -8 and -9 are the three ways
+ # of getting that one line wrong.
  dict(nome='fin1111-router-1 (3688): the fee push trusts the answer again, a share whose token answers true without moving it is neither paid nor booked',
       f='src/BlazePhoenixRouter.sol',
-      old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
-      new='        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return; // MUTANT [fin1111-router-1]',
+      old='        if (ok && b1 > b0) return;',
+      new='        if (ok) return; // MUTANT [fin1111-router-1]',
       teste='test_AShareThatAnswersTrueWithoutMovingIsBooked'),
+ dict(nome='fin1111-router-8 (3688): a balance that rose inside the push excuses a refusal too, a share the token refused is neither paid nor booked',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (ok && b1 > b0) return;',
+      new='        if (b1 > b0) return; // MUTANT [fin1111-router-8]',
+      teste='test_Control_ARefusalWhileTheBalanceRisesIsStillBooked'),
+ dict(nome='fin1111-router-9 (3688): the delta rules even when the balance rose inside the push, a share the token paid while restating up is booked again out of the payer surplus',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (ok && b1 > b0) return;',
+      new='        // MUTANT [fin1111-router-9]',
+      teste='test_ASharePaidWhileTheBalanceRestatesUpIsNotBooked'),
  # fin-1111 router (3948). The new line sits above the #45 clamp, whose two lines are untouched:
  # [897]-[899] and the FOT-01 door mutants keep their anchors.
  dict(nome='fin1111-router-2 (3948): a pull onto a Router that held nothing is clamped to the ask again, the payer\'s own restated growth stays on the Router',

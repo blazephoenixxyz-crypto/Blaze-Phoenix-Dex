@@ -811,13 +811,16 @@ contract BlazePhoenixRouter {
     ///      (amountIn - fee, TSLOT_FEE) is unchanged.
     ///      BOOKED BY THE DELTA, NOT BY THE ANSWER: a token may move the share and still answer
     ///      in a shape Core reads as a refusal (`false`, an oversized word), or answer `true`
-    ///      and move nothing, or less (3688). The answer is not read: only what did not leave
-    ///      the Router is booked, so a claim never pays a share twice and a share that stayed
-    ///      is never taken for a swap's balance.
+    ///      and move nothing, or less (3688). Only what did not leave the Router is booked, so
+    ///      a claim never pays a share twice and a share that stayed is never taken for a
+    ///      swap's balance. The answer is heard in one place only: when the balance ROSE inside
+    ///      the push the token restated it, the delta measured the restatement and not the
+    ///      push, and a `true` is then the only witness that the share was paid.
     function _push(address token, uint256 i, address to, uint256 amt) private {
         uint256 b0 = BPC.balanceOf(token, address(this));
-        BPC.tryTransfer(token, to, amt, FEE_GAS);
+        bool ok = BPC.tryTransfer(token, to, amt, FEE_GAS);
         uint256 b1 = BPC.balanceOf(token, address(this));
+        if (ok && b1 > b0) return;
         uint256 gone = b0 > b1 ? b0 - b1 : 0;
         if (gone >= amt) return;
         unchecked { amt -= gone; }
