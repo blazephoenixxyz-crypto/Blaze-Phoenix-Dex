@@ -302,7 +302,11 @@ contract BlazePhoenixQuoter {
         previews = new Preview[](n);
         for (uint256 i; i < n; ) {
             BatchEntry calldata e = entries[i];
-            try solver.findBestRoutePlan(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {
+            // One item's solve is given its share of the gas that is left, not all of it: a solve
+            // that runs out hands back 1/64 (EIP-150) and the items after it would read zero for
+            // a book that is not theirs. The share is what is left over the items still to run,
+            // so it never shrinks down the batch and the last item is given everything.
+            try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {
                 previews[i] = _pack(p.best, e.userMinOut);
             } catch { /* leave zero-initialised */ }
             unchecked { ++i; }

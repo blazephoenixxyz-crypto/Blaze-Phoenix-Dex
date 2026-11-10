@@ -4684,6 +4684,21 @@ M = [
       old='                            : BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL))) return true;\n',
       new='                            : BPC.kindHasAny(leg.kind, BPC.A_CONC_POOL))) return true; // MUTANT\n',
       teste='test_Control_EveryKindWithAPoolEngine_IsNotRefusedByKind'),
+ dict(nome='fin1111-qs [QS-6]: batchQuote forwards all the gas that is left to one item (4009)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {\n',
+      new='            try solver.findBestRoutePlan(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) { // MUTANT\n',
+      teste='test_ExhaustedFirstItem_LeavesTheNextQuoted'),
+ dict(nome='fin1111-qs [QS-7]: the last batch item is given half of what is left, not all of it',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {\n',
+      new='            try solver.findBestRoutePlan{gas: gasleft() / (n - i + 1)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) { // MUTANT\n',
+      teste='test_LastItem_ReceivesAllThatIsLeft'),
+ dict(nome='fin1111-qs [QS-8]: a batch item is given 1/n of what is left, so the shares shrink down the batch',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {\n',
+      new='            try solver.findBestRoutePlan{gas: gasleft() / n}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) { // MUTANT\n',
+      teste='test_LastItem_ReceivesAllThatIsLeft'),
 ]
 
 def run(t):
