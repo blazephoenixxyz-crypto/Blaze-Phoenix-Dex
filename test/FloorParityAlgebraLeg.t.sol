@@ -31,8 +31,13 @@ pragma solidity 0.8.36;
 //  (impact of 16% or more). On one hop the output is a bridge, so the protocol
 //  fee comes out of the output and both sides price the same input; on two
 //  hops it is taken on the bridge's input, so the floor RATE is compared, as in
-//  FloorParitySolverRouter. Prices are off 1 (P = 4 and 1/4): at P = 1 the two
-//  directions of the curve mirror each other.
+//  FloorParitySolverRouter, at ONE pinned size. The rate is not equal at every
+//  size: the frame prices hop 1 on the input less the protocol fee, which the
+//  Solver does not model, and on this fixture the two rates part by one or two
+//  bps at some sizes from 1e19 up (measured 2026-11-10: of 255 swaps, 11 with
+//  an output of at least 1e6 wei; at the pinned 100e18 they agree). Prices are
+//  off 1 (P = 4 and 1/4): at P = 1 the two directions of the curve mirror each
+//  other.
 //
 //  Green at cb1d7d9. Red under (mutants.py): MT5-1 the Solver hands the curve
 //  the raw row fee (INV-20 undone); MT5-2 the Solver drops the measured live
@@ -191,7 +196,9 @@ contract FloorParityAlgebraLegTest is Test {
 
     /// Two Algebra hops at different live fees, A -> B -> C. The protocol fee is taken on the
     /// bridge's input (hop 1), so the two absolute floors are priced on different bases; the
-    /// floor RATE is what both readers must agree on.
+    /// floor RATE is compared, at this size. It is a pin at one point, not an invariant of the
+    /// size: the frame prices hop 1 on the input less the protocol fee, the Solver on the whole
+    /// of it, and larger sizes part the two rates by a bps or two.
     function test_AlgebraParity_TwoHops_AttestedFloorRateIsTheEnforcedRate() public {
         algAB.setDynamicFee(3000);
         algBC.setDynamicFee(10_000);
