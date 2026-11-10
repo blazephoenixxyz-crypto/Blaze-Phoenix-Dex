@@ -111,6 +111,16 @@ contract Rizki3107FakePairSeatTest is Test {
     uint256 constant DUST  = 1e15;
     uint256 constant ORDER = 1_000e18;
 
+    /// The trap's price edge over the market, in bps, where a SEATED trap is given a leg. The
+    /// band (BlazePhoenixMath, THE BAND) keeps a 0.3 % row beside a 0.3 % base up to
+    /// 1 / (1 - f)^3 - 1 = 90.5 bps above it, the base's fee counted twice, plus the probes'
+    /// error. Past that edge the Solver drops the trap as too good, seat or no seat, and the two
+    /// Solver-door trap tests settle at the oracle whether the origin proof ran or not: they
+    /// carried a 200 bps edge, which the fixed +-5 % band of a591f97 admitted and this one does
+    /// not, and passed with `_derivedByFactory` answering true for everything.
+    /// `_seatIsAllTheTrapLacks` pins the edge to the band instead of to this comment.
+    uint256 constant EDGE_BPS = 50;
+
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
@@ -206,6 +216,22 @@ contract Rizki3107FakePairSeatTest is Test {
         assertGt(got, 0, "oracle: the honest-only swap must deliver");
     }
 
+    /// The positive control of the Solver-door trap tests: a trap of `hold` at EDGE_BPS, seated
+    /// by the operator's door as the honest pool was, IS given a leg of `amt`. So where the
+    /// trap tests find no leg and no loss, the refused seat is the reason and not the trap's
+    /// price or depth. Measured on a snapshot and reverted, as the oracle is.
+    function _seatIsAllTheTrapLacks(uint256 hold, uint256 amt) internal {
+        uint256 snap = vm.snapshotState();
+        vm.prank(ATTACKER);
+        TrapPair t = new TrapPair(address(tokenA), address(tokenB), ATTACKER);
+        tokenA.mint(address(t), hold);
+        tokenB.mint(address(t), hold * (10_000 + EDGE_BPS) / 10_000);
+        hub.seedPool(address(t), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
+        bool planned = _inPlan(address(t), amt);
+        vm.revertToState(snap);
+        assertTrue(planned, "fixture: a seated trap of this depth and edge must be given a leg");
+    }
+
     function _inPlan(address t, uint256 amt) internal view returns (bool inPlan) {
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amt);
         for (uint256 h; h < plan.best.hops.length; ++h)
@@ -223,11 +249,13 @@ contract Rizki3107FakePairSeatTest is Test {
         assertTrue(_seated(address(honest)), "the honest seed must stay seated");
     }
 
-    /// Red on a591f97 (`Error("trap")`): the Solver gave the trap 0.99 % of the order and the
-    /// whole swapBestExactIn reverted.
+    /// Red on a591f97 (`Error("trap")`, with a 200 bps edge): the Solver gave the trap 0.99 % of
+    /// the order and the whole swapBestExactIn reverted. Red with the origin proof answering
+    /// true (mutant [463]): the seated trap is planned for the same 0.99 %.
     function test_TrapPairWithoutFactoryOrigin_SolverDoorSettles() public {
+        _seatIsAllTheTrapLacks(30_000e18, ORDER);
         uint256 oracle = _honestOnly(ORDER);
-        TrapPair t = _seatTrapSkew(30_000e18, 200);
+        TrapPair t = _seatTrapSkew(30_000e18, EDGE_BPS);
         vm.prank(ATTACKER); t.setMode(1, 0);
         assertFalse(_inPlan(address(t), ORDER), "the Solver planned a leg through the trap");
         (bool ok, uint256 got, bytes memory err) = _swapAmt(ORDER, 1);
@@ -236,12 +264,14 @@ contract Rizki3107FakePairSeatTest is Test {
         assertEq(got, oracle, "the Solver door must deliver what it delivers with no trap deployed");
     }
 
-    /// Red on a591f97: a 750k trap paying 80 % took 20 % of a 100k order and kept 305 bps of it
-    /// at userMinOut = 1.
+    /// Red on a591f97 (with a 200 bps edge): a 750k trap paying 80 % took 20 % of a 100k order
+    /// and kept 305 bps of it at userMinOut = 1. Red with the origin match inverted (mutant
+    /// [464]): the seated trap takes its 20 % again and pays 80 % of it.
     function test_TrapPairWithoutFactoryOrigin_ShortPayLeaksNothing() public {
         uint256 amt = 100_000e18;
+        _seatIsAllTheTrapLacks(750_000e18, amt);
         uint256 oracle = _honestOnly(amt);
-        TrapPair t = _seatTrapSkew(750_000e18, 200);
+        TrapPair t = _seatTrapSkew(750_000e18, EDGE_BPS);
         vm.prank(ATTACKER); t.setMode(2, 8_000);
         (bool ok, uint256 got, ) = _swapAmt(amt, 1);
         assertTrue(ok, "the honest-only route must settle");
