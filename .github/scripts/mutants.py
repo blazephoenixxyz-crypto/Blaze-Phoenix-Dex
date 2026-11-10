@@ -3638,11 +3638,31 @@ M = [
       old='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
       new='        if (mode & CUT != 0 && quote > held) return (BPC.mulDiv(amountIn, cap, quote), cap, 0); // MUTANT [715]',
       teste='test_3073_PhantomLaterHop_OnlyRoute_PromiseStaysAtTheCap'),
+ dict(nome="3073-2 [715p]: a phantom leg on a later hop is promised its quote, the bridge route outranks the honest direct pool",
+      f='src/BlazePhoenixSolver.sol',
+      # [715] leaves the later hop's phantom at the cap while it is only ranked, so the test with
+      # an honest rival stays green under it. Here the promise itself passes the holdings.
+      old='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
+      new='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), mode & CUT == 0 ? quote : cap, 0); // MUTANT [715p]',
+      teste='test_3073_PhantomLaterHop_NoLegPromisesPastItsHoldings'),
  dict(nome='3073-2 [716]: every bridge candidate walks its held legs, a bridge that does not lead has its ticks read',
       f='src/BlazePhoenixSolver.sol',
       old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
       new='        // MUTANT [716]',
       teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
+ dict(nome='3073-2 [716f]: the first stage of every ranked bridge asks its book, two bridges pass a tenth of the search',
+      f='src/BlazePhoenixSolver.sol',
+      # A ceiling, not a count: 1,497,787 against 1,200,000 (979,367 unmutated; release, 2026-11-10).
+      # The row stops telling the two apart once the search costs some 300k less.
+      old='                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), m.walk | CUT | dec << 8);\n',
+      new='                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), WALK | CUT | dec << 8); // MUTANT [716f]\n',
+      teste='test_3073_WalkBudget_TwoBridges_FitsATenth'),
+ dict(nome='3073-2 [716l]: a single leg held at its cap asks its book while it is ranked, three bridges with three books pass their share',
+      f='src/BlazePhoenixSolver.sol',
+      # A ceiling, not a count: 18,354,926 against 9,000,000 (6,012,033 unmutated; release, 2026-11-10).
+      old='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);',
+      new='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode | WALK); // MUTANT [716l]',
+      teste='test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles'),
  dict(nome='3073-2 [717]: a later hop of the rebuilt bridge route does not ask its book',
       f='src/BlazePhoenixSolver.sol',
       # G52 (2026-10-28): re-pointed; the first stage is built by `_firstStage`, a later stage by this call.
@@ -3774,6 +3794,13 @@ M = [
       old='            if staticcall(WALK_GAS, address(), p, sub(q, p), 0, 0) {',
       new='            if staticcall(gas(), address(), p, sub(q, p), 0, 0) { // MUTANT [740]',
       teste='test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQuoted'),
+ dict(nome='3073-5 [740r]: a walk that fails on its own budget stops the solve, the plan built at the cap is not handed back',
+      f='src/BlazePhoenixSolver.sol',
+      # The paired grid's rebuild runs out of WALK_GAS, so the solve itself reverts and the test
+      # stops there. The same grid with deep direct books completes its walk and stays green.
+      old='            if staticcall(WALK_GAS, address(), p, sub(q, p), 0, 0) {',
+      new='            if iszero(staticcall(WALK_GAS, address(), p, sub(q, p), 0, 0)) { revert(0, 0) } { // MUTANT [740r]',
+      teste='test_3073_WalkBudget_HeldBridgeLeadsSixBooks_SettlesAsQuoted'),
  dict(nome='3073-5 [741]: a solve short of the walk\'s budget calls it anyway, and a short walk hands back the plan at the cap',
       f='src/BlazePhoenixSolver.sol',
       old='            if lt(gas(), add(div(mul(WALK_GAS, 64), 63), 20000)) { revert(0, 0) }\n',
