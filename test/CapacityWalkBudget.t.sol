@@ -239,6 +239,32 @@ contract CapacityWalkBudgetTest is Test {
         assertEq(g.expectedOut, BPC.mulDiv(HELD, 3_000, BPC.BPS), "precondition: the cap binds on a book of this shape");
     }
 
+    /// The direct grid of `DirectThreeBooks_FitsATenth`, by count. Each book alone would be held
+    /// at its cap on the whole order, and is ranked there without a read of its book; the three
+    /// split the order, no leg of the winner is left at its cap, and nothing is rebuilt. The
+    /// only tick reads of the solve are then `_paysWhatItWalks`'s, the route's reads spent on
+    /// its first leg: three on that book, none on the other two. A count of reads, not a
+    /// ceiling: with a book walked while it is ranked this grid stays inside its tenth of the
+    /// search, 57 to 153 gas under it (mutants [716], [716l], [724] on their second rows), and
+    /// a winner rebuilt with nothing held reads the same books on any number of topologies
+    /// (mutant [723] on its third row).
+    function test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick() public {
+        uint256 n0 = touched.length;
+        _grid(0, 3);
+        bytes memory ticks = abi.encodeWithSelector(HeavyBookPool.ticks.selector);
+        vm.expectCall(touched[n0], ticks, 0);
+        vm.expectCall(touched[n0 + 1], ticks, 0);
+        vm.expectCall(touched[n0 + 2], ticks, 3);
+        _cool();
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
+        assertEq(plan.best.hops.length, 1, "precondition: the direct books lead");
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, 3, "precondition: the three books split the order");
+        assertEq(legs[0].pool, touched[n0 + 2], "precondition: the route's reads are spent on its first leg");
+        uint256 cap = BPC.mulDiv(HELD, 3_000, BPC.BPS);
+        for (uint256 l; l < 3; ++l) assertLt(legs[l].expectedOut, cap, "precondition: no leg of the winner is left at its cap");
+    }
+
     // ─── Held legs: the door settles the plan quoted, the walk on its own budget ──
 
     /// Entry A (the uncapped solve), then the solve at the door's budget, which must return

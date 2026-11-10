@@ -3650,6 +3650,13 @@ M = [
       old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
       new='        // MUTANT [716]',
       teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
+ dict(nome='3073-2 [716d] = [716] on a second row: every candidate walks its held legs, and a direct book the pays-walk does not reach has its ticks read',
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [716], held by a count on the direct grid, where the
+      # ceiling of `DirectThreeBooks_FitsATenth` does not tell it from the source.
+      old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
+      new='        // MUTANT [716d] = [716]',
+      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
  dict(nome='3073-2 [716f]: the first stage of every ranked bridge asks its book, two bridges pass a tenth of the search',
       f='src/BlazePhoenixSolver.sol',
       # A ceiling, not a count: 1,497,787 against 1,200,000 (979,367 unmutated; release, 2026-11-10).
@@ -3657,12 +3664,30 @@ M = [
       old='                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), m.walk | CUT | dec << 8);\n',
       new='                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), WALK | CUT | dec << 8); // MUTANT [716f]\n',
       teste='test_3073_WalkBudget_TwoBridges_FitsATenth'),
+ dict(nome='3073-2 [716fl] = [716f] on a second row: the first stage of every ranked bridge asks its book, and a bridge that does not lead has its ticks read',
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [716f], held by a count on the grid of three bridges.
+      old='                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), m.walk | CUT | dec << 8);\n',
+      new='                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), WALK | CUT | dec << 8); // MUTANT [716fl] = [716f]\n',
+      teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
  dict(nome='3073-2 [716l]: a single leg held at its cap asks its book while it is ranked, three bridges with three books pass their share',
       f='src/BlazePhoenixSolver.sol',
       # A ceiling, not a count: 18,354,926 against 9,000,000 (6,012,033 unmutated; release, 2026-11-10).
       old='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);',
       new='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode | WALK); // MUTANT [716l]',
       teste='test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles'),
+ dict(nome='3073-2 [716ld] = [716l] on a second row: a single leg held at its cap asks its book while it is ranked, and a direct book the pays-walk does not reach has its ticks read',
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [716l], held by a count on the direct grid.
+      old='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);',
+      new='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode | WALK); // MUTANT [716ld] = [716l]',
+      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
+ dict(nome='3073-2 [716ll] = [716l] on a third row: a single leg held at its cap asks its book while it is ranked, and a bridge that does not lead has its ticks read',
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [716l], held by a count on the grid of three bridges.
+      old='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);',
+      new='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode | WALK); // MUTANT [716ll] = [716l]',
+      teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
  dict(nome='3073-2 [717]: a later hop of the rebuilt bridge route does not ask its book',
       f='src/BlazePhoenixSolver.sol',
       # G52 (2026-10-28): re-pointed; the first stage is built by `_firstStage`, a later stage by this call.
@@ -3716,6 +3741,13 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723m] = [723]\n',
       teste='test_3073_WalkBudget_DirectThreeBooks_FitsATenth'),
+ dict(nome='3073-3 [723d] = [723] on a third row: the winner is rebuilt with WALK on every solve, and a direct book the pays-walk does not reach has its ticks read',
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [723], held by a count. A count does not move with
+      # the number of topologies, where the ceilings of the other two rows do.
+      old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
+      new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723d] = [723]\n',
+      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
  dict(nome='3073-3 [723t]: the rebuild walks every topology, not the winner\'s alone, and three bridges pass a fifth of the search',
       f='src/BlazePhoenixSolver.sol',
       # A ceiling, not a count: 3,200,860 against 2,400,000 (1,550,335 unmutated; release, 2026-11-10).
@@ -3724,11 +3756,24 @@ M = [
       old='        m.bestU = u;\n        _planTopology(m, k, bs, tIn, tOut, amountIn);\n',
       new='        m.bestU = u;\n        for (k = 0; k < TOPOLOGIES; ++k) _planTopology(m, k, bs, tIn, tOut, amountIn); // MUTANT [723t]\n',
       teste='test_3073_WalkBudget_ThreeBridges_FitsAFifth'),
+ dict(nome="3073-3 [723tl] = [723t] on a second row: the rebuild walks every topology, not the winner's alone, and a bridge that does not lead has its ticks read",
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [723t], held by a count, which does not move with
+      # the number of topologies.
+      old='        m.bestU = u;\n        _planTopology(m, k, bs, tIn, tOut, amountIn);\n',
+      new='        m.bestU = u;\n        for (k = 0; k < TOPOLOGIES; ++k) _planTopology(m, k, bs, tIn, tOut, amountIn); // MUTANT [723tl] = [723t]\n',
+      teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
  dict(nome='3073-3 [724]: the direct topology is ranked on its walk against bridges ranked at the cap',
       f='src/BlazePhoenixSolver.sol',
       old='MAX_LEGS_PER_STAGE, m.walk | CUT | dec << 8);\n',
       new='MAX_LEGS_PER_STAGE, WALK | CUT | dec << 8); // MUTANT [724]\n',
       teste='test_3073_OneBasis_BridgeLeadsAndIsPromisedItsBook'),
+ dict(nome='3073-3 [724d] = [724] on a second row: the direct topology is built with WALK while it is ranked, and a direct book the pays-walk does not reach has its ticks read',
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [724], held by a count on the direct grid.
+      old='MAX_LEGS_PER_STAGE, m.walk | CUT | dec << 8);\n',
+      new='MAX_LEGS_PER_STAGE, WALK | CUT | dec << 8); // MUTANT [724d] = [724]\n',
+      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
  dict(nome='3073-3 [725]: the winner is built once more without WALK',
       f='src/BlazePhoenixSolver.sol',
       old='            m.walk = WALK;\n',
