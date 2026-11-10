@@ -519,9 +519,11 @@ contract BlazePhoenixSolver {
         // =========================================================================
         //  STAGE 1 — MARGINAL-RATE MEDIAN FILTER  (single probe pass)
         //
-        //  We quote each candidate with a PROBE size (= amountIn / 100) that
-        //  is small enough that each pool's marginal rate is essentially its
-        //  spot price (negligible impact). Then we compute the median of
+        //  We quote each candidate with a PROBE size (= amountIn / 100). On a
+        //  pool that is deep against the probe its rate is essentially the
+        //  spot price. It is NOT on a pool much smaller than the order: there
+        //  the probe itself moves the price, and the band below reads that
+        //  impact as a rate deviation (bounty uid 3989). Then we compute the median of
         //  those marginal rates and filter pools whose marginal rate
         //  deviates from the base by more than MEDIAN_FILTER_BPS (±5%, in BlazePhoenixMath).
         //
