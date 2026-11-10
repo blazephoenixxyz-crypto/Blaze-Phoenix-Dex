@@ -120,11 +120,15 @@ contract BandBaseBreakdownPointTest is Test {
     }
 
     /// The breakdown point from below: a pool above the fair rate holding just short of half the
-    /// mass. V2 depth is the short side, so it weighs 1.15M against the honest 1.2M (48.9%); the
-    /// walk up the sorted rates reaches half the mass (1.175M) on the third honest pool, and the
-    /// base stays honest. Together with `test_MaioriaDaMassaMandaMesmo` this brackets the 50%.
+    /// mass. A book's mass is the tokenOut it holds (`Core.hopMass18`, MAT-02), so it weighs 1.15M
+    /// against the honest 1.2M (48.9%); the walk up the sorted rates reaches half the mass
+    /// (1.175M) on the third honest pool, and the base stays honest. Together with
+    /// `test_MaioriaDaMassaMandaMesmo` this brackets the 50%.
+    /// History: until 2026-11-10 the pool was (1.15M A, 2.3M B) and weighed its short side, a
+    /// count of A. Counted in B, the token the others are counted in, it held 65.7% of the mass:
+    /// a majority, the other side of the bracket. Same rate, same 48.9%, in the one unit.
     function test_JustShortOfHalfTheMass_AboveTheFairRate_CannotCaptureTheBand() public {
-        atacante = _pool(1_150_000e18, 2_300_000e18);
+        atacante = _pool(575_000e18, 1_150_000e18);
 
         _assertBandHolds("a minority of the mass does not set the base, however close to half",
             "a pool short of half the mass cannot push the honest pools out");

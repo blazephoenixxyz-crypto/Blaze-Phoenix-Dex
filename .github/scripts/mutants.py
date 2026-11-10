@@ -5314,6 +5314,11 @@ M = [
       old='        return to18(side > type(uint128).max ? type(uint128).max : side, dOut);',
       new='        return to18(side, dOut); // MUTANT',
       teste='test_HopMass_ABookAtTheTopOfTheRangeStopsNoPlan_18_2'),
+ dict(nome='massa Math._byPrice: the live rows stay in candidate order, so the weighted median walks unsorted prices',
+      f='src/BlazePhoenixMath.sol',
+      old='                while (j > 0 && prices[ord[j - 1]] > kr) {',
+      new='                while (j > 0 && prices[ord[j - 1]] > kr && j > m) { // MUTANT',
+      teste='test_L1056c2_WeightedMedianWalksTheSortedPairs'),
 ]
 
 def run(t):

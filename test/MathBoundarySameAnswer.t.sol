@@ -209,6 +209,9 @@ contract MathBoundarySameAnswerTest is Test {
 
     /// Three honest books and one deep book far from their rate, below it, above it, short of
     /// half the mass and past it (test/BandBaseBreakdownPoint.t.sol's shapes).
+    /// History: until 2026-11-10 the fourth book was (1.15M, 2.3M), short of half the mass by
+    /// its short side. A book's mass is the tokenB it holds (MAT-02): the books above the rate
+    /// hold 600k + 850k = 1.45M against 1.5M, the 49.2% the row was drawn at.
     function test_D10_SameAnswer_BandAgainstAnOutlier() public {
         for (uint256 i; i < 3; ++i) _v2Found(tA, tB, 400_000e18, 400_000e18);
         _row("3 honest books", tA, tB, 300_000e18);
@@ -216,7 +219,7 @@ contract MathBoundarySameAnswerTest is Test {
         _row("an outlier below the rate", tA, tB, 300_000e18);
         _v2Found(tA, tB, 300_000e18, 600_000e18);
         _row("and one above", tA, tB, 300_000e18);
-        _v2Found(tA, tB, 1_150_000e18, 2_300_000e18);
+        _v2Found(tA, tB, 425_000e18, 850_000e18);
         _row("and one short of half the mass", tA, tB, 300_000e18);
         _v2Found(tA, tB, 5_000_000e18, 2_500_000e18);
         _row("and one past half the mass", tA, tB, 300_000e18);
