@@ -10,18 +10,26 @@ import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 //
 //  Under via-IR the Router dispatches with one linear chain of compares in
 //  ascending selector order, each entry `DUP1 PUSH4 sel EQ PUSH2 dest JUMPI`,
-//  3 + 3 + 3 + 3 + 10 = 22 gas, and the last entry inverted
-//  (`PUSH4 sel SUB PUSH2 fallback JUMPI`). A call pays every entry before its
-//  own, and a pool callback that lands in `fallback()` pays all of them. So a
-//  new external function whose selector sorts below a hot port charges that
-//  port 22 gas on every swap, and any new external function charges the
-//  fallback 22 gas, without a line of the swap path changing.
+//  3 + 3 + 3 + 3 + 10 = 22 gas. A call pays every entry before its own, and a
+//  pool callback that lands in `fallback()` pays all of them. So a new external
+//  function whose selector sorts below a hot port charges that port 22 gas on
+//  every swap, and any new external function charges the fallback 22 gas,
+//  without a line of the swap path changing.
+//
+//  The compiler ends the chain in one of two ways, and both are read as its
+//  end (read out of the two builds, 2026-11-10):
+//    - at cb1d7d9 the last entry is inverted (`PUSH4 sel SUB PUSH2 fallback
+//      JUMPI`) and falls through into the last function's body;
+//    - since the nine control doors share one gate body (R2, 04439da) the last
+//      entry is a plain compare and what follows it is `POP PUSH2 fallback JUMP`.
+//  The count, the order and the six indices are the same in the two builds.
 //
 //  The test reads the chain out of the deployed runtime code, not out of the
-//  ABI. It is GREEN at cb1d7d9. Mutant [morf-ACP1-T4] (an empty `a()`, selector
-//  0x0dbe671f, below swapExactIn's 0x36457c51) turns it red. If a new function
-//  is intended, update the count and the indices here and record the gas it
-//  moves; that is the point of the pin.
+//  ABI. It is GREEN at cb1d7d9; with the first ending alone it was RED on R2.
+//  Mutant [morf-ACP1-T4] (an empty `a()`, selector 0x0dbe671f, below
+//  swapExactIn's 0x36457c51) turns it red. If a new function is intended, update
+//  the count and the indices here and record the gas it moves; that is the
+//  point of the pin.
 // =============================================================================
 contract HotPortDispatchOrderTest is Test {
     BlazePhoenixRouter router;
@@ -67,7 +75,12 @@ contract HotPortDispatchOrderTest is Test {
             uint8 op = uint8(c[i]);
             if (op == 0x80 || op == 0x81 || op == 0x90 || op == 0x50) { ++i; continue; }
             (uint256 next, bytes4 sel, bool last) = _entry(c, i);
-            if (next == 0) break;
+            if (next == 0) {
+                // The other ending: every entry was a plain compare, and what follows the last
+                // one is the unconditional jump to fallback() (`PUSH2 dest JUMP`).
+                closed = n != 0 && i + 3 < c.length && uint8(c[i]) == 0x61 && uint8(c[i + 3]) == 0x56;
+                break;
+            }
             sels[n++] = sel;
             i = next;
             if (last) { closed = true; break; }
@@ -86,7 +99,7 @@ contract HotPortDispatchOrderTest is Test {
     ///         swapBestExactIn 25th and swapExactInWithPermit2 26th.
     function test_hotPortDispatchIndex() public view {
         (bytes4[] memory sels, bool closed) = _dispatcher();
-        assertTrue(closed, "the chain ends in the inverted compare that falls through to fallback()");
+        assertTrue(closed, "the chain was not read to its end (the inverted compare, or the jump to fallback())");
         for (uint256 k = 1; k < sels.length; ++k) {
             assertLt(uint32(sels[k - 1]), uint32(sels[k]), "the chain is in ascending selector order");
         }
