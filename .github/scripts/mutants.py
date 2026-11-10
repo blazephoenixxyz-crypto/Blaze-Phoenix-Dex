@@ -4822,7 +4822,9 @@ M = [
  # gas-1106 G2: one leg per venue kind and the Core's quote per kind (test/gas/VenueLegGas.t.sol). Each
  # window is pinned to its snapshot, which every run of this script checks (SNAPSHOT_FLAGS), so these
  # die by their own snapshot group. G2-8 and G2-11 sit on the stable-curve fallback, which only a pair
- # that does not answer getAmountOut reaches, so they pair with the hidden-ask window.
+ # that does not answer getAmountOut reaches, so they pair with the hidden-ask window. G2-7b is G2-7
+ # paired with the stable pair that answers: its leg is priced by the same ask as the volatile one, so
+ # the second ask moves the stable windows too.
  dict(nome='gas-1106 G2-1: a V2 leg reads the pair reserves twice before it swaps',
       f='src/BlazePhoenixRouter.sol',
       old='            (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);',
@@ -4858,6 +4860,11 @@ M = [
       old='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee);',
       new='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); // MUTANT G2-7',
       teste='test_Gas_Leg_SolidlyVolatile_OneAndTwoLegs'),
+ dict(nome='gas-1106 G2-7b: a Solidly leg asks a stable pair that answers for its output twice',
+      f='src/BlazePhoenixRouter.sol',
+      old='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee);',
+      new='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); // MUTANT G2-7b',
+      teste='test_Gas_Leg_SolidlyStable_OneAndTwoLegs'),
  dict(nome="gas-1106 G2-8: the stable solver's iteration counter is incremented with checked arithmetic",
       f='src/BlazePhoenixCore.sol',
       old='                return y;   // converged\n            }\n            unchecked { ++i; }',
