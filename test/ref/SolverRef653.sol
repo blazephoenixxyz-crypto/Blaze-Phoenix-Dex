@@ -15,6 +15,18 @@
 // of 653b1dc did too, so the comparison was whole. It stays whole on the policy the Router
 // executes: the Solver's mechanisms (the hop's one order, M11; the candidate list per pair;
 // N1's rebuild) are held to this text on the four topologies both judge.
+//
+// ALIGNED 2026-11-10 TO THE UNIT OF THE BAND'S MASS (MAT-02). A book's vote is now a count of
+// tokenOut: the side of the bought token it declares (Core.universalProbe's `mass`), under the
+// cap by the tokenOut it holds. In 653b1dc it was the short side (`universalQuoteRank`'s depth)
+// under the same cap, a count of whichever token had fewer units, so the old reference answered
+// for a rule the tree no longer has wherever a book's short side is not its tokenOut side. ONE
+// read moved with the Solver: the band's vote takes its mass and its rank from
+// `BPC.universalProbe` (the rank is `universalQuoteRank`'s at bar 0, the figure it read before)
+// through `_ctx`, the context builder split out of `_quoteWithDepth` as in the Solver. NOT
+// moved: the funnel's dust rule (`_dropDust`) still reads `BPC.registryDepth18Dec`, where the
+// Solver reads `BPC.hopMass18` and walks the held books. test/G52SameAnswer.t.sol holds the
+// two to one answer on the rows it draws; it proves nothing where the two funnels would part.
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
 //  Version    : 2.0.0
@@ -741,7 +753,7 @@ contract SolverRef653 {
         for (uint256 i; i < n; ) {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (, uint256 d, uint256 o, ) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_, 0);
+            (uint256 d, uint256 o, , ) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
@@ -1216,6 +1228,14 @@ contract SolverRef653 {
     function _quoteWithDepth(
         PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
     ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
+        (out, depth, rank, hi) = BPC.universalQuoteRank(_ctx(cand, tIn, dIn1, dOt1), amt, bar);
+    }
+
+    /// @dev ALIGNED 2026-11-10 (MAT-02, see the header): the Solver's own context builder, split
+    ///      out of `_quoteWithDepth` so the band's vote can read `BPC.universalProbe`.
+    function _ctx(PoolInfo memory cand, address tIn, uint8 dIn1, uint8 dOt1)
+        private view returns (QuoteCtx memory c)
+    {
         bool zfo = cand.token0 == tIn;
         // Native V4: PoolInfo carries the pair in WETH-canonical form with token0 = the
         // wrapped-native side (the registry's orientation contract - see Hub._readPoolInfo).
@@ -1224,7 +1244,7 @@ contract SolverRef653 {
         // poolId. zeroForOne needs no branch: token0 == tIn already means "input is
         // currency0" under this orientation. Every other kind passes through untouched.
         (address qIn, address other) = BPC.v4LegCurrencies(cand.kind, tIn, zfo ? cand.token1 : cand.token0, zfo);
-        QuoteCtx memory c = QuoteCtx({
+        c = QuoteCtx({
             kind:        cand.kind,
             pool:        cand.pool,
             zeroForOne:  zfo,
@@ -1246,7 +1266,6 @@ contract SolverRef653 {
             decIn1:      dIn1,
             decOther1:   dOt1
         });
-        (out, depth, rank, hi) = BPC.universalQuoteRank(c, amt, bar);
     }
 
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than
