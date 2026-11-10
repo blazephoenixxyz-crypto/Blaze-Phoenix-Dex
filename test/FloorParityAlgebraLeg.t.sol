@@ -28,16 +28,15 @@ pragma solidity 0.8.36;
 //  `Core.legQuoteImpact` returns for the leg the Router will spend, and the
 //  Solver's `singleOutFloor` equals the Router's `floorUsed`. The impact check
 //  is the one that still sees a split once both floors sit on the hard floor
-//  (impact of 16% or more). On one hop the output is a bridge, so the protocol
-//  fee comes out of the output and both sides price the same input; on two
-//  hops it is taken on the bridge's input, so the floor RATE is compared, as in
-//  FloorParitySolverRouter, at ONE pinned size. The rate is not equal at every
-//  size: the frame prices hop 1 on the input less the protocol fee, which the
-//  Solver does not model, and on this fixture the two rates part by one or two
-//  bps at some sizes from 1e19 up (measured 2026-11-10: of 255 swaps, 11 with
-//  an output of at least 1e6 wei; at the pinned 100e18 they agree). Prices are
-//  off 1 (P = 4 and 1/4): at P = 1 the two directions of the curve mirror each
-//  other.
+//  (impact of 16% or more). On two hops each floor is held to the one law, on
+//  the inputs its reader measures. Attested: `expectedImpactBps` is the mean of
+//  the impacts `Core.legQuoteImpact` returns for the two legs at the inputs the
+//  plan carries, and `singleOutFloor` is `ironFloorBpsShv` of that mean on the
+//  plan's output. Enforced: `floorUsed` is `ironFloorBpsShv` of the mean of the
+//  same impacts at the inputs the two pools received, on the frame's own quote.
+//  Both are exact, to the wei, at every size and fee pair swept below. Prices
+//  are off 1 (P = 4 and 1/4): at P = 1 the two directions of the curve mirror
+//  each other.
 //
 //  Green at cb1d7d9. Red under (mutants.py): MT5-1 the Solver hands the curve
 //  the raw row fee (INV-20 undone); MT5-2 the Solver drops the measured live
@@ -194,26 +193,70 @@ contract FloorParityAlgebraLegTest is Test {
         }
     }
 
-    /// Two Algebra hops at different live fees, A -> B -> C. The protocol fee is taken on the
-    /// bridge's input (hop 1), so the two absolute floors are priced on different bases; the
-    /// floor RATE is compared, at this size. It is a pin at one point, not an invariant of the
-    /// size: the frame prices hop 1 on the input less the protocol fee, the Solver on the whole
-    /// of it, and larger sizes part the two rates by a bps or two.
-    function test_AlgebraParity_TwoHops_AttestedFloorRateIsTheEnforcedRate() public {
-        algAB.setDynamicFee(3000);
-        algBC.setDynamicFee(10_000);
-        uint256 amt = 100e18;
+    /// Two hops, one Algebra leg each, A -> B -> C: each floor is the one law of the frame's
+    /// leg impacts, on the inputs its reader measures. The attested side is read off the plan;
+    /// the enforced side off the ExecutionProof and the balances the two pools gained.
+    function _twoHopLaw(uint16 feeAB, uint16 feeBC, uint256 amt) private {
+        algAB.setDynamicFee(feeAB);
+        algBC.setDynamicFee(feeBC);
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenC), amt);
         assertEq(plan.best.hops.length, 2, "premise: the route crosses the bridge");
         assertEq(plan.best.hops[0].legs.length, 1, "premise: one leg on hop 0");
         assertEq(plan.best.hops[1].legs.length, 1, "premise: one leg on hop 1");
-        assertEq(plan.best.hops[0].legs[0].pool, address(algAB), "premise: hop 0 is A/B");
-        assertEq(plan.best.hops[1].legs[0].pool, address(algBC), "premise: hop 1 is B/C");
+        Leg memory l0 = plan.best.hops[0].legs[0];
+        Leg memory l1 = plan.best.hops[1].legs[0];
+        assertEq(l0.pool, address(algAB), "premise: hop 0 is A/B");
+        assertEq(l1.pool, address(algBC), "premise: hop 1 is B/C");
+        assertEq(l0.amountIn, plan.best.hops[0].amountIn, "premise: the leg carries all of hop 0");
+        assertEq(l1.amountIn, plan.best.hops[1].amountIn, "premise: the leg carries all of hop 1");
         assertGt(plan.best.singleOutFloor, 0, "premise: the Solver attested a floor");
 
+        // Attested: the mean of the frame's impacts at the inputs the plan carries. One leg
+        // per hop, so the leg shave is 0.
+        uint256 mean = (this.frameImpact(l0, address(tokenA), address(tokenB), l0.amountIn)
+            + this.frameImpact(l1, address(tokenB), address(tokenC), l1.amountIn)) / 2;
+        assertEq(plan.best.expectedImpactBps, mean,
+            "two Algebra hops: the impact the Solver attests != the mean of the frame's leg impacts");
+        assertEq(plan.best.singleOutFloor, BPC.mulDivUp(plan.best.totalOut, BPC.ironFloorBpsShv(mean, 0, 0), BPC.BPS),
+            "two Algebra hops: the floor the Solver attests != the floor of the frame's leg impacts");
+
+        // Enforced: the same law at the inputs the two pools received, on the frame's quote.
+        uint256 snap = vm.snapshotState();
+        uint256 in0 = tokenA.balanceOf(address(algAB));
+        uint256 in1 = tokenB.balanceOf(address(algBC));
         (uint256 quoted, uint256 floorUsed) = _enforced(plan.best, amt);
-        assertEq(BPC.mulDiv(plan.best.singleOutFloor, BPC.BPS, plan.best.totalOut), BPC.mulDiv(floorUsed, BPC.BPS, quoted),
-            "two Algebra hops: the floor rate the Solver attests != the floor rate the Router enforces");
+        in0 = tokenA.balanceOf(address(algAB)) - in0;
+        in1 = tokenB.balanceOf(address(algBC)) - in1;
+        vm.revertToState(snap);
+        assertGt(in0, 0, "premise: hop 0 was spent");
+        assertGt(in1, 0, "premise: hop 1 was spent");
+        mean = (this.frameImpact(l0, address(tokenA), address(tokenB), in0)
+            + this.frameImpact(l1, address(tokenB), address(tokenC), in1)) / 2;
+        assertEq(floorUsed, BPC.mulDivUp(quoted, BPC.ironFloorBpsShv(mean, 0, 0), BPC.BPS),
+            "two Algebra hops: the floor the Router enforces != the floor of the frame's leg impacts");
+    }
+
+    /// Two Algebra hops at different live fees: the attested floor and the enforced floor
+    /// are each the law of the frame's leg impacts.
+    function test_AlgebraParity_TwoHops_EachFloorIsTheLawOfTheFramesLegImpacts() public {
+        _twoHopLaw(3000, 10_000, 100e18);
+    }
+
+    /// The same law across the sizes and the live fees: every decade from 1e3 wei to 1e23,
+    /// each with two off-decade sizes, at four fee pairs (0% and Algebra's uint16 ceiling
+    /// included).
+    function test_AlgebraParity_TwoHops_TheLawHoldsAtEverySizeAndFeePair() public {
+        uint16[4] memory fa = [uint16(3000), 0, type(uint16).max, 500];
+        uint16[4] memory fb = [uint16(10_000), 0, type(uint16).max, 100];
+        for (uint256 f; f < 4; ++f) {
+            for (uint256 a = 1e3; a <= 1e23; a *= 10) {
+                _twoHopLaw(fa[f], fb[f], a);
+                if (a < 1e23) {
+                    _twoHopLaw(fa[f], fb[f], 3 * a + 1);
+                    _twoHopLaw(fa[f], fb[f], 7 * a + 13);
+                }
+            }
+        }
     }
 
     /// 5% live fee, a fifth of the liquidity: the impact is past 16% with or without the

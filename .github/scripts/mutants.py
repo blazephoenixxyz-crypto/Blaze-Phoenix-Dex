@@ -5383,7 +5383,7 @@ M = [
       f='src/BlazePhoenixCore.sol',
       old='                q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, dynFee, dyn), leg.zeroForOne, 0);',
       new='                q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, 0, dyn), leg.zeroForOne, 0); // MUTANT [MT5-4]',
-      teste='test_AlgebraParity_TwoHops_AttestedFloorRateIsTheEnforcedRate'),
+      teste='test_AlgebraParity_TwoHops_EachFloorIsTheLawOfTheFramesLegImpacts'),
  dict(nome="INV-S4 [S4-1]: a Core constant the wrapper inlines moves, so the wrapper's creation code and every CREATE2 wrapper address move with it",
       f='src/BlazePhoenixCore.sol',
       old='    uint8 internal constant MATERIAL_SHIFT = 16;',
