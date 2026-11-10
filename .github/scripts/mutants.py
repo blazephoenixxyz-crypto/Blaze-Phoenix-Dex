@@ -4784,6 +4784,16 @@ M = [
       old='        pinOf[f] = p.codehash;',
       new='        // MUTANT [ATQ-inv-25]',
       teste='invariant_AtqGateLifecycleMirror'),
+ dict(nome='[ATQ-inv-26]: the swap door ticks a row on a zero leg',
+      f='src/BlazePhoenixHub.sol',
+      old='        if (pool == address(0) || amtIn == 0) return;',
+      new='        if (pool == address(0)) return; // MUTANT [ATQ-inv-26]',
+      teste='invariant_AtqPoolClockLaws'),
+ dict(nome='[ATQ-inv-27]: the swap door ticks a row without stamping it',
+      f='src/BlazePhoenixHub.sol',
+      old='            $.slot[key] = _stampTs(newSlot);',
+      new='            $.slot[key] = newSlot; // MUTANT [ATQ-inv-27]',
+      teste='test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger'),
 ]
 
 def run(t):
