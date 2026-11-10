@@ -687,18 +687,20 @@ jobs:
         # (snapshots/<test>.json): the gas of each window it measures, each top-level call its own
         # transaction (isolate, set in foundry.toml and asserted by the tests). With the check on,
         # forge fails the run when a committed number moved; a run that passes rewrites every group
-        # it ran. The check compares only the entries both sides hold, so the git line fails on an
-        # entry that was added, renamed or dropped and on a group that was added or renamed, and the
-        # loop on a committed group that no test writes any more. A gas change therefore lands only
-        # with its snapshots regenerated in the same commit.
+        # it ran and no other. The check compares only the entries both sides hold, so the git line
+        # fails on an entry that was added, renamed or dropped and on a group that was added or
+        # renamed, and the guard on a committed group this run did not write: one no test is named
+        # after, and one whose test was skipped, filtered out or stopped recording, whose numbers
+        # nothing would otherwise have read. The self-test feeds the guard such groups, so it is
+        # proven able to fail. A gas change therefore lands only with its snapshots regenerated in
+        # the same commit.
         # Offline: local mocks and harnesses only, no RPC and no secret.
         env:
           FORGE_SNAPSHOT_CHECK: "true"
         run: |
+          python3 .github/scripts/gas_snapshot_guard.py --self-test
+          touch "$RUNNER_TEMP/gas-ledgers-start"
           forge test --match-path "test/gas/**"
           git status --porcelain -- snapshots/
           test -z "$(git status --porcelain -- snapshots/)"
-          for s in snapshots/*.json; do
-            grep -qw "function $(basename "$s" .json)" test/gas/*.t.sol \
-              || { echo "::error::$s: no test in test/gas writes this group"; exit 1; }
-          done
+          python3 .github/scripts/gas_snapshot_guard.py "$RUNNER_TEMP/gas-ledgers-start"
