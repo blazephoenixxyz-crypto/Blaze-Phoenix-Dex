@@ -7735,6 +7735,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        while (legs.length > 2) {',
       new='        while (legs.length > 2 && (mode & CUT) != 0) { // MUTANT [ATQ-mutacao-20]',
       teste='test_TwoHops_ADearVenueOnEachHopLeavesIt'),
+ # Re-anchored 2026-11-12 (g6, cherry-pick of 2ccdee1): on the merged tree _planViaBridges walks
+ # MAX_HOPS = 2 stages and drops the third return of _candsOf; the line and the mutation are the same.
+ dict(nome='rank-footing-1: the bridge planner alone plans its fee hop net of the fee, the direct planner still ranks gross',
+      f='src/BlazePhoenixSolver.sol',
+      old='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);',
+      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            if (i == 1 && !hub.isBridgeToken(tIn)) { p -= BPC.mulDivUp(p, BPC.PROTOCOL_FEE_BPS, BPC.BPS); r -= BPC.mulDivUp(r, BPC.PROTOCOL_FEE_BPS, BPC.BPS); } // MUTANT [rank-footing-1]',
+      teste='test_Plain_RankFollowsDelivery_AcrossSizes'),
+ dict(nome='rank-footing-2: the bridge planner takes the fee off hop 1 of every bridge route, also one that already paid on hop 0',
+      f='src/BlazePhoenixSolver.sol',
+      old='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);',
+      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            if (i == 1) { p -= BPC.mulDivUp(p, BPC.PROTOCOL_FEE_BPS, BPC.BPS); r -= BPC.mulDivUp(r, BPC.PROTOCOL_FEE_BPS, BPC.BPS); } // MUTANT [rank-footing-2]',
+      teste='test_Control_BridgeInput_RankFollowsDelivery'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
