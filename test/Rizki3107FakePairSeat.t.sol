@@ -303,6 +303,16 @@ contract Rizki3107FakePairSeatTest is Test {
     /// the test contract, deploying an A/C pair at the A/B salt) yields a hit `discoverFor` lists
     /// for A/B. It holds what it reports in A and B and is V2-shaped, so only the pair check
     /// refuses it. Measured red with the check deleted; so the check stays.
+    ///
+    /// FORCED STATE, and what the green measures. `recordSwap` is called as the Router
+    /// (vm.prank), on a hit whose depth is written by hand, not through a swap. The Router of
+    /// this tree has a gate of its own before it records anything: a leg whose pool trades
+    /// other tokens than its hop is refused with RouterE(3) (`_legTokens`, pinned in
+    /// test/LegDivergentStrandedDrain.t.sol and test/Fix1019CycleResidualAndSelfHop.t.sol),
+    /// and that path is not exercised here. The green is
+    /// the Hub's own acceptance for a caller it cannot vouch for: `$.router` is swappable
+    /// (setRoles), so the Hub keeps its local defence on every write its Router makes. It is
+    /// not a claim that the current Router reaches this call.
     function test_Create2HitOnOtherTokens_IsRefusedByThePairCheck() public {
         MockERC20 tokenC = new MockERC20("C", "C");
         (address t0, address t1) = address(tokenA) < address(tokenB)
