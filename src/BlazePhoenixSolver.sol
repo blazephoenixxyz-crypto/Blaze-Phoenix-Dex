@@ -989,8 +989,8 @@ contract BlazePhoenixSolver {
     ///          d_j * 1e6 < MIN_SPLIT_IMPROVEMENT_PPM * (D - d_j),   D = the sum over the rows.
     ///      ONE TOKEN (MAT-01): every term counts tokenOut, so the rule does not move when a
     ///      token is restated, and out-massing a row costs tokenOut held. The registry's depth
-    ///      was the short side for a pair and the virtual one for a singleton book: 1e22 of
-    ///      one-tick liquidity, holding 0.07 % of it, dropped a pair holding 1,000 times more.
+    ///      was the short side for a pair and the virtual one for a singleton book: a one-tick
+    ///      book holding ~2,500 USDC dropped a pair holding 1,000 WETH and 3,000,000 USDC.
     ///      A SINGLETON BOOK (V4) is measured twice. Its OWN d_j is the side it declares, an
     ///      upper bound: what it holds is read by a walk of sixteen stretches that one-wei
     ///      positions can cut, and a cut walk must not unseat an honest book (S2). What it adds

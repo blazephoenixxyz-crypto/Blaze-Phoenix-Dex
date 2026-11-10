@@ -1196,10 +1196,15 @@ library BlazePhoenixCore {
     /// @dev The tokenOut side a concentrated book DECLARES at its own price, 18 decimals:
     ///      L * sqrtP / 2^96 of token1 selling token0, L * 2^96 / sqrtP of token0 the other way
     ///      (the `vOut` of `v4HeldShare`). ONE formula for the probe's mass (`_quoteArms`) and the
-    ///      funnel's (`hopMass18`).
+    ///      funnel's (`hopMass18`). CAPPED at 2^128 - 1 before the decimals: a singleton book
+    ///      settles in int128 and pays no more (`v4WalkRank`), and a pool's side is cut to its
+    ///      balance by the caller. Uncapped, the top range of spacing 32,767 at a tick's liquidity
+    ///      cap declares ~2^184 for under two units of token0, and `mass * 1e6` left uint256 for
+    ///      a tokenOut of two decimals. A mass is at most 2^128 * 1e18, as the short side was.
     function outSide18(uint128 liq, uint160 sp, bool zeroForOne, uint8 dOut) internal pure returns (uint256) {
         if (sp == 0) return 0;
-        return to18(mulDiv(uint256(liq), zeroForOne ? sp : Q96, zeroForOne ? Q96 : sp), dOut);
+        uint256 side = mulDiv(uint256(liq), zeroForOne ? sp : Q96, zeroForOne ? Q96 : sp);
+        return to18(side > type(uint128).max ? type(uint128).max : side, dOut);
     }
 
     function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {

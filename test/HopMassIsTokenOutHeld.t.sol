@@ -390,4 +390,62 @@ contract HopMassIsTokenOutHeldTest is Test {
         assertTrue(_routed(address(b), address(a), 3_000e6, address(honest)),
             "selling token1: a book at price zero stopped the plan");
     }
+
+    // ---- no product leaves uint256: a book declares at most what a book can pay --------------
+
+    /// The singleton book that declares the most of token1 for the least capital: the top range
+    /// of the widest spacing (ticks 851,942 to 884,709 at spacing 32,767), the liquidity cap of
+    /// a tick there (2^128 / 55), the price at the range's lower edge, where the position is in
+    /// range and holds no token1 and under two units of an 18-decimal token0. It declares
+    /// L * sqrtP ~ 1.95e55 raw units of token1. Beside it, an honest pair of 50 A + 150,000 B.
+    function _aBookAtTheTopOfTheRange(uint8 dB) internal returns (MockV2Pair honest, bytes32 pid) {
+        _tokens(18, dB);
+        honest = _v2(50e18, 150_000 * 10 ** dB);
+        int24 ts = 32_767;
+        pid = BPC.computeV4PoolId(address(a), address(b), 3000, ts, address(0));
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(26 * ts), 26 * ts, 3000);
+        mgr.addPosition(pid, 26 * ts, 27 * ts, ts, type(uint128).max / 55);
+        a.mint(address(mgr), 2e18);
+        hub.addV4(address(a), address(b), 3000, ts, address(0));
+    }
+
+    /// In 18 decimals that side is ~1.95e71 for a token of two decimals and ~1.95e73 for one of
+    /// none, and the funnel's `d * 1e6` left uint256: the pair's plan reverted with Panic(0x11).
+    /// A singleton book settles in int128, so the side a book declares is capped at 2^128 - 1
+    /// (`Core.outSide18`) and a mass is at most 2^128 * 1e18, the bound the short side had.
+    function _aBookAtTheTopOfTheRangeStopsNoPlan(uint8 dB) internal {
+        (MockV2Pair honest, bytes32 pid) = _aBookAtTheTopOfTheRange(dB);
+        RoutePlan memory p = solver.findBestRoutePlan(address(a), address(b), 1e18);
+        assertTrue(_routes(p.best, address(honest)), "a book at the top of the range dropped the honest pair");
+        assertEq(
+            BPC.hopMass18(address(uint160(uint256(pid))), BPC.KIND_V4, address(a), address(b), true, dB, address(mgr), pid),
+            uint256(type(uint128).max) * 10 ** (18 - dB), "a book declared more than a book can pay");
+    }
+
+    function test_HopMass_ABookAtTheTopOfTheRangeStopsNoPlan_18_2() public {
+        _aBookAtTheTopOfTheRangeStopsNoPlan(2);
+    }
+
+    function test_HopMass_ABookAtTheTopOfTheRangeStopsNoPlan_18_0() public {
+        _aBookAtTheTopOfTheRangeStopsNoPlan(0);
+    }
+
+    /// Control: with six decimals the same book's side is ~1.95e67 and no product left uint256
+    /// before the cap either. What the two tests above see is the overflow, not the price.
+    function test_HopMass_control_ABookAtTheTopOfTheRangeOfASixDecimalTokenStopsNoPlan() public {
+        (MockV2Pair honest, ) = _aBookAtTheTopOfTheRange(6);
+        RoutePlan memory p = solver.findBestRoutePlan(address(a), address(b), 1e18);
+        assertTrue(_routes(p.best, address(honest)), "control: the honest pair is routed beside the book");
+    }
+
+    /// The bound itself, over every liquidity, price, direction and decimals up to 18: no side a
+    /// book declares exceeds 2^128 - 1 units of the token, so a mass is under 2^188 and the
+    /// funnel's `d * 1e6` under 2^208.
+    function testFuzz_HopMass_NoBookDeclaresMoreThanABookCanPay(uint128 liq, uint160 sp, bool zfo, uint8 dOut)
+        public pure
+    {
+        dOut = uint8(bound(dOut, 0, 18));
+        assertLe(BPC.outSide18(liq, sp, zfo, dOut), uint256(type(uint128).max) * 10 ** (18 - dOut),
+            "a book declared more than a book can pay");
+    }
 }
