@@ -10,13 +10,16 @@ pragma solidity 0.8.36;
 // depend on how the code computes them:
 //
 //   K1  lastUpdateTs never goes back, never passes the block's time, and is the block's time
-//       after every counted tick; a tick on one pool never touches another pool's row
+//       after a registration and after an anchored tick; after a dust tick it is the block's
+//       time or where it was (the open reading of K3), never a third value; a tick on one
+//       pool never touches another pool's row
 //   K2  a dust tick, a zero leg, a paused Hub and a stranger leave tau exactly where it was
 //       (and the last three leave the whole row where it was)
 //   K3  an anchored tick moves tau by 2^-3 of its distance to the interval it closes, where
-//       the interval is at least the time since the pool's previous tick of any kind and at
-//       most the time since its previous anchored tick; the first measured interval IS tau.
-//       With no dust between two anchored ticks the two bounds meet and the law is exact.
+//       the interval is the time since the pool's previous tick of any kind or the time since
+//       its previous anchored tick (no value in between); the first measured interval IS tau.
+//       With no dust between two anchored ticks the two readings meet and the law is exact.
+//       A zero-length interval has one more reading: no interval was closed, tau stays.
 //
 // Mutants: [ATQ-inv-n] in .github/scripts/mutants.py.
 
@@ -108,9 +111,10 @@ contract AtqClockHandler is Test {
         }
         Clock storage c = g[i];
         uint32 nowTs = uint32(block.timestamp);
-        if (_ts(s1) != nowTs) _fail("a counted tick did not stamp the row with the block's time");
+        if (_ts(s1) < _ts(s0[i])) _fail("a tick moved the stamp back");
         if (!c.seated) {
             if (s1 == 0) { _fail("a pool with room was not seated"); return; }
+            if (_ts(s1) != nowTs) _fail("a registration did not stamp the row with the block's time");
             if (_tau(s1) != 0) _fail("a registration measured a clock");
             c.seated = true;
             c.tsAny = nowTs;
@@ -122,13 +126,16 @@ contract AtqClockHandler is Test {
         uint32 tau1 = _tau(s1);
         if (!anchored) {
             if (tau1 != tau0) _fail("a dust tick moved the clock");
+            if (_ts(s1) != nowTs && _ts(s1) != _ts(s0[i])) _fail("a dust tick put the stamp at a third value");
             c.tsAny = nowTs;
             ++dustTicks;
             return;
         }
+        if (_ts(s1) != nowTs) _fail("an anchored tick did not stamp the row with the block's time");
         uint32 lo = _step(tau0, nowTs - c.tsAny);
         uint32 hi = _step(tau0, nowTs - c.tsAnchored);
-        if (tau1 < lo || tau1 > hi) _fail("an anchored tick put the clock outside every reading of its interval");
+        bool still = nowTs == c.tsAnchored && tau1 == tau0; // a zero-length interval that closed nothing
+        if (tau1 != lo && tau1 != hi && !still) _fail("an anchored tick put the clock outside every reading of its interval");
         if (lo == hi) ++exactTicks;
         c.tsAny = nowTs;
         c.tsAnchored = nowTs;
@@ -195,11 +202,12 @@ contract AtqPoolClockInvariantTest is Test {
     function _checkAll() internal view {
         assertEq(h.nBad(), 0, h.bad());
         for (uint256 i; i < 3; ++i) {
-            (bool seated, uint32 tsAny,) = h.ghost(i);
+            (bool seated, uint32 tsAny, uint32 tsAnchored) = h.ghost(i);
             uint256 s = hub.getSlot(h.keys(i));
+            uint32 ts = h.tsOf(i);
             assertEq(s != 0, seated, "K1: a row exists exactly when the pool was seated");
-            assertEq(h.tsOf(i), tsAny, "K1: the stamp is the time of the pool's last counted tick");
-            assertLe(h.tsOf(i), vm.getBlockTimestamp(), "K1: the stamp is ahead of the block");
+            assertTrue(ts == tsAny || ts == tsAnchored, "K1: the stamp is neither the pool's last tick nor its last anchored tick");
+            assertLe(ts, vm.getBlockTimestamp(), "K1: the stamp is ahead of the block");
         }
     }
 
