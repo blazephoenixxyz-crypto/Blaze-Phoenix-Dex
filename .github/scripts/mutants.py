@@ -5558,6 +5558,16 @@ M = [
       old="            if (paid == 0) revert RouterE(15);\n",
       new=" // MUTANT [inv-s1-1633]\n",
       teste="test_ATwoHopRouteFedAfterTheBaseline_DeliversAndIsRefusedForPayingNoFee"),
+ dict(nome="[morf-ACP1-M4]: on a blind hop the hop figure replaces the priced base even when it is lower, and 1 wei lowers the anchor",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (hopBlind && route.hops[h].expectedOut > hopBase) {\n",
+      new="            if (hopBlind) { // MUTANT [morf-ACP1-M4]\n",
+      teste="test_hopExpectedOut_underThePricedBase_doesNotLowerIt"),
+ dict(nome="[morf-ACP1-M5]: a declared singleOutFloor is dropped when the informational hasSurplus is set, and a field nothing should read switches the floor off",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (route.singleOutFloor > effMin) effMin = route.singleOutFloor;\n",
+      new="            if (!route.hasSurplus && route.singleOutFloor > effMin) effMin = route.singleOutFloor; // MUTANT [morf-ACP1-M5]\n",
+      teste="test_informativeFields_doNotMoveADeclaredFloor"),
 ]
 
 def run(t):

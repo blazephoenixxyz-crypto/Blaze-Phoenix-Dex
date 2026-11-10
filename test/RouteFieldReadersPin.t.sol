@@ -308,4 +308,76 @@ contract RouteFieldReadersPinTest is Test {
         assertFalse(high.ok, "a hop figure over the fill raises the floor over it");
         assertEq(high.ret, _e5(), "refused by RouterE(5)");
     }
+
+    // ─── refuta-ACP1 (mathematical refutation, 2026-11-10): the two cases the pins above leave open ───
+
+    /// One hop A -> D over two concentrated pools: `priced` is quoted by the frame, `pAD` is blind
+    /// (the caller arms it before the call). Neither leg is attested; the hop declares `x`.
+    function _mixedBlindHop(MockV3Pool priced, uint256 x) private view returns (Route memory) {
+        Leg[] memory ls = new Leg[](2);
+        ls[0] = Leg({pool: address(priced), hooks: address(0), kind: BPC.KIND_V3, fee: 3000, tickSpacing: 0,
+            zeroForOne: priced.token0() == address(tA), stable: false, amountIn: AMT / 2, expectedOut: 0,
+            auxId: bytes32(0)});
+        ls[1] = Leg({pool: address(pAD), hooks: address(0), kind: BPC.KIND_V3, fee: 3000, tickSpacing: 0,
+            zeroForOne: pAD.token0() == address(tA), stable: false, amountIn: AMT / 2, expectedOut: 0,
+            auxId: bytes32(0)});
+        Hop[] memory hs = new Hop[](1);
+        hs[0] = Hop({tokenIn: address(tA), tokenOut: address(tD), amountIn: AMT, expectedOut: x, legs: ls});
+        return _wrap(hs, 0);
+    }
+
+    /// @notice On a blind hop that also has a leg the frame prices, a hop figure under the priced
+    ///         base does not lower the anchor: 1 wei and a quarter of the input leave the outcome of
+    ///         no figure at all, the published quote and floor included. A figure over the fill
+    ///         still raises the floor over it.
+    function test_hopExpectedOut_underThePricedBase_doesNotLowerIt() public {
+        MockV3Pool pAD2 = new MockV3Pool(address(tA), address(tD), 3000);
+        pAD2.setState(Q96, LIQ);
+        tD.mint(address(pAD2), 1_000_000e18);
+        pAD.setState(Q96, 0);
+        pAD.setSwapLiquidity(LIQ);
+
+        Outcome memory ref = _run(_mixedBlindHop(pAD2, 0), false);
+        assertTrue(ref.ok, "premise: the mixed hop settles with no hop figure");
+        assertGt(ref.got, AMT / 2, "premise: and both legs deliver");
+        uint256[2] memory xs = [uint256(1), AMT / 4];
+        for (uint256 k; k < 2; ++k) {
+            _assertSame(_run(_mixedBlindHop(pAD2, xs[k]), false), ref, "hop figure under the priced base");
+        }
+        Outcome memory high = _run(_mixedBlindHop(pAD2, type(uint256).max), false);
+        assertFalse(high.ok, "a hop figure over the fill still raises the floor over it");
+        assertEq(high.ret, _e5(), "refused by RouterE(5)");
+    }
+
+    /// @notice The informational fields do not move a declared floor either: beside a
+    ///         `singleOutFloor` at the measured output the route settles exactly as before, and
+    ///         beside one a wei above it the route is refused by RouterE(5), whatever they say.
+    function test_informativeFields_doNotMoveADeclaredFloor() public {
+        uint256[4] memory vals = [uint256(0), 1, type(uint256).max, uint256(keccak256("RouteFieldReadersPin"))];
+        for (uint256 id; id < 4; ++id) {
+            (Route memory r0, bool native) = _routeOf(id);
+            Outcome memory m = _run(r0, native);
+            assertTrue(m.ok, "premise: with no declared floor the route settles");
+            uint256 measured = m.got + m.feeOut;
+            Outcome memory refAt = _run(_floored(id, measured), native);
+            assertTrue(refAt.ok, "premise: a floor at the measured output admits the fill");
+            Outcome memory refAbove = _run(_floored(id, measured + 1), native);
+            assertFalse(refAbove.ok, "premise: one wei above it is refused");
+            assertEq(refAbove.ret, _e5(), "premise: by RouterE(5)");
+            for (uint256 k; k < 4; ++k) {
+                uint256 v = vals[k];
+                Route memory a = _floored(id, measured);
+                _setInformational(a, [v, v, v, v, v, v, v, v], v % 2 == 1, v != 0);
+                _assertSame(_run(a, native), refAt, "informational field beside a binding floor");
+                Route memory b = _floored(id, measured + 1);
+                _setInformational(b, [v, v, v, v, v, v, v, v], v % 2 == 1, v != 0);
+                _assertSame(_run(b, native), refAbove, "informational field beside a refusing floor");
+            }
+        }
+    }
+
+    function _floored(uint256 id, uint256 floor) private view returns (Route memory r) {
+        (r, ) = _routeOf(id);
+        r.singleOutFloor = floor;
+    }
 }
