@@ -3675,6 +3675,13 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        if (false) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl); // MUTANT [722]\n',
       teste='test_3073_OneBasis_BridgeLeadsAndIsPromisedItsBook'),
+ dict(nome='3073-3 [722h]: a leader held at its cap is rebuilt only when a promise fell, its book is read by the pays-walk alone',
+      f='src/BlazePhoenixSolver.sol',
+      # The plan is the same with or without the walk on this grid (the walk stops short of the
+      # cap), so the paired test counts the leader's tick reads: nineteen, three without the walk.
+      old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
+      new='        if (d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl); // MUTANT [722h]\n',
+      teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
  dict(nome='3073-3 [723]: the winner is rebuilt with WALK on every solve and three bridges with six books pass the search\'s budget',
       f='src/BlazePhoenixSolver.sol',
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',

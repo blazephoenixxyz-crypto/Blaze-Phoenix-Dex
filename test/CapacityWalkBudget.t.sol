@@ -208,6 +208,12 @@ contract CapacityWalkBudgetTest is Test {
     /// tick read. A count of reads, not a ceiling: a share of SOLVE_GAS stops telling the two
     /// apart once the search itself costs less (mutant [716]: every ranked candidate walks its
     /// held legs, sixteen tick reads on the first hop of a bridge).
+    ///
+    /// The leader is walked, and that half is a count too. Its walk stops short of the cap here,
+    /// so the plan is the one built at the cap with or without it, and only the reads tell:
+    /// nineteen on the leader's book, three by `_paysWhatItWalks` (the leader answers for what
+    /// its book pays) and the sixteen stretches of the rebuild (mutant [722h]: a leader held at
+    /// its cap is not rebuilt, three reads).
     function test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked() public {
         _heavy(t0, t1, FEE, L, HELD);
         address direct = touched[touched.length - 1];
@@ -222,6 +228,7 @@ contract CapacityWalkBudgetTest is Test {
             for (uint256 j; j < i; ++j) _heavy(br[j], br[i], FEE, L, HELD);
         }
         for (uint256 i; i < 3; ++i) vm.expectCall(firstHop[i], abi.encodeWithSelector(HeavyBookPool.ticks.selector), 0);
+        vm.expectCall(direct, abi.encodeWithSelector(HeavyBookPool.ticks.selector), 19);
         _cool();
         RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
         assertEq(plan.best.hops.length, 1, "precondition: the direct book leads");
