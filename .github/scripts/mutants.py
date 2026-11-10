@@ -5475,7 +5475,7 @@ M = [
       old="        if (newDepth == 0) return false;",
       new="        // MUTANT [MT6-10]",
       teste="test_SeatDoor_ZeroDepthNewcomerOnAFullPair_NotSeated"),
- dict(nome="inv-s1-1635: Router FEE: the book is not cleared, seen by two V4 swaps and a V3 swap in one call",
+ dict(nome="inv-s1-1635: Router FEE: the book is not cleared, seen by two V4 swaps and a V3 swap in one call (the mutation of rv1023-8, a second killer)",
       f="src/BlazePhoenixRouter.sol",
       old="            assembly { tstore(sFee, 0) }\n",
       new=" // MUTANT [inv-s1-1635]\n",
@@ -5553,6 +5553,11 @@ M = [
       old="        if (isBridge)        f += (f * 2_500) / BPS;",
       new="        if (isBridge)        f += (f * 2_500 + BPS - 1) / BPS; // MUTANT [MT6-13]",
       teste="test_BridgeTerm_BelowOnePoint_IncumbentTermIsZeroUnderFourPoints"),
+ dict(nome="inv-s1-1633: Router FEE: a delivery that paid no fee settles, seen by a two-hop route fed after the baseline",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (paid == 0) revert RouterE(15);\n",
+      new=" // MUTANT [inv-s1-1633]\n",
+      teste="test_ATwoHopRouteFedAfterTheBaseline_DeliversAndIsRefusedForPayingNoFee"),
 ]
 
 def run(t):

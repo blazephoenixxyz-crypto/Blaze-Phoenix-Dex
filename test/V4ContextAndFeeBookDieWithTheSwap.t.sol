@@ -28,14 +28,14 @@ pragma solidity 0.8.36;
 //  Guards, green at cb1d7d9 (every clear is there). Red under their mutants in
 //  `.github/scripts/mutants.py`: [inv-s1-1635] (the book's clear), [inv-s1-2061]
 //  (the clear after `unlock`), [inv-s1-2179] (the clear before settling).
-//  The book's two checks have no mutant of their own (derived, morf-1106 INV-S1):
-//  RouterE(16) - while the book is cleared no settlement pays twice under an index
-//  (one paying hop, one `_payFee` per hop, no re-entry into `_payFee`), so it
-//  fires only with the clear gone, which the batch below sees; RouterE(15) - on a
-//  route of at most two hops, the design's target, no route delivers with every
-//  hop charged nothing (the anchored hop's base is the measurement it scales by).
-//  MAX_HOPS is 3 at cb1d7d9: a third hop fed by a donation is the one derived
-//  path to RouterE(15), not built here.
+//  Of the book's two checks, RouterE(16) has no mutant of its own (derived, morf-1106
+//  INV-S1): while the book is cleared no settlement pays twice under an index (one
+//  paying hop, one `_payFee` per hop, no re-entry into `_payFee`), so it fires only
+//  with the clear gone, which the batch below sees. RouterE(15) is a live guard, on
+//  two hops too: a route anchored at hop 0 whose hop 0 commits nothing, through a
+//  middle token whose `balanceOf` answers more on its second read, delivers with
+//  nothing in the book. Its guard and its mutant [inv-s1-1633] are in
+//  test/UnpaidDeliveryIsRefusedOnTwoHops.t.sol.
 //
 //  forge test --match-path test/V4ContextAndFeeBookDieWithTheSwap.t.sol -vv
 // =============================================================================
