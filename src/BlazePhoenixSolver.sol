@@ -725,7 +725,7 @@ contract BlazePhoenixSolver {
                 // so the cap costs no extra call.
                 //
                 // THE CONCENTRATED FAMILY TOO (ninth wave, Binod Bk). There the
-                // depth is `depthFromL18(liquidity(), slot0())` - the contract's own
+                // depth is `outSide18(liquidity(), slot0())` - the contract's own
                 // word about itself - and a V3-shaped contract holding nothing that
                 // declared 1e33 took the whole order from a pool holding 1,000,000
                 // a side, then set the floor its own fill was judged against. The
@@ -984,9 +984,20 @@ contract BlazePhoenixSolver {
     ///      filled the Hub's V4 cap, and psi multiplies a swap count anyone can pump by 2^bucket,
     ///      so eight pools holding 1/100 of the honest venue's mass out-ranked it and cut it before
     ///      it was quoted (bounty #82, Ronksok Gaming; root in mohaseenbasha dex-12). Each row is
-    ///      measured now by the registry's one depth producer (`Core.registryDepth18`), not by
-    ///      the bucket a registry door cached (Seavia Resources), and row j is dropped iff
+    ///      measured now by its mass on this hop (`Core.hopMass18`: the tokenOut it can pay), not
+    ///      by the bucket a registry door cached (Seavia Resources), and row j is dropped iff
     ///          d_j * 1e6 < MIN_SPLIT_IMPROVEMENT_PPM * (D - d_j),   D = the sum over the rows.
+    ///      ONE TOKEN (MAT-01): every term counts tokenOut, so the rule does not move when a
+    ///      token is restated, and out-massing a row costs tokenOut held. The registry's depth
+    ///      was the short side for a pair and the virtual one for a singleton book: 1e22 of
+    ///      one-tick liquidity, holding 0.07 % of it, dropped a pair holding 1,000 times more.
+    ///      A SINGLETON BOOK (V4) is measured twice. Its OWN d_j is the side it declares, an
+    ///      upper bound: what it holds is read by a walk of sixteen stretches that one-wei
+    ///      positions can cut, and a cut walk must not unseat an honest book (S2). What it adds
+    ///      to the OTHER rows' D is what it holds over that walk (`_heldBooks`, the figure the
+    ///      band's vote reads). The walk is made only when a seat depends on it: with the books
+    ///      at their declared side D is at its largest and with them at zero at its smallest,
+    ///      so a row kept against the first or dropped against the second is decided unread.
     ///      For pools at one price and fee, the most a leg on j adds to what the others pay,
     ///      relative to it, is d_j / (D - d_j) at every size, so a dropped row cannot lift an
     ///      order by the improvement a split must show to be kept: no threshold of its own and no
@@ -997,36 +1008,73 @@ contract BlazePhoenixSolver {
     ///      the deepest (d_max >= D / n). A Gate wrapper measures 0 because its mass is not read
     ///      here, and absent is not zero: it stays. Survivors keep their order and their psi.
     ///      The reads are the ones `_buildHop`'s probe makes next, so they are warm there, and the
-    ///      decimals are the pair's, read once (`dec`, +1 encoded: tA's above tB's). No product
-    ///      overflows: a depth is at most 2^128 * 1e18.
+    ///      decimals are tokenOut's, read once (`dec`, +1 encoded: tA's above tB's). No product
+    ///      overflows: a mass is at most 2^128 * 1e18.
     function _dropDust(PoolInfo[] memory rows, uint256[] memory ps, uint256 n, address tA, uint256 dec)
         private view returns (uint256 kept)
     {
         address mgr;
-        uint256[] memory d = new uint256[](n);
+        uint256[] memory d = new uint256[](n);       // the row's own mass
+        uint256[] memory r = new uint256[](n);       // what it adds to the other rows' D
+        bytes32[] memory pids = new bytes32[](n);    // nonzero: a singleton book
         uint256 sum;
+        uint256 v;                                   // the singleton books' part of `sum`
         for (uint256 i; i < n; ) {
             PoolInfo memory p = rows[i];
-            bytes32 pid;
             if (BPC.kindHas(p.kind, BPC.A_CONC_SING)) {
                 if (mgr == address(0)) mgr = hub.v4PoolManager();
                 (address c0, address c1) = BPC.v4LegCurrencies(p.kind, p.token0, p.token1, true);
-                pid = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
+                pids[i] = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
             }
-            d[i] = BPC.registryDepth18Dec(p.pool, p.kind,
-                p.token0, uint8(p.token0 == tA ? dec >> 8 : dec) - 1,
-                p.token1, uint8(p.token1 == tA ? dec >> 8 : dec) - 1, mgr, pid);
+            bool zfo = p.token0 == tA;
+            d[i] = r[i] = BPC.hopMass18(
+                p.pool, p.kind, tA, zfo ? p.token1 : p.token0, zfo, uint8(dec) - 1, mgr, pids[i]);
             sum += d[i];
+            if (pids[i] != 0) v += d[i];
             unchecked { ++i; }
         }
+        if (v != 0) {
+            for (uint256 i; i < n; ) {
+                uint256 x = d[i] * 1e6;
+                if (rows[i].kind != BPC.KIND_EXTERNAL
+                    && x < MIN_SPLIT_IMPROVEMENT_PPM * (sum - d[i])
+                    && x >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - v - (pids[i] != 0 ? 0 : d[i]))) {
+                    sum = _heldBooks(rows, pids, d, r, n, tA, uint8(dec) - 1, mgr, sum);
+                    break;
+                }
+                unchecked { ++i; }
+            }
+        }
         for (uint256 i; i < n; ) {
-            if (rows[i].kind == BPC.KIND_EXTERNAL || d[i] * 1e6 >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - d[i])) {
+            if (rows[i].kind == BPC.KIND_EXTERNAL || d[i] * 1e6 >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - r[i])) {
                 rows[kept] = rows[i];
                 ps[kept] = ps[i];
                 unchecked { ++kept; }
             }
             unchecked { ++i; }
         }
+    }
+
+    /// @dev What the singleton books of a hop HOLD of tokenOut, written over what each adds to
+    ///      the other rows' D (`_dropDust`): the output of an unbounded, fee-free walk of sixteen
+    ///      stretches, the `held` of `Core.v4HeldShare`. Only ever lowers `r` and `sum`.
+    function _heldBooks(
+        PoolInfo[] memory rows, bytes32[] memory pids, uint256[] memory d, uint256[] memory r,
+        uint256 n, address tA, uint8 dOut, address mgr, uint256 sum
+    ) private view returns (uint256) {
+        for (uint256 j; j < n; ) {
+            if (pids[j] != 0) {
+                (, uint256 held, ) = BPC.v4WalkRank(
+                    mgr, pids[j], type(uint256).max, 0, rows[j].tickSpacing, rows[j].token0 == tA, type(uint256).max);
+                held = BPC.to18(held, dOut);
+                if (held < d[j]) {
+                    sum -= d[j] - held;
+                    r[j] = held;
+                }
+            }
+            unchecked { ++j; }
+        }
+        return sum;
     }
 
     /// @dev CANONICAL ORDER (Layer 2), on the PLANNING side. STABLE partition of the legs of
