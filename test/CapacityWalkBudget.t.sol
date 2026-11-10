@@ -201,6 +201,37 @@ contract CapacityWalkBudgetTest is Test {
     /// `test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan`).
     function test_3073_WalkBudget_ThreeBridgesSixBooks_Settles() public { _grid(3, 6); _fits("3 bridges, 6 books per pair", SEARCH_GAS); }
 
+    /// The walk runs on one topology per solve, the winner's, never per ranked candidate. The
+    /// grid of `ThreeBridges_FitsAFifth` (one book per pair, every book the same shape): the
+    /// direct book leads, held at its cap with its input whole, so the cap binds on the first
+    /// hop of every bridge too, and none of those books, ranked at the cap and beaten, has a
+    /// tick read. A count of reads, not a ceiling: a share of SOLVE_GAS stops telling the two
+    /// apart once the search itself costs less (mutant [716]: every ranked candidate walks its
+    /// held legs, sixteen tick reads on the first hop of a bridge).
+    function test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked() public {
+        _heavy(t0, t1, FEE, L, HELD);
+        address direct = touched[touched.length - 1];
+        address[3] memory br;
+        address[3] memory firstHop;
+        for (uint256 i; i < 3; ++i) {
+            br[i] = _token();
+            hub.addBridge(br[i]);
+            _heavy(t0, br[i], FEE, L, HELD);
+            firstHop[i] = touched[touched.length - 1];
+            _heavy(br[i], t1, FEE, L, HELD);
+            for (uint256 j; j < i; ++j) _heavy(br[j], br[i], FEE, L, HELD);
+        }
+        for (uint256 i; i < 3; ++i) vm.expectCall(firstHop[i], abi.encodeWithSelector(HeavyBookPool.ticks.selector), 0);
+        _cool();
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
+        assertEq(plan.best.hops.length, 1, "precondition: the direct book leads");
+        assertEq(plan.best.hops[0].legs.length, 1, "precondition: one direct book, one leg");
+        Leg memory g = plan.best.hops[0].legs[0];
+        assertEq(g.pool, direct, "precondition: the direct book leads");
+        assertEq(g.amountIn, IN, "precondition: the book holds its quote, so the input is whole");
+        assertEq(g.expectedOut, BPC.mulDiv(HELD, 3_000, BPC.BPS), "precondition: the cap binds on a book of this shape");
+    }
+
     // ─── Held legs: the door settles the plan quoted, the walk on its own budget ──
 
     /// Entry A (the uncapped solve), then the solve at the door's budget, which must return

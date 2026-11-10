@@ -3638,11 +3638,11 @@ M = [
       old='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
       new='        if (mode & CUT != 0 && quote > held) return (BPC.mulDiv(amountIn, cap, quote), cap, 0); // MUTANT [715]',
       teste='test_3073_PhantomLaterHop_OnlyRoute_PromiseStaysAtTheCap'),
- dict(nome='3073-2 [716]: every bridge candidate walks its held legs, three bridges pass a fifth of SOLVE_GAS',
+ dict(nome='3073-2 [716]: every bridge candidate walks its held legs, a bridge that does not lead has its ticks read',
       f='src/BlazePhoenixSolver.sol',
       old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
       new='        // MUTANT [716]',
-      teste='test_3073_WalkBudget_ThreeBridges_FitsAFifth'),
+      teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
  dict(nome='3073-2 [717]: a later hop of the rebuilt bridge route does not ask its book',
       f='src/BlazePhoenixSolver.sol',
       # G52 (2026-10-28): re-pointed; the first stage is built by `_firstStage`, a later stage by this call.
