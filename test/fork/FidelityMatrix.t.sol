@@ -52,7 +52,7 @@ abstract contract MatrixOps is TokenSweepBase {
         internal view returns (uint256 out, uint256 depth)
     {
         bool z = h.token0 == tIn;
-        (out, depth) = BPC.universalQuote(_gateCtx(h, z), amt);
+        (out, depth, , ) = BPC.universalQuoteRank(_gateCtx(h, z), amt, type(uint256).max, false);
     }
 
     /// A linha da matriz para UM par. `exec=true` executa de verdade e mede

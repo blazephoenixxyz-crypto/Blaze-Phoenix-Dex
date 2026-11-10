@@ -177,7 +177,7 @@ contract CoreNativeV4QuoteTest is Test {
         _plant(NATIVE, COUNTER, FEE, TS, 0, 0, SQRT_P_4, LIQ);
         QuoteCtx memory c = _nativeCtx(true);
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
 
         assertGt(out, 0, "a live native V4 pool must quote non-zero");
         assertEq(out, BPC.outV3(AMT, SQRT_P_4, LIQ, FEE, true, 0),
@@ -214,7 +214,7 @@ contract CoreNativeV4QuoteTest is Test {
         _plant(NATIVE, COUNTER, FEE, TS, 0, 0, SQRT_P_4, LIQ);
         QuoteCtx memory c = _nativeCtx(false);
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
 
         assertGt(out, 0, "the counter-to-native direction must quote non-zero");
         assertEq(out, BPC.outV3(AMT, SQRT_P_4, LIQ, FEE, false, 0),
@@ -247,8 +247,8 @@ contract CoreNativeV4QuoteTest is Test {
         QuoteCtx memory wrp = _nativeCtx(true);
         wrp.kind = BPC.KIND_V4;
 
-        (uint256 outN, uint256 depthN) = BPC.universalQuote(nat, AMT);
-        (uint256 outW, uint256 depthW) = BPC.universalQuote(wrp, AMT);
+        (uint256 outN, uint256 depthN, , ) = BPC.universalQuoteRank(nat, AMT, type(uint256).max, false);
+        (uint256 outW, uint256 depthW, , ) = BPC.universalQuoteRank(wrp, AMT, type(uint256).max, false);
 
         assertGt(outN, 0, "sanity: the native kind prices this pool");
         assertGt(outW, 0, "sanity: the wrapped kind prices the same currencies");
@@ -284,8 +284,8 @@ contract CoreNativeV4QuoteTest is Test {
         inCounter.decIn1    = 7;  // now the 6-decimal token is the input
         inCounter.decOther1 = 19;
 
-        (, uint256 depthA) = BPC.universalQuote(inNative,  AMT);
-        (, uint256 depthB) = BPC.universalQuote(inCounter, AMT);
+        (, uint256 depthA, , ) = BPC.universalQuoteRank(inNative,  AMT, type(uint256).max, false);
+        (, uint256 depthB, , ) = BPC.universalQuoteRank(inCounter, AMT, type(uint256).max, false);
 
         assertGt(depthA, 0, "sanity: the pool has depth in the covered direction");
         assertEq(depthA, X0,
@@ -311,7 +311,7 @@ contract CoreNativeV4QuoteTest is Test {
         c.fee         = DYN;
         c.tickSpacing = TS_D;
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
 
         assertGt(out, 0, "the dynamic-fee sentinel must not reach outV3 as a fee");
         assertEq(out, BPC.outV3(AMT, SQRT_P_4, LIQ, LP_D, true, 0),
@@ -335,7 +335,7 @@ contract CoreNativeV4QuoteTest is Test {
         c.fee         = DYN;
         c.tickSpacing = TS_D;
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
 
         assertEq(out, 0, "a non-zero protocolFee must fail closed on the native arm too");
         assertEq(depth, X0,
@@ -351,7 +351,7 @@ contract CoreNativeV4QuoteTest is Test {
     function test_NativeV4_Quote_UnplantedPoolIsZero() public view {
         QuoteCtx memory c = _nativeCtx(true);
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
 
         assertEq(out, 0, "an uninitialised native pool must quote zero");
         assertEq(depth, 0, "and carry no depth");
@@ -370,7 +370,7 @@ contract CoreNativeV4QuoteTest is Test {
         QuoteCtx memory c = _nativeCtx(true);
         c.tokenIn = WRAPPED;   // the caller forgot the substitution
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
 
         assertEq(out, 0,
             "the wrapped key names another pool id; the native price must not leak into it");
@@ -385,7 +385,7 @@ contract CoreNativeV4QuoteTest is Test {
         _plant(NATIVE, COUNTER, FEE, TS, 0, 0, SQRT_P_4, LIQ);
         QuoteCtx memory c = _nativeCtx(true);
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, 0);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, 0, type(uint256).max, false);
 
         assertEq(out, 0, "zero in, zero out");
         assertEq(depth, 0, "and the depth channel is not a side door");

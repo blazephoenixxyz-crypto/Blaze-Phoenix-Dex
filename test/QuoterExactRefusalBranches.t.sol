@@ -845,7 +845,7 @@ contract QuoterExactRefusalBranchesTest is Test {
         // Bounty #85: the dispatcher checks the pair holds its reserves, by token.
         qc.tokenIn    = address(tokA);
         qc.tokenOther = address(tokB);
-        (uint256 producerOut, ) = BPC.universalQuote(qc, AMT);
+        (uint256 producerOut, , , ) = BPC.universalQuoteRank(qc, AMT, type(uint256).max, false);
 
         assertGt(producerOut, 0, "sanity: the pair prices this order");
         assertEq(exactOut, producerOut, "the V2 leg must be priced by the one Core dispatcher");

@@ -132,7 +132,7 @@ contract SolidlyQuoteIsTheExecutorsAskTest is Test {
         c.fee        = 30;
         c.tokenIn    = address(tokenIn);
         c.tokenOther = address(bridgeOut);
-        (uint256 q, ) = BPC.universalQuote(c, AMT);
+        (uint256 q, , , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
         assertEq(q, pair.getAmountOut(AMT, address(tokenIn)) - 1, "the quote is not what the executor asks for");
     }
 
@@ -162,7 +162,7 @@ contract SolidlyQuoteIsTheExecutorsAskTest is Test {
             c.stable     = st;
             c.tokenIn    = tIn;
             c.tokenOther = tOut;
-            (uint256 q, ) = BPC.universalQuote(c, AMT);
+            (uint256 q, , , ) = BPC.universalQuoteRank(c, AMT, type(uint256).max, false);
             assertEq(q, BPC.solidlyAskOut(address(p), AMT, tIn, c.zeroForOne, st, 30),
                 "the quote is not the executor's ask");
             (uint256 rIn, uint256 rOut) = tIn == p.token0()

@@ -944,7 +944,7 @@ contract BlazePhoenixQuoter {
             qc.fee        = leg.fee;
             qc.tokenIn    = tIn;
             qc.tokenOther = tOut;
-            (legOut, ) = BPC.universalQuote(qc, legIn);
+            (legOut, , , ) = BPC.universalQuoteRank(qc, legIn, type(uint256).max, false);
         } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
             legOut = _simV4(leg, tIn, legIn);
             // Same clamp as the A_CONC_POOL fallback above: the
@@ -1001,7 +1001,7 @@ contract BlazePhoenixQuoter {
             sc.stable     = leg.stable;
             sc.tokenIn    = tIn;
             sc.tokenOther = tOut;
-            (legOut, ) = BPC.universalQuote(sc, legIn);
+            (legOut, , , ) = BPC.universalQuoteRank(sc, legIn, type(uint256).max, false);
         }
     }
 

@@ -1565,7 +1565,7 @@ contract SolverRefPoda1027 {
             decIn1:      dIn1,
             decOther1:   dOt1
         });
-        (out, depth, rank, hi) = BPC.universalQuoteRank(c, amt, bar);
+        (out, depth, rank, hi) = BPC.universalQuoteRank(c, amt, bar, false);
     }
 
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than

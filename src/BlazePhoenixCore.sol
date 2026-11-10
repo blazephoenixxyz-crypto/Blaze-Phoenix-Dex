@@ -25,7 +25,7 @@
 //          `view` and says `view` in its name or signature. No third category.
 //      C2  One primitive, one producer. Every quantity has exactly ONE function
 //          that produces it (`depthFromL` for depth, `ironFloorBps` for the
-//          floor, `universalQuote` for a quote). A second producer is a sibling
+//          floor, `universalQuoteRank` for a quote). A second producer is a sibling
 //          waiting to diverge, and divergence is this codebase's defect
 //          signature — confirmed more than ten times.
 //      C3  Fail-closed with no default branch. An unknown kind returns theta
@@ -43,7 +43,7 @@
 //  primitives, AMM quote math, pool-address derivation, packed pool-state
 //  encoding and the output floor used by Hub, Solver, Router and Quoter:
 //
-//    1.  universalQuote(ctx, amountIn) -> (amountOut, depth)
+//    1.  universalQuoteRank(ctx, amountIn, bar, wantFee) -> (amountOut, depth, rank, hi)
 //        AMM quote dispatcher across the live pool kinds (V2, V3, V4,
 //        V4-native, Solidly, Algebra).
 //
@@ -1817,10 +1817,11 @@ library BlazePhoenixCore {
     //  §5  AMM QUOTE DISPATCHER
     // =========================================================================
 
-    /// @notice AMM quote for a pool of any supported kind.
-    /// @return out          amount out for `amountIn` tokens of `ctx.tokenIn`
-    /// @return depthWad     pool depth in WAD-equivalent units
-    /// @dev    The quote dispatcher for the Solver and the Quoter.
+    /// @dev    AMM quote for a pool of any supported kind: `out` for `amountIn` tokens of
+    ///         `c.tokenIn`, and `depthWad`, the pool's depth in WAD-equivalent units. The quote
+    ///         dispatcher for the Solver and the Quoter. Older prose names it `universalQuote`:
+    ///         that door asked these arms at (type(uint256).max, false) and is gone; the Quoter
+    ///         now hands that pair to `universalQuoteRank` itself.
     ///
     ///         IT IS NOT THE ONLY ONE. This line used to say "kind branching lives here only" and
     ///         it was FALSE: the Router has its own quote dispatcher (`_hopScaleImpactAndQuote`)
@@ -1829,17 +1830,15 @@ library BlazePhoenixCore {
     ///         question — and both are recorded in the Seam Register. What was wrong was the
     ///         prose, not the design. Criterion 7: a wrong fact written down is worse than none,
     ///         because it biases the reader against going to look for the siblings.
-    function universalQuote(QuoteCtx memory c, uint256 amountIn)
-        public view returns (uint256 out, uint256 depthWad)
-    {
-        (out, depthWad, , , ) = _quoteArms(c, amountIn, type(uint256).max, false);
-    }
-
-    /// @dev The arms of `universalQuote`, `universalQuoteRank` and `universalProbe`: one body,
-    ///      so the three answer from the same reads. `rank` and `hi` are `out` except on a V4
-    ///      key (`_v4Quote`). `fee` is the fee the arm charged, in pips; FEE_UNKNOWN on a Gate
-    ///      wrapper, whose fee no read here can see. A Solidly arm reads its fee only when
-    ///      `wantFee` (its ask does not need it, `_solidlyAsk`); every other arm has it in hand.
+    ///
+    ///         The arms of `universalQuoteRank` and `universalProbe`: one body, so the two
+    ///         answer from the same reads. `bar` and `wantFee` reach it as the caller's data,
+    ///         never as a door's literal: a door that writes its own pair makes the compiler
+    ///         keep a copy of this body for it (test/CoreQuoteDoorsSameAnswer.t.sol).
+    ///         `rank` and `hi` are `out` except on a V4 key (`_v4Quote`). `fee` is the fee
+    ///         the arm charged, in pips; FEE_UNKNOWN on a Gate wrapper, whose fee no read here
+    ///         can see. A Solidly arm reads its fee only when `wantFee` (its ask does not need
+    ///         it, `_solidlyAsk`); every other arm has it in hand.
     function _quoteArms(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee)
         private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi, uint256 fee)
     {
@@ -1950,16 +1949,19 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice `universalQuote` for RANKING (S2, Seavia Resources): the same `(out, depthWad)`,
+    /// @notice The quote, and its RANKING figures (S2, Seavia Resources): `(out, depthWad)`,
     ///         plus `rank` and `hi` from `v4WalkRank`. `out` stays the promise - the figure a
     ///         leg is attested with and the Router re-measures; `rank` is the figure a comparison
     ///         between venues may read, and only differs from `out` on a V4 quote whose sixteen
     ///         stretches left input unspent and whose rest could still carry it above `bar`.
     ///         Every other kind returns `rank == hi == out`.
-    function universalQuoteRank(QuoteCtx memory c, uint256 amountIn, uint256 bar)
+    /// @dev    The one quote door. The Solver ranks at its own `bar`; the Quoter, which reads
+    ///         `out` alone, asks at type(uint256).max. Neither reads the fee, so both pass
+    ///         `wantFee = false` and a Solidly arm skips that read.
+    function universalQuoteRank(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee)
         public view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
     {
-        (out, depthWad, rank, hi, ) = _quoteArms(c, amountIn, bar, false);
+        (out, depthWad, rank, hi, ) = _quoteArms(c, amountIn, bar, wantFee);
     }
 
     /// @notice WHAT THE BAND READS OFF A PROBE (MED, 2026-10-28): `universalQuoteRank` at bar 0 -
@@ -1990,10 +1992,13 @@ library BlazePhoenixCore {
     ///         (its sqrt price floors then move the output by L / 2^96 wei), and a Gate wrapper's
     ///         impact (no reserve to read; its rounding is counted, and impact only lowers a rate,
     ///         which a row of unknown fee is never judged on).
-    function universalProbe(QuoteCtx memory c, uint256 amountIn)
+    ///         THE CALLER'S PAIR. The band's question is (bar = 0, wantFee = true) and the
+    ///         Solver, the one caller, passes exactly that. Asked with `wantFee = false`, a
+    ///         Solidly row answers fee 0 and `err` is formed without its fee: NOT the bound above.
+    function universalProbe(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee)
         public view returns (uint256 depthWad, uint256 rank, uint256 fee, uint256 err)
     {
-        (, depthWad, rank, , fee) = _quoteArms(c, amountIn, 0, true);
+        (, depthWad, rank, , fee) = _quoteArms(c, amountIn, bar, wantFee);
         if (rank == 0) return (depthWad, 0, fee, WAD);
         err = (3 * WAD + 2 * amountIn) / rank + 1;
         if (c.kind != KIND_EXTERNAL) {

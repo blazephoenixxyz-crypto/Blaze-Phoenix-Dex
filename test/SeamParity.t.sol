@@ -227,7 +227,7 @@ contract SeamParityTest is Test {
             tokenIn: address(tokA), tokenOther: address(tokB),
             hooks: address(0), v4Manager: address(0), hub: address(0), decIn1: 0, decOther1: 0
         });
-        (uint256 coreQuote, ) = BPC.universalQuote(ctx, netIn);
+        (uint256 coreQuote, , , ) = BPC.universalQuoteRank(ctx, netIn, type(uint256).max, false);
         assertGt(coreQuote, 0, "the fallback quote must be positive");
 
         // Control that the HAIRCUT arm was really taken: the quote sits
@@ -240,7 +240,7 @@ contract SeamParityTest is Test {
         assertLt(coreQuote, rawCurve, "the no-answer haircut must have been applied");
 
         // An honest planner's attestation for the nominal input.
-        (uint256 attested, ) = BPC.universalQuote(ctx, amountIn);
+        (uint256 attested, , , ) = BPC.universalQuoteRank(ctx, amountIn, type(uint256).max, false);
         Leg[] memory legs = new Leg[](1);
         legs[0] = _leg(address(pair), BPC.KIND_SOLIDLY, aFirst, amountIn, attested);
         Hop[] memory hops = new Hop[](1);

@@ -730,7 +730,7 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < n; ) {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe);
+            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe, 0, true);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 fe[i]     = f | e << 24;
@@ -1206,7 +1206,7 @@ contract BlazePhoenixSolver {
     function _quoteWithDepth(
         PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
     ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
-        (out, depth, rank, hi) = BPC.universalQuoteRank(_ctx(cand, tIn, dIn1, dOt1), amt, bar);
+        (out, depth, rank, hi) = BPC.universalQuoteRank(_ctx(cand, tIn, dIn1, dOt1), amt, bar, false);
     }
 
     /// @dev The Core's quote context of `cand` for an input of `tIn`: one builder for the

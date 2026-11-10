@@ -67,7 +67,7 @@ contract ReproClFeeSentinelBase is Test {
             decIn1: 0,
             decOther1: 0
         });
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, 1_000e6);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, 1_000e6, type(uint256).max, false);
         console2.log("AeroCL quote out/depth:", out, depth);
         // Sanidade de unidades, mesma disciplina do BaseFork: 1.000 USDC em
         // WETH tem de cair numa banda larga — nao e oraculo de preco.
@@ -87,7 +87,7 @@ contract ReproClFeeSentinelBase is Test {
             tickSpacing: 100, stable: false, tokenIn: USDC, tokenOther: WETH,
             hooks: address(0), v4Manager: address(0), hub: address(0), decIn1: 0, decOther1: 0
         });
-        (uint256 out, ) = BPC.universalQuote(c, 1_000e6);
+        (uint256 out, , , ) = BPC.universalQuoteRank(c, 1_000e6, type(uint256).max, false);
         assertGt(out, 0.0001 ether, "controlo: com fee explicita o pool quota na banda");
         assertLt(out, 10 ether);
     }

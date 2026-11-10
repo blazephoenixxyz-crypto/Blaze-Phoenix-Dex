@@ -236,8 +236,8 @@ abstract contract TokenSweepBase is Test {
         for (uint256 i; i < hits.length; ++i) {
             PoolInfo memory h = hits[i];
             if (!h.active || h.pool == address(0)) continue;
-            (uint256 out01, uint256 d01) = BPC.universalQuote(_gateCtx(h, true),  a0);
-            (uint256 out10, uint256 d10) = BPC.universalQuote(_gateCtx(h, false), a1);
+            (uint256 out01, uint256 d01, , ) = BPC.universalQuoteRank(_gateCtx(h, true),  a0, type(uint256).max, false);
+            (uint256 out10, uint256 d10, , ) = BPC.universalQuoteRank(_gateCtx(h, false), a1, type(uint256).max, false);
             uint256 depth = d01 > d10 ? d01 : d10;
             if (depth > 0 && out01 == 0 && out10 == 0) {
                 violacoes++;

@@ -72,18 +72,18 @@ contract V4DynamicFeeQuoteTest is Test {
 
     function test_DynamicFeePool_NowQuotesNonZero() public {
         _seed(3000, 0, uint160(uint256(2) ** 96), uint128(1e21)); // price 1, deep, 0.3%
-        (uint256 out, ) = BPC.universalQuote(_ctx(), 1e18);
+        (uint256 out, , , ) = BPC.universalQuoteRank(_ctx(), 1e18, type(uint256).max, false);
         assertGt(out, 0, "dynamic-fee V4 pool must quote non-zero after INV-20");
     }
 
     function test_DynamicFeePool_WithProtocolFee_FailsClosed() public {
         _seed(3000, 1, uint160(uint256(2) ** 96), uint128(1e21));
-        (uint256 out, ) = BPC.universalQuote(_ctx(), 1e18);
+        (uint256 out, , , ) = BPC.universalQuoteRank(_ctx(), 1e18, type(uint256).max, false);
         assertEq(out, 0, "non-zero protocolFee must fail closed");
     }
 
     function test_EmptyPool_QuotesZero() public {
-        (uint256 out, ) = BPC.universalQuote(_ctx(), 1e18); // unseeded slot0 = 0
+        (uint256 out, , , ) = BPC.universalQuoteRank(_ctx(), 1e18, type(uint256).max, false); // unseeded slot0 = 0
         assertEq(out, 0, "empty pool quotes zero");
     }
 
@@ -92,27 +92,27 @@ contract V4DynamicFeeQuoteTest is Test {
     function test_CodelessManager_QuotesZero() public {
         QuoteCtx memory c = _ctx();
         c.v4Manager = address(0xDEAD); // no code: staticcall succeeds, empty returndata
-        (uint256 out, ) = BPC.universalQuote(c, 1e18);
+        (uint256 out, , , ) = BPC.universalQuoteRank(c, 1e18, type(uint256).max, false);
         assertEq(out, 0, "codeless manager must fail closed, not quote garbage");
     }
 
     function test_ShortReturnManager_QuotesZero() public {
         QuoteCtx memory c = _ctx();
         c.v4Manager = address(new ShortReturnV4Manager());
-        (uint256 out, ) = BPC.universalQuote(c, 1e18);
+        (uint256 out, , , ) = BPC.universalQuoteRank(c, 1e18, type(uint256).max, false);
         assertEq(out, 0, "sub-word returndata must fail closed");
     }
 
     function test_SecondSlotReverting_QuotesZero() public {
         _seed(3000, 0, uint160(uint256(2) ** 96), uint128(1e21));
         mgr.setRevertKey(bytes32(uint256(_base()) + 3)); // liquidity read reverts
-        (uint256 out, ) = BPC.universalQuote(_ctx(), 1e18);
+        (uint256 out, , , ) = BPC.universalQuoteRank(_ctx(), 1e18, type(uint256).max, false);
         assertEq(out, 0, "partial state (slot0 ok, liquidity revert) must fail closed");
     }
 
     function test_TickAndDirtyHighBits_DoNotLeakIntoFees() public {
         _seed(3000, 0, uint160(uint256(2) ** 96), uint128(1e21));
-        (uint256 clean, ) = BPC.universalQuote(_ctx(), 1e18);
+        (uint256 clean, , , ) = BPC.universalQuoteRank(_ctx(), 1e18, type(uint256).max, false);
         // same pool, but tick = -1 (bits [160,184) all ones) and dirty spare bits
         bytes32 word0 = bytes32(
             uint256(uint160(uint256(2) ** 96))
@@ -121,7 +121,7 @@ contract V4DynamicFeeQuoteTest is Test {
                 | (uint256(0xABCDEF) << 232)  // dirty [232,256) spare bits
         );
         mgr.set(_base(), word0);
-        (uint256 dirty, ) = BPC.universalQuote(_ctx(), 1e18);
+        (uint256 dirty, , , ) = BPC.universalQuoteRank(_ctx(), 1e18, type(uint256).max, false);
         assertGt(clean, 0, "baseline must quote");
         assertEq(dirty, clean, "tick/spare bits must not alias into lpFee/protoFee");
     }
@@ -134,10 +134,10 @@ contract V4DynamicFeeQuoteTest is Test {
     /// oneForZero side reaches the check on its own.
     function test_LiquidityWithoutAPrice_QuotesZeroOnEveryDoor() public {
         _seed(3000, 0, 0, uint128(1e21));
-        (uint256 out, uint256 depth) = BPC.universalQuote(_ctx(), 1e18);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(_ctx(), 1e18, type(uint256).max, false);
         assertEq(out, 0, "no price, no quote");
         assertEq(depth, 0, "no price, no depth");
-        (out, depth, , ) = BPC.universalQuoteRank(_ctx(), 1e18, 0);
+        (out, depth, , ) = BPC.universalQuoteRank(_ctx(), 1e18, 0, false);
         assertEq(out, 0, "ranking door: no price, no quote");
         assertEq(depth, 0, "ranking door: no price, no depth");
         (address s0, address s1) = BPC.sortTokens(tokenA, tokenB);

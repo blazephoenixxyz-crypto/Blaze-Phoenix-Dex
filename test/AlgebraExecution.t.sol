@@ -177,7 +177,7 @@ contract AlgebraExecutionTest is Test {
         c.tokenIn = address(tokenA);
         c.tokenOther = address(tokenB);
         c.zeroForOne = zfo;
-        (out,) = BPC.universalQuote(c, amountInNet);
+        (out,, , ) = BPC.universalQuoteRank(c, amountInNet, type(uint256).max, false);
     }
 
     function _treasuries() internal view returns (uint256) {

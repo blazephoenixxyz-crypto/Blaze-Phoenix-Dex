@@ -317,10 +317,10 @@ contract Bounty1013ForgedReservesBandTest is Test {
             c.zeroForOne = MockV2Pair(ps[i]).token0() == address(tA);
             c.tokenIn = address(tA); c.tokenOther = address(tB);
             _setRes(ps[i], i, 1_000e18, 1_000e18);
-            (uint256 out,) = BPC.universalQuote(c, 1e18);
+            (uint256 out,, , ) = BPC.universalQuoteRank(c, 1e18, type(uint256).max, false);
             assertGt(out, 0, "held reserves are priced");
             _setRes(ps[i], i, 1_000e18, 1_000e18 + 1);
-            (out,) = BPC.universalQuote(c, 1e18);
+            (out,, , ) = BPC.universalQuoteRank(c, 1e18, type(uint256).max, false);
             assertEq(out, 0, "one wei over the holdings is a dead pool");
         }
     }
