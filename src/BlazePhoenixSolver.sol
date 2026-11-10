@@ -628,8 +628,10 @@ contract BlazePhoenixSolver {
         // holdings), and the cut to `budget` happens after weighting — see the
         // FUNNEL CUT below. Discovery order can no longer starve a deep venue.
         // A lone candidate is quoted once, with the decimals the funnel read (0, 0 when it read
-        // none, a pair of one row: that quote then reads them itself).
-        if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, uint8(mode >> 16), uint8(mode >> 8)); return (hop, up, f != 0); }
+        // none, a pair of one row: that quote then reads them itself). No probe pass ran, so
+        // there are no readings of the holdings to hand over (an empty list, not a zero):
+        // `_singleLeg` reads them itself, past the quote, if there is one.
+        if (n == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, _ctx(cands[0], tIn, uint8(mode >> 16), uint8(mode >> 8)), new uint256[](0), 0); return (hop, up, f != 0); }
 
         // =========================================================================
         //  STAGE 1 — MARGINAL-PRICE MEDIAN AND NO-ARBITRAGE BAND  (single probe pass)
@@ -727,10 +729,17 @@ contract BlazePhoenixSolver {
         // the cached arrays. Keeps this loop's via-IR frame minimal: only the
         // arrays, probe and the index stay live across iterations.
         uint256[] memory balsOut = new uint256[](n);
+        // ONE CONTEXT PER CANDIDATE PER BUILD (SQ2). The probe, the split's share and the
+        // gate's full-size single quote the same candidate in the same context, so it is built
+        // here once (a singleton kind asks the Hub for its manager in it) and rides in `xs`,
+        // seat-aligned to `cands` like `balsOut` - whose reading the single takes as well,
+        // instead of asking the token a second time (test/SqSameAnswer.t.sol).
+        QuoteCtx[] memory xs = _seats(n);
         for (uint256 i; i < n; ) {
+            xs[i] = _ctx(cands[i], tIn, dIn1_, dOt1_);
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe, 0, true);
+            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(xs[i], probe, 0, true);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 fe[i]     = f | e << 24;
@@ -806,8 +815,9 @@ contract BlazePhoenixSolver {
             if (rds != abi.encode(nKept, n, sumPsi, map, psis).length) revert SolverE(7);
             PoolInfo[] memory c0 = new PoolInfo[](cands.length);
             uint256[] memory b0 = new uint256[](cands.length);
-            for (uint256 i; i < cands.length; ) { c0[i] = cands[i]; b0[i] = balsOut[i]; unchecked { ++i; } }
-            for (uint256 i; i < cands.length; ) { cands[i] = c0[map[i]]; balsOut[i] = b0[map[i]]; unchecked { ++i; } }
+            QuoteCtx[] memory x0 = _seats(cands.length);
+            for (uint256 i; i < cands.length; ) { c0[i] = cands[i]; b0[i] = balsOut[i]; x0[i] = xs[i]; unchecked { ++i; } }
+            for (uint256 i; i < cands.length; ) { cands[i] = c0[map[i]]; balsOut[i] = b0[map[i]]; xs[i] = x0[map[i]]; unchecked { ++i; } }
             // Past the replay only `psis` is live: the call's buffers, `map` and the copies are
             // not. `psis` moves down to where this block began and the rest is released, so the
             // boundary does not grow the solve's memory hop after hop.
@@ -818,7 +828,7 @@ contract BlazePhoenixSolver {
                 mstore(0x40, add(top, l))
             }
             if (nKept == 0) return (hop, 0, false);
-            if (nKept == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, dIn1_, dOt1_); return (hop, up, f != 0); }
+            if (nKept == 1) { uint256 f; (hop, up, , f) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, 0, xs[0], balsOut, 0); return (hop, up, f != 0); }
             nBand = nKept;
         }
         Leg[] memory tmpLegs = new Leg[](n);
@@ -841,7 +851,7 @@ contract BlazePhoenixSolver {
             // S2: bar 0 resolves a truncated V4 walk; `rL - outL` is what it found above the
             // promise, summed into the hop's rank (`up`) at once - only a V4 leg has any, and a
             // V4 leg is dropped below only when `outL` is zero. `outL` stays the promise.
-            (uint256 outL, uint256 rL, ) = _quote(cands[i], tIn, share, 0, dIn1_, dOt1_);
+            (uint256 outL, uint256 rL, ) = _quote(xs[i], share, 0);
             if (outL != 0) up += rL - outL;
             // A reserve-shaped pool can never pay more than it holds (out < reserveOut <=
             // balance on an honest pair), so a promise above its tokenOut holdings comes
@@ -986,7 +996,7 @@ contract BlazePhoenixSolver {
             uint256 hMax;
             uint256 hF;   // the highest quote among the capacity-held singles ranked at the cap
             for (uint256 i; i < nBand; ) {
-                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, dIn1_, dOt1_);
+                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, xs[i], balsOut, i);
                 aR += alt.expectedOut;
                 aH += alt.expectedOut;
                 if (aH > hMax) hMax = aH;
@@ -1143,21 +1153,28 @@ contract BlazePhoenixSolver {
 
     function _singleLeg(
         address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, uint256 mode, uint256 bar,
-        uint8 dIn1, uint8 dOt1
+        QuoteCtx memory x, uint256[] memory held, uint256 i
     ) private view returns (Hop memory hop, uint256 up, uint256 hi, uint256 f) {
         // S2: `up` is the rank above the promise and `hi` the ceiling above it (deep V4 walk,
         // gated by `bar`, `v4WalkRank`; both zero elsewhere). They only order, never promise.
         // `f` is `_capacity`'s third answer: the quote of a leg ranked at its cap.
-        // `dIn1`, `dOt1`: the hop's hoisted decimals, as in `_quoteWithDepth`.
+        // `x`: the candidate's context, built once per build (`_buildHop`). `held`, `i`: the
+        // probe pass's readings of the pools' tokenOut holdings and the candidate's seat in
+        // them; no readings at all for a lone candidate, which saw no probe pass.
         uint256 out_;
-        (out_, up, hi) = _quote(cand, tIn, amountIn, bar, dIn1, dOt1);
+        (out_, up, hi) = _quote(x, amountIn, bar);
         up -= out_;
         hi -= out_;
         if (out_ == 0) return (hop, 0, 0, 0);
+        uint256 h;
+        // The pool's tokenOut holdings: the probe pass's reading; a lone candidate's are read
+        // here, past its quote - a book with no answer is dropped before its token is asked.
+        if (held.length != 0) h = held[i];
+        else if (BPC.kindHasAny(cand.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) h = BPC.balanceOf(tOut, cand.pool);
         // Same rule as the split path: a reserve-shaped promise above the pool's tokenOut
         // holdings comes from forged reserves, so the candidate is dropped, not clamped
         // (bounty #43, babayagaleet).
-        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ > BPC.balanceOf(tOut, cand.pool)) return (hop, 0, 0, 0);
+        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ > h) return (hop, 0, 0, 0);
         // Capacity clamp — same two-tier doctrine as the split path (see
         // MAX_CONC_DRAIN_BPS). Quote > the pool's WHOLE holdings: physically
         // impossible, so the committed input is cut in the promise's ratio and
@@ -1172,7 +1189,7 @@ contract BlazePhoenixSolver {
         // alone was enough to hand an empty book the whole order.
         uint256 legIn = amountIn;
         if (BPC.kindHas(cand.kind, BPC.A_CONC_POOL)) {
-            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, BPC.balanceOf(tOut, cand.pool), mode);
+            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, h, mode);
             if (legIn == 0 || out_ == 0) return (hop, 0, 0, 0);
         }
         Leg[] memory legs = new Leg[](1);
@@ -1203,14 +1220,9 @@ contract BlazePhoenixSolver {
     ///        candidate. Measured: 2,339 gas per repeated read, and
     ///        EIP-2929 does not make it free (USDC is a proxy with delegatecall
     ///        inside). With 16 candidates: +2.2% -> +0.7% of the solve.
-    function _quoteWithDepth(
-        PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
-    ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
-        (out, depth, rank, hi) = BPC.universalQuoteRank(_ctx(cand, tIn, dIn1, dOt1), amt, bar, false);
-    }
-
-    /// @dev The Core's quote context of `cand` for an input of `tIn`: one builder for the
-    ///      quote (`_quoteWithDepth`) and the band's probe (`BPC.universalProbe`, `_buildHop`).
+    /// @dev The Core's quote context of `cand` for an input of `tIn`: one builder, called once
+    ///      per candidate per build (`_buildHop`), for the band's probe (`BPC.universalProbe`)
+    ///      and for every quote of that candidate (`_quoteWithDepth`).
     function _ctx(PoolInfo memory cand, address tIn, uint8 dIn1, uint8 dOt1)
         private view returns (QuoteCtx memory c)
     {
@@ -1246,6 +1258,23 @@ contract BlazePhoenixSolver {
         });
     }
 
+    /// @dev `n` context seats, none filled: a seat is a reference, and `_buildHop` writes every
+    ///      seat before it reads one, so no empty context is built to be thrown away.
+    function _seats(uint256 n) private pure returns (QuoteCtx[] memory xs) {
+        assembly ("memory-safe") {
+            xs := mload(0x40)
+            mstore(xs, n)
+            mstore(0x40, add(xs, shl(5, add(n, 1))))
+        }
+    }
+
+    /// @dev The Core's quote of `amt` in the context `x` (`_ctx`), with the depth it measured.
+    function _quoteWithDepth(QuoteCtx memory x, uint256 amt, uint256 bar)
+        private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi)
+    {
+        (out, depth, rank, hi) = BPC.universalQuoteRank(x, amt, bar, false);
+    }
+
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than
     ///      rebuilding an identical QuoteCtx and calling `universalQuote` a second time.
     ///
@@ -1261,13 +1290,13 @@ contract BlazePhoenixSolver {
     ///      the one closest to the EIP-170 ceiling, so a duplicated call site is a duplicated
     ///      quote engine. R5, "one implementation per published quantity" — deduplication is a
     ///      size measure here, not a style preference.
-    ///      `dIn1`, `dOt1` as in `_quoteWithDepth`: the decimals the hop already read. They feed
+    ///      `x` carries `dIn1`, `dOt1` (`_ctx`): the decimals the hop already read. They feed
     ///      only the depth this function drops, so they change no figure; passing them spares
     ///      the Core two `decimals()` reads per call (0, 0: the Core reads them).
-    function _quote(PoolInfo memory cand, address tIn, uint256 amt, uint256 bar, uint8 dIn1, uint8 dOt1)
+    function _quote(QuoteCtx memory x, uint256 amt, uint256 bar)
         private view returns (uint256 out, uint256 rank, uint256 hi)
     {
-        (out, , rank, hi) = _quoteWithDepth(cand, tIn, amt, dIn1, dOt1, bar);
+        (out, , rank, hi) = _quoteWithDepth(x, amt, bar);
     }
 
     // =========================================================================
