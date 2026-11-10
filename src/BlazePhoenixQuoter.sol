@@ -498,6 +498,12 @@ contract BlazePhoenixQuoter {
                     (address a, address b) = leg.zeroForOne ? (t0, t1) : (t1, t0);
                     // `_execute` reads a zero legIn as the hop's input: mirrored, not tightened.
                     if ((a != address(0) && a != hop.tokenIn) || b != hop.tokenOut) return true;
+                    // The Router's leg dispatch (`_execScaled`), mirrored: a Gate wrapper whose
+                    // family is not live reverts RouterE(19), a kind it has no engine for reverts
+                    // RouterE(8). A leg with no input returns before the dispatch: not refused.
+                    if (leg.amountIn != 0 && !(leg.kind == BPC.KIND_EXTERNAL
+                            ? BPC.gateWrapperLive(address(hub), leg.pool, hop.tokenIn, hop.tokenOut, leg.fee)
+                            : BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL))) return true;
                 }
                 unchecked { ++l; }
             }

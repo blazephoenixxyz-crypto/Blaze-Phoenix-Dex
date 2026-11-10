@@ -466,6 +466,14 @@
       "note": "opencode OC-06, 2026-10-27. _hookRefusedIn mirrored the RouterE(3) shape checks of Router._execute in a loop over the hops; on zero hops the loop never ran and it answered false, so previewRoute called a hand-built empty route with a positive totalOut executable. It now refuses n == 0 as Router._swap does. The exact doors already returned 0 on zero hops. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Mutant [881]."
     },
     {
+      "id": "SOK-QUOTER-DISPATCH-REFUSAL-EXECUTABLE",
+      "class": "canExecute, or a positive exact scalar, on a hand-built route with a leg the Router's dispatch refuses: a kind with no engine (RouterE(8)) or a Gate wrapper whose family is not live (RouterE(19))",
+      "status": "blocked",
+      "guard": "_hookRefusedIn",
+      "test": "test_NoEngineKinds_BesideADeliveringLeg_AreRefusedAtEveryDoor",
+      "note": "Bug bounty lot 2026-11-10 (uids 4065, 3820, 3551 arms a and b). For a leg that is not a V4 leg _hookRefusedIn asked only whether the pool trades the hop's pair. Router._execScaled asks one more thing before it touches a pool: a kind-9 leg must be a live wrapper of the admitted Gate (BPC.gateWrapperLive, else RouterE(19)) and any other kind must have an engine (else RouterE(8)). A route with one such leg beside a delivering leg read canExecute true at previewRoute and a positive scalar at previewRouteExact, and reverted at the Router. The mirror now asks both, and does not refuse a zero-input leg, which the Router skips before the dispatch. The Solver never plans these legs; only the hand-built-route doors were reachable. No funds at risk: the Router fails closed. test/QuoterDispatchRefusalMirror.t.sol, mutants QS-1 to QS-5. Not covered: a reserve pair whose out-reserve is zero beside a delivering leg (3551 arm c) is a state the view door cannot read without pricing; it still previews executable and reverts RouterE(8)."
+    },
+    {
       "id": "SOK-QUOTER-ENCODE-PASSED-DEADLINE",
       "class": "The encode doors return canExecute and the swap bytes for a deadline already behind the block, which Router._swap refuses with RouterE(4)",
       "status": "blocked",
