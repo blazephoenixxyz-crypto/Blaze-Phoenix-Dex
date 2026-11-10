@@ -5538,6 +5538,21 @@ M = [
       old='    uint256 internal constant GATE_QUOTE_GAS = 500_000;',
       new='    uint256 internal constant GATE_QUOTE_GAS = 5_000_000; // MUTANT [morf-1l]',
       teste='test_GateVital_TheDepthReadIsHandedOnlyItsCap'),
+ dict(nome="MT6-11: the newcomer's bridge term rounds up, and a bucket-0 newcomer equal to the weakest row takes its seat",
+      f="src/BlazePhoenixHub.sol",
+      old="        if (bridged) newcomerPsi += (newcomerPsi * 2_500) / BPC.BPS;",
+      new="        if (bridged) newcomerPsi += (newcomerPsi * 2_500 + BPC.BPS - 1) / BPC.BPS; // MUTANT [MT6-11]",
+      teste="test_BridgeTerm_BelowOnePoint_NewcomerAtBucketZeroEqualsTheBarAndIsRefused"),
+ dict(nome="MT6-12: the newcomer's bridge term rounds half up, and a bucket-1 newcomer equal to the weakest row takes its seat",
+      f="src/BlazePhoenixHub.sol",
+      old="        if (bridged) newcomerPsi += (newcomerPsi * 2_500) / BPC.BPS;",
+      new="        if (bridged) newcomerPsi += (newcomerPsi * 2_500 + BPC.BPS / 2) / BPC.BPS; // MUTANT [MT6-12]",
+      teste="test_BridgeTerm_BelowOnePoint_NewcomerAtBucketOneEqualsTheBarAndIsRefused"),
+ dict(nome="MT6-13: the incumbents' bridge term rounds up, and a row under four points is given a point",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (isBridge)        f += (f * 2_500) / BPS;",
+      new="        if (isBridge)        f += (f * 2_500 + BPS - 1) / BPS; // MUTANT [MT6-13]",
+      teste="test_BridgeTerm_BelowOnePoint_IncumbentTermIsZeroUnderFourPoints"),
 ]
 
 def run(t):
