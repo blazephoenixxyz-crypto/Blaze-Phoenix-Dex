@@ -1109,6 +1109,12 @@ contract BlazePhoenixRouter {
         // per-hop constant standing in for one).
         uint256 executedMask;
         uint256 legIdx;
+        // WHAT EACH LEG DELIVERED, by the same index: the Router's own balance delta that
+        // `_execScaled` measures and bounds by the venue's declared payment (DEX-11). It is the
+        // output `_recordHits` hands the registry, so the plan never answers "was this trade
+        // material?" (3958, 4028). Sized by the route's bound; a leg that did not run, or that
+        // the frame could not measure, stays 0.
+        uint256[] memory legOut = new uint256[](uint256(MAX_HOPS) * MAX_LEGS_PER_HOP);
         // LAYER 2 IS ROUTE-WIDE (review 2026-09-02). This flag used to be born
         // inside the hop loop, so the rule "no hookless leg after a hooked one"
         // closed the intra-hop vector and left the cross-hop one open — while
@@ -1322,10 +1328,11 @@ contract BlazePhoenixRouter {
                 // not calldata. The index runs across the whole route and both
                 // loops walk the same calldata in the same order.
                 if (scaledAmt != 0) executedMask |= (uint256(1) << legIdx);
-                unchecked { ++legIdx; }
                 (uint256 legGot, uint256 legAtt, uint256 legDecl) = _execScaled(
                     leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
                 );
+                legOut[legIdx] = legGot;
+                unchecked { ++legIdx; }
                 hopGot += legGot;
                 hopAttested += legAtt;
                 // 3310: a leg that makes tokenOut adds what its venue declares it paid; a leg that
@@ -1643,7 +1650,7 @@ contract BlazePhoenixRouter {
         // re-expressed); rounds down. `net` is non-zero: amountOut >= effMin > 0 and fOut < amountOut.
         protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net);
         amountOut = delivered;
-        _recordHits(route, executedMask, hopScale);
+        _recordHits(route, executedMask, hopScale, legOut);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
         // This function's docstring already explains why `payer` exists as a parameter: in
         // `swapBestExactIn` this is reached by an external SELF-CALL, and on that path the
@@ -2228,7 +2235,7 @@ contract BlazePhoenixRouter {
     ///        on the RAW calldata amount, which a one-wei declaration passes.
     ///        Reported by Thomas.
     function _recordHits(Route calldata route, uint256 executedMask,
-                         uint256[] memory hopScale) private {
+                         uint256[] memory hopScale, uint256[] memory legOut) private {
         address v4mgr;
         uint256 legIdx;
         for (uint256 h; h < route.hops.length; ) {
@@ -2280,12 +2287,19 @@ contract BlazePhoenixRouter {
                 }
                 // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
                 // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend
-                // after the protocol fee and after any capacity clamp. The quote is scaled by
-                // the same ratio so the pair stays dimensionally consistent: the input is a
-                // measurement, and the output is that measurement priced by the plan.
+                // after the protocol fee and after any capacity clamp.
+                //
+                // THE OUTPUT IS MEASURED TOO (3958, 4028). It was `leg.expectedOut` scaled by the
+                // same ratio: the measurement priced by the plan. The per-leg floor accepts a
+                // fill down to LEG_FLOOR_BPS of that figure, so a fill under the materiality bar,
+                // attested above itself, anchored the pool's clock in `tickDepth18` below and
+                // was published as volume. `legOut` is what the leg delivered to the Router,
+                // the delta `_execScaled` read. A leg the frame could not measure (no
+                // attestation and no in-frame quote) hands 0 and anchors nothing, as its zero
+                // `expectedOut` always did. `legIdx` was advanced past this leg above.
                 uint256 sc  = hopScale[h];
                 uint256 inM = BPC.mulDiv(leg.amountIn,    sc, 1e18);
-                uint256 outM = BPC.mulDiv(leg.expectedOut, sc, 1e18);
+                uint256 outM = legOut[legIdx - 1];
                 // ONE PRODUCER of the depth every registry door seals (Core.registryDepth18):
                 // the operator's door measures with it too since the ninth wave (dex-17). The
                 // per-family rules, and the defects that shaped them, live with the code there.

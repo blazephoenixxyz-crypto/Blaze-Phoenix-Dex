@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
-// THE PUBLISHED VOLUME OUT TRACKS WHAT LEFT THE POOL.
+// THE PUBLISHED VOLUME OUT IS WHAT LEFT THE POOL.
 //
 // `test/VolumeEventFidelity.t.sol` pins the FIRST field of `Volume(key, amtIn, amtOut)` to the
 // pool's measured input delta. This pins the third. The Router produces it as
 //
-//     uint256 outM = BPC.mulDiv(leg.expectedOut, sc, 1e18);
+//     uint256 outM = legOut[legIdx - 1];
 //
-// and hands it to `hub.recordSwap(..., inM, outM, depth)`.
+// the leg's measured delivery (the Router's balance delta that `_execScaled` reads), and hands
+// it to `hub.recordSwap(..., inM, outM, depth)`.
 //
-// WHY A TOLERANCE AND NOT `assertEq`: unlike the input, the output is not scaled linearly.
-// `inM = mulDiv(amountIn, sc, 1e18)` equals the pool's measured input delta exactly (the input
-// is linear in the fee ratio `sc`). `outM` scales a pre-execution quote by the same ratio; the
-// pool prices the fee-reduced input through its own curve, so the two agree only to second
-// order. On this honest V2 swap the residual is ~2.8e-6 relative (logged below). The bound is
-// ~36x that residual: it accepts the documented approximation and rejects any gross error,
-// such as a halved figure.
+// EXACT SINCE 2026-11-10 (3958, 4028). Until then the Router published
+// `mulDiv(leg.expectedOut, sc, 1e18)`, the plan's quote scaled by the fee ratio, and this test
+// held it to the pool's delta within 1e-4 relative, because a pre-execution quote scaled
+// linearly agrees with the curve only to second order. A measurement needs no tolerance: on
+// an untaxed output token the published figure is the pool's delta to the wei. The caller's
+// over-attestation, which the tolerance could not see on an honest route, is pinned in
+// `test/ClockAnchorMeasuredDelivery.t.sol`.
 //
 // NOT VACUOUS: the log is asserted FOUND, the measured delta is asserted non-zero, and the
 // reference is a before/after balance delta on the pool rather than a literal.
@@ -123,12 +124,10 @@ contract VolumeOutFidelityRouterTest is Test {
         (bool found, , uint256 amtOut) = _volumeFromLogs(logs);
         assertTrue(found, "precondition: a Volume event must have been emitted");
 
-        uint256 gap = amtOut > measuredOut ? amtOut - measuredOut : measuredOut - amtOut;
         emit log_named_decimal_uint("Volume.amtOut (published)", amtOut, 18);
         emit log_named_decimal_uint("pool delta    (measured) ", measuredOut, 18);
-        emit log_named_decimal_uint("absolute gap             ", gap, 18);
 
-        assertApproxEqRel(amtOut, measuredOut, 1e14,
-            "the published volume out does not track the measured out delta");
+        assertEq(amtOut, measuredOut,
+            "the published volume out is not the measured out delta");
     }
 }
