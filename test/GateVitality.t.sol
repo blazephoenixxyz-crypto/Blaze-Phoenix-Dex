@@ -386,6 +386,8 @@ contract GateVitalityTest is Test {
         address w = gate.create(address(t0), address(t1), EKEY, abi.encode(address(venue)));
         (, uint256 d, ) = IGateVital(address(gate)).vitalOf{gas: 10_000_000}(w);
         assertGt(d, 0, "the neighbour: the echo declared a depth");
-        assertLt(d, BPC.GATE_QUOTE_GAS, "the depth read is handed at most GATE_QUOTE_GAS");
+        // 500_000 is written by hand: read from the Core under test, the bound would move with
+        // the constant it is there to hold (mutant [morf-1l] survived that reading).
+        assertLt(d, 500_000, "the depth read is handed at most GATE_QUOTE_GAS");
     }
 }

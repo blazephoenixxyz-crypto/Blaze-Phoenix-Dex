@@ -75,7 +75,7 @@ contract WalkReadsAreThePlansTest is Test {
 
     /// Quantity: the tick reads of a plan over one book, then over four. The budget is the plan's,
     /// so three more books add less than one walk's V3_PAY_READS; twelve reads for each leg
-    /// (mutant [912], here [morf-1h]) walk every book. Relative, the same bound
+    /// (mutant "DEX-01 budget [912]") walk every book. Relative, the same bound
     /// test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan draws in gas.
     function test_WalkBudget_FourBooksReadLessThanTwoWalks() public {
         _burnBook(0);
@@ -89,6 +89,8 @@ contract WalkReadsAreThePlansTest is Test {
         uint256 cap = BPC.mulDiv(UNHELD, 3_000, BPC.BPS);
         for (uint256 i; i < 4; ++i) assertLe(four.best.hops[0].legs[i].expectedOut, cap, "precondition: no cap binds");
         assertGt(r1, 0, "the neighbour: the one leg's promise walks its book");
-        assertLt(r4, r1 + BPC.V3_PAY_READS, "each leg of the plan walked on reads of its own");
+        // 12 is one walk's V3_PAY_READS, written by hand: read from the Core under test, the
+        // bound would move with the constant it is there to hold.
+        assertLt(r4, r1 + 12, "each leg of the plan walked on reads of its own");
     }
 }
