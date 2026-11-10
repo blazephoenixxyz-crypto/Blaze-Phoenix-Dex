@@ -3707,16 +3707,20 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723]\n',
       teste='test_3073_WalkBudget_ThreeBridgesSixBooks_Settles'),
- dict(nome='3073-3 [723m]: every leader is marked held, one that left no book at its cap is rebuilt all the same and three direct books pass a tenth of the search',
+ dict(nome='3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass a tenth of the search',
       f='src/BlazePhoenixSolver.sol',
-      # A ceiling, not a count: 1,482,631 against 1,200,000 (449,742 unmutated; release, 2026-11-10).
-      # [732] is the other side of the same mark: never stored.
-      old=' m.bestR = r; m.bestHeld = held; }',
-      new=' m.bestR = r; m.bestHeld = true; } // MUTANT [723m]',
+      # Not a mutant of its own: the old -> new of [723], held by a second test. `bestHeld` is
+      # written in `_considera` and read on this line alone, so marking every leader held there
+      # is this same edit. A ceiling, not a count: 1,482,531 against 1,200,000 (449,742 unmutated,
+      # where this grid's winner is not rebuilt at all; release, 2026-11-10).
+      old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
+      new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723m] = [723]\n',
       teste='test_3073_WalkBudget_DirectThreeBooks_FitsATenth'),
  dict(nome='3073-3 [723t]: the rebuild walks every topology, not the winner\'s alone, and three bridges pass a fifth of the search',
       f='src/BlazePhoenixSolver.sol',
       # A ceiling, not a count: 3,200,860 against 2,400,000 (1,550,335 unmutated; release, 2026-11-10).
+      # Sized on TOPOLOGIES = 13: what the edit costs is the count of topologies, so the pair is
+      # measured again wherever that count changes.
       old='        m.bestU = u;\n        _planTopology(m, k, bs, tIn, tOut, amountIn);\n',
       new='        m.bestU = u;\n        for (k = 0; k < TOPOLOGIES; ++k) _planTopology(m, k, bs, tIn, tOut, amountIn); // MUTANT [723t]\n',
       teste='test_3073_WalkBudget_ThreeBridges_FitsAFifth'),
