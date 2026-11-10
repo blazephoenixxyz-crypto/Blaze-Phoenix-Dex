@@ -133,11 +133,11 @@
       "note": "the coverage gate lifts it to the measured quote when it under-covers"
     },
     {
-      "field": "leg.expectedOut (Volume event)",
+      "field": "leg.expectedOut (Volume event, clock anchor)",
       "family": "*",
-      "class": "DECLARED",
-      "site": null,
-      "note": "F-C: published as outM; overstatement measured at +24.6% and bounded near +25% because the same field is the floor basis. Event only, no on-chain consumer"
+      "class": "CONFIRMED",
+      "site": "src/BlazePhoenixRouter.sol:_recordHits",
+      "note": "F-C, closed 2026-11-10 (3958, 4028): the field no longer reaches the event or the registry. Router._recordHits hands the Hub the leg's measured delivery (legOut, the balance delta _execScaled reads, bounded by the venue's declared payment). Was DECLARED: published as outM, overstatement measured at +24.6% and bounded near +25% by the per-leg floor, and the same figure decided the clock anchor in Core.tickDepth18"
     },
     {
       "field": "leg.stable",

@@ -560,6 +560,14 @@
       "guard": "tickSlot",
       "test": "test_3555_TwentyDustTicksLeaveThePsiOfTheRowEqualToItsCleanTwin",
       "note": "fix-1102, 2026-11-02 (reports 3536, 3537, 3545, 3552, 3554, 3555, 3575, 3645, 3652, 3663). Until then every Hub.recordSwap tick counted and the Hub stamped lastUpdateTs, dust included, and only tau read the anchor: dust pumped psi, kept a stale row fresh and a shallow seat warm, and the first interval was read whole. Core.tickSlot is now the one writer of the count, tau and the stamp, and moves them only on an anchored tick (Core.tickDepth18: the shorter side at least the depth >> MATERIAL_SHIFT) past the stamped second; a row is born with count 0 and no tick; the first interval moves tau an eighth of the way from the unmeasured step; inside a decay step the count falls on the chord. claimV4 writes v4CodeOf only after the row is admitted, the recordSwap doors only on an anchored tick, and a lighter witness never rewrites a heavier one. Each report is a case in test/fix1102/DustSealFamily.t.sol: the dust-touched row equals its clean twin."
+    },
+    {
+      "id": "REG-PLAN-ANCHOR",
+      "class": "A caller-declared amount answers the registry's materiality question: a leg's attested output, which the per-leg floor accepts up to 25% above the fill, anchors a pool's clock (swap count, tau, stamp) for a fill below the bar, and is published as the pool's volume",
+      "status": "blocked",
+      "guard": "_recordHits",
+      "test": "test_ClockAnchor_OverAttestedDustFillLeavesTheClock",
+      "note": "fin-1111, 2026-11-10 (reports 3958, 4028). The family-A seal (REG-DUST-CLOCK) made the clock move only on a material trade, and Router._recordHits answered 'material?' with mulDiv(leg.expectedOut, hopScale, 1e18): calldata. A fill just under depth >> MATERIAL_SHIFT attested 24% above itself anchored the row, and counted. The Router now hands Core.tickDepth18 and Hub.recordSwap the leg's measured delivery (legOut, the Router's balance delta that _execScaled reads and bounds by the venue's declared payment, DEX-11), in both directions: an under-attested material fill anchors. Pinned from balances, never from Core: test/ClockAnchorMeasuredDelivery.t.sol (over- and under-attested, the boundary to one wei of input, taxed input, taxed output, two legs, two hops, fuzz); mutants [fin1111-relogio-1]-[fin1111-relogio-6]. Residual, stated: the INPUT side is the leg's declared input rescaled by the hop's measured ratio, so a transfer tax taken between the Router and the pool is not subtracted from it; it binds the anchor only where the input is the shorter normalised side"
     }
   ]
 }
