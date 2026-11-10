@@ -266,9 +266,9 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 2,497 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 376 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 32 | `test/fork/*.t.sol` |
+| Test declarations | 2,520 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 377 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 33 | `test/fork/*.t.sol` |
 | Stateful invariants | 48 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
 | Curated mutants, each paired with the test that must kill it | 867 | entries in `.github/scripts/mutants.py` |
