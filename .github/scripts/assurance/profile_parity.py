@@ -19,8 +19,14 @@ from the thing it is evidence about.
 Settings that reach code generation, and are therefore compared: solc version, EVM version,
 optimizer on/off, optimizer runs, the IR pipeline, the optimizer details (the Yul step sequence
 lives there: a profile that changes it builds another program from the same source), the
-bytecode hash and the CBOR metadata (both are bytes of the shipped object). Fuzzing and invariant
-parameters are not compared: they change how the suite is run, not what it is run against.
+bytecode hash and the CBOR metadata (both are bytes of the shipped object), the revert strings
+(stripped or kept, they are bytes of the object too), and the two settings that compile ONE FILE
+on other settings than its profile's: `compilation_restrictions` and the
+`additional_compiler_profiles` they select from. Those two are how a profile keeps every key above
+on its pin and still ships another binary: a restriction on src/BlazePhoenixRouter.sol in the
+release profile alone built a Router of 23757 bytes where the suite had executed one of 23779, and
+this script said there was one binary (measured 2026-11-10). Fuzzing and invariant parameters are
+not compared: they change how the suite is run, not what it is run against.
 
 Parity alone is relative: if both profiles drift together (runs 200 -> 199 in each, a solc bump
 in each), every comparison still agrees. So the default is also pinned to ABSOLUTE values below,
@@ -45,14 +51,17 @@ import json, os, subprocess, sys, tomllib
 # binaries (test/nversion), so they are out of scope.
 COMPARED = ["default", "release"]
 KEYS = ["solc_version", "evm_version", "optimizer", "optimizer_runs", "via_ir",
-        "optimizer_details", "bytecode_hash", "cbor_metadata"]
+        "optimizer_details", "bytecode_hash", "cbor_metadata",
+        "additional_compiler_profiles", "compilation_restrictions", "revert_strings"]
 # Absolute values, for both compared profiles. None = the key is absent from the toml.
 PINNED = {"solc_version": "0.8.36", "evm_version": "cancun", "optimizer": True, "optimizer_runs": 200,
           "via_ir": True, "optimizer_details": None, "bytecode_hash": "none", "cbor_metadata": None,
+          "additional_compiler_profiles": None, "compilation_restrictions": None, "revert_strings": None,
           "isolate": True}
 # What forge resolves for the same pin (`forge config --json`): absent keys read as its defaults.
 EFFECTIVE = {"solc": "0.8.36", "evm_version": "cancun", "optimizer": True, "optimizer_runs": 200,
              "via_ir": True, "optimizer_details": None, "bytecode_hash": "none", "cbor_metadata": True,
+             "additional_compiler_profiles": [], "compilation_restrictions": [], "revert_strings": None,
              "isolate": True}
 
 
@@ -105,6 +114,8 @@ def self_test(root):
         return t.replace(old, new), n
     noF = 'optimizer_details = { yul = true, yulDetails = { optimizerSteps = "dhfoDgvulfnTUtnIf:fDnTOcmu" } }'
     typo = 'optimizer_details = { yul = true, yulDetails = { optimizerStep = "dhfoDgvulfnTUtnIf:fDnTOcmu" } }'
+    restr = 'compilation_restrictions = [{ paths = "src/BlazePhoenixRouter.sol", optimizer_runs = 1 }]'
+    extra = 'additional_compiler_profiles = [{ name = "tight", optimizer_runs = 1 }]'
     runs, nr = both(base, "optimizer_runs = 200\n", "optimizer_runs = 199\n")
     solc, ns = both(base, 'solc_version = "0.8.36"\n', 'solc_version = "0.8.38"\n')
     mutants = {
@@ -115,6 +126,9 @@ def self_test(root):
         "bytecode_hash ipfs in release": (sub_in(base, "release", 'bytecode_hash = "none"', 'bytecode_hash = "ipfs"'), True),
         "cbor_metadata off in release": (put(base, "release", "cbor_metadata = false"), True),
         "isolate dropped from default": (base.replace("isolate = true\n", "", 1), "isolate = true\n" in base),
+        "a per-file compilation restriction in release only": (put(base, "release", restr), True),
+        "an additional compiler profile in release only": (put(base, "release", extra), True),
+        "revert strings stripped in release only": (put(base, "release", 'revert_strings = "strip"'), True),
     }
     bad = []
     if problems(base):
