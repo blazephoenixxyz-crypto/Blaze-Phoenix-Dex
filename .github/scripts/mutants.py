@@ -2719,8 +2719,8 @@ M = [
       teste='test_OwedOnABridgeHop_IsNeitherSpentNorSwept'),
  dict(nome='fee seal [488]: the push is no longer gas-capped (a token that burns the gas takes the swap with it)',
       f='src/BlazePhoenixRouter.sol',
-      old='        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return;',
-      new='        if (BPC.tryTransfer(token, to, amt, gasleft())) return; // MUTANT [488]',
+      old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
+      new='        BPC.tryTransfer(token, to, amt, gasleft()); // MUTANT [488]',
       teste='test_EveryRefusalShape_DoesNotBlock'),
  dict(nome='fee seal [489]: the rescue sweeps the owed fees too',
       f='src/BlazePhoenixRouter.sol',
@@ -5272,6 +5272,13 @@ M = [
       old='        bool anchored = depthWad >= BPC.TICK_ANCHORED;',
       new='        bool anchored = true; // MUTANT [fix1102-premissa-b-3]',
       teste='test_INV7_SameTradesDifferentTiming_PayDifferently'),
+ # fin-1111 router (3688/3995). [488] above was re-anchored on the same line: the push no longer
+ # returns on the answer, so its `old` is the bare call.
+ dict(nome='fin1111-router-1 (3688): the fee push trusts the answer again, a share whose token answers true without moving it is neither paid nor booked',
+      f='src/BlazePhoenixRouter.sol',
+      old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
+      new='        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return; // MUTANT [fin1111-router-1]',
+      teste='test_AShareThatAnswersTrueWithoutMovingIsBooked'),
 ]
 
 def run(t):

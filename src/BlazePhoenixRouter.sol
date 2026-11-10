@@ -805,11 +805,13 @@ contract BlazePhoenixRouter {
     ///      as a swap's balance. The fee is charged either way: every rule that counts it
     ///      (amountIn - fee, TSLOT_FEE) is unchanged.
     ///      BOOKED BY THE DELTA, NOT BY THE ANSWER: a token may move the share and still answer
-    ///      in a shape Core reads as a refusal (`false`, an oversized word). Only what did not
-    ///      leave the Router is booked, so a claim never pays a share twice.
+    ///      in a shape Core reads as a refusal (`false`, an oversized word), or answer `true`
+    ///      and move nothing, or less (3688). The answer is not read: only what did not leave
+    ///      the Router is booked, so a claim never pays a share twice and a share that stayed
+    ///      is never taken for a swap's balance.
     function _push(address token, uint256 i, address to, uint256 amt) private {
         uint256 b0 = BPC.balanceOf(token, address(this));
-        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return;
+        BPC.tryTransfer(token, to, amt, FEE_GAS);
         uint256 b1 = BPC.balanceOf(token, address(this));
         uint256 gone = b0 > b1 ? b0 - b1 : 0;
         if (gone >= amt) return;

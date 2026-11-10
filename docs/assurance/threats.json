@@ -560,6 +560,14 @@
       "guard": "tickSlot",
       "test": "test_3555_TwentyDustTicksLeaveThePsiOfTheRowEqualToItsCleanTwin",
       "note": "fix-1102, 2026-11-02 (reports 3536, 3537, 3545, 3552, 3554, 3555, 3575, 3645, 3652, 3663). Until then every Hub.recordSwap tick counted and the Hub stamped lastUpdateTs, dust included, and only tau read the anchor: dust pumped psi, kept a stale row fresh and a shallow seat warm, and the first interval was read whole. Core.tickSlot is now the one writer of the count, tau and the stamp, and moves them only on an anchored tick (Core.tickDepth18: the shorter side at least the depth >> MATERIAL_SHIFT) past the stamped second; a row is born with count 0 and no tick; the first interval moves tau an eighth of the way from the unmeasured step; inside a decay step the count falls on the chord. claimV4 writes v4CodeOf only after the row is admitted, the recordSwap doors only on an anchored tick, and a lighter witness never rewrites a heavier one. Each report is a case in test/fix1102/DustSealFamily.t.sol: the dust-touched row equals its clean twin."
+    },
+    {
+      "id": "FEE-PUSH-ANSWER-NOT-DELTA",
+      "class": "A token that answers true to the fee transfer and moves nothing, or less than the share: the share is neither with its payee nor booked to its slot",
+      "status": "blocked",
+      "guard": "_push",
+      "test": "test_AShareThatAnswersTrueWithoutMovingIsBooked",
+      "note": "Reports 3688 and 3995, fixed 2026-11-10. Router._push booked a share only when Core.tryTransfer read a refusal, and measured the balance only then; on a true answer it returned. A share that stayed on the Router after a true answer was in no ledger: the input sweep of the same swap handed it back to the payer, or it waited as an unowned balance. The answer is no longer read: the push is measured on both branches and what did not leave the Router is booked to the slot (owed, TSLOT_KEPT). test/FeePushBookedByTheDelta.t.sol: four answer shapes, each slot, input side and output side, the claim, a second swap in the same transaction, paid + owed equals the share by fuzz."
     }
   ]
 }
