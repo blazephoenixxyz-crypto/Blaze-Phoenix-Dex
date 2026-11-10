@@ -220,31 +220,35 @@ contract ConditionAdequacyCoreTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Core:1097  outV3 zeroForOne: `sqrtNew >= P || sqrtNew == 0`
+    //  Core:1097  outV3 zeroForOne: `sqrtNew >= P || sqrtNew <= 1`
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// `sqrtNew >= P` arm. mulDiv floors, so sqrtNew <= P always; the arm only
-    /// decides at product == 0 (dust input), where sqrtNew == P exactly. The
+    /// `sqrtNew >= P` arm. The step never raises the price, so sqrtNew <= P always; the
+    /// arm only decides on a dust input, where sqrtNew == P exactly. The
     /// distinguishing call carries a sqrtLimit ABOVE P: neutralised, the dust
     /// swap falls into the clamp, sqrtNew is lifted past P, and P - sqrtNew
     /// underflows. Intact, the dust swap is refused with 0 before the clamp.
     /// No caller in src passes a limit at all, so nothing ever watched this.
+    /// Dust under the pool's rounding: the price rounds up, so it stays at P while
+    /// amt * P^2 / Q96 < L - one wei at P = Q96/2 against L = 1e30 (it moved the price
+    /// against the 1e18 this test used while the step truncated).
     function test_OutV3_DustInputWithHighLimitIsZeroNotUnderflow() public pure {
         assertEq(
-            BPC.outV3(1, uint160(BPC.Q96 / 2), 1e18, 0, true, uint160(BPC.Q96 / 2 + 1000)),
+            BPC.outV3(1, uint160(BPC.Q96 / 2), 1e30, 0, true, uint160(BPC.Q96 / 2 + 1000)),
             0,
             "a swap too small to move the price must be refused before clamping"
         );
     }
 
-    /// `sqrtNew == 0` arm. sqrtNew rounds to zero when L*P < L + product —
+    /// `sqrtNew <= 1` arm. The step rounds the price up (the pool's rounding), so a price
+    /// that collapsed reads 1, never 0: sqrtNew is 1 when L*P <= L + product —
     /// an enormous input against dust L*P. Neutralised, the fall-through
     /// computes mulDiv(L, P - 0, Q96): the ENTIRE virtual reserve (1000 here),
     /// promised by a pool that was actually exhausted. Fuzz bounds
     /// (L >= 1e15, P >= Q96/4) keep every existing test out of this regime.
     function test_OutV3_PriceCollapseToZeroQuotesZeroNotWholeReserve() public pure {
         // L = 1, P = 1000*Q96, ain = 2*Q96 -> product = 2000*Q96 >> L*P/…
-        // -> sqrtNew = floor(1000*Q96 / (2000*Q96 + 1)) = 0.
+        // -> sqrtNew = ceil(1000*Q96 / (2000*Q96 + 1)) = 1.
         assertEq(BPC.outV3(2 * BPC.Q96, uint160(1000 * BPC.Q96), 1, 0, true, 0), 0,
             "a swap that collapses the price must quote 0, never L*P/Q96");
     }
