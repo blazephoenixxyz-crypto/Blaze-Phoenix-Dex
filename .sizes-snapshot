@@ -2,11 +2,11 @@ BlazePhoenixAdapterBalancerV2 runtime=5208 initcode=5705
 BlazePhoenixAdapterBalancerV3 runtime=6231 initcode=6783
 BlazePhoenixAdapterCurveCryptoNG runtime=3026 initcode=3255
 BlazePhoenixAdapterCurveNG runtime=3528 initcode=3757
-BlazePhoenixCore runtime=23074 initcode=23104
+BlazePhoenixCore runtime=21855 initcode=21885
 BlazePhoenixGate runtime=10226 initcode=14935
 BlazePhoenixGateWrapper runtime=3962 initcode=4477
-BlazePhoenixHub runtime=23212 initcode=23446
+BlazePhoenixHub runtime=23400 initcode=23634
 BlazePhoenixMath runtime=11191 initcode=11221
-BlazePhoenixQuoter runtime=16754 initcode=17101
-BlazePhoenixRouter runtime=23779 initcode=24298
-BlazePhoenixSolver runtime=21492 initcode=33067
+BlazePhoenixQuoter runtime=16826 initcode=17173
+BlazePhoenixRouter runtime=23490 initcode=24009
+BlazePhoenixSolver runtime=22282 initcode=33857
