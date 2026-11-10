@@ -80,14 +80,18 @@ contract DecimalsReadOncePerHopTest is Test {
         emit log_named_uint("decimals(tOut) reads", b);
     }
 
-    /// Three pools inside the band (test/SplitGateSeesEverySurvivor.t.sol's book): the split
-    /// quotes each of its legs, and the gate quotes every survivor at full size.
+    /// Three pools at one price, thirty, twenty and ten times the order deep: the band keeps the
+    /// three, the split quotes each of its legs, and the gate quotes every survivor at full size.
+    /// The plan must BE the split: the book this test drew until 2026-11-10 (0.985, 1.01 and 1.03)
+    /// has been cut to one pool by the band since MED (2026-10-28), so neither the split nor the
+    /// gate quoted anything and mutants [807] and [808] passed.
     function test_ASplitReadsEachTokensDecimalsOnce() public {
-        _pool(1e24, 985e21);
-        _pool(1e22, 101e20);
-        _pool(1e21, 103e19);
+        _pool(3e21, 3e21);
+        _pool(2e21, 2e21);
+        _pool(1e21, 1e21);
         (RoutePlan memory plan, uint256 a, uint256 b) = _solve();
         assertGt(plan.best.totalOut, 0, "setup: the pair must route");
+        assertEq(plan.best.hops[0].legs.length, 3, "setup: the hop must be the split of the three pools");
         assertEq(a, 1, "one hop build read decimals(tIn) more than once");
         assertEq(b, 1, "one hop build read decimals(tOut) more than once");
     }

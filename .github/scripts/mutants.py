@@ -5568,6 +5568,16 @@ M = [
       old="            if (route.singleOutFloor > effMin) effMin = route.singleOutFloor;\n",
       new="            if (!route.hasSurplus && route.singleOutFloor > effMin) effMin = route.singleOutFloor; // MUTANT [morf-ACP1-M5]\n",
       teste="test_informativeFields_doNotMoveADeclaredFloor"),
+ dict(nome="[morf-SQ2-15]: the single leg also refuses a promise EQUAL to the pool's holdings, and a pool that can pay to the wei is dropped",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ > h) return (hop, 0, 0, 0);\n",
+      new="        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ >= h) return (hop, 0, 0, 0); // MUTANT [morf-SQ2-15]\n",
+      teste="test_ALonePoolPromisingExactlyItsHoldings_IsKept"),
+ dict(nome="[morf-SQ2-16]: forged answer: a reserve-shaped single leg promising more than its pool holds is kept",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (BPC.kindHas(cand.kind, BPC.A_RESERVES) && out_ > h) return (hop, 0, 0, 0);\n",
+      new="        // MUTANT [morf-SQ2-16]\n",
+      teste="test_ALonePoolPromisingOneWeiOverItsHoldings_IsRefused"),
 ]
 
 def run(t):
