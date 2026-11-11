@@ -14,7 +14,10 @@ pragma solidity 0.8.36;
 //
 //  The property: a pull onto an empty Router is measured whole, so what the swap does not
 //  spend goes back to the payer and the Router ends holding nothing. With a balance before the
-//  pull the #45 clamp stands (the control below; `Bounty1013PullNeverCountsARestatement`).
+//  pull the surplus is shared in the proportion of the ask to the ask plus that balance (3948,
+//  the second half, test/PullSurplusIsSharedProRata.t.sol): the controls below hold a balance
+//  before the pull and see the payer's growth refunded and that balance whole in shares
+//  (`Bounty1013PullNeverCountsARestatement` holds the balance larger than the ask).
 //
 //  The oracle is the token's own share ledger and arithmetic done here. Factors and amounts are
 //  chosen so every display/share conversion is exact (the token rounds shares down).
@@ -166,9 +169,9 @@ contract PullOnAnEmptyRouterIsThePayersWholeTest is Test {
         assertEq(inTok.balanceOf(treasury1) + inTok.balanceOf(treasury2), _fee(AMOUNT), "the fee was paid");
     }
 
-    /// #45 stands: with a balance on the Router before the pull, `received` is clamped to
-    /// `amountIn`, so the restated part of that balance is never the payer's refund.
-    function _clampStandsWithABalanceBefore(uint256 foreign, bool viaPermit2) private {
+    /// #45 holds for the balance before the pull: its restated part is never the payer's
+    /// refund, and the payer's own growth (the ask, at x2) is.
+    function _priorBalanceStaysWhole(uint256 foreign, bool viaPermit2) private {
         inTok.mint(other, foreign);
         vm.prank(other);
         inTok.transfer(address(router), foreign);
@@ -177,19 +180,19 @@ contract PullOnAnEmptyRouterIsThePayersWholeTest is Test {
         inTok.setRebaseOnTransferTo(address(router), 2, 1);
 
         _swap(AMOUNT, viaPermit2);
-        assertEq(inTok.balanceOf(payer), 0, "nothing is refunded: received was clamped to amountIn");
+        assertEq(inTok.balanceOf(payer), AMOUNT - _fee(AMOUNT), "the payer's growth, less the fee, is refunded");
         assertGe(inTok.sharesOf(address(router)), foreignShares, "the balance held before the pull is whole");
     }
 
-    function test_Control_WithABalanceBeforeThePull_ReceivedIsClampedToAmountIn() public {
-        _clampStandsWithABalanceBefore(500e18, false);
+    function test_Control_WithABalanceBeforeThePull_ItStaysWholeAndThePayersGrowthIsRefunded() public {
+        _priorBalanceStaysWhole(500e18, false);
     }
 
-    function test_Control_WithOneWeiBeforeThePull_ReceivedIsClampedToAmountIn() public {
-        _clampStandsWithABalanceBefore(1, false);
+    function test_Control_WithOneWeiBeforeThePull_ItStaysWholeAndThePayersGrowthIsRefunded() public {
+        _priorBalanceStaysWhole(1, false);
     }
 
-    function test_Permit2Door_Control_WithABalanceBeforeThePull_ReceivedIsClampedToAmountIn() public {
-        _clampStandsWithABalanceBefore(500e18, true);
+    function test_Permit2Door_Control_WithABalanceBeforeThePull_ItStaysWholeAndThePayersGrowthIsRefunded() public {
+        _priorBalanceStaysWhole(500e18, true);
     }
 }

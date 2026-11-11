@@ -570,8 +570,8 @@
       "note": "Reports 3688 and 3995, fixed 2026-11-10. Router._push booked a share only when Core.tryTransfer read a refusal, and measured the balance only then; on a true answer it returned. A share that stayed on the Router after a true answer was in no ledger: the input sweep of the same swap handed it back to the payer, or it waited as an unowned balance. The push is measured on both branches and what did not leave the Router is booked to the slot (owed, TSLOT_KEPT). The answer is heard in one place: when the Router's balance rose inside the push (a positive restatement, test/PathologicalTokens.t.sol test_PositiveRebase_SurplusSweptToPayer_NotLeftInRouter) the delta measured the restatement, not the push, and a true answer is not booked. Residual: a token that answers true, moves nothing and credits the Router inside the same call escapes the booking and the share returns to the payer, as before the fix; a restatement smaller than the share inside the push is booked to the slot. test/FeePushBookedByTheDelta.t.sol: four answer shapes, each slot, input side and output side, the claim, a second swap in the same transaction, paid + owed equals the share by fuzz."
     },
     {
-      "id": "PULL-RESTATED-ON-EMPTY-ROUTER",
-      "class": "A token that restates balances upward inside transferFrom, after crediting a Router that held none of it: the payer's own growth is clamped away and stays on the Router",
+      "id": "PULL-SURPLUS-SHARED-PRO-RATA",
+      "class": "A token that restates balances upward inside transferFrom, after crediting the Router: the payer's own growth is attributed to the pull and the balance held before it keeps its own",
       "status": "blocked",
       "guard": "_received",
       "test": "test_OneWeiBeforeThePull_ThePayersGrowthIsThePayers",

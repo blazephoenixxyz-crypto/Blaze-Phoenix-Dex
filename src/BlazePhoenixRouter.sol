@@ -670,17 +670,21 @@ contract BlazePhoenixRouter {
     ///      #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
     ///      restating balances the Router already held (rebase/reflection inside transferFrom),
     ///      and counting it as received would sweep that foreign balance to the payer.
-    ///      3948: ON A ROUTER THAT HELD NOTHING there is no balance to restate, so the whole
-    ///      delta is this pull's and the clamp would keep the payer's own growth: the swap
-    ///      spends what the route commits and the input sweep returns the rest. With any
-    ///      balance before the pull the two cannot be told apart by measurement and #45 stands.
+    ///      3948: THE SURPLUS IS SHARED IN THE PROPORTION OF THE TWO BALANCES IT GREW FROM. A
+    ///      restatement after the credit grows the pull and the balance held before it by one
+    ///      factor, so the pull's part of the surplus is `surplus * amountIn / (amountIn +
+    ///      balBefore)`, rounded down: on a Router that held nothing the whole delta is the
+    ///      pull's; under a balance far larger than the ask it is the clamp; in between (the
+    ///      Router's own wei of share dust, a donation) it is the payer's growth and not one
+    ///      wei of what was held. The swap spends what the route commits and the input sweep
+    ///      returns the rest; what was held before the pull is never spent. No balance is a
+    ///      switch: a wei sent to the Router moves the proportion by a wei.
     function _received(address tokenIn, uint256 balBefore, uint256 amountIn)
         private returns (uint256 received)
     {
         received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
-        if (balBefore == 0 && received > amountIn) return received;
-        if (received > amountIn) received = amountIn;
+        if (received > amountIn) received = amountIn + BPC.mulDiv(received - amountIn, amountIn, amountIn + balBefore);
         else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
     }
 
