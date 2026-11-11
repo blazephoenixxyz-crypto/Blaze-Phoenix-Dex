@@ -12,6 +12,10 @@ legibly: it says which guard was left unwatched.
 
 THE CONTRACT: apply the mutant -> the named test must go RED. If it stays green, the guard is
 unprotected and CI stops. Adding a security guard to the protocol implies adding its line here.
+
+GAS LEDGERS. A test in test/gas/ that owns a snapshot group goes RED when forge's snapshot check
+names its group, or by its own assert. Every run here checks the committed snapshots and never
+rewrites them, and such a test is credited with a kill only when the output names it.
 """
 import re, subprocess, sys, shutil, os, tempfile, json, hashlib
 
@@ -4320,6 +4324,46 @@ M = [
       old="        if ((t0 != w && _pmHoldsNone(mgr, t0)) || (t1 != w && _pmHoldsNone(mgr, t1))) return k;\n",
       new="        if (t1 != w && _pmHoldsNone(mgr, t1)) return k; // MUTANT [878]\n",
       teste="test_ATokenTheManagerHoldsNoneOf_IsNotProbed"),
+ # gas-1106 G7: the size ledgers, the project gate on the seven rows DeployedSizeGate does not
+ # deploy, and the hot-path gas ledgers (test/gas/SizeAndGasGates.t.sol); SIZE-M2 is the Router
+ # ceiling in test/DeployedSizeGate.t.sol. The ledgers are pinned to their snapshots, which every
+ # run of this script checks (SNAPSHOT_FLAGS), so the GAS entries, SIZE-M1 and SIZE-M3 die by their
+ # own snapshot group; SIZE-M2 and SIZE-M4 fail an assert. Sizes are the release profile's.
+ dict(nome="gas-1106 G7 GAS-M1: the Router's legs loop pays an overflow check on its increment",
+      f="src/BlazePhoenixRouter.sol",
+      old="                    hopBlind = true;\n                }\n                unchecked { ++l; }\n",
+      new="                    hopBlind = true;\n                }\n                ++l; // MUTANT GAS-M1\n",
+      teste="test_Gas_HotPathLedger_SwapExactIn_OneHop"),
+ dict(nome="gas-1106 G7 GAS-M2: the Solver's candidate probe loop pays an overflow check on its increment",
+      f="src/BlazePhoenixSolver.sol",
+      old="                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;\n                }\n            }\n            unchecked { ++i; }\n",
+      new="                    if (physical < depths[i]) depths[i] = physical == 0 ? 1 : physical;\n                }\n            }\n            ++i; // MUTANT GAS-M2\n",
+      teste="test_Gas_HotPathLedger_SwapBestExactIn_OneHop"),
+ dict(nome="gas-1106 G7 GAS-M3: the quote's route screen asks a pair for token0 twice",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                    address t0 = BPC.token0Of(leg.pool);",
+      new="                    address t0 = BPC.token0Of(leg.pool); BPC.token0Of(leg.pool); // MUTANT GAS-M3",
+      teste="test_Gas_HotPathLedger_PreviewPlan_OneHop"),
+ dict(nome="gas-1106 G7 SIZE-M1: a Gate custom error turned back into a revert string",
+      f="src/BlazePhoenixGate.sol",
+      old="        if (t0 == address(0) || t0 == t1 || venueKey == 0) revert GateE(3);",
+      new='        if (t0 == address(0) || t0 == t1 || venueKey == 0) revert("BlazePhoenixGate: bad pair or venue key"); // MUTANT SIZE-M1',
+      teste="test_Size_RuntimeLedger"),
+ dict(nome="gas-1106 G7 SIZE-M2: a dedicated 7702 entry point with string reverts added to the Router",
+      f="src/BlazePhoenixRouter.sol",
+      old="    // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates\n",
+      new='    function swapExactInWith7702( // MUTANT SIZE-M2\n        Route calldata route, uint256 amountIn, uint256 userMinOut,\n        address recipient, uint256 deadline\n    ) external whenLive nrEntrant returns (uint256) {\n        if (recipient == address(0)) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a recipient");\n        if (userMinOut == 0) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a non-zero minimum output");\n        return _checkedSwap(route, amountIn, userMinOut, recipient, deadline);\n    }\n\n    // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates\n',
+      teste="test_EveryShippedContractIsUnderTheSizeGate"),
+ dict(nome="gas-1106 G7 SIZE-M3: a Gate constructor error turned into a string (initcode only)",
+      f="src/BlazePhoenixGate.sol",
+      old="        if (admin_ == address(0)) revert GateE(3);",
+      new='        if (admin_ == address(0)) revert("BlazePhoenixGate: zero admin"); // MUTANT SIZE-M3',
+      teste="test_Size_InitcodeLedger"),
+ dict(nome="gas-1106 G7 SIZE-M4: v4HeldShare public again, so the Core carries the walk",
+      f="src/BlazePhoenixCore.sol",
+      old="        address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar\n    ) internal view returns (uint256) {\n",
+      new="        address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar\n    ) public view returns (uint256) { // MUTANT SIZE-M4\n",
+      teste="test_Size_RuntimeUnderProjectGate_CoreGateWrapperAndAdapters"),
  # --- C-f2 (2026-10-27): labels [879]-[886], given at the 2026-10-27 integration ---
  dict(nome='DEX-10 V2 [879]: a smaller K on the quote side only - the Quoter prices a V2 leg one bp short of the pair',
       f='src/BlazePhoenixQuoter.sol',
@@ -4415,6 +4459,41 @@ M = [
       old='        if (totalReceived > outCap) totalReceived = outCap;\n',
       new='        if (totalReceived != outCap) totalReceived = outCap; // MUTANT\n',
       teste='test_AFeeOnTransferOutputIsPaidWhatArrived'),
+ # --- gas-1106 G6 (2026-11-06): test/gas/GasRelations.t.sol, relations derived from the code with no budget
+ #     constant: an added leg, candidate pool, factory, batch entry or crossed tick costs at least the storage
+ #     words it must read, priced by surcharges the test measures itself. Each mutant leaves its test's
+ #     fixture checks green (they run first) and fails on the relation's own assertion, with or without
+ #     FORGE_SNAPSHOT_CHECK ---
+ dict(nome='gas-1106 G6-1: the Router records only leg 0 of each hop',
+      f='src/BlazePhoenixRouter.sol',
+      old='                if (!ran || leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; }\n',
+      new='                if (!ran || leg.kind == BPC.KIND_EXTERNAL || l != 0) { unchecked { ++l; } continue; } // MUTANT G6-1\n',
+      teste='test_GasRelation_SwapIsStrictlyMonotoneInLegs'),
+ dict(nome='gas-1106 G6-2: whenLive runs the body before it refuses a paused Hub',
+      f='src/BlazePhoenixHub.sol',
+      old='    modifier whenLive()     { if (_store().paused) revert HubE(2); _; }\n',
+      new='    modifier whenLive()     { _; if (_store().paused) revert HubE(2); } // MUTANT G6-2\n',
+      teste='test_GasRelation_PausedFeedbackNeverCostsMore'),
+ dict(nome='gas-1106 G6-3: the solver keeps at most four registry rows',
+      f='src/BlazePhoenixSolver.sol',
+      old='        uint256 rn = reg.length;\n        uint256 dn = dis.length;\n',
+      new='        uint256 rn = reg.length < 4 ? reg.length : 4; // MUTANT G6-3\n        uint256 dn = dis.length;\n',
+      teste='test_GasRelation_SolveIsStrictlyMonotoneInCandidatePools'),
+ dict(nome="gas-1106 G6-4: discovery lists an asked pair without its token0/token1 proof",
+      f='src/BlazePhoenixHub.sol',
+      old='            if (fac.mode < 4 && (BPC.token0Of(p) != t0 || BPC.token1Of(p) != t1)) return k;\n',
+      new='            if (false && fac.mode < 4 && (BPC.token0Of(p) != t0 || BPC.token1Of(p) != t1)) return k; // MUTANT G6-4\n',
+      teste='test_GasRelation_DiscoveryIsAtLeastLinearInFactories'),
+ dict(nome="gas-1106 G6-5: batchQuote reuses the first entry's plan for every later entry",
+      f='src/BlazePhoenixQuoter.sol',
+      old='        previews = new Preview[](n);\n        for (uint256 i; i < n; ) {\n',
+      new='        previews = new Preview[](n);\n        for (uint256 i; i < n; ) { if (i != 0) { previews[i] = previews[0]; unchecked { ++i; } continue; } // MUTANT G6-5\n',
+      teste='test_GasRelation_BatchQuoteEntryCostsAtLeastItsSolve'),
+ dict(nome="gas-1106 G6-6: every tick crossing reads the first tick's liquidityNet word",
+      f='src/BlazePhoenixCore.sol',
+      old='                int256 net = int256(int128(int256(_book(src, base, 4, nt))));\n',
+      new='                int256 net = int256(int128(int256(_book(src, base, 4, -tickSpacing)))); // MUTANT G6-6\n',
+      teste='test_GasRelation_V3IsStrictlyMonotoneInTicksCrossed'),
  # --- transplant 2 (2026-10-27): after [896] ---
  dict(nome='T2 Q773: a later hop divides its legs by the declared hop.amountIn again, not by their sum',
       f='src/BlazePhoenixQuoter.sol',
@@ -4449,6 +4528,76 @@ M = [
       new='            uint256 s = hub.getSlot(BPC.pairKey(reg[i].pool, reg[i].token0, reg[i].token0)); // MUTANT',
       teste='test_ThreeCuratedRows_StillSkipDiscovery'),
 
+ # --- gas-1106 G5 (2026-11-06): test/gas/RegistryWarmthGas.t.sol pins what the Hub's registry doors cost
+ #     one by one, the registry's life as swapBestExactIn sees it, and what a second swap or plan saves
+ #     inside one transaction, as forge gas snapshots (snapshots/test_*.json, one group per test).
+ #     G5-3a and G5-7 also break an assert of their paired test, and G5-3b is paired with the test that
+ #     asserts the Volume event (VolumeEventFidelity). Every other mutant below only moves the windows of
+ #     its paired test, so it dies by its own snapshot group, which every run of this script checks
+ #     (SNAPSHOT_FLAGS). The two test_Instrument_* tests have no entry here: what they guard is the
+ #     runner's `isolate` (set in foundry.toml), not the source. With FOUNDRY_ISOLATE=false (or
+ #     --no-isolate) both fail, and so does the setUp of every test/gas contract. ---
+ dict(nome='gas-1106 G5-1: discoverFor sizes its hit array for two passes on every factory, not only on the modes that scan twice',
+      f='src/BlazePhoenixHub.sol',
+      old='            uint256 mul = (fac.mode == 2 || fac.mode == 6) ? 2 : 1;',
+      new='            uint256 mul = (fac.mode == 2 || fac.mode == 6) ? 2 : 2; // MUTANT G5-1',
+      teste='test_Gas_DiscoverFor_Factories_1_2_4_8'),
+ dict(nome='gas-1106 G5-2: seedPool writes the hook slot of a hookless row (a zero over a zero)',
+      f='src/BlazePhoenixHub.sol',
+      old='        if (hooks != address(0)) $.hooksOf[key] = hooks;\n    }\n}',
+      new='        $.hooksOf[key] = hooks; // MUTANT G5-2\n    }\n}',
+      teste='test_Gas_Hub_SeedPool_PerKind'),
+ dict(nome='gas-1106 G5-3a: the swap door calls recordSwap bare, so a paused Hub reverts the swap it should only leave unrecorded',
+      f='src/BlazePhoenixRouter.sol',
+      old='                try hub.recordSwap(\n                    regPool, leg.kind, leg.fee, leg.hooks,\n                    t0, t1, inM, outM, depth\n                ) {} catch {}',
+      new='                hub.recordSwap( // MUTANT G5-3a\n                    regPool, leg.kind, leg.fee, leg.hooks,\n                    t0, t1, inM, outM, depth\n                );',
+      teste='test_Gas_Hub_RecordSwap_LiveVsPaused'),
+ dict(nome='gas-1106 G5-3b: recordSwap refreshes a known row without emitting Volume',
+      f='src/BlazePhoenixHub.sol',
+      old='_noteV4Code(pool, t0, t1, fee);\n            emit Volume(key, amtIn, amtOut);\n            return;',
+      new='_noteV4Code(pool, t0, t1, fee);\n            return; // MUTANT G5-3b',
+      teste='test_INV_F4_VolumeInEqualsTheMeasuredPoolDelta'),
+ dict(nome='gas-1106 G5-4: _isRoutableBridge walks the bridge positions for a token that is no bridge',
+      f='src/BlazePhoenixHub.sol',
+      old='        if (!$.isBridge[t]) return false;\n',
+      new='        // MUTANT G5-4: no isBridge early-out\n',
+      teste='test_Gas_Hub_AddBridgeAndRoutableViews'),
+ dict(nome='gas-1106 G5-5: getActivePools allocates one row more than the pair holds',
+      f='src/BlazePhoenixHub.sol',
+      old='        out = new PoolInfo[](n);',
+      new='        out = new PoolInfo[](n + 1); // MUTANT G5-5',
+      teste='test_Gas_Hub_GetActivePools_PerPoolCount_1_4_8'),
+ dict(nome='gas-1106 G5-6: _pairBridged asks the second token first, so a psi named bridge first pays two lookups',
+      f='src/BlazePhoenixHub.sol',
+      old='        return _isRoutableBridge($, t0) || _isRoutableBridge($, t1);',
+      new='        return _isRoutableBridge($, t1) || _isRoutableBridge($, t0); // MUTANT G5-6',
+      teste='test_Gas_Hub_GetPsiAndKeyOf'),
+ dict(nome='gas-1106 G5-7: the Solver ages a curated row out at exactly DISCOVERY_TTL_SECONDS, so the sweep comes back a second early',
+      f='src/BlazePhoenixSolver.sol',
+      old='            if (last != 0 && block.timestamp - last <= DISCOVERY_TTL_SECONDS) {',
+      new='            if (last != 0 && block.timestamp - last < DISCOVERY_TTL_SECONDS) { // MUTANT G5-7',
+      teste='test_Gas_SwapBestExactIn_RegistryLifecycle_EmptyRecordedStale'),
+ dict(nome='gas-1106 G5-8: the Router reentrancy lock lives in storage instead of transient storage',
+      f='src/BlazePhoenixRouter.sol',
+      old='        uint256 v; assembly { v := tload(s) }\n        if (v != 0) revert RouterE(7);\n        assembly { tstore(s, 1) }\n        _;\n        assembly { tstore(s, 0) }',
+      new='        uint256 v; assembly { v := sload(s) }\n        if (v != 0) revert RouterE(7);\n        assembly { sstore(s, 1) }\n        _;\n        assembly { sstore(s, 0) } // MUTANT G5-8',
+      teste='test_Gas_SwapExactIn_ColdThenWarm_InOneTransaction'),
+ dict(nome='gas-1106 G5-9: previewPlan solves twice',
+      f='src/BlazePhoenixQuoter.sol',
+      old='    function previewPlan(address tIn, address tOut, uint256 amountIn)\n        external view returns (Preview memory pv, Route memory fallbackRoute, bool hasFallback)\n    {\n        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);\n',
+      new='    function previewPlan(address tIn, address tOut, uint256 amountIn)\n        external view returns (Preview memory pv, Route memory fallbackRoute, bool hasFallback)\n    {\n        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);\n        plan = solver.findBestRoutePlan(tIn, tOut, amountIn); // MUTANT G5-9\n',
+      teste='test_Gas_PreviewPlan_ColdThenWarm_InOneCall'),
+ dict(nome='gas-1106 G5-10a: a V4 leg leaves the unlock context as the callback left it, with no clear after unlock returns',
+      f='src/BlazePhoenixRouter.sol',
+      old='IV4PoolManager(mgr).unlock(abi.encode(key, leg.zeroForOne, amt, bytes(""))), (uint256)\n        );\n        assembly { tstore(sI, 0) tstore(sO, 0) }',
+      new='IV4PoolManager(mgr).unlock(abi.encode(key, leg.zeroForOne, amt, bytes(""))), (uint256)\n        );\n        // MUTANT G5-10a: no clear after the unlock',
+      teste='test_Gas_SwapExactIn_V4_TwoSwapsInOneTransaction'),
+ dict(nome='gas-1106 G5-10b: the V4 unlock callback settles with its context still set',
+      f='src/BlazePhoenixRouter.sol',
+      old='        // tIn == 0 and reverts(6).\n        assembly { tstore(sI, 0) tstore(sO, 0) }',
+      new='        // tIn == 0 and reverts(6).\n        // MUTANT G5-10b: the callback leaves the context set',
+      teste='test_Gas_SwapExactIn_V4_TwoSwapsInOneTransaction'),
+
  # hunt2-1027 (2026-10-27): the tests of the second hunt, each with the guard it watches. Renumber on merge.
  # Re-anchored on the merge, 2026-10-28: the three door copies of the #45 clamp are one producer,
  # `_received`. [897]-[899] keep their door's test, so each kill proves that door reads through it.
@@ -4472,6 +4621,68 @@ M = [
       old='try x.quote{gas: BPC.GATE_QUOTE_GAS}(true, 0) returns (uint256, uint256 d) {',
       new='try x.quote(true, 0) returns (uint256, uint256 d) { // MUTANT [900]',
       teste='test_P4_HostileVenueQuoteBurnsGas_OnlyRemovesItself'),
+ # --- gas-1106 G4 (2026-11-06): test/gas/GateAdapterGas.t.sol pins what the Gate mode costs on its four
+ #     adapters (the Gate's create, views and vitalOf; the wrapper's quote, quoteCall and swap; a kind-9
+ #     Router leg at one and two hops and in the automatic door; Quoter.gateVitalOf), as forge gas
+ #     snapshots (snapshots/test_Gas_*.json, one group per test). Each mutant below moves the gas of its
+ #     paired test's windows, and the paired test asserts only the fixture's answers: it fails on these
+ #     mutants by its own snapshot group, which every run of this script checks (SNAPSHOT_FLAGS). G4-1 is
+ #     also caught by the create relation, and G4-11 by the per-adapter relation of its test. ---
+ dict(nome="gas-1106 G4-1: create finds a pair's free slot by scanning its list from the end, so the first wrapper of a pair reads every word and the last one reads two",
+      f='src/BlazePhoenixGate.sol',
+      old='        while (free < GATE_MAX_WRAPPERS && list[free] != 0) ++free;',
+      new='        { uint256 k = GATE_MAX_WRAPPERS; while (k > 0 && list[k - 1] == 0) --k; free = k; } // MUTANT G4-1',
+      teste='test_Gas_GateCreate_DeploysWrapper'),
+ dict(nome='gas-1106 G4-2: wrapperAddress reads the wrapper init hash by an external self-call instead of its immutable',
+      f='src/BlazePhoenixGate.sol',
+      old='        return BPC.create2Address(address(this), BPC.v3Salt(t0, t1, venueKey), WRAPPER_INIT_HASH);',
+      new='        return BPC.create2Address(address(this), BPC.v3Salt(t0, t1, venueKey), this.WRAPPER_INIT_HASH()); // MUTANT G4-2',
+      teste='test_Gas_GateViews_WrapperAddressAndLiveAdapter'),
+ dict(nome='gas-1106 G4-3: vitalOf asks the wrapper for its vital slot twice',
+      f='src/BlazePhoenixGate.sol',
+      old='        uint256 s = x.vitalSlot();',
+      new='        uint256 s = x.vitalSlot(); s = x.vitalSlot(); // MUTANT G4-3',
+      teste='test_Gas_GateVitalOf_PerAdapter'),
+ dict(nome="gas-1106 G4-4: the wrapper's view quote reads its live adapter from the Gate twice",
+      f='src/BlazePhoenixGate.sol',
+      old='        address a = BlazePhoenixGate(gate).liveAdapter(family);\n        if (a == address(0)) return (0, 0);\n',
+      new='        address a = BlazePhoenixGate(gate).liveAdapter(family);\n        a = BlazePhoenixGate(gate).liveAdapter(family); // MUTANT G4-4\n        if (a == address(0)) return (0, 0);\n',
+      teste='test_Gas_GateQuote_PerAdapter'),
+ dict(nome="gas-1106 G4-5: the wrapper's quoteCall reads its live adapter from the Gate twice",
+      f='src/BlazePhoenixGate.sol',
+      old='        address a = BlazePhoenixGate(gate).liveAdapter(family);\n        if (a == address(0)) return 0;\n',
+      new='        address a = BlazePhoenixGate(gate).liveAdapter(family);\n        a = BlazePhoenixGate(gate).liveAdapter(family); // MUTANT G4-5\n        if (a == address(0)) return 0;\n',
+      teste='test_Gas_GateQuoteCall_PerAdapter'),
+ dict(nome="gas-1106 G4-6: the wrapper's swap measures what the recipient received twice",
+      f='src/BlazePhoenixGate.sol',
+      old='        uint256 out = BPC.balanceOf(tOut, recipient) - outBefore;\n',
+      new='        uint256 out = BPC.balanceOf(tOut, recipient) - outBefore;\n        out = BPC.balanceOf(tOut, recipient) - outBefore; // MUTANT G4-6\n',
+      teste='test_Gas_WrapperSwap_PerAdapter'),
+ dict(nome="gas-1106 G4-7: the StableSwap-NG adapter's exec reads both wrapper tokens where it needs only the input",
+      f='src/adapters/BlazePhoenixAdapterCurveNG.sol',
+      old='        address tIn = _wrapperTokenIn(zeroForOne);',
+      new='        (address tIn, ) = _wrapperTokens(zeroForOne); // MUTANT G4-7',
+      teste='test_Gas_Router_GateLeg_OneHop'),
+ dict(nome="gas-1106 G4-8: the Twocrypto-NG adapter's exec reads both wrapper tokens where it needs only the input",
+      f='src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol',
+      old='        address tIn = _wrapperTokenIn(zeroForOne);',
+      new='        (address tIn, ) = _wrapperTokens(zeroForOne); // MUTANT G4-8',
+      teste='test_Gas_Router_GateLeg_TwoHops'),
+ dict(nome='gas-1106 G4-9: the solve asks gatePsi twice for an external candidate',
+      f='src/BlazePhoenixSolver.sol',
+      old='            if (active[i].kind == BPC.KIND_EXTERNAL) ps[i] = BPC.gatePsi(gate, active[i].pool);',
+      new='            if (active[i].kind == BPC.KIND_EXTERNAL) { ps[i] = BPC.gatePsi(gate, active[i].pool); ps[i] = BPC.gatePsi(gate, active[i].pool); } // MUTANT G4-9',
+      teste='test_Gas_SwapBestExactIn_GateCandidate_OneHop'),
+ dict(nome='gas-1106 G4-10: Quoter.gateVitalOf runs the registry check twice',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (!BPC.gateWrapperLive(address(hub), pool, tA, tB, fee)) return (0, 0, 0);\n',
+      new='        if (!BPC.gateWrapperLive(address(hub), pool, tA, tB, fee)) return (0, 0, 0);\n        if (!BPC.gateWrapperLive(address(hub), pool, tA, tB, fee)) return (0, 0, 0); // MUTANT G4-10\n',
+      teste='test_Gas_QuoterGateVitalOf_PerAdapter'),
+ dict(nome="gas-1106 G4-11: Quoter.gateVitalOf skips the registry check, so it pays no more than the Gate's own vitalOf",
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (!BPC.gateWrapperLive(address(hub), pool, tA, tB, fee)) return (0, 0, 0);',
+      new='        // MUTANT G4-11',
+      teste='test_Gas_QuoterGateVitalOf_PerAdapter'),
 
  dict(nome='VT [901]: the clock moves by 2^-2, not 2^-k',
       f='src/BlazePhoenixCore.sol',
@@ -4608,6 +4819,72 @@ M = [
       old='    uint256 internal constant TAU_EMA_SHIFT = 3;',
       new='    uint256 internal constant TAU_EMA_SHIFT = 4; // MUTANT [963]',
       teste='testFuzz_AnyClock_DecaysAndTicksByItsDefinition'),
+ # gas-1106 G2: one leg per venue kind and the Core's quote per kind (test/gas/VenueLegGas.t.sol). Each
+ # window is pinned to its snapshot, which every run of this script checks (SNAPSHOT_FLAGS), so these
+ # die by their own snapshot group. G2-8 and G2-11 sit on the stable-curve fallback, which only a pair
+ # that does not answer getAmountOut reaches, so they pair with the hidden-ask window. G2-7b is G2-7
+ # paired with the stable pair that answers: its leg is priced by the same ask as the volatile one, so
+ # the second ask moves the stable windows too.
+ dict(nome='gas-1106 G2-1: a V2 leg reads the pair reserves twice before it swaps',
+      f='src/BlazePhoenixRouter.sol',
+      old='            (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool);',
+      new='            (uint256 r0, uint256 r1) = BPC.getReserves(leg.pool); (r0, r1) = BPC.getReserves(leg.pool); // MUTANT G2-1',
+      teste='test_Gas_Leg_V2_OneAndTwoLegs'),
+ dict(nome='gas-1106 G2-2: a concentrated leg asks the pool for its fee twice',
+      f='src/BlazePhoenixCore.sol',
+      old='        uint24 f = dyn ? 0 : getV3Fee(pool); // CL: the fee lives on the pool, asked now',
+      new='        uint24 f = dyn ? 0 : getV3Fee(pool); if (!dyn) f = getV3Fee(pool); // MUTANT G2-2',
+      teste='test_Gas_Leg_V3_NoTickCrossed_OneAndTwoLegs'),
+ dict(nome="gas-1106 G2-3: the walk reads a crossed tick's net liquidity twice",
+      f='src/BlazePhoenixCore.sol',
+      old='                int256 net = int256(int128(int256(_book(src, base, 4, nt))));',
+      new='                int256 net = int256(int128(int256(_book(src, base, 4, nt)))); net = int256(int128(int256(_book(src, base, 4, nt)))); // MUTANT G2-3',
+      teste='test_Gas_Leg_V3Book_CrossesOneTwoFourTicks'),
+ dict(nome='gas-1106 G2-4: a V4 leg syncs its input currency twice before it settles',
+      f='src/BlazePhoenixRouter.sol',
+      old='            IV4PoolManager(mgr).sync(tIn);',
+      new='            IV4PoolManager(mgr).sync(tIn); IV4PoolManager(mgr).sync(tIn); // MUTANT G2-4',
+      teste='test_Gas_Leg_V4_OneAndTwoLegs'),
+ dict(nome='gas-1106 G2-5: a native V4 leg unwraps what the pool is owed in two withdrawals',
+      f='src/BlazePhoenixRouter.sol',
+      old='            IWETH(tIn).withdraw(owe);',
+      new='            IWETH(tIn).withdraw(owe / 2); IWETH(tIn).withdraw(owe - owe / 2); // MUTANT G2-5',
+      teste='test_Gas_Leg_V4Native_EthIn_OneLeg'),
+ dict(nome='gas-1106 G2-6: an Algebra pool is asked for globalState() twice',
+      f='src/BlazePhoenixCore.sol',
+      old='                let ok2 := staticcall(GAS_CAP, pool, m, 4, m, 96)',
+      new='                let ok2 := staticcall(GAS_CAP, pool, m, 4, m, 96) mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000) ok2 := staticcall(GAS_CAP, pool, m, 4, m, 96) // MUTANT G2-6',
+      teste='test_Gas_Leg_Algebra_OneAndTwoLegs'),
+ dict(nome='gas-1106 G2-7: a Solidly leg asks the pair for its output twice',
+      f='src/BlazePhoenixRouter.sol',
+      old='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee);',
+      new='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); // MUTANT G2-7',
+      teste='test_Gas_Leg_SolidlyVolatile_OneAndTwoLegs'),
+ dict(nome='gas-1106 G2-7b: a Solidly leg asks a stable pair that answers for its output twice',
+      f='src/BlazePhoenixRouter.sol',
+      old='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee);',
+      new='            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee); // MUTANT G2-7b',
+      teste='test_Gas_Leg_SolidlyStable_OneAndTwoLegs'),
+ dict(nome="gas-1106 G2-8: the stable solver's iteration counter is incremented with checked arithmetic",
+      f='src/BlazePhoenixCore.sol',
+      old='                return y;   // converged\n            }\n            unchecked { ++i; }',
+      new='                return y;   // converged\n            }\n            ++i; // MUTANT G2-8',
+      teste='test_Gas_Leg_SolidlyStable_CurveFallback_OneLeg'),
+ dict(nome='gas-1106 G2-11: the stable-curve fallback reads the live fee twice',
+      f='src/BlazePhoenixCore.sol',
+      old='        uint256 liveFee = readDynamicFee(pool, stable, cfgFee);',
+      new='        uint256 liveFee = readDynamicFee(pool, stable, cfgFee); liveFee = readDynamicFee(pool, stable, cfgFee); // MUTANT G2-11',
+      teste='test_Gas_Leg_SolidlyStable_CurveFallback_OneLeg'),
+ dict(nome="gas-1106 G2-9: a later hop reads the Router's balance of its input twice",
+      f='src/BlazePhoenixRouter.sol',
+      old='                uint256 bal = _bal(hop.tokenIn);\n                realIn = bal > foreignBase ? bal - foreignBase : 0;',
+      new='                uint256 bal = _bal(hop.tokenIn);\n                bal = _bal(hop.tokenIn); // MUTANT G2-9\n                realIn = bal > foreignBase ? bal - foreignBase : 0;',
+      teste='test_Gas_Leg_TwoHops_V2ThenV3'),
+ dict(nome='gas-1106 G2-10: readDynamicFee asks the pool for its factory twice',
+      f='src/BlazePhoenixCore.sol',
+      old='        (bool ok, uint256 word) = _askWord(pool, abi.encodeWithSignature("factory()"));',
+      new='        (bool ok, uint256 word) = _askWord(pool, abi.encodeWithSignature("factory()")); (ok, word) = _askWord(pool, abi.encodeWithSignature("factory()")); // MUTANT G2-10',
+      teste='test_Gas_CoreQuote_PerKind'),
  # --- PAR (2026-10-27): labels [914]-[920] and [922]-[923]; [921] is equivalent under via-IR, not registered ---
  dict(nome="PAR [914]: hop 0 of the exact pass rounds each leg's share up, so its legs ask more than the Router funds them",
       f='src/BlazePhoenixQuoter.sol',
@@ -4654,18 +4931,181 @@ M = [
       old='                f := and(mload(0x00), 0xffffff)',
       new='                f := and(mload(0x00), 0xffff) // MUTANT',
       teste='testFuzz_ADirtyFeeWordIsReadByItsLowTwentyFourBits'),
+ # gas-1106 G1: the door gas ledger (test/gas/DoorGasLedger.t.sol). Each window is pinned to its
+ # snapshot, which every run of this script checks (SNAPSHOT_FLAGS), so these die by their own
+ # snapshot group.
+ dict(nome='gas-1106 G1-1a: swapExactIn reads the balance of the payer once more before it executes (quoted, one hop)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);',
+      new='        BPC.balanceOf(tokenIn, msg.sender); return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender); // MUTANT G1-1',
+      teste='test_Gas_SwapExactIn_Quoted_OneHop'),
+ dict(nome='gas-1106 G1-1b: swapExactIn reads the balance of the payer once more before it executes (every token shape)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender);',
+      new='        BPC.balanceOf(tokenIn, msg.sender); return _execute(route, received, userMinOut, recipient, tokenIn, msg.sender); // MUTANT G1-1',
+      teste='test_Gas_SwapExactIn_TokenShapes_OneHop'),
+ dict(nome='gas-1106 G1-2: the bridge-residual sweep reads the bridge balance twice (quoted, two hops)',
+      f='src/BlazePhoenixRouter.sol',
+      old='                uint256 rb = _bal(bridge);',
+      new='                uint256 rb = _bal(bridge); _bal(bridge); // MUTANT G1-2',
+      teste='test_Gas_SwapExactIn_Quoted_TwoHops'),
+ dict(nome='gas-1106 G1-3a: refreshing a registry row asks twice whether the pool holds its reserves (quoted again, one hop)',
+      f='src/BlazePhoenixHub.sol',
+      old='            if (!_held(pool, BPC.decodeKind(s), t0, t1)) return;',
+      new='            if (!_held(pool, BPC.decodeKind(s), t0, t1) || !_held(pool, BPC.decodeKind(s), t0, t1)) return; // MUTANT G1-3',
+      teste='test_Gas_SwapExactIn_QuotedAgain_OneHop'),
+ dict(nome='gas-1106 G1-3b: refreshing a registry row asks twice whether the pool holds its reserves (quoted again, two hops)',
+      f='src/BlazePhoenixHub.sol',
+      old='            if (!_held(pool, BPC.decodeKind(s), t0, t1)) return;',
+      new='            if (!_held(pool, BPC.decodeKind(s), t0, t1) || !_held(pool, BPC.decodeKind(s), t0, t1)) return; // MUTANT G1-3',
+      teste='test_Gas_SwapExactIn_QuotedAgain_TwoHops'),
+ dict(nome='gas-1106 G1-4a: swapBestExactIn reads the balance of the payer once more before it executes the plan (one hop)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);',
+      new='        BPC.balanceOf(tokenIn, msg.sender); return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender); // MUTANT G1-4',
+      teste='test_Gas_SwapBestExactIn_Solve_OneHop'),
+ dict(nome='gas-1106 G1-4b: swapBestExactIn reads the balance of the payer once more before it executes the plan (two hops)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);',
+      new='        BPC.balanceOf(tokenIn, msg.sender); return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender); // MUTANT G1-4',
+      teste='test_Gas_SwapBestExactIn_Solve_TwoHops'),
+ dict(nome='gas-1106 G1-5a: swapExactInWithPermit2 reads the balance of the payer once more after the pull (one hop)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        uint256 received = _received(tokenIn, balBefore, amountIn);',
+      new='        uint256 received = _received(tokenIn, balBefore, amountIn); BPC.balanceOf(tokenIn, msg.sender); // MUTANT G1-5',
+      teste='test_Gas_SwapExactInWithPermit2_OneHop'),
+ dict(nome='gas-1106 G1-5b: swapExactInWithPermit2 reads the balance of the payer once more after the pull (two hops)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        uint256 received = _received(tokenIn, balBefore, amountIn);',
+      new='        uint256 received = _received(tokenIn, balBefore, amountIn); BPC.balanceOf(tokenIn, msg.sender); // MUTANT G1-5',
+      teste='test_Gas_SwapExactInWithPermit2_TwoHops'),
+ dict(nome='gas-1106 G1-6a: swapExactInNative reads the WETH balance twice before it wraps (one hop)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        uint256 balBefore = BPC.balanceOf(w, address(this));',
+      new='        uint256 balBefore = BPC.balanceOf(w, address(this)); BPC.balanceOf(w, address(this)); // MUTANT G1-6',
+      teste='test_Gas_SwapExactInNative_EthIn_OneHop'),
+ dict(nome='gas-1106 G1-6b: swapExactInNative reads the WETH balance twice before it wraps (two hops)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        uint256 balBefore = BPC.balanceOf(w, address(this));',
+      new='        uint256 balBefore = BPC.balanceOf(w, address(this)); BPC.balanceOf(w, address(this)); // MUTANT G1-6',
+      teste='test_Gas_SwapExactInNative_EthIn_TwoHops'),
+ dict(nome='gas-1106 G1-7: noting a fee-on-transfer pull touches one more cold account (fee-on-transfer shape only)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        uint256 prev; assembly { prev := tload(sF) }',
+      new='        uint256 prev; assembly ("memory-safe") { prev := tload(sF) pop(staticcall(gas(), sF, 0, 0, 0, 0)) } // MUTANT G1-7',
+      teste='test_Gas_SwapExactIn_TokenShapes_OneHop'),
+ dict(nome='gas-1106 G1-8: transferFrom of a token that returns nothing makes one more empty call (no-return-data shape only)',
+      f='src/BlazePhoenixCore.sol',
+      old='            ok := call(gas(), token, 0, m, 100, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }',
+      new='            ok := call(gas(), token, 0, m, 100, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) pop(staticcall(gas(), token, 0, 0, 0, 0)) } // MUTANT G1-8',
+      teste='test_Gas_SwapExactIn_TokenShapes_OneHop'),
+ dict(nome='gas-1106 G1-9: claimFee reads the Router balance once more before it pays',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (a == 0) revert RouterE(1);',
+      new='        if (a == 0) revert RouterE(1); BPC.balanceOf(token, address(this)); // MUTANT G1-9',
+      teste='test_Gas_ClaimFee_AfterOneSwap'),
  dict(nome='suites-1028 [964]: _decay has no lastTs == 0 arm, so a never-stamped slot with a long tau is alive on its count',
       f='src/BlazePhoenixCore.sol',
       old='        if (lastTs == 0) return (0, 0);',
       new='        // MUTANT [964]',
       teste='test_FixedClock_Cases'),
+ # --- gas-1106 G3 (2026-11-06): test/gas/QuoteSolveGas.t.sol pins what the Quoter's quote doors and a
+ #     lone solve cost, as forge gas snapshots (snapshots/test_Gas_*.json, one group per test). Each
+ #     mutant below moves the gas of its paired test's windows, and the paired test asserts only the
+ #     fixture's answers: it fails on these mutants by its own snapshot group, which every run of this
+ #     script checks (SNAPSHOT_FLAGS). ---
+ dict(nome='gas-1106 G3-1: a registry needs a fourth fresh curated row to skip the sweep, so the seeded one-hop quote sweeps',
+      f='src/BlazePhoenixSolver.sol',
+      old='    uint8   internal constant MIN_FRESH_VENUES     = 3;',
+      new='    uint8   internal constant MIN_FRESH_VENUES     = 4; // MUTANT G3-1',
+      teste='test_Gas_PreviewPlan_OneHop_EmptyVsSeeded'),
+ dict(nome='gas-1106 G3-2: _registryFresh reads a registry thinner than MIN_FRESH_VENUES row by row instead of answering at once',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (rn < MIN_FRESH_VENUES) return false;\n',
+      new='        // MUTANT G3-2: no thin-registry exit\n',
+      teste='test_Gas_PreviewPlan_TwoHops_EmptyVsSeeded'),
+ dict(nome='gas-1106 G3-3: _fundedOut asks the fee calendar twice',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            this.feeCalendarOf(route.hops, n == 0 ? address(0) : route.hops[n - 1].tokenOut);\n        if (feeOnOut) return type(uint256).max;\n',
+      new='            this.feeCalendarOf(route.hops, n == 0 ? address(0) : route.hops[n - 1].tokenOut);\n        this.feeCalendarOf(route.hops, n == 0 ? address(0) : route.hops[n - 1].tokenOut); // MUTANT G3-3\n        if (feeOnOut) return type(uint256).max;\n',
+      teste='test_Gas_PreviewAndEncode_OneAndTwoHops'),
+ dict(nome='gas-1106 G3-4: _pack walks the route for a hook refusal before it reads the floor, so a refused floor pays for the walk',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        pv.canExecute = pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut && !_hookRefusedIn(route);',
+      new='        pv.canExecute = !_hookRefusedIn(route) && pv.netOut > 0 && pv.netOut >= pv.effectiveMinOut; // MUTANT G3-4',
+      teste='test_Gas_PreviewPlanWithMinOut_OneHop'),
+ dict(nome='gas-1106 G3-5: _encode dry-runs the funding of a preview that already cannot execute',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;\n',
+      new='        if (_fundedOut(pv.route, amountIn) < pv.effectiveMinOut && pv.canExecute) pv.canExecute = false; // MUTANT G3-5\n',
+      teste='test_Gas_PreviewAndEncodeWithMinOut_OneHop'),
+ dict(nome='gas-1106 G3-6: _pack asks the fee calendar of a single hop (asked only at two hops or more)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (route.hops.length > 1) {\n            (feeHop, ) = this.feeCalendarOf(',
+      new='        if (route.hops.length > 0) { // MUTANT G3-6\n            (feeHop, ) = this.feeCalendarOf(',
+      teste='test_Gas_PreviewRoute_OneHop'),
+ dict(nome='gas-1106 G3-7: _exact asks the fee calendar of a single hop (asked only at two hops or more)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (route.hops.length > 1)\n            (feeHop, feeOnOut) =\n',
+      new='        if (route.hops.length > 0) // MUTANT G3-7\n            (feeHop, feeOnOut) =\n',
+      teste='test_Gas_PreviewPlanExact_OneAndTwoHops'),
+ dict(nome='gas-1106 G3-8: _poolTwiceInAHop compares every ordered pair of legs instead of each unordered pair once',
+      f='src/BlazePhoenixQuoter.sol',
+      old='                for (uint256 j; j < i; ++j) {\n                    if (legs[i].pool == legs[j].pool) return true;\n',
+      new='                for (uint256 j; j < legs.length; ++j) { // MUTANT G3-8\n                    if (j != i && legs[i].pool == legs[j].pool) return true;\n',
+      teste='test_Gas_PreviewRouteExact_OneHop'),
+ dict(nome='gas-1106 G3-9: batchQuote copies each entry from calldata to memory',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            BatchEntry calldata e = entries[i];',
+      new='            BatchEntry memory e = entries[i]; // MUTANT G3-9',
+      teste='test_Gas_BatchQuote_N1_N2_N4_N8'),
+ dict(nome='gas-1106 G3-10: _registryFresh reads the rows past the third fresh one instead of exiting',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (fresh >= MIN_FRESH_VENUES) return true;\n            }\n            unchecked { ++i; }\n        }\n        return false;\n',
+      new='            }\n            unchecked { ++i; }\n        }\n        return fresh >= MIN_FRESH_VENUES; // MUTANT G3-10\n',
+      teste='test_Gas_FindBestRoutePlan_PerCandidatePools_1_2_4_8'),
+ dict(nome='gas-1106 G3-11: _candsOf rebuilds an ordered pair it already holds (a memo hit is ignored)',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (e == 0) {\n            (c, dec) = _topKPools(tA, tB);',
+      new='        if (true) { // MUTANT G3-11\n            (c, dec) = _topKPools(tA, tB);',
+      teste='test_Gas_FindBestRoutePlan_PerBridges_1_2_3'),
+ dict(nome='gas-1106 G3-12: feeCalendar asks the Hub about tokenOut before it checks that the route is a single hop',
+      f='src/BlazePhoenixCore.sol',
+      old='        feeOnOut = hops.length == 1 && IBridgeAskC(hub).isBridgeToken(tokenOut);',
+      new='        feeOnOut = IBridgeAskC(hub).isBridgeToken(tokenOut) && hops.length == 1; // MUTANT G3-12',
+      teste='test_Gas_FeeCalendarOf_And_BridgeViews'),
 ]
 
+# The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
+# after it), and a mutant that only costs gas fails nothing but that comparison. So every run checks
+# the committed snapshots, and none rewrites them: a run that wrote would turn a difference it missed
+# into the pristine value of every later run.
+SNAPSHOT_FLAGS = ["--gas-snapshot-check", "true", "--gas-snapshot-emit", "false"]
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def run(t):
-    r = subprocess.run(["forge","test","--match-test",t],
+    r = subprocess.run(["forge","test","--match-test",t] + SNAPSHOT_FLAGS,
                        capture_output=True, text=True,
                        env={**os.environ,"FOUNDRY_PROFILE":"release"})
-    return r.returncode == 0, r.stdout + r.stderr
+    return r.returncode == 0, ANSI.sub("", r.stdout + r.stderr)
+
+
+def named_failure(t, out):
+    """Whether the output names the failure of test t: its own [FAIL] line, a failed setUp of the
+    contract the run selected, or its own snapshot group differing.
+
+    A snapshot difference fails the run as a whole while every test prints [PASS], and so do a
+    difference in another group, a crash and an OOM: the exit code alone says nothing about which
+    test caught what. A test that owns a snapshot group is credited with a kill only when this
+    holds."""
+    for line in out.splitlines():
+        s = line.strip()
+        if s.startswith("[FAIL") and (f"] {t}(" in s or "] setUp(" in s):
+            return True
+        if s.startswith(f"[{t}] Failed to match snapshots"):
+            return True
+    return False
 
 
 def artefact_fingerprint(harness=()):
@@ -4719,13 +5159,17 @@ def baseline():
     property, which is why it is now measured on every run instead of assumed.
 
     One suite run, in the same profile the mutants use, so the baseline and the verdict cannot
-    disagree about which binary they are talking about."""
-    r = subprocess.run(["forge", "test"], capture_output=True, text=True,
+    disagree about which binary they are talking about.
+
+    A gas ledger whose committed snapshot no longer matches is red too, although every assert
+    passed: forge prints [PASS] for it, names its group, and fails the run as a whole."""
+    r = subprocess.run(["forge", "test"] + SNAPSHOT_FLAGS, capture_output=True, text=True,
                        env={**os.environ, "FOUNDRY_PROFILE": "release"})
-    out = r.stdout + r.stderr
+    out = ANSI.sub("", r.stdout + r.stderr)
     green = set(re.findall(r"\[PASS\]\s+(\w+)", out))
     red = set(re.findall(r"\[FAIL[^\]]*\]\s+(\w+)", out))
-    return green, red, out
+    red |= set(re.findall(r"^\s*\[(\w+)\] Failed to match snapshots", out, re.M))
+    return green, red, out, r.returncode
 
 def shard():
     """(k, n): run the mutants whose 1-based index i has (i - 1) % n == k.
@@ -4746,7 +5190,13 @@ def main():
     k, n = shard()
     mine = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % n == k]
     paired = {m["teste"] for _, m in mine}
-    green, red, _ = baseline()
+    green, red, base_out, base_rc = baseline()
+    if base_rc != 0 and not red:
+        # A run that fails while naming no failed test and no snapshot group (a snapshot error with
+        # no group, a crash, an OOM) clears nothing: a test it printed as [PASS] may be the cause.
+        falhas.append(f"BASELINE FAILED: the unmutated suite exited {base_rc} and names no failed test "
+                      f"or snapshot group, so no paired test can be cleared as green.")
+        print(f"  BASELINE ?    exit {base_rc}, nothing named")
     harness = sorted({m["f"] for _, m in mine if not m["f"].startswith("src/")})
     pristine = artefact_fingerprint(harness)
     # A test file is recompiled only by the runs whose test it holds, so its objects stay as the last
@@ -4788,6 +5238,12 @@ def main():
             elif "No tests match" in out or "Compiler run failed" in out:
                 falhas.append(f"[{i}] {m['nome']}: the test '{m['teste']}' does not exist.")
                 print(f"  [{i}] TEST MISSING {m['nome']}")
+            elif (os.path.exists(os.path.join("snapshots", m["teste"] + ".json"))
+                  and not named_failure(m["teste"], out)):
+                falhas.append(f"[{i}] {m['nome']}: the run of '{m['teste']}' failed, but the output names "
+                              f"neither that test failing nor its own snapshot group differing, so the "
+                              f"kill is not evidence.")
+                print(f"  [{i}] NO EVIDENCE  {m['nome']}")
             else:
                 print(f"  [{i}] ok           {m['nome']}")
         finally:

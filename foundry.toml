@@ -19,6 +19,9 @@ optimizer = true
 optimizer_runs = 200
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
+# Each top-level call of a test is its own transaction. The gas ledgers in test/gas/
+# are measured under it (cold accounts, 21 000 intrinsic gas) and assert it in setUp.
+isolate = true
 
 [fuzz]
 runs = 256
@@ -65,6 +68,8 @@ optimizer = true
 optimizer_runs = 200
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
+# Same as the default profile: the test/gas ledgers are measured in isolation mode.
+isolate = true
 
 # SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the
 # glacier-abacus `smtchecker` job (this profile is what that job greps for).

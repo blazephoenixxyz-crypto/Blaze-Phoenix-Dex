@@ -1,0 +1,14 @@
+{
+  "BlazePhoenixAdapterBalancerV2": "5208",
+  "BlazePhoenixAdapterBalancerV3": "6231",
+  "BlazePhoenixAdapterCurveCryptoNG": "3026",
+  "BlazePhoenixAdapterCurveNG": "3528",
+  "BlazePhoenixCore": "21627",
+  "BlazePhoenixGate": "10226",
+  "BlazePhoenixGateWrapper": "3962",
+  "BlazePhoenixHub": "23212",
+  "BlazePhoenixMath": "10840",
+  "BlazePhoenixQuoter": "16754",
+  "BlazePhoenixRouter": "23779",
+  "BlazePhoenixSolver": "19805"
+}

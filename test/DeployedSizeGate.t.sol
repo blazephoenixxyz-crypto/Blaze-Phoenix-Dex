@@ -8,6 +8,17 @@ import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 
+// The hard protocol limit. Not a policy choice. File-level, like the gate below, so the other
+// size tests import these two numbers instead of restating them.
+uint256 constant EIP_170_LIMIT = 24_576;
+
+// The project's own margin, and a SECOND PRODUCER of this number: the first is
+// `.github/workflows/ci.yml`, which sets `limit = 24000` in the size-guard step. Two
+// producers of one quantity is the defect shape this codebase spends most of its
+// effort on, so it is named rather than hidden - if the CI figure moves and this one
+// does not, the gates disagree and the looser one wins silently.
+uint256 constant PROJECT_GATE = 24_000;
+
 // A size limit that only runs when someone remembers it is a size hope.
 /// @notice The size limit, checked where nothing can stop it running.
 ///
@@ -31,23 +42,13 @@ import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 ///         because of that guard, not instead of it.
 ///
 ///         `BlazePhoenixCore` is absent because it is a DELEGATECALL-linked library and has no
-///         constructor to call here; the CI table still covers it (20,753 of 24,576 on the
-///         release profile, 2026-10-27, after `v4HeldShare` became internal - G alpha3).
+///         constructor to call here; `test/gas/SizeAndGasGates.t.sol` deploys it from its own
+///         creation code and holds it to the same PROJECT_GATE, with its bytes in a snapshot.
 ///
 ///         `BlazePhoenixMath` (D10, 2026-10-26) is a linked library too, but the Solver's own
 ///         size depends on it holding the hop's arithmetic, so it is measured where the test
 ///         environment linked it: `address(BlazePhoenixMath)`.
 contract DeployedSizeGateTest is Test {
-    /// @dev The hard protocol limit. Not a policy choice.
-    uint256 constant EIP_170_LIMIT = 24_576;
-
-    /// @dev The project's own margin, and a SECOND PRODUCER of this number: the first is
-    ///      `.github/workflows/ci.yml`, which sets `limit = 24000` in the size-guard step. Two
-    ///      producers of one quantity is the defect shape this codebase spends most of its
-    ///      effort on, so it is named rather than hidden - if the CI figure moves and this one
-    ///      does not, the gates disagree and the looser one wins silently.
-    uint256 constant PROJECT_GATE = 24_000;
-
     address constant TREASURY_1 = address(0xFEE1);
     address constant TREASURY_2 = address(0xFEE2);
 
