@@ -298,16 +298,28 @@ abstract contract RegimeHarness is Test {
                 // `ironFloorBps` to their own in-frame quote; the frames differ by the fee. Fee on the OUTPUT (a single
                 // hop into a bridge): the Router's in-frame quote is the Solver's, and the
                 // enforced floor is the attested one exactly. Fee on the INPUT: the legs receive
-                // the net amount, the Router re-derives its floor on that, and the result sits in
-                // [attested x (1 - fee), attested] - the lower edge by the fee, the upper by the
-                // curve's convexity (less input, a slightly better rate). Both edges are exact.
+                // the net amount, the Router re-derives its floor on that. Since 4007 (2026-11-11)
+                // the Solver attests on the net output too, the gross output scaled by each
+                // charging hop's (b - fee) / b and rounded down, so the enforced floor sits in
+                // [attested, attested read back on the gross output]: the lower edge because a
+                // pool curve concave through the origin delivers at least that share of the gross
+                // output on the net input (out(l * x) >= l * out(x) for l <= 1) and the same
+                // `ironFloorBps` is applied to it; the upper edge is the pre-4007 gross floor,
+                // which the enforced floor never exceeded (the curve's convexity is at most the
+                // fee's share), with the two units the two roundings down can take.
                 bool feeOnOut = route.hops.length == 1 && hub.isBridgeToken(tOut);
                 if (feeOnOut) {
                     assertEq(floorUsed, route.singleOutFloor, "fee on the output: the enforced floor is the attested floor");
                 } else {
-                    uint256 lo = BPC.mulDiv(route.singleOutFloor, BPC.BPS - BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-                    assertGe(floorUsed, lo, "fee on the input: the enforced floor is at least the attested floor net of the fee");
-                    assertLe(floorUsed, route.singleOutFloor, "fee on the input: the enforced floor never exceeds the attested floor");
+                    assertGe(floorUsed, route.singleOutFloor, "fee on the input: the enforced floor is at least the attested floor, sized on the net input");
+                    // One factor per charging hop: the first hop whose input is a bridge, every hop when none.
+                    uint256 charging = route.hops.length;
+                    for (uint256 h; h < route.hops.length; ++h) {
+                        if (hub.isBridgeToken(route.hops[h].tokenIn)) { charging = 1; break; }
+                    }
+                    uint256 hi = route.singleOutFloor;
+                    for (uint256 k; k < charging; ++k) hi = BPC.mulDivUp(hi + 2, BPC.BPS, BPC.BPS - BPC.PROTOCOL_FEE_BPS);
+                    assertLe(floorUsed, hi, "fee on the input: the enforced floor never exceeds the attested floor read back on the gross output");
                 }
             }
             for (uint256 i; i < path.length; ++i) {

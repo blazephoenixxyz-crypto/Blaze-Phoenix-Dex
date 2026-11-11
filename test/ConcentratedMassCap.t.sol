@@ -131,7 +131,9 @@ contract ConcentratedMassCapTest is Test {
         assertGt(got, 0, "setup: the swap must really have executed");
 
         uint256 slot = hub.getSlot(_key());
-        assertEq(BPC.decodeSwapCount(slot), 1, "setup: bucket must be written by THIS swap");
+        // fix-1102 A: was swapCount 1 because the registration ticked the new row; now 0 with lastUpdateTs = now because the row this swap seats is born unticked and stamped at birth (BlazePhoenixHub.sol:1972, :2168)
+        assertEq(BPC.decodeSwapCount(slot), 0, "setup: bucket must be written by THIS swap");
+        assertEq(BPC.decodeLastUpdateTs(slot), block.timestamp, "setup: bucket must be written by THIS swap");
 
         uint8 written = BPC.decodeBucket(slot);
         // The bucket the pool's real holdings support, MEASURED after the swap.

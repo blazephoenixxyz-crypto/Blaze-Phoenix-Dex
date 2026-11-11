@@ -103,9 +103,13 @@ contract McdcInert_BridgeNeverLearnsACode is Test {
         assertEq(hub.v4CodeOf(W), 0, "premise: nothing learned yet");
         assertEq(hub.v4CodeOf(X), 0, "premise: nothing learned yet");
 
-        hub.recordSwap(pool, BPC.KIND_V4, FEE, address(0), W, X, 1e18, 1e18, 1e18);
+        // fix-1102 A: was an unanchored swap; now anchored, because only an anchored V4 swap teaches a code (BlazePhoenixHub.sol:1789)
+        hub.recordSwap(pool, BPC.KIND_V4, FEE, address(0), W, X, 1e18, 1e18, 1e18 | BPC.TICK_ANCHORED);
 
-        assertTrue(hub.v4CodeOf(X) != 0, "the counterpart learns the tier it just traded on");
+        // fix-1102 A: was != 0 on the whole word; now the low 48 bits are FEE << 24 | TS and bits 48+ the teacher's bucket, 3 = ilog10(1e18 / 1e15) (BlazePhoenixHub.sol:1460, BlazePhoenixCore.sol:2539)
+        assertEq(hub.v4CodeOf(X) & ((uint256(1) << 48) - 1), (uint256(FEE) << 24) | uint256(uint24(TS)),
+            "the counterpart learns the tier it just traded on");
+        assertEq(hub.v4CodeOf(X) >> 48, 3, "the counterpart's code carries the swap's depth bucket");
         assertEq(hub.v4CodeOf(W), 0, "a bridge never learns a V4 code: it pairs with everything");
     }
 
@@ -114,9 +118,14 @@ contract McdcInert_BridgeNeverLearnsACode is Test {
     function test_noBridge_bothSidesLearn() public {
         hub.addV4(W, X, FEE, TS, address(0));
         address pool = _poolAddr(W, X);
-        hub.recordSwap(pool, BPC.KIND_V4, FEE, address(0), W, X, 1e18, 1e18, 1e18);
-        assertTrue(hub.v4CodeOf(W) != 0, "control: a non-bridge t0 learns");
-        assertTrue(hub.v4CodeOf(X) != 0, "control: a non-bridge t1 learns");
+        // fix-1102 A: was an unanchored swap; now anchored, because only an anchored V4 swap teaches a code (BlazePhoenixHub.sol:1789)
+        hub.recordSwap(pool, BPC.KIND_V4, FEE, address(0), W, X, 1e18, 1e18, 1e18 | BPC.TICK_ANCHORED);
+        // fix-1102 A: was != 0 on the whole word; now the low 48 bits are FEE << 24 | TS and bits 48+ the teacher's bucket, 3 = ilog10(1e18 / 1e15) (BlazePhoenixHub.sol:1460, BlazePhoenixCore.sol:2539)
+        uint256 tier = (uint256(FEE) << 24) | uint256(uint24(TS));
+        assertEq(hub.v4CodeOf(W) & ((uint256(1) << 48) - 1), tier, "control: a non-bridge t0 learns");
+        assertEq(hub.v4CodeOf(W) >> 48, 3, "control: t0's code carries the swap's depth bucket");
+        assertEq(hub.v4CodeOf(X) & ((uint256(1) << 48) - 1), tier, "control: a non-bridge t1 learns");
+        assertEq(hub.v4CodeOf(X) >> 48, 3, "control: t1's code carries the swap's depth bucket");
     }
 }
 

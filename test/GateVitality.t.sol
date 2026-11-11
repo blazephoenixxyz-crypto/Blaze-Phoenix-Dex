@@ -19,8 +19,9 @@ pragma solidity 0.8.36;
 //  Oracle: the tokens' balances, the venue's own pay rule, and thresholds and
 //  buckets computed here by hand; never the code under test.
 //
-//  Cheatcodes: vm.warp (time passing is the route: the adapter timelock and the
-//  decay), vm.prank (the user is the route through the Router's door).
+//  Cheatcodes: vm.warp (time passing is the route: the adapter timelock, the
+//  second between two uses, and the decay), vm.prank (the user is the route
+//  through the Router's door).
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -156,12 +157,16 @@ contract GateVitalityTest is Test {
 
     // ─── 3. use: only a material swap ticks (W5-C1) ───
 
-    /// Quantity: the wrapper's use count. Two material swaps through the wrapper read 2.
+    /// Quantity: the wrapper's use count. Two material swaps through the wrapper, a second
+    /// apart, read 2: count 2 on a step of m * tau, tau = 6 144 - (6 143 + 7) / 8 = 5 376 after
+    /// the first interval, v = 2 * 24 576 / (4 * 5 376) = 2, floored.
     function test_GateVital_MaterialSwapTicks() public {
         BlazePhoenixGateWrapper w = _wrapper();
         assertEq(_v(address(w)), 0, "born with no use");
         _swap(w, 100e18);
         assertEq(_v(address(w)), 1, "one material swap");
+        // fix-1102 A: was the second swap in the same second, read 2 because every tick counted; now a second later, because a tick inside the stamped second leaves the clock as it was (BlazePhoenixCore.sol:2898)
+        vm.warp(block.timestamp + 1);
         _swap(w, 100e18);
         assertEq(_v(address(w)), 2, "two material swaps");
     }

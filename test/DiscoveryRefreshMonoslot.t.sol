@@ -17,12 +17,15 @@ import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 ///
 /// O que NINGUEM pinava:
 ///   (A) O CONTRATO DO MONOSLOT — "tickSlot toca APENAS {swapCount, tau,
-///       bucket}". Onze campos num uint256; uma escrita que sangre para fora
+///       lastUpdateTs, bucket}". Onze campos num uint256; uma escrita que sangre para fora
 ///       da sua mascara corrompe kind/fee/bridge-flag em silencio. E a classe
 ///       do "Monoslot bit 6" e do conc-vs-bucket que os comentarios do src ja
 ///       documentam como quase-defeitos. Aqui fica ALGEBRA, nao enumeracao:
-///       (antes XOR depois) & ~mascara == 0 cobre os 8 campos preservados de
+///       (antes XOR depois) & ~mascara == 0 cobre os 7 campos preservados de
 ///       uma vez, incluindo os bits reservados.
+///       fix-1102 A: was {swapCount, tau, bucket} and 8 preserved fields, because the callers
+///       stamped lastUpdateTs; now lastUpdateTs is licensed and asserted by value, because
+///       tickSlot is the clock's one writer and stamps it (BlazePhoenixCore.sol:2913).
 ///   (B) A SEGUNDA PORTA (recordSwap) — insercao fria com vitalidade 1 e prova
 ///       de par; refresh quente a re-bucketar; fecho de kinds sem revert; e o
 ///       po que NAO PODE segurar as 16 cadeiras contra um pool fundo.
@@ -33,19 +36,24 @@ import {MockOriginFactory, Origin} from "./mocks/MockOriginFactory.sol";
 /// NOTA DE AMBIENTE: zero vm.warp/vm.roll em LOOP — o forge desta maquina tem
 /// o bug do stale-call-cache (memoria da sessao 2026-08-1x); cada teste faz no
 /// maximo UM warp e UM roll, em callsites distintos.
+/// fix-1102 A: was at most one warp per test; test_Vitalidade_RefrescadoSuperaEstagnado now warps
+/// in a loop, because only an anchored tick that closes a real interval moves the clock
+/// (BlazePhoenixCore.sol:2898): every target is absolute, t1 + i with t1 read once through the
+/// cheatcode, as in test/DimensionsTime.t.sol:11-14.
 ///
 /// forge test --match-contract DiscoveryRefreshMonoslot -vv
 
 // ─── (A) O CONTRATO DO MONOSLOT ─────────────────────────────────────────────
 contract MonoslotContractTest is Test {
     /// bits que o tickSlot TEM licenca para tocar:
-    ///   swapCount [191:160] · tau [255:224] · bucket [63:60]
-    uint256 constant TICK_LICENSE =
-        (uint256(0xFFFFFFFF) << 160) | (uint256(0xFFFFFFFF) << 224) | (uint256(0xF) << 60);
+    ///   swapCount [191:160] · tau [255:224] · lastUpdateTs [95:64] · bucket [63:60]
+    // fix-1102 A: was without lastUpdateTs [95:64], because the callers stamped it; now with it, because tickSlot writes currentTs there on the tick that moves the clock (BlazePhoenixCore.sol:2913)
+    uint256 constant TICK_LICENSE = (uint256(0xFFFFFFFF) << 160) | (uint256(0xFFFFFFFF) << 224)
+        | (uint256(0xFFFFFFFF) << 64) | (uint256(0xF) << 60);
 
     /// A invariante central, como algebra e nao como lista: TUDO fora da
     /// licenca sobrevive bit a bit — kind, fee, tier, conc, emaIn/Out, regBlk,
-    /// lastUpdateTs, a flag de bridge (bit 7) e os reservados [6:1].
+    /// a flag de bridge (bit 7) e os reservados [6:1].
     function testFuzz_TickSlot_SoTocaNosSeusCampos(
         uint256 slot, bool anchored, uint256 depthWad, uint32 ts, uint8 shape
     ) public pure {
@@ -54,20 +62,27 @@ contract MonoslotContractTest is Test {
         if (bound(shape, 0, 3) == 0) slot &= ~(uint256(0xFFFFFFFF) << 64);
         uint256 depois = BPC.tickSlot(slot, anchored, depthWad, ts);
         assertEq((slot ^ depois) & ~TICK_LICENSE, 0,
-            "tickSlot sangrou para fora de {swapCount, tau, bucket}");
-        // tau is WRITTEN on every arm, and asserted on every arm: an anchored tick that closes an
-        // interval (lastTs != 0) takes it as tau when tau is 0, else moves tau 2^-3 of the gap
-        // (TAU_EMA_SHIFT, by value); any other tick leaves it.
+            "tickSlot sangrou para fora de {swapCount, tau, lastUpdateTs, bucket}");
+        // tau and lastUpdateTs are WRITTEN on every arm, and asserted on every arm: an anchored tick
+        // that closes a real interval (lastTs != 0, ts > lastTs) moves tau 2^-3 of the gap, rounded
+        // up, from 24 576 / 4 when tau is 0 (TAU_EMA_SHIFT and the first step, by value); an anchored
+        // tick on a slot never stamped moves no tau; any other tick leaves the clock.
         uint256 lastTs = BPC.decodeLastUpdateTs(slot);
         uint256 tau = BPC.decodeTau(slot);
+        // fix-1102 A: was every anchored tick with lastTs != 0, ts <= lastTs closing a 0 s interval; now such a tick moves nothing, because a tick inside the stamped second leaves the clock (BlazePhoenixCore.sol:2898)
+        bool moves = anchored && (lastTs == 0 || ts > lastTs);
         uint256 want = tau;
-        if (anchored && lastTs != 0) {
-            uint256 dt = ts > lastTs ? ts - lastTs : 0;
-            if (tau == 0) want = dt;
-            else if (dt >= tau) want = tau + (dt - tau) / 8;
-            else want = tau - (tau - dt) / 8;
+        if (moves && lastTs != 0) {
+            // fix-1102 A: was dt itself when tau is 0, and a step rounded down; now from 6144 = 24 576 / 4, and rounded up, because no single interval is read whole and the EMA cannot stall (BlazePhoenixCore.sol:2904, :2907-2908)
+            uint256 from = tau == 0 ? 6144 : tau;
+            uint256 dt = ts - lastTs;
+            if (dt >= from) want = from + (dt - from + 7) / 8;
+            else want = from - (from - dt + 7) / 8;
         }
         assertEq(BPC.decodeTau(depois), want, "tau is not the clock's own next value");
+        // fix-1102 A: was preserved bit for bit, because the callers stamped it; now ts on the tick that moves the clock and the old stamp on any other, because tickSlot stamps currentTs (BlazePhoenixCore.sol:2898, :2913)
+        assertEq(BPC.decodeLastUpdateTs(depois), moves ? uint256(ts) : lastTs,
+            "lastUpdateTs is not the clock's own stamp");
         assertEq(BPC.decodeBucket(depois), BPC.depthBucket(depthWad),
             "bucket nao re-derivado da profundidade nova");
     }
@@ -182,7 +197,9 @@ contract DiscoveryRefreshTest is Test {
         assertEq(BPC.decodeFee(s), 0, "sem identidade de fee a linha le ao vivo, nunca a calldata (9999)");
         assertEq(BPC.quoteV3Fee(address(p), 0, 0, false), 500,
             "o registo tem de cotar a fee MEDIDA do pool (500), nunca a calldata (9999)");
-        assertEq(BPC.decodeSwapCount(s), 1, "vitalidade nasce a 1");
+        // fix-1102 A: was swapCount 1 because the registration ticked the new row; now 0 because the row is born unticked (BlazePhoenixHub.sol:2168), and its vitality is the live floor: c 0 on the unmeasured step scores 0, floored to 1 (BlazePhoenixCore.sol:2598-2599)
+        assertEq(BPC.decodeSwapCount(s), 0, "the cold door records no trade: the row is born with swapCount 0");
+        assertEq(BPC.vitality(s, uint32(block.timestamp)), 1, "vitalidade nasce a 1");
         assertEq(BPC.decodeBucket(s), BPC.depthBucket(DEPTH_RASA));
         assertEq(hub.getPool(key), address(p));
     }
@@ -199,8 +216,10 @@ contract DiscoveryRefreshTest is Test {
         vm.warp(tIns + 100);
         _rec(address(p), KIND_V3, DEPTH_FUNDA | BPC.TICK_ANCHORED);
         uint256 s = hub.getSlot(hub.keyOf(address(p), TA, TB));
-        assertEq(BPC.decodeSwapCount(s), 2, "refresh tem de contar do valor decaido + 1");
-        assertEq(BPC.decodeTau(s), 100, "the first anchored interval since insertion is tau");
+        // fix-1102 A: was 2 because the registration ticked the new row; now 1 because the row is born with swapCount 0 (BlazePhoenixHub.sol:2168) and the anchored refresh counts the decayed 0 + 1 (BlazePhoenixCore.sol:2900-2901)
+        assertEq(BPC.decodeSwapCount(s), 1, "refresh tem de contar do valor decaido + 1");
+        // fix-1102 A: was 100 because the first interval was read whole; now 5388 = 6144 - ((6144 - 100 + 7) >> 3) because the first interval moves tau from 24 576 / 4, rounded up (BlazePhoenixCore.sol:2904, :2908)
+        assertEq(BPC.decodeTau(s), 5388, "the first anchored interval since insertion moves tau from 24 576 / 4");
         assertEq(BPC.decodeLastUpdateTs(s), tIns + 100, "the refresh stamps lastUpdateTs");
         assertEq(BPC.decodeBucket(s), BPC.depthBucket(DEPTH_FUNDA),
             "o balde tem de seguir a profundidade NOVA, nao a da insercao");
@@ -247,19 +266,38 @@ contract DiscoveryRefreshTest is Test {
     /// versao deste teste descobriu a vermelho: a vitalidade de um slot VIVO
     /// dentro do horizonte tem CHAO em 1 ("a real pool never vanishes" —
     /// Core.vitality), logo um tick unico empata com o estagnado em vez de o
-    /// superar. O chao e deliberado; o teste pina-o tambem. Um unico vm.warp
-    /// (bug do stale-cache deste forge).
+    /// superar. O chao e deliberado; o teste pina-o tambem. Every warp goes to an absolute
+    /// target (this forge's stale-cache bug).
+    /// fix-1102 A: was two dust refreshes in one second, which counted; now dust counts nothing and a
+    /// tick inside the stamped second neither (BlazePhoenixCore.sol:2898), so the refreshes are four
+    /// material trades a second apart: the first closes the 3-step interval and pulls tau from
+    /// 24 576 / 4 up to 14 593, the next three pull it to 12 769, 11 173 and 9 776 (rounded up,
+    /// :2904, :2907-2908) while the count goes 1, 2, 3, 4 (the chord takes 0 from a 1 s age,
+    /// :2642). v = c * 24 576 / (4 * tau) is 0, 0, 1, 2 (:2598): through the third tick a scores 1
+    /// (floored from 0, :2599), level with b, and the fourth scores 2, so psiA = 2 * 8 > psiB = 1 * 8.
     function test_Vitalidade_RefrescadoSuperaEstagnado() public {
         MockPair a = _pair();
         MockPair b = _pair();
         _rec(address(a), KIND_V3, DEPTH_RASA);
         _rec(address(b), KIND_V3, DEPTH_RASA);
-        vm.warp(block.timestamp + 3 * DECAY_STEP);
-        _rec(address(a), KIND_V3, DEPTH_RASA);   // refresh 1: repoe do chao
-        _rec(address(a), KIND_V3, DEPTH_RASA);   // refresh 2: sobe acima do chao
+        // fix-1102 A: was one warp to block.timestamp + 3 steps; now t1 from the cheatcode and absolute targets t1 + i, because the trades must land in distinct seconds (BlazePhoenixCore.sol:2898) and a via_ir build may re-read block.timestamp after a warp (test/DimensionsTime.t.sol:11-14)
+        uint256 t1 = vm.getBlockTimestamp() + 3 * DECAY_STEP;
+        // The two dust refreshes this test used to send, and two more, a second apart: dust counts
+        // nothing and stamps nothing, so it pumps no psi and a stays level with its untouched twin.
+        for (uint256 i; i < 4; ++i) {
+            vm.warp(t1 + i);
+            _rec(address(a), KIND_V3, DEPTH_RASA);
+        }
+        assertEq(hub.getPsi(address(a), TA, TB), hub.getPsi(address(b), TA, TB),
+            "dust pumped the psi: four unanchored refreshes moved a above its twin");
+        // fix-1102 A: was the two dust refreshes above; now four anchored ones a second apart, because only an anchored tick that closes a real interval counts (BlazePhoenixCore.sol:2898, :2900-2901)
+        for (uint256 i = 4; i < 8; ++i) {
+            vm.warp(t1 + i);
+            _rec(address(a), KIND_V3, DEPTH_RASA | BPC.TICK_ANCHORED);
+        }
         uint256 psiA = hub.getPsi(address(a), TA, TB);
         uint256 psiB = hub.getPsi(address(b), TA, TB);
-        assertGt(psiA, psiB, "dois refreshes tem de reordenar o psi apos o decay");
+        assertGt(psiA, psiB, "four material refreshes must reorder the psi after the decay");
         assertGt(psiB, 0, "o CHAO: um pool vivo dentro do horizonte nunca cai a zero");
     }
 }

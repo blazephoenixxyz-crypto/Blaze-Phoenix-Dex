@@ -670,12 +670,21 @@ contract BlazePhoenixRouter {
     ///      #45 (babayagaleet): a pull never delivers more than was asked. A surplus is a token
     ///      restating balances the Router already held (rebase/reflection inside transferFrom),
     ///      and counting it as received would sweep that foreign balance to the payer.
+    ///      3948: THE SURPLUS IS SHARED IN THE PROPORTION OF THE TWO BALANCES IT GREW FROM. A
+    ///      restatement after the credit grows the pull and the balance held before it by one
+    ///      factor, so the pull's part of the surplus is `surplus * amountIn / (amountIn +
+    ///      balBefore)`, rounded down: on a Router that held nothing the whole delta is the
+    ///      pull's; under a balance far larger than the ask it is the clamp; in between (the
+    ///      Router's own wei of share dust, a donation) it is the payer's growth and not one
+    ///      wei of what was held. The swap spends what the route commits and the input sweep
+    ///      returns the rest; what was held before the pull is never spent. No balance is a
+    ///      switch: a wei sent to the Router moves the proportion by a wei.
     function _received(address tokenIn, uint256 balBefore, uint256 amountIn)
         private returns (uint256 received)
     {
         received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
-        if (received > amountIn) received = amountIn;
+        if (received > amountIn) received = amountIn + BPC.mulDiv(received - amountIn, amountIn, amountIn + balBefore);
         else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
     }
 
@@ -805,12 +814,17 @@ contract BlazePhoenixRouter {
     ///      as a swap's balance. The fee is charged either way: every rule that counts it
     ///      (amountIn - fee, TSLOT_FEE) is unchanged.
     ///      BOOKED BY THE DELTA, NOT BY THE ANSWER: a token may move the share and still answer
-    ///      in a shape Core reads as a refusal (`false`, an oversized word). Only what did not
-    ///      leave the Router is booked, so a claim never pays a share twice.
+    ///      in a shape Core reads as a refusal (`false`, an oversized word), or answer `true`
+    ///      and move nothing, or less (3688). Only what did not leave the Router is booked, so
+    ///      a claim never pays a share twice and a share that stayed is never taken for a
+    ///      swap's balance. The answer is heard in one place only: when the balance ROSE inside
+    ///      the push the token restated it, the delta measured the restatement and not the
+    ///      push, and a `true` is then the only witness that the share was paid.
     function _push(address token, uint256 i, address to, uint256 amt) private {
         uint256 b0 = BPC.balanceOf(token, address(this));
-        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return;
+        bool ok = BPC.tryTransfer(token, to, amt, FEE_GAS);
         uint256 b1 = BPC.balanceOf(token, address(this));
+        if (ok && b1 > b0) return;
         uint256 gone = b0 > b1 ? b0 - b1 : 0;
         if (gone >= amt) return;
         unchecked { amt -= gone; }

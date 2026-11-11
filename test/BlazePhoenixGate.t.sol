@@ -813,18 +813,22 @@ contract BlazePhoenixGateTest is Test {
     }
 
     /// Quantity: how long an adapter that quotes high and delivers low holds the automatic door.
-    /// The adapter quotes twice what it trades and its venue holds the pair's mass, so its
-    /// vote centres the band and the Solver seats it over a thin curated pair; the best door
-    /// reverts at the leg floor (RouterE(5)), moving no funds, so the lie never settles. The
-    /// door is down until the admin clears the family (clearAdapter): the wrapper is then not
-    /// live, not planned, and the best door settles through the pair again.
+    /// The adapter quotes twice what it trades and its wrapper is the pair's only venue: no
+    /// stated fee votes, the wrapper is the band's base, and a base whose fee nobody knows keeps
+    /// every live row (BlazePhoenixMath._inBand), so the Solver plans the lie; the best door
+    /// reverts at the leg floor (RouterE(5)), moving no funds, so the lie never settles. A
+    /// curated pair, however thin, ends that before any clear (MED, 2026-10-28): its stated fee
+    /// votes, the wrapper's mass is muted (BlazePhoenixMath._mutedVotes) and the lie is judged
+    /// from above against the pair's price. Until MED the wrapper's 1M of held mass centred the
+    /// band over a 10k pair and the door stayed down beside it. The family itself stays live
+    /// until the admin clears it (clearAdapter): the wrapper is then not live and the Gate's
+    /// list gives no row for it.
     /// No swap, by anyone, removes a wrapper: a measured "broken quote" would let a griefer
     /// retire a legitimate gated venue for ever (fee-on-transfer, hooked, size-dependent).
     function test_GatedAuto_OverquotingAdapterHoldsTheFloorUntilCleared() public {
         BlazePhoenixGateWrapper w = _hostileWrapper(hostile.OVERQUOTE());
         hostile.setDeclaredDepth(type(uint128).max);   // capped by the venue's 1M a side
         (BlazePhoenixSolver solver, BlazePhoenixRouter router) = _autoDoor();
-        MockV2Pair pair = _seededPair(10_000e18);
         uint256 amt = 1_000e18;
         assertTrue(_plans(solver.findBestRoutePlan(address(t0), address(t1), amt), address(w)),
             "setup: the lie wins the plan");
@@ -837,19 +841,28 @@ contract BlazePhoenixGateTest is Test {
         _swapDirect(w, amt);
         assertEq(address(uint160(gate.wrappersOf(address(t0), address(t1))[0])), address(w),
             "a swap removes nothing from the list");
-        gate.clearAdapter(HFAM);
+        MockV2Pair pair = _seededPair(10_000e18);
         RoutePlan memory p = solver.findBestRoutePlan(address(t0), address(t1), amt);
-        assertFalse(_plans(p, address(w)), "the cleared wrapper is not planned");
-        assertTrue(_plans(p, address(pair)), "the pair is");
+        assertFalse(_plans(p, address(w)), "a curated pair, however thin, keeps the lie out");
+        assertTrue(_plans(p, address(pair)), "the pair is planned");
         vm.prank(u);
         assertGt(router.swapBestExactIn(address(t0), address(t1), amt, 1, u, block.timestamp + 1), 0,
-            "the best door is back");
+            "the best door settles through the pair, the lying family still live");
+        gate.clearAdapter(HFAM);
+        (bool live, , ) =
+            BPC.gateQuote(address(hub), address(w), address(t0), address(t1), HKEY, true, amt, false);
+        assertFalse(live, "the cleared family is not live");
+        assertEq(BPC.discoverWithGate(address(hub), address(gate), address(t0), address(t1), false).length, 0,
+            "the Gate's list gives no row");
     }
 
     /// Quantity: where the lie of (c) stops before any clear. The same adapter, quoting twice what
     /// it trades, against a curated pair holding three times its venue's mass: the band
-    /// centres on the pair (the wrapper votes only the mass its venue holds, Core._gateVital),
-    /// the lie falls outside it, and the best door settles through the pair.
+    /// centres on the pair, the lie falls outside it, and the best door settles through the pair.
+    /// Since MED (2026-10-28) the wrapper does not vote while the pair's stated fee does
+    /// (BlazePhoenixMath._mutedVotes) and is judged from above only, its price read as its rate
+    /// (BlazePhoenixMath._inBand); until then it voted the mass its venue holds (Core._gateVital),
+    /// a third of the pair's.
     function test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand() public {
         BlazePhoenixGateWrapper w = _hostileWrapper(hostile.OVERQUOTE());
         hostile.setDeclaredDepth(type(uint128).max);
@@ -987,7 +1000,7 @@ contract BlazePhoenixGateTest is Test {
     }
 
     /// The wrapper of `_wrapper` over a venue holding 2e30 a side: its depth is in bucket 15
-    /// (weight 2^15), so 128 material swaps lift vitalOf's psi to 2^22.
+    /// (weight 2^15), so material swaps a block (12 s) apart lift vitalOf's psi past 2^22.
     function _deepWrapper() internal returns (BlazePhoenixGateWrapper w) {
         w = _wrapper();
         adapter.setDeclaredDepth(type(uint128).max);   // capped by what the venue holds
@@ -996,9 +1009,22 @@ contract BlazePhoenixGateTest is Test {
         venue.sync();
     }
 
-    /// 128 material swaps (each above 1/2^MATERIAL_SHIFT of both venue sides): use, not a cheatcode.
+    /// Material swaps (each above 1/2^MATERIAL_SHIFT of both venue sides): use, not a cheatcode.
+    /// A burst inside one second is one use: its second swap moves no psi. Then 128 swaps a
+    /// block (12 s) apart: tau settles at 12 and the count at 15 (Core._decay's chord keeps
+    /// c - c / 8 of an interval, the tick adds 1), so v = 15 * 24 576 / (4 * 12) = 7 680 and
+    /// psi = 7 680 * 2^15 = 251 658 240 (BlazePhoenixCore.sol:2589, :2628, :2893).
     function _heat(BlazePhoenixGateWrapper w) internal returns (uint256 psi) {
-        for (uint256 i; i < 128; i++) _swapDirect(w, 4e25);
+        _swapDirect(w, 4e25);
+        (, , uint256 one) = gate.vitalOf(address(w));
+        _swapDirect(w, 4e25);
+        (, , psi) = gate.vitalOf(address(w));
+        assertEq(psi, one, "setup: a burst inside one second does not pump psi");
+        // fix-1102 A: was 128 swaps in one second, psi 128 * 2^15 = 2^22 because every tick counted; now 12 s apart, psi 7 680 * 2^15, because a tick inside the stamped second leaves the clock as it was (BlazePhoenixCore.sol:2898)
+        for (uint256 i; i < 128; i++) {
+            vm.warp(block.timestamp + 12);
+            _swapDirect(w, 4e25);
+        }
         (, , psi) = gate.vitalOf(address(w));
         assertGe(psi, uint256(1) << 22, "setup: psi is 2^22 or more");
     }

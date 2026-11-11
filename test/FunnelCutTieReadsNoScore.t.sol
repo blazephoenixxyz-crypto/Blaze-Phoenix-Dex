@@ -16,8 +16,10 @@ pragma solidity 0.8.36;
 //  At equal weight the cut now keeps the better marginal rate, then the lower
 //  pool address: both are properties of the pool, not of its history.
 //
-//  Oracle: two histories that differ only in WHEN the same dust trades land;
+//  Oracle: two histories that differ only in WHEN the same trades land;
 //  the isolation asserts prove that only the score differs between them.
+//  Since fix-1102 A dust moves no clock, so the trades are material, in rounds
+//  a minute apart, and the dust that follows them moves no psi.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -40,9 +42,13 @@ contract FunnelCutTieReadsNoScoreTest is Test {
     address constant TRADER = address(0xD057);
 
     uint256 constant ORDER = 100e18;
-    uint256 constant DUST = 1e15;
+    uint256 constant DUST = 1e15; // under every pool's anchor here: 200e18 >> 16 (BlazePhoenixCore.sol:2854)
+    uint256 constant TRADE = 2e16; // material on every pool here: 2.2x the 600 X pool's anchor 600e18 >> 16
     uint256 constant M = 6;
-    uint256 constant GAP = 4 days;
+    uint256 constant CADENCE = 60; // s between rounds: each closes a real interval (BlazePhoenixCore.sol:2898)
+    // fix-1102 A: was 4 days; now 12 hours: the early pool's step is 4 tau = 11,140 s (BlazePhoenixCore.sol:2634), so
+    // it decays to count 0 and stays live (:2637), and the late pools' first interval moves tau only 1/8 (:2907)
+    uint256 constant GAP = 12 hours;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -66,7 +72,13 @@ contract FunnelCutTieReadsNoScoreTest is Test {
         for (uint256 i; i < 5; i++) p[i] = _pair(300e18, 300e18 * yPerX[i]);
     }
 
-    function _band() internal { _pools([uint256(2000), 2000, 2000, 2040, 1960]); }
+    /// Five prices inside the band. Since MED (2026-10-28) the band is the one of no arbitrage
+    /// (BlazePhoenixMath, THE BAND): two 0.3% pools stay within about -0.6% / +0.9% of each
+    /// other, widened by the two probes' error bounds (here about 0.33% each: a probe of a
+    /// hundredth of the order is a third of a percent of each pool). The +-2% this fixture
+    /// used until then put the best and the worst pool out of the band, the cut had three
+    /// pools for four legs and dropped none; at +-0.5% all five stay and the cut drops one.
+    function _band() internal { _pools([uint256(2000), 2000, 2000, 2010, 1990]); }
 
     function _pair(uint256 x, uint256 y) internal returns (MockV2Pair q) {
         q = new MockV2Pair(address(X), address(Y));
@@ -77,26 +89,38 @@ contract FunnelCutTieReadsNoScoreTest is Test {
         hub.seedPool(address(q), BPC.KIND_V2, 30, address(0), address(X), address(Y));
     }
 
-    function _dust(address pool) internal {
+    function _swap(address pool, uint256 amt) internal {
+        // The Router anchors on the declared leg output (BlazePhoenixRouter.sol:2288): attest 1 Y per X, far under ~2000
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({pool: pool, hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
-            zeroForOne: address(X) < address(Y), stable: false, amountIn: DUST, expectedOut: 0, auxId: bytes32(0)});
+            zeroForOne: address(X) < address(Y), stable: false, amountIn: amt, expectedOut: amt, auxId: bytes32(0)});
         Hop[] memory hops = new Hop[](1);
-        hops[0] = Hop({tokenIn: address(X), tokenOut: address(Y), amountIn: DUST, expectedOut: 0, legs: legs});
+        hops[0] = Hop({tokenIn: address(X), tokenOut: address(Y), amountIn: amt, expectedOut: amt, legs: legs});
         Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0, expectedImpactBps: 0,
             confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         vm.prank(TRADER);
-        router.swapExactIn(r, DUST, 1, TRADER, type(uint256).max);
+        router.swapExactIn(r, amt, 1, TRADER, type(uint256).max);
     }
 
-    /// `early` takes its M dust trades at t0, every other pool its M at t0 + gap:
-    /// the same trades on the same pools, only the clock differs.
+    /// `early` takes its M rounds of material trades from t0 + 1 (the registration second
+    /// counts nothing), every other pool its M from t0 + gap, CADENCE apart: the same
+    /// trades on the same pools, only the clock differs. In a second of its own after the
+    /// last round, dust through every pool moves no psi (BlazePhoenixCore.sol:2898).
     function _history(uint256 early, uint256 gap) internal {
         uint256 t0 = vm.getBlockTimestamp();
-        for (uint256 k; k < M; k++) _dust(address(p[early]));
-        vm.warp(t0 + gap);
+        for (uint256 k; k < M; k++) {
+            vm.warp(t0 + 1 + k * CADENCE);
+            _swap(address(p[early]), TRADE);
+        }
+        for (uint256 k; k < M; k++) {
+            vm.warp(t0 + gap + k * CADENCE);
+            for (uint256 i; i < 5; i++) if (i != early) _swap(address(p[i]), TRADE);
+        }
+        vm.warp(t0 + gap + (M - 1) * CADENCE + 1);
         for (uint256 i; i < 5; i++) {
-            if (i != early) for (uint256 k; k < M; k++) _dust(address(p[i]));
+            uint256 before = hub.getPsi(address(p[i]), address(X), address(Y));
+            _swap(address(p[i]), DUST);
+            assertEq(hub.getPsi(address(p[i]), address(X), address(Y)), before, "dust pumped the psi");
         }
     }
 

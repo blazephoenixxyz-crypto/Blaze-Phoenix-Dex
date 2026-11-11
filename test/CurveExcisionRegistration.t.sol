@@ -160,19 +160,23 @@ contract CurveExcisionRegistrationTest is Test {
         // The row exists: one live swap seated it.
         hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), t0, t1, 1e18, 1e18, 1e21);
         uint256 seated = hub.getSlot(key);
-        assertEq(BPC.decodeSwapCount(seated), 1, "setup: the live swap must seat the row with one swap");
+        // fix-1102 A: was 1 because the registration ticked the new row; now 0 because a row is born with swapCount 0 (BlazePhoenixHub.sol:2168)
+        assertEq(BPC.decodeSwapCount(seated), 0, "setup: the live swap must seat the row, the registration counting no swap");
 
         // The three tombstones, each at a depth that would move the row's bucket if it ticked.
+        // fix-1102 A: was unanchored in the seat's second; now anchored and a second later, so a tick would move the count as well (BlazePhoenixCore.sol:2898)
+        vm.warp(block.timestamp + 1);
         uint8[3] memory excised = [uint8(2), uint8(3), uint8(7)];
         for (uint256 i; i < 3; ++i) {
-            hub.recordSwap(address(p), excised[i], 30, address(0), t0, t1, 1e18, 1e18, 1e27);
+            hub.recordSwap(address(p), excised[i], 30, address(0), t0, t1, 1e18, 1e18, 1e27 | BPC.TICK_ANCHORED);
             assertEq(hub.getSlot(key), seated,
                 "a swap under an excised kind ticked a registered row through the recordSwap door");
         }
 
         // CONTROL: the same call under a live kind does tick the row, so the equality above is
         // the gate's refusal and not a door that ticks nothing.
-        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), t0, t1, 1e18, 1e18, 1e21);
-        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 2, "a live kind must tick the same row");
+        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), t0, t1, 1e18, 1e18, 1e21 | BPC.TICK_ANCHORED);
+        // fix-1102 A: was 2 (the seat's tick plus this one); now 1 because the seat counts none and this anchored call closes a real interval (BlazePhoenixCore.sol:2898-2901)
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1, "a live kind must tick the same row");
     }
 }

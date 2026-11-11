@@ -16,10 +16,11 @@ pragma solidity 0.8.36;
 //  input-side phantom cut (Solver:858-861) returns freed input to that
 //  remainder. So Ψ picks which venue absorbs the freed input.
 //
-//  Two histories run the SAME dust trades on the SAME four pools. Only the time
+//  Two histories run the SAME trades on the SAME four pools. Only the time
 //  of the trades differs. Reserves, balances, depth buckets and the candidate
 //  set end identical; only Ψ differs. The next 100 X order is then paid a
-//  different amount.
+//  different amount. Since fix-1102 A dust moves no clock, so the trades are
+//  material, in rounds a minute apart, and the dust that follows them moves no Ψ.
 //
 //  Run:
 //  Reported by Seavia Resources through the bug bounty programme; this file is
@@ -53,9 +54,15 @@ contract Inv7RemainderSeatReadsNoScoreTest is Test {
     address constant TRADER = address(0xD057);
 
     uint256 constant ORDER = 100e18;
-    uint256 constant DUST  = 1e15;
-    uint256 constant M     = 6;          // dust trades per pool, both histories
-    uint256 constant GAP   = 4 days;     // 14 decay steps of 24,576 s
+    // fix-1102 A: was 1e15, an anchor on T and V (>= depth >> 16); now under all anchors (BlazePhoenixCore.sol:2854)
+    uint256 constant DUST  = 1e13;
+    uint256 constant TRADE = 2e16;       // material: 2.2x D1's anchor 600e18 >> 16 (BlazePhoenixCore.sol:2854)
+    uint256 constant M     = 6;          // material trades per pool, one a round, both histories
+    uint256 constant CADENCE = 60;       // s between rounds: each closes a real interval (BlazePhoenixCore.sol:2898)
+    // fix-1102 A: was 4 days (14 steps of 24,576 s); now 12 hours: the step is 4 tau of the pool's own clock
+    // (BlazePhoenixCore.sol:2634), 11,140 s for the early pool, which decays to count 0 and stays live (:2637),
+    // while the late pools' first interval moves their tau only 1/8 of the way (:2907), so 6 rounds score 6
+    uint256 constant GAP   = 12 hours;
     bool noV;                            // V drained: no dust trade can route through it
 
     struct End {
@@ -113,32 +120,53 @@ contract Inv7RemainderSeatReadsNoScoreTest is Test {
         vm.prank(TRADER); X.approve(address(router), type(uint256).max);
     }
 
-    // ─── a permissionless dust trade through one named pool ───
-    function _dust(address pool, uint8 kind, uint24 fee) private {
+    // ─── a permissionless trade of `amt` X through one named pool ───
+    function _swap(address pool, uint256 amt) private {
+        (uint8 kind, uint24 fee) = pool == address(V) ? (BPC.KIND_V3, uint24(500)) : (BPC.KIND_V2, uint24(30));
+        // The Router anchors on the declared leg output (BlazePhoenixRouter.sol:2288): attest 1 Y per X, far under ~2000
         Leg[] memory legs = new Leg[](1);
         legs[0] = Leg({pool: pool, hooks: address(0), kind: kind, fee: fee, tickSpacing: 0,
             zeroForOne: address(X) < address(Y), stable: false,
-            amountIn: DUST, expectedOut: 0, auxId: bytes32(0)});
+            amountIn: amt, expectedOut: amt, auxId: bytes32(0)});
         Hop[] memory hops = new Hop[](1);
-        hops[0] = Hop({tokenIn: address(X), tokenOut: address(Y), amountIn: DUST, expectedOut: 0, legs: legs});
+        hops[0] = Hop({tokenIn: address(X), tokenOut: address(Y), amountIn: amt, expectedOut: amt, legs: legs});
         Route memory r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         vm.prank(TRADER);
-        router.swapExactIn(r, DUST, 1, TRADER, type(uint256).max);
+        router.swapExactIn(r, amt, 1, TRADER, type(uint256).max);
     }
 
-    function _trades(address pool) private {
-        (uint8 k, uint24 f) = pool == address(V) ? (BPC.KIND_V3, uint24(500)) : (BPC.KIND_V2, uint24(30));
-        for (uint256 i; i < M; i++) _dust(pool, k, f);
+    /// @dev M rounds CADENCE apart from `start`; each round, one material trade on every
+    ///      pool of `ps` (address(0) skipped).
+    function _rounds(address[4] memory ps, uint256 start) private {
+        for (uint256 k; k < M; k++) {
+            vm.warp(start + k * CADENCE);
+            for (uint256 i; i < 4; i++) if (ps[i] != address(0)) _swap(ps[i], TRADE);
+        }
     }
 
-    /// @dev `early` gets its M trades at t0; every other pool gets its M trades at t0 + GAP.
+    /// @dev In a second of its own, after the last round, dust through every pool moves no psi:
+    ///      an unanchored tick leaves the clock as it was (BlazePhoenixCore.sol:2898).
+    function _dustPumpsNoPsi(uint256 t) private {
+        vm.warp(t);
+        address[4] memory ps = [address(D1), address(D2), address(T), address(V)];
+        for (uint256 i; i < 4; i++) {
+            if (noV && ps[i] == address(V)) continue;
+            uint256 before = _psi(ps[i]);
+            _swap(ps[i], DUST);
+            assertEq(_psi(ps[i]), before, "dust pumped the psi");
+        }
+    }
+
+    /// @dev `early` trades its M rounds from t0 + 1 (the registration second counts nothing);
+    ///      every other pool its M rounds from t0 + GAP.
     function _history(address early) private {
         uint256 t0 = vm.getBlockTimestamp();
-        _trades(early);
-        vm.warp(t0 + GAP);
+        _rounds([early, address(0), address(0), address(0)], t0 + 1);
         address[4] memory ps = [address(D1), address(D2), address(T), address(V)];
-        for (uint256 i; i < 4; i++) if (ps[i] != early && !(noV && ps[i] == address(V))) _trades(ps[i]);
+        for (uint256 i; i < 4; i++) if (ps[i] == early || (noV && ps[i] == address(V))) ps[i] = address(0);
+        _rounds(ps, t0 + GAP);
+        _dustPumpsNoPsi(t0 + GAP + (M - 1) * CADENCE + 1);
     }
 
     function _psi(address p) private view returns (uint256) { return hub.getPsi(p, address(X), address(Y)); }
@@ -214,6 +242,15 @@ contract Inv7RemainderSeatReadsNoScoreTest is Test {
         assertEq(a.delivered, b.delivered, "INV-7: the same order is paid differently by score alone");
         assertEq(a.totalOut,  b.totalOut,  "INV-7: the quote read the score");
         assertEq(a.floorOut,  b.floorOut,  "INV-7: the floor read the score");
+
+        // INV-7 at the seat itself (SHARED_QUANTITIES, remainder seat). The plan here is D1 and D2
+        // alone, so the seat carries only the rounding of the shares, 1 wei of X, and pays no Y that
+        // the three figures above can see. In B, D1 and D2 tie at psi 192 and the funnel lists D1
+        // first (Solver._topKPools), so a seat that followed the psi order would fall on D2 there and
+        // on D1 in A. The deepest survivor, D1 (600 X against D2's 400 X), sits last in both.
+        assertEq(a.lastLeg, address(D1), "the remainder seat is the deepest survivor");
+        assertEq(b.lastLeg, a.lastLeg, "INV-7: the remainder seat read the score");
+        assertEq(b.lastLegIn, a.lastLegIn, "INV-7: the remainder leg was sized by the score");
     }
 
     /// Control: with no phantom cut the score still moves the remainder seat (D1 vs T
@@ -244,15 +281,15 @@ contract Inv7RemainderSeatReadsNoScoreTest is Test {
         _history(address(D1));
         End memory a = _end();
         vm.revertToState(s);
-        // Same trades again; T now trades one decay step before the end, so its
-        // score halves and it drops below V. D1 still scores lowest.
+        // Same trades again; T now trades its rounds earlier, so its score halves and it
+        // drops below V. D1 still scores lowest.
         uint256 t0 = vm.getBlockTimestamp();
-        _trades(address(D1));
-        vm.warp(t0 + GAP - 24_576 - 1);
-        _trades(address(T));
-        vm.warp(t0 + GAP);
-        _trades(address(D2));
-        _trades(address(V));
+        _rounds([address(D1), address(0), address(0), address(0)], t0 + 1);
+        // fix-1102 A: was GAP - 24_576 - 1 (one fixed step); now 27,000 s: T's own step is 4 tau = 15,296 s
+        // (BlazePhoenixCore.sol:2634), so its count 6 decays to 2 (:2636-2642) and its score 96 drops to 48 < V's 50
+        _rounds([address(T), address(0), address(0), address(0)], t0 + GAP - 27_000);
+        _rounds([address(D2), address(V), address(0), address(0)], t0 + GAP);
+        _dustPumpsNoPsi(t0 + GAP + (M - 1) * CADENCE + 1);
         End memory c = _end();
         _log("A: D1 early", a);
         _log("C: D1 early, T one step early", c);

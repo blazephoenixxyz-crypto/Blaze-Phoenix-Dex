@@ -26,7 +26,8 @@ pragma solidity 0.8.36;
 //
 //  Oracle: token balances, Core's own producers on the native side, and the
 //  same route's Gate leg alone (the control). Cheatcodes: vm.warp (adapter
-//  timelock, inside the base helpers), vm.prank (the user).
+//  timelock, inside the base helpers; one second past a seeded pair's birth
+//  stamp, so its native leg's tick closes an interval), vm.prank (the user).
 // =============================================================================
 
 import {BlazePhoenixGateTest} from "./BlazePhoenixGate.t.sol";
@@ -88,6 +89,9 @@ contract GateBaseCoherenceTest is BlazePhoenixGateTest {
     /// at a 1000:1 price. Expected: the pair anchors the band, the lie is out, the door settles.
     /// RED at 1b4f2d4: the wrapper voted the long side (1e24) against the pair's short side
     /// (3e21), centred the band on the lie, was planned, and the best door reverted RouterE(5).
+    /// Since MED (2026-10-28) the wrapper does not vote while the pair's stated fee does
+    /// (BlazePhoenixMath._mutedVotes), so its depth's side no longer reaches the band here; the
+    /// side is watched where it is produced (test_Coherence_A_SameMassSameDepthOnBothDoors).
     function test_Coherence_A_DeeperAnchorHoldsAtAnyPrice() public {
         MockGateVenue v = _asymVenue(1_000_000e18, 1_000e18, 10);   // honest price 1000:1
         _accept(HFAM, address(hostile));
@@ -183,6 +187,8 @@ contract GateBaseCoherenceTest is BlazePhoenixGateTest {
             confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         address u = _user(router, amt);
         uint256 c0 = _count(address(pair), address(t0), address(t1));
+        // fix-1102 A: was the swap in the second the pair was seeded, because every tick counted; now one second later, because the row is born stamped (count 0, lastUpdateTs = now) and a tick inside the stamped second leaves the clock as it was (BlazePhoenixHub.sol:2168, BlazePhoenixCore.sol:2898)
+        vm.warp(vm.getBlockTimestamp() + 1);
         vm.prank(u);
         uint256 out = router.swapExactIn(r, amt, 1, u, block.timestamp + 1);
         assertEq(t1.balanceOf(u), out, "the user receives what the Router measured");
@@ -220,6 +226,8 @@ contract GateBaseCoherenceTest is BlazePhoenixGateTest {
             confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         address u = _user(router, amt);
         uint256 c0 = _count(address(pair), address(t1), address(t2));
+        // fix-1102 A: was the swap in the second the pair was seeded, because every tick counted; now one second later, because the row is born stamped (count 0, lastUpdateTs = now) and a tick inside the stamped second leaves the clock as it was (BlazePhoenixHub.sol:2168, BlazePhoenixCore.sol:2898)
+        vm.warp(vm.getBlockTimestamp() + 1);
         vm.prank(u);
         uint256 out = router.swapExactIn(r, amt, 1, u, block.timestamp + 1);
         assertEq(t2.balanceOf(u), out, "the user receives what the Router measured");

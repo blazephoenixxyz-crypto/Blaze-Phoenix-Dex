@@ -49,14 +49,18 @@ contract SplitGateSeesEverySurvivorTest is Test {
         hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(A), address(B));
     }
 
-    /// Three pools inside the believability band (all within 5% of the deep pool's
-    /// price, which anchors the depth-weighted median):
-    ///   D - the deepest, at 0.985: the depth representative;
-    ///   R - the best marginal rate, 1.030, but shallow: 10% of the order moves it;
-    ///   X - middle depth, middle price, 1.010: the best single leg for this order.
+    /// Three pools inside the believability band, the deep pool's price anchoring the
+    /// depth-weighted median:
+    ///   D - the deepest, at 1.000: the depth representative;
+    ///   R - the best marginal rate, 1.008, but shallow: the order is a tenth of it;
+    ///   X - middle depth, middle price, 1.005: the best single leg for this order.
+    /// Since MED (2026-10-28) the band is the one of no arbitrage (BlazePhoenixMath, THE
+    /// BAND), which keeps a 0.3% pool up to about 0.9% above a 0.3% median. Until then this
+    /// test drew D at 0.985, R at 1.030 and X at 1.010 (X a hundredth of D's depth), inside
+    /// the ±5% the band kept, and the band now drops X and R before the gate is asked.
     function test_TheGateComparesTheSplitWithEverySurvivorAtFullSize() public {
-        uint256[3] memory rA = [uint256(1e24), 1e22, 1e21];
-        uint256[3] memory rB = [uint256(985e21), 101e20, 103e19];
+        uint256[3] memory rA = [uint256(1e24), 1e23, 1e21];
+        uint256[3] memory rB = [uint256(1e24), 1005e20, 1008e18];
         uint256 bestSingle;
         uint256 bestIdx;
         for (uint256 i; i < 3; ++i) {
@@ -76,17 +80,29 @@ contract SplitGateSeesEverySurvivorTest is Test {
     /// The same guarantee across the dimension the report named: three to five survivors,
     /// between one and a hundred times the order deep. Whatever the plan does - one pool or a
     /// split - it never delivers less than the best single survivor, measured at full size.
-    /// Survivors: the believability band keeps a pool within 5% of the depth-weighted median
-    /// marginal rate, so prices within 1.5% of 1 (plus at most 1% of probe impact) keep every
-    /// pool inside it; a wider spread lets the band exclude the best pool by design, and the
+    /// Survivors: since MED (2026-10-28) the band keeps a 0.3% pool whose price lies within
+    /// 0.997^2 below and 1/0.997^3 above the depth-weighted median's (BlazePhoenixMath, THE
+    /// BAND), widened by the two probes' error bounds, which cover a probe's own impact (at
+    /// most 1% here). Prices within 0.25% of 1 keep every pool inside it whichever is the
+    /// median; until MED the band kept ±5% of the median rate and the prices spread over
+    /// ±1.5%. A wider spread lets the band exclude the best pool by design, and the
     /// guarantee is then over the ones it keeps.
+    /// With prices within 0.25% of 1, a full-size order loses about 1% or more to impact on a
+    /// pool one to a hundred times the order deep, more than the spread: the depth-weighted
+    /// split beats every single and the gate's choice never shows. Measured (256 runs): a
+    /// gate that measures only the deepest survivor at full size (the mutant of the test
+    /// above) and a gate that never collapses both passed there. Half the runs (nSeed of 128
+    /// or more) therefore put every pool a hundred times deeper, where a single's impact
+    /// (1% down to 0.01%) falls under the spread and the best-priced single can beat the
+    /// split.
     function testFuzz_ThePlanNeverDeliversLessThanItsBestSinglePool(uint8 nSeed, uint64 seed) public {
         uint256 n = 3 + uint256(nSeed) % 3;
+        uint256 deep = nSeed >= 128 ? 100 : 1;
         uint256 bestSingle;
         for (uint256 i; i < n; ++i) {
             uint256 r = uint256(keccak256(abi.encode(seed, i)));
-            uint256 depth = ORDER + r % (ORDER * 99);
-            uint256 rB = depth * (985 + (r >> 128) % 31) / 1000;
+            uint256 depth = (ORDER + r % (ORDER * 99)) * deep;
+            uint256 rB = depth * (9975 + (r >> 128) % 51) / 10_000;
             _pool(depth, rB);
             uint256 o = BPC.outV2(ORDER, depth, rB, 30);
             if (o > bestSingle) bestSingle = o;

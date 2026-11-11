@@ -117,10 +117,11 @@ contract FloorParitySolverRouterTest is Test {
     /// unweighted per-hop mean, summed across hops, attested a floor TIGHTER
     /// than the Router's share-weighted global mean (review 2026-09-02, after
     /// PR #25 fixed only the single-hop arm and declared this one safe).
-    /// The fee is taken on hop 1's bridge input here, so the two absolute
-    /// floors are priced on different bases; the floor RATE is what both
-    /// producers must agree on, and mulDivUp on 1e18-scale quotes cannot
-    /// move it by a whole bps.
+    /// The fee is taken on hop 1's bridge input here: the Solver attests the
+    /// floor on the output net of that fee (4007) and the Router enforces it
+    /// on the net output it quotes, so the floor RATE is read in the net
+    /// frame on both sides, and mulDivUp on 1e18-scale quotes cannot move it
+    /// by a whole bps.
     function test_Parity_TwoHopSplitRoute_AttestedFloorRateEqualsEnforcedFloorRate() public {
         uint256 amt = 50_000e18;
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenC), amt);
@@ -135,7 +136,9 @@ contract FloorParitySolverRouterTest is Test {
         (uint256 quote, uint256 floorOut, bool found) = _proof(vm.getRecordedLogs());
         assertTrue(found, "premise: ExecutionProof emitted");
 
-        uint256 attestedBps = BPC.mulDiv(plan.best.singleOutFloor, BPC.BPS, plan.best.totalOut);
+        uint256 b = plan.best.hops[1].amountIn;
+        uint256 netOut = BPC.mulDiv(plan.best.totalOut, b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS), b);
+        uint256 attestedBps = BPC.mulDiv(plan.best.singleOutFloor, BPC.BPS, netOut);
         uint256 enforcedBps = BPC.mulDiv(floorOut, BPC.BPS, quote);
         assertEq(attestedBps, enforcedBps,
             "two hops: the floor rate the Solver attests must be the floor rate the Router enforces");

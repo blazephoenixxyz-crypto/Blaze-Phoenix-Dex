@@ -761,6 +761,16 @@ contract BlazePhoenixQuoter {
         if (route.hops.length > 1)
             (feeHop, feeOnOut) =
                 this.feeCalendarOf(route.hops, route.hops[route.hops.length - 1].tokenOut);
+        // THE FLOOR'S FRAME (4007). The Solver attests `singleOutFloor` on the plan's output net
+        // of the input fees (`BPC.netOfInputFees`, the one producer). On two hops or more the
+        // walk below takes the same fees out of `carry`, so its gross output is in that net frame
+        // and the floor is rescaled by the net plan figure, read here before the walk rewrites
+        // the hops' `amountIn`. On one hop the walk takes no fee and the gross plan figure stays
+        // the divisor. Net over gross, the floor the preview carried sat a fee below the attested
+        // rate (fin2-router, 2026-11-11).
+        uint256 planOut = route.hops.length > 1
+            ? BPC.netOfInputFees(route.hops, route.totalOut, feeHop, feeOnOut)
+            : route.totalOut;
         for (uint256 h; h < route.hops.length; h++) {
             // Q773 and T04 (2026-10-27): at every hop the divisor is the hop commitment, the legs'
             // own sum, as in the Router (`_hopScaleImpactAndQuote` reads `_legSum(hop)`, never
@@ -808,8 +818,8 @@ contract BlazePhoenixQuoter {
         // the Router's own deduction on the way out — exactly as `_pack` reads
         // `route.totalOut` gross and derives `netOut` from it.
         uint256 gross = carry;
-        uint256 floorExact = route.totalOut == 0
-            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, route.totalOut);
+        uint256 floorExact = planOut == 0
+            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut);
         route.totalOut       = gross;
         route.singleOut      = gross;
         route.singleOutFloor = floorExact;

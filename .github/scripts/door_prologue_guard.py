@@ -49,7 +49,7 @@ CLAUSE = {
     "CAP": r"amountIn\s*>\s*type\(uint128\)\.max\)\s*revert\s+RouterE\(3\);",
     "A1": r"userMinOut\s*==\s*0\)\s*revert\s+RouterE\(10\);",
     "PULL0": r"if\s*\(received\s*==\s*0\)\s*revert\s+RouterE\(8\);",
-    "FOT": r"if\s*\(received\s*>\s*amountIn\)\s*received\s*=\s*amountIn;",
+    "FOT": r"if\s*\(received\s*>\s*amountIn\)\s*received\s*=\s*amountIn\s*\+\s*BPC\.mulDiv\(received\s*-\s*amountIn,\s*amountIn,\s*amountIn\s*\+\s*balBefore\);",
 }
 PULL = re.compile(r"safeTransferFrom\(|permitTransferFrom\(|\.deposit\{")
 TERMINAL = re.compile(r"\b(?:return\s+)(?:this\.selfExecutePrePulled|_swapPrePulled|_swap)\(")
