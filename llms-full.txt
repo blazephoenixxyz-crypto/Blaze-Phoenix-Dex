@@ -171,7 +171,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 - **This repository is V2**, and V2 is **not deployed**. Its first commit is a public release
   import; the code's earlier history is not in this git.
 - Measured by RPC on 2026-09-04: the deployed V1 router is the same 14,624-byte contract on
-  Base, Ethereum, Optimism and Arbitrum; V1 also runs on Robinhood Chain. This tree's Router builds 23,859 bytes (release profile, 2026-11-11) and carries
+  Base, Ethereum, Optimism and Arbitrum; V1 also runs on Robinhood Chain. This tree's Router builds 23,570 bytes (release profile, 2026-11-11) and carries
   external functions V1 does not have — the native-value entry point, the wrap/unwrap mechanism and the
   delayed rescue path.
 - `test/fork/DeployedParity.t.sol` pins what V1 is, on every network, so a change to it cannot
