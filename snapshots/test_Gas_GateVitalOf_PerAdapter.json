@@ -1,10 +1,10 @@
 {
-  "balancerV2_fresh": "69994",
-  "balancerV2_used": "70598",
-  "balancerV3_fresh": "68200",
-  "balancerV3_used": "68824",
-  "curveCryptoNG_fresh": "67453",
-  "curveCryptoNG_used": "68057",
-  "curveNG_fresh": "67730",
-  "curveNG_used": "68334"
+  "balancerV2_fresh": "70000",
+  "balancerV2_used": "70830",
+  "balancerV3_fresh": "68206",
+  "balancerV3_used": "69056",
+  "curveCryptoNG_fresh": "67459",
+  "curveCryptoNG_used": "68289",
+  "curveNG_fresh": "67736",
+  "curveNG_used": "68566"
 }

@@ -1,13 +1,13 @@
 {
-  "readDynamicFee_factory": "12661",
-  "readDynamicFee_noFactory": "7405",
-  "solidlyGetAmountOut_stable": "27839",
-  "solidlyGetAmountOut_volatile": "18267",
-  "universalQuote_algebra": "16753",
-  "universalQuote_solidly_stable": "42523",
-  "universalQuote_solidly_volatile": "32951",
-  "universalQuote_v2": "23288",
-  "universalQuote_v3": "18789",
-  "universalQuote_v4": "33098",
-  "v4LegOut": "29879"
+  "readDynamicFee_factory": "12708",
+  "readDynamicFee_noFactory": "7452",
+  "solidlyGetAmountOut_stable": "27845",
+  "solidlyGetAmountOut_volatile": "18273",
+  "universalQuote_algebra": "16838",
+  "universalQuote_solidly_stable": "42627",
+  "universalQuote_solidly_volatile": "33055",
+  "universalQuote_v2": "23411",
+  "universalQuote_v3": "18874",
+  "universalQuote_v4": "33381",
+  "v4LegOut": "30062"
 }
