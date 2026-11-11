@@ -1715,7 +1715,7 @@ contract BlazePhoenixSolver {
         Hop[] memory hops, address tIn, address tOut,
         uint256 amountIn, uint256 finalOut
     ) private view returns (Route memory route) {
-        tIn; tOut; amountIn;   // retained for signature clarity
+        tIn; amountIn;   // retained for signature clarity
         for (uint256 i; i < hops.length; ) { _orderLegs(hops[i]); unchecked { ++i; } }
         // LAYER 2 IS ROUTE-WIDE (review 2026-09-02). The Router refuses a
         // hookless leg after a hooked one anywhere in the route, not only
@@ -1805,7 +1805,33 @@ contract BlazePhoenixSolver {
         // later hop was sized on what the hop before it can pay, and the route's figure is
         // the floor's base (the promise layer and its pro-rata chain, #74, are identities
         // since the walk and are gone with the single-tick model).
-        uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);
+        //
+        // 4007: THE FLOOR IS SIZED ON THE INPUT THE ROUTER EXECUTES WITH. The walk sees no
+        // protocol fee; the Router charges it, rounded up, on the hop `Core.feeCalendar` names
+        // and compares the delivery of what is left against this figure, literally. The same
+        // calendar, read here over the hops in memory: the first hop whose input is a bridge,
+        // every hop when there is none, no hop when the route is one hop into a bridge (the fee
+        // then comes off the output, after the comparison). The gross output is scaled by each
+        // charging hop's (base - fee) / base, rounded down, before the floor rounds up: a pool
+        // curve concave through the origin delivers at least that share of the gross output on
+        // the net input, so the floor sized here is met by the route it describes.
+        uint256 base = finalOut;
+        if (!(hops.length == 1 && hub.isBridgeToken(tOut))) {
+            uint256 feeHop = type(uint256).max;
+            for (uint256 h; h < hops.length; ) {
+                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = h; break; }
+                unchecked { ++h; }
+            }
+            for (uint256 h; h < hops.length; ) {
+                if (feeHop == type(uint256).max || h == feeHop) {
+                    uint256 b = hops[h].amountIn;
+                    uint256 f = BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+                    base = b > f ? BPC.mulDiv(base, b - f, b) : 0;
+                }
+                unchecked { ++h; }
+            }
+        }
+        uint256 floorOut = BPC.mulDivUp(base, floorBps, BPC.BPS);
 
         route = Route({
             hops:              hops,

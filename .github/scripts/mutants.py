@@ -816,8 +816,9 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       # Retargeted 2026-09-22: the floor's basis moved from the capacity figure to
       # the promise one, so the rounding this watches moved with it. Same property.
-      old='        uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS);',
-      new='        uint256 floorOut = BPC.mulDiv(finalOut, floorBps, BPC.BPS); // MUTANTE',
+      # Retargeted 2026-11-11 (4007): the basis is the output net of the input fee (`base`).
+      old='        uint256 floorOut = BPC.mulDivUp(base, floorBps, BPC.BPS);',
+      new='        uint256 floorOut = BPC.mulDiv(base, floorBps, BPC.BPS); // MUTANTE',
       teste="test_Parity_SingleLegRoute_AttestedFloorEqualsEnforcedFloor"),
  dict(nome="solver floor: the hop impact is the UNWEIGHTED mean again (dust votes like a whole leg)",
       f="src/BlazePhoenixSolver.sol",
@@ -5303,6 +5304,27 @@ M = [
       old='        if (balBefore == 0 && received > amountIn) return received;',
       new='        if (received > amountIn) return received; // MUTANT [fin1111-router-3]',
       teste='test_Control_WithOneWeiBeforeThePull_ReceivedIsClampedToAmountIn'),
+ # fin2-1111 router (3948 dust, 4007).
+ dict(nome='fin2-router-3 (4007): the Solver attests the floor on the gross output again, the Router refuses the route its Solver planned where the fee rounds up to a whole unit',
+      f='src/BlazePhoenixSolver.sol',
+      old='        uint256 floorOut = BPC.mulDivUp(base, floorBps, BPC.BPS);',
+      new='        uint256 floorOut = BPC.mulDivUp(finalOut, floorBps, BPC.BPS); // MUTANT [fin2-router-3]',
+      teste='test_BestDoor_ExecutesTheRouteItPlanned_WhenTheFeeRoundsUpToAWholeUnit'),
+ dict(nome='fin2-router-4 (4007): the Solver reads the fee off hop 0 whatever the calendar says, a bridge route is sized on the ask\'s fee and not the bridge input\'s',
+      f='src/BlazePhoenixSolver.sol',
+      old='                if (feeHop == type(uint256).max || h == feeHop) {',
+      new='                if (h == 0) { // MUTANT [fin2-router-4]',
+      teste='test_Pin_TheAttestedFloorIsTheRouterRateOnTheOutputNetOfTheBridgeFee'),
+ dict(nome='fin2-router-5 (4007): the Solver scales the floor on a one-hop route into a bridge too, where the Router compares before the output fee: a floor 28 bps below the rate it attests elsewhere',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (!(hops.length == 1 && hub.isBridgeToken(tOut))) {',
+      new='        { // MUTANT [fin2-router-5]',
+      teste='test_FeeOnTheOutput_TheFloorIsAttestedOnThePreFeeOutput'),
+ dict(nome='fin2-router-6 (4007): the net output rounds up before the floor rounds up, a floor one unit above what the net input delivers',
+      f='src/BlazePhoenixSolver.sol',
+      old='                    base = b > f ? BPC.mulDiv(base, b - f, b) : 0;',
+      new='                    base = b > f ? BPC.mulDivUp(base, b - f, b) : 0; // MUTANT [fin2-router-6]',
+      teste='test_BestDoor_ExecutesTheRouteItPlanned_EveryWholeAmountFrom2To40'),
 ]
 
 def run(t):

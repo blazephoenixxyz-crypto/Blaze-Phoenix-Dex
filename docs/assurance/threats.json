@@ -574,8 +574,16 @@
       "class": "A token that restates balances upward inside transferFrom, after crediting a Router that held none of it: the payer's own growth is clamped away and stays on the Router",
       "status": "blocked",
       "guard": "_received",
-      "test": "test_RestatedInsideThePull_OnAnEmptyRouter_ReceivedIsTheWholeDelta",
-      "note": "Report 3948, 2026-11-10. The #45 clamp (a pull never counts more than was asked) exists because a balance the Router already held can be restated inside the pull. With no balance before the pull the whole delta is the payer's, and Router._received now takes it whole: the route spends what it commits and the input sweep returns the rest. With any balance before the pull, one wei included, the two origins of a surplus cannot be told apart by measurement, #45 stands and the surplus waits on the Router for the timelocked rescue. test/PullOnAnEmptyRouterIsThePayersWhole.t.sol."
+      "test": "test_OneWeiBeforeThePull_ThePayersGrowthIsThePayers",
+      "note": "Report 3948, 2026-11-10 and 2026-11-11. The #45 clamp (a pull never counts more than was asked) exists because a balance the Router already held can be restated inside the pull. Router._received attributes the surplus of a pull (the delta above the ask) to the pull in the proportion of the ask to the ask plus the balance held before it, rounded down: a restatement after the credit grows both by one factor, so the pull's part is exactly the payer's growth and what stays is exactly the prior balance's growth, whether that balance is a donation or the wei the Router's own transfers leave on a share-accounted token. The route spends what it commits, the input sweep returns the rest, and the balance held before the pull is never spent (measured in the token's shares). test/PullOnAnEmptyRouterIsThePayersWhole.t.sol (nothing before the pull: the whole delta), test/PullSurplusIsSharedProRata.t.sol (one wei, a few wei, the Router's own share dust, a donation larger than the ask, both doors, fuzz over the prior balance, the ask and the factor)."
+    },
+    {
+      "id": "ATTESTED-FLOOR-NET-INPUT",
+      "class": "A floor attested on the gross input compared against a delivery made from the input net of the fee: where the fee rounds up to a whole unit out of a few, the Router refused the route its own Solver planned",
+      "status": "blocked",
+      "guard": "_assembleRouteMulti",
+      "test": "test_BestDoor_ExecutesTheRouteItPlanned_WhenTheFeeRoundsUpToAWholeUnit",
+      "note": "Report 4007, 2026-11-10, fixed 2026-11-11. Liveness, not custody: the swap reverted with RouterE(5) and nothing moved. The Solver sizes singleOutFloor on the input the Router executes with: it reads the fee calendar over the hops it assembled with the rule of Core.feeCalendar (the first hop whose input is a bridge, every hop when there is none, no hop when the route is one hop into a bridge) and scales the gross output by each charging hop's (base - fee) / base, rounded down, before the floor rounds up; the Router compares the attested floor literally, unchanged, and a route whose fee comes off the output is attested on the pre-fee output the Router compares. test/AttestedFloorIsSizedOnTheNetInput.t.sol: best door, classic door and the Quoter's exact preview, every whole amount 2..40 of a 0-decimal token and fuzz to 5000, the bridge hop, the output fee, the pin of the attested floor to the rate the Router enforces; test/FloorParitySolverRouter.t.sol reads the two-hop rate in the net frame."
     }
   ]
 }
