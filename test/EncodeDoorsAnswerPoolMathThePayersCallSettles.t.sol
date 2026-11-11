@@ -32,9 +32,11 @@ pragma solidity 0.8.36;
 //       x venue  {V2 pair, a V2 pair with UniswapV2Pair's lock; one hop and two hops}
 //       x door   {previewAndEncode, previewAndEncodeWithMinOut, previewPlanExact, the Router
 //                 from the payer}.
-// Mutants (`.github/scripts/mutants.py`, 4135b): the Router's final floor removed, the
-// Router's return not the delivery, the door's funded floor removed. Each is killed by a test
-// named there.
+// Mutants (`.github/scripts/mutants.py`, 4135b): the caller's floor dropped on entry to
+// `Router._execute` (both floor checks read it), the Router's return not the delivery, the
+// caller's floor dropped from `effectiveMinOut` (`_pack` and `_encode` both read it). Each is
+// killed by a test named there; a mutant of one of the two redundant checks alone is not, by
+// design: the acceptance predicates stay redundant.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
@@ -186,6 +188,7 @@ contract EncodeDoorsAnswerPoolMathThePayersCallSettlesTest is Test {
         bool ownOk;             // the same route with the payer's own floor of 1 wei
         uint256 ownDelivered;
         uint256 exactOut;
+        uint256 netOut;         // the plan estimate (the view doors' figure)
     }
 
     function setUp() public {
@@ -276,6 +279,7 @@ contract EncodeDoorsAnswerPoolMathThePayersCallSettlesTest is Test {
         r.canExecute = pv.canExecute;
         r.bytesLen = data.length;
         r.encodedMin = pv.effectiveMinOut;
+        r.netOut = pv.netOut;
         if (data.length != 0) (r.encOk, r.encCode, r.encRet, r.encDelivered) = _submit(tIn, tOut, amt, data);
         vm.revertToState(snap);
         if (pv.route.hops.length != 0) {
@@ -296,6 +300,7 @@ contract EncodeDoorsAnswerPoolMathThePayersCallSettlesTest is Test {
         emit log_named_uint("  encDelivered", r.encDelivered);
         emit log_named_uint("  ownDelivered", r.ownDelivered);
         emit log_named_uint("  exactOut", r.exactOut);
+        emit log_named_uint("  netOut", r.netOut);
     }
 
     /// The door says yes (pool math) and carries bytes.

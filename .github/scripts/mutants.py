@@ -7072,20 +7072,20 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       teste='test_HD01_BooksAfterTheQuote_TheSolvingDoorIsRefusedAtTheCallersFloor'),
  # 4135b (2026-11-11): the encode doors answer pool math; the payer's own eth_call to the Router is
  # the settlement oracle. Each entry verified on the box to kill its test on 2026-11-11.
- dict(nome="4135b: the Router's final floor is removed (the payer's call would settle under the floor the bytes carry)",
+ dict(nome="4135b: the caller's floor is dropped on entry to _execute (the payer's call would settle under the floor the bytes carry; both floor checks read it)",
       f="src/BlazePhoenixRouter.sol",
-      old="        if (delivered < userMinOut) revert RouterE(5);",
-      new="        // MUTANT",
+      old="        uint256 effMin = userMinOut;",
+      new="        userMinOut = 0; uint256 effMin = userMinOut; // MUTANT",
       teste="test_R1_SwapBackInsideThePairsLock_TheDoorSaysYes_OnlyThePayersCallRefuses"),
  dict(nome="4135b: the Router's return is not the delivery (the payer's call would report a number the recipient did not receive)",
       f="src/BlazePhoenixRouter.sol",
       old="        return delivered;",
       new="        return delivered + 1; // MUTANT",
       teste="test_R4_TheRouterExempt_TheDoorSaysYes_ThePayersCallSettles"),
- dict(nome="4135b: the door's funded floor is removed (a floor above pool math would get bytes the Router refuses)",
+ dict(nome="4135b: the caller's floor is dropped from effectiveMinOut (a floor above pool math would get bytes the Router refuses; _pack and _encode both read it)",
       f="src/BlazePhoenixQuoter.sol",
-      old="        if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;",
-      new="        // MUTANT",
+      old="        pv.effectiveMinOut = userMinOut > pv.ironFloor ? userMinOut : pv.ironFloor;",
+      new="        pv.effectiveMinOut = pv.ironFloor; // MUTANT",
       teste="test_Control_AFloorAbovePoolMath_TheDoorSaysNo_AndCarriesNoBytes"),
 ]
 
