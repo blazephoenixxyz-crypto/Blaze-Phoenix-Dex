@@ -505,6 +505,11 @@ contract BlazePhoenixQuoter {
                     // The Router's leg dispatch (`_execScaled`), mirrored: a Gate wrapper whose
                     // family is not live reverts RouterE(19), a kind it has no engine for reverts
                     // RouterE(8). A leg with no input returns before the dispatch: not refused.
+                    // The input asked of is the leg's own figure: the Router dispatches the leg
+                    // as scaled to the hop's measured delivery, which the dry-run doors ask of
+                    // (`_exact` rewrites each leg to its scaled size before asking here) and a
+                    // view frame cannot measure. So the view door can refuse a committed leg the
+                    // Router scales to nothing and skips; it never passes one the Router refuses.
                     if (leg.amountIn != 0 && !(leg.kind == BPC.KIND_EXTERNAL
                             ? BPC.gateWrapperLive(address(hub), leg.pool, hop.tokenIn, hop.tokenOut, leg.fee)
                             : BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL))) return true;

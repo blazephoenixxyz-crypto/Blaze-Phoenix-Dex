@@ -4678,12 +4678,12 @@ M = [
       f='src/BlazePhoenixQuoter.sol',
       old='                            : BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL))) return true;\n',
       new='                            : BPC.kindHasAny(leg.kind, BPC.A_RESERVES))) return true; // MUTANT\n',
-      teste='test_Control_EveryKindWithAPoolEngine_IsNotRefusedByKind'),
+      teste='test_Control_EveryKindWithAPoolEngine_IsNotRefusedByKind_AndTheRouterFills'),
  dict(nome='fin1111-qs [QS-5]: the dispatch mirror knows the concentrated engines only and refuses a reserve pair leg',
       f='src/BlazePhoenixQuoter.sol',
       old='                            : BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL))) return true;\n',
       new='                            : BPC.kindHasAny(leg.kind, BPC.A_CONC_POOL))) return true; // MUTANT\n',
-      teste='test_Control_EveryKindWithAPoolEngine_IsNotRefusedByKind'),
+      teste='test_Control_EveryKindWithAPoolEngine_IsNotRefusedByKind_AndTheRouterFills'),
  dict(nome='fin1111-qs [QS-6]: batchQuote forwards all the gas that is left to one item (4009)',
       f='src/BlazePhoenixQuoter.sol',
       old='            try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {\n',
@@ -4699,6 +4699,13 @@ M = [
       old='            try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {\n',
       new='            try solver.findBestRoutePlan{gas: gasleft() / n}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) { // MUTANT\n',
       teste='test_LastItem_ReceivesAllThatIsLeft'),
+ # fin2-qs (2026-11-11): the exact doors measure a taxed input into a concentrated leg (3984),
+ # and the dry-run doors ask the dispatch mirror of the leg as the Router scales it.
+ dict(nome='fin2-qs [QS-9]: the dry-run doors ask the dispatch mirror of the committed leg, not the scaled one',
+      f='src/BlazePhoenixQuoter.sol',
+      old='                route.hops[h].legs[l].amountIn    = legIn;\n',
+      new='                route.hops[h].legs[l].amountIn    = leg.amountIn; // MUTANT\n',
+      teste='test_Control_DustNoEngineLegInTheSecondHop_ViewRefuses_DryRunPromises_RouterFills'),
 ]
 
 def run(t):

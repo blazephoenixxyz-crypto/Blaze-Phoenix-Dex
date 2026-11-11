@@ -33,6 +33,9 @@ import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
+import {MockAlgebraPool} from "./mocks/MockAlgebraPool.sol";
 import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../src/BlazePhoenixGate.sol";
 import {MockGateVenue, MockGateRegistry, MockGateAdapter} from "./mocks/MockGateAdapters.sol";
 
@@ -242,16 +245,78 @@ contract QuoterDispatchRefusalMirrorTest is Test {
         assertGe(router.swapExactIn(rx, X + Y, exactOut, user, block.timestamp + 1), exactOut);
     }
 
+    /// A venue of each kind's own ABI, beside the delivering V2 leg: V2 (`other`), V3, Solidly,
+    /// Algebra. The leg's kind and pool agree, as a planned leg's do.
+    function _engineLeg(uint8 kind) internal returns (Leg memory) {
+        if (kind == BPC.KIND_V2) return _v2(other, address(tokenA), Y);
+        if (kind == BPC.KIND_SOLIDLY) {
+            MockSolidlyPair sp = new MockSolidlyPair(address(tokenA), address(tokenB), false);
+            tokenA.mint(address(sp), R);
+            tokenB.mint(address(sp), R);
+            sp.setReserves(uint112(R), uint112(R));
+            return _leg(address(sp), address(tokenA), kind, 30, Y, sp.getAmountOut(Y, address(tokenA)));
+        }
+        address p = kind == BPC.KIND_V3
+            ? address(new MockV3Pool(address(tokenA), address(tokenB), 3000))
+            : address(new MockAlgebraPool(address(tokenA), address(tokenB), 3000));
+        if (kind == BPC.KIND_V3) MockV3Pool(p).setState(uint160(BPC.Q96), 1_000_000e18);
+        else MockAlgebraPool(p).setState(uint160(BPC.Q96), 1_000_000e18);
+        tokenA.mint(p, R);
+        tokenB.mint(p, R);
+        return _leg(p, address(tokenA), kind, 3000, Y,
+            BPC.outV3(Y, uint160(BPC.Q96), 1_000_000e18, 3000, address(tokenA) == BPC.token0Of(p), 0));
+    }
+
     /// Mirrored, not tightened: the four pool kinds the Router's dispatch has an engine for
     /// (written here by hand from `_execScaled`, not read from the table the mirror reads) are
-    /// not refused by kind. Asked at the view door, which reads the leg's shape and never prices.
-    function test_Control_EveryKindWithAPoolEngine_IsNotRefusedByKind() public view {
+    /// not refused by kind, each on a venue of its own ABI, and the Router is the oracle: it
+    /// fills at least the dry-run scalar. Until 2026-11-11 this control labelled one V2 pair
+    /// with every kind and asked only the view door, which pinned as right three previews the
+    /// Router reverts on (the pool's ABI, not its kind).
+    function test_Control_EveryKindWithAPoolEngine_IsNotRefusedByKind_AndTheRouterFills() public {
         uint8[4] memory kinds = [uint8(0), 1, 5, 6]; // V2, V3, Solidly, Algebra
         for (uint256 i; i < kinds.length; i++) {
-            Route memory r = _route1(_hop(address(tokenA), address(tokenB), _v2(good, address(tokenA), X),
-                _leg(address(other), address(tokenA), kinds[i], 30, Y, BPC.outV2(Y, R, R, 30)), true));
+            uint256 snap = vm.snapshotState();
+            string memory tag = string.concat("kind ", vm.toString(kinds[i]));
+            Route memory r = _route1(_hop(address(tokenA), address(tokenB),
+                _v2(good, address(tokenA), X), _engineLeg(kinds[i]), true));
             assertTrue(quoter.previewRoute(r, 0).canExecute,
-                string.concat("kind ", vm.toString(kinds[i]), ": refused by kind though the Router has an engine"));
+                string.concat(tag, ": refused by kind though the Router has an engine"));
+            (Route memory rx, uint256 exactOut) = quoter.previewRouteExact(r, X + Y);
+            assertGt(exactOut, 0, string.concat(tag, ": the dry-run door refuses"));
+            vm.prank(user);
+            assertGe(router.swapExactIn(rx, X + Y, exactOut, user, block.timestamp + 1), exactOut,
+                string.concat(tag, ": the Router fills under the scalar"));
+            vm.revertToState(snap);
+        }
+    }
+
+    /// The view door asks of the committed leg; the dry-run doors of the leg as the Router
+    /// scales it. A no-engine leg of one wei in the second hop is committed, so the view door
+    /// refuses it; the hop's delivery falls under its commitment, the Router scales the wei to
+    /// nothing and skips the leg, so the dry-run door promises and the Router fills. The view
+    /// door's refusal is the one the mirror can give without a measurement; this pins that it
+    /// errs on refusing, never on passing.
+    function test_Control_DustNoEngineLegInTheSecondHop_ViewRefuses_DryRunPromises_RouterFills() public {
+        uint8[6] memory kinds = _noEngineKinds();
+        for (uint256 i; i < kinds.length; i++) {
+            uint256 snap = vm.snapshotState();
+            string memory tag = string.concat("hop 1 dust kind ", vm.toString(kinds[i]));
+            Leg memory a = _v2(good, address(tokenA), X + Y);
+            uint256 mid = a.expectedOut;
+            Hop[] memory hops = new Hop[](2);
+            hops[0] = _hop(address(tokenA), address(tokenB), a, a, false);
+            hops[1] = _hop(address(tokenB), address(tokenC), _v2(bridge, address(tokenB), mid),
+                _leg(address(bridge2), address(tokenB), kinds[i], 30, 1, 0), true);
+            Route memory r = _wrap(hops);
+            assertFalse(quoter.previewRoute(r, 0).canExecute, string.concat(tag, ": the view door passes a committed no-engine leg"));
+            (Route memory rx, uint256 exactOut) = quoter.previewRouteExact(r, X + Y);
+            assertGt(exactOut, 0, string.concat(tag, ": the dry-run door refuses a leg the Router skips"));
+            assertEq(rx.hops[1].legs[1].amountIn, 0, string.concat(tag, ": the dust leg was not scaled to nothing"));
+            vm.prank(user);
+            assertGe(router.swapExactIn(rx, X + Y, exactOut, user, block.timestamp + 1), exactOut,
+                string.concat(tag, ": the Router fills under the scalar"));
+            vm.revertToState(snap);
         }
     }
 
