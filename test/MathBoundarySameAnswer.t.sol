@@ -62,6 +62,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {SolverRefPoda1027} from "./ref/SolverRefPoda1027.sol";
+import {Frame4007} from "./ref/Frame4007.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV4TickManager} from "./mocks/MockV4TickManager.sol";
@@ -197,6 +198,9 @@ contract MathBoundarySameAnswerTest is Test {
         (bool okR, bytes memory rR) = address(ref).staticcall{gas: g}(q);
         gasRef = g0 - gasleft();
         assertEq(okN, okR, "D10: one Solver answered and the other refused");
+        // 4007: the floor is attested on the net output since 2026-11-11; the reference's is read
+        // in that frame (test/ref/Frame4007.sol), every other field to the byte.
+        if (okN) rR = Frame4007.carry(hub, rN, rR);
         assertEq(rN, rR, "D10: the Solver with the library and the inline Solver of 8938b6a disagree");
         ok = okN;
         for (uint256 i; i < recs.length; ++i) {

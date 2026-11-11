@@ -38,6 +38,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 import {BlazePhoenixCore as BPC, RoutePlan, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {SolverRef653} from "./ref/SolverRef653.sol";
+import {Frame4007} from "./ref/Frame4007.sol";
 import {MathRef653} from "./ref/MathRef653.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
@@ -185,6 +186,9 @@ contract G52SameAnswerTest is Test {
         (bool okR, bytes memory rR) = address(ref).staticcall{gas: g}(q);
         gasRef = g0 - gasleft();
         assertEq(okN, okR, "G52: one Solver answered and the other refused");
+        // 4007: the floor is attested on the net output since 2026-11-11; the reference's is read
+        // in that frame (test/ref/Frame4007.sol), every other field to the byte.
+        if (okN) rR = Frame4007.carry(hub, rN, rR);
         assertEq(rN, rR, "G52: the Solver and the Solver of 653b1dc disagree");
         ok = okN;
     }
