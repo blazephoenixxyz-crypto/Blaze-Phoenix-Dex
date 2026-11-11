@@ -42,7 +42,7 @@ import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 ///   - from t = 132,822 upward the truncated products carry through the inversion
 ///     2^256 / r and the Core drifts on both sides of the definition: of the 887,272 positive
 ///     ticks, 1,109,074 - 887,272 = 221,802 are still the exact ceiling, 659,873 are above it (by at
-///     most one part in 2^64.9: worst at t = 873,682, and 2^-64.9 again at MAX_TICK), 164 are exactly
+///     most one part in 2^64.0: worst at t = 887,234; 2^-64.9 at MAX_TICK), 164 are exactly
 ///     the floor, and 5,433 sit strictly under the definition, all of them between t = 262,144 (the
 ///     first, 2^18) and t = 469,505, by at most 191,887 units (t = 465,587; one part in 2^112).
 ///   The explicit bound asserted below is one unit of the last place plus one part in 2^63.
@@ -164,7 +164,7 @@ contract SqrtPriceAtTickSlowReferenceTest is Test {
     ///      definition; measured first departure at 132,822, so 2^17 keeps a margin of 1,750 ticks.
     int24 internal constant EXACT_BAND_END = 131072;
     /// @dev |Core - floor(definition)| <= 1 + floor(definition) >> ERR_LOG2 over the whole domain;
-    ///      measured worst 2^-64.9, so 63 keeps a factor of nearly four.
+    ///      measured worst 2^-64.01 (t = 887,234), so 63 keeps a factor of two.
     uint256 internal constant ERR_LOG2 = 63;
     /// @dev The Core sits strictly under the definition at 5,433 ticks, all inside this range
     ///      (measured on the whole domain; the first is 2^18, a grid tick), by at most one part in
