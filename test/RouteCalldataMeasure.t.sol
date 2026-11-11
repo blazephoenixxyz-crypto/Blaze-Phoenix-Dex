@@ -104,15 +104,18 @@ contract RouteCalldataMeasureTest is Test {
 
 contract RouteCalldataVariantsTest is RouteCalldataMeasureTest {
 
-    /// dead fields zeroed: route.{totalOut,singleOut,expectedImpactBps,
-    /// confidenceWad,estGas,hasSurplus,isV4Bundle}, hop.{amountIn,expectedOut},
-    // V2-leg dead fields zeroed too; singleOutFloor KEPT (it is read by the Router).
+    /// Fields the Router does not read, zeroed: route.{totalOut,singleOut,expectedImpactBps,
+    /// confidenceWad,estGas,hasSurplus,isV4Bundle} and hop.amountIn (pinned by
+    /// test/RouteFieldReadersPin.t.sol). KEPT because the Router reads them: route.singleOutFloor
+    /// (a floor term) and hop.expectedOut (the base of a hop with a leg the frame cannot price,
+    /// Router `_execute`, `hopBlind`). leg.fee is read on a V2 leg too (Core.effV2Fee: 0 means
+    /// 30 bps), so zeroing it below is the same route only on a 30 bps pair.
     function _routeZeroed(uint256 nHops, uint256 legsPerHop) internal pure returns (Route memory r) {
         r = _route(nHops, legsPerHop);
         r.totalOut = 0; r.singleOut = 0; r.expectedImpactBps = 0;
         r.confidenceWad = 0; r.estGas = 0;
         for (uint256 h; h < nHops; h++) {
-            r.hops[h].amountIn = 0; r.hops[h].expectedOut = 0;
+            r.hops[h].amountIn = 0;
             for (uint256 l; l < legsPerHop; l++) {
                 Leg memory g = r.hops[h].legs[l];
                 g.hooks = address(0); g.fee = 0; g.tickSpacing = 0;

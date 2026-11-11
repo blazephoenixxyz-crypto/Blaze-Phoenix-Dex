@@ -19,6 +19,23 @@ import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {Origin} from "./mocks/MockOriginFactory.sol";
+import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
+
+/// @dev The fee of a Solidly pair as its factory answers it (Aerodrome's `getFee(pool, stable)`).
+contract FeeFactory {
+    uint256 private immutable bps;
+    constructor(uint256 b) { bps = b; }
+    function getFee(address, bool) external view returns (uint256) { return bps; }
+}
+
+/// @dev A coherent Solidly venue: the fee its factory reports is the fee its own ask charges.
+contract FactoryFeePair is MockSolidlyPair {
+    address public factory;
+    constructor(address a, address b, uint256 bps) MockSolidlyPair(a, b, false) {
+        factory = address(new FeeFactory(bps));
+        feeBps = bps;
+    }
+}
 
 contract MedianFeeCaptureTest is Test {
     BlazePhoenixHub hub;
@@ -117,6 +134,29 @@ contract MedianFeeCaptureTest is Test {
         emit log_named_uint("netOut, both venues", pv.netOut);
         emit log_named_uint("input routed to the worse venue", _inOf(pv, address(bad)));
         assertGe(pv.netOut, alone, "a worse, deeper venue lowered the route's output");
+    }
+
+    /// The same capture through a Solidly row. Its fee is not in the registry's tier: the probe
+    /// reads it from the pair's factory, and a probe that does not ask for it answers 0, which the
+    /// band takes for a fee it knows. The 10% pair then votes as a wrong price and, holding most
+    /// of the mass, sets the base. Mutant morf-12 [e] (the Solver's probe passes wantFee = false)
+    /// sends the whole input to the 10% pair: 897479999999798066 out against 994208399999008766.
+    function test_AWorseSolidlyVenueFarDeeperNeverLowersTheOutput() public {
+        uint256 alone = _goodAlone();
+        MockV3Pool good = _venue(3000, L);
+        FactoryFeePair bad = new FactoryFeePair(address(tA), address(tB), 1000);
+        uint112 r = 4 * uint112(L);
+        tA.mint(address(bad), r);
+        tB.mint(address(bad), r);
+        bad.setReserves(r, r);
+        hub.seedPool(address(bad), BPC.KIND_SOLIDLY, 30, address(0), address(tA), address(tB));
+        hub.addBridge(address(tB));
+        BlazePhoenixQuoter.Preview memory pv = _preview();
+        emit log_named_uint("netOut, 0.3% venue alone", alone);
+        emit log_named_uint("netOut, both venues", pv.netOut);
+        emit log_named_uint("input routed to the 0.3% venue", _inOf(pv, address(good)));
+        emit log_named_uint("input routed to the Solidly venue", _inOf(pv, address(bad)));
+        assertGe(pv.netOut, alone, "a worse, deeper Solidly venue lowered the route's output");
     }
 
     /// CONTROL (green before and after the fix): the worse venue holds just under half the mass

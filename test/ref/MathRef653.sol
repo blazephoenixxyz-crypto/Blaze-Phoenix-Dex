@@ -32,7 +32,7 @@
 // =============================================================================
 pragma solidity 0.8.36;
 
-import {BlazePhoenixCore as BPC, PoolInfo} from "../../src/BlazePhoenixCore.sol";
+import {CoreRefCb1d7d9 as BPC, PoolInfo} from "./CoreRefCb1d7d9.sol";
 
 /// @notice The three Hub reads the band's vote needs (`_mutedVotes`, `_heldShare`).
 interface IHubMathRef653 {

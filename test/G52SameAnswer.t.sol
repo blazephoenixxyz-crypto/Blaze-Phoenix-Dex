@@ -10,7 +10,8 @@ pragma solidity 0.8.36;
 // instead of sorting again.
 //
 // `SolverRef653` is the Solver of 653b1dc with its own frozen library `MathRef653` (both
-// literal, renamed). Both Solvers read the same Hub and the same state, and each call must come
+// literal, renamed), and both read the Core of cb1d7d9 frozen as `CoreRefCb1d7d9`, so an answer
+// the live Core changes turns a row red. Both Solvers read the same Hub and the same state, and each call must come
 // back with the same success and the same returndata bytes, with all the gas and at the door's
 // budget (SOLVE_GAS). The fixed rows are the shapes the mechanisms decide on: bridge routes
 // whose first stage is shared by three topologies (two-hop and three-hop), the leader and the
@@ -40,6 +41,7 @@ import {BlazePhoenixCore as BPC, RoutePlan, PoolInfo} from "../src/BlazePhoenixC
 import {SolverRef653} from "./ref/SolverRef653.sol";
 import {Frame4007} from "./ref/Frame4007.sol";
 import {MathRef653} from "./ref/MathRef653.sol";
+import {CoreRefCb1d7d9, RoutePlan as RoutePlanRef} from "./ref/CoreRefCb1d7d9.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV4TickManager} from "./mocks/MockV4TickManager.sol";
@@ -82,6 +84,7 @@ contract G52SameAnswerTest is Test {
         touched.push(address(BlazePhoenixMath));
         touched.push(address(MathRef653));
         touched.push(address(BPC));
+        touched.push(address(CoreRefCb1d7d9));
     }
 
     // ─── fixtures ────────────────────────────────────────────────────────────
@@ -436,8 +439,8 @@ contract G52SameAnswerTest is Test {
         // 1.10 in Y.
         _seedOrder(tA, tB, x);
         _seedOrder(c, d, y);
-        RoutePlan memory px = ref.findBestRoutePlan(tA, tB, 1e15);
-        RoutePlan memory py = ref.findBestRoutePlan(c, d, 1e15);
+        RoutePlanRef memory px = ref.findBestRoutePlan(tA, tB, 1e15);
+        RoutePlanRef memory py = ref.findBestRoutePlan(c, d, 1e15);
         assertEq(px.best.hops[0].legs.length, 1, "precondition X: the band keeps one book");
         assertLt(px.best.totalOut, 1e15, "precondition X: the book at 1.00 sets the base");
         assertEq(py.best.hops[0].legs.length, 1, "precondition Y: the band keeps one book");
@@ -487,7 +490,7 @@ contract G52SameAnswerTest is Test {
         // Premises, read on the Solver of 653b1dc (the oracle): the answer is the three-hop route
         // walked past its cap, and it came from the rebuild the held flag asks for (the
         // self-call's bk carries bit 8). A Solver that answers otherwise fails the comparison.
-        RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e18);
+        RoutePlanRef memory plan = ref.findBestRoutePlan(tA, tB, 1e18);
         assertEq(plan.best.hops.length, 3, "precondition: the three-hop route over (b0, b1) leads");
         assertEq(plan.best.hops[0].tokenOut, b0, "precondition: it opens on b0");
         assertGt(plan.best.hops[0].expectedOut, 0.9e18, "precondition: the answer is the walked build, past the cap");
@@ -539,7 +542,7 @@ contract G52SameAnswerTest is Test {
         assertGt(rank, 1e22 * 98 / 100, "precondition: the deep walk reads the book");
         // Premise, read on the Solver of 653b1dc (the oracle): the three-hop route leads on its
         // rank. A Solver that hands the order elsewhere fails the comparison.
-        RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e22);
+        RoutePlanRef memory plan = ref.findBestRoutePlan(tA, tB, 1e22);
         assertEq(plan.best.hops.length, 3, "precondition: the three-hop route over (b0, b1) leads on its rank");
         _row("fragmented first stage, rank through a hit", tA, tB, 1e22);
     }
@@ -568,7 +571,7 @@ contract G52SameAnswerTest is Test {
             _v2(x0, tB, 1e24, 1e24);
             // Premises, read on the Solver of 653b1dc (the oracle): the direct build keeps the
             // deep book alone and leads, and the route over x0 was built (it is the runner-up).
-            RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e18);
+            RoutePlanRef memory plan = ref.findBestRoutePlan(tA, tB, 1e18);
             assertEq(plan.best.hops.length, 1, "precondition: the direct route leads");
             assertEq(plan.best.hops[0].legs.length, 1, "precondition: the band keeps one book");
             assertEq(plan.best.hops[0].legs[0].pool, deep, "precondition: the deep book");
@@ -608,7 +611,7 @@ contract G52SameAnswerTest is Test {
         // Premises, read on the Solver of 653b1dc (the oracle): the three-hop route over (b1, b0)
         // leads and its last stage seats the two deep books; the two-hop route over b0, which
         // built b0 -> tB first, is the runner-up.
-        RoutePlan memory plan = ref.findBestRoutePlan(tA, tB, 1e21);
+        RoutePlanRef memory plan = ref.findBestRoutePlan(tA, tB, 1e21);
         assertEq(plan.best.hops.length, 3, "precondition: the three-hop route leads");
         assertEq(plan.best.hops[0].tokenOut, b1, "precondition: it opens on b1");
         assertEq(plan.best.hops[2].legs.length, 2, "precondition: its last stage seats the two deep books");

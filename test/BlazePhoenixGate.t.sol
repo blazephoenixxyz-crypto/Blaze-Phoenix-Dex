@@ -201,7 +201,7 @@ contract BlazePhoenixGateTest is Test {
     /// it; its fields are the resolve answer.
     function test_GateF2_Create_DerivedAddressAndRegistry() public {
         BlazePhoenixGateWrapper w = _wrapper();
-        bytes32 initHash = keccak256(type(BlazePhoenixGateWrapper).creationCode);
+        bytes32 initHash = WRAPPER_INIT_HASH_PIN;
         address expect = address(uint160(uint256(keccak256(abi.encodePacked(
             bytes1(0xff), address(gate), keccak256(abi.encode(address(t0), address(t1), KEY)), initHash)))));
         assertEq(address(w), expect, "wrapper address = CREATE2 over the V3 salt");
@@ -1227,5 +1227,58 @@ contract BlazePhoenixGateTest is Test {
         hostile.setMode(0);
         (q, ) = quoter.previewRouteExact(r, amt);
         assertEq(q.hops[0].legs[0].expectedOut, venue.quoteSell(amt), "the neighbour: an honest answer prices");
+    }
+
+    // ─── the binary does not move without red ───
+
+    /// keccak256 of the wrapper's creation code under the release settings (foundry.toml
+    /// [profile.release], which profile_parity.py keeps equal to the suite's), written out as a
+    /// literal on 2026-11-09 at cb1d7d9. The Hub's factory row carries this hash and every wrapper
+    /// address on every chain is CREATE2 over it, so a change to the wrapper, to a Core symbol
+    /// it inlines (MATERIAL_SHIFT, balanceOf, safeTransfer, tickSlot, stampTs) or to the
+    /// compiler moves every wrapper address. A change made on purpose updates this literal in
+    /// the same commit and says why.
+    bytes32 constant WRAPPER_INIT_HASH_PIN = 0x94f0c40dad9c2635f7d8f3652f4b8b7e56ce0e81a27b2f6046760b65ed5d6647;
+
+    /// Quantity: the init hash every wrapper address derives from. The oracle is the literal,
+    /// not the build: comparing the hash with keccak of the same build cannot fail.
+    function test_GateF2_WrapperInitHash_IsThePinnedLiteral() public view {
+        assertEq(keccak256(type(BlazePhoenixGateWrapper).creationCode), WRAPPER_INIT_HASH_PIN,
+            "the wrapper's creation code moved: every wrapper address moves with it");
+        assertEq(gate.WRAPPER_INIT_HASH(), WRAPPER_INIT_HASH_PIN, "the hash the Gate publishes is the pinned one");
+    }
+
+    /// Quantity: the wrapper's lock is released at the end of its own swap, so a second swap
+    /// of the SAME top-level call runs. Two swaps called from this test would be two
+    /// transactions under isolate, and the EVM would clear the transient lock between them
+    /// whether the wrapper does or not: both swaps sit inside one call of a helper, so only
+    /// the wrapper's own `_locked = false` can let the second one through.
+    function test_GateF2_Wrapper_TwoSwapsInOneCall_BothSettle() public {
+        BlazePhoenixGateWrapper w = _wrapper();
+        GateTwoSwapsOneCall two = new GateTwoSwapsOneCall();
+        t0.mint(address(two), 2e18);
+        uint256 before = t1.balanceOf(address(this));
+        (uint256 out1, uint256 out2) = two.run(w, address(this), 1e18);
+        assertGt(out1, 0, "the first swap delivered");
+        assertGt(out2, 0, "the second swap of the same call settled: the lock was released");
+        assertEq(t1.balanceOf(address(this)) - before, out1 + out2, "both outputs measured at the recipient");
+        assertEq(t0.balanceOf(address(two)), 0, "the helper paid both inputs");
+    }
+}
+
+/// Two swaps through one wrapper inside ONE external call: a route with two legs on the same
+/// wrapper in one transaction, as the wrapper's transient lock sees it.
+contract GateTwoSwapsOneCall {
+    function run(BlazePhoenixGateWrapper w, address to, uint256 amt) external returns (uint256 out1, uint256 out2) {
+        (, int256 a1) = w.swap(to, true, int256(amt), 0, "");
+        out1 = uint256(-a1);
+        (, a1) = w.swap(to, true, int256(amt), 0, "");
+        out2 = uint256(-a1);
+    }
+
+    function uniswapV3SwapCallback(int256 a0, int256 a1, bytes calldata) external {
+        BlazePhoenixGateWrapper w = BlazePhoenixGateWrapper(msg.sender);
+        if (a0 > 0) MockERC20(w.token0()).transfer(msg.sender, uint256(a0));
+        else if (a1 > 0) MockERC20(w.token1()).transfer(msg.sender, uint256(a1));
     }
 }

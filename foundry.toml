@@ -19,8 +19,11 @@ optimizer = true
 optimizer_runs = 200
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
-# Each top-level call of a test is its own transaction. The gas ledgers in test/gas/
-# are measured under it (cold accounts, 21 000 intrinsic gas) and assert it in setUp.
+# The gas instrument, fixed rather than inherited from whichever forge the CI installs: every
+# top-level call of a test runs as its own transaction. A gasleft() delta around one is then the
+# transaction's TOTAL (21000 + calldata intrinsic + execution), and transient storage does not
+# survive from one top-level call to the next (the rule the transient-lock tests are written on).
+# test/GasInstrumentMode.t.sol observes both; profile_parity.py pins this line.
 isolate = true
 
 [fuzz]
@@ -68,7 +71,11 @@ optimizer = true
 optimizer_runs = 200
 via_ir = true
 fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
-# Same as the default profile: the test/gas ledgers are measured in isolation mode.
+# The gas instrument, fixed rather than inherited from whichever forge the CI installs: every
+# top-level call of a test runs as its own transaction. A gasleft() delta around one is then the
+# transaction's TOTAL (21000 + calldata intrinsic + execution), and transient storage does not
+# survive from one top-level call to the next (the rule the transient-lock tests are written on).
+# test/GasInstrumentMode.t.sol observes both; profile_parity.py pins this line.
 isolate = true
 
 # SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the
@@ -140,6 +147,25 @@ optimizer = true
 # "BPC:" expectRevert pins in BlazePhoenixCore.t.sol updated with it).
 optimizer_runs = 20000
 via_ir = true
+fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
+
+# nver3: the release settings under another Yul step sequence, one with no FunctionSpecializer
+# (no F): the same maths inlined and specialised differently. A lane, not a release setting: any
+# step change rebuilds the Gate's embedded wrapper and so moves WRAPPER_INIT_HASH.
+# (No nver4 at 0.8.38: every file in src/ pins `pragma solidity 0.8.36;` exactly, so another
+# compiler cannot build them; cross-version identity is solc_identity.py's job, on a copy.)
+[profile.nver3]
+src = "src"
+test = "test"
+out = "out-nver3"
+libs = ["lib"]
+solc_version = "0.8.36"
+evm_version = "cancun"
+bytecode_hash = "none"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+optimizer_details = { yul = true, yulDetails = { optimizerSteps = "dfDvulfnTUtnIfxa[r]EscLMVcul [j]Trpeulxa[r]cLvifMCTUca[r]LSsTOtfDnca[r]IulcscCTUtvifMx[scCTUt] TOntnfDIulvifMjmul[jul] VcTOcul jmul" } }
 fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./out/pc-trace" }]
 
 # SMTChecker (CHC engine) — the lightest formal rung, run in the cloud by the

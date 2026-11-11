@@ -326,7 +326,8 @@ contract BlazePhoenixRouter {
     // way: a door added under any weaker modifier would outlive renunciation.
     // Control powers (treasuries, permit2, pause, admin transfer) are disabled
     // forever once renounceControl() is called.
-    modifier onlyControl() { if (msg.sender != admin || controlRenounced) revert RouterE(1); _; }
+    modifier onlyControl() { _onlyControl(); _; }
+    function _onlyControl() private view { if (msg.sender != admin || controlRenounced) revert RouterE(1); }
     modifier whenLive()  { if (paused) revert RouterE(2); _; }
     modifier nrEntrant() {
         uint256 s = TSLOT_LOCK;

@@ -93,7 +93,7 @@ contract V4DynamicDiscoveryTest is Test {
         c.tokenOther  = AEON;
         c.hooks       = HOOK;
         c.v4Manager   = V4_MGR;
-        (uint256 out, uint256 depth) = BPC.universalQuote(c, 0.05 ether);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(c, 0.05 ether, type(uint256).max, false);
         console2.log("aeon in-frame promise / quote out / depth:", promise_, out, depth);
         assertEq(out, 0, "a dynamic key with a beforeSwap hook must not be quoted (H12)");
         assertEq(depth, 0, "an unquotable V4 key must not keep a depth vote");

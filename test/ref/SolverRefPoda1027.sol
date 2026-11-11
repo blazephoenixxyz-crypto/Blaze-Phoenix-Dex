@@ -66,9 +66,9 @@
 pragma solidity 0.8.36;
 
 import {
-    BlazePhoenixCore as BPC,
+    CoreRefCb1d7d9 as BPC,
     PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx
-} from "../../src/BlazePhoenixCore.sol";
+} from "./CoreRefCb1d7d9.sol";
 
 /// The public entry `Core.v4HeldShare` had at 59ecf3f, as a linked library of its own.
 library CoreHeldShareRef {

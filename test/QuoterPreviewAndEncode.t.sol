@@ -119,4 +119,73 @@ contract QuoterPreviewAndEncodeTest is Test {
         (, , uint256 minOut2, , ) = this.decodeArgs(call2);
         assertEq(minOut2, pv2.ironFloor, "a looser caller floor never weakens the encoded one");
     }
+
+    /// @notice Quote = execution, read field by field. The bytes `previewAndEncode*` return are
+    ///         decoded the way the Router decodes them and compared with what the view previews
+    ///         (`previewPlan*`, a separate call): every Route, Hop and Leg field, the amount, the
+    ///         recipient, the deadline, and the effective floor as minOut, with no floor, a looser
+    ///         one and a tighter one. Fed to the Router, the same bytes settle at or above that floor.
+    ///         Mutant [morf-ACP1-Q283] (the encoder carries minOut 1) turns this red, as it turns
+    ///         the hand-encoding and tightened-floor tests above red. Mutant [morf-ACP1-Q283R] (the
+    ///         encoder zeroes a hop figure first) turns only this one red: the tests above compare
+    ///         the bytes with the Preview the same call returns, and that Preview carries the change.
+    function test_quoterEncode_equals_routerDecode() public {
+        uint256 deadline = block.timestamp + 1;
+        (BlazePhoenixQuoter.Preview memory p0, , ) = quoter.previewPlan(address(tA), address(tB), AMT);
+        assertTrue(p0.canExecute, "premise: the Solver must find an executable route");
+        uint256[3] memory floors = [uint256(0), 1, p0.ironFloor + 1];
+        for (uint256 k; k < 3; ++k) {
+            (BlazePhoenixQuoter.Preview memory plan, , ) =
+                quoter.previewPlanWithMinOut(address(tA), address(tB), AMT, floors[k]);
+            bytes memory call;
+            if (k == 0) (, call) = quoter.previewAndEncode(address(tA), address(tB), AMT, user, deadline);
+            else (, call) = quoter.previewAndEncodeWithMinOut(address(tA), address(tB), AMT, floors[k], user, deadline);
+            assertEq(bytes4(call), IRouterExec.swapExactIn.selector, "the bytes open the swapExactIn door");
+            (Route memory r, uint256 amountIn, uint256 minOut, address to, uint256 dl) = this.decodeArgs(call);
+            _assertSameRoute(r, plan.route);
+            assertEq(amountIn, AMT, "the amount previewed is the amount sent");
+            assertEq(minOut, plan.effectiveMinOut, "the floor previewed is the floor the bytes carry");
+            assertEq(to, user, "the recipient previewed is the recipient encoded");
+            assertEq(dl, deadline, "and so is the deadline");
+
+            uint256 snap = vm.snapshotState();
+            uint256 before = tB.balanceOf(user);
+            vm.prank(user);
+            (bool ok, ) = address(router).call(call);
+            assertTrue(ok, "the decoded route settles");
+            assertGe(tB.balanceOf(user) - before, minOut, "at or above the floor it carries");
+            vm.revertToState(snap);
+        }
+    }
+
+    function _assertSameRoute(Route memory a, Route memory b) private pure {
+        assertEq(a.totalOut, b.totalOut, "totalOut");
+        assertEq(a.singleOut, b.singleOut, "singleOut");
+        assertEq(a.singleOutFloor, b.singleOutFloor, "singleOutFloor");
+        assertEq(a.expectedImpactBps, b.expectedImpactBps, "expectedImpactBps");
+        assertEq(a.confidenceWad, b.confidenceWad, "confidenceWad");
+        assertEq(a.estGas, b.estGas, "estGas");
+        assertEq(a.hasSurplus, b.hasSurplus, "hasSurplus");
+        assertEq(a.isV4Bundle, b.isV4Bundle, "isV4Bundle");
+        assertEq(a.hops.length, b.hops.length, "hop count");
+        for (uint256 h; h < a.hops.length; ++h) {
+            assertEq(a.hops[h].tokenIn, b.hops[h].tokenIn, "hop.tokenIn");
+            assertEq(a.hops[h].tokenOut, b.hops[h].tokenOut, "hop.tokenOut");
+            assertEq(a.hops[h].amountIn, b.hops[h].amountIn, "hop.amountIn");
+            assertEq(a.hops[h].expectedOut, b.hops[h].expectedOut, "hop.expectedOut");
+            assertEq(a.hops[h].legs.length, b.hops[h].legs.length, "leg count");
+            for (uint256 l; l < a.hops[h].legs.length; ++l) {
+                assertEq(a.hops[h].legs[l].pool, b.hops[h].legs[l].pool, "leg.pool");
+                assertEq(a.hops[h].legs[l].hooks, b.hops[h].legs[l].hooks, "leg.hooks");
+                assertEq(a.hops[h].legs[l].kind, b.hops[h].legs[l].kind, "leg.kind");
+                assertEq(a.hops[h].legs[l].fee, b.hops[h].legs[l].fee, "leg.fee");
+                assertEq(a.hops[h].legs[l].tickSpacing, b.hops[h].legs[l].tickSpacing, "leg.tickSpacing");
+                assertEq(a.hops[h].legs[l].zeroForOne, b.hops[h].legs[l].zeroForOne, "leg.zeroForOne");
+                assertEq(a.hops[h].legs[l].stable, b.hops[h].legs[l].stable, "leg.stable");
+                assertEq(a.hops[h].legs[l].amountIn, b.hops[h].legs[l].amountIn, "leg.amountIn");
+                assertEq(a.hops[h].legs[l].expectedOut, b.hops[h].legs[l].expectedOut, "leg.expectedOut");
+                assertEq(a.hops[h].legs[l].auxId, b.hops[h].legs[l].auxId, "leg.auxId");
+            }
+        }
+    }
 }
