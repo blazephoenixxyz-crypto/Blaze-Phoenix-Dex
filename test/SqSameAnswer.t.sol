@@ -35,6 +35,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 import {BlazePhoenixCore as BPC, RoutePlan} from "../src/BlazePhoenixCore.sol";
 import {SolverRefCb1d7d9} from "./morf/SolverRefCb1d7d9.sol";
+import {Frame4007} from "./ref/Frame4007.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
@@ -206,6 +207,9 @@ abstract contract SqFixture is Test {
         (bool okR, bytes memory rR) = address(ref).staticcall{gas: g}(q);
         gasRef = g0 - gasleft();
         assertEq(okN, okR, "SQ2: one Solver answered and the other refused");
+        // 4007: the floor is attested on the net output since 2026-11-11; the reference's is read
+        // in that frame (test/ref/Frame4007.sol), every other field to the byte.
+        if (okN) rR = Frame4007.carry(hub, rN, rR);
         assertEq(rN, rR, "SQ2: the Solver and the Solver of cb1d7d9 disagree");
         (ok, out) = (okN, rN);
     }
