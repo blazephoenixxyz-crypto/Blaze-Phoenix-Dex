@@ -217,7 +217,12 @@ contract FloorParityAlgebraLegTest is Test {
             + this.frameImpact(l1, address(tokenB), address(tokenC), l1.amountIn)) / 2;
         assertEq(plan.best.expectedImpactBps, mean,
             "two Algebra hops: the impact the Solver attests != the mean of the frame's leg impacts");
-        assertEq(plan.best.singleOutFloor, BPC.mulDivUp(plan.best.totalOut, BPC.ironFloorBpsShv(mean, 0, 0), BPC.BPS),
+        // 4007 (e70ab1f): the attested floor is sized on the output of the input the Router
+        // executes with: hop 1 opens on the bridge and pays the protocol fee on its input, so
+        // the base is the gross output scaled by (b - fee) / b, written from the constants.
+        uint256 b = plan.best.hops[1].amountIn;
+        uint256 netOut = BPC.mulDiv(plan.best.totalOut, b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS), b);
+        assertEq(plan.best.singleOutFloor, BPC.mulDivUp(netOut, BPC.ironFloorBpsShv(mean, 0, 0), BPC.BPS),
             "two Algebra hops: the floor the Solver attests != the floor of the frame's leg impacts");
 
         // Enforced: the same law at the inputs the two pools received, on the frame's quote.

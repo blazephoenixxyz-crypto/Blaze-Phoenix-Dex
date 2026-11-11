@@ -546,6 +546,9 @@ contract QuoterExactRefusalBranchesTest is Test {
     function test_Exact_Conc_RealDryRunMatchesPoolMath() public {
         MockV3Pool pool = new MockV3Pool(address(tokA), address(tokB), POOL_FEE);
         pool.setState(SQRT_P_1, LIQ);
+        // The pool holds the output it pays: like UniswapV3Pool, MockV3Pool pays the output
+        // before it calls back (since 2957178), so an empty pool reverts in the dry run.
+        tokB.mint(address(pool), 1_000e18);
         bool zfo = pool.token0() == address(tokA);
 
         Leg memory l = _leg(BPC.KIND_V3, address(pool), AMT, DECOY_OUT);
