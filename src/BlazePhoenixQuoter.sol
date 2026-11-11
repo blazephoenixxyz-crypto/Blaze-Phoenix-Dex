@@ -162,6 +162,10 @@ contract BlazePhoenixQuoter {
     uint16  internal constant MAX_BATCH         = 32;
     /// @dev Gas each Gate adapter answer (quote, then quoteCall) may spend in _priceLeg.
     uint256 internal constant GATE_QUOTE_GAS    = BPC.GATE_QUOTE_GAS;
+    /// @dev The input probe's transient context (`_inputTaxed`): the pool run backwards and
+    ///      the leg's input token. Zero outside the probe, so the callback answers as a quote.
+    uint256 private constant TSLOT_PROBE_POOL  = uint256(keccak256("blaze.q.probe.pool"));
+    uint256 private constant TSLOT_PROBE_TOKEN = uint256(keccak256("blaze.q.probe.token"));
 
     ISolverQ public immutable solver;
     IHubQ    public immutable hub;
@@ -172,6 +176,9 @@ contract BlazePhoenixQuoter {
     error QuoteDeltas(int256 d0, int256 d1);
     /// @dev The payload `dryQuoteCall` reverts with: a Gate adapter's `quoteCall` answer.
     error GateQuoteCall(uint256 out);
+    /// @dev The payload the input probe reverts with: whether the pool received less of the
+    ///      leg's input token than this frame paid it (the Router's RouterE(13) measurement).
+    error InputProbe(bool taxed);
 
     constructor(address hub_, address solver_) {
         if (hub_ == address(0) || solver_ == address(0)) revert QuoterE(3);
@@ -279,6 +286,11 @@ contract BlazePhoenixQuoter {
     {
         if (block.timestamp > deadline) pv.canExecute = false;
         if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;
+        // A TAXED INPUT INTO A CONCENTRATED LEG (bounty uid 3984, 2026-11-11): the question
+        // `_exact` asks after its scalar, asked here after the floor, on the route the bytes
+        // carry. The Router refuses the leg (RouterE(13)) whatever the floor; a dry-run that
+        // can pay measures it, and this door dry-runs. Not asked of the view doors.
+        if (pv.canExecute && _inputTaxedIn(pv.route)) pv.canExecute = false;
         if (pv.canExecute) {
             call = abi.encodeCall(IRouterExec.swapExactIn,
                 (pv.route, amountIn, pv.effectiveMinOut, recipient, deadline));
@@ -302,7 +314,11 @@ contract BlazePhoenixQuoter {
         previews = new Preview[](n);
         for (uint256 i; i < n; ) {
             BatchEntry calldata e = entries[i];
-            try solver.findBestRoutePlan(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {
+            // One item's solve is given its share of the gas that is left, not all of it: a solve
+            // that runs out hands back 1/64 (EIP-150) and the items after it would read zero for
+            // a book that is not theirs. The share is what is left over the items still to run,
+            // so it never shrinks down the batch and the last item is given everything.
+            try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {
                 previews[i] = _pack(p.best, e.userMinOut);
             } catch { /* leave zero-initialised */ }
             unchecked { ++i; }
@@ -498,6 +514,17 @@ contract BlazePhoenixQuoter {
                     (address a, address b) = leg.zeroForOne ? (t0, t1) : (t1, t0);
                     // `_execute` reads a zero legIn as the hop's input: mirrored, not tightened.
                     if ((a != address(0) && a != hop.tokenIn) || b != hop.tokenOut) return true;
+                    // The Router's leg dispatch (`_execScaled`), mirrored: a Gate wrapper whose
+                    // family is not live reverts RouterE(19), a kind it has no engine for reverts
+                    // RouterE(8). A leg with no input returns before the dispatch: not refused.
+                    // The input asked of is the leg's own figure: the Router dispatches the leg
+                    // as scaled to the hop's measured delivery, which the dry-run doors ask of
+                    // (`_exact` rewrites each leg to its scaled size before asking here) and a
+                    // view frame cannot measure. So the view door can refuse a committed leg the
+                    // Router scales to nothing and skips; it never passes one the Router refuses.
+                    if (leg.amountIn != 0 && !(leg.kind == BPC.KIND_EXTERNAL
+                            ? BPC.gateWrapperLive(address(hub), leg.pool, hop.tokenIn, hop.tokenOut, leg.fee)
+                            : BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL))) return true;
                 }
                 unchecked { ++l; }
             }
@@ -558,6 +585,20 @@ contract BlazePhoenixQuoter {
         if (msg.data.length < 4 + 64) revert QuoterE(6);
         int256 a0; int256 a1;
         assembly { a0 := calldataload(4) a1 := calldataload(36) }
+        // THE INPUT PROBE (bounty uid 3984, 2026-11-11). Armed by `_inputTaxed`, this callback
+        // is the Router's seam, not a quote: the pool, run backwards, has just paid this frame
+        // the leg's input token; the frame pays the pool what it holds of it and measures the
+        // pool's delta, as `Router._v3Callback` pays a pool what it demands and refuses the
+        // leg, RouterE(13), when the pool received less. The revert unwinds the payment.
+        uint256 probe; address t;
+        uint256 sP = TSLOT_PROBE_POOL; uint256 sT = TSLOT_PROBE_TOKEN;
+        assembly { probe := tload(sP) t := tload(sT) }
+        if (probe != 0 && msg.sender == address(uint160(probe))) {
+            uint256 held = BPC.balanceOf(t, address(this));
+            uint256 before = BPC.balanceOf(t, msg.sender);
+            if (held != 0) BPC.safeTransfer(t, msg.sender, held);
+            revert InputProbe(held != 0 && BPC.balanceOf(t, msg.sender) - before < held);
+        }
         revert QuoteDeltas(a0, a1);
     }
 
@@ -616,6 +657,46 @@ contract BlazePhoenixQuoter {
             if (recv >= 0) return 0;
             out = uint256(-recv);
         }
+    }
+
+    /// @dev Whether the pool receives less of `tIn` than a payer sends it, measured where the
+    ///      Router measures it (`_v3Callback`). A view frame holds no token and cannot pay one;
+    ///      the dry-run doors can: the pool is run backwards on the leg's output, it pays this
+    ///      frame `tIn` before it calls back (the order of UniswapV3Pool.swap and
+    ///      AlgebraPool.swap), and the callback pays it back and measures. A pool that pays
+    ///      nothing backwards leaves no measurement, and no measurement is not a tax.
+    function _inputTaxed(address pool, bool zfo, address tIn, uint256 sizeOut)
+        private returns (bool taxed)
+    {
+        if (sizeOut == 0 || sizeOut > uint256(type(int256).max)) return false;
+        uint160 limit = zfo ? BPC.MAX_SQRT_PRICE_MINUS_ONE : BPC.MIN_SQRT_PRICE_PLUS_ONE;
+        uint256 sP = TSLOT_PROBE_POOL; uint256 sT = TSLOT_PROBE_TOKEN;
+        assembly { tstore(sP, pool) tstore(sT, tIn) }
+        try IConcPoolQ(pool).swap(address(this), !zfo, int256(sizeOut), limit, "")
+            returns (int256, int256)
+        {} catch (bytes memory r) {
+            if (r.length == 36 && bytes4(r) == InputProbe.selector) {
+                uint256 w;
+                assembly { w := mload(add(r, 36)) }
+                taxed = w != 0;
+            }
+        }
+        assembly { tstore(sP, 0) tstore(sT, 0) }
+    }
+
+    /// @dev True when a concentrated leg the Router will fund is paid in a token its pool
+    ///      receives short of (`_inputTaxed`). Asked of the route as `_exact` scaled it.
+    function _inputTaxedIn(Route memory route) private returns (bool) {
+        for (uint256 h; h < route.hops.length; ++h) {
+            Hop memory hop = route.hops[h];
+            for (uint256 l; l < hop.legs.length; ++l) {
+                Leg memory leg = hop.legs[l];
+                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_CONC_POOL)
+                        && _inputTaxed(leg.pool, leg.zeroForOne, hop.tokenIn, leg.expectedOut))
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// @dev V4 QUOTE callback: the PoolManager calls this BY NAME during
@@ -858,6 +939,12 @@ contract BlazePhoenixQuoter {
         // `_priceLeg`, and that claim was returned as execution-grade. Asked of `_pack`'s own
         // producer; the route keeps its attestation, the scalar says the Router will not fill.
         if (_hookRefusedIn(route)) exactOut = 0;
+        // A TAXED INPUT INTO A CONCENTRATED LEG (bounty uid 3984, 2026-11-11). The Router pays
+        // a V3-family pool and refuses the leg when the pool received less than it paid
+        // (`_v3Callback`, RouterE(13): a taxed token is routed where the venue takes it). The
+        // pool's own dry-run never pays, so no transfer was measured and the scalar promised
+        // the fill. Measured here at the same seam, on the legs as the Router will fund them.
+        if (exactOut != 0 && _inputTaxedIn(route)) exactOut = 0;
         // A POOL TWICE IN ONE HOP (opencode OC-07, 2026-10-27). Every leg above is priced against
         // the pool as it stands before the swap; the Router runs the legs in turn, and the second
         // meets the pool the first moved. On a V2 pair with a fee the split in sequence pays less

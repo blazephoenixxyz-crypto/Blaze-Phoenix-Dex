@@ -636,15 +636,18 @@ contract BlazePhoenixSolver {
         // =========================================================================
         //  STAGE 1 — MARGINAL-PRICE MEDIAN AND NO-ARBITRAGE BAND  (single probe pass)
         //
-        //  We quote each candidate with a PROBE size (= amountIn / 100) that
-        //  is small enough that each pool's marginal rate is essentially its
-        //  spot price after its fee. Then BlazePhoenixMath takes the depth-weighted
-        //  median of the PRICES (the rate before the fee the probe charged) and
-        //  keeps the pools whose price no arbitrage could have closed against it:
-        //  the band's width is the two fees and the two quotes' error bounds, never
-        //  a fixed number of bps (MED, 2026-10-28; `BlazePhoenixMath._inBand`).
-        //  The weights, the split and the gate below still read the RATE, after fee:
-        //  the fee is an honest cost, judged where the output is judged.
+        //  We quote each candidate with a PROBE size (= amountIn / 100). On a
+        //  pool that is deep against the probe its marginal rate is essentially
+        //  its spot price after its fee. It is NOT on a pool much smaller than the
+        //  order: there the probe itself moves the price, and the band below reads
+        //  that impact as a price deviation (bounty uid 3989). Then BlazePhoenixMath
+        //  takes the depth-weighted median of the PRICES (the rate before the fee the
+        //  probe charged) and keeps the pools whose price no arbitrage could have
+        //  closed against it: the band's width is the two fees and the two quotes'
+        //  error bounds, never a fixed number of bps (MED, 2026-10-28;
+        //  `BlazePhoenixMath._inBand`). The weights, the split and the gate below
+        //  still read the RATE, after fee: the fee is an honest cost, judged where
+        //  the output is judged.
         //
         //  GAS: the probe-size quote is computed exactly ONCE per candidate
         //  here, capturing the marginal rate, the depth, the fee and the error
