@@ -243,12 +243,16 @@ contract BlazePhoenixQuoter {
         hasFallback   = plan.hasFallback;
     }
 
-    /// @notice One call, two answers: the full preview AND the exact calldata that executes it.
+    /// @notice One call, two answers: the full preview AND the calldata for the route it prices.
     /// @dev The integrator's round-trip used to be: ask for a preview, rebuild the nested
     ///      `Route` client-side, encode `swapExactIn` by hand, and choose a `minOut`. Every step
-    ///      is a place to drift from what was quoted. This returns the bytes ready to submit, with
+    ///      is a place to drift from what was quoted. This returns the encoded bytes, with
     ///      `effectiveMinOut` - the protocol's own floor, tightened by the caller's - already
     ///      inside them, so the transaction carries the floor the preview promised.
+    ///      The bytes execute the pool math the preview measured; whether they settle for a
+    ///      given payer (a token whose transfer depends on the caller or on the state it meets)
+    ///      is answered only by the Router's own call, from the payer (see `Preview.canExecute`
+    ///      and KNOWN_ISSUES, "the encode doors answer pool math"). Run that eth_call first.
     ///      When the preview says the route cannot execute, the bytes are EMPTY on purpose: a
     ///      caller cannot submit a transaction this function already knows will not settle.
     ///      Not `view` since 2026-10-27 (3336): the floor inside the bytes is asked of the
