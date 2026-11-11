@@ -210,13 +210,31 @@ contract SwapOutputNeverExceedsWhatTheVenuesDeclaredTest is Test {
     /// A blind leg (no attestation, a pool that reports no liquidity to the frame) is never
     /// measured, so DEX-11 does not run on it. The restatement fires inside its window (the input
     /// payment in the pool's callback). The swapper is paid no more than the pool declared.
+    ///
+    /// The pool pays BEFORE its callback, as UniswapV3Pool.swap does (the mock pays in that order
+    /// since 2957178), so the shares it paid are already on the Router when the 2:1 restatement
+    /// fires, and the declaration is in the units of the moment it was made: `paid` display units,
+    /// `paid` shares at 1:1. The Router pays the declaration, `paid` display units, now `paid / 2`
+    /// shares; the other half, the growth of the swap's own output, stays with the stranded balance
+    /// and only the 48h rescue moves it (measured 2026-11-12: a later honest swap, a blind swap, a
+    /// cyclic route and an oversized leg by a third party each left the Router's shares unchanged;
+    /// the swapper's shares are the same as when the mock paid after its callback). Until 2957178
+    /// the mock paid after the callback and the pool's payment itself was the half.
+    /// Red at 2e0ccc6 (the oracle read the pool's payment as the swapper's): 1049710415057748778210
+    /// != 1000000000000000000000.
     function test_ABlindLegIsPaidNoMoreThanItsVenueDeclared() public {
         MockV3Pool v3 = _pool(address(tokenA), address(pC), 0);
         tokenA.arm(address(v3), address(pC), abi.encodeCall(PathologicalERC20.setRebase, (2, 1)));
-        _swap(_one(_hop(address(tokenA), address(pC), _v3(v3, address(tokenA), AMT, 0))));
+        uint256 out = _swap(_one(_hop(address(tokenA), address(pC), _v3(v3, address(tokenA), AMT, 0))));
         assertEq(pC.rebaseNum(), 2, "the restatement fired");
-        assertEq(pC.sharesOf(address(router)), STRANDED, "the stranded balance keeps every share");
-        assertEq(pC.sharesOf(user), R - pC.sharesOf(address(v3)), "the swapper is paid what the pool paid");
+        // What the pool paid, in shares: it paid at 1:1, before the restatement.
+        uint256 paid = R - pC.sharesOf(address(v3));
+        assertEq(pC.sharesOf(user), paid / 2, "the swapper is paid the declaration: paid display units, half the shares after 2:1");
+        assertEq(out, pC.balanceOf(user), "amountOut is what the swapper holds");
+        assertEq(
+            pC.sharesOf(address(router)), STRANDED + (paid - paid / 2),
+            "the stranded balance keeps every share and the growth of the swap's own output stays for the rescue"
+        );
     }
 
     /// The loose shape A -> pC -> B -> pC: hop 0 also makes tokenOut and hop 1 hands it back out,
