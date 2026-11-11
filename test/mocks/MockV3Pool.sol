@@ -89,11 +89,13 @@ contract MockV3Pool {
         amount0 = zeroForOne ? int256(demand) : -int256(amtOut);
         amount1 = zeroForOne ? -int256(amtOut) : int256(demand);
 
+        // The output is paid BEFORE the callback, as UniswapV3Pool.swap pays it: the caller
+        // holds it while it settles the input. Until 2026-11-11 the mock paid it after, so
+        // nothing a caller measured inside the callback was what a real pool shows it.
+        IERC20V3(tokenOut).transfer(recipient, amtOut);
         uint256 balBefore = IERC20V3(tokenIn).balanceOf(address(this));
         IV3SwapCallback(msg.sender).uniswapV3SwapCallback(amount0, amount1, data);
         uint256 received = IERC20V3(tokenIn).balanceOf(address(this)) - balBefore;
         require(received >= demand, "MockV3Pool: insufficient input");
-
-        IERC20V3(tokenOut).transfer(recipient, amtOut);
     }
 }
