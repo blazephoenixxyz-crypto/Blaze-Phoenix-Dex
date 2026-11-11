@@ -420,6 +420,26 @@ library BlazePhoenixCore {
         return !feeOnOut && (feeHop == type(uint256).max || h == feeHop);
     }
 
+    /// @notice `base` scaled by each input-charging hop's `(amountIn - fee) / amountIn`, rounded
+    ///         down (4007): the route's output on the input the Router executes with, from the
+    ///         gross figure its pool math quoted. The Solver attests `singleOutFloor` on it and
+    ///         the Quoter's exact walk, which takes the same fees out of its carry, rescales that
+    ///         floor by it: one producer, one frame. A hop the fee would swallow whole scales to
+    ///         zero. `hops[h].amountIn` is read as planned, before any walk rewrites it.
+    function netOfInputFees(Hop[] memory hops, uint256 base, uint256 feeHop, bool feeOnOut)
+        internal pure returns (uint256)
+    {
+        for (uint256 h; h < hops.length; ) {
+            if (paysOnInput(h, feeHop, feeOnOut)) {
+                uint256 b = hops[h].amountIn;
+                uint256 f = mulDivUp(b, PROTOCOL_FEE_BPS, BPS);
+                base = b > f ? mulDiv(base, b - f, b) : 0;
+            }
+            unchecked { ++h; }
+        }
+        return base;
+    }
+
     // ─── V3 sqrt-price bounds ──────────────────────────────────────────
 
     uint160 internal constant MIN_SQRT_PRICE_PLUS_ONE = 4_295_128_740;

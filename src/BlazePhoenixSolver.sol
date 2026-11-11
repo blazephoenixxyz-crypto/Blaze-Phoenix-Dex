@@ -1812,9 +1812,10 @@ contract BlazePhoenixSolver {
         // calendar, read here over the hops in memory: the first hop whose input is a bridge,
         // every hop when there is none, no hop when the route is one hop into a bridge (the fee
         // then comes off the output, after the comparison). The gross output is scaled by each
-        // charging hop's (base - fee) / base, rounded down, before the floor rounds up: a pool
-        // curve concave through the origin delivers at least that share of the gross output on
-        // the net input, so the floor sized here is met by the route it describes.
+        // charging hop's (base - fee) / base, rounded down (`BPC.netOfInputFees`, the one producer
+        // the Quoter's exact walk rescales by too), before the floor rounds up: a pool curve
+        // concave through the origin delivers at least that share of the gross output on the net
+        // input, so the floor sized here is met by the route it describes.
         uint256 base = finalOut;
         if (!(hops.length == 1 && hub.isBridgeToken(tOut))) {
             uint256 feeHop = type(uint256).max;
@@ -1822,14 +1823,7 @@ contract BlazePhoenixSolver {
                 if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = h; break; }
                 unchecked { ++h; }
             }
-            for (uint256 h; h < hops.length; ) {
-                if (feeHop == type(uint256).max || h == feeHop) {
-                    uint256 b = hops[h].amountIn;
-                    uint256 f = BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-                    base = b > f ? BPC.mulDiv(base, b - f, b) : 0;
-                }
-                unchecked { ++h; }
-            }
+            base = BPC.netOfInputFees(hops, finalOut, feeHop, false);
         }
         uint256 floorOut = BPC.mulDivUp(base, floorBps, BPC.BPS);
 
