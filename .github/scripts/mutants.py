@@ -5003,6 +5003,11 @@ M = [
       old='            if (sqrtNew >= P || sqrtNew <= 1) return 0;',
       new='            if (sqrtNew >= P) return 0; // MUTANT',
       teste='test_OutV3_PriceCollapseToZeroQuotesZeroNotWholeReserve'),
+ dict(nome="outV3 [1083]: the single-range output rounds up (a wei above the walk, the book is handed back to the rebuild)",
+      f='src/BlazePhoenixCore.sol',
+      old='            outAmt = mulDiv(L, P - sqrtNew, Q96);',
+      new='            outAmt = mulDivUp(L, P - sqrtNew, Q96); // MUTANT',
+      teste='test_SweepA_NoBookLostToTheRebuild'),
 ]
 
 def run(t):

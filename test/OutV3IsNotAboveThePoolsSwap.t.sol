@@ -6,7 +6,8 @@ pragma solidity ^0.8.24;
 //
 // `outV3` states its own law: exact for what fits inside the range and never above. In the
 // token0 -> token1 direction it rounded the new price DOWN (`mulDiv(L, P, L + product)`), where
-// the pool's swap (SqrtPriceMath.getNextSqrtPriceFromAmount0RoundingUp) rounds it UP. One unit of
+// the pool's swap (SqrtPriceMath.getNextSqrtPriceFromAmount0RoundingUp, the walk's `Core._nextSqrtFromInput`)
+// rounds it UP. One unit of
 // sqrt price is worth L / 2^96 of output, so the figure stood one wei above what the pool pays
 // with about that probability (exact integers: 2 of 400,000 orders at L = 1e24 and price 1).
 //
