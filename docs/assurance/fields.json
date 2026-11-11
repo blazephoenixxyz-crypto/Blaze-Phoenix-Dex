@@ -122,8 +122,8 @@
       "field": "leg.amountIn",
       "family": "*",
       "class": "CONFIRMED",
-      "site": "src/BlazePhoenixRouter.sol",
-      "note": "VOL_01: rescaled by the measured scaleNum/scaleDen before it is published or weighted"
+      "site": "src/BlazePhoenixRouter.sol:_execScaled",
+      "note": "VOL_01, then fin2-1111 (2026-11-11): the field sizes the leg's send (rescaled by the measured scaleNum/scaleDen) and nothing else. What the registry weights and the Volume event publishes is legTook, the input the venue's side measured (_execPairAmt: balance over synced reserve; V3: the pool's returned in-side, seen landing in _v3Callback; V4: the unlock callback's settled owe)"
     },
     {
       "field": "leg.expectedOut",
