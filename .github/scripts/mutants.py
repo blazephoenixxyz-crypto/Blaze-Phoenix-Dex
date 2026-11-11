@@ -5324,6 +5324,11 @@ M = [
       old='if (i18 != 0 && o18 > i18 && o18 / i18 < type(uint256).max / depthWad) mass = mulDiv(depthWad, o18, i18);',
       new='if (false) mass = mulDiv(depthWad, o18, i18); // MUTANT',
       teste='test_Mass_AWrapperWeighsTheTokenOutSideLikeANativePair'),
+ dict(nome='mat Solver funnel: a row whose fee alone reaches the route ceiling is quoted and seated, and the route refused (R3)',
+      f='src/BlazePhoenixSolver.sol',
+      old='if (f != BPC.FEE_UNKNOWN && f >= uint256(MAX_ROUTE_IMPACT_BPS) * 100) o = 0;',
+      new='if (false) o = 0; // MUTANT',
+      teste='test_AVenueBehindNinetyPercentLeavesTheOrderWithARoute'),
 ]
 
 def run(t):
