@@ -7070,6 +7070,23 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);',
       new='        return this.selfExecutePrePulled(plan.best, received, 1, recipient, deadline, msg.sender); // MUTANT',
       teste='test_HD01_BooksAfterTheQuote_TheSolvingDoorIsRefusedAtTheCallersFloor'),
+ # 4135b (2026-11-11): the encode doors answer pool math; the payer's own eth_call to the Router is
+ # the settlement oracle. Each entry verified on the box to kill its test on 2026-11-11.
+ dict(nome="4135b: the Router's final floor is removed (the payer's call would settle under the floor the bytes carry)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (delivered < userMinOut) revert RouterE(5);",
+      new="        // MUTANT",
+      teste="test_R1_SwapBackInsideThePairsLock_TheDoorSaysYes_OnlyThePayersCallRefuses"),
+ dict(nome="4135b: the Router's return is not the delivery (the payer's call would report a number the recipient did not receive)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        return delivered;",
+      new="        return delivered + 1; // MUTANT",
+      teste="test_R4_TheRouterExempt_TheDoorSaysYes_ThePayersCallSettles"),
+ dict(nome="4135b: the door's funded floor is removed (a floor above pool math would get bytes the Router refuses)",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;",
+      new="        // MUTANT",
+      teste="test_Control_AFloorAbovePoolMath_TheDoorSaysNo_AndCarriesNoBytes"),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named

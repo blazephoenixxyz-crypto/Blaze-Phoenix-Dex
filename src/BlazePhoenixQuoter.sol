@@ -205,7 +205,12 @@ contract BlazePhoenixQuoter {
         uint8   topology;          // 0 = direct, 1 = one bridge (MAX_HOPS caps the depth)
         //                            (= hops - 1; was ALWAYS 0 until 2026-08-22)
         address bridgeUsed;
-        bool    canExecute;
+        bool    canExecute;        // pool math clears the floors (the doors' measurements and
+        //                            the Router's pre-checks), NOT "these bytes settle for you":
+        //                            a token whose transfer depends on the caller or on the
+        //                            state it meets is answered only by the Router's own call,
+        //                            from the payer (KNOWN_ISSUES, "the encode doors answer
+        //                            pool math")
     }
 
     struct BatchEntry {

@@ -77,6 +77,23 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   the registry, and the swap stays bounded by the floors and the caller's minimum. Documented in
   `docs/assurance/threats.json` (`SOK-LEG-DELTA-DONATION`, Limits).
 
+- **The encode doors answer pool math; the payer's own call answers settlement.** `canExecute` and
+  the bytes of `previewAndEncode[WithMinOut]` say that the pools, the fee, the floors, the deadline,
+  the hooks and the concentrated legs' input clear the floor the bytes carry. They do not say that
+  the bytes settle for you: a token whose transfer depends on who moves it or on the state it
+  meets (a transfer tax on the way into a reserve pair, a swap-back inside the pair's lock, a
+  holder cap a third party can arm, `transferFrom` taxed where `transfer` is not, an exemption of
+  the Router, the Hub or the payer) can deliver under that floor, and the Router then refuses the
+  bytes with `RouterE(5)`: no token moves, the cost is the gas of the refused call. The same holds
+  of the exact doors' scalar for such a token. No probe inside a quote can imitate that transfer,
+  because the Router pays before the pair's `swap` and from the payer; the one instrument that
+  can is the transaction itself, dry-run: an `eth_call` of the Router's bytes from the payer at
+  the quoted block. The SDK's `simulate` and `execute` and the MCP server's `simulate_swap` run
+  that call and fail closed on a revert; a client that hands out bytes without it hands out pool
+  math. Documented in `docs/assurance/threats.json` (`SOK-QUOTER-RESERVE-INPUT-TAX-ENCODED`) and
+  `SHARED_QUANTITIES.md` (`canExecute` at the encode doors); fixed by
+  `test/EncodeDoorsAnswerPoolMathThePayersCallSettles.t.sol`.
+
 ## Out of scope
 
 The full list is in [`SECURITY.md`](../SECURITY.md#out-of-scope). The entries most often reported:
