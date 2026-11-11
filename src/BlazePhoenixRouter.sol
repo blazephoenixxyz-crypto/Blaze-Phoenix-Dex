@@ -1966,7 +1966,9 @@ contract BlazePhoenixRouter {
     }
 
     /// @return declared the out side the pool (or Gate wrapper) returns from swap, negated (DEX-11).
-    /// @return took the in side it returns: what the pool consumed, and `_v3Callback` saw land.
+    /// @return took the input `_v3Callback` paid and saw land in the pool: MEASURED, not the in
+    ///         side the pool returns (a pool's return value is its own claim, 3958 input side).
+    ///         A pool that never asked for input took nothing.
     function _execV3Amt(Leg calldata leg, address tokenIn, uint256 amt) private returns (uint256 declared, uint256 took) {
         uint256 sP = TSLOT_POOL;
         uint256 sT = TSLOT_TOKEN;
@@ -1981,11 +1983,19 @@ contract BlazePhoenixRouter {
         (int256 a0, int256 a1) = IUniswapV3PoolMin(pool).swap(
             address(this), leg.zeroForOne, int256(amt), limit, ""
         );
-        assembly { tstore(sP, 0) tstore(sT, 0) tstore(sA, 0) }
+        // The callback clears the pool slot and leaves what it paid in the amount slot; a pool
+        // slot still set means no callback ran, and the budget still in the amount slot is not
+        // a payment.
+        uint256 noCallback;
+        assembly {
+            took := tload(sA)
+            noCallback := tload(sP)
+            tstore(sP, 0) tstore(sT, 0) tstore(sA, 0)
+        }
+        if (noCallback != 0) took = 0;
         // The pool pays the out side, so it comes back negative; a non-negative one declares nothing.
         int256 o = leg.zeroForOne ? a1 : a0;
-        int256 i = leg.zeroForOne ? a0 : a1;
-        unchecked { if (o < 0) declared = uint256(-o); if (i > 0) took = uint256(i); }
+        unchecked { if (o < 0) declared = uint256(-o); }
     }
 
     /// @return declared the amount unlockCallback took from the PoolManager (DEX-11).
@@ -2138,6 +2148,9 @@ contract BlazePhoenixRouter {
         uint256 bal0 = BPC.balanceOf(tIn, msg.sender);
         BPC.safeTransfer(tIn, msg.sender, owed);
         if (BPC.balanceOf(tIn, msg.sender) - bal0 < owed) revert RouterE(13);
+        // Leave what landed for `_execScaled` to hand the registry (the pool slot stays
+        // cleared, so a second callback still meets RouterE(6)).
+        assembly { tstore(sA, owed) }
     }
 
     /// @notice V4 unlockCallback — invoked by the PoolManager after unlock().
@@ -2280,8 +2293,9 @@ contract BlazePhoenixRouter {
                 }
                 // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller asked
                 // for. `legTook` is what the venue TOOK IN, measured on the venue's side: a
-                // pair's balance over its synced reserve (`_execPairAmt`), the input a V3-shaped
-                // pool or the V4 manager consumed and had settled. It used to be `leg.amountIn`
+                // pair's arrival, or its balance over the synced reserve when the arrival fell
+                // short (`_execPairAmt`); the input `_v3Callback` paid and saw land, never what
+                // the pool returns; the amount the V4 manager settled. It used to be `leg.amountIn`
                 // rescaled by the hop's spend ratio: the Router's send priced by the plan. A
                 // taxed input token pays the venue less than the Router sends, and a pair on
                 // whose short side that token sits anchored its clock on the send.
