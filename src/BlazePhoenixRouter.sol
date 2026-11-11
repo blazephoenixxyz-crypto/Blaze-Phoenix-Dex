@@ -804,14 +804,30 @@ contract BlazePhoenixRouter {
     ///      stays in the Router, counted in TSLOT_KEPT so no read of this transaction sees it
     ///      as a swap's balance. The fee is charged either way: every rule that counts it
     ///      (amountIn - fee, TSLOT_FEE) is unchanged.
-    ///      BOOKED BY THE DELTA, NOT BY THE ANSWER: a token may move the share and still answer
-    ///      in a shape Core reads as a refusal (`false`, an oversized word). Only what did not
-    ///      leave the Router is booked, so a claim never pays a share twice.
+    ///      BOOKED BY TWO WITNESSES, NEVER BY THE ANSWER. The answer is the token's claim: a
+    ///      token may move the share and answer `false` (or an oversized word), or move nothing
+    ///      and answer `true`. What moved is measured at both ends of the transfer: what the
+    ///      Router lost and what the payee gained. Either witness alone can be fooled inside the
+    ///      transfer — the Router's loss reads short when the token restates the Router's balance
+    ///      up (zero at exactly b0 / (b0 - amt)), the payee's gain reads short under the token's
+    ///      own transfer cut — and no rule on the Router's balances alone decides: (`true`, half
+    ///      moved, no restatement) and (`true`, all moved, restated up to b0 / (b0 - amt)) read
+    ///      the same (b0, b1) with opposite truths. The larger witness is what reached the payee;
+    ///      only the rest is booked, so a claim never pays a share twice. Both witnesses under-read
+    ///      together only when the token restates the Router up and the payee down in the same
+    ///      transfer: the issuer gifting balance, not a slot's loss. The payee is read only when
+    ///      the Router's own loss does not already cover the share.
     function _push(address token, uint256 i, address to, uint256 amt) private {
         uint256 b0 = BPC.balanceOf(token, address(this));
-        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return;
-        uint256 b1 = BPC.balanceOf(token, address(this));
-        uint256 gone = b0 > b1 ? b0 - b1 : 0;
+        uint256 p0 = BPC.balanceOf(token, to);
+        BPC.tryTransfer(token, to, amt, FEE_GAS);
+        uint256 gone = BPC.balanceOf(token, address(this));
+        gone = b0 > gone ? b0 - gone : 0;
+        if (gone < amt) {
+            uint256 got = BPC.balanceOf(token, to);
+            got = got > p0 ? got - p0 : 0;
+            if (got > gone) gone = got;
+        }
         if (gone >= amt) return;
         unchecked { amt -= gone; }
         owed[token][i] += amt;
