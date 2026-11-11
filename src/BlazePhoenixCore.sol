@@ -1893,7 +1893,19 @@ library BlazePhoenixCore {
         if (c.kind == KIND_EXTERNAL) {
             (, out, depthWad) = gateQuote(
                 c.hub, c.pool, c.tokenIn, c.tokenOther, c.fee, c.zeroForOne, amountIn, true);
-            return (out, depthWad, out, out, FEE_UNKNOWN, depthWad);
+            // The Gate's word is the SHORT side of what the venue holds (`vitalOf`); the hop's
+            // unit is the tokenOut side. A venue holding both sides at its own price holds the
+            // long side at the short side times that price, and the price this very quote paid
+            // (after its fee and its impact) is a floor on it: the wrapper is never weighed
+            // above what it measured, and no longer at the dear token's count when the order
+            // buys the cheap one.
+            mass = depthWad;
+            if (out != 0 && depthWad != 0) {
+                uint256 i18 = to18(amountIn, _decIn(c));
+                uint256 o18 = to18(out, _decOther(c));
+                if (i18 != 0 && o18 > i18 && o18 / i18 < type(uint256).max / depthWad) mass = mulDiv(depthWad, o18, i18);
+            }
+            return (out, depthWad, out, out, FEE_UNKNOWN, mass);
         }
         uint8 k = c.kind;
         // Tombstone 3 left this branch (an EIP-170 dead-code pass): the venue

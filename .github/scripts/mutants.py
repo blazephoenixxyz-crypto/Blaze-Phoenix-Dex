@@ -5319,6 +5319,11 @@ M = [
       old='                while (j > 0 && prices[ord[j - 1]] > kr) {',
       new='                while (j > 0 && prices[ord[j - 1]] > kr && j > m) { // MUTANT',
       teste='test_L1056c2_WeightedMedianWalksTheSortedPairs'),
+ dict(nome='mat Core._quoteArms: a Gate wrapper is weighed at the short side when the order buys the cheap token (R4)',
+      f='src/BlazePhoenixCore.sol',
+      old='if (i18 != 0 && o18 > i18 && o18 / i18 < type(uint256).max / depthWad) mass = mulDiv(depthWad, o18, i18);',
+      new='if (false) mass = mulDiv(depthWad, o18, i18); // MUTANT',
+      teste='test_Mass_AWrapperWeighsTheTokenOutSideLikeANativePair'),
 ]
 
 def run(t):
