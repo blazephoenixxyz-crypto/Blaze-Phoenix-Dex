@@ -4659,6 +4659,16 @@ M = [
       old='        if (lastTs == 0) return (0, 0);',
       new='        // MUTANT [964]',
       teste='test_FixedClock_Cases'),
+ dict(nome="bridge-1112 a [4111]: hop h>=1 scales on the raw bridge balance, foreignBase forgotten (R3 / BP-15, I1)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                realIn = bal > foreignBase ? bal - foreignBase : 0;",
+      new="                realIn = bal; // MUTANT bridge-1112 a: the raw balance, foreignBase forgotten",
+      teste="test_ATaxedBridgeOverAStrandedBalanceSpendsOnlyWhatHopZeroDelivered"),
+ dict(nome="bridge-1112 b [4111]: hop h>=1 spends the pro-rata share bal*L/(L+F) of the declared input, a figure the caller writes",
+      f="src/BlazePhoenixRouter.sol",
+      old="                realIn = bal > foreignBase ? bal - foreignBase : 0;",
+      new="                realIn = BPC.mulDiv(bal, _legSum(hop), _legSum(hop) + foreignBase); // MUTANT bridge-1112 b: the pro-rata share of the declared input",
+      teste="test_AnOverDeclaredBridgeInputNeverReachesTheStrandedBalance"),
 ]
 
 def run(t):
