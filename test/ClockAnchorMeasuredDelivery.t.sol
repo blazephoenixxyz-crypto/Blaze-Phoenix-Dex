@@ -410,4 +410,188 @@ contract ClockAnchorMeasuredDeliveryTest is Test {
         if (f.poolOut >= _bar(f)) _assertAnchored(f, "fuzz material");
         else _assertNotAnchored(f, "fuzz dust");
     }
+
+    // ───────────────── THE INPUT SIDE: THE ROW READS WHAT THE VENUE TOOK IN ─────────────────
+    //
+    // RED at ecd7ada (fin1111-relogio): the output side above was already measured, but
+    // `Router._recordHits` still handed the registry `mulDiv(leg.amountIn, hopScale, 1e18)` as
+    // the leg's input: the Router's send, priced by the plan. A pair whose SHORT side is the
+    // input token, when that token taxes the transfer between the Router and the pair, received
+    // less than the bar while the Router sent more, and the row anchored on the send. The same
+    // producer as the output side closes it: `_execPairAmt` already measures what the pair took
+    // in (balance over synced reserve); the Router now keeps that figure per leg (`legTook`)
+    // and the registry reads it. The oracle below is the pair's own balance delta, never the
+    // Router's send and never `Core.tickDepth18`.
+    //
+    // The tax is on both transfers of the input token (pull into the Router, push to the pair):
+    // the Router's send to the pair is the pair's receipt over the net factor.
+
+    uint256 internal constant SHORT_IN = 1_000_000e18;
+    uint256 internal constant LONG_OUT = 10_000_000e18;
+    uint16 internal constant TAX_BPS = 2_000;
+
+    function _volIn(Vm.Log[] memory logs, bytes32 k) internal view returns (bool found, uint256 amtIn) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(hub) && logs[i].topics.length == 2
+                && logs[i].topics[0] == VOLUME_SIG && logs[i].topics[1] == k) {
+                (amtIn, ) = abi.decode(logs[i].data, (uint256, uint256));
+                return (true, amtIn);
+            }
+        }
+    }
+
+    function _oneOn(MockV2Pair p, uint256 ask, uint256 exp) internal view returns (Route memory) {
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = _leg(p, address(tA), ask, exp);
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = _hop(address(tA), address(tB), ask, exp, legs);
+        return _route(hops, exp);
+    }
+
+    /// One swap of `ask` tA on `p` with the plan's own attestation; the fill measured from the
+    /// pair's balances, plus the published `Volume.amtIn`.
+    function _swapShortIn(MockV2Pair p, bytes32 k, uint256 ask)
+        internal returns (Fill memory f, bool volInFound, uint256 volIn)
+    {
+        f = _snapBefore(p, k, tA, tB);
+        Vm.Log[] memory logs = _swap(_oneOn(p, ask, _outV2(_funded(ask), SHORT_IN, LONG_OUT)), ask);
+        _snapAfter(f, p, k, tA, tB, logs);
+        (volInFound, volIn) = _volIn(logs, k);
+    }
+
+    /// The Router's send to the pair, rebuilt from the pair's receipt and the token's tax.
+    function _sent(Fill memory f) internal pure returns (uint256) {
+        return f.poolIn * BPC.BPS / (BPC.BPS - TAX_BPS);
+    }
+
+    /// 3958 residual (input side): the pair receives under the bar, the Router sent over it,
+    /// the output does not bind. The clock must not move.
+    function test_ClockAnchor_FotInputShortSideReceiptBelowTheBarLeavesTheClock() public {
+        (MockV2Pair p, bytes32 k) = _mkPair(tA, tB, SHORT_IN, LONG_OUT);
+        tA.setFeeOnTransferBps(TAX_BPS);
+        (Fill memory f, , ) = _swapShortIn(p, k, 21_300e15);
+
+        assertGt(f.poolIn, 0, "precondition: the pair received");
+        assertLt(f.poolIn, _bar(f), "precondition: the pair's receipt is below the bar");
+        assertGe(_sent(f), _bar(f), "precondition: the Router's send clears the bar");
+        assertGe(f.poolOut, _bar(f), "precondition: the output side does not bind");
+        _assertNotAnchored(f, "FoT input, input short side");
+    }
+
+    /// Control: same pair, same tax, a receipt over the bar anchors, and the volume published
+    /// is the pair's receipt, not the Router's send.
+    function test_ClockAnchor_FotInputShortSideReceiptOverTheBarAnchors() public {
+        (MockV2Pair p, bytes32 k) = _mkPair(tA, tB, SHORT_IN, LONG_OUT);
+        tA.setFeeOnTransferBps(TAX_BPS);
+        (Fill memory f, bool found, uint256 volIn) = _swapShortIn(p, k, 27e18);
+
+        assertGe(f.poolIn, _bar(f), "precondition: the pair's receipt meets the bar");
+        assertGt(_sent(f), f.poolIn, "precondition: the Router sent more than the pair received");
+        _assertAnchored(f, "FoT input over the bar");
+        assertTrue(found, "a Volume event under the row's key");
+        assertEq(volIn, f.poolIn, "Volume.amtIn is not the pair's receipt");
+    }
+
+    /// Boundary, to one wei of input: the smallest ask whose receipt meets the bar anchors,
+    /// one wei less leaves the clock. Found by bisection over real swaps on snapshots, judged
+    /// by the pair's balances.
+    function test_ClockAnchor_FotInputBoundaryIsTheReceiptNotTheSend() public {
+        (MockV2Pair p, bytes32 k) = _mkPair(tA, tB, SHORT_IN, LONG_OUT);
+        tA.setFeeOnTransferBps(TAX_BPS);
+        uint256 snap = vm.snapshotState();
+        uint256 lo = 15e18;
+        uint256 hi = 40e18;
+        while (lo < hi) {
+            uint256 mid = (lo + hi) / 2;
+            (Fill memory f, , ) = _swapShortIn(p, k, mid);
+            vm.revertToState(snap);
+            if (f.poolIn >= _bar(f)) hi = mid; else lo = mid + 1;
+        }
+        (Fill memory under, , ) = _swapShortIn(p, k, lo - 1);
+        assertLt(under.poolIn, _bar(under), "boundary - 1: receipt below the bar");
+        assertGe(_sent(under), _bar(under), "boundary - 1: the send clears the bar");
+        _assertNotAnchored(under, "boundary - 1");
+        vm.revertToState(snap);
+        (Fill memory at, , ) = _swapShortIn(p, k, lo);
+        assertGe(at.poolIn, _bar(at), "boundary: receipt meets the bar");
+        _assertAnchored(at, "boundary");
+    }
+
+    /// Two legs in one hop, both on pairs whose short side is the taxed input: leg 0's receipt
+    /// is under its bar, leg 1's is over its own. Each row reads its own leg's receipt.
+    function test_ClockAnchor_FotInputTwoLegsEachRowReadsItsOwnReceipt() public {
+        (MockV2Pair pA, bytes32 kA) = _mkPair(tA, tB, SHORT_IN, LONG_OUT);
+        (MockV2Pair pB, bytes32 kB) = _mkPair(tA, tB, SHORT_IN, LONG_OUT);
+        tA.setFeeOnTransferBps(TAX_BPS);
+        uint256 a0 = 21_300e15;
+        uint256 a1 = 40e18;
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = _leg(pA, address(tA), a0, _outV2(_funded(a0), SHORT_IN, LONG_OUT));
+        legs[1] = _leg(pB, address(tA), a1, _outV2(_funded(a1), SHORT_IN, LONG_OUT));
+        Hop[] memory hops = new Hop[](1);
+        uint256 e = legs[0].expectedOut + legs[1].expectedOut;
+        hops[0] = _hop(address(tA), address(tB), a0 + a1, e, legs);
+
+        Fill memory f0 = _snapBefore(pA, kA, tA, tB);
+        Fill memory f1 = _snapBefore(pB, kB, tA, tB);
+        Vm.Log[] memory logs = _swap(_route(hops, e), a0 + a1);
+        _snapAfter(f0, pA, kA, tA, tB, logs);
+        _snapAfter(f1, pB, kB, tA, tB, logs);
+
+        assertGt(f0.poolIn, 0, "precondition: leg 0's pair received");
+        assertLt(f0.poolIn, _bar(f0), "precondition: leg 0's receipt is below its bar");
+        assertGe(_sent(f0), _bar(f0), "precondition: leg 0's send clears its bar");
+        assertGe(f1.poolIn, _bar(f1), "precondition: leg 1's receipt meets its bar");
+        _assertNotAnchored(f0, "leg 0");
+        _assertAnchored(f1, "leg 1");
+    }
+
+    /// Two hops: hop 0 is the taxed short-side pair with a receipt under its bar; hop 1 trades
+    /// what hop 0 paid out, over its own bar, on an untaxed pair. The second hop's row reads
+    /// its own receipt (index across the route, not inside the hop).
+    function test_ClockAnchor_FotInputTwoHopsTheSecondRowReadsItsOwnReceipt() public {
+        (MockV2Pair pA, bytes32 kA) = _mkPair(tA, tB, SHORT_IN, LONG_OUT);
+        (MockV2Pair pC, bytes32 kC) = _mkPair(tB, tC, SHORT_IN, SHORT_IN);
+        tA.setFeeOnTransferBps(TAX_BPS);
+        uint256 ask = 21_300e15;
+        uint256 e0 = _outV2(_funded(ask), SHORT_IN, LONG_OUT);
+        // Hop 1 attests nothing and is quoted in-frame: its input is whatever hop 0 paid.
+        Leg[] memory l0 = new Leg[](1);
+        l0[0] = _leg(pA, address(tA), ask, e0);
+        Leg[] memory l1 = new Leg[](1);
+        l1[0] = _leg(pC, address(tB), e0, 0);
+        Hop[] memory hops = new Hop[](2);
+        hops[0] = _hop(address(tA), address(tB), ask, e0, l0);
+        hops[1] = _hop(address(tB), address(tC), e0, 0, l1);
+
+        Fill memory f0 = _snapBefore(pA, kA, tA, tB);
+        Fill memory f1 = _snapBefore(pC, kC, tB, tC);
+        Vm.Log[] memory logs = _swap(_route(hops, 1), ask);
+        _snapAfter(f0, pA, kA, tA, tB, logs);
+        _snapAfter(f1, pC, kC, tB, tC, logs);
+
+        assertGt(f0.poolIn, 0, "precondition: hop 0's pair received");
+        assertLt(f0.poolIn, _bar(f0), "precondition: hop 0's receipt is below its bar");
+        assertGe(_sent(f0), _bar(f0), "precondition: hop 0's send clears its bar");
+        assertGe(f1.poolIn, _bar(f1), "precondition: hop 1's receipt meets its bar");
+        assertGe(f1.poolOut, _bar(f1), "precondition: hop 1's delivery meets its bar");
+        _assertNotAnchored(f0, "hop 0");
+        _assertAnchored(f1, "hop 1");
+    }
+
+    /// Fuzz over size x tax on the short-side pair: the clock follows the smaller of the pair's
+    /// receipt and its delivery, both read from the pair's balances.
+    function testFuzz_ClockAnchor_InputSideFollowsThePairReceipt(uint256 ask, uint16 taxBps) public {
+        ask = bound(ask, 12e18, 60e18);
+        taxBps = uint16(bound(taxBps, 0, 3_000));
+        (MockV2Pair p, bytes32 k) = _mkPair(tA, tB, SHORT_IN, LONG_OUT);
+        tA.setFeeOnTransferBps(taxBps);
+        (Fill memory f, bool found, uint256 volIn) = _swapShortIn(p, k, ask);
+        assertGt(f.poolIn, 0, "precondition: the pair received");
+        assertTrue(found, "a Volume event under the row's key");
+        assertEq(volIn, f.poolIn, "Volume.amtIn is not the pair's receipt");
+        uint256 lesser = f.poolIn < f.poolOut ? f.poolIn : f.poolOut;
+        if (lesser >= _bar(f)) _assertAnchored(f, "fuzz material");
+        else _assertNotAnchored(f, "fuzz dust");
+    }
 }
