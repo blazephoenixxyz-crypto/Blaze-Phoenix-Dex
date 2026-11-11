@@ -5008,6 +5008,11 @@ M = [
       old='            outAmt = mulDiv(L, P - sqrtNew, Q96);',
       new='            outAmt = mulDivUp(L, P - sqrtNew, Q96); // MUTANT',
       teste='test_SweepA_NoBookLostToTheRebuild'),
+ dict(nome='outV3 [1084]: the single-range figure loses a second ulp per call (two calls lose four, the split relation breaks)',
+      f='src/BlazePhoenixCore.sol',
+      old='            uint256 sqrtNew = _nextSqrtFromInput(sqrtP, liq, amtAfterFee, true);',
+      new='            uint256 sqrtNew = _nextSqrtFromInput(sqrtP, liq, amtAfterFee, true) + 1; // MUTANT [1084]',
+      teste='test_MR2_OutV3_SplittingNeverGainsOnTheGrid'),
 ]
 
 def run(t):

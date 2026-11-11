@@ -89,8 +89,10 @@ contract CoreMetamorphicRelationsTest is Test {
     //     directions no oracle written from the same formula can fake. ───
 
     /// One ulp of the square-root price is worth L / 2^96 wei of output (ASSURANCE §4k): the
-    /// Core rounds the new price once and the two arms of outV3 round it in opposite
-    /// directions, so every V3 relation below tolerates one ulp plus the floor divisions.
+    /// Core rounds the new price once per call, against the trader on both arms of outV3
+    /// (zeroForOne rounds it up, the pool's own step; oneForZero floors the step), so each
+    /// call loses less than one ulp plus its floor divisions, and a relation tolerates one
+    /// ulp per call on the side that can lose it.
     function _ulp(uint128 liq) private pure returns (uint256) {
         return uint256(liq) / 2 ** 96 + 1;
     }
@@ -106,10 +108,43 @@ contract CoreMetamorphicRelationsTest is Test {
     /// across the same pool never gains.
     function testFuzz_MR2_OutV3_SplittingNeverGains(uint256 a, uint256 b, uint128 liq) public pure {
         (a, b, liq) = _v3dom(a, b, liq);
+        _mr2V3(a, b, liq);
+    }
+
+    /// MR2 (V3) on a fixed grid, so the relation does not wait for the fuzzer to find a
+    /// small order on a deep pool: liquidity from 1e12 to 1e30 across the ulp edge 2^96,
+    /// orders from 1 wei to 1e6. The first point is the counterexample that turned the
+    /// one-ulp bound red once the zeroForOne arm took the pool's own step (b578f24,
+    /// args [291, 355, 9992] under the pinned seed: whole 643, parts 277 + 340, ulp 13).
+    function test_MR2_OutV3_SplittingNeverGainsOnTheGrid() public pure {
+        _mr2V3(291, 355, 1e30 - 1e12 + 9993);
+        uint128[7] memory ls = [uint128(1e12), 2 ** 96 - 1, 2 ** 96, 1e29, 5e29, 1e30 - 1e12 + 9993, 1e30];
+        uint256[7] memory as_ = [uint256(1), 2, 291, 355, 1000, 65535, 1e6];
+        for (uint256 i; i < ls.length; ++i) {
+            for (uint256 j; j < as_.length; ++j) {
+                for (uint256 k; k < as_.length; ++k) _mr2V3(as_[j], as_[k], ls[i]);
+            }
+        }
+    }
+
+    /// The bound, derived (price 1.0, fee 3000, amounts at most L / 2, where the Core's
+    /// zeroForOne step, _nextSqrtFromInput, is the exact ceiling of L * 2^96 * P / (L * 2^96 + x * P)).
+    /// Let x(a) = floor(a * 997000 / 1e6) and g(x) = L * x * P^2 / (2^96 * (L * 2^96 + x * P))
+    /// the exact output: increasing, concave, g(0) = 0, slope at most (P / 2^96)^2 = 1.
+    ///   - each call: the price rounds up by less than one unit (< L / 2^96 wei of output)
+    ///     and the output floors (< 1 wei), so g(x) - L / 2^96 - 1 < out(x) <= g(x);
+    ///   - the fee floor: x(a + b) <= x(a) + x(b) + 1, worth at most 1 wei at slope 1;
+    ///   - concavity: g(x(a) + x(b)) <= g(x(a)) + g(x(b)).
+    /// So whole <= g(x(a)) + g(x(b)) + 1 and parts > g(x(a)) + g(x(b)) - 2 * L / 2^96 - 2:
+    /// whole - parts < 3 + 2 * L / 2^96 < 3 + 2 * _ulp(liq), an integer, hence at most
+    /// 2 + 2 * _ulp(liq). Two ulps because the parts are two calls and each may lose one;
+    /// the whole's own loss only helps. Not slack: 300,000 random small orders on deep pools
+    /// reach 26 against a bound of 28 (ulp 13), and 1,977 of them break the one-ulp bound.
+    /// A figure that loses a second ulp per call breaks it (mutant [1084]).
+    function _mr2V3(uint256 a, uint256 b, uint128 liq) private pure {
         uint256 whole = BPC.outV3(a + b, SQRT_P_1, liq, 3000, true, 0);
         uint256 parts = BPC.outV3(a, SQRT_P_1, liq, 3000, true, 0) + BPC.outV3(b, SQRT_P_1, liq, 3000, true, 0);
-        // two floor divisions on the parts against one on the whole, plus one ulp
-        assertLe(whole, parts + 2 + _ulp(liq), "MR2 (V3): splitting across the same pool gained");
+        assertLe(whole, parts + 2 + 2 * _ulp(liq), "MR2 (V3): splitting across the same pool gained");
     }
 
     /// MR4 (V3): at a fixed price the output is linear in liquidity, so scaling the
@@ -152,10 +187,11 @@ contract CoreMetamorphicRelationsTest is Test {
         a = bound(a, 1, uint256(liq) / 2);
         uint256 z = BPC.outV3(a, SQRT_P_1, liq, 3000, true, 0);
         uint256 o = BPC.outV3(a, SQRT_P_1, liq, 3000, false, 0);
-        // each arm rounds ITS OWN price step once, in opposite directions (the
-        // zeroForOne arm floors the new price, the other floors the step), so the
-        // arms can sit one ulp on either side of the exact value: two ulps, plus
-        // the two output floors. Measured 16 wei at L = 9.5e28 (ulp = 12).
+        // each arm rounds ITS OWN price step once (before b83503f in opposite
+        // directions: the zeroForOne arm floored the new price, the other floors the
+        // step), so the arms sit within one ulp on either side of the exact value:
+        // two ulps, plus the two output floors. Measured 16 wei at L = 9.5e28 (ulp = 12)
+        // before b83503f; both arms now round against the trader.
         assertApproxEqAbs(z, o, 2 * _ulp(liq) + 2, "MR6 (V3): the two directions disagree at parity by more than two ulps");
     }
 
