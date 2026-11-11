@@ -5335,7 +5335,7 @@ M = [
       f='src/BlazePhoenixCore.sol',
       old='                base = b > f ? mulDiv(base, b - f, b) : 0;',
       new='                base = b > f ? mulDivUp(base, b - f, b) : 0; // MUTANT [fin2-router-6]',
-      teste='test_BestDoor_ExecutesTheRouteItPlanned_EveryWholeAmountFrom2To40'),
+      teste='test_Producer_TheNetOutputRoundsDown_BeforeTheFloorRoundsUp'),
  # fin2-1111 router, the verifier's regression: the exact preview rescaled the net-frame floor by the gross plan figure.
  dict(nome='fin2-router-7 (4007 regression): the Quoter rescales the attested floor by the gross plan output again, net over gross twice, a floor 28 bps below the attested rate on every two-hop exact preview',
       f='src/BlazePhoenixQuoter.sol',

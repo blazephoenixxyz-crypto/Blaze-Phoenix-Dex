@@ -31,7 +31,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
-import {BlazePhoenixCore as BPC, Route, RoutePlan} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Hop, Route, RoutePlan} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
@@ -122,6 +122,23 @@ contract ExactPreviewFloorIsTheAttestedRateOnTheNetOutputTest is Test {
         _assertRate(r, exactOut, plan, _netOut(plan), "two hops, the plan's amount");
         (r, exactOut) = quoter.previewRouteExact(plan, amt / 2);
         _assertRate(r, exactOut, plan, _netOut(plan), "two hops, half the plan's amount");
+    }
+
+    /// The producer both callers read: the net figure rounds DOWN, before the floor rounds up
+    /// (a floor one unit above what the net input delivers is a floor the route cannot meet);
+    /// a hop that pays nothing leaves the figure alone, a hop the fee swallows nets to zero.
+    function test_Producer_TheNetOutputRoundsDown_BeforeTheFloorRoundsUp() public pure {
+        Hop[] memory hops = new Hop[](2);
+        hops[0].amountIn = 1000; // pays nothing: hop 1 is the charging hop
+        hops[1].amountIn = 3;    // fee ceil(3 * 28 / 10000) = 1, what is left 2 of 3
+        assertEq(BPC.netOfInputFees(hops, 7, 1, false), 4, "7 * 2 / 3 rounds down to 4, not up to 5");
+        assertEq(BPC.netOfInputFees(hops, 9, 1, false), 6, "an exact share is itself");
+        assertEq(BPC.netOfInputFees(hops, 7, 1, true), 7, "the fee on the output: no hop nets");
+        hops[1].amountIn = 1;    // the fee swallows the hop's input
+        assertEq(BPC.netOfInputFees(hops, 7, 1, false), 0, "a hop the fee swallows nets to zero");
+        hops[1].amountIn = 3;
+        assertEq(BPC.netOfInputFees(hops, 7, type(uint256).max, false), 4,
+            "no bridge: every hop charges, 7 * 997 / 1000 rounds down to 6, then 6 * 2 / 3 to 4");
     }
 
     /// Control: one hop into the bridge, the fee off the output after the comparison; the
