@@ -1061,16 +1061,6 @@ contract BlazePhoenixRouter {
         // the bridge sweep otherwise handed a crafted route the Router's
         // dust/mis-sent balance of any caller-named intermediate token).
         uint256[] memory bridgeBase = new uint256[](route.hops.length);
-        // WHAT EACH HOP ACTUALLY SPENT, as a ratio of what it declared (VOL_01).
-        // `_recordHits` runs after the loop and only ever saw `leg.amountIn` - the figure the
-        // CALLER wrote - so the volume the registry published was the caller's declaration and
-        // not the flow. It overstated every honest swap by the protocol fee alone, because the
-        // fee comes out of hop 0's input before the leg executes, and by the capacity clamp
-        // wherever that cut a leg. One word per hop is enough: `scaleNum/scaleDen` IS
-        // measured-over-declared, uniform across the legs of a hop, so the ratio reconstructs
-        // each leg's real spend exactly. Storing the ratio rather than the two terms keeps this
-        // to a single array in a frame the via-ir stack limit already constrains.
-        uint256[] memory hopScale = new uint256[](route.hops.length);
         for (uint256 bh; bh + 1 < route.hops.length; ) {
             address bt = route.hops[bh].tokenOut;
             if (bt != tokenIn && bt != tokenOut) bridgeBase[bh] = _bal(bt);
@@ -1123,6 +1113,18 @@ contract BlazePhoenixRouter {
         // per-hop constant standing in for one).
         uint256 executedMask;
         uint256 legIdx;
+        // WHAT EACH LEG DELIVERED, by the same index: the Router's own balance delta that
+        // `_execScaled` measures and bounds by the venue's declared payment (DEX-11). It is the
+        // output `_recordHits` hands the registry, so the plan never answers "was this trade
+        // material?" (3958, 4028). Sized by the route's bound; a leg that did not run, or that
+        // the frame could not measure, stays 0.
+        uint256[] memory legOut = new uint256[](uint256(MAX_HOPS) * MAX_LEGS_PER_HOP);
+        // WHAT EACH LEG'S VENUE TOOK IN, by the same index: the input the venue received, as
+        // the venue's side measured it (`_execScaled`), never the figure the Router pushed
+        // (VOL_01). A hop-wide ratio of measured-over-declared spend used to stand in for it
+        // and priced each leg's input by the plan: a taxed input token paid the venue less than
+        // the Router sent, and the row anchored on the send. Same shape as `legOut`.
+        uint256[] memory legTook = new uint256[](uint256(MAX_HOPS) * MAX_LEGS_PER_HOP);
         // LAYER 2 IS ROUTE-WIDE (review 2026-09-02). This flag used to be born
         // inside the hop loop, so the rule "no hookless leg after a hooked one"
         // closed the intra-hop vector and left the cross-hop one open — while
@@ -1215,13 +1217,6 @@ contract BlazePhoenixRouter {
             uint256[] memory legQuotes = new uint256[](hop.legs.length);
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
                 _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase, legQuotes);
-            // `scaleDen` cannot be zero: `_hopScaleImpactAndQuote` assigns it unconditionally,
-            // in a plain scope block with no early return above it, as
-            // `quotedIn == 0 ? 1 : quotedIn`. The guard that used to stand here tested for a
-            // state its own producer forbids, and the comment beneath it described that state as
-            // if it happened - a branch the compiler kept (measured live at 25,798 executions,
-            // its zero arm never once taken) and a sentence in the source that was not true.
-            hopScale[h] = BPC.mulDiv(scaleNum, 1e18, scaleDen);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past
@@ -1336,10 +1331,12 @@ contract BlazePhoenixRouter {
                 // not calldata. The index runs across the whole route and both
                 // loops walk the same calldata in the same order.
                 if (scaledAmt != 0) executedMask |= (uint256(1) << legIdx);
-                unchecked { ++legIdx; }
-                (uint256 legGot, uint256 legAtt, uint256 legDecl) = _execScaled(
+                (uint256 legGot, uint256 legAtt, uint256 legDecl, uint256 took) = _execScaled(
                     leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
                 );
+                legOut[legIdx] = legGot;
+                legTook[legIdx] = took;
+                unchecked { ++legIdx; }
                 hopGot += legGot;
                 hopAttested += legAtt;
                 // 3310: a leg that makes tokenOut adds what its venue declares it paid; a leg that
@@ -1657,7 +1654,7 @@ contract BlazePhoenixRouter {
         // re-expressed); rounds down. `net` is non-zero: amountOut >= effMin > 0 and fOut < amountOut.
         protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net);
         amountOut = delivered;
-        _recordHits(route, executedMask, hopScale);
+        _recordHits(route, executedMask, legTook, legOut);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
         // This function's docstring already explains why `payer` exists as a parameter: in
         // `swapBestExactIn` this is reached by an external SELF-CALL, and on that path the
@@ -1705,14 +1702,14 @@ contract BlazePhoenixRouter {
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
     function _execScaled(
         Leg calldata leg, address tokenIn, address legOutRaw, uint256 amt, uint256 legQuote, uint256 legAmt
-    ) private returns (uint256 got, uint256 attested, uint256 declared) {
+    ) private returns (uint256 got, uint256 attested, uint256 declared, uint256 took) {
         // A zero-input leg is a no-op: skip it entirely. A leg scaled to zero
         // input (for example the last leg when the Router holds no remaining
         // input) must never reach pool.swap(): the budget cap in _v3Callback
         // is now UNCONDITIONAL, so a zero cap would revert the whole swap
         // (RouterE 8) instead of no-oping. The residual sweep returns unspent
         // input.
-        if (amt == 0) return (0, 0, 0);
+        if (amt == 0) return (0, 0, 0, 0);
         // ─── Per-leg iron floor (see BPC.LEG_FLOOR_BPS) ───
         // Measure THIS leg's real contribution to the Router's tokenOut
         // balance and require >= BPC.LEG_FLOOR_BPS (8.000 = 80%) of its bound. The
@@ -1746,7 +1743,7 @@ contract BlazePhoenixRouter {
         // always computed outAmt == 0 and reverted RouterE(8). The `else` below
         // reverts directly — same result, fewer bytes.
         if (BPC.kindHas(k, BPC.A_RESERVES)) {
-            declared = _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
+            (declared, took) = _execPairAmt(leg, tokenIn, amt, k == BPC.KIND_V2);
         } else if (BPC.kindHas(k, BPC.A_CONC_POOL) || k == BPC.KIND_EXTERNAL) {
             // KIND_EXTERNAL is an IDENTITY, not an attribute: a Gate wrapper speaks the V3
             // swap/callback ABI, so it settles through the same callback and the same
@@ -1758,9 +1755,9 @@ contract BlazePhoenixRouter {
             // hop's own tokens and fee.
             if (k == BPC.KIND_EXTERNAL && !BPC.gateWrapperLive(address(hub), leg.pool, tokenIn, legOutRaw, leg.fee))
                 revert RouterE(19);
-            declared = _execV3Amt(leg, tokenIn, amt);
+            (declared, took) = _execV3Amt(leg, tokenIn, amt);
         } else if (BPC.kindHas(k, BPC.A_CONC_SING)) {
-            declared = _execV4Amt(leg, tokenIn, amt);
+            (declared, took) = _execV4Amt(leg, tokenIn, amt);
         } else {
             revert RouterE(8);
         }
@@ -1939,7 +1936,7 @@ contract BlazePhoenixRouter {
     ///      differing only in outAmt derivation, selected by isV2.
     /// @return outAmt the output the Router asks of the pair: what the pair declares it pays (DEX-11).
     function _execPairAmt(Leg calldata leg, address tokenIn, uint256 amt, bool isV2)
-        private returns (uint256 outAmt)
+        private returns (uint256 outAmt, uint256 took)
     {
         uint256 rIn; uint256 rOut;
         if (isV2) {
@@ -1949,7 +1946,7 @@ contract BlazePhoenixRouter {
         }
         uint256 balBefore = BPC.balanceOf(tokenIn, leg.pool);
         BPC.safeTransfer(tokenIn, leg.pool, amt);
-        uint256 askIn = amt;
+        took = amt;
         // ONE read of the post-transfer balance, used twice. The two subtractions are different
         // (`balBefore` says how much ARRIVED; `rInB` says how much has not yet been synced into
         // reserves), but the MINUEND is the same, and it used to be read twice.
@@ -1966,15 +1963,15 @@ contract BlazePhoenixRouter {
             uint256 rInB = leg.zeroForOne ? r0b : r1b;
             uint256 realIn = balAfter - rInB;
             if (realIn == 0) revert RouterE(8);
-            askIn = realIn;
+            took = realIn;
             if (isV2) { rIn = rInB; rOut = leg.zeroForOne ? r1b : r0b; }
             _noteFot(BPC.mulDiv(realIn, BPC.BPS, amt));
         }
         if (isV2) {
-            outAmt = BPC.outV2(askIn, rIn, rOut, BPC.effV2Fee(leg.fee));
+            outAmt = BPC.outV2(took, rIn, rOut, BPC.effV2Fee(leg.fee));
         } else {
             // The same producer the quote channel promises (Core.solidlyAskOut).
-            outAmt = BPC.solidlyAskOut(leg.pool, askIn, tokenIn, leg.zeroForOne, leg.stable, leg.fee);
+            outAmt = BPC.solidlyAskOut(leg.pool, took, tokenIn, leg.zeroForOne, leg.stable, leg.fee);
         }
         if (outAmt == 0) revert RouterE(8);
         uint256 a0 = leg.zeroForOne ? 0 : outAmt;
@@ -1983,7 +1980,10 @@ contract BlazePhoenixRouter {
     }
 
     /// @return declared the out side the pool (or Gate wrapper) returns from swap, negated (DEX-11).
-    function _execV3Amt(Leg calldata leg, address tokenIn, uint256 amt) private returns (uint256 declared) {
+    /// @return took the input `_v3Callback` paid and saw land in the pool: MEASURED, not the in
+    ///         side the pool returns (a pool's return value is its own claim, 3958 input side).
+    ///         A pool that never asked for input took nothing.
+    function _execV3Amt(Leg calldata leg, address tokenIn, uint256 amt) private returns (uint256 declared, uint256 took) {
         uint256 sP = TSLOT_POOL;
         uint256 sT = TSLOT_TOKEN;
         uint256 sA = TSLOT_AMT;
@@ -1997,14 +1997,24 @@ contract BlazePhoenixRouter {
         (int256 a0, int256 a1) = IUniswapV3PoolMin(pool).swap(
             address(this), leg.zeroForOne, int256(amt), limit, ""
         );
-        assembly { tstore(sP, 0) tstore(sT, 0) tstore(sA, 0) }
+        // The callback clears the pool slot and leaves what it paid in the amount slot; a pool
+        // slot still set means no callback ran, and the budget still in the amount slot is not
+        // a payment.
+        uint256 noCallback;
+        assembly {
+            took := tload(sA)
+            noCallback := tload(sP)
+            tstore(sP, 0) tstore(sT, 0) tstore(sA, 0)
+        }
+        if (noCallback != 0) took = 0;
         // The pool pays the out side, so it comes back negative; a non-negative one declares nothing.
         int256 o = leg.zeroForOne ? a1 : a0;
         unchecked { if (o < 0) declared = uint256(-o); }
     }
 
     /// @return declared the amount unlockCallback took from the PoolManager (DEX-11).
-    function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private returns (uint256 declared) {
+    /// @return took the amount unlockCallback owed and settled: what the manager consumed.
+    function _execV4Amt(Leg calldata leg, address tokenIn, uint256 amt) private returns (uint256 declared, uint256 took) {
         address mgr = hub.v4PoolManager();
         if (mgr == address(0)) revert RouterE(8);
         if (leg.hooks != address(0)) {
@@ -2069,8 +2079,8 @@ contract BlazePhoenixRouter {
             tickSpacing: leg.tickSpacing, hooks: leg.hooks
         });
         // The PoolManager returns unlockCallback's bytes unchanged (v4-core PoolManager.unlock).
-        declared = abi.decode(
-            IV4PoolManager(mgr).unlock(abi.encode(key, leg.zeroForOne, amt, bytes(""))), (uint256)
+        (declared, took) = abi.decode(
+            IV4PoolManager(mgr).unlock(abi.encode(key, leg.zeroForOne, amt, bytes(""))), (uint256, uint256)
         );
         assembly { tstore(sI, 0) tstore(sO, 0) }
     }
@@ -2152,6 +2162,9 @@ contract BlazePhoenixRouter {
         uint256 bal0 = BPC.balanceOf(tIn, msg.sender);
         BPC.safeTransfer(tIn, msg.sender, owed);
         if (BPC.balanceOf(tIn, msg.sender) - bal0 < owed) revert RouterE(13);
+        // Leave what landed for `_execScaled` to hand the registry (the pool slot stays
+        // cleared, so a second callback still meets RouterE(6)).
+        assembly { tstore(sA, owed) }
     }
 
     /// @notice V4 unlockCallback — invoked by the PoolManager after unlock().
@@ -2222,7 +2235,7 @@ contract BlazePhoenixRouter {
         } else {
             IV4PoolManager(mgr).take(tOut, address(this), recv);
         }
-        return abi.encode(recv);
+        return abi.encode(recv, owe);
     }
 
     // =========================================================================
@@ -2242,7 +2255,7 @@ contract BlazePhoenixRouter {
     ///        on the RAW calldata amount, which a one-wei declaration passes.
     ///        Reported by Thomas.
     function _recordHits(Route calldata route, uint256 executedMask,
-                         uint256[] memory hopScale) private {
+                         uint256[] memory legTook, uint256[] memory legOut) private {
         address v4mgr;
         uint256 legIdx;
         for (uint256 h; h < route.hops.length; ) {
@@ -2292,14 +2305,25 @@ contract BlazePhoenixRouter {
                     // stores a V4 row everywhere else (`Hub.claimV4`, `_admitV4`).
                     regPool = address(uint160(uint256(pid)));
                 }
-                // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller
-                // asked for; `leg.amountIn x hopScale[h]` is what the hop was able to spend
-                // after the protocol fee and after any capacity clamp. The quote is scaled by
-                // the same ratio so the pair stays dimensionally consistent: the input is a
-                // measurement, and the output is that measurement priced by the plan.
-                uint256 sc  = hopScale[h];
-                uint256 inM = BPC.mulDiv(leg.amountIn,    sc, 1e18);
-                uint256 outM = BPC.mulDiv(leg.expectedOut, sc, 1e18);
+                // MEASURED, NOT DECLARED (VOL_01). `leg.amountIn` is what the caller asked
+                // for. `legTook` is what the venue TOOK IN, measured on the venue's side: a
+                // pair's arrival, or its balance over the synced reserve when the arrival fell
+                // short (`_execPairAmt`); the input `_v3Callback` paid and saw land, never what
+                // the pool returns; the amount the V4 manager settled. It used to be `leg.amountIn`
+                // rescaled by the hop's spend ratio: the Router's send priced by the plan. A
+                // taxed input token pays the venue less than the Router sends, and a pair on
+                // whose short side that token sits anchored its clock on the send.
+                //
+                // THE OUTPUT IS MEASURED TOO (3958, 4028). It was `leg.expectedOut` scaled by the
+                // same ratio: the measurement priced by the plan. The per-leg floor accepts a
+                // fill down to LEG_FLOOR_BPS of that figure, so a fill under the materiality bar,
+                // attested above itself, anchored the pool's clock in `tickDepth18` below and
+                // was published as volume. `legOut` is what the leg delivered to the Router,
+                // the delta `_execScaled` read. A leg the frame could not measure (no
+                // attestation and no in-frame quote) hands 0 and anchors nothing, as its zero
+                // `expectedOut` always did. `legIdx` was advanced past this leg above.
+                uint256 inM = legTook[legIdx - 1];
+                uint256 outM = legOut[legIdx - 1];
                 // ONE PRODUCER of the depth every registry door seals (Core.registryDepth18):
                 // the operator's door measures with it too since the ninth wave (dex-17). The
                 // per-family rules, and the defects that shaped them, live with the code there.

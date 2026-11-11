@@ -108,9 +108,9 @@
       "id": "SOK-VOLUME",
       "class": "Published metric that reports the caller's declaration rather than the measured flow",
       "status": "blocked",
-      "guard": "hopScale",
+      "guard": "legTook",
       "test": "test_INV_F4_VolumeInEqualsTheMeasuredPoolDelta",
-      "note": "The registry is handed the amount the hop was able to spend, derived from the measured-over-declared ratio, rather than the figure written in the route."
+      "note": "The registry is handed what each leg's venue took in, measured on the venue's side (Router legTook, fin2-relogio 2026-11-11), rather than the figure written in the route. Until then it was the hop's measured-over-declared spend ratio (hopScale)."
     },
     {
       "id": "SOK-QUOTE-EXEC",
@@ -584,6 +584,14 @@
       "guard": "_assembleRouteMulti",
       "test": "test_BestDoor_ExecutesTheRouteItPlanned_WhenTheFeeRoundsUpToAWholeUnit",
       "note": "Report 4007, 2026-11-10, fixed 2026-11-11. Liveness, not custody: the swap reverted with RouterE(5) and nothing moved. The Solver sizes singleOutFloor on the input the Router executes with: it reads the fee calendar over the hops it assembled with the rule of Core.feeCalendar (the first hop whose input is a bridge, every hop when there is none, no hop when the route is one hop into a bridge) and scales the gross output by each charging hop's (base - fee) / base, rounded down, before the floor rounds up; the Router compares the attested floor literally, unchanged, and a route whose fee comes off the output is attested on the pre-fee output the Router compares. test/AttestedFloorIsSizedOnTheNetInput.t.sol: best door, classic door and the Quoter's exact preview, every whole amount 2..40 of a 0-decimal token and fuzz to 5000, the bridge hop, the output fee, the pin of the attested floor to the rate the Router enforces; test/FloorParitySolverRouter.t.sol reads the two-hop rate in the net frame. The exact preview, 2026-11-11 (the verifier's regression on the fix): Quoter._exact on two hops or more takes the fee out of carry at the charging hop, so its exact output is net already; it rescales the attested floor by the plan output in the same frame, Core.netOfInputFees (the one producer the Solver uses) on two hops or more, the gross totalOut on one hop, where the walk takes no fee. test/ExactPreviewFloorIsTheAttestedRateOnTheNetOutput.t.sol: the previewed floor rate is the attested rate, two hops through previewRouteExact and previewPlanExact and across amounts, one hop into a bridge, one hop with the fee on the input; mutants fin2-router-7 and fin2-router-8."
+    },
+    {
+      "id": "REG-PLAN-ANCHOR",
+      "class": "A caller-declared amount answers the registry's materiality question: a leg's attested output, which the per-leg floor accepts up to 25% above the fill, anchors a pool's clock (swap count, tau, stamp) for a fill below the bar, and is published as the pool's volume",
+      "status": "blocked",
+      "guard": "_recordHits",
+      "test": "test_ClockAnchor_OverAttestedDustFillLeavesTheClock",
+      "note": "fin-1111, 2026-11-10 (reports 3958, 4028). The family-A seal (REG-DUST-CLOCK) made the clock move only on a material trade, and Router._recordHits answered 'material?' with mulDiv(leg.expectedOut, hopScale, 1e18): calldata. A fill just under depth >> MATERIAL_SHIFT attested 24% above itself anchored the row, and counted. The Router now hands Core.tickDepth18 and Hub.recordSwap the leg's measured delivery (legOut, the Router's balance delta that _execScaled reads and bounds by the venue's declared payment, DEX-11), in both directions: an under-attested material fill anchors. Pinned from balances, never from Core: test/ClockAnchorMeasuredDelivery.t.sol (over- and under-attested, the boundary to one wei of input, taxed input, taxed output, two legs, two hops, fuzz); mutants [fin1111-relogio-1]-[fin1111-relogio-6]. The INPUT side followed on 2026-11-11 (fin2-1111): it was the leg's declared input rescaled by the hop's measured ratio, the Router's send, so a transfer tax taken between the Router and a pair whose short side is the input token left the pair under the bar while the send cleared it, and the row anchored. Router._recordHits now reads legTook, the input the venue's side measured (a pair's balance over its synced reserve in _execPairAmt; the input _v3Callback paid and saw land in the pool, never the in-side the pool returns, and zero when no callback ran; the amount the V4 unlock callback owed and settled). Pinned from the pair's balances: the same test file (receipt below the bar with the send above it, receipt over the bar with Volume.amtIn equal to the receipt, the boundary to one wei of input, two legs, two hops, fuzz over size x tax); the concentrated channels in test/ClockAnchorConcentratedTook.t.sol (a V3 pool that asks for half and returns the whole order, a claim above the budget, a pool that never called back, fuzz over demand x claim; a V4 position that runs out of liquidity); mutants [fin2-relogio-1]-[fin2-relogio-9]"
     }
   ]
 }
