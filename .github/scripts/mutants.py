@@ -133,8 +133,8 @@ M = [
       teste="test_NoPriceMeansNoDepth"),
  dict(nome="fee: the per-hop charge (the leak through the dust prefix)",
       f="src/BlazePhoenixRouter.sol",
-      old="            (amountIn, outCap) = _chargeHopFee(hop, h, amountIn, foreignBase, tokenOut, outCap);",
-      new="            foreignBase; // MUTANTE",
+      old="            (amountIn, outCap) = _chargeHopFee(hop, h, amountIn, bridgeBase, tokenOut, outCap);",
+      new="            bridgeBase; // MUTANTE",
       teste="test_JUIZ_PrefixoSemValorEscapaAFee"),
  dict(nome="fee: hop 0 only (the leak the anchor at the entry had)",
       f="src/BlazePhoenixRouter.sol",
@@ -4659,6 +4659,36 @@ M = [
       old='        if (lastTs == 0) return (0, 0);',
       new='        // MUTANT [964]',
       teste='test_FixedClock_Cases'),
+ # --- 4111 (2026-11-11): labels [1090]-[1094], bug bounty (the restated bridge) ---
+ # Hop h>=1 spends, and pays its fee on, the bridge the Router OWNS: the balance past its baseline
+ # and no more than the previous hop's legs were measured to deliver (`hopGot`, carried in
+ # `amountIn`); what the balance holds past that is written back into the baseline for the sweep.
+ # A restatement fired by a fee push (outside every DEX-11 window) stays with the rescue.
+ dict(nome='4111 cap [1090]: _owned does not cap the bridge the Router owns at what the legs delivered',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (own > decl) own = decl;\n',
+      new='        // MUTANT: no cap at what the legs delivered\n',
+      teste='test_ARestatementFiredByTheHop1FeePushStaysWithTheStrandedBridge'),
+ dict(nome='4111 fee base [1091]: the fee base of hop h>=1 is the raw balance delta, not the bridge the Router owns',
+      f='src/BlazePhoenixRouter.sol',
+      old='            baseH = _owned(_bal(hop.tokenIn), bridgeBase[h - 1], amountIn);\n',
+      new='            baseH = _bal(hop.tokenIn) - bridgeBase[h - 1]; // MUTANT: the raw delta\n',
+      teste='test_ARestatementFiredByTheHop0FeePushStaysWithTheStrandedBridge'),
+ dict(nome='4111 scale [1092]: hop h>=1 spends the raw balance delta of the bridge, not the bridge the Router owns',
+      f='src/BlazePhoenixRouter.sol',
+      old='                realIn = _owned(bal, bridgeBase[h - 1], amountIn);\n',
+      new='                realIn = bal - bridgeBase[h - 1]; // MUTANT: the raw delta\n',
+      teste='test_ARestatementFiredByTheHop1FeePushStaysWithTheStrandedBridge'),
+ dict(nome='4111 baseline [1093]: what the balance holds past the input is not written back, so the sweep pays it to the payer',
+      f='src/BlazePhoenixRouter.sol',
+      old='                bridgeBase[h - 1] = bal - realIn;\n',
+      new='                // MUTANT: the baseline is not written back\n',
+      teste='test_ARestatementFiredByTheHop1FeePushStaysWithTheStrandedBridge'),
+ dict(nome="4111 carry [1094]: the next hop is not told what this one delivered, so its cap is hop 0's pull",
+      f='src/BlazePhoenixRouter.sol',
+      old='            amountIn = hopGot;\n',
+      new="            // MUTANT: amountIn stays hop 0's pull\n",
+      teste='test_ARestatementFiredByTheHop0FeePushStaysWithTheStrandedBridge'),
 ]
 
 def run(t):
