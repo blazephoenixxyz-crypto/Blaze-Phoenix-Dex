@@ -15,9 +15,11 @@ pragma solidity 0.8.36;
 //       pool never touches another pool's row
 //   K2  a dust tick, a zero leg, a paused Hub and a stranger leave tau exactly where it was
 //       (and the last three leave the whole row where it was)
-//   K3  an anchored tick moves tau by 2^-3 of its distance to the interval it closes, where
-//       the interval is the time since the pool's previous tick of any kind or the time since
-//       its previous anchored tick (no value in between); the first measured interval IS tau.
+//   K3  an anchored tick moves tau by 2^-3 of its distance to the interval it closes, rounded
+//       up, where the interval is the time since the pool's previous tick of any kind or the
+//       time since its previous anchored tick (no value in between). An unmeasured clock
+//       (tau 0) starts from the fixed step over its taus, 24 576 / 4 = 6 144 s, so the first
+//       interval moves it by an eighth like any other and is never read whole (fix-1102).
 //       With no dust between two anchored ticks the two readings meet and the law is exact.
 //       A zero-length interval has one more reading: no interval was closed, tau stays.
 //
@@ -36,6 +38,7 @@ contract AtqClockHandler is Test {
     uint256 internal constant DEPTH = 1_000_000e18;
     uint256 internal constant ANCHOR = 1 << 255; // the anchor bit of the depth word
     uint256 internal constant EMA_SHIFT = 3;
+    uint256 internal constant FIRST_TAU = 24_576 / 4; // the fixed decay step over its taus
 
     BlazePhoenixHub public hub;
     address public admin;
@@ -69,9 +72,10 @@ contract AtqClockHandler is Test {
     }
     function _ts(uint256 s) internal pure returns (uint32) { return uint32(s >> 64); }
     function _tau(uint256 s) internal pure returns (uint32) { return uint32(s >> 224); }
-    function _step(uint32 tau, uint32 dt) internal pure returns (uint32) {
-        if (tau == 0) return dt;
-        return dt >= tau ? tau + ((dt - tau) >> EMA_SHIFT) : tau - ((tau - dt) >> EMA_SHIFT);
+    function _step(uint32 tau0, uint32 dt) internal pure returns (uint32) {
+        uint256 t = tau0 == 0 ? FIRST_TAU : tau0;
+        uint256 up = (uint256(1) << EMA_SHIFT) - 1; // an eighth of the distance, rounded up
+        return uint32(dt >= t ? t + ((dt - t + up) >> EMA_SHIFT) : t - ((t - dt + up) >> EMA_SHIFT));
     }
 
     function tsOf(uint256 i) external view returns (uint32) { return _ts(hub.getSlot(keys[i])); }
@@ -222,18 +226,18 @@ contract AtqPoolClockInvariantTest is Test {
         _checkAll();
 
         vm.warp(T0 + 100);
-        h.walkTick(0, true, 1e18);
-        assertEq(h.tauOf(0), 100, "the first anchored interval is tau");
+        h.walkTick(0, true, 1e18); // dt = 100 on the unmeasured clock: 6144 - ceil(6044 / 8)
+        assertEq(h.tauOf(0), 5388, "the first anchored interval moves tau from 24576 / 4 by an eighth");
         h.walkTick(0, false, 1e18); // dust, same block
         h.walkTick(0, true, 0); // zero leg
-        assertEq(h.tauOf(0), 100, "dust and a zero leg moved no clock");
+        assertEq(h.tauOf(0), 5388, "dust and a zero leg moved no clock");
         assertEq(h.tsOf(1), T0, "pool 1 was not touched");
         assertEq(h.tauOf(1), 0, "pool 1's clock is its own");
         _checkAll();
 
         vm.warp(T0 + 900);
-        h.walkTick(0, true, 1e18); // dt = 800 on tau = 100: 100 + (700 >> 3)
-        assertEq(h.tauOf(0), 187, "a longer interval pulls tau up by an eighth of the distance");
+        h.walkTick(0, true, 1e18); // dt = 800 on tau = 5388: 5388 - ceil(4588 / 8)
+        assertEq(h.tauOf(0), 4814, "a shorter interval pulls tau down by an eighth of the distance");
         h.walkPause(true);
         h.walkTick(0, true, 1e18);
         h.walkPause(false);
@@ -241,10 +245,10 @@ contract AtqPoolClockInvariantTest is Test {
         assertEq(h.tsOf(0), T0 + 900, "neither a paused Hub nor a stranger stamped the row");
 
         vm.warp(T0 + 910);
-        h.walkTick(0, true, 1e18); // dt = 10 on tau = 187: 187 - (177 >> 3)
-        assertEq(h.tauOf(0), 165, "a shorter interval pulls tau down by an eighth of the distance");
-        h.walkTick(2, true, 1e18); // first interval of pool 2, 910 s after it was seated
-        assertEq(h.tauOf(2), 910, "pool 2 measures its own first interval");
+        h.walkTick(0, true, 1e18); // dt = 10 on tau = 4814: 4814 - ceil(4804 / 8)
+        assertEq(h.tauOf(0), 4213, "a shorter interval pulls tau down by an eighth of the distance, rounded up");
+        h.walkTick(2, true, 1e18); // first interval of pool 2, 910 s after it was seated: 6144 - ceil(5234 / 8)
+        assertEq(h.tauOf(2), 5489, "pool 2 measures its own first interval from 24576 / 4");
 
         assertEq(h.anchoredTicks(), 4, "anchored ticks");
         assertEq(h.exactTicks(), 4, "every one of them had a single reading of its interval");
