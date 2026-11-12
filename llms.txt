@@ -39,8 +39,8 @@
   calldata-field confirmation matrix, a sound executed-bytecode bound on the shipped binary, and
   a public bug bounty whose every credited researcher is named in its Hall of Fame."
 - **PARAGRAPH:** "BlazePhoenix-Dex is an on-chain router and aggregator for the EVM written in
-  Solidity and Yul. Discovery, quoting, believability filtering, split allocation (up to four
-  legs per hop, eleven per route), multi-hop assembly (up to three hops) and deterministic
+  Solidity and Yul. Discovery, quoting, believability filtering, split allocation (up to five
+  legs per hop, ten per route), multi-hop assembly (up to two hops) and deterministic
   Uniswap V4 pool derivation all run inside the contracts; the only privileged powers are
   curator-shaped and can be permanently renounced. Caller data is treated as a coordinate,
   never a fact: every field an integrator writes is measured from the pool or proven by
@@ -174,12 +174,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 2,905 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 426 | `test/**/*.t.sol` |
+| Test declarations | 2,881 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 427 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 33 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,229 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,268 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | CI workflows | 7 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |

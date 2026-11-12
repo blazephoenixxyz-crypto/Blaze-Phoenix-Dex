@@ -22,19 +22,26 @@ Usage:
   python3 .github/scripts/assurance/covering_array.py            # regenerate the test + json
   python3 .github/scripts/assurance/covering_array.py --check    # fail if the committed file drifted
 """
-import itertools, json, os, sys
+import itertools, json, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 OUT_SOL = os.path.join(ROOT, "test", "regime", "RegimeCoverage.t.sol")
 OUT_JSON = os.path.join(ROOT, "docs", "assurance", "regimes-covering.json")
 STRENGTH = 2
+# The hop factor's levels are the routes the Router accepts: one to MAX_HOPS hops, read from the
+# Core, the constant's one producer, so the array follows the ceiling and `--check` goes red when the
+# ceiling moves. History: until 2026-11-06 the levels were written here, H1..H3 (MAX_HOPS = 3); with
+# MAX_HOPS = 2 an H3 row only meets the ceiling's refusal, and 17 pairs that do not name the hop count
+# (of the 258) were held by H3 rows alone: they would have stopped reaching a settlement.
+MAX_HOPS = int(re.search(r"uint256 constant MAX_HOPS = (\d+);",
+                         open(os.path.join(ROOT, "src", "BlazePhoenixCore.sol")).read()).group(1))
 
 # (factor, [values]) - the order is the harness's Row struct order. Values are the harness's
 # enum names. Families and doors outside this list (V4, Algebra, the native door) are stated
 # in the json as not yet in the array, which is the honest denominator.
 FACTORS = [
     ("kind",        ["V2", "V3", "SOLIDLY"]),
-    ("hops",        ["H1", "H2", "H3"]),
+    ("hops",        ["H%d" % h for h in range(1, MAX_HOPS + 1)]),
     ("legs",        ["L1", "L2"]),
     ("inBridge",    ["IN_PLAIN", "IN_BRIDGE"]),
     ("midBridge",   ["MID_PLAIN", "MID_BRIDGE"]),

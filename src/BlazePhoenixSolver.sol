@@ -36,25 +36,25 @@
 //  input is split across pools weighted by their depth (fitness score), so
 //  deeper pools take a larger share.
 //
-//  Topology choice is exhaustive over three candidates:
+//  Topology choice is exhaustive over TOPOLOGIES = 1 + BRIDGE_SLOTS candidates:
 //
-//      a)  direct        : tIn → tOut, one hop, up to MAX_LEGS_PER_STAGE=4 splits
-//      b)  via bridge[0] : tIn → bridge[0] → tOut, 5 legs total
-//      c)  via bridge[1] : tIn → bridge[1] → tOut, 5 legs total
+//      a)  direct        : tIn → tOut, one hop
+//      b)  via bridge[i] : tIn → bridge[i] → tOut, two hops, one per bridge slot
 //
+//  A route has at most MAX_HOPS = 2 hops (Core's, the Router's ceiling).
 //  Bridges are the connective tokens of the liquidity graph: exotic-to-exotic
 //  swaps usually route through a bridge because that is where depth lives.
-//  The Solver evaluates all three topologies and returns the best plus the
+//  The Solver evaluates every topology and returns the best plus the
 //  runner-up as `fallbackRoute`.
 //
-//  Budget: MAX_LEGS = 11 global, MAX_LEGS_PER_STAGE = 4 per hop -> 4/4+4/4+4+3.
-//  stages dynamically (typically 3 legs to the bridge, 2 from it).
+//  Budget: MAX_LEGS_PER_HOP = 5 legs per hop (Core's, the Router's ceiling) -> 5 direct,
+//  5+5 via a bridge.
 // =============================================================================
 pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,
-    PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx
+    PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx, MAX_HOPS, MAX_LEGS_PER_HOP
 } from "./BlazePhoenixCore.sol";
 import {BlazePhoenixMath, IHubMath} from "./BlazePhoenixMath.sol";
 
@@ -94,31 +94,20 @@ contract BlazePhoenixSolver {
 
     string  public constant VERSION                = "2.0.0";
 
-    /// @notice Maximum legs across the entire route, regardless of topology.
-    /// @notice GLOBAL leg ceiling for a route, summing every hop.
-    ///         11 since 2026-08-22 (was 5), by the owner's decision.
-    ///
-    ///         THE 11 IS NOT ARBITRARY, and needs no special case: combined
-    ///         with the per-hop ceiling of 4, it yields exactly the asked distribution
-    ///           direct  :            min(4, 11)        = 4
-    ///           2 hops  : 4 +        min(11-4, 4)      = 4 + 4  =  8
-    ///           3 hops  : 4 + 4 +    min(11-8, 4)      = 4+4+3  = 11
-    ///         The last hop of a three-hop route gets 3 because the global ceiling
-    ///         squeezes it — not because someone wrote it in code. One constant
-    ///         doing the work of three.
-    ///
-    ///         THEY ARE TWO DIFFERENT QUESTIONS and that is why they are two constants:
-    ///           "how many legs fit in a hop?"        -> MAX_LEGS_PER_STAGE
-    ///           "how many legs fit in a ROUTE?"      -> MAX_LEGS
-    ///         Collapsing them would let a direct route spend the whole budget
-    ///         on a single hop, which violates the per-hop ceiling.
-    uint8   internal constant MAX_LEGS             = 11;
+    // THE LEG BUDGET is Core's MAX_LEGS_PER_HOP, the Router's ceiling, for every stage of every
+    // topology - the direct route included. Until 2026-11-06 the Solver held its own two:
+    // MAX_LEGS_PER_STAGE (3, then 4 from 2026-08-22, one under the Router's 5) and a route-wide
+    // MAX_LEGS = 11 that squeezed only the third hop of a three-hop route (4 + 4 + 3).
 
-    /// @notice Stage-A budget for bridge routes.  Stage B gets MAX_LEGS - A_used.
-    /// @notice PER-HOP leg ceiling, in any topology — including the direct
-    ///         route. 4 since 2026-08-22 (was 3, and the direct route did not even
-    ///         respect it: it used the global ceiling).
-    uint8   internal constant MAX_LEGS_PER_STAGE   = 4;
+    /// @dev The topologies, in the order they are judged (a tie keeps the earlier one):
+    ///      0 direct; 1 + i one bridge, tIn -> bs[i] -> tOut, for each of the BRIDGE_SLOTS
+    ///      bridges read - two hops, MAX_HOPS (`_planTopology`). Bridge topologies only ADD
+    ///      candidates to the judgement: a direct route still wins whenever it delivers more,
+    ///      because the comparison is by the output built and not by topology depth.
+    ///      Until 2026-11-06 there were 13: topologies 4-12 were THREE HOPS over TWO bridges,
+    ///      past the owner's two-hop design and past the Router's ceiling since then.
+    uint256 private constant BRIDGE_SLOTS = 3;   // the Hub's MAX_BRIDGE_ROUTES, read in `findBestRoutePlan`
+    uint256 private constant TOPOLOGIES   = 1 + BRIDGE_SLOTS;
 
 
     /// @notice Skip the full CREATE2 discovery sweep when the pair already has at
@@ -232,8 +221,8 @@ contract BlazePhoenixSolver {
     // =========================================================================
 
     /// @notice Find the U-maximising route plan for an exact-input swap.
-    /// @dev    Enumerates direct + via-bridge[0] + via-bridge[1] topologies
-    ///         in parallel, returns max-U as `best` and second-best as `fallback`.
+    /// @dev    Enumerates the direct topology and one via each bridge slot
+    ///         (TOPOLOGIES), returns max-U as `best` and second-best as `fallback`.
     // slither-disable-next-line incorrect-return
     function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
         external view returns (RoutePlan memory plan)
@@ -247,14 +236,14 @@ contract BlazePhoenixSolver {
         // so no `bridgeCount()` is needed (that traversal was removed deliberately: -1,581 gas
         // per solve) and the guards in `_planTopology` test `!= address(0)`.
         //
-        // THE THREE READS ARE THE HUB'S `MAX_BRIDGE_ROUTES`, WRITTEN HERE IN CODE. It is this
+        // THE THREE READS ARE THE HUB'S `MAX_BRIDGE_ROUTES`, WRITTEN HERE IN CODE (BRIDGE_SLOTS). It is this
         // number - not MAX_BRIDGES - that decides across how many bridges we route, and the
         // difference between the two was a silent asymmetry: a bridge with admission rights and
         // +25% fitness that could never be a hop. See the Hub's MAX_BRIDGE_ROUTES note and
         // test/RoutableBridgeAsymmetry.t.sol, pinning both sides. Whoever adds a read here MUST
-        // raise the constant over there - and vice versa: `hub.bridge(i)` past the Hub's array
-        // reverts with Panic 0x32.
-        address[4] memory bs = [hub.bridge(0), hub.bridge(1), hub.bridge(2), address(0)];
+        // raise BRIDGE_SLOTS (a literal of another length does not compile) and the constant over
+        // there - and vice versa: `hub.bridge(i)` past the Hub's array reverts with Panic 0x32.
+        address[BRIDGE_SLOTS] memory bs = [hub.bridge(0), hub.bridge(1), hub.bridge(2)];
         // Every topology is judged on the route BUILT for it, and on one basis: a
         // capacity-held leg ranks at its cap (`_capacity`). `bk` remembers which one took
         // the lead.
@@ -398,7 +387,7 @@ contract BlazePhoenixSolver {
     /// @dev One build of the leading topology on the rebuild (`findBestRoutePlan`), and its rank on
     ///      what its books pay (`_paysWhatItWalks`); 0 when no route of it ranks above `u`.
     function _rebuilt(
-        Melhores memory m, uint256 k, address[4] memory bs, address tIn, address tOut, uint256 amountIn, uint256 u
+        Melhores memory m, uint256 k, address[BRIDGE_SLOTS] memory bs, address tIn, address tOut, uint256 amountIn, uint256 u
     ) private view returns (Route memory a, uint256 v) {
         m.bestU = u;
         _planTopology(m, k, bs, tIn, tOut, amountIn);
@@ -430,7 +419,6 @@ contract BlazePhoenixSolver {
         assembly ("memory-safe") { a := calldataload(o) b := calldataload(add(o, 0x20)) x := calldataload(add(o, 0x40)) }
         (, , uint256 e) = _candsOf(m, address(uint160(a)), address(uint160(b)));
         assembly ("memory-safe") {
-            mstore(add(e, 0xa0), 0)   // the list changes: its kept first stage (`_firstStage`) goes
             let c := mload(add(e, 0x60))
             let n := mload(c)
             for { let s := add(c, 0x20) let z := add(s, shl(5, n)) } lt(s, z) { s := add(s, 0x20) } {
@@ -443,24 +431,15 @@ contract BlazePhoenixSolver {
         }
     }
 
-    /// @dev The topologies, in the order they are judged (a tie keeps the earlier one):
-    ///      0 direct; 1-3 one bridge, tIn -> bs[k-1] -> tOut; 4-12 THREE HOPS over TWO
-    ///      bridges, tIn -> bs[i] -> bs[j] -> tOut with i = (k-4)/3, j = (k-4)%3, i != j.
-    ///      Bridge topologies only ADD candidates to the judgement: a direct route still wins
-    ///      whenever it delivers more, because the comparison is by the output built and not
-    ///      by topology depth.
-    uint256 private constant TOPOLOGIES = 13;
-
+    /// @dev Topology k of TOPOLOGIES: 0 direct, 1 + i via bs[i]. A slot with no bridge, or a
+    ///      bridge that is one of the pair's own tokens, has no route of its own.
     function _planTopology(
-        Melhores memory m, uint256 k, address[4] memory bs, address tIn, address tOut, uint256 amountIn
+        Melhores memory m, uint256 k, address[BRIDGE_SLOTS] memory bs, address tIn, address tOut, uint256 amountIn
     ) private view {
         if (k == 0) return _planDirect(m, tIn, tOut, amountIn);
-        (uint256 i, uint256 j) = k < 4 ? (k - 1, 3) : ((k - 4) / 3, (k - 4) % 3);
-        address x = bs[i];
-        address y = bs[j];
+        address x = bs[k - 1];
         if (x == address(0) || x == tIn || x == tOut) return;
-        if (j != 3 && (j == i || y == address(0) || y == tIn || y == tOut || y == x)) return;
-        _planViaBridges(m, tIn, tOut, amountIn, x, y);
+        _planViaBridges(m, tIn, tOut, amountIn, x);
     }
 
     /// @dev The SINGLE producer of the "which route is best" judgement, and the criterion is
@@ -473,8 +452,9 @@ contract BlazePhoenixSolver {
     /// @dev ACCUMULATOR, not a parameter list. It was `_rank(a,b,c,d)` — and the
     ///      parameter count WAS MAX_BRIDGE_ROUTES written in code, which
     ///      created the phantom bridge when the two diverged (the corpus, §4).
-    ///      With the two-bridge topologies there are up to 10 candidates; a
-    ///      10-parameter signature would encode the same constant in an arity again.
+    ///      With one topology per bridge slot there are up to TOPOLOGIES (four)
+    ///      candidates; a four-parameter signature would encode the same constant
+    ///      in an arity again.
     ///
     ///      The accumulator erases the possibility: whoever adds a topology
     ///      calls `_considera` one more time and there is no arity to
@@ -519,82 +499,68 @@ contract BlazePhoenixSolver {
         (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, tIn, tOut);
         if (cands.length == 0) return;
         // PER-HOP CEILING, not the global one: a direct route is ONE hop, and
-        // the 4-legs-per-hop limit applies to it like to any other. It used to
-        // use MAX_LEGS and could spend the entire budget on a single hop.
-        (Hop memory hop, uint256 up, bool held) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_STAGE, m.walk | CUT | dec << 8);
+        // the legs-per-hop limit applies to it like to any other. It used to
+        // use the global ceiling (MAX_LEGS, gone since 2026-11-06) and could
+        // spend the entire budget on a single hop.
+        (Hop memory hop, uint256 up, bool held) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_HOP, m.walk | CUT | dec << 8);
         if (hop.expectedOut == 0) return;
-        // One assembly for every route, one hop or three: one producer of the impact and the floor.
+        // One assembly for every route, one hop or two: one producer of the impact and the floor.
         Hop[] memory hops = new Hop[](1);
         hops[0] = hop;
         Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, hop.expectedOut);
         _considera(m, route, up, held);
     }
 
-    /// @notice BRIDGE ROUTES: tIn -> bA -> tOut, or THREE HOPS over TWO bridges
-    ///         (tIn -> bA -> bB -> tOut) when `bB` is set. One planner for both.
+    /// @notice BRIDGE ROUTES: tIn -> b -> tOut, two hops (MAX_HOPS), one per bridge slot.
     ///
-    /// @dev WHY THREE HOPS EXIST, and why they do not make routes longer by default.
-    ///      `_considera` judges the route BUILT and measured for each topology. A 3-hop route
-    ///      only wins if it delivers more, and a direct route still wins whenever it is the
-    ///      best. Adding the topology does NOT lengthen routes: it adds a candidate to the
-    ///      judgement that already exists.
-    ///
-    ///      THE COST FALLS WHERE IT DOES NOT MATTER. It is three more `_buildHop` per bridge
-    ///      pair, and that is paid in the SOLVE - which at entry point A runs over `eth_call`,
-    ///      for free. At entry point B it is paid in gas, so this topology only pays off where
-    ///      data dominates. See the corpus (the four entry points).
-    ///
-    ///      STAGES ARE SEPARATE HOPS. The Router executes each stage, measures the balance it
+    /// @dev STAGES ARE SEPARATE HOPS. The Router executes each stage, measures the balance it
     ///      really produced and rescales the next stage's legs to it, so a stage always spends
     ///      exactly what the one before produced, never a stale quoted figure.
     ///
-    ///      LEG BUDGET. `MAX_LEGS` in total, `MAX_LEGS_PER_STAGE` per stage, and every stage
-    ///      leaves at least one leg for each stage after it. Stage A may cut on the input (it
-    ///      executes as it was built); the later stages may NOT - the Router rescales them
-    ///      against the REAL balance of the stage before, and a cut leg would be scaled
-    ///      straight back up, past its cut promise and into a per-leg floor revert (observed:
-    ///      a 2-hop route that filled at 74bps floor-rejected once its stage-B leg was cut).
+    ///      THE PATH IS SIZED BY MAX_HOPS. `path` holds MAX_HOPS + 1 tokens and is written as a
+    ///      literal of three: a hop ceiling this planner does not build does not compile, so the
+    ///      Router's ceiling and the deepest route quoted are one number.
     ///
-    ///      S2 (V4 fragmentation) ON THE EARLIER STAGES. Each stage is built on the PROMISE of
-    ///      the stage before, which dust can cut. `r` carries the RANK along the path instead:
-    ///      when a stage's deep walk resolved above its promise, the next stage is quoted again
-    ///      on that rank, for the judgement only. A stage's rank is the larger of its two lower
-    ///      bounds (its own deep walk on the promise, and the quote on the rank before), so it
-    ///      never exceeds what the stage delivers on what the stage before really produced. The
-    ///      legs, the promise and the floor stay as built.
-    function _planViaBridges(
-        Melhores memory m, address tIn, address tOut, uint256 amountIn, address bA, address bB
-    ) private view {
-        uint256 n = bB == address(0) ? 2 : 3;
-        address[4] memory path = [tIn, bA, bB, tOut];
-        if (n == 2) path[2] = tOut;
-        Hop[] memory hops = new Hop[](n);
-        uint256 used;           // legs spent by the stages built so far
+    ///      LEG BUDGET. `MAX_LEGS_PER_HOP` per stage. Stage A may cut on the input (it
+    ///      executes as it was built); stage B may NOT - the Router rescales it against the
+    ///      REAL balance of stage A, and a cut leg would be scaled straight back up, past its
+    ///      cut promise and into a per-leg floor revert (observed: a 2-hop route that filled at
+    ///      74bps floor-rejected once its stage-B leg was cut).
+    ///
+    ///      S2 (V4 fragmentation) ON STAGE B. Stage B is built on the PROMISE of stage A, which
+    ///      dust can cut. `r` carries the RANK along the path instead: when stage A's deep walk
+    ///      resolved above its promise, stage B is quoted again on that rank, for the judgement
+    ///      only. A stage's rank is the larger of its two lower bounds (its own deep walk on the
+    ///      promise, and the quote on the rank before), so it never exceeds what the stage
+    ///      delivers on what the stage before really produced. The legs, the promise and the
+    ///      floor stay as built.
+    ///
+    ///      Until 2026-11-06 this planner also built THREE HOPS over two bridges (tIn -> bA ->
+    ///      bB -> tOut) under a global budget of MAX_LEGS = 11 legs, and kept each first stage
+    ///      for the three-hop topologies that opened on the same bridge (M10, `_firstStage`,
+    ///      2026-10-28). With two hops a judgement opens on each bridge once: the kept build
+    ///      was read by no topology, and the global budget could not bind.
+    function _planViaBridges(Melhores memory m, address tIn, address tOut, uint256 amountIn, address b)
+        private view
+    {
+        address[MAX_HOPS + 1] memory path = [tIn, b, tOut];
+        Hop[] memory hops = new Hop[](MAX_HOPS);
         uint256 p = amountIn;   // the PROMISE carried into the stage
         uint256 r;              // its RANK (0 into stage A: the input is exact there)
         bool held;              // any pass of any stage left a capacity-held candidate unsettled
-        for (uint256 i; i < n; ) {
-            uint256 room = MAX_LEGS + i + 1 - n;   // one leg left for every stage after this one
-            if (used >= room) return;
-            uint256 budget = room - used;
-            if (budget > MAX_LEGS_PER_STAGE) budget = MAX_LEGS_PER_STAGE;
-            (PoolInfo[] memory cands, uint256 dec, uint256 e) = _candsOf(m, path[i], path[i + 1]);
+        for (uint256 i; i < MAX_HOPS; ) {
+            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);
             if (cands.length == 0) return;
             // Pass 0 builds the stage on the promise. Pass 1 runs only when the stage before
             // ranked above its promise: it quotes this stage again on that rank, for the
             // judgement alone. The stage's rank is the larger of the two lower bounds.
             uint256 rk;
             for (uint256 k; ; ) {
-                Hop memory h;
-                uint256 up;
-                bool hh;
-                if (i == 0) (h, up, hh) = _firstStage(e, path[0], path[1], p, cands, uint8(budget), m.walk | CUT | dec << 8);
-                else (h, up, hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, uint8(budget), m.walk | dec << 8);
+                (Hop memory h, uint256 up, bool hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, MAX_LEGS_PER_HOP, (i == 0 ? m.walk | CUT : m.walk) | dec << 8);
                 if (hh) held = true;
                 if (k == 0) {
                     if (h.expectedOut == 0 || h.legs.length == 0) return;
                     hops[i] = h;
-                    used += h.legs.length;
                 }
                 up += h.expectedOut;
                 if (up > rk) rk = up;
@@ -605,7 +571,6 @@ contract BlazePhoenixSolver {
             p = hops[i].expectedOut;
             unchecked { ++i; }
         }
-        if (used > MAX_LEGS) return;
         Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, p);
         _considera(m, route, r - p, held);
     }
@@ -1424,16 +1389,20 @@ contract BlazePhoenixSolver {
 
     /// @dev ONE LIST PER ORDERED PAIR PER SOLVE. `_topKPools` is a function of the state and the
     ///      pair alone, and the solve is a static call, so the state cannot move between two
-    ///      topologies: a pair they share (tIn -> bA opens topology 1 and every three-hop route
-    ///      over bA; bB -> tOut closes topology 1 + j and every one that ends on bB) is built
-    ///      once, and each later topology reads the list as it was built. Memory, not transient
-    ///      storage: TSTORE is refused in a static frame (EIP-1153).
+    ///      builds: a pair read again in the same solve is built once, and each later read gets
+    ///      the list as it was built. Since 2026-11-06 (two hops) no two topologies of one
+    ///      judgement share a pair - the direct one reads tIn -> tOut, each bridge route its own
+    ///      two - and the pair read again is the rebuild's (`findBestRoutePlan`): the leader's
+    ///      topology built once with WALK and once more without the books that fell, which
+    ///      `_sitsOut` takes off the kept list in between. Until then the three-hop topologies
+    ///      shared the pairs of the two-hop ones. Memory, not transient storage: TSTORE is
+    ///      refused in a static frame (EIP-1153).
     ///      EACH READ GETS ITS OWN COPY of the array: `_buildHop` compacts and reorders the
-    ///      array it is handed, in place, and the next topology must start from the list as
+    ///      array it is handed, in place, and the next build must start from the list as
     ///      built. The rows are shared: nothing downstream writes a PoolInfo field (only
     ///      `_topKPools` does, on its own rows, before it returns).
-    ///      `m.lists` heads a chain of [next, tA, tB, list, decimals, first stage] in memory; 0 is
-    ///      none. `e` is the pair's entry; its sixth word is `_firstStage`'s (0: none kept).
+    ///      `m.lists` heads a chain of [next, tA, tB, list, decimals] in memory; 0 is none. `e` is
+    ///      the pair's entry (`_sitsOut` edits its list).
     function _candsOf(Melhores memory m, address tA, address tB)
         private view returns (PoolInfo[] memory c, uint256 dec, uint256 e)
     {
@@ -1455,8 +1424,7 @@ contract BlazePhoenixSolver {
                 mstore(add(n, 0x40), b)
                 mstore(add(n, 0x60), c)
                 mstore(add(n, 0x80), dec)
-                mstore(add(n, 0xa0), 0)
-                mstore(0x40, add(n, 0xc0))
+                mstore(0x40, add(n, 0xa0))
                 e := n
             }
             m.lists = e;
@@ -1467,79 +1435,6 @@ contract BlazePhoenixSolver {
             mcopy(d, c, l)
             mstore(0x40, add(d, l))
             c := d
-        }
-    }
-
-    /// @dev ONE FIRST STAGE PER BRIDGE PER SOLVE (M10). The first stage of a bridge route,
-    ///      tIn -> bs[i], is the same build in every topology that opens on bs[i] (the two-hop one
-    ///      and the three-hop ones over it): the same list, the same input `amountIn`, the same
-    ///      mode (CUT on the first hop) and the same budget, MAX_LEGS_PER_STAGE, which every
-    ///      first stage gets because a route keeps at most two stages after it. `_buildHop` is a
-    ///      function of those and of the state, and the solve is a static call, so a second build
-    ///      can only return what the first returned: it is built once and kept in the pair's
-    ///      entry (`_candsOf`), keyed on its input, budget and mode. The later stages are not
-    ///      kept: each is built on what the stage before produced, which differs by topology, and
-    ///      its second pass reads the list as the first one permuted it (`_planViaBridges`); a
-    ///      first stage has no second pass (it is quoted on an exact input).
-    ///      THE KEPT BUILD IS NEVER HANDED OUT: each read gets its own copy, as each read of a list
-    ///      does. A route may scale its hops in place (`_paysWhatItWalks`) and reorder their legs
-    ///      (`_orderLegs`), and the leader and the runner-up may open on the same bridge. A list
-    ///      that changes (`_sitsOut`) drops its kept build.
-    function _firstStage(
-        uint256 e, address tA, address tB, uint256 amt, PoolInfo[] memory c, uint8 budget, uint256 mode
-    ) private view returns (Hop memory h, uint256 up, bool held) {
-        uint256 key = mode << 8 | budget;
-        uint256 r;
-        assembly ("memory-safe") { r := mload(add(e, 0xa0)) }
-        if (r != 0) {
-            uint256 hit;
-            assembly ("memory-safe") {
-                if and(eq(mload(r), amt), eq(mload(add(r, 0x20)), key)) {
-                    hit := mload(add(r, 0x40))
-                    up := mload(add(r, 0x60))
-                    held := mload(add(r, 0x80))
-                }
-            }
-            if (hit != 0) {
-                hit = _copyHop(hit);
-                assembly ("memory-safe") { h := hit }
-                return (h, up, held);
-            }
-        }
-        (h, up, held) = _buildHop(tA, tB, amt, c, budget, mode);
-        uint256 kept;
-        assembly ("memory-safe") { kept := h }
-        kept = _copyHop(kept);
-        assembly ("memory-safe") {
-            r := mload(0x40)
-            mstore(r, amt)
-            mstore(add(r, 0x20), key)
-            mstore(add(r, 0x40), kept)
-            mstore(add(r, 0x60), up)
-            mstore(add(r, 0x80), held)
-            mstore(0x40, add(r, 0xa0))
-            mstore(add(e, 0xa0), r)
-        }
-    }
-
-    /// @dev A copy of a hop that shares no memory with it: the Hop's five words, its legs array
-    ///      and each Leg (Core's struct: ten one-word members, 0x140 bytes).
-    function _copyHop(uint256 h) private pure returns (uint256 c) {
-        assembly ("memory-safe") {
-            c := mload(0x40)
-            mcopy(c, h, 0xa0)
-            let ls := mload(add(h, 0x80))
-            let n := mload(ls)
-            let nl := add(c, 0xa0)
-            mstore(nl, n)
-            let q := add(nl, shl(5, add(n, 1)))
-            for { let i := 0 } lt(i, n) { i := add(i, 1) } {
-                mcopy(q, mload(add(ls, shl(5, add(i, 1)))), 0x140)
-                mstore(add(nl, shl(5, add(i, 1))), q)
-                q := add(q, 0x140)
-            }
-            mstore(add(c, 0x80), nl)
-            mstore(0x40, q)
         }
     }
 

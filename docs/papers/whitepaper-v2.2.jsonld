@@ -420,8 +420,8 @@
         {
           "@type": "DefinedTerm",
           "termCode": "INV-18",
-          "name": "No hop carries more than four legs and no route more than eleven in the Solver's plan; the Router accepts at most three hops and five legs per hop.",
-          "description": "Enforced by Solver budgets; Router `_execute` → `RouterE(3)`"
+          "name": "No hop carries more than five legs and no route more than two hops, in the Solver's plan and at the Router alike: each ceiling has one producer in the Core (`MAX_LEGS_PER_HOP`, `MAX_HOPS`).",
+          "description": "Enforced by Core constants; Solver budgets; Router `_execute` → `RouterE(3)`; `test/PlanInsideTheCeilings.t.sol`"
         },
         {
           "@type": "DefinedTerm",

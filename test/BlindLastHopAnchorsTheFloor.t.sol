@@ -23,6 +23,16 @@ pragma solidity 0.8.36;
 //  follows no anchor has no figure to anchor on; that case is the one
 //  test/FeeEscapeViaBridgeResidual.t.sol covers.
 //
+//  Two hops (2026-11-06, MAX_HOPS = 2). An earlier hop can no longer make the
+//  route's output: hop 0's tokenOut is hop 1's tokenIn, and a hop never pays
+//  out its own input, so `finalHopQuote` is still 0 when the last hop runs and
+//  the cross-hop clause `hopBase > finalHopQuote` cannot bind. The same "the
+//  anchor only rises" now lives inside the last hop: a hop's declared figure
+//  replaces the base already in scope (a priced leg's figure) only when it is
+//  larger. History: until 2026-11-06 the cross-hop form was pinned on
+//  A -> C -> B -> C and the blind last hop also at the end of A -> B -> D -> C;
+//  both shapes are three hops and are now pinned as refused.
+//
 //  Oracle: the pool's own swap arithmetic (the mock executes BPC.outV3 on its
 //  swap liquidity) and the floor's hard minimum, BPS - FLOOR_HARD_MAX_LOSS_BPS;
 //  never the Router's floor code.
@@ -31,6 +41,7 @@ pragma solidity 0.8.36;
 import {Test, Vm} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
+import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
@@ -38,6 +49,7 @@ import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 contract BlindLastHopAnchorsTheFloorTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixRouter router;
+    BlazePhoenixQuoter quoter;
     MockERC20 tokenA;
     MockERC20 tokenB; // bridge: the fee lands on the last hop's input
     MockERC20 tokenC; // route output
@@ -50,6 +62,7 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
     MockV3Pool pDCblind;
     MockV3Pool pAC;      // A -> C: an earlier hop that already makes the route's output
     MockV3Pool pCB;
+    MockV3Pool pACblind; // A -> C fully blind: a route of length one
 
     address user = address(0xBEEF);
     uint160 constant Q96 = uint160(uint256(1) << 96);
@@ -66,6 +79,7 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         tokenC = new MockERC20("C", "C");
         tokenD = new MockERC20("D", "D");
         router = new BlazePhoenixRouter(address(hub), address(0xD0D0), address(this), address(0xFEE1), address(0xFEE2));
+        quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
         hub.addBridge(address(tokenB));
 
         pAB = new MockV3Pool(address(tokenA), address(tokenB), 3000);
@@ -93,6 +107,10 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         pCB.setState(Q96, LIQ);
         tokenC.mint(address(pAC), 1_000_000e18);
         tokenB.mint(address(pCB), 1_000_000e18);
+        pACblind = new MockV3Pool(address(tokenA), address(tokenC), 3000);
+        pACblind.setState(Q96, 0);
+        pACblind.setSwapLiquidity(LIQ);
+        tokenC.mint(address(pACblind), 1_000_000e18);
 
         tokenA.mint(user, 10_000e18);
         vm.prank(user);
@@ -135,7 +153,8 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         r = _route(hs, honest);
     }
 
-    /// A -> B -> D -> C with a fully blind last hop declaring its honest figure.
+    /// A -> B -> D -> C with a fully blind last hop declaring its honest figure: a three-hop shape,
+    /// refused since 2026-11-06 (MAX_HOPS = 2).
     function _threeHop() private view returns (Route memory r, uint256 honest) {
         uint256 b = _q(pAB, address(tokenA), AMT);
         uint256 bNet = b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
@@ -148,7 +167,7 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         r = _route(hs, honest);
     }
 
-    /// A -> C -> B -> C: hop 0 already makes C and anchors the floor; the last hop is fully
+    /// A -> C -> B -> C (three hops, refused since 2026-11-06): hop 0 already makes C and anchors the floor; the last hop is fully
     /// blind and declares `lastExp`. Returns the route and hop 0's figure.
     function _reanchor(uint256 lastExp) private view returns (Route memory r, uint256 c) {
         c = _q(pAC, address(tokenA), AMT);
@@ -159,6 +178,36 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         hs[1] = _hop(address(tokenC), address(tokenB), c, b, _leg(pCB, address(tokenC), c, b));
         hs[2] = _hop(address(tokenB), address(tokenC), bNet, lastExp, _leg(pBCblind, address(tokenB), bNet, 0));
         r = _route(hs, c);
+    }
+
+    /// A -> B -> C whose last hop is MIXED: a leg priced in frame (pBC) beside a fully blind
+    /// leg (pBCblind), half of the hop each, the hop declaring `hopExp`. Returns the route, the
+    /// priced leg's figure `q` (the base already in scope on that hop) and its input.
+    function _mixed(uint256 hopExp) private view returns (Route memory r, uint256 q, uint256 half) {
+        uint256 b = _q(pAB, address(tokenA), AMT);
+        uint256 bNet = b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        half = bNet / 2;
+        q = _q(pBC, address(tokenB), half);
+        Hop[] memory hs = new Hop[](2);
+        hs[0] = _hop(address(tokenA), address(tokenB), AMT, b, _leg(pAB, address(tokenA), AMT, b));
+        Leg[] memory ls = new Leg[](2);
+        ls[0] = _leg(pBC, address(tokenB), half, 0);
+        ls[1] = _leg(pBCblind, address(tokenB), bNet - half, 0);
+        hs[1] = Hop({tokenIn: address(tokenB), tokenOut: address(tokenC), amountIn: bNet, expectedOut: hopExp, legs: ls});
+        r = _route(hs, q);
+    }
+
+    /// A -> C in one fully blind hop, the route's first hop and its last, declaring the
+    /// pool's figure at full liquidity.
+    function _oneHop() private view returns (Route memory r, uint256 honest) {
+        honest = _q(pAC, address(tokenA), AMT); // pACblind has pAC's geometry at full liquidity
+        Hop[] memory hs = new Hop[](1);
+        hs[0] = _hop(address(tokenA), address(tokenC), AMT, honest, _leg(pACblind, address(tokenA), AMT, 0));
+        r = _route(hs, honest);
+    }
+
+    function _e3() private pure returns (bytes memory) {
+        return abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3));
     }
 
     function _e5() private pure returns (bytes memory) {
@@ -207,39 +256,48 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         }
     }
 
-    /// One hop more: the same blind last hop at the end of a three-hop route.
-    function test_ThreeHops_FullyBlindLastHop_ThinFillRefused() public {
-        pDCblind.setSwapLiquidity(uint128(LIQ / 1e7));
-        (Route memory r,) = _threeHop();
+    /// One hop less: on a route of length one the fully blind hop is also the last, and it
+    /// anchors the floor on its declaration the same way. History: until 2026-11-06 this was
+    /// "one hop more", the blind last hop at the end of A -> B -> D -> C, now refused (below).
+    function test_OneHop_FullyBlindLastHop_ThinFillRefused() public {
+        pACblind.setSwapLiquidity(uint128(LIQ / 1e7));
+        (Route memory r,) = _oneHop();
         vm.prank(user);
         vm.expectRevert(_e5());
         router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
     }
 
-    /// Attacker mode: a fully blind last hop declaring nothing, after a hop that already
-    /// anchored the floor in C. Taking the anchor from the blind hop unconditionally would
-    /// replace that anchor with zero and disarm the floor; the anchor only rises, so the
-    /// thin fill is still refused on hop 0's figure.
-    function test_BlindLastHop_DeclaringNothing_CannotDisarmAnEarlierAnchor() public {
-        pBCblind.setSwapLiquidity(uint128(LIQ / 1e7));
-        (Route memory r,) = _reanchor(0);
+    /// Attacker mode, two hops: a blind leg on a hop that declares nothing sits beside a leg
+    /// priced in frame. Letting the declaration replace the base unconditionally would replace
+    /// the priced figure with zero and disarm the floor; the base only rises, so a priced leg
+    /// that delivers about 90 % of its quote (inside its own 80 % leg floor) beside a thin blind
+    /// fill is still refused on the priced figure. History: until 2026-11-06 this was the
+    /// cross-hop form, a blind last hop declaring nothing after hop 0 had anchored the floor in C
+    /// (A -> C -> B -> C, three hops).
+    function test_BlindLeg_DeclaringNothing_CannotDisarmThePricedLegBesideIt() public {
+        pBCblind.setSwapLiquidity(uint128(LIQ / 1e9));
+        (Route memory r,, uint256 half) = _mixed(0);
+        pBC.setSwapLiquidity(uint128(9 * half)); // delivers ~0.9 of the in-frame quote
         vm.prank(user);
         vm.expectRevert(_e5());
         router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
     }
 
-    /// Fuzz the declaration below the earlier anchor: the published anchor never falls under it.
-    function testFuzz_BlindLastHop_NeverLowersAnEarlierAnchor(uint256 lastExp, uint256 div) public {
+    /// Fuzz the hop's declaration on both sides of the priced figure already in scope: the
+    /// published anchor is the larger of the two, never the declaration below it.
+    /// History: until 2026-11-06 the declaration was fuzzed below hop 0's anchor on
+    /// A -> C -> B -> C (three hops).
+    function testFuzz_BlindLeg_HopDeclarationOnlyRaisesThePricedBase(uint256 hopExp, uint256 div) public {
         div = bound(div, 1, 1e9);
         pBCblind.setSwapLiquidity(uint128(LIQ / div));
-        (, uint256 c) = _reanchor(0);
-        lastExp = bound(lastExp, 0, c);
-        (Route memory r,) = _reanchor(lastExp);
+        (, uint256 q,) = _mixed(0);
+        hopExp = bound(hopExp, 0, 2 * q);
+        (Route memory r,,) = _mixed(hopExp);
         vm.recordLogs();
         vm.prank(user);
         try router.swapExactIn(r, AMT, 1, user, block.timestamp + 1) returns (uint256 out) {
             (uint256 quoted, uint256 floorUsed) = _proof();
-            assertGe(quoted, c, "a blind last hop must never lower the anchor an earlier hop set");
+            assertEq(quoted, hopExp > q ? hopExp : q, "the anchor is the larger of the priced base and the declaration");
             assertGe(out, floorUsed, "a settlement must beat the published floor");
         } catch (bytes memory err) {
             assertEq(keccak256(err), keccak256(_e5()), "a refusal must be the floor's");
@@ -248,14 +306,22 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
 
     // --- the neighbouring legitimate paths still settle -----------------------
 
-    /// The same re-anchoring route with an honest fill settles on hop 0's anchor.
-    function test_BlindLastHop_AfterAnEarlierAnchor_HonestFill_Settles() public {
-        (Route memory r, uint256 c) = _reanchor(0);
+    /// The cross-hop re-anchoring shape is three hops: refused before any hop runs, by the
+    /// preview and by the Router alike, while its two-hop analogue (the mixed last hop) settles.
+    /// History: until 2026-11-06 this route settled on hop 0's anchor
+    /// (test_BlindLastHop_AfterAnEarlierAnchor_HonestFill_Settles).
+    function test_ThreeHops_ReanchorThroughTheOutput_IsRefused_TwoHopAnalogueSettles() public {
+        (Route memory r,) = _reanchor(0);
+        assertFalse(quoter.previewRoute(r, 1).canExecute, "the preview endorses a three-hop route the Router refuses");
+        vm.prank(user);
+        vm.expectRevert(_e3());
+        router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        (Route memory r2, uint256 q,) = _mixed(0);
         vm.recordLogs();
         vm.prank(user);
-        uint256 out = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        uint256 out = router.swapExactIn(r2, AMT, 1, user, block.timestamp + 1);
         (uint256 quoted, uint256 floorUsed) = _proof();
-        assertEq(quoted, c, "the earlier anchor stands");
+        assertEq(quoted, q, "the priced base stands");
         assertGe(out, floorUsed, "and the honest fill beats it");
     }
 
@@ -271,11 +337,19 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         assertGt(floorUsed, 0, "the floor is armed");
     }
 
-    function test_ThreeHops_FullyBlindLastHop_HonestFill_Settles() public {
+    /// The blind last hop at the end of three hops is refused before any hop runs, by the
+    /// preview and by the Router alike, while the same blind last hop on two hops settles.
+    /// History: until 2026-11-06 the three-hop route settled
+    /// (test_ThreeHops_FullyBlindLastHop_HonestFill_Settles).
+    function test_ThreeHops_FullyBlindLastHop_IsRefused_TwoHopsSettle() public {
         (Route memory r,) = _threeHop();
+        assertFalse(quoter.previewRoute(r, 1).canExecute, "the preview endorses a three-hop route the Router refuses");
         vm.prank(user);
-        uint256 out = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
-        assertGt(out, 0, "the honest three-hop blind route settles");
+        vm.expectRevert(_e3());
+        router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        (Route memory r2,) = _twoHop(pBCblind, 0, true);
+        vm.prank(user);
+        assertGt(router.swapExactIn(r2, AMT, 1, user, block.timestamp + 1), 0, "the two-hop blind route settles");
     }
 
     /// The same route with the last hop priced in frame settles as before.

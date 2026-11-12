@@ -14,17 +14,23 @@ pragma solidity 0.8.36;
 //     oracle, so a drift between the copies would be silent. Pinned by an
 //     exact quote == delivery parity through that arm.
 //
-//  2. The executor's per-hop leg cap (Router.MAX_LEGS_PER_HOP) and the
-//     planner's per-hop budget (Solver.MAX_LEGS_PER_STAGE) name the same
-//     concept and hold different values. Safe only while executor >= planner;
-//     nothing asserted the direction. Pinned by the mirror comparison, by a
-//     behavioural boundary probe of the executor's cap, and by executing a
-//     Solver-emitted max-split route through the Router.
+//  2. Legs per hop. Until 2026-11-06 the executor's cap (the Router's
+//     MAX_LEGS_PER_HOP = 5) and the planner's budget (the Solver's
+//     MAX_LEGS_PER_STAGE = 4) named the same concept with two values, safe
+//     only while executor >= planner. Since then both read Core's file-level
+//     MAX_LEGS_PER_HOP - one producer, the relation is the identity - so the
+//     mirror comparison is retired (test/Pin01LegCeiling.t.sol pins the
+//     Solver building to exactly the cap, not fewer and not more). Pinned
+//     here: the executor's boundary, probed behaviourally, and a
+//     Solver-emitted max-split route executing through the Router.
 //
-//  3. The Solver's GLOBAL leg ceiling (MAX_LEGS = 11) has no executor
-//     counterpart: the Router validates legs per hop only. Pinned by the
-//     concrete consequence — a 12-leg hand-built route, more legs than the
-//     Solver can ever emit, executes to completion.
+//  3. No route-wide leg count. The Solver's MAX_LEGS = 11 had no executor
+//     counterpart; it went with the third hop (2026-11-06) and neither side
+//     counts a route's legs now. The widest route is MAX_HOPS x
+//     MAX_LEGS_PER_HOP = 10 legs by construction (owner, 2026-11-06: "2 hops
+//     e 10 legs"). Pinned by the concrete consequence: a hand-built route of
+//     exactly that width - five legs on each of two hops - executes to
+//     completion.
 //
 //  4. The absolute impact ceiling (MAX_ROUTE_IMPACT_BPS = 9_000) exists only
 //     on the plan side. The Router computes impact but never refuses on it:
@@ -41,7 +47,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {
     BlazePhoenixCore as BPC,
-    Route, Hop, Leg, RoutePlan, QuoteCtx
+    Route, Hop, Leg, RoutePlan, QuoteCtx, MAX_HOPS, MAX_LEGS_PER_HOP
 } from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
@@ -60,31 +66,14 @@ contract SeamParityTest is Test {
 
     bool aFirst; // does tokA sort as token0 in an (A,B) pair?
 
-    // ─── Mirrored plan/exec constants ───────────────────────────────────────
+    // ─── Plan/exec constants ────────────────────────────────────────────────
     //
-    // All four constants below are `internal constant` in their contracts —
-    // not externally readable — so the test MIRRORS them. Each mirror states
-    // where it was read from; the Router-side mirror is additionally verified
-    // BEHAVIOURALLY in test_Seam2_RouterCap_BoundaryProbe (accept at the cap,
-    // RouterE(3) one past it), so that mirror cannot rot silently.
-
-    /// Mirrored from src/BlazePhoenixRouter.sol:
-    ///     `uint8 internal constant MAX_LEGS_PER_HOP = 5;`
-    /// (internal — no getter). Behaviourally re-verified below.
-    uint256 constant ROUTER_MAX_LEGS_PER_HOP = 5;
-
-    /// Mirrored from src/BlazePhoenixSolver.sol:
-    ///     `uint8 internal constant MAX_LEGS_PER_STAGE = 4;`
-    /// (internal — no getter). Upper-bounded behaviourally by asserting the
-    /// Solver never emits a hop with more legs than this even when offered
-    /// more candidates than the budget.
-    uint256 constant SOLVER_MAX_LEGS_PER_STAGE = 4;
-
-    /// Mirrored from src/BlazePhoenixSolver.sol:
-    ///     `uint8 internal constant MAX_LEGS = 11;`
-    /// (internal — no getter). The Router has NO counterpart of this value;
-    /// that absence is exactly what test_Seam3 pins.
-    uint256 constant SOLVER_MAX_LEGS = 11;
+    // The leg and hop ceilings are Core's file-level MAX_LEGS_PER_HOP and
+    // MAX_HOPS since 2026-11-06, imported here by name: there is no mirror of
+    // them left to rot. Until then three of the four constants of this file
+    // were mirrors (the Router's 5, the Solver's per-stage 4 and route-wide
+    // 11). The impact ceiling below is still `internal constant` in the
+    // Solver - not externally readable - so it is still mirrored.
 
     /// Mirrored from src/BlazePhoenixSolver.sol:
     ///     `uint16 internal constant MAX_ROUTE_IMPACT_BPS = 9_000;`
@@ -266,28 +255,22 @@ contract SeamParityTest is Test {
     // =========================================================================
     //  SEAM 2 — legs per hop: the executor must cover the planner.
     //
-    //  Router.MAX_LEGS_PER_HOP (execution cap) and Solver.MAX_LEGS_PER_STAGE
-    //  (planning budget) name the same concept with different values. The safe
-    //  direction is executor >= planner; if someone lowered the Router's cap
-    //  below the Solver's budget, honest planned routes would start reverting
-    //  RouterE(3) and nothing would catch it. Three pins, weakest to hardest.
+    //  The execution cap and the planning budget are ONE constant since
+    //  2026-11-06 (Core's MAX_LEGS_PER_HOP), so "executor >= planner" cannot
+    //  drift by an edit to one side. Until then they were two constants, 5 and
+    //  4, and the first pin of this seam compared their mirrors; it is retired
+    //  with the second producer. What a single producer does not prove is that
+    //  each side READS it: the Router is probed at the boundary, and a route
+    //  the Solver split as wide as it builds is executed.
     // =========================================================================
 
-    /// The direction itself, on the mirrored constants.
-    function test_Seam2_LegBudget_ExecutorCapCoversPlannerBudget() public pure {
-        assertGe(
-            ROUTER_MAX_LEGS_PER_HOP, SOLVER_MAX_LEGS_PER_STAGE,
-            "executor's per-hop cap fell below the planner's budget: honest planned routes will revert"
-        );
-    }
-
-    /// Behavioural anchor of the ROUTER mirror: a hop with exactly the cap
-    /// executes; one leg past it is refused with RouterE(3). If the source
-    /// constant moves, one of these two halves fails and the mirror is caught.
+    /// Behavioural anchor of the executor's cap: a hop with exactly the cap
+    /// executes; one leg past it is refused with RouterE(3). The two halves
+    /// move together only if the cap does.
     function test_Seam2_RouterCap_BoundaryProbe() public {
         // At the cap: 5 legs across 5 deep pools execute and deliver.
         (Hop memory hopOk, uint256 outOk) =
-            _fanHop(ROUTER_MAX_LEGS_PER_HOP, true, 5_000e18);
+            _fanHop(MAX_LEGS_PER_HOP, true, 5_000e18);
         Hop[] memory hops = new Hop[](1);
         hops[0] = hopOk;
         vm.prank(user);
@@ -298,7 +281,7 @@ contract SeamParityTest is Test {
 
         // One past the cap: refused before any leg runs.
         (Hop memory hopOver, uint256 outOver) =
-            _fanHop(ROUTER_MAX_LEGS_PER_HOP + 1, true, 6_000e18);
+            _fanHop(MAX_LEGS_PER_HOP + 1, true, 6_000e18);
         hops[0] = hopOver;
         Route memory over = _routeFromHops(hops, outOver);
         vm.prank(user);
@@ -311,7 +294,7 @@ contract SeamParityTest is Test {
     /// it emits executes through the Router. This is the sentence "the
     /// executor accepts everything the planner produces", run, not assumed.
     function test_Seam2_SolverMaxSplit_ExecutesThroughRouter() public {
-        // Six identical deep pools on the pair: more candidates than the
+        // Six identical deep pools on the pair: one more candidate than the
         // stage budget, and an order big enough (10% of depth) that splitting
         // is strictly better than any single pool.
         for (uint256 i; i < 6; ++i) {
@@ -325,11 +308,7 @@ contract SeamParityTest is Test {
         uint256 emitted = best.hops[0].legs.length;
         assertGt(emitted, 1, "with six identical deep pools and a 10%-of-depth order the Solver splits");
         assertLe(
-            emitted, SOLVER_MAX_LEGS_PER_STAGE,
-            "the Solver emitted more legs per hop than its mirrored budget - update the mirror"
-        );
-        assertLe(
-            emitted, ROUTER_MAX_LEGS_PER_HOP,
+            emitted, MAX_LEGS_PER_HOP,
             "the planner's emission exceeds the executor's cap: planned routes revert"
         );
 
@@ -339,54 +318,50 @@ contract SeamParityTest is Test {
     }
 
     // =========================================================================
-    //  SEAM 3 — the global leg ceiling exists only on the plan side.
+    //  SEAM 3 — no route-wide leg count, on either side.
     //
-    //  The Solver refuses any route beyond MAX_LEGS = 11 total. The Router has
-    //  NO global route-leg cap — only the per-hop one — so the concrete
-    //  consequence is pinned: a hand-built 12-leg route, more legs than the
-    //  Solver can ever emit, sails through and executes to completion. If a
-    //  global executor cap is ever added, this test fails and is REWRITTEN to
-    //  assert the new relationship (cap >= the Solver's 11).
+    //  Until 2026-11-06 the Solver refused any route beyond MAX_LEGS = 11 legs
+    //  and the Router had no counterpart; this seam pinned the consequence, a
+    //  hand-built 12-leg route (three hops of four) executing. The third hop is
+    //  gone, and MAX_LEGS with it: the widest route is MAX_HOPS x
+    //  MAX_LEGS_PER_HOP = 10 legs by construction, and no code counts a
+    //  route's legs. Pinned at that width: a route that fills both hops to the
+    //  per-hop cap executes to completion, so a route-wide count below ten -
+    //  or the per-hop cap read against the route's running leg count - fails
+    //  here.
     // =========================================================================
 
-    function test_Seam3_RouterHasNoGlobalLegCap_TwelveLegRouteExecutes() public {
-        // Three chained hops (A→B→C→D) of 4 legs each: 12 legs total, every
-        // hop individually inside the per-hop cap. Through distinct tokens: since
-        // 2026-10-07 a route visits its input token once (RouterE(3)).
+    function test_Seam3_NoRouteWideLegCount_TheWidestRouteExecutes() public {
+        // Two chained hops (A→B→C) of MAX_LEGS_PER_HOP legs each: the widest
+        // route the ceilings allow. Through distinct tokens: since 2026-10-07 a
+        // route visits its input token once (RouterE(3)).
         MockERC20 tokC = new MockERC20("C", "C");
-        MockERC20 tokD = new MockERC20("D", "D");
-        (Hop memory h0, uint256 o0) = _fanHop(4, true, 4_000e18);
-        (Hop memory h1, uint256 o1) = _fanHopOn(tokB, tokC, 4, o0);
-        (Hop memory h2, uint256 o2) = _fanHopOn(tokC, tokD, 4, o1);
-        Hop[] memory hops = new Hop[](3);
-        hops[0] = h0; hops[1] = h1; hops[2] = h2;
+        (Hop memory h0, uint256 o0) = _fanHop(MAX_LEGS_PER_HOP, true, 5_000e18);
+        (Hop memory h1, uint256 o1) = _fanHopOn(tokB, tokC, MAX_LEGS_PER_HOP, o0);
+        Hop[] memory hops = new Hop[](2);
+        hops[0] = h0; hops[1] = h1;
 
-        uint256 totalLegs =
-            hops[0].legs.length + hops[1].legs.length + hops[2].legs.length;
-        assertGt(
-            totalLegs, SOLVER_MAX_LEGS,
-            "harness: the route must exceed the Solver's global budget to probe the seam"
+        assertEq(hops.length, MAX_HOPS, "harness: as many hops as a route may have");
+        assertEq(
+            hops[0].legs.length + hops[1].legs.length, MAX_HOPS * MAX_LEGS_PER_HOP,
+            "harness: the route holds the ten legs of the ceiling"
         );
-        for (uint256 h; h < hops.length; ++h) {
-            assertLe(hops[h].legs.length, ROUTER_MAX_LEGS_PER_HOP,
-                "harness: each hop stays inside the per-hop cap on purpose");
-        }
 
         vm.prank(user);
         uint256 delivered = router.swapExactIn(
-            _routeFromHops(hops, o2), 4_000e18, 1, user, block.timestamp + 1
+            _routeFromHops(hops, o1), 5_000e18, 1, user, block.timestamp + 1
         );
 
-        // The consequence, pinned: the Router executes a route the Solver
-        // could never have emitted — no refusal, an essentially full honest
-        // fill (the only shrink is the per-hop 28 bps protocol fee, charged
-        // on every hop of this bridgeless route, plus rounding).
-        assertGt(delivered, 0, "the Router accepted and executed 12 legs");
-        assertLe(delivered, o2, "sanity: cannot exceed the honest plan-time quote");
+        // The consequence, pinned: no refusal, and an essentially full honest
+        // fill (the only shrink is the per-hop 28 bps protocol fee, charged on
+        // both hops of this bridgeless route, plus rounding).
+        assertGt(delivered, 0, "the Router accepted and executed ten legs");
+        assertLe(delivered, o1, "sanity: cannot exceed the honest plan-time quote");
         assertGe(
-            delivered, BPC.mulDiv(o2, 9_800, BPS),
-            "the 12-leg route executed to completion, not to a truncation"
+            delivered, BPC.mulDiv(o1, 9_800, BPS),
+            "the ten-leg route executed to completion, not to a truncation"
         );
+        assertEq(tokC.balanceOf(user), delivered, "and delivered the second hop's token");
     }
 
     // =========================================================================

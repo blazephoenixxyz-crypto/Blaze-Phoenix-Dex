@@ -247,7 +247,8 @@ contract MathBoundarySameAnswerTest is Test {
         _row("the other way", tB, tA, 300_000e18);
     }
 
-    /// Nine curated books, some in the band and some out, against a budget of four legs:
+    /// Nine curated books, some in the band and some out, against the per-hop budget of
+    /// MAX_LEGS_PER_HOP legs (src/BlazePhoenixCore.sol; five since 2026-11-06, four before):
     /// the funnel cut and the seat of the remainder decide, at sizes from dust to near a
     /// shallow book's depth. Until MED (2026-10-28) the books in the band sat 1-3% apart
     /// and the largest order was 1M: the band of no arbitrage drops the first, and at 1M
