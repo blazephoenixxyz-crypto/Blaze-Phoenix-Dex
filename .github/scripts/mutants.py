@@ -8707,6 +8707,16 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        try IGateWrapperQ(wrapper).quoteCall{gas: GATE_QUOTE_GAS}(zeroForOne, amtIn) returns (uint256 o) {',
       new='        try IGateWrapperQ(wrapper).quoteCall{gas: 60_000}(zeroForOne, amtIn) returns (uint256 o) { // MUTANT [IB56]',
       teste='test_InfBin_RealQuoterKind9Route_PricedAtTheVenue_RouterDeliversIt'),
+ dict(nome='[g7-rise-floor]: a longer interval raises tau by an eighth of the distance rounded down, not up',
+      f='src/BlazePhoenixCore.sol',
+      old='                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT) - 1) >> TAU_EMA_SHIFT;',
+      new='                if (dt >= tau) tau += (dt - tau) >> TAU_EMA_SHIFT; // MUTANT [g7-rise-floor]',
+      teste='test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger'),
+ dict(nome='[g7-rise-held]: a longer interval leaves tau where it was',
+      f='src/BlazePhoenixCore.sol',
+      old='                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT) - 1) >> TAU_EMA_SHIFT;',
+      new='                if (dt >= tau) {} // MUTANT [g7-rise-held]',
+      teste='test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
