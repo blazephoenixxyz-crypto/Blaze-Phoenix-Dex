@@ -77,6 +77,42 @@ contract SplitGateSeesEverySurvivorTest is Test {
             "the plan delivers less than a single pool it saw and never measured at full size");
     }
 
+    /// The same three depths, listed so that the survivor seated FIRST is neither the best
+    /// single leg at full size nor the deepest, and the gate's collapse itself is asserted (one
+    /// leg, the middle pool), not only the figure. The seat (`BlazePhoenixMath._seatTheSplit`)
+    /// moves the deepest survivor LAST, so a gate that measures only `cands[0]` measures the
+    /// shallow pool listed first, which loses 2% to impact at full size, and keeps a split the
+    /// middle pool alone beats. The shallow pool is priced BETWEEN the other two: above the
+    /// deepest, so the deepest is the leg on trial (`BlazePhoenixSolver._placed`) and leaves,
+    /// and the shallow pool stays first; below the middle pool, so the two-leg split it keeps
+    /// pays about 120 ppm less than the middle pool alone, more than
+    /// MIN_SPLIT_IMPROVEMENT_PPM, and the gate must collapse. (Priced above the middle pool,
+    /// the split beats it and the gate's choice never shows.)
+    ///   R - 5e21 deep at 1.002: shallow, listed first; the order is a fiftieth of it;
+    ///   X - 1e23 deep at 1.005: the best single leg at full size, listed second;
+    ///   D - 1e24 deep at 1.000: the deepest, listed last, on trial, left out.
+    function test_TheGateMeasuresTheSurvivorThatIsNeitherFirstNorDeepest() public {
+        uint256[3] memory rA = [uint256(5e21), 1e23, 1e24];
+        uint256[3] memory rB = [uint256(5010e18), 1005e20, 1e24];
+        address[3] memory pools;
+        uint256 bestSingle;
+        uint256 bestIdx;
+        for (uint256 i; i < 3; ++i) {
+            pools[i] = address(_pool(rA[i], rB[i]));
+            uint256 o = BPC.outV2(ORDER, rA[i], rB[i], 30);
+            if (o > bestSingle) { bestSingle = o; bestIdx = i; }
+        }
+        assertEq(bestIdx, 1, "setup: the best single leg at full size must be the middle pool");
+
+        RoutePlan memory plan = solver.findBestRoutePlan(address(A), address(B), ORDER);
+        emit log_named_uint("plan totalOut      ", plan.best.totalOut);
+        emit log_named_uint("best single (X)    ", bestSingle);
+        assertGe(plan.best.totalOut, bestSingle,
+            "the plan delivers less than a single pool it saw and never measured at full size");
+        assertEq(plan.best.hops[0].legs.length, 1, "the gate collapses the split onto the best single");
+        assertEq(plan.best.hops[0].legs[0].pool, pools[1], "the best single is the middle pool");
+    }
+
     /// The same guarantee across the dimension the report named: three to five survivors,
     /// between one and a hundred times the order deep. Whatever the plan does - one pool or a
     /// split - it never delivers less than the best single survivor, measured at full size.

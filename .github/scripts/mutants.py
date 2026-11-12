@@ -1662,7 +1662,7 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       old="                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, xs[i], balsOut, i);",
       new="                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[0], mode, sR, xs[0], balsOut, 0); // MUTANT",
-      teste="test_TheGateComparesTheSplitWithEverySurvivorAtFullSize"),
+      teste="test_TheGateMeasuresTheSurvivorThatIsNeitherFirstNorDeepest"),
  dict(nome="dex-16: the operator's door writes a kind the shape contradicts",
       f="src/BlazePhoenixHub.sol",
       old="            if (!proven) revert HubE(4);",
