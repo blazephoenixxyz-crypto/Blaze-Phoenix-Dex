@@ -81,7 +81,8 @@ contract DeviantV4Manager {
         if (mode == Mode.Silent) {
             (V4PoolKey memory key, bool zfo, uint256 amt,) = abi.decode(data, (V4PoolKey, bool, uint256, bytes));
             MockERC20(zfo ? key.currency1 : key.currency0).transfer(msg.sender, amt);
-            return abi.encode(amt);
+            // the two words the Router decodes since 2a7c0805 (3958): recv, owe
+            return abi.encode(amt, amt);
         }
         (bool ok, bytes memory ret) = msg.sender.call(abi.encodeWithSignature("unlockCallback(bytes)", data));
         if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
