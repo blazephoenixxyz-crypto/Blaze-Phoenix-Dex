@@ -1237,8 +1237,9 @@ contract BlazePhoenixGateTest is Test {
     /// address on every chain is CREATE2 over it, so a change to the wrapper, to a Core symbol
     /// it inlines (MATERIAL_SHIFT, balanceOf, safeTransfer, tickSlot, stampTs) or to the
     /// compiler moves every wrapper address. A change made on purpose updates this literal in
-    /// the same commit and says why.
-    bytes32 constant WRAPPER_INIT_HASH_PIN = 0x94f0c40dad9c2635f7d8f3652f4b8b7e56ce0e81a27b2f6046760b65ed5d6647;
+    /// the same commit and says why. Moved by d7152b9 (fix-1102: `tickSlot`, which the wrapper
+    /// inlines, counts only anchored ticks); re-pinned on 2026-11-12.
+    bytes32 constant WRAPPER_INIT_HASH_PIN = 0x93c40f49d21537bb5d35f576b9cab9fe1fecd1216cecd2c21779e2f6f26eb081;
 
     /// Quantity: the init hash every wrapper address derives from. The oracle is the literal,
     /// not the build: comparing the hash with keccak of the same build cannot fail.
