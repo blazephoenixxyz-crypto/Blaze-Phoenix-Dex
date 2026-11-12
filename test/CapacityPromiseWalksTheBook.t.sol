@@ -158,6 +158,27 @@ contract CapacityPromiseWalksTheBookTest is Test {
         assertLt(got, _f(IN), "between the bounds: below the single-tick quote");
     }
 
+    /// The book thins on the other side of the price: its only crossing lies above it, where
+    /// a rising swap lands. The leg sells token0 (falling price), so its own walk never reaches
+    /// that tick and pays the flat figure, and that is its promise. Walked the wrong way the
+    /// book crosses the tick and pays less, and a promise handed down lower stays lower: the
+    /// in-frame check (`_paysWhatItWalks`) only lowers a promise, it never lifts one back to
+    /// the leg's own walk.
+    function test_3073_Solver_SingleLeg_BookThinsAboveThePrice_PromiseIsTheLegsOwnWalk() public {
+        MockV3BookPool p = _seed(HELD);
+        p.setTick(600, -int128(700e18));       // crossing up leaves 300e18; a falling swap never crosses it
+        uint256 own = _walk(address(p), IN, true);
+        uint256 wrong = _walk(address(p), IN, false);
+        emit log_named_uint("own walk", own);
+        emit log_named_uint("wrong-way walk", wrong);
+        assertGt(wrong, _cap(HELD), "precondition: the wrong-way walk still clears the cap");
+        assertLt(wrong, own, "precondition: the wrong-way walk pays less than the leg's own");
+        uint256 got = _single(p);
+        emit log_named_uint("promised", got);
+        assertEq(got, own, "the book's answer in the leg's own direction");
+        assertLe(_f(IN) - got, _f(IN) / 1e9, "flat on the leg's side: the walk is the single-tick quote");
+    }
+
     function test_3073_Solver_SingleLeg_UnreadableBook_PromiseIsTheCap() public {
         MockV3Pool p = new MockV3Pool(address(tokenA), address(tokenB), FEE);
         p.setState(SP, L);
