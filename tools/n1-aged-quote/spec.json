@@ -1,0 +1,22 @@
+{
+ "title": "N1 aged-quote failure rate, pre-registration (committed before the seed block exists)",
+ "v2_status": "V2 is not deployed on any chain; every measurement is an eth_call at a real historical block with the V2 code+storage injected by stateOverride (built by deploy_state.sh on an anvil fork, TokenSweep.t.sol wiring).",
+ "seed": "keccak256 hash of the first Ethereum mainnet block whose timestamp is > (commit time of this file + 60 s); verify with: cast block <n> --rpc-url <eth>; the 0x-prefixed block hash, lowercased, is the seed string",
+ "sampling": "per stratum: rng = random.Random(int(sha256(f'{seed}:{chain}/{size}/{regime}'))); per draw: b = rng.randint(b0, b1) (uniform over the regime's blocks, with replacement), then direction WETH>USDC if rng.random() < 0.5 else USDC>WETH",
+ "quote": "Quoter.previewAndEncode(tIn, tOut, amountIn, probe, ts(b) + deadline_s) by eth_call at block b (post-state of b); revert or canExecute=0 -> noquote, logged apart, not counted in n",
+ "execution": "for each delta: e = first block with ts(e) >= ts(b) + delta; N1Probe.run(router, tIn, tOut, amountIn, wrap, calldata) by eth_call at block e with the same calldata (paired across deltas)",
+ "outcomes": "ok (call succeeded and tokenOut balance delta >= effectiveMinOut) | refuse5 (RouterE(5), below floor) | revert_other (selector) | below_min (success below effectiveMinOut: would be a bug) | rpc_err (3 attempts, backoff 2 s then 4 s). Everything except ok counts as a failure and stays in the denominator; an rpc_err on the quote counts as a failure for every delta",
+ "sprt": {"p0": 0.01, "p1": 0.05, "alpha": 0.05, "beta": 0.05, "n_max": 200, "unit": "stratum x delta; a stratum stops at the first draw where all five deltas are decided; a stratum x delta undecided at n_max is reported as not measured"},
+ "deltas": [7, 10, 15, 20, 25],
+ "deadline_s": 60,
+ "regimes": {"stress": [1760129400, 1760215800], "recent": [1793836800, 1794441600]},
+ "regimes_utc": {"stress": "2025-10-10 20:50 to 2025-10-11 20:50", "recent": "2026-11-05 00:00 to 2026-11-12 00:00"},
+ "sizes": {"small": {"usdc": 1000000000, "weth": 250000000000000000}, "large": {"usdc": 100000000000, "weth": 25000000000000000000}},
+ "chains": {
+  "base": {"usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "weth": "0x4200000000000000000000000000000000000006", "block_time_hint": 2},
+  "arbitrum": {"usdc": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "weth": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", "block_time_hint": 0.25},
+  "optimism": {"usdc": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "weth": "0x4200000000000000000000000000000000000006", "block_time_hint": 2}
+ },
+ "jobs": 2,
+ "notes": "block_time_hint is only the initial bracket of the header search (Base runs ~0.2 s blocks in the recent window, 2 s in the stress window); e is always found by binary search on real headers. Smoke run before this commit: 1 large draw per chain x regime x direction, all 5 deltas ok (not part of the sample)."
+}
