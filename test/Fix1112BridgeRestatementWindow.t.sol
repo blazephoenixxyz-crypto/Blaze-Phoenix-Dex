@@ -37,8 +37,11 @@ pragma solidity 0.8.36;
 //  pair whose B reserve moved after the quote, so the two worlds differ in
 //  nothing but the restatement.
 //
-//  Green at e01b503 (origin/main). Red under mutants.py [bridge-1112 a] and
-//  [bridge-1112 b]. Matrix: gamma F in {1 wei, D/1000, 9 D}; vectors taxed
+//  Green at e01b503 (origin/main); the restated world's dust (one wei of the
+//  fee push's rounding, booked as owed and held with F, see the test) is
+//  pinned over e4185d8 (4122). Red under mutants.py [bridge-1112 a] and
+//  [bridge-1112 b], and [fin1111-router-1] by the dust. Matrix: gamma F in
+//  {1 wei, D/1000, 9 D}; vectors taxed
 //  bridge, over-declared hop-1 input, restatement fired on delivery (k =
 //  999/1000 inside the signed floor, k = 1/2 past it); unit, 2 hops, ERC20.
 // =============================================================================
@@ -94,6 +97,7 @@ contract Fix1112BridgeRestatementWindowTest is Test {
         uint256 d; // hop 0's attested output
         uint256 exp1; // the attested hop-1 output
         uint256 foreign; // F as minted
+        uint256 owed; // fee shares of B booked to the two slots by the swap (4122)
     }
 
     function setUp() public {
@@ -219,6 +223,7 @@ contract Fix1112BridgeRestatementWindowTest is Test {
         w.delivered = tC.balanceOf(recip);
         w.routerB = tB.balanceOf(address(router));
         w.routerShares = tB.sharesOf(address(router));
+        w.owed = router.owed(address(tB), 0) + router.owed(address(tB), 1);
         w.poolShares = tB.sharesOf(address(pairBC)) - poolSharesBefore;
         w.aIn = tA.balanceOf(address(pairAB)) - RES;
     }
@@ -267,23 +272,51 @@ contract Fix1112BridgeRestatementWindowTest is Test {
     /// k = 999/1000 fired by hop 0's delivery over F = 9 D is, to the Router, the
     /// honest token whose pair paid k * (F + D) - F for hop 0: the same bal - F,
     /// the same hop-1 spend (the pair's shares say so), the same output to
-    /// within the stale pair's three wei, the same F left in the Router. The cut
-    /// (1 - k) * F lands on the swapper inside the 98 % they signed, as the
-    /// finding measures (the Router's shares of B exceed what it held). Past
-    /// the floor (k = 1/2, F = 0.15 D, hop 0 attested at D) the hop is refused
-    /// with RouterE(5) by the per-leg coverage floor and the hop budget, each
-    /// watched by its own mutant ([coverage-gate], [per-hop budget]).
+    /// within the stale pair's three wei, the same F left in the Router plus the
+    /// token's rounding on the fee pushes (below). The cut (1 - k) * F lands on
+    /// the swapper inside the 98 % they signed, as the finding measures (the
+    /// Router's shares of B exceed what it held). Past the floor (k = 1/2,
+    /// F = 0.15 D, hop 0 attested at D) the hop is refused with RouterE(5) by the
+    /// per-leg coverage floor and the hop budget, each watched by its own mutant
+    /// ([coverage-gate], [per-hop budget]).
+    ///
+    /// THE DUST (4122, `Router._push`). Under k < 1 the token takes
+    /// floor(t * q / p) shares for t of display, so a fee push of t can move
+    /// t - 1 at both ends: the Router loses t - 1 and the payee gains t - 1.
+    /// The push books the wei the share is short as `owed` to its slot and keeps
+    /// it out of every swap-path balance read (`_bal`), so hop 1 spends
+    /// bal - owed - F = what hop 0 delivered less the fee (4111-2, `_owned`) and
+    /// the Router's display balance ends at F + owed: dust = 1 here, the 30 %
+    /// share. It is a fee the treasury claims, not the swapper's and not the
+    /// rescue's (I7: rounding lands with the protocol). Before 4122 the wei was
+    /// nobody's: hop 1 spent it as input (4111-1, the Router kept F exactly) or
+    /// the baseline kept it (4111-2, F + 1 with nothing owed).
+    /// Red under [fin1111-router-1] / [1026] (the push believes the answer, the
+    /// short wei is not booked: F + 1 held, nothing owed) and [bridge-1112 a]
+    /// (the raw balance is spent, F included).
     function test_ANegativeBridgeRestatementIsOneObservationWithAShortDelivery() public {
         Case memory cr = _c(RESTATE, 999, 1000, 9000, 0, 0, 9800);
         cr.overHold = _overHoldFor(999, 1000);
         World memory r = _run(cr);
         assertEq(uint256(r.code), 0, "restated world settles inside the signed minimum");
-        assertEq(r.routerB, r.foreign, "the Router keeps F in display: the measured delta is realIn");
         assertGt(r.routerShares, r.foreign, "the restatement's cut on F stays as shares of B (the finding, inside the floor)");
 
         // bal - F, from what the pair paid at factor 1 and the factor the delivery fired.
         uint256 dReal = BPC.outV2(r.aIn, RES, RES, 30);
         uint256 spendR = (r.foreign + dReal) * 999 / 1000 - r.foreign;
+        // The dust: the fee on bal - F goes out in two pushes of display, each taking
+        // floor(t * 1000 / 999) shares, so the Router's loss falls short of the share by the
+        // token's rounding; the push books that wei as owed (4122) and hop 1 spends
+        // bal - owed - F - feeH (`_owned`), so the Router holds F plus what it owes.
+        {
+            uint256 feeH = BPC.mulDivUp(spendR, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            uint256 t1 = BPC.mulDiv(feeH, 3_000, BPC.BPS); // TREASURY1_SHARE
+            uint256 shares2 = r.foreign + dReal - t1 * 1000 / 999 - (feeH - t1) * 1000 / 999;
+            uint256 dust = shares2 * 999 / 1000 - (r.foreign + spendR - feeH);
+            assertEq(dust, 1, "the two fee pushes' rounding at k = 999/1000: one wei of display");
+            assertEq(r.owed, dust, "the wei the fee push fell short is booked to its slot (4122)");
+            assertEq(r.routerB, r.foreign + r.owed, "the Router keeps F in display plus what it owes: hop 1 spends bal - owed - F - feeH and no more");
+        }
 
         Case memory ct = _c(HONEST, 0, 0, 9000, 0, 0, 9800);
         ct.overHold = cr.overHold;
