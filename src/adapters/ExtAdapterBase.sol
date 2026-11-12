@@ -22,6 +22,7 @@ interface IIndexedVenue {
 ///        5 an allowance survived the venue call (PULL)
 ///        6 a venue callback outside the adapter's own call, or not from the venue
 ///        7 the pool's hooks are refused                8 the hint is malformed
+///        9 the amount is outside what the venue takes
 abstract contract ExtAdapterBase {
     error AdapterE(uint8 code);
 
