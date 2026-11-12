@@ -69,7 +69,7 @@ pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,
-    Route, Hop, Leg, RoutePlan
+    Route, Hop, Leg, RoutePlan, MAX_HOPS, MAX_LEGS_PER_HOP
 } from "./BlazePhoenixCore.sol";
 
 interface ISolverR {
@@ -147,14 +147,8 @@ contract BlazePhoenixRouter {
     ///      dead (nothing could read it) and would silently drift into a lie the moment this one
     ///      changed.
     uint16  internal constant TREASURY1_SHARE   = 3_000;
-    uint8   internal constant MAX_LEGS_PER_HOP  = 5;
-    /// @dev The hop count had no producer at all (review 2026-09-02): legs were
-    ///      bounded per hop and per route, hops were not. Three consequences,
-    ///      none of them theft — `executedMask` silently stops crediting past
-    ///      leg 255, the exhaustion-regime fee compounds once per hop with no
-    ///      ceiling, and `bridgeBase` is sized by the caller. Three is the
-    ///      deepest topology the Solver builds (`_planViaBridges`, two bridges).
-    uint8   internal constant MAX_HOPS          = 3;
+    // The hop ceiling, MAX_HOPS, and the leg ceiling, MAX_LEGS_PER_HOP, are Core's
+    // (file-level): this contract, the Quoter and the Solver read the one number.
     /// @dev The gas `swapBestExactIn` hands the Solver for the in-transaction
     ///      search (review 2026-10-12). The search's cost is set by third
     ///      parties: one-wei V4 positions are permissionless, every fragmented
@@ -1139,7 +1133,7 @@ contract BlazePhoenixRouter {
         // Bit i is set when the i-th leg of the route actually executed. Beyond
         // 255 legs the shift yields 0, so the bit stays clear and the leg is not
         // credited — the fail-CLOSED direction, and unreachable by construction:
-        // MAX_HOPS x MAX_LEGS_PER_HOP = 15 legs (a per-route bound, not the
+        // MAX_HOPS x MAX_LEGS_PER_HOP = 10 legs (a per-route bound, not the
         // per-hop constant standing in for one).
         uint256 executedMask;
         uint256 legIdx;

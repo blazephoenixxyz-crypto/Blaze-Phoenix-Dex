@@ -85,8 +85,9 @@ point: under 7702 the account delegates code to itself, `msg.sender` is still th
 
 All four entry points converge on one execution core.
 
-1. **Bounds.** A route has at most `MAX_HOPS = 3` hops (`Router:144`, `Router:977`) and each hop has
-   between one and `MAX_LEGS_PER_HOP = 5` legs (`Router:137`, `Router:1103`).
+1. **Bounds.** A route has at most `MAX_HOPS = 2` hops and each hop has between one and
+   `MAX_LEGS_PER_HOP = 5` legs, ten legs a route: `Core:132` and `Core:145` are the one producer
+   of both ceilings, which the Router refuses with `RouterE(3)` (`Router:995`, `Router:1124`).
 2. **Baselines.** The Router's balances of the input and output tokens at entry are recorded, so
    that only this swap's flows are paid out or refunded (`Router:982`, `Router:1006-1007`).
 3. **Where the fee lands.** The protocol fee is 28 basis points (`Core:323`), split 30 and 70

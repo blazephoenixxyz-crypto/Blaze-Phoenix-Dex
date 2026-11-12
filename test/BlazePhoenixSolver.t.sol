@@ -6,7 +6,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {
     BlazePhoenixCore as BPC,
-    PoolInfo, Route, Hop, Leg, RoutePlan
+    PoolInfo, Route, Hop, Leg, RoutePlan, MAX_HOPS, MAX_LEGS_PER_HOP
 } from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
@@ -332,16 +332,19 @@ contract BlazePhoenixSolverTest is Test {
     }
 
     // =========================================================================
-    //  Leg-budget funnel cut (MAX_LEGS) — top-K by weight, not discovery/list order
+    //  Leg-budget funnel cut (MAX_LEGS_PER_HOP) — top-K by weight, not discovery/list order
     // =========================================================================
 
-    function test_FunnelCut_KeepsDeepestFourOfSeven() public {
-        // Seven same-rate pools with strictly increasing depth. The direct
-        // topology's leg budget is MAX_LEGS = 5, so after the median filter
-        // keeps all 7 (same rate), the funnel cut must retain exactly the 5
-        // deepest and drop the 2 shallowest.
-        MockV2Pair[] memory pools = new MockV2Pair[](7);
-        for (uint256 i; i < 7; ++i) {
+    /// @notice Same-rate pools of strictly increasing depth, two more than one hop's leg budget
+    ///         (MAX_LEGS_PER_HOP, the Router's ceiling), so seven today. The median filter keeps
+    ///         them all, so the funnel cut must keep exactly the MAX_LEGS_PER_HOP deepest, each
+    ///         with its leg, and drop the two shallowest.
+    ///         History: until 2026-11-06 this was test_FunnelCut_KeepsDeepestFourOfSeven, under
+    ///         the Solver's own per-stage budget MAX_LEGS_PER_STAGE = 4.
+    function test_FunnelCut_KeepsDeepestFiveOfSeven() public {
+        uint256 n = uint256(MAX_LEGS_PER_HOP) + 2;
+        MockV2Pair[] memory pools = new MockV2Pair[](n);
+        for (uint256 i; i < n; ++i) {
             uint256 mag = (i + 1) * 2_000e18;
             pools[i] = _seedV2(address(tokenA), address(tokenB), mag, mag * 16 / 10);
         }
@@ -349,16 +352,14 @@ contract BlazePhoenixSolverTest is Test {
         uint256 amountIn = 1_000e18;
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amountIn);
 
-        assertEq(plan.best.hops[0].legs.length, 4, "o orcamento de UM hop e MAX_LEGS_PER_STAGE=4, nao o tecto global");
-        bool sawShallowest;
-        bool sawSecondShallowest;
-        for (uint256 i; i < plan.best.hops[0].legs.length; ++i) {
-            address p = plan.best.hops[0].legs[i].pool;
-            if (p == address(pools[0])) sawShallowest = true;
-            if (p == address(pools[1])) sawSecondShallowest = true;
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, uint256(MAX_LEGS_PER_HOP), "one hop's budget is MAX_LEGS_PER_HOP, and the cut fills it");
+        for (uint256 i; i < n; ++i) {
+            bool seen;
+            for (uint256 l; l < legs.length; ++l) if (legs[l].pool == address(pools[i])) seen = true;
+            if (i < 2) assertFalse(seen, "the 2 shallowest pools must be cut by the funnel");
+            else assertTrue(seen, "each of the MAX_LEGS_PER_HOP deepest pools keeps its leg");
         }
-        assertFalse(sawShallowest, "the 2 shallowest pools must be cut by the funnel");
-        assertFalse(sawSecondShallowest, "the 2 shallowest pools must be cut by the funnel");
     }
 
     // =========================================================================
@@ -411,44 +412,52 @@ contract BlazePhoenixSolverTest is Test {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    //  TOPOLOGIA DE DUAS PONTES — a mudanca-bandeira de 2026-08-22
+    //  TWO-BRIDGE CHAINS — one bridge per route since 2026-11-06 (MAX_HOPS = 2)
     // ═════════════════════════════════════════════════════════════════════════
     //
-    //  PORQUE ESTES DOIS TESTES EXISTEM. O `test/ThreeHopRanking.t.sol` que os
-    //  precedeu declarava um `struct M` e um `_considera` DENTRO do proprio
-    //  teste e nunca instanciava o Solver: pinava a aritmetica de um acumulador
-    //  COPIADO. Apagar o `_planViaTwoBridges` inteiro (hoje `_planViaBridges`) deixava-o verde. A
-    //  DESCOBERTA de rotas de tres hops nao tinha uma unica linha de cobertura.
-    //  (A EXECUCAO tinha — FeeEscapeViaBridgeResidual monta a rota a mao.)
-    //
-    //  Verificado: o primeiro fica `[FAIL: SolverE(5)]` com `return route;` no
-    //  topo do `_planViaTwoBridges` real, e `[PASS]` com o codigo de producao.
+    //  History: this section held test_TresHopsPorDuasPontes and its control, added with the
+    //  two-bridge topology of 2026-08-22. They replaced test/ThreeHopRanking.t.sol, which
+    //  declared a `struct M` and a `_considera` inside the test and never deployed the Solver:
+    //  deleting the three-hop planner left it green. Since 2026-11-06 the bridge planner builds
+    //  one bridge per route (`_planViaBridges`, a path of MAX_HOPS + 1 tokens, so a planner of
+    //  three hops does not compile): the same chain has no route, and the two-hop route through
+    //  a bridge is what the Solver plans when one exists.
 
-    /// @notice So a topologia de DUAS PONTES produz rota aqui: nao ha pool
-    ///         directa, nem A->ponte->B, nem A->ponte2->B. Se o Solver nao
-    ///         souber encadear as duas pontes, nao ha rota nenhuma.
-    function test_TresHopsPorDuasPontes() public {
+    /// @notice Only a chain through BOTH bridges connects A to B (no direct pool, neither
+    ///         A -> bridge -> B nor A -> bridge2 -> B): that route is three hops, past MAX_HOPS,
+    ///         and the Solver refuses with SolverE(5). One shallow pair more, bridge -> B, opens
+    ///         the two-hop analogue, which pays ~1,445e18 against the chain's ~1,581e18
+    ///         [derived: outV2 at 30 bps, 1,000e18 in]. It is the plan: the chain is not built,
+    ///         so it cannot outrank it.
+    ///         History: until 2026-11-06 this was test_TresHopsPorDuasPontes, which asserted the
+    ///         three-hop route A -> bridge -> bridge2 -> B on the first book.
+    function test_TwoBridgeChain_IsRefused_OneBridgeAnalogueIsPlanned() public {
         hub.addBridge(address(bridgeToken));
         hub.addBridge(address(b2Tok));
         _seedV2(address(tokenA),      address(bridgeToken), 1_000_000e18, 1_000_000e18);
         _seedV2(address(bridgeToken), address(b2Tok),       1_000_000e18, 1_000_000e18);
         _seedV2(address(b2Tok),       address(tokenB),      1_000_000e18, 1_600_000e18);
 
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, 5));
+        solver.findBestRoutePlan(address(tokenA), address(tokenB), 1_000e18);
+
+        _seedV2(address(bridgeToken), address(tokenB), 10_000e18, 16_000e18);
         RoutePlan memory plan =
             solver.findBestRoutePlan(address(tokenA), address(tokenB), 1_000e18);
-        assertEq(plan.best.hops.length, 3, "so a rota por duas pontes existe");
-        assertEq(plan.best.hops[0].tokenOut, address(bridgeToken), "hop 0 -> ponte 1");
-        assertEq(plan.best.hops[1].tokenOut, address(b2Tok),       "hop 1 -> ponte 2");
-        assertEq(plan.best.hops[2].tokenOut, address(tokenB),      "hop 2 -> destino");
+        assertEq(plan.best.hops.length, MAX_HOPS, "the analogue is one bridge, two hops");
+        assertEq(plan.best.hops[0].tokenOut, address(bridgeToken), "hop 0 -> bridge");
+        assertEq(plan.best.hops[1].tokenOut, address(tokenB),      "hop 1 -> destination");
+        assertFalse(plan.hasFallback, "no other route exists: the chain is not a candidate");
     }
 
-    /// @notice O CONTROLO NEGATIVO, e e a pergunta literal do dono: "se o melhor
-    ///         preco e logo directo nao ha necessidade de 2 hops". Com uma pool
-    ///         directa MUITO mais funda, a directa tem de ganhar mesmo com as
-    ///         duas pontes registadas e roteaveis.
-    ///
-    ///         Sem este teste, o de cima ficaria verde com um Solver que
-    ///         PREFERISSE sempre a rota mais longa.
+    /// @notice THE NEGATIVE CONTROL, and the owner's literal question: "if the best price is
+    ///         direct there is no need for 2 hops". With a far deeper direct pool, the direct
+    ///         route must win over the routable one-bridge route, with both bridges registered.
+    ///         Without this test, the one above would stay green with a Solver that ALWAYS
+    ///         PREFERRED the longer route.
+    ///         History: until 2026-11-06 the bridge competitor was the two-bridge chain alone;
+    ///         with MAX_HOPS = 2 the chain is not built, so the pair bridge -> B was added to keep
+    ///         a bridge route in the race (it is the fallback).
     function test_DirectaMelhorGanhaSobreAsDuasPontes() public {
         hub.addBridge(address(bridgeToken));
         hub.addBridge(address(b2Tok));
@@ -456,9 +465,12 @@ contract BlazePhoenixSolverTest is Test {
         _seedV2(address(tokenA),      address(bridgeToken), 5_000e18, 5_000e18);
         _seedV2(address(bridgeToken), address(b2Tok),       5_000e18, 5_000e18);
         _seedV2(address(b2Tok),       address(tokenB),      5_000e18, 8_000e18);
+        _seedV2(address(bridgeToken), address(tokenB),      5_000e18, 8_000e18);
 
         RoutePlan memory plan =
             solver.findBestRoutePlan(address(tokenA), address(tokenB), 1_000e18);
-        assertEq(plan.best.hops.length, 1, "a directa entrega mais: tem de ganhar");
+        assertEq(plan.best.hops.length, 1, "the direct route pays more: it must win");
+        assertTrue(plan.hasFallback, "the one-bridge route was in the race");
+        assertEq(plan.fallbackRoute.hops.length, MAX_HOPS, "the fallback is the one-bridge route");
     }
 }

@@ -18,6 +18,7 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
+import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -137,10 +138,18 @@ contract McdcInert_BridgeNeverLearnsACode is Test {
 //  tokenOut arm is read: a route whose intermediate hop produces the FINAL
 //  token (A -> C -> B -> C) prices its C -> B hop against bridgeBase, and no
 //  test in the tree builds that topology.
+//
+//  History: until 2026-11-06 the Router took three hops (MAX_HOPS = 3) and
+//  A -> C -> B -> C settled; the claim was pinned on it directly. MAX_HOPS is
+//  now 2 (Core's single producer): the only hop with h != 0 is the last, whose
+//  tokenOut IS the route's, so an intermediate hop can no longer produce the
+//  final token. The topology is refused (first test below), and I1 is pinned on
+//  the two-hop shape that remains: tokenOut stranded while the last hop makes it.
 // ─────────────────────────────────────────────────────────────────────────────
 contract McdcInert_IntermediateHopProducesTokenOut is Test {
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
+    BlazePhoenixQuoter quoter;
     BlazePhoenixRouter router;
 
     MockERC20 tokenA; MockERC20 tokenB; MockERC20 tokenC;
@@ -172,6 +181,7 @@ contract McdcInert_IntermediateHopProducesTokenOut is Test {
         tokenA.mint(user, 1_000_000e18);
         vm.prank(user);
         tokenA.approve(address(router), type(uint256).max);
+        quoter = new BlazePhoenixQuoter(address(hub), address(solver));
     }
 
     function _pool(MockERC20 x, MockERC20 y) private returns (MockV2Pair p) {
@@ -196,51 +206,75 @@ contract McdcInert_IntermediateHopProducesTokenOut is Test {
     }
 
     /// A -> C -> B -> C. The route's tokenOut is C, and hop 0 ALSO produces C.
+    /// totalOut is a positive declared figure for the preview only (the Router does not read it):
+    /// with 0 the preview's netOut is 0 and it refuses every route, the ceiling included or not.
     function _routeThroughTokenOut() private view returns (Route memory r) {
         Hop[] memory hops = new Hop[](3);
         hops[0] = _hop(poolAC, address(tokenA), address(tokenC));
         hops[1] = _hop(poolBC, address(tokenC), address(tokenB));
         hops[2] = _hop(poolBC, address(tokenB), address(tokenC));
-        r = Route({hops: hops, totalOut: 0, singleOut: 0, singleOutFloor: 0,
+        r = Route({hops: hops, totalOut: AMT / 2, singleOut: 0, singleOutFloor: 0,
                    expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
                    hasSurplus: false, isV4Bundle: false});
     }
 
-    /// THE CLAIM. C is stranded in the Router before the swap. The middle hop
-    /// takes C as input, and holds-nothing (invariant I1) says a stranded
-    /// balance is never scaled into the swap. GREEN today, and this is the
-    /// baseline a first reading missed, recorded here as the file promised:
-    ///
-    ///   Router:1078  foreignBase = hop.tokenIn == tokenIn ? baseIn
-    ///                            : (hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1]);
-    ///
-    /// A hop whose input is the route's own tokenOut prices against `toutStart`
-    /// (Router:982), exactly as a hop whose input is tokenIn prices against
-    /// `baseIn`. So the `bt != tokenOut` arm at Router:1003, which the MC/DC
-    /// campaign found inert, skips a `balanceOf` that line 1078 never reads -
-    /// the same shape as its `bt != tokenIn` sibling. Benign, and this test is
-    /// the pin of I1 on the one topology nobody had built: the final token
-    /// appearing as an intermediate. No mutant targets the 1003 arm, because
-    /// deleting it changes no output; the property is carried by 1078.
-    function test_strandedTokenOut_isNotScaledIntoAnIntermediateHop() public {
-        Route memory r = _routeThroughTokenOut();
+    /// A -> C -> B, the same pools one hop shorter: tokenOut is B, produced by the last hop only.
+    function _routeTwoHops() private view returns (Route memory r) {
+        Hop[] memory hops = new Hop[](2);
+        hops[0] = _hop(poolAC, address(tokenA), address(tokenC));
+        hops[1] = _hop(poolBC, address(tokenC), address(tokenB));
+        r = Route({hops: hops, totalOut: AMT / 2, singleOut: 0, singleOutFloor: 0,
+                   expectedImpactBps: 0, confidenceWad: 0, estGas: 0,
+                   hasSurplus: false, isV4Bundle: false});
+    }
 
-        // Reference: the same route with nothing stranded. One 100e18 swap on
-        // 10M/10M pools moves the reserves by ~1e-5, so the second swap below
-        // sees reserves that differ from the first by far less than the 0.1%
-        // tolerance used to compare them.
+    /// THE CLAIM, MOVED. A -> C -> B -> C is three hops, past the ceiling: the preview calls it
+    /// not executable and the Router refuses it with RouterE(3), so no stranded C can be scaled
+    /// into a middle hop. The arm that carried the claim on this shape, the `toutStart` branch of
+    ///   Router:1147  foreignBase = hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1];
+    /// is unreachable now, and its mutant is EQUIVALENT: the line runs only for h != 0, so h = 1,
+    /// the last hop (MAX_HOPS = 2, Router:995), whose tokenOut is the route's (Router:996); there
+    /// `hop.tokenIn == tokenOut` means a tokenOut -> tokenOut hop, refused at Router:1124 first.
+    /// History: until 2026-11-06 (MAX_HOPS = 3) this was
+    /// `test_strandedTokenOut_isNotScaledIntoAnIntermediateHop`: the route settled, a stranded C
+    /// changed nothing it delivered (1e15 rel) and stayed in the Router. The two-hop analog is next.
+    function test_strandedTokenOut_throughAnIntermediateHop_isPastTheCeiling() public {
+        assertTrue(quoter.previewRoute(_routeTwoHops(), 1).canExecute,
+            "premise: the preview endorses the same pools one hop shorter, so its refusal below is the ceiling's");
+        Route memory r = _routeThroughTokenOut();
+        assertFalse(quoter.previewRoute(r, 1).canExecute,
+            "the preview endorses A -> C -> B -> C, a three-hop route the Router refuses");
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
+        router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+    }
+
+    /// THE CLAIM ON TWO HOPS (I1, holds-nothing): B, the route's tokenOut, is stranded in the
+    /// Router while the last hop of A -> C -> B produces it. The output is the balance delta
+    /// against the entry baseline `toutStart` (Router:1025, :1470), so the stranded B is neither
+    /// paid to the caller nor spent: the delivery equals the clean run's and the B stays.
+    /// B is taxed 1 % on every transfer on purpose. Untaxed, the output cap (3310, Router:1478)
+    /// alone cuts an unbased delta back to what poolBC declared, and nothing would watch the
+    /// baseline (mutants.py, the h11-1019 P2 note); taxed, less B arrives than poolBC declared,
+    /// and only the baseline keeps the stranded B from making up the difference.
+    function test_strandedTokenOut_isNeitherPaidNorSpent_twoHops() public {
+        tokenB.setFeeOnTransferBps(100);
+        Route memory r = _routeTwoHops();
+
+        // Reference: the same route with nothing stranded (same 0.1 % reasoning as before: one
+        // 100e18 swap moves the 10M/10M reserves by ~1e-5).
         vm.prank(user);
         uint256 gotClean = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
-        assertGt(gotClean, 0, "premise: the A -> C -> B -> C route settles");
+        assertGt(gotClean, 0, "premise: the A -> C -> B route settles with a taxed B");
 
-        tokenC.mint(address(router), STRANDED);
+        tokenB.mint(address(router), STRANDED);
         vm.prank(user);
         uint256 gotStranded = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
 
         assertApproxEqRel(gotStranded, gotClean, 1e15,
-            "a stranded balance of tokenOut changed what an honest swap delivered: it was scaled into the middle hop and round-tripped to the caller");
-        assertEq(tokenC.balanceOf(address(router)), STRANDED,
-            "the stranded C is not the swap's unit: it must be neither spent nor swept");
+            "a stranded balance of tokenOut changed what an honest swap delivered: it made up the tax the last hop's output paid");
+        assertEq(tokenB.balanceOf(address(router)), STRANDED,
+            "the stranded B is not the swap's unit: it must be neither spent nor paid out");
     }
 
     /// CONTROL: the plain two-hop A -> C -> B route, where no intermediate hop

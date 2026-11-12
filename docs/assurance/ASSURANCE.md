@@ -704,8 +704,8 @@ The tests were written to **catch**, not to fit. `test/FeeSeals.t.sol` reads non
 numbers: the fee token comes from the rule and the bridge list, the base from the pools' balance
 deltas (what left the Router into the fee hop, or what the previous hop's pools paid out) or the
 recipient's, the fee from the treasuries' deltas, the count from the `Fee` events — over every
-shape the Router accepts (one to three hops; bridge in no, first, middle or last position; one or
-two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
+shape the Router accepts (one or two hops, `MAX_HOPS`; bridge in no, first, middle or last position;
+one or two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
 events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
 
 **How often each test notices each defect** was measured rather than assumed: every fee mutant

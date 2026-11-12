@@ -7,16 +7,18 @@ pragma solidity 0.8.36;
 //       SUBSET OF THE POOLS THE SOLVER SAW.
 //
 //  `_buildHop` (Solver.sol) applies two reductions to the same band survivors:
-//    * the FUNNEL CUT (`_cutByWeight`, budget = MAX_LEGS_PER_STAGE = 4), which
-//      keeps the top-`budget` survivors by WEIGHT (= measured depth); and
+//    * the FUNNEL CUT (`_cutByWeight`, budget = MAX_LEGS_PER_HOP, Core's ceiling
+//      and the budget of every stage), which keeps the top-`budget` survivors by
+//      WEIGHT (= measured depth); and
 //    * the MIN-SPLIT GATE, which compares the split against the best single
 //      survivor AT FULL SIZE - but only over the survivors that SURVIVED the
 //      funnel cut (`_buildHop:943-948` walks `n`, not `cands.length`).
 //
 //  Weight is DEPTH. For a small order the best single leg is the best-PRICED
-//  pool, which is not necessarily the deepest. When 5+ candidates survive the
-//  band and one is a shallower-but-better-priced pool, the funnel cut discards
-//  that pool FIRST (weight 100 against four weights of 10000), and the gate
+//  pool, which is not necessarily the deepest. When more candidates survive the
+//  band than the budget holds and one is a shallower-but-better-priced pool, the
+//  funnel cut discards that pool FIRST (weight 100 against MAX_LEGS_PER_HOP
+//  weights of 10000), and the gate
 //  never learns it existed. The plan is then the best DEEP pool, which pays
 //  strictly less than the discarded pool would have paid alone - a violation
 //  of the repo's own named relation MR-R1 ("split never worse than the best
@@ -38,13 +40,21 @@ pragma solidity 0.8.36;
 //  of concept. Since 2026-10-07 the gate measures every survivor of the band,
 //  including the ones the cut dropped, so the defect test asserts MR-R1 holds.
 //
+//  The deep pools number MAX_LEGS_PER_HOP, so with the shallow one the band holds
+//  one survivor more than the budget and the cut runs.
+//  History: until 2026-11-06 the budget was the Solver's MAX_LEGS_PER_STAGE = 4
+//  and the fixtures had four deep pools (three in the control). When the budget
+//  became MAX_LEGS_PER_HOP = 5 the shallow pool fitted beside them, nothing was
+//  cut, and the defect test stayed green with the gate walking only the cut's
+//  survivors again (the mutant on `i < nBand` survived).
+//
 //  forge test --match-path test/SplitGateSeesTheWholeBand.t.sol -vv
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
-import {BlazePhoenixCore as BPC, RoutePlan} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, RoutePlan, MAX_LEGS_PER_HOP} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
@@ -80,14 +90,14 @@ contract SplitGateSeesTheWholeBandTest is Test {
         return (aFee * rOut) / (rIn * 1000 + aFee);
     }
 
-    /// Four deep pools 1e30/1e30 (price 1.00, weight 10000) and one shallow pool
-    /// 1e28/1.005e28 (price 1.005, weight 100). The shallow price sits inside the
-    /// band around the depth-weighted median (which the four deep pools anchor at
-    /// 1.00), so it is a legitimate survivor; the four deep pools exactly fill the
-    /// leg budget, so it is the one the funnel cut discards.
+    /// MAX_LEGS_PER_HOP deep pools 1e30/1e30 (price 1.00, weight 10000) and one
+    /// shallow pool 1e28/1.005e28 (price 1.005, weight 100). The shallow price sits
+    /// inside the band around the depth-weighted median (which the deep pools anchor
+    /// at 1.00), so it is a legitimate survivor; the deep pools exactly fill the leg
+    /// budget, so it is the one the funnel cut discards.
     function _pools() internal returns (MockV2Pair shallow) {
         shallow = _pool(1e28, 1e28 * 10050 / 10000); // 1.005e28
-        for (uint256 i; i < 4; ++i) _pool(1e30, 1e30);
+        for (uint256 i; i < MAX_LEGS_PER_HOP; ++i) _pool(1e30, 1e30);
     }
 
     /// THE FINDING. Five band survivors, one of them the best single leg at full
@@ -120,11 +130,13 @@ contract SplitGateSeesTheWholeBandTest is Test {
         assertTrue(named, "the better-priced shallow pool is absent from the route");
     }
 
-    /// CONTROL - the same five pools minus one deep pool: four candidates in
-    /// total, so the funnel cut cannot fire. The plan keeps the shallow pool and
-    /// pays it. Same Hub, same prices, one candidate fewer: the loss is the cut,
-    /// not the price model.
-    function test_R2_Control_FourCandidatesNoCutPaysTheBestSingle() public {
+    /// CONTROL - the same pools minus one deep pool: MAX_LEGS_PER_HOP candidates in
+    /// total, as many as the leg budget, so the funnel cut cannot fire. The plan keeps
+    /// the shallow pool and pays it. Same Hub, same prices, one candidate fewer: the
+    /// loss is the cut, not the price model.
+    /// History: until 2026-11-06 this was test_R2_Control_FourCandidatesNoCutPaysTheBestSingle,
+    /// three deep pools and the shallow one for the budget of four.
+    function test_R2_Control_OneDeepPoolFewer_NoCut_PaysTheBestSingle() public {
         BlazePhoenixHub h2 = new BlazePhoenixHub(address(this));
         h2.initialize(address(this), address(0));
         BlazePhoenixSolver s2 = new BlazePhoenixSolver(address(h2), address(0));
@@ -137,7 +149,7 @@ contract SplitGateSeesTheWholeBandTest is Test {
             : (uint256(1e28 * 10050 / 10000), uint256(1e28));
         p0.setReserves(uint112(r0), uint112(r1));
         h2.seedPool(address(p0), BPC.KIND_V2, 30, address(0), address(A), address(B));
-        for (uint256 i; i < 3; ++i) {
+        for (uint256 i; i < MAX_LEGS_PER_HOP - 1; ++i) {
             MockV2Pair d = new MockV2Pair(address(A), address(B));
             A.mint(address(d), 1e30); B.mint(address(d), 1e30);
             d.setReserves(uint112(1e30), uint112(1e30));
@@ -157,7 +169,10 @@ contract SplitGateSeesTheWholeBandTest is Test {
     /// (2026-10-07), inside the band the plan pays the pool the cut dropped: no loss. Past
     /// the band's edge (about +0.9% for two 0.3% pools since MED, 2026-10-28) the band
     /// drops that pool itself, by design, and the plan pays the deep pools: under the
-    /// dropped pool by its price gap and no more.
+    /// dropped pool by its price gap and no more. The deep pools fill the leg budget, so
+    /// inside the band the shallow pool is always the one the cut drops.
+    /// History: until 2026-11-06 the sweep had four deep pools, which a budget of
+    /// MAX_LEGS_PER_HOP = 5 no longer cut against.
     function test_R2_LossIsBoundedByTheBand() public {
         uint256[9] memory devs = [uint256(10_000), 10_030, 10_050, 10_080, 10_100, 10_200, 10_300, 10_400, 10_499];
         for (uint256 d; d < devs.length; ++d) {
@@ -171,7 +186,7 @@ contract SplitGateSeesTheWholeBandTest is Test {
             (uint256 a0, uint256 a1) = address(A) < address(B) ? (uint256(1e28), rB) : (rB, uint256(1e28));
             sh.setReserves(uint112(a0), uint112(a1));
             h.seedPool(address(sh), BPC.KIND_V2, 30, address(0), address(A), address(B));
-            for (uint256 i; i < 4; ++i) {
+            for (uint256 i; i < MAX_LEGS_PER_HOP; ++i) {
                 MockV2Pair dp = new MockV2Pair(address(A), address(B));
                 A.mint(address(dp), 1e30); B.mint(address(dp), 1e30);
                 dp.setReserves(uint112(1e30), uint112(1e30));

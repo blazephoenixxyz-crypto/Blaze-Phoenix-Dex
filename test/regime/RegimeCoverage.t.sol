@@ -17,248 +17,236 @@ contract RegimeCoverageTest is RegimeHarness {
         _run(1, Row(F.Kind.V2, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_02_V2_H3_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(2, Row(F.Kind.V2, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_02_V3_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(2, Row(F.Kind.V3, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_03_V3_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(3, Row(F.Kind.V3, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_03_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(3, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_04_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(4, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_04_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(4, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_05_V3_H3_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(5, Row(F.Kind.V3, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_05_SOLIDLY_H2_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(5, Row(F.Kind.SOLIDLY, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_06_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(6, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_06_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(6, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_07_SOLIDLY_H2_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(7, Row(F.Kind.SOLIDLY, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_07_V2_H1_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(7, Row(F.Kind.V2, F.Hops.H1, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_08_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(8, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_08_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(8, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_09_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(9, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_09_V3_H2_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(9, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_10_V2_H1_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(10, Row(F.Kind.V2, F.Hops.H1, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_10_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(10, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_11_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(11, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_11_SOLIDLY_H2_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(11, Row(F.Kind.SOLIDLY, F.Hops.H2, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_12_V3_H2_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(12, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_12_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(12, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_13_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(13, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_13_V2_H1_L1_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(13, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_14_SOLIDLY_H3_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(14, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_14_V3_H2_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(14, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_15_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(15, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_15_V3_H2_L2_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(15, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_16_V2_H1_L1_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(16, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_16_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(16, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_17_V3_H2_L2_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(17, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_17_SOLIDLY_H2_L2_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(17, Row(F.Kind.SOLIDLY, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_18_V3_H2_L2_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(18, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_18_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(18, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_19_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(19, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_19_V2_H1_L1_IN_PLAIN_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(19, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_20_SOLIDLY_H3_L2_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(20, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_20_V3_H2_L2_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(20, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_21_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(21, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_21_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(21, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_22_V2_H1_L1_IN_PLAIN_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(22, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_22_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(22, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_23_V3_H2_L2_IN_BRIDGE_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(23, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_23_SOLIDLY_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(23, Row(F.Kind.SOLIDLY, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_24_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(24, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_24_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(24, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_25_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(25, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_25_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(25, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_26_SOLIDLY_H3_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(26, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_26_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(26, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_27_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(27, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_27_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(27, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_28_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(28, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_28_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(28, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_29_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(29, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_29_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(29, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_30_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(30, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_30_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(30, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_31_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(31, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_31_SOLIDLY_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(31, Row(F.Kind.SOLIDLY, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_32_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(32, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_32_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(32, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_33_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(33, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_33_V2_H1_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(33, Row(F.Kind.V2, F.Hops.H1, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_34_SOLIDLY_H3_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(34, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_34_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(34, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_35_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(35, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_35_V3_H1_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(35, Row(F.Kind.V3, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_36_V2_H1_L2_IN_BRIDGE_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(36, Row(F.Kind.V2, F.Hops.H1, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_36_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(36, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_37_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(37, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_37_SOLIDLY_H1_L1_IN_BRIDGE_MID_BRIDGE_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(37, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_38_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(38, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_38_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(38, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_39_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(39, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_39_V2_H1_L1_IN_PLAIN_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(39, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_40_SOLIDLY_H3_L1_IN_BRIDGE_MID_BRIDGE_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(40, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_40_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_BEST_LIVE_PAIR_OPEN() public {
+        _run(40, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_41_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(41, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_41_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_PERMIT2_LIVE_PAIR_OPEN() public {
+        _run(41, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_42_V2_H1_L1_IN_PLAIN_MID_BRIDGE_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(42, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_BRIDGE, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_42_V3_H1_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(42, Row(F.Kind.V3, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_43_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_BEST_LIVE_PAIR_OPEN() public {
-        _run(43, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_43_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_BEST_LIVE_PAIR_OPEN() public {
+        _run(43, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_44_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_PERMIT2_LIVE_PAIR_OPEN() public {
-        _run(44, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_44_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_PERMIT2_LIVE_PAIR_OPEN() public {
+        _run(44, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_45_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(45, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_45_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(45, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_46_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_BEST_LIVE_PAIR_OPEN() public {
-        _run(46, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_46_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D6_BEST_LIVE_PAIR_OPEN() public {
+        _run(46, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D6, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_47_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_PERMIT2_LIVE_PAIR_OPEN() public {
-        _run(47, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_47_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_OPEN() public {
+        _run(47, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_48_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(48, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_48_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(48, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_49_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D6_BEST_LIVE_PAIR_OPEN() public {
-        _run(49, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D6, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_49_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_RENOUNCED_PAIR_OPEN() public {
+        _run(49, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_50_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_OPEN() public {
-        _run(50, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_50_V3_H1_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_BEST_LIVE_PAIR_OPEN() public {
+        _run(50, Row(F.Kind.V3, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_51_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D6_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(51, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D6, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_51_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_BEST_RENOUNCED_PAIR_OPEN() public {
+        _run(51, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.BEST, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_52_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_RENOUNCED_PAIR_OPEN() public {
-        _run(52, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
+    function test_Regime_52_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_OPEN() public {
+        _run(52, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_53_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_BEST_LIVE_PAIR_OPEN() public {
-        _run(53, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.BEST, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_53_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_RENOUNCED_PAIR_OPEN() public {
+        _run(53, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_54_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_BEST_RENOUNCED_PAIR_OPEN() public {
-        _run(54, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.BEST, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
+    function test_Regime_54_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
+        _run(54, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_55_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_OPEN() public {
-        _run(55, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_55_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_FULL() public {
+        _run(55, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_FULL));
     }
 
-    function test_Regime_56_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_RENOUNCED_PAIR_OPEN() public {
-        _run(56, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
+    function test_Regime_56_V3_H1_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_BEST_RENOUNCED_PAIR_OPEN() public {
+        _run(56, Row(F.Kind.V3, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.BEST, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_57_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_OPEN() public {
-        _run(57, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_OPEN));
+    function test_Regime_57_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_BEST_RENOUNCED_PAIR_FULL() public {
+        _run(57, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.BEST, F.Ctl.RENOUNCED, F.Full.PAIR_FULL));
     }
 
-    function test_Regime_58_V2_H1_L1_IN_PLAIN_MID_PLAIN_FOT_NONE_D18_EXACT_IN_LIVE_PAIR_FULL() public {
-        _run(58, Row(F.Kind.V2, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_NONE, F.Dec.D18, F.Door.EXACT_IN, F.Ctl.LIVE, F.Full.PAIR_FULL));
+    function test_Regime_58_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_OPEN() public {
+        _run(58, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
     }
 
-    function test_Regime_59_V3_H2_L1_IN_PLAIN_MID_PLAIN_FOT_PULL_D18_BEST_RENOUNCED_PAIR_OPEN() public {
-        _run(59, Row(F.Kind.V3, F.Hops.H2, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_PULL, F.Dec.D18, F.Door.BEST, F.Ctl.RENOUNCED, F.Full.PAIR_OPEN));
-    }
-
-    function test_Regime_60_V3_H2_L2_IN_BRIDGE_MID_BRIDGE_FOT_PULL_D6_BEST_RENOUNCED_PAIR_FULL() public {
-        _run(60, Row(F.Kind.V3, F.Hops.H2, F.Legs.L2, F.InB.IN_BRIDGE, F.MidB.MID_BRIDGE, F.Fot.FOT_PULL, F.Dec.D6, F.Door.BEST, F.Ctl.RENOUNCED, F.Full.PAIR_FULL));
-    }
-
-    function test_Regime_61_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_OPEN() public {
-        _run(61, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_OPEN));
-    }
-
-    function test_Regime_62_SOLIDLY_H3_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_FULL() public {
-        _run(62, Row(F.Kind.SOLIDLY, F.Hops.H3, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_FULL));
+    function test_Regime_59_SOLIDLY_H1_L1_IN_PLAIN_MID_PLAIN_FOT_ALL_D18_PERMIT2_LIVE_PAIR_FULL() public {
+        _run(59, Row(F.Kind.SOLIDLY, F.Hops.H1, F.Legs.L1, F.InB.IN_PLAIN, F.MidB.MID_PLAIN, F.Fot.FOT_ALL, F.Dec.D18, F.Door.PERMIT2, F.Ctl.LIVE, F.Full.PAIR_FULL));
     }
 
 }

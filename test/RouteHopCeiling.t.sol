@@ -2,7 +2,10 @@
 pragma solidity 0.8.36;
 
 // =============================================================================
-//  F8 — THERE IS NO PRODUCER OF "HOW MANY HOPS FIT IN A ROUTE".
+//  F8 — "HOW MANY HOPS FIT IN A ROUTE" HAD NO PRODUCER. It has one now: Core's
+//  file-level MAX_HOPS = 2 (2026-11-06; 3 from the review of 2026-09-02), read by
+//  the Router (RouterE(3)), the Quoter's preview and the Solver's bridge path.
+//  The finding, as it was written before the ceiling landed:
 //
 //      grep -rn "MAX_HOPS" src/     ->  nothing
 //
@@ -29,6 +32,10 @@ pragma solidity 0.8.36;
 //  SHARED_QUANTITIES.md lists PIN-01 (MAX_LEGS_PER_STAGE 4 vs MAX_LEGS_PER_HOP 5)
 //  as the leg-count disagreement. The hop count is the sibling row that does not
 //  exist: two producers could at least disagree; here there is none.
+//
+//  Since 2026-11-06 both rows have one producer in Core: a route holds at most
+//  MAX_HOPS = 2 hops of MAX_LEGS_PER_HOP = 5 legs, 10 legs (test/Pin01LegCeiling.t.sol,
+//  test/RouteHopCeilingIsTwo.t.sol). The tests below keep the three consequences pinned.
 //
 //  forge test --match-contract RouteHopCeiling -vv
 // =============================================================================
@@ -58,7 +65,7 @@ contract RouteHopCeilingTest is Test {
 
     /// Odd, so the last hop ends in tokenB and the route is not the degenerate
     /// tokenIn == tokenOut case. Far beyond anything the Solver can build
-    /// (MAX_LEGS = 11 caps it at three hops).
+    /// (two hops, MAX_HOPS).
     uint256 constant HOPS = 61;
 
     function setUp() public {
@@ -92,14 +99,13 @@ contract RouteHopCeilingTest is Test {
         p.setReserves(RESERVE, RESERVE);
     }
 
-    /// @dev Three hops through distinct tokens: A -> B (the fixture's pool) -> C -> D.
-    function _chainRoute3() internal returns (Route memory r) {
+    /// @dev Two hops through distinct tokens: A -> B (the fixture's pool) -> C.
+    function _chainRoute2() internal returns (Route memory r) {
         MockERC20 tokenC = new MockERC20("C", "C");
-        MockERC20 tokenD = new MockERC20("D", "D");
-        MockV2Pair[3] memory ps = [pool, _deepPair(tokenB, tokenC), _deepPair(tokenC, tokenD)];
-        address[4] memory tk = [address(tokenA), address(tokenB), address(tokenC), address(tokenD)];
-        Hop[] memory hops = new Hop[](3);
-        for (uint256 h; h < 3; ++h) {
+        MockV2Pair[2] memory ps = [pool, _deepPair(tokenB, tokenC)];
+        address[3] memory tk = [address(tokenA), address(tokenB), address(tokenC)];
+        Hop[] memory hops = new Hop[](2);
+        for (uint256 h; h < 2; ++h) {
             Leg[] memory legs = new Leg[](1);
             legs[0] = Leg({pool: address(ps[h]), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
                 tickSpacing: 0, zeroForOne: ps[h].token0() == tk[h], stable: false,
@@ -140,23 +146,25 @@ contract RouteHopCeilingTest is Test {
     // ─── THE CLAIM UNDER TEST (RED TODAY) ────────────────────────────────────
 
     /// A route with 61 hops is not a route any producer in this system can
-    /// build, and nothing refuses it. The Router should have a ceiling of its
-    /// own, exactly as it has MAX_LEGS_PER_HOP.
+    /// build, and nothing refused it. The Router has a ceiling of its own now,
+    /// exactly as it has MAX_LEGS_PER_HOP, and refuses it with RouterE(3) - asked
+    /// by its selector, not by a bare expectRevert that any failure would satisfy.
     function test_RouteHopCountHasACeiling() public {
         Route memory r = _pingPongRoute(HOPS);   // built before the cheatcodes (the builder calls token0())
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
         router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
     }
 
-    /// One hop past the ceiling, through DISTINCT tokens. Since 2026-10-07 a route also visits
-    /// its input token once (RouterE(3)), so a ping-pong route would be refused even without a
-    /// ceiling and could not tell the two guards apart; this chain can only be refused by the
-    /// ceiling.
+    /// One hop past the ceiling - three hops - through DISTINCT tokens. Since 2026-10-07 a
+    /// route also visits its input token once (RouterE(3)), so a ping-pong route would be
+    /// refused even without a ceiling and could not tell the two guards apart; this chain can
+    /// only be refused by the ceiling. Its control, the same chain one hop shorter, is
+    /// test_TwoHopRoute_StillRoutes.
     function test_AChainOneHopPastTheCeilingIsRefused() public {
-        MockERC20[5] memory t = [tokenA, tokenB, new MockERC20("C", "C"), new MockERC20("D", "D"), new MockERC20("E", "E")];
-        Hop[] memory hops = new Hop[](4);
-        for (uint256 h; h < 4; ++h) {
+        MockERC20[4] memory t = [tokenA, tokenB, new MockERC20("C", "C"), new MockERC20("D", "D")];
+        Hop[] memory hops = new Hop[](3);
+        for (uint256 h; h < 3; ++h) {
             MockV2Pair p = h == 0 ? pool : _deepPair(t[h], t[h + 1]);
             Leg[] memory legs = new Leg[](1);
             legs[0] = Leg({pool: address(p), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
@@ -174,7 +182,8 @@ contract RouteHopCeilingTest is Test {
     /// The same fact as a measurement rather than a refusal: how much of the
     /// user's input the uncapped exhaustion-regime fee eats over 61 hops. Wrapped
     /// in try/catch so that the day a ceiling lands, this test passes by
-    /// REFUSAL instead of becoming permanently broken.
+    /// REFUSAL instead of becoming permanently broken. The ceiling landed
+    /// (MAX_HOPS, 3 then 2): it passes by refusal, and is kept as the record.
     function test_ExhaustionRegimeFeeIsUnboundedInHopCount() public {
         uint256 t1Before = tokenA.balanceOf(T1) + tokenB.balanceOf(T1);
         uint256 t2Before = tokenA.balanceOf(T2) + tokenB.balanceOf(T2);
@@ -205,19 +214,20 @@ contract RouteHopCeilingTest is Test {
     // ─── CONTROLS ────────────────────────────────────────────────────────────
 
     /// Whatever ceiling is chosen must leave the Solver's own topologies alone:
-    /// three hops is the deepest route _planViaBridges can build.
-    function test_ThreeHopRoute_StillRoutes() public {
-        // Since 2026-10-07 a route visits its input token once (RouterE(3)), so the three
-        // hops chain through distinct tokens, A -> B -> C -> D, as the Solver's do.
-        Route memory r = _chainRoute3();
+    /// two hops (tIn -> bridge -> tOut) is the deepest route _planViaBridges builds.
+    function test_TwoHopRoute_StillRoutes() public {
+        // Since 2026-10-07 a route visits its input token once (RouterE(3)), so the two
+        // hops chain through distinct tokens, A -> B -> C, as the Solver's do.
+        Route memory r = _chainRoute2();
         vm.prank(user);
         uint256 got = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
-        assertGt(got, 0, "a 3-hop route is what the Solver builds and must keep working");
+        assertGt(got, 0, "a 2-hop route is what the Solver builds and must keep working");
     }
 
     /// The executedMask boundary, documented without paying for a 256-hop route:
     /// past leg 255 the shift is 0, so the leg is not credited. Fail-closed, and
-    /// only unreachable because nothing bounds hops.
+    /// unreachable since the hop ceiling: a route holds at most
+    /// MAX_HOPS x MAX_LEGS_PER_HOP = 10 legs.
     function test_ExecutedMaskSilentlyStopsAt256Legs() public view {
         uint256 idx = 255;
         assertTrue((uint256(1) << idx) != 0, "leg 255 still sets a bit");
