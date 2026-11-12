@@ -218,7 +218,10 @@ M = [
  dict(nome="registry: crediting declared legs instead of executed ones, at the declared amount (the phantom leg)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (!ran || leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; }",
-      new="                if (leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; } if (!ran) { hopScale[h] = 1e18; } // MUTANTE",
+      # Re-anchored 2026-11-12 (mg1): `hopScale` left in 2a7c080/f80acc2; the registry now reads the
+      # measured `legTook`/`legOut` per leg, so the phantom shape is the skipped leg credited at its
+      # DECLARED input and output.
+      new="                if (leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; } if (!ran) { legTook[legIdx - 1] = leg.amountIn; legOut[legIdx - 1] = leg.expectedOut; } // MUTANTE",
       teste="test_PhantomLeg_NotCreditedToRegistry"),
  # Retargeted 2026-10-27 (poda-1027): the grid is gone, and the rule it was watched for holds by
  # construction: no stage of the V4 scan is gated on a hit. The mutant gates the row's extras,
@@ -1460,9 +1463,13 @@ M = [
       teste='test_Router_ExecutesCutRoute_WithoutForceFeeding'),
  dict(nome="REC-A (High): the exact pass stops clamping hop 0's carry to the planned input",
       f='src/BlazePhoenixQuoter.sol',
+      # Retargeted 2026-11-12 (mg1): `_exact` returns min(gross, _fundedOut) and `_fundedOut` clamps
+      # hop 0 on its own (Quoter:994), so `exactOut` no longer shows the lost clamp. The ROUTE it
+      # returns does: hop 0's legs are rewritten at carry/plannedIn times their size and the floor
+      # is rescaled by the inflated gross, so the route the Quoter hands back is not executable.
       old='            if (h == 0 && carry > plannedIn) carry = plannedIn;',
       new='            carry; // MUTANT',
-      teste='test_ExactQuoteMustNotOverstateDeliverable'),
+      teste='test_ReturnedExactRouteMustExecute'),
  dict(nome='F-B: the concentrated arm stops capping depth by the mass the pool holds',
       f='src/BlazePhoenixCore.sol',
       # Re-anchored 2026-09-23: the cap moved out of the both-sides branch when an
@@ -2481,9 +2488,14 @@ M = [
  # balance, and the last hop's venue declares it back as output.
  dict(nome="h11-1019 P2: the tokenOut baseline is zero, so the account's prior tokenOut is paid out (V1 Tarun 3084 shape)",
       f="src/BlazePhoenixRouter.sol",
+      # Retargeted 2026-11-12 (mg1): 4111 (7c4ad36) bases hop >= 1 on `_owned` (Router:781,804-807),
+      # `own = min(bal - held, decl)`: the middle hop no longer spends the stranded balance, so the
+      # loose shape stopped seeing the zero baseline. A fee-on-transfer tokenOut still does: the
+      # unbased delta is STRANDED + arrived, cut back to the declaration, and declared - arrived
+      # (1%) is far below STRANDED, so the swapper is paid the declaration, not what arrived.
       old="        uint256 toutStart = tokenIn == tokenOut ? baseIn : _bal(tokenOut);",
       new="        uint256 toutStart = tokenIn == tokenOut ? baseIn : 0; // MUTANT",
-      teste="test_TheLooseShapeIsPaidWhatTheLastHopDeclared"),
+      teste="test_AFeeOnTransferOutputIsPaidWhatArrived"),
  dict(nome="h11-1019 P3: the bridge sweep ignores bridgeBase and pays the raw balance (V1 Tarun 3086 shape)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);",
@@ -5868,12 +5880,15 @@ M = [
  dict(nome="fin1111-relogio-1: the registry is handed the plan-priced output again, so an over-attested dust fill anchors the pool's clock (3958, 4028)",
       f="src/BlazePhoenixRouter.sol",
       old="                uint256 outM = legOut[legIdx - 1];",
-      new="                uint256 outM = BPC.mulDiv(leg.expectedOut, sc, 1e18); // MUTANT [fin1111-relogio-1]",
+      # Re-anchored 2026-11-12 (mg1): `sc` left in 2a7c080; the plan-priced output is the declaration
+      # scaled by the measured input ratio (the test's `exp * poolIn / ask`).
+      new="                uint256 outM = leg.amountIn == 0 ? 0 : BPC.mulDiv(leg.expectedOut, legTook[legIdx - 1], leg.amountIn); // MUTANT [fin1111-relogio-1]",
       teste="test_ClockAnchor_OverAttestedDustFillLeavesTheClock"),
  dict(nome="fin1111-relogio-2: the recorded output is the smaller of plan and measurement, so a material fill attested below itself anchors nothing",
       f="src/BlazePhoenixRouter.sol",
       old="                uint256 outM = legOut[legIdx - 1];",
-      new="                uint256 outM = legOut[legIdx - 1]; if (BPC.mulDiv(leg.expectedOut, sc, 1e18) < outM) outM = BPC.mulDiv(leg.expectedOut, sc, 1e18); // MUTANT [fin1111-relogio-2]",
+      # Re-anchored 2026-11-12 (mg1): `sc` left in 2a7c080 (see relogio-1).
+      new="                uint256 outM = legOut[legIdx - 1]; { uint256 p = leg.amountIn == 0 ? 0 : BPC.mulDiv(leg.expectedOut, legTook[legIdx - 1], leg.amountIn); if (p < outM) outM = p; } // MUTANT [fin1111-relogio-2]",
       teste="test_ClockAnchor_BoundaryIsTheDeliveryNotTheDeclaration"),
  dict(nome="fin1111-relogio-3: every leg of a hop reads the delivery at the hop's index, so a dust leg beside a material one anchors on its neighbour's fill",
       f="src/BlazePhoenixRouter.sol",
