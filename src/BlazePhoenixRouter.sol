@@ -758,11 +758,12 @@ contract BlazePhoenixRouter {
         for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
     }
 
-    /// @return The input left to hop 0 (unchanged on later hops) and `_execute`'s output cap,
-    ///         less this fee when the hop's token is tokenOut (3310): a fee charged in tokenOut
-    ///         leaves the Router as a leg's input does.
+    /// @return The input left to the hop (hop 0: the pull less this fee; hop h>=1: the bridge it
+    ///         owns less this fee, 4111) and `_execute`'s output cap, less this fee when the
+    ///         hop's token is tokenOut (3310): a fee charged in tokenOut leaves the Router as a
+    ///         leg's input does.
     function _chargeHopFee(
-        Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase, address tokenOut, uint256 outCap
+        Hop calldata hop, uint256 h, uint256 amountIn, uint256[] memory bridgeBase, address tokenOut, uint256 outCap
     ) private returns (uint256, uint256) {
         uint256 baseH;
         if (h == 0) {
@@ -772,8 +773,13 @@ contract BlazePhoenixRouter {
             uint256 c = _legSum(hop);
             if (c < baseH) baseH = c;
         } else {
-            uint256 bal = _bal(hop.tokenIn);
-            baseH = bal > foreignBase ? bal - foreignBase : 0;
+            // 4111: on a later hop `amountIn` is what the previous hop's legs were measured to
+            // deliver (`hopGot`). The bridge the Router owns is the balance past its baseline
+            // and no more than that: a restatement of the bridge fired outside a leg window
+            // (the hop-0 fee push through a hooked input) grew the stranded balance too, the
+            // fee was charged on that growth, and the remainder travelled on as the hop's input.
+            baseH = _owned(_bal(hop.tokenIn), bridgeBase[h - 1], amountIn);
+            amountIn = baseH;
         }
         // ROUND UP, NEVER DOWN. With floor division mulDiv(b, 28, 10_000) is 0
         // for every b <= 357, and the early return below then waved the swap
@@ -788,11 +794,16 @@ contract BlazePhoenixRouter {
         _payFee(hop.tokenIn, feeH);
         // Saturating: hop 0 of a cyclic route pays its fee in tokenOut before any leg made some.
         if (hop.tokenIn == tokenOut) outCap = outCap > feeH ? outCap - feeH : 0;
-        // Only hop 0 spends the `amountIn` travelling in the frame; the later ones read the
-        // balance, which the fee transfer has already reduced.
-        if (h != 0) return (amountIn, outCap);
         if (feeH >= amountIn) revert RouterE(8);
         unchecked { return (amountIn - feeH, outCap); }
+    }
+
+    /// @dev 4111: the part of a balance that is the swap's — what grew past the baseline the
+    ///      Router held before, and no more than `decl`, the figure the legs were measured to
+    ///      deliver (#45's clamp and 3310's cap, applied to a bridge).
+    function _owned(uint256 bal, uint256 held, uint256 decl) private pure returns (uint256 own) {
+        own = bal > held ? bal - held : 0;
+        if (own > decl) own = decl;
     }
 
     /// @dev The 30/70 split in its own frame: under via_ir `_execute` sits at the stack limit,
@@ -914,14 +925,14 @@ contract BlazePhoenixRouter {
     }
 
     function _hopScaleImpactAndQuote(
-        Hop calldata hop, uint256 h, uint256 amountIn, uint256 foreignBase,
+        Hop calldata hop, uint256 h, uint256 amountIn, uint256[] memory bridgeBase,
         uint256[] memory legQuotes
     ) private view returns (uint256 scaleNum, uint256 scaleDen, uint256 impactAcc, uint256 quoteAcc) {
         uint256 legs = hop.legs.length;
         {
             // R3 / BP-15 (invariant I1 — holds-nothing on the INPUT side): hop 0
             // uses the measured amountIn; hop 1+ uses the bridge received from the
-            // previous hop MINUS foreignBase (= bridgeBase[h-1], the Router's
+            // previous hop MINUS bridgeBase[h-1] (the Router's
             // pre-swap balance of that bridge token). Without the subtraction a
             // crafted route sized leg.amountIn to the Router's stranded/mis-sent
             // balance of the bridge, so scaling spent funds the 48h rescue exists
@@ -932,7 +943,14 @@ contract BlazePhoenixRouter {
             uint256 realIn = amountIn;
             if (h != 0) {
                 uint256 bal = _bal(hop.tokenIn);
-                realIn = bal > foreignBase ? bal - foreignBase : 0;
+                // 4111: and no more than the previous hop's legs were measured to deliver
+                // (`amountIn` carries their `hopGot`, less this hop's fee). A restatement fired
+                // by a fee push grows the stranded balance too; that growth is not this hop's
+                // input. What the balance holds past the input is written back into the
+                // baseline, so the sweep after the loop leaves it with the rescue instead of
+                // handing it to the payer.
+                realIn = _owned(bal, bridgeBase[h - 1], amountIn);
+                bridgeBase[h - 1] = bal - realIn;
             }
             uint256 quotedIn = _legSum(hop);
             // SECURITY (issue #1 cap × BP-02 floor seam): the hop-0 cap is
@@ -1164,10 +1182,11 @@ contract BlazePhoenixRouter {
             // route's input token again (INV-15; Seavia Resources, bug bounty). No honest route
             // visits its input twice - the Solver's bridges are distinct from `tIn` - so the
             // shape is refused rather than re-priced.
-            uint256 foreignBase;
             if (h != 0) {
                 if (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == tokenIn) revert RouterE(3);
-                foreignBase = hop.tokenIn == tokenOut ? toutStart : bridgeBase[h - 1];
+                // The loose shape's baseline is the output's own (its bridgeBase entry was never
+                // set); the sweep skips tokenOut, so the entry is free to carry it (4111).
+                if (hop.tokenIn == tokenOut) bridgeBase[h - 1] = toutStart;
                 // A CYCLIC ROUTE (tokenIn == tokenOut) RETURNS HOP 0'S UNSPENT INPUT HERE, to the
                 // payer the docstring above names as its owner (H9, oc-1018). After the loop the
                 // residual and the output are the same token and can no longer be told apart, so
@@ -1212,12 +1231,12 @@ contract BlazePhoenixRouter {
             // comes out of the output (see the block at the end of this function)
             // — nothing is charged here, otherwise it would be charged twice.
             if (BPC.paysOnInput(h, feeHop, feeOnOut)) {
-                (amountIn, outCap) = _chargeHopFee(hop, h, amountIn, foreignBase, tokenOut, outCap);
+                (amountIn, outCap) = _chargeHopFee(hop, h, amountIn, bridgeBase, tokenOut, outCap);
             }
 
             uint256[] memory legQuotes = new uint256[](hop.legs.length);
             (uint256 scaleNum, uint256 scaleDen, uint256 hopImpact, uint256 hopQuote) =
-                _hopScaleImpactAndQuote(hop, h, amountIn, foreignBase, legQuotes);
+                _hopScaleImpactAndQuote(hop, h, amountIn, bridgeBase, legQuotes);
             // SECURITY (issue #1, reported by NetGakarot): on hop 0 the Router
             // may hold MORE input than the plan committed (the phantom-tier
             // capacity clamp cuts leg.amountIn on purpose); spending past
@@ -1449,6 +1468,10 @@ contract BlazePhoenixRouter {
             // anchor an earlier hop already set in the output token, so it cannot lower a floor.
             if (route.hops[h].tokenOut == tokenOut && (hopGot != 0 || (hopBlind && hopBase > finalHopQuote)))
                 finalHopQuote = hopBase;
+            // 4111: the next hop may spend of this one's output, and pay its fee on, no more
+            // than its legs were measured to deliver. Reuses the frame's `amountIn` (dead after
+            // the scale on every hop): no new slot on the razor-thin stack.
+            amountIn = hopGot;
             unchecked { ++h; }
         }
 
