@@ -19,6 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DRIVER = os.path.join(HERE, "mutants.py")
 CAUGHT = "1/1 guards with a test that catches them"
 SEED = "0xb1a2ef00"
+KILL = "ok %s"  # the label of a kill, by its route
 
 # The stand-in: the tests it knows are test_x and test_xLonger (a longer name with the paired name
 # as a prefix). It filters them with --match-test exactly as a regex on the signature, logs every
@@ -41,7 +42,8 @@ if not mutated:
     if mode == "basered":
         out("[FAIL: 2 != 1; counterexample: calldata=0x01 args=[26]] test_x(uint256) (runs: 3, μ: 1, ~: 1)")
     out(*["[PASS] %s() (gas: 1)" % t for t in sel], rc=0)
-if mode == "assert":  out("[FAIL: assertion failed: 1 != 2] test_x() (gas: 1)")
+if os.environ.get("FAKE_FORGE_OUT"): out(*os.environ["FAKE_FORGE_OUT"].split("\n"))
+if mode in ("assert", "inert"):  out("[FAIL: assertion failed: 1 != 2] test_x() (gas: 1)")
 if mode == "halt":    out("[FAIL: panic: arithmetic underflow or overflow (0x11)] test_x() (gas: 1)")
 if mode == "custom":  out("[FAIL: RouterE(5)] test_x() (gas: 1)")
 if mode == "fuzz":    out("[FAIL: delivered: 1 != 2; counterexample: calldata=0x01 args=[[1, 2], 3]] test_x(uint256) (runs: 3, μ: 1, ~: 1)")
@@ -55,7 +57,6 @@ if mode == "snapother": out("[PASS] test_x() (gas: 1)", "[test_other] Failed to 
 if mode == "pass":    out("[PASS] test_x() (gas: 1)", rc=0)
 if mode == "compile": out("Compiler run failed:", "Error (7576): Undeclared identifier.")
 if mode == "missing": out("Warning: no tests match the provided pattern:", "\tmatch-test: `^(test_x)(\\(.*)?$`", rc=0)
-if mode == "missingrc1": out("Warning: no tests match the provided pattern:", rc=1)
 if mode == "silent":  sys.exit(0)
 if mode == "message": out("[FAIL: door 3 refused] test_x() (gas: 1)")
 if mode == "customword": out("[FAIL: Staking__DeltaTooBig()] test_x() (gas: 1)")
@@ -84,7 +85,6 @@ CASES = {
     "pass":      (None, "DECORATIVE"),
     "compile":   (None, "NO COMPILE"),
     "missing":   (None, "TEST MISSING"),
-    "missingrc1": (None, "TEST MISSING"),
     # exit 0 and no result for the paired test: the line that decides a missing test on forge v1.8.5
     "silent":    (None, "TEST MISSING"),
     # a bare message (assertTrue with a message, or a require string): neither halt nor assert
@@ -128,7 +128,7 @@ DRIVER_MUTANTS = [
     ("the assert words read before the decoded revert",
      '    if REVERT_REASON.match(head):\n        return "halt"\n    return "assert" if ASSERT_REASON.search(head) else "unread"',
      '    if ASSERT_REASON.search(head):\n        return "assert"\n    return "halt" if REVERT_REASON.match(head) else "unread"', "customword"),
-    ("forge v1.8.5's no-match warning not read", '    if NO_TESTS.search(out):\n', '    if "No tests match" in out:\n', "missingrc1"),
+    ("forge v1.8.5's no-match warning not read", '    if NO_TESTS.search(out):\n', '    if "No tests match" in out:\n', "missing"),
     ("a clean run with no result for the paired test read as a kill",
      'return "TEST MISSING", "", "the run reported no result for the paired test"',
      'return "KILLED", "assert", "the run reported no result for the paired test"', "silent"),
@@ -138,6 +138,102 @@ DRIVER_MUTANTS = [
      '    if own and rc == 0:\n        return "SURVIVED"', "snapother"),
     ("the baseline reads names with the old pattern", '    green = {n for st, n, _ in recs if st == "PASS"}\n    red = {n for st, n, _ in recs if st != "PASS"}',
      '    green = set(re.findall(r"\\[PASS\\]\\s+(\\w+)", out))\n    red = set(re.findall(r"\\[FAIL[^\\]]*\\]\\s+(\\w+)", out))', "basered"),
+    ("an INERT row loses its split", '"artefact unchanged", split)', '"artefact unchanged", [])', "inert"),
+]
+
+# Result lines copied from real forge runs of these suites (the test renamed test_x, the rest
+# verbatim). With the mutant in, the stand-in prints them instead of its own.
+REAL = {
+    "evmerror": ["[FAIL: EvmError: Revert] test_x() (gas: 47963990)"],
+    "unknownerror": ["[FAIL: custom error 0x93dafdf1] test_x() (block: 131960000) (gas: 3849169)"],
+    "customfuzz": ["[FAIL: Staking__CapExceeded(); counterexample: calldata=0x5df732e8"
+                   "000000000000000000000000000000000000000000000000000000000000beef"
+                   "000000000000000000000000000000000000000000000000000000000000003c"
+                   "00000000000000000000000000000000000000000000000000000000000022d2"
+                   "00000000000000000000000000000000000000000000000000000000000030d4"
+                   " args=[48879 [4.887e4], 60, 8914, 12500 [1.25e4]]] test_x(uint256,uint256,uint256,uint256)"
+                   " (runs: 0, \u03bc: 0, ~: 0)"],
+    "expectmismatch": ["[FAIL: Error != expected error: Staking__InvariantBreached() != custom error 0xe327dc2a]"
+                       " test_x() (gas: 3499611)"],
+    "namedmessage": ["[FAIL: fee() was handed less than the budget: 99998 != 192286] test_x() (gas: 34111)"],
+    # two contracts: test_x fails its assert, the contract of test_xLonger fails its setUp
+    "tuplesetup": ["[FAIL: assertion failed: 0 != 10000] test_x() (gas: 7540)",
+                   "[FAIL: vm.createSelectFork: could not instantiate forked environment with provider lb.drpc.live;"
+                   " failed to retrieve chain ID from fork endpoint; HTTP error 403 with body:"
+                   " {\"id\":1,\"jsonrpc\":\"2.0\",\"error\":{\"message\":\"User balance exceeded\",\"code\":10}}]"
+                   " setUp() (gas: 0)"],
+}
+# pairings with two tests: test_x and test_xLonger
+TUPLES = {"tuple", "tuplesetup"}
+CASES.update({
+    # the decoded revert forms: an EvmError, a custom error the run could not name, a custom error
+    # of a fuzz test with its counterexample after it
+    "evmerror": ("halt", KILL % "halt"),
+    "unknownerror": ("halt", KILL % "halt"),
+    "customfuzz": ("halt", KILL % "halt"),
+    # an assert message that names a revert or a call is an assert, not a halt
+    "expectmismatch": ("assert", KILL % "assert"),
+    "namedmessage": ("assert", KILL % "assert"),
+    "tuplesetup": ("assert", KILL % "assert"),
+    # the source moved, the artefact did not
+    "inert": (None, "INERT"),
+})
+# mode -> the MUTANTS_VERDICTS rows (test, verdict, route, test_verdict, detail) the run must write
+ROWS = {
+    "evmerror": [("test_x", "KILLED", "halt", "KILLED", "EvmError: Revert")],
+    "tuple": [("test_x", "KILLED", "", "SURVIVED", "test_xLonger: assertion failed"),
+              ("test_xLonger", "KILLED", "assert", "KILLED", "assertion failed")],
+    "tuplesetup": [("test_x", "KILLED", "assert", "KILLED", "assertion failed: 0 != 10000"),
+                   ("test_xLonger", "KILLED", "", "NOT RUN", "test_x: assertion failed: 0 != 10000")],
+    "ambiguous": [("test_x", "AMBIGUOUS", "", "AMBIGUOUS", "passed in one contract and failed in another")],
+    "inert": [("test_x", "INERT", "assert", "KILLED", "assertion failed: 1 != 2")],
+    "missing": [("test_x", "TEST MISSING", "", "NOT RUN", "no test matches the paired name")],
+    "silent": [("test_x", "TEST MISSING", "", "NOT RUN", "the run reported no result for the paired test")],
+}
+# mode -> what the console must print for the kill of a pairing with several tests
+CONSOLE = {
+    "tuple": "1/2 of the pairing red, survivor=test_x)",
+    "tuplesetup": "1/2 of the pairing red, survivor=test_xLonger)",
+}
+
+
+def pinned(mode, out, rows):
+    """Raises AssertionError unless the run of `mode` wrote the ROWS and printed the CONSOLE pinned
+    for it."""
+    if mode in CONSOLE:
+        assert CONSOLE[mode] in out, f"{mode}: expected '{CONSOLE[mode]}' in:\n{out}"
+    if mode in ROWS:
+        cols = [rows[0].index(c) for c in ("test", "verdict", "route", "test_verdict", "detail")]
+        got = sorted(tuple(r[c] for c in cols) for r in rows[1:])
+        assert got == sorted(ROWS[mode]), f"{mode}: verdict rows {got}"
+
+
+DRIVER_MUTANTS += [
+    ("a fuzz counterexample read as part of the revert", 'head = reason.split("; counterexample")[0].strip()',
+     'head = reason.strip()', "customfuzz"),
+    ("an EvmError not read as a halt", 'panic: |EvmError: |custom error |', 'panic: |custom error |', "evmerror"),
+    ("an unnamed custom error not read as a halt", 'panic: |EvmError: |custom error |',
+     'panic: |EvmError: |', "unknownerror"),
+    ("a message that starts with a call read as a halt", '[A-Za-z_]\\w*\\([^()]*\\)$")', '[A-Za-z_]\\w*\\([^()]*\\)")',
+     "namedmessage"),
+    ("a revert named inside an assert message read as a halt", "    if REVERT_REASON.match(head):\n",
+     "    if REVERT_REASON.search(head):\n", "expectmismatch"),
+    ("the split reads one name in two contracts as a kill",
+     '        if len({r[0] for r in mine if r[0] != "SNAPSHOT"}) > 1:\n', "        if False:\n", "ambiguous"),
+    ("the split reads a test that never ran as a survivor", '"SURVIVED" if mine else "NOT RUN"', '"SURVIVED"', "tuplesetup"),
+    ("the split reads a test that never ran as a kill", '"SURVIVED" if mine else "NOT RUN"',
+     '"SURVIVED" if mine else "KILLED"', "tuplesetup"),
+    ("the split loses how its test went red", 'rows.append((n, "KILLED", route(red[0][0], red[0][2]), red[0][2]))',
+     'rows.append((n, "KILLED", "assert", red[0][2]))', "evmerror"),
+    ("the verdict file gives every test the mutant's route",
+     "            for i, verdict, _, _, nome, detail, split in rows:\n                for test, tv, how, reason in split:\n"
+     "                    r = (i, verdict, how, test, tv, nome, reason or detail)",
+     "            for i, verdict, mh, _, nome, detail, split in rows:\n                for test, tv, how, reason in split:\n"
+     "                    r = (i, verdict, mh, test, tv, nome, reason or detail)", "tuple"),
+    ("the verdict file drops each test's own reason", "r = (i, verdict, how, test, tv, nome, reason or detail)",
+     "r = (i, verdict, how, test, tv, nome, detail)", "tuple"),
+    ("the pairing count credits every test", 'red = sum(1 for r in split if r[1] == "KILLED")', "red = len(split)", "tuple"),
+    ("the survivor of a pairing not named", '(", survivor=" + ",".join(rest) if rest else "")', '""', "tuple"),
 ]
 
 
@@ -160,7 +256,7 @@ def load(text=None):
 def verdict(mod, mode, tsv=None):
     """(exit code, stdout, forge calls) of mod.main() on one mutant whose run ends as `mode`; with
     `tsv`, the run writes its MUTANTS_VERDICTS there."""
-    mod.M[0]["teste"] = ("test_x", "test_xLonger") if mode == "tuple" else "test_x"
+    mod.M[0]["teste"] = ("test_x", "test_xLonger") if mode in TUPLES else "test_x"
     cwd, path = os.getcwd(), os.environ.get("PATH", "")
     with tempfile.TemporaryDirectory() as d:
         for sub in ("src", "bin", "snapshots"):
@@ -183,6 +279,8 @@ def verdict(mod, mode, tsv=None):
                 os.environ.pop(k, None)
             os.environ.update(PATH=os.path.join(d, "bin") + os.pathsep + path, FAKE_FORGE_MODE=mode,
                               FAKE_FORGE_LOG=log)
+            if mode in REAL:
+                os.environ["FAKE_FORGE_OUT"] = "\n".join(REAL[mode])
             if tsv:
                 os.environ["MUTANTS_VERDICTS"] = tsv
             with contextlib.redirect_stdout(out):
@@ -197,7 +295,7 @@ def verdict(mod, mode, tsv=None):
         finally:
             os.chdir(cwd)
             os.environ["PATH"] = path
-            for k in ("FAKE_FORGE_MODE", "FAKE_FORGE_LOG", "MUTANTS_VERDICTS"):
+            for k in ("FAKE_FORGE_MODE", "FAKE_FORGE_LOG", "FAKE_FORGE_OUT", "MUTANTS_VERDICTS"):
                 os.environ.pop(k, None)
             for k, v in saved.items():
                 if v is not None:
@@ -232,7 +330,18 @@ def check(mod, mode):
         assert got == [("test_x", "KILLED", "SURVIVED"), ("test_xLonger", "KILLED", "KILLED")], f"split rows: {rows}"
         return
     kill, label = CASES[mode]
-    code, out, _ = verdict(mod, mode)
+    fingerprint = mod.artefact_fingerprint
+    if mode == "inert":  # the build left the artefact as it was
+        mod.artefact_fingerprint = lambda *a, **k: {"x": 1}
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "verdicts.tsv")
+            code, out, _ = verdict(mod, mode, tsv=path)
+            with open(path) as f:
+                rows = [l.rstrip("\n").split("\t") for l in f]
+    finally:
+        mod.artefact_fingerprint = fingerprint
+    pinned(mode, out, rows)
     assert label in out, f"{mode}: expected '{label}' in:\n{out}"
     if kill:
         assert code == 0 and CAUGHT in out and f"{kill} 1" in out, f"{mode}: not scored as a kill:\n{out}"

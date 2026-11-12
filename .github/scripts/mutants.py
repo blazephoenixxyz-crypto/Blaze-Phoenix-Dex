@@ -7121,10 +7121,9 @@ NAME_AFTER = re.compile(r"\]\s+(\w+)\s*(?:\(|$)")
 NAME_LINE = re.compile(r"^\s*(\w+)\([^)]*\)\s+\((?:runs|gas)\b")
 SNAPSHOT_DIFF = re.compile(r"^\s*\[(\w+)\] Failed to match snapshots")
 ASSERT_REASON = re.compile(r"assertion failed| != | [<>]=? |expected|delta|snapshot", re.I)
-REVERT_REASON = re.compile(r"panic: |EvmError: |custom error |revert: |[A-Za-z_]\w*\([^()]*\)$")
-# forge v1.8.5 prints `Warning: no tests match the provided pattern:` and exits 0; older ones
-# printed `No tests match` and exited 1.
-NO_TESTS = re.compile(r"no tests match", re.I)
+REVERT_REASON = re.compile(r"panic: |EvmError: |custom error |[A-Za-z_]\w*\([^()]*\)$")
+# forge v1.8.5 prints `Warning: no tests match the provided pattern:` and exits 0.
+NO_TESTS = re.compile(r"no tests match")
 
 
 def results(out):
@@ -7229,6 +7228,17 @@ def per_test(t, out):
         else:
             rows.append((n, "SURVIVED" if mine else "NOT RUN", "", ""))
     return rows
+
+
+def pairing(split):
+    """`; k/n of the pairing red, survivor=a,b` for a pairing of several tests (the split of
+    per_test): how many named their own failure, and which did not (passed, never ran, or
+    ambiguous). Empty for a pairing of one test."""
+    if len(split) < 2:
+        return ""
+    red = sum(1 for r in split if r[1] == "KILLED")
+    rest = [r[0] for r in split if r[1] != "KILLED"]
+    return f"; {red}/{len(split)} of the pairing red" + (", survivor=" + ",".join(rest) if rest else "")
 
 
 def artefact_fingerprint(harness=()):
@@ -7381,7 +7391,7 @@ def main():
                               f"naming that test failing, so the kill is not evidence ({detail}).")
                 print(f"  [{i}] {verdict:<12} {m['nome']}")
             else:
-                print(f"  [{i}] ok {how:<9} {m['nome']}")
+                print(f"  [{i}] ok {how:<9} {m['nome']}" + (f"  ({pairing(split)[2:]})" if len(split) > 1 else ""))
         finally:
             open(m["f"],"w").write(bak)
     print()
