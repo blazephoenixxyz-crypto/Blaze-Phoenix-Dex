@@ -2827,8 +2827,13 @@ M = [
  dict(nome='fee seal [487]: _bal stops subtracting the kept shares (every swap read sees the owed fees as its balance)',
       f='src/BlazePhoenixRouter.sol',
       old='        assembly { let k := tload(s) b := mul(gt(b, k), sub(b, k)) }',
+      # Retargeted 2026-11-12 (mg1): 7c4ad36 (4111) rebases the bridge at Router:964 with the same
+      # `_bal`, so a kept hop-1 fee cancels out of the bridge sweep and that test went decorative.
+      # The input sweep (Router:1502-1503) measures `_bal(tokenIn)` against a `baseIn` read before
+      # hop 0's fee was kept: on the raw balance the booked fee is swept back to the payer
+      # (the payer spends 600e18, not 601.68e18).
       new='        // MUTANT [487]',
-      teste='test_OwedOnABridgeHop_IsNeitherSpentNorSwept'),
+      teste='test_OwedNeverReachesTheInputSweep_TwoSwapsOneTransaction'),
  dict(nome='fee seal [488]: the push is no longer gas-capped (a token that burns the gas takes the swap with it)',
       f='src/BlazePhoenixRouter.sol',
       old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
