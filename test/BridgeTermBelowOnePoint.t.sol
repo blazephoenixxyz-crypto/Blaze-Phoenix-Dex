@@ -32,7 +32,9 @@ pragma solidity 0.8.36;
 //          Kills the Core term rounded up (f = 1 reads 2) and half up (f = 2 reads 3).
 //    Both  the seated control scores, through the Core, what the Hub projected.
 //
-//  Green at cb1d7d9 and on this branch (no fix: the two producers agree).
+//  Green at cb1d7d9 and on this branch (no fix: the two producers agree). Red at 912bfa4
+//  (OutOfGas: fix-1102, d7152b9, counts only anchored ticks that close an interval; the
+//  warm-up looped forever on unanchored ticks); the ticks are anchored and spaced since.
 //  Red under (mutants.py, each run alone, 2026-11-10): MT6-11 the Hub term
 //  rounded up (the bucket-0 and the bucket-1 refusals), MT6-12 the Hub term
 //  rounded half up (the bucket-1 refusal), MT6-13 the Core term rounded up (all
@@ -79,11 +81,27 @@ contract BridgeTermBelowOnePointTest is Test {
         return hub.getPsi(pool, address(A), address(B));
     }
 
+    /// One anchored swap, one tau after the last: since fix-1102 (d7152b9) the clock moves only
+    /// on an anchored tick (`TICK_ANCHORED`, what the Router passes on a material leg) that
+    /// closes a real interval, and measures tau on it. One trade per tau (6144 s, the step the
+    /// clock assumes before it has measured one) confirms tau, so h stays 24576 and the score,
+    /// a rate (c x 24576 / h, f0e19a49), reads the count itself for c <= 7, where floor(c / 8)
+    /// decays nothing. At a one-second cadence tau falls 1/8 per tick and 3 trades read 4. The
+    /// clock is read through the cheatcode, never `block.timestamp`: this via_ir build hoists
+    /// one TIMESTAMP out of the loop, so `vm.warp(block.timestamp + 1)` warped to the same
+    /// second every tick (trace at 912bfa4: 13 x `VM::warp(2)`) and the warm-up never reached n.
+    uint256 constant TAU = BPC.VITALITY_DECAY_STEP_SECONDS / BPC.VITALITY_STEPS_PER_TAU;
+
+    function _tick(address pool, uint256 depthWad) internal {
+        vm.warp(vm.getBlockTimestamp() + TAU);
+        hub.recordSwap(
+            pool, BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, depthWad | BPC.TICK_ANCHORED
+        );
+    }
+
     /// Swaps recorded until the row's count reaches `n`, each at the given measured depth.
     function _warm(address pool, uint256 depthWad, uint32 n) internal {
-        while (BPC.decodeSwapCount(hub.getSlot(_key(pool))) < n) {
-            hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, depthWad);
-        }
+        while (BPC.decodeSwapCount(hub.getSlot(_key(pool))) < n) _tick(pool, depthWad);
     }
 
     /// Fills the bridged pair with MAX_SLOTS (16) incumbents of one swap at `depthWad`, and
@@ -101,7 +119,10 @@ contract BridgeTermBelowOnePointTest is Test {
     function _offer(uint256 depthWad) internal returns (address) {
         MockV2Pair p = _v2(depthWad);
         Origin.wire(hub, address(p), address(A), address(B), BPC.KIND_V2, 30);
-        hub.recordSwap(address(p), BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, depthWad);
+        // Anchored: a row never stamped is counted without closing an interval (fix-1102).
+        hub.recordSwap(
+            address(p), BPC.KIND_V2, 30, address(0), address(A), address(B), 1, 1, depthWad | BPC.TICK_ANCHORED
+        );
         return address(p);
     }
 
