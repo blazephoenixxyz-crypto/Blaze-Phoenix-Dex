@@ -12,7 +12,15 @@ pragma solidity 0.8.36;
 //
 // So the answer is compared whole. `SolverRefPoda1027` is the Solver of 8938b6a (59ecf3f plus
 // poda's dust rule), literally (the code before the move), over the Core of cb1d7d9 frozen as
-// `CoreRefCb1d7d9`, so an answer the live Core changes turns a row red; both Solvers read the same Hub and the same state, and each call must
+// `CoreRefCb1d7d9`, so an answer the live Core changes turns a row red, with ONE read excepted: the band's vote. Since MAT-02
+// (2026-11-10) a book votes with the tokenOut it declares (the Core's `mass`), a unit the frozen
+// Core does not have, so the reference takes the vote's mass and rank from the live Core's
+// `universalProbe` (its header says how). The reason is what a differential test is for: it
+// fixes everything but the unit under test, and the unit here is the Solver, not the Core. A
+// reference voting the short side against a Solver voting the tokenOut side would compare two
+// changes at once, and a red row could not say which one moved; the Core's unit is held by
+// test/Mat01FunnelMassIsHeld.t.sol, test/Mat02BandVoteIsOneUnit.t.sol and the `massa` mutants.
+// Both Solvers read the same Hub and the same state, and each call must
 // come back with the same success and the same returndata bytes. The fixed rows are the shapes
 // the moved code decides on (an outlier against the band, a funnel cut over more candidates
 // than legs, concentrated books voting with what they hold, bridge stages whose second pass
@@ -233,6 +241,9 @@ contract MathBoundarySameAnswerTest is Test {
 
     /// Three honest books and one deep book far from their rate, below it, above it, short of
     /// half the mass and past it (test/BandBaseBreakdownPoint.t.sol's shapes).
+    /// History: until 2026-11-10 the fourth book was (1.15M, 2.3M), short of half the mass by
+    /// its short side. A book's mass is the tokenB it holds (MAT-02): the books above the rate
+    /// hold 600k + 850k = 1.45M against 1.5M, the 49.2% the row was drawn at.
     function test_D10_SameAnswer_BandAgainstAnOutlier() public {
         for (uint256 i; i < 3; ++i) _v2Found(tA, tB, 400_000e18, 400_000e18);
         _row("3 honest books", tA, tB, 300_000e18);
@@ -240,7 +251,7 @@ contract MathBoundarySameAnswerTest is Test {
         _row("an outlier below the rate", tA, tB, 300_000e18);
         _v2Found(tA, tB, 300_000e18, 600_000e18);
         _row("and one above", tA, tB, 300_000e18);
-        _v2Found(tA, tB, 1_150_000e18, 2_300_000e18);
+        _v2Found(tA, tB, 425_000e18, 850_000e18);
         _row("and one short of half the mass", tA, tB, 300_000e18);
         _v2Found(tA, tB, 5_000_000e18, 2_500_000e18);
         _row("and one past half the mass", tA, tB, 300_000e18);

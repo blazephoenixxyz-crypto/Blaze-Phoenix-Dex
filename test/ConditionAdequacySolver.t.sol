@@ -417,10 +417,14 @@ contract CABandMachinery is CABase {
     ///  sorted crosses on the fair 1.0 pool; reversed crosses on the 1.3 pool.
     ///  The band then admits exactly one candidate each way — route identity
     ///  and exact output pin the sorted walk.
+    ///  The mass of a book is the tokenB it holds (MAT-02): half of 1.13M is 565k, the sorted
+    ///  walk meets it on the fair pool (210k + 400k), the candidate order on the 1.3 pool.
+    ///  History: until 2026-11-10 the 1.3 pool was (500k, 650k) and weighed its short side,
+    ///  500k of tokenA; counted in tokenB it holds 650k and is the median of 1.26M itself.
     function test_L1056c2_WeightedMedianWalksTheSortedPairs() public {
         _fresh();
         MockV2Pair fair = _seedV2(address(tokenA), address(tokenB), 400_000e18, 400_000e18); // rate ~1.0, mass 400k
-        _seedV2(address(tokenA), address(tokenB), 500_000e18, 650_000e18);                   // rate ~1.3, mass 500k
+        _seedV2(address(tokenA), address(tokenB), 400_000e18, 520_000e18);                   // rate ~1.3, mass 520k
         _seedV2(address(tokenA), address(tokenB), 300_000e18, 210_000e18);                   // rate ~0.7, mass 210k
 
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), 1_000e18);

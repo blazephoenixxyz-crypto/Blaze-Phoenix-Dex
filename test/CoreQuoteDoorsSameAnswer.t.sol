@@ -39,6 +39,14 @@
 //  two `test_*SolidlyFee*` tests count the read itself on a real Solidly pair:
 //  none for a quote or a ranking, one for a probe, on each side.
 //
+//  THE WORD NOT COMPARED (MAT-02, 2026-11-10, merged 2026-11-12). The probe door's first
+//  word is `mass` since MAT-02: the tokenOut side a book declares, the unit of the band's
+//  vote. The frozen Core of cb1d7d9 answers the short side there (`depthWad`), a unit the
+//  tree no longer has, so `_sameProbe` holds the probe door to the frozen one on its success
+//  flag, its length and its other three words (rank, fee, err), byte for byte, and on the
+//  whole revert data when both refuse. The first word is held where its unit is made:
+//  test/Mat02BandVoteIsOneUnit.t.sol and test/HopMassIsTokenOutHeld.t.sol.
+//
 //  MUTANTS (.github/scripts/mutants.py, label morf-12; each run alone, each red here):
 //    [a] universalProbe hands `false` for `wantFee`: the Solidly fee reads 0
 //        -> test_TheProbeReadsTheSolidlyFeeOnce, testFuzz_universalProbe_SameAnswer,
@@ -225,6 +233,23 @@ contract CoreQuoteDoorsSameAnswerTest is Test {
         assertEq(ret, retF, string.concat(what, ": the answers differ"));
     }
 
+    /// @dev The probe door: same success, same bytes but the first word (see THE WORD NOT
+    ///      COMPARED in the header). Returns the live answer.
+    function _sameProbe(bytes memory cd, string memory what) private view returns (bool ok, bytes memory ret) {
+        (ok, ret) = _ask(live, cd);
+        (bool okF, bytes memory retF) = _ask(frozen, cd);
+        assertEq(ok, okF, string.concat(what, ": one side reverted, the other answered"));
+        if (!ok || ret.length != 128 || retF.length != 128) {
+            assertEq(ret, retF, string.concat(what, ": the answers differ"));
+            return (ok, ret);
+        }
+        (, uint256 r1, uint256 f1, uint256 e1) = abi.decode(ret, (uint256, uint256, uint256, uint256));
+        (, uint256 r2, uint256 f2, uint256 e2) = abi.decode(retF, (uint256, uint256, uint256, uint256));
+        assertEq(r1, r2, string.concat(what, ": the ranks differ"));
+        assertEq(f1, f2, string.concat(what, ": the fees differ"));
+        assertEq(e1, e2, string.concat(what, ": the error bounds differ"));
+    }
+
     // ---------------------------------------------------------------- fuzz, one door each
 
     /// The Quoter's question: the old `universalQuote` against the one door at (max, false).
@@ -249,7 +274,7 @@ contract CoreQuoteDoorsSameAnswerTest is Test {
     /// The band's question: bar 0 and the fee the figure charged.
     function testFuzz_universalProbe_SameAnswer(uint256 seed, uint256 pick, uint256 amountIn) public {
         _dial(seed);
-        _same(abi.encodeCall(IQuoteDoors.probe, (_ctx(seed, _kind(pick)), _size(seed, amountIn))), "universalProbe");
+        _sameProbe(abi.encodeCall(IQuoteDoors.probe, (_ctx(seed, _kind(pick)), _size(seed, amountIn))), "universalProbe");
     }
 
     // ---------------------------------------------------------------- the fee read is the caller's word
@@ -289,7 +314,7 @@ contract CoreQuoteDoorsSameAnswerTest is Test {
     function test_TheProbeReadsTheSolidlyFeeOnce() public {
         QuoteCtx memory c = _solidlyCtx();
         vm.expectCall(c.pool, abi.encodeWithSignature("factory()"), 2);
-        (, bytes memory ret) = _same(abi.encodeCall(IQuoteDoors.probe, (c, 1_000e18)), "solidly probe");
+        (, bytes memory ret) = _sameProbe(abi.encodeCall(IQuoteDoors.probe, (c, 1_000e18)), "solidly probe");
         (, uint256 rnk, uint256 fee,) = abi.decode(ret, (uint256, uint256, uint256, uint256));
         assertGt(rnk, 0, "the pair did not answer the probe");
         assertEq(fee, 3000, "the probe did not answer the pair's fee");
@@ -333,7 +358,7 @@ contract CoreQuoteDoorsSameAnswerTest is Test {
         bar = pick == 0 ? 0 : pick == 1 ? type(uint256).max : (r >> 40) % (2 * a + 1);
         _same(abi.encodeCall(IQuoteDoors.quote, (c, a)), "V4 book quote");
         _same(abi.encodeCall(IQuoteDoors.rank, (c, a, bar)), "V4 book rank");
-        _same(abi.encodeCall(IQuoteDoors.probe, (c, a)), "V4 book probe");
+        _sameProbe(abi.encodeCall(IQuoteDoors.probe, (c, a)), "V4 book probe");
     }
 
     /// The bar is read in one place: when the sixteenth stretch closes with input unspent, the
@@ -377,7 +402,7 @@ contract CoreQuoteDoorsSameAnswerTest is Test {
                 QuoteCtx memory c = _ctx(seed, uint8(k));
                 for (uint256 i; i < sizes.length; ++i) {
                     _same(abi.encodeCall(IQuoteDoors.quote, (c, sizes[i])), "edge quote");
-                    _same(abi.encodeCall(IQuoteDoors.probe, (c, sizes[i])), "edge probe");
+                    _sameProbe(abi.encodeCall(IQuoteDoors.probe, (c, sizes[i])), "edge probe");
                     for (uint256 b; b < bars.length; ++b) {
                         _same(abi.encodeCall(IQuoteDoors.rank, (c, sizes[i], bars[b])), "edge rank");
                     }
@@ -446,7 +471,7 @@ contract CoreQuoteDoorsSameAnswerTest is Test {
             if (out > 0) ++s.live;
             if (rnk != out) ++s.ranked;
         }
-        (ok, ret) = _same(abi.encodeCall(IQuoteDoors.probe, (c, a)), "witness probe");
+        (ok, ret) = _sameProbe(abi.encodeCall(IQuoteDoors.probe, (c, a)), "witness probe");
         if (ok) {
             (,, uint256 fee,) = abi.decode(ret, (uint256, uint256, uint256, uint256));
             if (fee > 0 && fee < 0xFFFFFF) ++s.feeRead;

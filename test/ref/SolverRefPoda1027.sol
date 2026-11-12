@@ -24,6 +24,27 @@
 // Solver did; on the four topologies both judge now, the move of the hop's arithmetic into
 // BlazePhoenixMath is still held to this text.
 //
+// ALIGNED 2026-11-10 TO THE UNIT OF THE BAND'S MASS (MAT-02). A book's vote is now a count of
+// tokenOut: the side of the bought token it declares (Core.universalProbe's `mass`), under the
+// cap by the tokenOut it holds. In 8938b6a it was the short side (`universalQuoteRank`'s depth)
+// under the same cap, a count of whichever token had fewer units, so the old reference answered
+// for a rule the tree no longer has wherever a book's short side is not its tokenOut side. ONE
+// read moved with the Solver: the band's vote takes its mass and its rank from the LIVE Core's
+// `universalProbe` (src/BlazePhoenixCore.sol, at bar 0 with the fee: the rank is the figure
+// `universalQuoteRank` read before), through `_ctx`, the context builder split out of
+// `_quoteWithDepth` as in the Solver, and `_liveCtx`, which restates it in the live Core's
+// struct type. It reads the live Core, not the frozen CoreRefCb1d7d9, on purpose (2026-11-12):
+// a differential test of the Solver fixes everything but the unit under test, and the unit here
+// is the Solver. The frozen Core has no `mass`; adding one would unfreeze it, and reading its
+// short side would mix two changes (the Core's unit and the Solver's mechanisms) in one
+// comparison, so a red row would say nothing about which moved. The Core's mass is guarded
+// where it is made: test/Mat01FunnelMassIsHeld.t.sol, test/Mat02BandVoteIsOneUnit.t.sol and
+// the `massa` mutants of .github/scripts/mutants.py. Every other Core read of this reference
+// stays on CoreRefCb1d7d9. NOT moved: the funnel's dust rule (`_dropDust`) still reads
+// `BPC.registryDepth18Dec`, where the Solver reads `BPC.hopMass18` and walks the held books.
+// test/MathBoundarySameAnswer.t.sol holds the two to one answer on the rows it draws; it proves nothing
+// where the two funnels would part.
+//
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
 //  Version    : 2.0.0
@@ -81,6 +102,7 @@ import {
     CoreRefCb1d7d9 as BPC,
     PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx
 } from "./CoreRefCb1d7d9.sol";
+import {BlazePhoenixCore as LiveCore, QuoteCtx as LiveQuoteCtx} from "../../src/BlazePhoenixCore.sol";
 
 /// The public entry `Core.v4HeldShare` had at 59ecf3f, as a linked library of its own.
 library CoreHeldShareRef {
@@ -669,7 +691,9 @@ contract SolverRefPoda1027 {
         for (uint256 i; i < n; ) {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (, uint256 d, uint256 o, ) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_, 0);
+            // The vote's mass and rank come from the LIVE Core (see the header): the frozen
+            // CoreRefCb1d7d9 has no `mass`, and the Core's unit is not what this reference tests.
+            (uint256 d, uint256 o, , ) = LiveCore.universalProbe(_liveCtx(_ctx(cands[i], tIn, dIn1_, dOt1_)), probe, 0, true);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
@@ -1551,6 +1575,14 @@ contract SolverRefPoda1027 {
     function _quoteWithDepth(
         PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
     ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
+        (out, depth, rank, hi) = BPC.universalQuoteRank(_ctx(cand, tIn, dIn1, dOt1), amt, bar);
+    }
+
+    /// @dev ALIGNED 2026-11-10 (MAT-02, see the header): the Solver's own context builder, split
+    ///      out of `_quoteWithDepth` so the band's vote can read `BPC.universalProbe`.
+    function _ctx(PoolInfo memory cand, address tIn, uint8 dIn1, uint8 dOt1)
+        private view returns (QuoteCtx memory c)
+    {
         bool zfo = cand.token0 == tIn;
         // Native V4: PoolInfo carries the pair in WETH-canonical form with token0 = the
         // wrapped-native side (the registry's orientation contract - see Hub._readPoolInfo).
@@ -1559,7 +1591,7 @@ contract SolverRefPoda1027 {
         // poolId. zeroForOne needs no branch: token0 == tIn already means "input is
         // currency0" under this orientation. Every other kind passes through untouched.
         (address qIn, address other) = BPC.v4LegCurrencies(cand.kind, tIn, zfo ? cand.token1 : cand.token0, zfo);
-        QuoteCtx memory c = QuoteCtx({
+        c = QuoteCtx({
             kind:        cand.kind,
             pool:        cand.pool,
             zeroForOne:  zfo,
@@ -1581,7 +1613,17 @@ contract SolverRefPoda1027 {
             decIn1:      dIn1,
             decOther1:   dOt1
         });
-        (out, depth, rank, hi) = BPC.universalQuoteRank(c, amt, bar);
+    }
+
+    /// @dev The same context as the live Core's `QuoteCtx` type (the two structs are field for
+    ///      field the same), for the one read that goes to the live Core: the band's vote.
+    function _liveCtx(QuoteCtx memory c) private pure returns (LiveQuoteCtx memory l) {
+        l = LiveQuoteCtx({
+            kind: c.kind, pool: c.pool, zeroForOne: c.zeroForOne, fee: c.fee,
+            tickSpacing: c.tickSpacing, stable: c.stable, tokenIn: c.tokenIn,
+            tokenOther: c.tokenOther, hooks: c.hooks, v4Manager: c.v4Manager, hub: c.hub,
+            decIn1: c.decIn1, decOther1: c.decOther1
+        });
     }
 
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than

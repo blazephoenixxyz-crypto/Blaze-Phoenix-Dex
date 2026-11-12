@@ -363,7 +363,7 @@ library BlazePhoenixMath {
     }
 
     /// @dev THE MASS A SINGLETON BOOK VOTES WITH IS THE SHARE OF ITS DEPTH IT HOLDS. A V4
-    ///      depth is `depthFromL18(L, P)`: the virtual reserves of the current L as if it
+    ///      depth is `outSide18(L, P)`: the virtual output reserve of the current L as if it
     ///      spanned every price, which a range of a few ticks declares for a small fraction of
     ///      the tokens. Inside one stretch between initialized ticks the most the book pays is
     ///      its real reserve on the output side (Uniswap v3 whitepaper, 6.2): L*(sqrtP - sqrtPa)
@@ -409,10 +409,12 @@ library BlazePhoenixMath {
     ///      to out-depth ONE pool and now needs more than HALF the depth mass of the whole
     ///      set. Breakdown point: 0 -> 50%.
     ///
-    ///      WHY SUMMING MASS IS LEGITIMATE: since `depthFromL`, depth is token-denominated in
-    ///      ALL families (min(x0,x1) for concentrated, min(r0,r1) for pair), so the sum makes
-    ///      sense. This was the premise missing before — and the same one that allowed removing
-    ///      the per-family normalization of the weights.
+    ///      WHY SUMMING MASS IS LEGITIMATE: the mass of a row is a count of tokenOut in ALL
+    ///      families (`Core.universalProbe`: the out side the venue declares, capped by the
+    ///      tokenOut it holds), so the sum makes sense and no restatement of a token moves it
+    ///      (MAT-02: min(x0,x1) and min(r0,r1) counted whichever token had fewer units). This was
+    ///      the premise missing before — and the same one that allowed removing the per-family
+    ///      normalization of the weights.
     ///
     ///      DEGENERATES WELL: a pool that alone holds >50% of the mass returns its own row,
     ///      which is the old behaviour — and correct, because then it IS the market. With equal

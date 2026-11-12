@@ -18,7 +18,15 @@ pragma solidity 0.8.36;
 //
 // `SolverRef653` is the Solver of 653b1dc with its own frozen library `MathRef653` (both
 // literal, renamed), and both read the Core of cb1d7d9 frozen as `CoreRefCb1d7d9`, so an answer
-// the live Core changes turns a row red. Both Solvers read the same Hub and the same state, and each call must come
+// the live Core changes turns a row red, with ONE read excepted: the band's vote. Since MAT-02
+// (2026-11-10) a book votes with the tokenOut it declares (the Core's `mass`), a unit the frozen
+// Core does not have, so the reference takes the vote's mass and rank from the live Core's
+// `universalProbe` (its header says how). The reason is what a differential test is for: it
+// fixes everything but the unit under test, and the unit here is the Solver, not the Core. A
+// reference voting the short side against a Solver voting the tokenOut side would compare two
+// changes at once, and a red row could not say which one moved; the Core's unit is held by
+// test/Mat01FunnelMassIsHeld.t.sol, test/Mat02BandVoteIsOneUnit.t.sol and the `massa` mutants.
+// Both Solvers read the same Hub and the same state, and each call must come
 // back with the same success and the same returndata bytes, with all the gas and at the door's
 // budget (SOLVE_GAS). The fixed rows are the shapes the mechanisms decide on: bridge routes over
 // every bridge slot, the runner-up handed out beside a leader that walks and falls, held grids
@@ -449,8 +457,8 @@ contract G52SameAnswerTest is Test {
     }
 
     /// M11's one order lists the LIVE rows only, and the weighted median sums and walks exactly
-    /// those. Three rows in seed order (equal registry depth, so equal psi and the same fee: the
-    /// funnel keeps that order): a book at ~1.10, a book whose probe pays nothing (rate 0, the
+    /// those. Three rows in seed order (one registry depth bucket, so equal psi, and the same fee:
+    /// the funnel keeps that order): a book at ~1.10, a book whose probe pays nothing (rate 0, the
     /// dead row in the middle) and a book at ~1.00. Rates 10% apart, so the band keeps one book
     /// and the base names it.
     ///   X, equal votes D: half the mass is D, the walk meets it exactly on the book at 1.00
@@ -461,18 +469,22 @@ contract G52SameAnswerTest is Test {
     ///     m rows instead of the m live ones (D + 0, the dead row sits among them) halves at
     ///     0.5 D and centres the band on 1.00.
     /// The amount is small (probe 1e13) so a dead row can sit at the same depth as the others.
+    /// History: until 2026-11-10 the books at 1.00 were (300e18, 300e18) and (350e18, 350e18) and
+    /// a vote was the book's short side. A vote is the tokenOut the book holds (MAT-02), 330e18
+    /// and 550e18 for the books at 1.10, so the books at 1.00 moved to keep the votes 1 : 1 and
+    /// 1 : 0.7.
     function test_G52_SameAnswer_MedianWalksTheLiveRowsOnly() public {
         address[3] memory x = [
-            _v2(tA, tB, 300e18, 330e18),   // ~1.10, vote 300e18
+            _v2(tA, tB, 300e18, 330e18),   // ~1.10, vote 330e18
             _v2(tA, tB, 5e33, 300e18),     // dead at the probe: 1e13 * 300e18 / 5e33 < 1
-            _v2(tA, tB, 300e18, 300e18)    // ~1.00, vote 300e18
+            _v2(tA, tB, 330e18, 330e18)    // ~1.00, vote 330e18
         ];
         address c = _token();
         address d = _token();
         address[3] memory y = [
-            _v2(c, d, 500e18, 550e18),     // ~1.10, vote 500e18
+            _v2(c, d, 500e18, 550e18),     // ~1.10, vote 550e18
             _v2(c, d, 5e33, 300e18),       // dead
-            _v2(c, d, 350e18, 350e18)      // ~1.00, vote 350e18 = 0.7 x 500e18
+            _v2(c, d, 385e18, 385e18)      // ~1.00, vote 385e18 = 0.7 x 550e18
         ];
         // Premises, read on the Solver of 653b1dc (the oracle, so they hold whatever the Solver
         // under test does and a mutant of it fails the comparison): the funnel keeps the seed
