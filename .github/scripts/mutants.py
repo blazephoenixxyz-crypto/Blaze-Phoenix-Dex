@@ -4544,6 +4544,9 @@ M = [
  # ceiling in test/DeployedSizeGate.t.sol. The ledgers are pinned to their snapshots, which every
  # run of this script checks (SNAPSHOT_FLAGS), so the GAS entries, SIZE-M1 and SIZE-M3 die by their
  # own snapshot group; SIZE-M2 and SIZE-M4 fail an assert. Sizes are the release profile's.
+ # SIZE-M4 was paired with the project gate until 2026-11-12: integ shrank the Core to 21,894 B
+ # (test_Size_RuntimeLedger.json), so a public v4HeldShare no longer crosses the gate and the
+ # mutant read DECORATIVE; the runtime ledger pins the exact size and kills it.
  dict(nome="gas-1106 G7 GAS-M1: the Router's legs loop pays an overflow check on its increment",
       f="src/BlazePhoenixRouter.sol",
       old="                    hopBlind = true;\n                }\n                unchecked { ++l; }\n",
@@ -4578,7 +4581,7 @@ M = [
       f="src/BlazePhoenixCore.sol",
       old="        address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar\n    ) internal view returns (uint256) {\n",
       new="        address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar\n    ) public view returns (uint256) { // MUTANT SIZE-M4\n",
-      teste="test_Size_RuntimeUnderProjectGate_CoreGateWrapperAndAdapters"),
+      teste="test_Size_RuntimeLedger"),
  # --- C-f2 (2026-10-27): labels [879]-[886], given at the 2026-10-27 integration ---
  dict(nome='DEX-10 V2 [879]: a smaller K on the quote side only - the Quoter prices a V2 leg one bp short of the pair',
       f='src/BlazePhoenixQuoter.sol',
@@ -6082,7 +6085,7 @@ M = [
  dict(nome="morf-SQ2-3: the split's share builds a context of its own",
       f="src/BlazePhoenixSolver.sol",
       old="            (uint256 outL, uint256 rL, ) = _quote(xs[i], share, 0);",
-      new="            (uint256 outL, uint256 rL, ) = _quote(_ctx(cands[i], tIn, dIn1_, dOt1_), share, 0); // MUTANT [morf-SQ2-3]",
+      new="            (uint256 outL, uint256 rL, ) = _quote(_ctx(cands[i], tIn, uint8(mode >> 16), uint8(mode >> 8)), share, 0); // MUTANT [morf-SQ2-3]",
       teste="test_Sq_OneManagerReadPerSingletonCandidate"),
  dict(nome="morf-SQ2-4: the gate's full-size single builds a context of its own",
       f="src/BlazePhoenixSolver.sol",
@@ -6504,12 +6507,12 @@ M = [
       new="            uint256 without = BPC.mulDiv(o2 + u2, 1_000_000, 1_000_000);   // G52 carry gate // MUTANT [morf-SQ2-17]\n",
       teste="test_Sq_SameAnswer_BandMovesTheSeats"),
  dict(nome="[morf-SQ2-18]: the 4007 frame keeps the reference's gross floor for every output of at most BPS wei, and a one-wei order disagrees",
-      f="test/ref/Frame4007.sol",
+      f="test/ref/Frame4007.sol", inl="test/SqSameAnswer.t.sol",
       old="        if (r.hops.length == 0 || r.totalOut == 0) return (r.singleOutFloor, r.singleOutFloor);\n",
       new="        if (r.hops.length == 0 || r.totalOut <= BPC.BPS) return (r.singleOutFloor, r.singleOutFloor); // MUTANT [morf-SQ2-18]\n",
       teste="test_Sq_SameAnswer_OneWeiOrderNetsToAZeroFloor"),
  dict(nome="[morf-SQ2-19]: the 4007 frame admits only the top floor rate the reference's floor rounds from, and a dust order's net floor one wei under it disagrees",
-      f="test/ref/Frame4007.sol",
+      f="test/ref/Frame4007.sol", inl="test/SqSameAnswer.t.sol",
       old="        uint256 fLo = f == 0 ? 0 : (f - 1) * BPC.BPS / r.totalOut + 1;\n",
       new="        uint256 fLo = fHi; // MUTANT [morf-SQ2-19]\n",
       teste="test_Sq_SameAnswer_DustOrderFloorIsInsideTheRateBand"),
@@ -6776,11 +6779,15 @@ def main():
         falhas.append(f"BASELINE FAILED: the unmutated suite exited {base_rc} and names no failed test "
                       f"or snapshot group, so no paired test can be cleared as green.")
         print(f"  BASELINE ?    exit {base_rc}, nothing named")
-    harness = sorted({m["f"] for _, m in mine if not m["f"].startswith("src/")})
+    # `inl`: a harness file that is a library of internal functions (test/ref/Frame4007.sol) has an
+    # artefact of its own that never moves; its code is inlined into the importer named by `inl`,
+    # whose artefacts are hashed under the mutant's own prefix (read INERT by construction, 2026-11-12).
+    harness = sorted({f for _, m in mine for f in (m["f"], m.get("inl")) if f and not f.startswith("src/")})
     pristine = artefact_fingerprint(harness)
     # A test file is recompiled only by the runs whose test it holds, so its objects stay as the last
     # mutant on it left them: each mutant is judged on src plus its own file, never on another's.
-    own = lambda d, f: {k: v for k, v in d.items() if ":" not in k or k.startswith(f + ":")}
+    own = lambda d, m: {k: v for k, v in d.items() if ":" not in k or k.startswith(m["f"] + ":")
+                        or (m.get("inl") and k.startswith(m["inl"] + ":"))}
     inert = []
     unseen = paired - green - red
     if red & paired:
@@ -6804,7 +6811,7 @@ def main():
             open(m["f"],"w").write(src.replace(m["old"], m["new"]))
             ok, out = run(m["teste"])
             fp = artefact_fingerprint(harness)
-            if pristine and fp and own(fp, m["f"]) == own(pristine, m["f"]):
+            if pristine and fp and own(fp, m) == own(pristine, m):
                 # The source moved and the artefact did not. Whatever the test did, it did not
                 # do it because of this mutant.
                 inert.append(f"[{i}] {m['nome']}: INERT - the deployed bytecode is byte-identical "
