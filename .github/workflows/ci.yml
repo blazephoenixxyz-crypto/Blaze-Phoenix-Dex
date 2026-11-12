@@ -304,6 +304,12 @@ jobs:
         # check is the one to run locally after ANY edit to src/.
         run: python3 .github/scripts/check_targets.py
 
+      - name: Mutant instrument self-test (a kill is named, never an exit code)
+        # No forge: mutants.main() against a stand-in forge, one synthetic run of each kind
+        # (assert, halt, snapshot, no compile, missing, setUp or another test red, 137/124/101,
+        # prefix, one name in two contracts), plus the instrument's own mutants.
+        run: python3 .github/scripts/test_mutants_instrument.py -v
+
   mutation-guard:
     name: mutation guard (shard ${{ matrix.shard }} of 17)
     runs-on: ubuntu-latest
