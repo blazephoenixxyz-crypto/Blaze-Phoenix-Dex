@@ -311,7 +311,7 @@ abstract contract HostileRowsHarness is Test {
     function _reentryRefused(HostileERC20 t) internal {
         _chk(t.hookCalls() == 1, "the hook fired once");
         _chk(!t.hookOk(), "the re-entering call was refused");
-        // the self-only door answers RouterE(1) to any caller that is not the Router; the rest are locked: RouterE(7)
+        // the self-only door answers RouterE(1) to any caller that is not the Router; every other door refuses the re-entry with RouterE(7)
         uint16 code = payload == 5 ? 1 : 7;
         _chk(t.hookRetHash() == keccak256(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, code)),
              "the re-entering call was not refused with the door's own code");
