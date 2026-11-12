@@ -7,6 +7,10 @@
    is reviewed against the property and added to CENSUS with its reason. Without this, "the
    Router never pays out a balance it did not receive in this call" is an accident of nobody
    writing such a read (the H11 vector T and the 3086 bridge sweep were exactly that read).
+   The other contracts hold no funds in flight, so a self-balance read there is an error unless
+   it is pinned in OTHERS_CENSUS with the reason nothing it holds survives the call. Reads are
+   attributed to the enclosing function, fallback() and receive() included: a read inside
+   fallback() must not be booked to the last named function above it.
 
 2. Delegated-frame guard: the swap never executes at an address other than the Router's own.
    `SELF = address(this)` is an immutable, and the first statement of `_execute` compares
@@ -21,6 +25,13 @@ import sys
 ROUTER = sys.argv[1] if len(sys.argv) > 1 else "src/BlazePhoenixRouter.sol"
 OTHERS = ["src/BlazePhoenixHub.sol", "src/BlazePhoenixSolver.sol", "src/BlazePhoenixMath.sol",
           "src/BlazePhoenixQuoter.sol", "src/BlazePhoenixCore.sol"]
+
+# (file, function) -> (number of self-balance reads, why nothing it holds or pays survives)
+OTHERS_CENSUS = {
+    ("src/BlazePhoenixQuoter.sol", "fallback"): (1, "the input probe (bounty uid 3984): the frame "
+        "measures what the venue, run backwards, paid it and pays it back; it always ends in "
+        "`revert InputProbe`, so nothing it holds or pays survives the call"),
+}
 
 # function -> (number of self-balance reads, the baseline that makes each one a delta)
 CENSUS = {
@@ -46,7 +57,7 @@ CENSUS = {
 # this transaction; each call is a self-balance read and is pinned like the raw ones.
 SELF_READ = re.compile(r"balanceOf\([^;]*address\(this\)\)|address\(this\)\.balance|selfbalance\(\)"
                        r"|(?<!function )\b_bal\(")
-FUNC = re.compile(r"^\s*function\s+([A-Za-z_0-9]+)\s*\(")
+FUNC = re.compile(r"^\s*(?:function\s+([A-Za-z_0-9]+)|(fallback|receive))\s*\(")
 COMMENT = re.compile(r"^\s*(///|//|\*|/\*)")
 
 errors = []
@@ -58,7 +69,7 @@ def reads_by_function(path):
         for n, line in enumerate(f, 1):
             m = FUNC.match(line)
             if m:
-                fn = m.group(1)
+                fn = m.group(1) or m.group(2)
             if COMMENT.match(line) or not SELF_READ.search(line):
                 continue
             found.setdefault(fn, []).append(n)
@@ -83,8 +94,18 @@ for p in OTHERS:
     except FileNotFoundError:
         continue
     for fn, lines in other.items():
-        errors.append(f"Custody guard: {p}:{lines[0]} ({fn}) reads its own balance; only the Router "
-                      f"holds funds in flight.")
+        pinned = OTHERS_CENSUS.get((p, fn))
+        if pinned is None:
+            errors.append(f"Custody guard: {p}:{lines[0]} ({fn}) reads its own balance; only the Router "
+                          f"holds funds in flight.")
+        elif len(lines) != pinned[0]:
+            errors.append(f"Custody guard: {p} {fn} reads its own balance {len(lines)}x (pinned "
+                          f"{pinned[0]}) at line(s) {','.join(map(str, lines))}; review the new read "
+                          f"against the reason in OTHERS_CENSUS and update it.")
+    for (path, fn), (want, _) in OTHERS_CENSUS.items():
+        if path == p and fn not in other:
+            errors.append(f"Custody guard: {p} {fn} no longer reads its own balance (pinned {want}); "
+                          f"if the read moved, the census must move with it.")
 
 # --- 2. delegated frame -----------------------------------------------------------------
 src = open(ROUTER).read()
@@ -105,5 +126,5 @@ if errors:
     for e in errors:
         print(f"::error::{e}")
     sys.exit(1)
-print(f"frame/custody guard: {sum(len(v) for v in seen.values())} self-balance reads, all pinned; "
-      f"_execute opens with the SELF check")
+print(f"frame/custody guard: {sum(len(v) for v in seen.values())} Router self-balance reads and "
+      f"{sum(n for n, _ in OTHERS_CENSUS.values())} elsewhere, all pinned; _execute opens with the SELF check")
