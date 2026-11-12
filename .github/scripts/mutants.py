@@ -21,7 +21,9 @@ A KILL IS NAMED, NEVER INFERRED FROM THE EXIT CODE (2026-11-12). A mutant is kil
 output names the paired test failing, or its own snapshot group differing (`classify`). A build
 that fails, a run that dies (137, 124, 101), a red setUp, or another test the pattern selected is
 not a kill and fails the guard under its own name. The paired name is anchored (`pattern`) and
-the fuzz seed is fixed (`FUZZ_SEED`). Self-test, no forge: .github/scripts/test_mutants_instrument.py.
+the fuzz seed is fixed (`FUZZ_SEED`). A kill is routed halt or assert only from a recognised form;
+a bare message is `unread` (`route`), and MUTANTS_VERDICTS has one row per paired test (`per_test`).
+Self-test, no forge: .github/scripts/test_mutants_instrument.py.
 """
 import re, subprocess, sys, shutil, os, tempfile, json, hashlib
 
@@ -7119,6 +7121,10 @@ NAME_AFTER = re.compile(r"\]\s+(\w+)\s*(?:\(|$)")
 NAME_LINE = re.compile(r"^\s*(\w+)\([^)]*\)\s+\((?:runs|gas)\b")
 SNAPSHOT_DIFF = re.compile(r"^\s*\[(\w+)\] Failed to match snapshots")
 ASSERT_REASON = re.compile(r"assertion failed| != | [<>]=? |expected|delta|snapshot", re.I)
+REVERT_REASON = re.compile(r"panic: |EvmError: |custom error |revert: |[A-Za-z_]\w*\([^()]*\)$")
+# forge v1.8.5 prints `Warning: no tests match the provided pattern:` and exits 0; older ones
+# printed `No tests match` and exited 1.
+NO_TESTS = re.compile(r"no tests match", re.I)
 
 
 def results(out):
@@ -7153,13 +7159,19 @@ def results(out):
 
 
 def route(status, reason):
-    """How the paired test went red: `snapshot` (its own gas group differs), `assert` (an assert or
-    an expectRevert/expectEmit check of the test failed), or `halt` (the test stopped on a revert,
-    panic or custom error it did not expect: red, but no check of the test fired). Anything not
-    recognised as an assert is a halt, the weaker reading."""
+    """How the paired test went red: `snapshot` (its own gas group differs), `halt` (the test
+    stopped on a revert it did not expect, read from its decoded form: a panic, a custom error
+    `Name(args)`, an EvmError), `assert` (an assert or an expectRevert/expectEmit check of the test
+    failed: `a != b`, `assertion failed`, ...), or `unread`: a bare message, which an assertTrue or
+    fail with a message and a require or revert string print alike, so the output does not say
+    which. Only a recognised form is counted as a halt or an assert; the decoded revert is read
+    first, so a custom error whose name holds an assert word is still a halt."""
     if status == "SNAPSHOT":
         return "snapshot"
-    return "assert" if ASSERT_REASON.search(reason) else "halt"
+    head = reason.split("; counterexample")[0].strip()
+    if REVERT_REASON.match(head):
+        return "halt"
+    return "assert" if ASSERT_REASON.search(head) else "unread"
 
 
 def classify(t, rc, out):
@@ -7179,7 +7191,7 @@ def classify(t, rc, out):
     names = (t,) if isinstance(t, str) else tuple(t)
     if "Compiler run failed" in out:
         return "NO COMPILE", "", "the mutated tree did not compile"
-    if "No tests match" in out:
+    if NO_TESTS.search(out):
         return "TEST MISSING", "", "no test matches the paired name"
     recs = results(out)
     own = [r for r in recs if r[1] in names]
@@ -7198,6 +7210,25 @@ def classify(t, rc, out):
     if rc != 0:
         return "NO EVIDENCE", "", f"exit {rc} naming no failure"
     return "TEST MISSING", "", "the run reported no result for the paired test"
+
+
+def per_test(t, out):
+    """[(test, verdict, route, reason)] for each test of the pairing t, read from the one run that
+    selected them all: KILLED (it named its own failure), SURVIVED (it printed [PASS]), AMBIGUOUS
+    (both, in two contracts) or NOT RUN (it reported nothing). classify scores the mutant (any test
+    of the pairing red); this is the split by measured kill, which tests of a tuple watch the guard,
+    without claiming that each one does."""
+    names, recs, rows = ((t,) if isinstance(t, str) else tuple(t)), results(out), []
+    for n in names:
+        mine = [r for r in recs if r[1] == n]
+        red = [r for r in mine if r[0] != "PASS"]
+        if len({r[0] for r in mine if r[0] != "SNAPSHOT"}) > 1:
+            rows.append((n, "AMBIGUOUS", "", "passed in one contract and failed in another"))
+        elif red:
+            rows.append((n, "KILLED", route(red[0][0], red[0][2]), red[0][2]))
+        else:
+            rows.append((n, "SURVIVED" if mine else "NOT RUN", "", ""))
+    return rows
 
 
 def artefact_fingerprint(harness=()):
@@ -7283,7 +7314,7 @@ def main():
     falhas = []
     k, n = shard()
     mine = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % n == k]
-    paired = {m["teste"] for _, m in mine}
+    paired = {n for _, m in mine for n in ((m["teste"],) if isinstance(m["teste"], str) else m["teste"])}
     green, red, base_out, base_rc = baseline()
     if base_rc != 0 and not red:
         # A run that fails while naming no failed test and no snapshot group (a snapshot error with
@@ -7324,7 +7355,8 @@ def main():
             rc, out = run(m["teste"])
             fp = artefact_fingerprint(harness)
             verdict, how, detail = classify(m["teste"], rc, out)
-            rows.append((i, verdict, how, m["teste"], m["nome"], detail))
+            split = per_test(m["teste"], out)
+            rows.append((i, verdict, how, m["teste"], m["nome"], detail, split))
             if verdict == "NO COMPILE":
                 # Checked before INERT: a failed build leaves out/ as it was, so the artefact
                 # reads unchanged although the source never compiled.
@@ -7333,7 +7365,7 @@ def main():
             elif pristine and fp and own(fp, m) == own(pristine, m):
                 # The source moved and the artefact did not. Whatever the test did, it did not
                 # do it because of this mutant.
-                rows[-1] = (i, "INERT", "", m["teste"], m["nome"], "artefact unchanged")
+                rows[-1] = (i, "INERT", "", m["teste"], m["nome"], "artefact unchanged", split)
                 inert.append(f"[{i}] {m['nome']}: INERT - the deployed bytecode is byte-identical "
                              f"to pristine, so this mutant exercises nothing.")
                 print(f"  [{i}] INERT        {m['nome']}  (artefact unchanged)")
@@ -7354,12 +7386,16 @@ def main():
             open(m["f"],"w").write(bak)
     print()
     if os.environ.get("MUTANTS_VERDICTS"):
-        # One row per mutant run, for counting outside the run: verdict and, for a kill, how
-        # (assert, halt, snapshot).
+        # One row per paired test of each mutant run, for counting outside the run: the mutant's
+        # verdict, then that test's own (KILLED, SURVIVED, AMBIGUOUS, NOT RUN) and, for its kill, how
+        # (assert, halt, unread, snapshot). A tuple pairing is split here by measured kill: a test
+        # of it that passed mutated shows as SURVIVED although the mutant is KILLED.
         with open(os.environ["MUTANTS_VERDICTS"], "w") as fh:
-            fh.write("idx\tverdict\troute\ttest\tmutant\tdetail\n")
-            for r in rows:
-                fh.write("\t".join(str(x).replace("\t", " ").replace("\n", " ") for x in r) + "\n")
+            fh.write("idx\tverdict\troute\ttest\ttest_verdict\tmutant\tdetail\n")
+            for i, verdict, _, _, nome, detail, split in rows:
+                for test, tv, how, reason in split:
+                    r = (i, verdict, how, test, tv, nome, reason or detail)
+                    fh.write("\t".join(str(x).replace("\t", " ").replace("\n", " ") for x in r) + "\n")
     if inert:
         print("INERT MUTANTS (the artefact never moved, so their verdict means nothing):")
         for f in inert: print("  -", f)
@@ -7367,10 +7403,10 @@ def main():
     if falhas:
         print("UNWATCHED GUARDS:"); [print("  -", f) for f in falhas]
         sys.exit(1)
-    hows = {h: sum(1 for r in rows if r[2] == h) for h in ("assert", "halt", "snapshot")}
+    hows = {h: sum(1 for r in rows if r[2] == h) for h in ("assert", "halt", "unread", "snapshot")}
     print(f"{len(mine)}/{len(mine)} guards with a test that catches them (shard {k + 1}/{n} of {len(M)}), "
           f"all green at baseline ({len(green)} passing tests); killed by "
-          f"assert {hows['assert']}, halt {hows['halt']}, snapshot {hows['snapshot']}.")
+          f"assert {hows['assert']}, halt {hows['halt']}, unread {hows['unread']}, snapshot {hows['snapshot']}.")
 
 if __name__ == "__main__":
     main()

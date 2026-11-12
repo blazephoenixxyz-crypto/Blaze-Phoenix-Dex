@@ -33,8 +33,8 @@ mutated = "// MUTANT" in open("src/X.sol").read()
 pat = argv[argv.index("--match-test") + 1] if "--match-test" in argv else None
 known = ["test_x()", "test_xLonger()"]
 sel = [s[:-2] for s in known if pat is None or re.search(pat, s)]
-if not sel:
-    print("No tests match the provided pattern"); sys.exit(1)
+if not sel:  # what forge v1.8.5 prints, exit 0
+    print("Warning: no tests match the provided pattern:\n\tmatch-test: `%s`" % pat); sys.exit(0)
 def out(*lines, rc=1):
     print("\n".join(lines)); sys.exit(rc)
 if not mutated:
@@ -54,10 +54,14 @@ if mode == "snapshot": out("[PASS] test_x() (gas: 1)", "[test_x] Failed to match
 if mode == "snapother": out("[PASS] test_x() (gas: 1)", "[test_other] Failed to match snapshots:")
 if mode == "pass":    out("[PASS] test_x() (gas: 1)", rc=0)
 if mode == "compile": out("Compiler run failed:", "Error (7576): Undeclared identifier.")
-if mode == "missing": out("No tests match the provided pattern", rc=0)
+if mode == "missing": out("Warning: no tests match the provided pattern:", "\tmatch-test: `^(test_x)(\\(.*)?$`", rc=0)
+if mode == "missingrc1": out("Warning: no tests match the provided pattern:", rc=1)
+if mode == "silent":  sys.exit(0)
+if mode == "message": out("[FAIL: door 3 refused] test_x() (gas: 1)")
+if mode == "customword": out("[FAIL: Staking__DeltaTooBig()] test_x() (gas: 1)")
 if mode == "setup":   out("[FAIL: AdapterE(3)] setUp() (gas: 0)")
 if mode == "other":   out("[FAIL: assertion failed] test_other() (gas: 1)")
-if mode == "prefix":
+if mode in ("prefix", "tuple"):
     out(*[("[FAIL: assertion failed] %s() (gas: 1)" if t == "test_xLonger" else "[PASS] %s() (gas: 1)") % t for t in sel],
         rc=1 if "test_xLonger" in sel else 0)
 if mode == "ambiguous": out("[PASS] test_x() (gas: 1)", "[FAIL: assertion failed] test_x() (gas: 1)")
@@ -80,6 +84,15 @@ CASES = {
     "pass":      (None, "DECORATIVE"),
     "compile":   (None, "NO COMPILE"),
     "missing":   (None, "TEST MISSING"),
+    "missingrc1": (None, "TEST MISSING"),
+    # exit 0 and no result for the paired test: the line that decides a missing test on forge v1.8.5
+    "silent":    (None, "TEST MISSING"),
+    # a bare message (assertTrue with a message, or a require string): neither halt nor assert
+    "message":   ("unread", "ok unread"),
+    # a decoded custom error is a halt even when its name holds an assert word
+    "customword": ("halt", "ok halt"),
+    # a pairing with two tests: the kill is the named failure of either (last: it keeps the tuple)
+    "tuple":     ("assert", "ok assert"),
     "setup":     (None, "NEIGHBOUR"),
     "other":     (None, "NEIGHBOUR"),
     "prefix":    (None, "DECORATIVE"),
@@ -108,7 +121,19 @@ DRIVER_MUTANTS = [
     ("one name in two contracts read as a kill", "        if len(st) > 1:\n", "        if False:\n", "ambiguous"),
     ("the invariant name after its sequence is not read", "                    m = NAME_LINE.match(nxt)\n",
      "                    m = None\n", "invariant"),
-    ("a halt scored as an assert", 'return "assert" if ASSERT_REASON.search(reason) else "halt"', 'return "assert"', "halt"),
+    ("a decoded revert not read as a halt", '    if REVERT_REASON.match(head):\n        return "halt"\n',
+     '    if False:\n        return "halt"\n', "halt"),
+    ("a bare message read as a halt", 'return "assert" if ASSERT_REASON.search(head) else "unread"',
+     'return "assert" if ASSERT_REASON.search(head) else "halt"', "message"),
+    ("the assert words read before the decoded revert",
+     '    if REVERT_REASON.match(head):\n        return "halt"\n    return "assert" if ASSERT_REASON.search(head) else "unread"',
+     '    if ASSERT_REASON.search(head):\n        return "assert"\n    return "halt" if REVERT_REASON.match(head) else "unread"', "customword"),
+    ("forge v1.8.5's no-match warning not read", '    if NO_TESTS.search(out):\n', '    if "No tests match" in out:\n', "missingrc1"),
+    ("a clean run with no result for the paired test read as a kill",
+     'return "TEST MISSING", "", "the run reported no result for the paired test"',
+     'return "KILLED", "assert", "the run reported no result for the paired test"', "silent"),
+    ("the split credits every test of the pairing", '        red = [r for r in mine if r[0] != "PASS"]\n',
+     '        red = [r for r in recs if r[1] in names and r[0] != "PASS"]\n', "split"),
     ("a survivor whose run failed elsewhere scored as a kill", '    if own:\n        return "SURVIVED"',
      '    if own and rc == 0:\n        return "SURVIVED"', "snapother"),
     ("the baseline reads names with the old pattern", '    green = {n for st, n, _ in recs if st == "PASS"}\n    red = {n for st, n, _ in recs if st != "PASS"}',
@@ -132,8 +157,10 @@ def load(text=None):
     return mod
 
 
-def verdict(mod, mode):
-    """(exit code, stdout, forge calls) of mod.main() on one mutant whose run ends as `mode`."""
+def verdict(mod, mode, tsv=None):
+    """(exit code, stdout, forge calls) of mod.main() on one mutant whose run ends as `mode`; with
+    `tsv`, the run writes its MUTANTS_VERDICTS there."""
+    mod.M[0]["teste"] = ("test_x", "test_xLonger") if mode == "tuple" else "test_x"
     cwd, path = os.getcwd(), os.environ.get("PATH", "")
     with tempfile.TemporaryDirectory() as d:
         for sub in ("src", "bin", "snapshots"):
@@ -156,6 +183,8 @@ def verdict(mod, mode):
                 os.environ.pop(k, None)
             os.environ.update(PATH=os.path.join(d, "bin") + os.pathsep + path, FAKE_FORGE_MODE=mode,
                               FAKE_FORGE_LOG=log)
+            if tsv:
+                os.environ["MUTANTS_VERDICTS"] = tsv
             with contextlib.redirect_stdout(out):
                 try:
                     mod.main()
@@ -168,7 +197,7 @@ def verdict(mod, mode):
         finally:
             os.chdir(cwd)
             os.environ["PATH"] = path
-            for k in ("FAKE_FORGE_MODE", "FAKE_FORGE_LOG"):
+            for k in ("FAKE_FORGE_MODE", "FAKE_FORGE_LOG", "MUTANTS_VERDICTS"):
                 os.environ.pop(k, None)
             for k, v in saved.items():
                 if v is not None:
@@ -192,6 +221,16 @@ def check(mod, mode):
         for c in calls:
             assert "--fuzz-seed" in c and c[c.index("--fuzz-seed") + 1] == SEED, f"a forge call without the seed: {c}"
         return
+    if mode == "split":
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "verdicts.tsv")
+            code, out, _ = verdict(mod, "tuple", tsv=path)
+            with open(path) as f:
+                rows = [l.rstrip("\n").split("\t") for l in f]
+        head = rows[0]
+        got = sorted((r[head.index("test")], r[head.index("verdict")], r[head.index("test_verdict")]) for r in rows[1:])
+        assert got == [("test_x", "KILLED", "SURVIVED"), ("test_xLonger", "KILLED", "KILLED")], f"split rows: {rows}"
+        return
     kill, label = CASES[mode]
     code, out, _ = verdict(mod, mode)
     assert label in out, f"{mode}: expected '{label}' in:\n{out}"
@@ -210,6 +249,9 @@ class MutantInstrument(unittest.TestCase):
 
     def test_EveryForgeCallCarriesTheFixedSeed(self):
         check(load(), "seed")
+
+    def test_TheVerdictFileSplitsATupleByMeasuredKill(self):
+        check(load(), "split")
 
     def test_ThePairedNameIsAnchored(self):
         check(load(), "pattern")
