@@ -9,8 +9,7 @@ import {BlazePhoenixCore as BPC, Route, RoutePlan} from "../../src/BlazePhoenixC
 ///         `singleOutFloor` on the output net of the input fees, where the frozen Solvers attested
 ///         it on the gross output. This carries the reference's floor (and `hasSurplus`, which
 ///         reads it) into the 4007 frame, and only where the new floor IS the reference's floor
-///         rate on the net output: `floorBps` is read back off the reference (`ceil(T * fb / BPS)`
-///         pins `fb` uniquely once `T > BPS`), the net output is the one producer
+///         rate on the net output: `floorBps` is read back off the reference (`floors` below), the net output is the one producer
 ///         `BPC.netOfInputFees` on the calendar of `Core.feeCalendar`, and the floor rounds up as
 ///         every Solver rounds. Where the new floor is anything else the reference comes back
 ///         untouched and the byte comparison reports the disagreement. Every other field must
@@ -24,11 +23,24 @@ library Frame4007 {
         return abi.encode(pR);
     }
 
-    /// @dev The reference route's floor in the 4007 frame; the reference's own where `fb` cannot be
-    ///      read back (an empty route, an output of at most BPS wei).
-    function expected(BlazePhoenixHub hub, Route memory r) internal view returns (uint256) {
-        if (r.totalOut <= BPC.BPS || r.hops.length == 0) return r.singleOutFloor;
-        uint256 fb = r.singleOutFloor * BPC.BPS / r.totalOut;
+    /// @dev The floors the reference route admits in the 4007 frame, [lo, hi]; the reference's own
+    ///      for an empty route or a zero output.
+    ///      The reference publishes F = ceil(T * fb / BPS) (T its totalOut, fb its floorBps). The
+    ///      rates that give F are exactly those with F - 1 < T * fb / BPS <= F, that is
+    ///        fLo = floor((F - 1) * BPS / T) + 1  <=  fb  <=  fHi = floor(F * BPS / T)
+    ///      (fLo = fHi = 0 when F = 0). No size cut is coded; the set's own width decides it:
+    ///      - Where the rate reconstructs. The set lies in a half-open interval of length BPS / T,
+    ///        so T >= BPS leaves one rate (fLo = fHi = fb) and the range below is one floor, the
+    ///        reference's rate on the net output. Below BPS wei the set may hold several rates
+    ///        (seed 11933: 1 wei; seed 116847: 2 wei; seed 307163716377032989948697243942600083929:
+    ///        838 wei).
+    ///      - The width. The new floor is ceil(B * fb / BPS) for B, the net output, <= T, which is
+    ///        monotone in fb, so the admitted floors are [ceil(B * fLo / BPS), ceil(B * fHi / BPS)],
+    ///        every value inside reached (a step of fb moves it by at most ceil(B / BPS) = 1 wei
+    ///        below BPS). Its width is < B * (fHi - fLo) / BPS + 1 < B / T + 1 <= 2, so hi - lo
+    ///        <= 1 wei at every size, and 0 once T >= BPS.
+    function floors(BlazePhoenixHub hub, Route memory r) internal view returns (uint256, uint256) {
+        if (r.hops.length == 0 || r.totalOut == 0) return (r.singleOutFloor, r.singleOutFloor);
         uint256 base = r.totalOut;
         if (!(r.hops.length == 1 && hub.isBridgeToken(r.hops[0].tokenOut))) {
             uint256 feeHop = type(uint256).max;
@@ -37,11 +49,15 @@ library Frame4007 {
             }
             base = BPC.netOfInputFees(r.hops, r.totalOut, feeHop, false);
         }
-        return BPC.mulDivUp(base, fb, BPC.BPS);
+        uint256 f = r.singleOutFloor;
+        uint256 fHi = f * BPC.BPS / r.totalOut;
+        uint256 fLo = f == 0 ? 0 : (f - 1) * BPC.BPS / r.totalOut + 1;
+        return (BPC.mulDivUp(base, fLo, BPC.BPS), BPC.mulDivUp(base, fHi, BPC.BPS));
     }
 
     function _carry(BlazePhoenixHub hub, Route memory n, Route memory r) private view {
-        if (n.singleOutFloor != expected(hub, r)) return;
+        (uint256 lo, uint256 hi) = floors(hub, r);
+        if (n.singleOutFloor < lo || n.singleOutFloor > hi) return;
         r.singleOutFloor = n.singleOutFloor;
         r.hasSurplus = r.totalOut > r.singleOutFloor;
     }

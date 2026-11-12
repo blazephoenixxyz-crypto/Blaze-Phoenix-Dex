@@ -16,10 +16,12 @@ pragma solidity 0.8.36;
 // `SolverRefCb1d7d9` is the Solver of cb1d7d9 (literal, renamed), linked to the live Core and
 // Math, which this change does not touch. Both Solvers read the same Hub and the same state, and
 // each call must come back with the same success and the same returndata bytes, cold and warm,
-// with all the gas and at the door's budget (SOLVE_GAS). A rule that landed after cb1d7d9 is
-// carried into the reference, never frozen anew: G52's "every leg pays for its place" (48ff261,
-// marked `CARRY G52`), written from that rule with the reference's own MIN_SPLIT_IMPROVEMENT_PPM.
-// Its mutant: [morf-SQ2-17] (the carry's threshold at 0).
+// with all the gas and at the door's budget (SOLVE_GAS). Rules that landed after cb1d7d9 are
+// carried, never frozen anew: the floor's frame (4007, test/ref/Frame4007.sol, in `_same`) and,
+// inside the reference, G52's "every leg pays for its place" (48ff261, marked `CARRY G52`),
+// written from that rule with the reference's own MIN_SPLIT_IMPROVEMENT_PPM. Their mutants:
+// [morf-SQ2-17] (the carry's threshold at 0), [morf-SQ2-18] (the frame's dust floor) and
+// [morf-SQ2-19] (the frame's rate band collapsed to its top rate).
 //
 // RED BEFORE THE CHANGE (cb1d7d9): the two counting rows, `test_Sq_OneHoldingsReadPerCandidate`
 // and `test_Sq_OneManagerReadPerSingletonCandidate` - the Solver of cb1d7d9 reads the holdings
@@ -453,6 +455,28 @@ contract SqSameAnswerTest is SqFixture {
     }
 
     mapping(bytes32 => bool) internal _v4Seeded;
+
+    /// A one-wei order over five direct books and a bridge (the fuzz's seed 11933): the route pays
+    /// one wei and nets to zero after the input fees, so the 4007 floor is zero. Red before the
+    /// 4007 frame read the floor of an output of at most BPS wei on the net output (it kept the
+    /// reference's gross floor, 1).
+    function test_Sq_SameAnswer_OneWeiOrderNetsToAZeroFloor() public {
+        testFuzz_Sq_SameAnswer(11933);
+    }
+
+    /// A two-wei order over three direct books (the fuzz's seed 116847): it nets to one wei, and
+    /// every floor rate the reference's gross floor of two admits gives a 4007 floor of one.
+    /// A 700-wei order paying 838 wei (the fuzz's seed 307163716377032989948697243942600083929): the
+    /// reference's floor of 804 admits a band of floor rates, and on the net output they give the
+    /// floors [801, 802], one wei wide; the Solver's 801 sits inside. Red with the band collapsed
+    /// to its top rate (a single floor, 802).
+    function test_Sq_SameAnswer_DustOrderFloorIsInsideTheRateBand() public {
+        testFuzz_Sq_SameAnswer(307163716377032989948697243942600083929);
+    }
+
+    function test_Sq_SameAnswer_TwoWeiOrderNetsToAOneWeiFloor() public {
+        testFuzz_Sq_SameAnswer(116847);
+    }
 
     /// Up to six books on the direct pair and up to two bridges with up to three books on each
     /// stage, every kind, forged and honest holdings, from one wei to 9e27: both Solvers give
