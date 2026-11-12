@@ -6558,6 +6558,16 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        if (pv.canExecute && _inputTaxedIn(pv.route)) pv.canExecute = false;\n',
       new='        if (!pv.canExecute && _inputTaxedIn(pv.route)) pv.canExecute = false; // MUTANT\n',
       teste='test_HopZero_V3LegWithATaxedInput_IsNotEncodedByEitherEncodeDoor'),
+ dict(nome="bridge-1112 a [4111]: hop h>=1 scales on the raw bridge balance, foreignBase forgotten (R3 / BP-15, I1)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                realIn = bal > foreignBase ? bal - foreignBase : 0;",
+      new="                realIn = bal; // MUTANT bridge-1112 a: the raw balance, foreignBase forgotten",
+      teste="test_ATaxedBridgeOverAStrandedBalanceSpendsOnlyWhatHopZeroDelivered"),
+ dict(nome="bridge-1112 b [4111]: hop h>=1 spends the pro-rata share bal*L/(L+F) of the declared input, a figure the caller writes",
+      f="src/BlazePhoenixRouter.sol",
+      old="                realIn = bal > foreignBase ? bal - foreignBase : 0;",
+      new="                realIn = BPC.mulDiv(bal, _legSum(hop), _legSum(hop) + foreignBase); // MUTANT bridge-1112 b: the pro-rata share of the declared input",
+      teste="test_AnOverDeclaredBridgeInputNeverReachesTheStrandedBalance"),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
