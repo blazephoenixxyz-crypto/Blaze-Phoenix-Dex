@@ -2818,6 +2818,10 @@ library BlazePhoenixCore {
         // Inside a step the count falls on the chord from c to c/2, not on a stair that only
         // drops at the step's end (coordinator decision 2, fix-1102). c < 2^32 and the rest
         // r < h <= 2^34: no overflow; c * r / (2h) < c / 2: no underflow.
+        // `age % h` is the time elapsed inside the current decay step (the chord's abscissa),
+        // not a draw: nothing selects anything by it, and the rewrite `age - shift * h` costs
+        // MUL+SUB (8 gas) against MOD (5).
+        // slither-disable-next-line weak-prng
         unchecked { c -= c * (age % h) / (2 * h); }
     }
 
