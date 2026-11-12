@@ -158,7 +158,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
     ///         input). `foreign` B shares sit on the Router before the swap. `when` picks the
     ///         window of the x2 restatement of B: 0 none, 1 the hop-0 fee push (A lands on T1,
     ///         a hooked tokenIn), 2 the hop-1 fee push (B lands on T1). Hop 1 is attested at the
-    ///         figure the unfixed Router measured, so the unfixed swap settles at scale 1.
+    ///         figure the pre-fix Router measured, so the pre-fix swap settles at scale 1.
     function _run(uint256 foreign, uint8 when) internal returns (Run memory res) {
         HookedERC20 tA = new HookedERC20();
         PathologicalERC20 tB = new PathologicalERC20("B", "B", 18);
@@ -174,7 +174,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         tA.approve(address(router), type(uint256).max);
 
         uint256 d = _quoteV2(pairAB, address(tA), amtIn - BPC.mulDivUp(amtIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
-        // The unfixed hop-1 measurement, by window: the fee base and the input it spends.
+        // The pre-fix hop-1 measurement, by window: the fee base and the input it spends.
         uint256 base1 = when == 1 ? foreign + d : d;
         uint256 fee1 = BPC.mulDivUp(base1, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         uint256 m = when == 0 ? d - fee1 : (when == 1 ? foreign + d - fee1 : foreign + 2 * (d - fee1));
@@ -206,7 +206,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
     }
 
     /// @notice The hop-1 fee push restates the bridge x2 (a reflection or rebase fired by the fee
-    ///         transfer). Unfixed: hop 1 spends F + 2(D - fee), the foreign holder's whole rebase
+    ///         transfer). Pre-fix: hop 1 spends F + 2(D - fee), the foreign holder's whole rebase
     ///         gain goes to the swapper and the Router ends with F/2 shares of the F it held.
     function test_ARestatementFiredByTheHop1FeePushStaysWithTheStrandedBridge() public {
         Run memory h = _run(0, 0);
@@ -219,7 +219,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
     }
 
     /// @notice The hop-0 fee push (tokenIn landing on T1) restates the bridge x2 BEFORE hop 0's
-    ///         leg delivers, so hop 1's fee base and input read F + D past the baseline. Unfixed:
+    ///         leg delivers, so hop 1's fee base and input read F + D past the baseline. Pre-fix:
     ///         the fee is charged on the foreign holder's gain and hop 1 spends it.
     function test_ARestatementFiredByTheHop0FeePushStaysWithTheStrandedBridge() public {
         Run memory h = _run(0, 0);

@@ -38,7 +38,7 @@ pragma solidity 0.8.36;
 // them (BlazePhoenixMath, THE BAND), where the Solver of 653b1dc judged rates against ±5% of
 // their median (MEDIAN_FILTER_BPS), so the two Solvers part wherever the two bands keep
 // different books. Every row here is drawn where they cannot: each book either at the market
-// or 20% from it. A V2 book at 1.00, the wide V4 book at tick 0 and the narrow one within 20
+// or 20 percent from it. A V2 book at 1.00, the wide V4 book at tick 0 and the narrow one within 20
 // ticks of it (0.2%) sit inside both bands with any of them as the base (the tightest edge,
 // a 0.3% book under a 0.01% base, is 0.31% before the error bounds widen it, and a probe of
 // at most 9e17 moves no V2 book of 1e21 or more by 0.1%, nor leaves the narrow range, which
@@ -657,7 +657,7 @@ contract G52SameAnswerTest is Test {
 
     // ─── fuzz ────────────────────────────────────────────────────────────────
 
-    /// A V2 book of depth 1e21..1e24 at the market or 20% from it (header: until MED it drew
+    /// A V2 book of depth 1e21..1e24 at the market or 20 percent from it (header: until MED it drew
     /// ten rates, 1-6% from 1 among them, which the two bands now judge apart), curated or
     /// discovered.
     function _v2Rand(address a, address b, uint256 w) internal {

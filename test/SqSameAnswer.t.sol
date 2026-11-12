@@ -326,7 +326,7 @@ contract SqSameAnswerTest is SqFixture {
     /// book one seat down: a context or a holdings reading left at its old seat is another
     /// pool's. The kept books differ in kind, fee and holdings.
     function test_Sq_SameAnswer_BandMovesTheSeats() public {
-        _v2Held(tA, tB, 9e24, 72e23, 1e18, 1e18, 30);          // 20% off, and holding almost nothing
+        _v2Held(tA, tB, 9e24, 72e23, 1e18, 1e18, 30);          // 20 percent off, and holding almost nothing
         _v2Held(tA, tB, 3e24, 3e24, 3e24, 3e24, 5);
         _heavy(tA, tB, 3000, 1e24, 2e22);
         _v2(tA, tB, 2e24, 2e24);
@@ -428,7 +428,7 @@ contract SqSameAnswerTest is SqFixture {
         return uint256(keccak256(abi.encode(seed, i)));
     }
 
-    /// A book on (a, b) drawn from `w`: its kind, its depth, its price (at the market or 20%
+    /// A book on (a, b) drawn from `w`: its kind, its depth, its price (at the market or 20 percent
     /// off it), its fee, and for the reserve kinds whether it holds what it declares.
     function _book(address a, address b, uint256 w) internal {
         uint16[4] memory pct = [uint16(100), 100, 120, 80];

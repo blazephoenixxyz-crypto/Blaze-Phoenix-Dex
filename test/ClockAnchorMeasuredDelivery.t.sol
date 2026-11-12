@@ -254,7 +254,7 @@ contract ClockAnchorMeasuredDeliveryTest is Test {
 
     /// The boundary is the delivery's, to one wei of input: the smallest ask that meets the
     /// bar anchors while attesting 15% BELOW its fill, and one wei less does not anchor
-    /// while attesting 20% ABOVE its fill.
+    /// while attesting 20 percent ABOVE its fill.
     function test_ClockAnchor_BoundaryIsTheDeliveryNotTheDeclaration() public {
         uint256 ask = _smallestMaterialAsk();
         uint256 snap = vm.snapshotState();

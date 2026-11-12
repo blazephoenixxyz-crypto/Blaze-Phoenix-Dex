@@ -372,7 +372,7 @@ library CoreRefCb1d7d9 {
     // never permitting a result worse than 80% of the quote. Raised from the
     // original 75% floor per the sealed 2026-08-03 design decision (see the
     // internal notes on invariants, the 4% median and stochastic patterns).
-    uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_000; // 20% absolute hard cap (floor ≥ 80%)
+    uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_000; // 20 percent absolute hard cap (floor ≥ 80%)
     uint16  internal constant FLOOR_BASE_BPS          = 9_600; // start at 96% floor for clean swaps
     uint16  internal constant FLOOR_PER_LEG_BPS       = 200;   // each extra leg loosens 2%
     uint16  internal constant FLOOR_IMPACT_FACTOR     = 1;     // 1 BPS floor drop per BPS impact

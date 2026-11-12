@@ -226,7 +226,7 @@ library MathRef653 {
         // =========================================================================
         // Allocate by REAL depth, normalised within each pool KIND. Psi is 1
         // for every never-swapped pool, which splits a trade evenly across a
-        // 790-WETH pool and a 0.34-WETH dust pool — destroying ~20% of value
+        // 790-WETH pool and a 0.34-WETH dust pool — destroying ~20 percent of value
         // (measured for a WETH/USDC pair: 50/50 gave 1302 USDC vs 1638
         // when concentrated in the deep pool). depthWad reflects current
         // capacity, so weighting by it converges on the optimal allocation

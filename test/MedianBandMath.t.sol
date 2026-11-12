@@ -146,15 +146,15 @@ contract MedianBandMathTest is Test {
         }
     }
 
-    /// The non-empty case of the bound: a 0.3% base 20% past the edge drops the 0.3% venue above
-    /// it (G = 20%, L = 1 - 0.997^2 / 1.2 = 17.2% < 3G). The band costs a lagging venue its seat
+    /// The non-empty case of the bound: a 0.3% base 20 percent past the edge drops the 0.3% venue above
+    /// it (G = 20 percent, L = 1 - 0.997^2 / 1.2 = 17.2% < 3G). The band costs a lagging venue its seat
     /// (THE BAND, cost (1)); the bound says what that can cost.
     function test_ABaseFarPastTheEdgeDropsTheRowAbove() public view {
         uint256 pb = uint256(997e15) * 997 / 1200;   // the base's price, 0.997^2 / 1.2, WAD
         Row[] memory r = new Row[](2);
         r[0] = _row(pb * 997 / 1000, 3000, 0, 3e18, false);
         r[1] = _row(997e15, 3000, 0, 1e18, false);
-        assertEq(_kept(r), 1, "a base 20% past the edge kept the venue above it");
+        assertEq(_kept(r), 1, "a base 20 percent past the edge kept the venue above it");
     }
 
     // ─── a fee nobody knows ─────────────────────────────────────────────────────────────────
