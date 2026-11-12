@@ -7037,6 +7037,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='if (f != BPC.FEE_UNKNOWN && f >= uint256(MAX_ROUTE_IMPACT_BPS) * 100) o = 0;',
       new='if (false) o = 0; // MUTANT',
       teste='test_AVenueBehindNinetyPercentLeavesTheOrderWithARoute'),
+ # HD-01 at the user's doors: the solving door re-solves into the books of the designed limit, and
+ # only the caller's floor stands between the user and a fill at ~0.1 % of the clean quote.
+ dict(nome='HD-01 at the doors: swapBestExactIn settles against a floor of 1 wei, not the caller\'s userMinOut',
+      f='src/BlazePhoenixRouter.sol',
+      old='        return this.selfExecutePrePulled(plan.best, received, userMinOut, recipient, deadline, msg.sender);',
+      new='        return this.selfExecutePrePulled(plan.best, received, 1, recipient, deadline, msg.sender); // MUTANT',
+      teste='test_HD01_BooksAfterTheQuote_TheSolvingDoorIsRefusedAtTheCallersFloor'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
