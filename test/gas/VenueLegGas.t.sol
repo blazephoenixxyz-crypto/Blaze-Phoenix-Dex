@@ -67,7 +67,7 @@ contract CoreQuoteProbe {
     function universalQuote(QuoteCtx memory c, uint256 amountIn)
         external view returns (uint256 out, uint256 depthWad)
     {
-        return BPC.universalQuote(c, amountIn);
+        (out, depthWad, , ) = BPC.universalQuoteRank(c, amountIn, type(uint256).max, false);
     }
 
     function v4LegOut(
@@ -393,7 +393,7 @@ contract VenueLegGasTest is Test {
             zeroForOne: zfo, stable: v.stable, amountIn: amt, expectedOut: 0,
             auxId: v4 ? bytes32(uint256(uint160(tOut))) : bytes32(0)
         });
-        (l.expectedOut,) = BPC.universalQuote(_ctx(v, tIn, tOut, zfo), amt);
+        (l.expectedOut, , , ) = BPC.universalQuoteRank(_ctx(v, tIn, tOut, zfo), amt, type(uint256).max, false);
     }
 
     /// The quote context of `v`, decimals filled in as the Solver hoists them per pair.

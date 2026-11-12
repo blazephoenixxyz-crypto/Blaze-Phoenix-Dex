@@ -759,6 +759,6 @@ contract RegistryV4WorldGasTest is GasBase {
             tokenIn: tA, tokenOther: tB, hooks: address(0), v4Manager: address(mgr), hub: address(hub),
             decIn1: MockERC20(tA).decimals() + 1, decOther1: MockERC20(tB).decimals() + 1
         });
-        (q,) = BPC.universalQuote(c, amt);
+        (q, , , ) = BPC.universalQuoteRank(c, amt, type(uint256).max, false);
     }
 }
