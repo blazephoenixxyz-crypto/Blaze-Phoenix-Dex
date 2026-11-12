@@ -708,6 +708,12 @@ contract BlazePhoenixSolver {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
             (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(xs[i], probe, 0, true);
+            // A fee at or above the route's ceiling on a leg's impact (MAX_ROUTE_IMPACT_BPS,
+            // in pips) is that impact at ANY size: the leg would be refused as a destroyer
+            // wherever it sat, and with it the whole route. The same number asks the same
+            // question here, at the row's birth, so the hop is built without it instead of
+            // being refused with it. A wrapper's fee is unknown and is not judged by it.
+            if (f != BPC.FEE_UNKNOWN && f >= uint256(MAX_ROUTE_IMPACT_BPS) * 100) o = 0;
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 fe[i]     = f | e << 24;

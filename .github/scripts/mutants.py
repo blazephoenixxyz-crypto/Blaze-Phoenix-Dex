@@ -7027,6 +7027,16 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='                while (j > 0 && prices[ord[j - 1]] > kr) {',
       new='                while (j > 0 && prices[ord[j - 1]] > kr && j > m) { // MUTANT',
       teste='test_L1056c2_WeightedMedianWalksTheSortedPairs'),
+ dict(nome='mat Core._quoteArms: a Gate wrapper is weighed at the short side when the order buys the cheap token (R4)',
+      f='src/BlazePhoenixCore.sol',
+      old='if (i18 != 0 && o18 > i18 && o18 / i18 < type(uint256).max / depthWad) mass = mulDiv(depthWad, o18, i18);',
+      new='if (false) mass = mulDiv(depthWad, o18, i18); // MUTANT',
+      teste='test_Mass_AWrapperWeighsTheTokenOutSideLikeANativePair'),
+ dict(nome='mat Solver funnel: a row whose fee alone reaches the route ceiling is quoted and seated, and the route refused (R3)',
+      f='src/BlazePhoenixSolver.sol',
+      old='if (f != BPC.FEE_UNKNOWN && f >= uint256(MAX_ROUTE_IMPACT_BPS) * 100) o = 0;',
+      new='if (false) o = 0; // MUTANT',
+      teste='test_AVenueBehindNinetyPercentLeavesTheOrderWithARoute'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
