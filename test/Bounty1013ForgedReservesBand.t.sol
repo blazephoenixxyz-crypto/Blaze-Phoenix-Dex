@@ -289,16 +289,21 @@ contract Bounty1013ForgedReservesBandTest is Test {
         // An honest dust swap later refreshes the row (control).
         // Anchored reports (the Router's depth word, Core.tickDepth18): since VT (f0e19a4) only an
         // anchored tick moves the clock, so an unanchored one would be a no-op with or without the door.
+        // Absolute clock: `block.timestamp` read back after a warp is the pre-warp value in the
+        // release profile (measured: two `warp(block.timestamp + 120)` both warped to 121), and a
+        // second report at the SAME second is a no-op for the clock with or without the door
+        // (`tickSlot` returns on `currentTs <= lastTs`), which left the door unguarded.
+        uint256 t0 = block.timestamp;
         vm.roll(block.number + 10);
-        vm.warp(block.timestamp + 120);
+        vm.warp(t0 + 120);
         vm.prank(address(router));
         hub.recordSwap(address(atk), BPC.KIND_V2, 30, address(0), address(tA), address(tB), 1, 1, 1e18 | BPC.TICK_ANCHORED);
         uint256 refreshed = hub.getSlot(key);
         assertTrue(refreshed != seated, "an honest row is refreshed");
         // Now it declares more than it holds; the Router's next report for it changes nothing.
         _forge(atk, 1e18);
-        vm.roll(block.number + 10);
-        vm.warp(block.timestamp + 120);
+        vm.roll(block.number + 20);
+        vm.warp(t0 + 240);
         vm.prank(address(router));
         hub.recordSwap(address(atk), BPC.KIND_V2, 30, address(0), address(tA), address(tB), 1, 1, 1e18 | BPC.TICK_ANCHORED);
         assertEq(hub.getSlot(key), refreshed, "the lying row is not refreshed");
