@@ -250,8 +250,13 @@ contract AtqPoolClockInvariantTest is Test {
         h.walkTick(2, true, 1e18); // first interval of pool 2, 910 s after it was seated: 6144 - ceil(5234 / 8)
         assertEq(h.tauOf(2), 5489, "pool 2 measures its own first interval from 24576 / 4");
 
-        assertEq(h.anchoredTicks(), 4, "anchored ticks");
-        assertEq(h.exactTicks(), 4, "every one of them had a single reading of its interval");
+        vm.warp(T0 + 910 + 1 days);
+        h.walkTick(2, true, 1e18); // dt = 86400 on tau = 5489, the rising arm (Core.tickSlot): 5489 + ceil(80911 / 8)
+        assertEq(h.tauOf(2), 15603, "a longer interval pushes tau up by an eighth of the distance, rounded up");
+        assertEq(h.tauOf(0), 4213, "pool 0's clock did not move while pool 2's rose");
+
+        assertEq(h.anchoredTicks(), 5, "anchored ticks");
+        assertEq(h.exactTicks(), 5, "every one of them had a single reading of its interval");
         assertEq(h.dustTicks(), 1, "dust ticks");
         assertEq(h.zeroLegs(), 1, "zero legs");
         assertEq(h.pausedTicks(), 1, "paused ticks");

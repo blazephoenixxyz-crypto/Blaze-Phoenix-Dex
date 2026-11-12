@@ -155,7 +155,7 @@ contract AvaxCoreV3Fork is AvaxForkBase {
         QuoteCtx memory c = QuoteCtx(
             KIND_V3, amm, zfo, legFee, legTs, false, USDC, WAVAX, address(0), address(0), address(hub), 0, 0
         );
-        (r.coreOne, ) = BPC.universalQuote(c, r.poolIn);
+        (r.coreOne, , , ) = BPC.universalQuoteRank(c, r.poolIn, type(uint256).max, false);
         RawV3Oracle o = new RawV3Oracle();
         deal(USDC, address(o), r.poolIn);
         r.oracle = o.swapIn(amm, USDC, zfo, r.poolIn);
