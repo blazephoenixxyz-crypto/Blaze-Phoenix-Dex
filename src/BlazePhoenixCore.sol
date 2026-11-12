@@ -3057,10 +3057,12 @@ library BlazePhoenixCore {
         if (held < m) m = held;
     }
 
-    /// @notice `registryDepth18` with the two tokens' decimals already read.
+    /// @notice `registryDepth18` with the two tokens' decimals already read. Internal since
+    ///         53b04c0 (MAT-01) moved the Solver's funnel to `hopMass18`, its last caller
+    ///         through the dispatcher: the Core reaches it with a jump.
     function registryDepth18Dec(
         address pool, uint8 kind, address t0, uint8 dc0, address t1, uint8 dc1, address v4mgr, bytes32 pid
-    ) public view returns (uint256 depth) {
+    ) internal view returns (uint256 depth) {
         if (kindHas(kind, A_RESERVES)) {
             // NORMALISE BEFORE THE `min`. This was the EIGHTH site of the same defect class: the
             // raw `min(r0, r1)` picks the side with fewer UNITS, not the SHALLOWER side. A

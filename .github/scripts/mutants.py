@@ -6101,6 +6101,11 @@ M = [
       old='    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)\n        internal pure returns (uint256)\n',
       new='    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)\n        public pure returns (uint256) // MUTANT [morf-CBP2-S5]\n',
       teste='test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt'),
+ dict(nome="morf-CBP2-S6: registryDepth18Dec is a door of the Core again, and no contract calls it since 53b04c0 (MAT-01)",
+      f='src/BlazePhoenixCore.sol',
+      old='        address pool, uint8 kind, address t0, uint8 dc0, address t1, uint8 dc1, address v4mgr, bytes32 pid\n    ) internal view returns (uint256 depth) {\n',
+      new='        address pool, uint8 kind, address t0, uint8 dc0, address t1, uint8 dc1, address v4mgr, bytes32 pid\n    ) public view returns (uint256 depth) { // MUTANT [morf-CBP2-S6]\n',
+      teste='test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt'),
  # No E1. `outSolidly` has no caller in src: once it is internal it is compiled into no shipped
  # artefact, and a mutant on it reads INERT here (measured: the curve arm flipped turns
  # testFuzz_outSolidly_SameAnswer red and moves none of the fingerprinted objects). That mutant is
