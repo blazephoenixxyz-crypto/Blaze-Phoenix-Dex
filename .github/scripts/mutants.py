@@ -6592,10 +6592,14 @@ M = [
       old="        if (isBridge)        f += (f * 2_500) / BPS;",
       new="        if (isBridge)        f += (f * 2_500 + BPS - 1) / BPS; // MUTANT [MT6-13]",
       teste="test_BridgeTerm_BelowOnePoint_IncumbentTermIsZeroUnderFourPoints"),
- dict(nome="inv-s1-1633: Router FEE: a delivery that paid no fee settles, seen by a direct swap padded with two dead hops (the two-hop restatement vector is refused upstream since 7c4ad36)",
-      f="src/BlazePhoenixRouter.sol",
-      old="            if (paid == 0) revert RouterE(15);\n",
-      new=" // MUTANT [inv-s1-1633]\n",
+ # retired 2026-11-12 (hops2, 051a0bb): inv-s1-1633, Router FEE `if (paid == 0) revert RouterE(15)`
+ # removed. EQUIVALENT since MAX_HOPS = 2: the padding vector that reached it needs three hops
+ # (B -> M -> A -> M) and is refused at Router:1039 with RouterE(3); the two-hop restatement
+ # vector stops at RouterE(8) since 7c4ad36 (4111). The test now pins the ceiling, below.
+ dict(nome="MAX_HOPS: the Router's route-length ceiling is raised by one and a direct swap padded with two dead hops reaches the fee book",
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (route.hops.length > MAX_HOPS) revert RouterE(3);\n',
+      new='        if (route.hops.length > MAX_HOPS + 1) revert RouterE(3); // MUTANT\n',
       teste="test_ADirectSwapPaddedWithTwoDeadHops_DeliversAndIsRefusedForPayingNoFee"),
  dict(nome="[morf-ACP1-M4]: on a blind hop the hop figure replaces the priced base even when it is lower, and 1 wei lowers the anchor",
       f="src/BlazePhoenixRouter.sol",

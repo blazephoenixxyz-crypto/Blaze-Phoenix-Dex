@@ -27,7 +27,13 @@ pragma solidity 0.8.36;
 //     delivery of 0; hop 2 owns min(its A, 0) = 0 and charges nothing. Hop 0's output
 //     reaches the delivery with nothing in the book, and Router:1679 is what refuses it.
 //     Red under [inv-s1-1633] (the check removed): the route settles and the 28 bps the
-//     direct swap pays are evaded by two dead hops.
+//     direct swap pays are evaded by two dead hops. Since 051a0bb (hops2) MAX_HOPS is 2
+//     (Core, read by Router:1039), so this three-hop route is refused at the hop ceiling
+//     with RouterE(3) before any hop runs, and the derivation above holds again: on at
+//     most two hops the book's first check is unreachable ([inv-s1-1633] retired as
+//     equivalent in mutants.py). The test now pins that the padded route still does not
+//     settle, and it is red under the ceiling raised by one (`> MAX_HOPS + 1`), where the
+//     route walks past Router:1039 and is refused by the book with RouterE(15) instead.
 //
 //  forge test --match-path test/UnpaidDeliveryIsRefusedOnTwoHops.t.sol -vv
 // =============================================================================
@@ -240,8 +246,9 @@ contract UnpaidDeliveryIsRefusedOnTwoHopsTest is Test {
     /// commits nothing and hands on 0; hop 2 (input A, the bridge) is the fee hop and owns
     /// min(what it holds of A past its baseline, 0) = 0, so `_chargeHopFee` returns before
     /// `_payFee`. The delivery is hop 0's whole output and the book is empty.
-    /// FAILS IF DELETED: yes - with Router:1679 removed ([inv-s1-1633]) this route settles:
-    /// one Swap, no Fee, hop 0's output at the recipient, nothing in the treasuries. The
+    /// FAILS IF DELETED: yes - with the hop ceiling raised by one (Router:1039, `> MAX_HOPS + 1`)
+    /// the route reaches the fee book and is refused with RouterE(15), not RouterE(3); with
+    /// both gone it would settle: one Swap, no Fee, hop 0's output at the recipient. The
     /// direct swap of the same pair (the control below) pays 28 bps.
     function test_ADirectSwapPaddedWithTwoDeadHops_DeliversAndIsRefusedForPayingNoFee() public {
         Hop[] memory hops = new Hop[](3);
@@ -250,7 +257,8 @@ contract UnpaidDeliveryIsRefusedOnTwoHopsTest is Test {
         hops[2] = _hop(pAM, address(a), address(m), 0);   // the fee hop: owns 0, charges nothing
         (bool settled, bytes memory err) = _swapFrom(b, _wrapOut(hops, hops[0].expectedOut), AIN);
         assertFalse(settled, "a delivery that paid no fee settled");
-        assertEq(err, _refusal(15), "the refusal is the fee book's: delivered, nothing paid (RouterE(15))");
+        // Three hops > MAX_HOPS = 2 (051a0bb): Router:1039 refuses before the book is read.
+        assertEq(err, _refusal(3), "the padded route is past the hop ceiling (RouterE(3), MAX_HOPS = 2 since 051a0bb)");
     }
 
     /// Control: the same pair, direct. No bridge on the route, so the one hop pays on its
