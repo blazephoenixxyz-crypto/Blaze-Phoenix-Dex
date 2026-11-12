@@ -2,29 +2,32 @@
 pragma solidity 0.8.36;
 
 // =============================================================================
-//  A DELIVERY THAT PAID NO FEE IS REFUSED, ON TWO HOPS (morf-1106 INV-S1, refuta-mat)
+//  A DELIVERY THAT PAID NO FEE IS REFUSED (morf-1106 INV-S1, refuta-mat; 4111)
 //
 //  The fee book's first check (`if (paid == 0) revert RouterE(15)`) was derived as
-//  unreachable on a route of at most two hops. It is reachable:
-//    - the route starts in a bridge, so the fee is anchored at hop 0 and hop 1 is not
-//      charged (`BPC.paysOnInput`);
-//    - hop 0's legs commit nothing, so its base is min(pulled, committed) = 0: it pays
-//      nothing (`_chargeHopFee` returns before `_payFee`) and runs nothing;
-//    - hop 1 spends `balance - baseline` of the middle token. The baseline is read
-//      before the hop loop and the balance inside it: two reads of one `balanceOf`.
-//      A token whose `balanceOf` answers more on the second read makes hop 1 run.
-//  The route then delivers with nothing in the book, and the check is what refuses it.
+//  unreachable on a route of at most two hops. Two vectors, two fates:
 //
-//  The middle token needs no write between the two reads: a view tells a cold storage
-//  slot (2100 gas) from a warm one (100 gas, EIP-2929), and its own first read warms it.
+//  1. The restatement vector (the file's first form, green at cb1d7d9): the route starts
+//     in a bridge, so the fee is anchored at hop 0 and hop 1 is not charged; hop 0 commits
+//     nothing and pays nothing; hop 1 spends `balance - baseline` of the middle token, and
+//     a token whose `balanceOf` answers more on the second read of the transaction (a view
+//     tells a cold slot from a warm one, EIP-2929) makes hop 1 run. It reached the book
+//     until 7c4ad36 (4111): a later hop now spends `_owned` = min(balance - baseline, what
+//     the previous hop delivered) = 0, nothing moves, and the swap stops at RouterE(8)
+//     before the book is read. Those tests now guard 4111's cap from this side: red under
+//     [1090] (`_owned` does not cap at what the legs delivered), where hop 1 spends the
+//     phantom and the book is what refuses the first two, and the control delivers the
+//     phantom's quote.
 //
-//  Guards, green at cb1d7d9. Red under [inv-s1-1633] (the check removed): both
-//  `test_A...` below. Without the check the first route settles with one Swap and no
-//  Fee, the whole output of hop 1 at the recipient and nothing in the treasuries
-//  (measured on cb1d7d9 with the check removed, 2026-11-10). The second guard is the
-//  book's clear seen from this side: with the clear removed (mutants rv1023-8 /
-//  inv-s1-1635) the first swap's payment stays in the book and hides the second
-//  swap's missing one.
+//  2. The padding vector (green at cb38bab): a direct B -> M swap padded with two hops that
+//     commit nothing, B -> M -> A -> M with A the bridge. The fee is anchored at hop 2 (the
+//     first hop whose input is a bridge), so hop 0 is not charged and delivers tokenOut;
+//     hop 1 runs no leg (nothing in the loop refuses a non-final hop that executes
+//     nothing: RouterE(5) wants `scaledAmt != 0` or `hopAttested != 0`) and hands hop 2 a
+//     delivery of 0; hop 2 owns min(its A, 0) = 0 and charges nothing. Hop 0's output
+//     reaches the delivery with nothing in the book, and Router:1679 is what refuses it.
+//     Red under [inv-s1-1633] (the check removed): the route settles and the 28 bps the
+//     direct swap pays are evaded by two dead hops.
 //
 //  forge test --match-path test/UnpaidDeliveryIsRefusedOnTwoHops.t.sol -vv
 // =============================================================================
@@ -201,9 +204,19 @@ contract UnpaidDeliveryIsRefusedOnTwoHopsTest is Test {
         return _wrap(hops);
     }
 
+    /// Like `_wrap`, with the route's figures set to `q` (a padded route's last hop quotes 0).
+    function _wrapOut(Hop[] memory hops, uint256 q) private pure returns (Route memory) {
+        return Route({hops: hops, totalOut: q, singleOut: q, singleOutFloor: 0,
+                      expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+    }
+
     function _swap(Route memory r, uint256 amountIn) private returns (bool settled, bytes memory err) {
-        a.mint(address(this), amountIn);
-        a.approve(address(router), amountIn);
+        return _swapFrom(a, r, amountIn);
+    }
+
+    function _swapFrom(MockERC20 tIn, Route memory r, uint256 amountIn) private returns (bool settled, bytes memory err) {
+        tIn.mint(address(this), amountIn);
+        tIn.approve(address(router), amountIn);
         try router.swapExactIn(r, amountIn, 1, TO, block.timestamp + 1) returns (uint256) { settled = true; }
         catch (bytes memory e) { err = e; }
     }
@@ -221,22 +234,62 @@ contract UnpaidDeliveryIsRefusedOnTwoHopsTest is Test {
         }
     }
 
-    // ─── the guard ───
+    // ─── the guard: a delivery that paid no fee (the padding vector) ───
 
-    /// FAILS IF DELETED: yes - with Router:1633 removed this route settles: hop 1's output
-    /// reaches the recipient, the caller gets its whole input back and no Fee is emitted.
-    function test_ATwoHopRouteFedAfterTheBaseline_DeliversAndIsRefusedForPayingNoFee() public {
-        m.arm(address(router), X);
-        (bool settled, bytes memory err) = _swap(_amb(0, X), AIN);
-        assertFalse(settled, "a two-hop delivery that paid no fee settled");
+    /// B -> M -> A -> M, tokenOut = M. Hop 0 delivers tokenOut and is not the fee hop; hop 1
+    /// commits nothing and hands on 0; hop 2 (input A, the bridge) is the fee hop and owns
+    /// min(what it holds of A past its baseline, 0) = 0, so `_chargeHopFee` returns before
+    /// `_payFee`. The delivery is hop 0's whole output and the book is empty.
+    /// FAILS IF DELETED: yes - with Router:1679 removed ([inv-s1-1633]) this route settles:
+    /// one Swap, no Fee, hop 0's output at the recipient, nothing in the treasuries. The
+    /// direct swap of the same pair (the control below) pays 28 bps.
+    function test_ADirectSwapPaddedWithTwoDeadHops_DeliversAndIsRefusedForPayingNoFee() public {
+        Hop[] memory hops = new Hop[](3);
+        hops[0] = _hop(pMB, address(b), address(m), AIN); // delivers tokenOut; not charged
+        hops[1] = _hop(pAM, address(m), address(a), 0);   // runs nothing: hands hop 2 a 0
+        hops[2] = _hop(pAM, address(a), address(m), 0);   // the fee hop: owns 0, charges nothing
+        (bool settled, bytes memory err) = _swapFrom(b, _wrapOut(hops, hops[0].expectedOut), AIN);
+        assertFalse(settled, "a delivery that paid no fee settled");
         assertEq(err, _refusal(15), "the refusal is the fee book's: delivered, nothing paid (RouterE(15))");
     }
 
-    /// One call: a direct A -> B swap that pays its fee, then the route above.
-    /// FAILS IF DELETED: yes - with Router:1633 removed the second swap settles. With the
-    /// book's clear (Router:1635) removed the first swap's payment is still in the book when
-    /// the second one is settled, and it settles as well [derived].
-    function test_AfterAPaidSwapInTheSameCall_TheUnpaidDeliveryIsStillRefused() public {
+    /// Control: the same pair, direct. No bridge on the route, so the one hop pays on its
+    /// input (exhaustion): exactly one Fee, in B, and the quote on the net input is delivered.
+    function test_TheSamePairDirect_PaysOneFeeAndSettles() public {
+        Hop[] memory one = new Hop[](1);
+        one[0] = _hop(pMB, address(b), address(m), AIN);
+        uint256 fee = (AIN * BPC.PROTOCOL_FEE_BPS + BPC.BPS - 1) / BPC.BPS;
+        vm.recordLogs();
+        (bool settled, bytes memory err) = _swapFrom(b, _wrap(one), AIN);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(err, bytes(""), "setup: the direct swap was refused");
+        assertTrue(settled, "setup: the direct swap settled");
+        (uint256 fees, uint256 swaps) = _count(logs);
+        assertEq(swaps, 1, "one delivery");
+        assertEq(fees, 1, "exactly one Fee");
+        assertEq(b.balanceOf(T1) + b.balanceOf(T2), fee, "the full rate on the input, in B");
+        assertEq(m.balanceOf(TO), _q(AIN - fee, address(b), address(m)), "the quote on the net input");
+    }
+
+    // ─── the restatement vector: refused upstream since 7c4ad36 (4111) ───
+
+    /// Hop 1 spends min(what the middle token shows past the baseline, what hop 0 delivered)
+    /// = min(X, 0) = 0: nothing runs, nothing is delivered, the book is never read.
+    /// FAILS IF DELETED: yes - with 4111's cap removed ([1090]: `_owned` does not cap at what
+    /// the legs delivered) hop 1 spends the phantom and delivers, and the refusal moves
+    /// downstream to the fee book (RouterE(15)).
+    function test_ATwoHopRouteFedAfterTheBaseline_SpendsNothingAndDeliversNothing() public {
+        m.arm(address(router), X);
+        (bool settled, bytes memory err) = _swap(_amb(0, X), AIN);
+        assertFalse(settled, "a two-hop route fed after the baseline settled");
+        assertEq(err, _refusal(8), "hop 1 spends min(shown, delivered by hop 0) = 0: nothing delivered (RouterE(8))");
+    }
+
+    /// One call: a direct A -> B swap that pays its fee, then the route above. The paid swap
+    /// leaves nothing behind that lets the second one spend the phantom.
+    /// FAILS IF DELETED: yes - under [1090] the second swap spends the phantom and is refused
+    /// by the book (RouterE(15)) instead of upstream.
+    function test_AfterAPaidSwapInTheSameCall_TheRouteFedAfterTheBaselineStillDeliversNothing() public {
         TwoSwapsOneCall caller = new TwoSwapsOneCall();
         a.mint(address(caller), 2 * AIN);
         Hop[] memory one = new Hop[](1);
@@ -244,8 +297,8 @@ contract UnpaidDeliveryIsRefusedOnTwoHopsTest is Test {
         m.arm(address(router), X);
         (bool ok1, bool ok2, bytes memory err2) = caller.run(router, _wrap(one), _amb(0, X), AIN);
         assertTrue(ok1, "setup: the paid swap settled");
-        assertFalse(ok2, "an unpaid delivery settled behind a paid swap of the same call");
-        assertEq(err2, _refusal(15), "the second swap is refused by the fee book (RouterE(15))");
+        assertFalse(ok2, "a route fed after the baseline settled behind a paid swap of the same call");
+        assertEq(err2, _refusal(8), "the second swap delivers nothing (RouterE(8))");
     }
 
     // ─── controls: the same world, where the book has nothing to refuse ───
@@ -259,7 +312,9 @@ contract UnpaidDeliveryIsRefusedOnTwoHopsTest is Test {
     }
 
     /// Hop 0 commits the caller's input: it pays the full rate on it, once, and the route
-    /// settles - with the same middle token showing the same phantom balance to hop 1.
+    /// settles - with the same middle token showing the same phantom balance to hop 1, which
+    /// spends only what hop 0 delivered (4111): the phantom never reaches the recipient.
+    /// FAILS IF DELETED: yes - under [1090] hop 1 spends the phantom too and delivers q(q0 + X).
     function test_TheSameRouteWithHopZeroCommitted_PaysOneFeeAndSettles() public {
         m.arm(address(router), X);
         uint256 fee = (AIN * BPC.PROTOCOL_FEE_BPS + BPC.BPS - 1) / BPC.BPS;
@@ -273,6 +328,6 @@ contract UnpaidDeliveryIsRefusedOnTwoHopsTest is Test {
         assertEq(swaps, 1, "one delivery");
         assertEq(fees, 1, "exactly one Fee");
         assertEq(a.balanceOf(T1) + a.balanceOf(T2), fee, "the full rate on hop 0's commitment, in the bridge");
-        assertEq(b.balanceOf(TO), _q(q0 + X, address(m), address(b)), "hop 1 spent hop 0's output and the phantom");
+        assertEq(b.balanceOf(TO), _q(q0, address(m), address(b)), "hop 1 spent hop 0's output, not the phantom (4111)");
     }
 }
