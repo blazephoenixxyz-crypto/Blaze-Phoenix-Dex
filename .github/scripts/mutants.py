@@ -1454,6 +1454,11 @@ M = [
       old='        if (route.hops.length > MAX_HOPS) revert RouterE(3);\n',
       new='        if (route.hops.length > MAX_HOPS + 1) revert RouterE(3); // MUTANT\n',
       teste='test_ThreeHopsIsPastTheCeilingAndRefused'),
+ dict(nome="MAX_HOPS: the Router's route-length ceiling is raised by one and the loose three-hop shape settles",
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (route.hops.length > MAX_HOPS) revert RouterE(3);\n',
+      new='        if (route.hops.length > MAX_HOPS + 1) revert RouterE(3); // MUTANT\n',
+      teste='test_TheLooseShapeIsPastTheHopCeilingAndRefused'),
  dict(nome="MAX_HOPS: the Router's route-length ceiling is lowered by one and a two-hop route is refused",
       f='src/BlazePhoenixRouter.sol',
       old='        if (route.hops.length > MAX_HOPS) revert RouterE(3);\n',
@@ -2576,7 +2581,9 @@ M = [
       f="src/BlazePhoenixRouter.sol",
       old="        uint256 toutStart = tokenIn == tokenOut ? baseIn : _bal(tokenOut);",
       new="        uint256 toutStart = tokenIn == tokenOut ? baseIn : 0; // MUTANT",
-      teste="test_TheLooseShapeIsPaidWhatTheLastHopDeclared"),
+      # hops2 (2026-11-10): re-pointed. The loose shape takes three hops and is refused
+      # (test_TheLooseShapeIsPastTheHopCeilingAndRefused); on two hops the test below kills it.
+      teste="test_AFeeOnTransferOutputIsPaidWhatArrived"),
  dict(nome="h11-1019 P3: the bridge sweep ignores bridgeBase and pays the raw balance (V1 Tarun 3086 shape)",
       f="src/BlazePhoenixRouter.sol",
       old="                if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);",
@@ -4268,18 +4275,18 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       old="            m.lists = e;",
       new="            // MUTANT [820]",
-      teste="test_EachOrderedPairIsBuiltOnce"),
+      # hops2 (2026-11-10): re-pointed. On two hops no two topologies of one judgement share a pair;
+      # the pair read again is the rebuild's, and its census is the test below.
+      teste="test_TheRebuildBuildsItsPairOnce"),
  dict(nome="gas51 [821]: the kept list itself is handed out, the hop build compacts it for the next topology",
       f="src/BlazePhoenixSolver.sol",
       old="            c := d",
       new="            d := c // MUTANT [821]",
       # G52 (2026-10-28): re-pointed. A first stage is kept (M10) and no longer built twice, so the
       # shared first-stage pair of the gas51 test no longer reads the list again; a later stage does.
-      # hops2 (2026-11-09): OPEN. The test below left with the three-hop topologies, and on two hops
-      # this mutant survives all of G52SameAnswer, MathBoundarySameAnswer and CapacityWalkBudget.
-      # Its killer is still to be written (a held, fallen rebuild of a pair whose first build
-      # compacts the list); until then this entry names a test that no longer exists.
-      teste="test_G52_SameAnswer_LaterStageReadsTheListAsBuilt"),
+      # hops2 (2026-11-10): re-pointed to the rebuild. The leader seats a held book that fell, its first
+      # rebuild compacts the list and the second must start from the list as built, less the book.
+      teste="test_TheRebuildStartsFromTheListAsBuilt"),
  dict(nome="gas51 [822]: the key forgets the pair's second token",
       f="src/BlazePhoenixSolver.sol",
       old="                if and(eq(mload(add(e, 0x20)), a), eq(mload(add(e, 0x40)), b)) { c := mload(add(e, 0x60)) dec := mload(add(e, 0x80)) break }\n",
@@ -4294,7 +4301,9 @@ M = [
       f="src/BlazePhoenixSolver.sol",
       old="            let l := shl(5, add(mload(c), 1))",
       new="            let l := shl(5, mload(c)) // MUTANT [824]",
-      teste="test_TheSharedPairBuildsTheSameHopInBothTopologies"),
+      # hops2 (2026-11-10): re-pointed. The pair read again is the rebuild's; the list's last seat
+      # takes a leg there.
+      teste="test_TheRebuildStartsFromTheListAsBuilt"),
  dict(nome='gas51 [825]: the bridge stages build their pairs again',
       # hops2 (2026-11-06): re-pointed; the entry's sixth word went with M10, the list is built again.
       f='src/BlazePhoenixSolver.sol',
@@ -4688,6 +4697,11 @@ M = [
       old='        if (n == 0 || n > MAX_HOPS) return true;                  // Router: no hops, MAX_HOPS\n',
       new='        if (n == 0 || n > MAX_HOPS + 1) return true; // MUTANT\n',
       teste='test_ThreeHopsIsPastTheCeilingAndRefused'),
+ dict(nome="MAX_HOPS Quoter: the preview's hop ceiling is raised by one and the exact door prices a route one hop past it",
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (n == 0 || n > MAX_HOPS) return true;                  // Router: no hops, MAX_HOPS\n',
+      new='        if (n == 0 || n > MAX_HOPS + 1) return true; // MUTANT\n',
+      teste='testFuzz_B_OneHopPastTheCeilingIsRefusedByBothDoors'),
  dict(nome='PIN-01 Quoter: a six-leg hop previews as executable',
       f='src/BlazePhoenixQuoter.sol',
       old='            if (legs.length == 0 || legs.length > MAX_LEGS_PER_HOP || hop.tokenIn == hop.tokenOut) return true;\n',
@@ -4746,7 +4760,9 @@ M = [
       f='src/BlazePhoenixRouter.sol',
       old='        if (totalReceived > outCap) totalReceived = outCap;\n',
       new='        // MUTANT: the output delta is not capped by the declarations\n',
-      teste='test_TheLooseShapeIsPaidWhatTheLastHopDeclared'),
+      # hops2 (2026-11-10): re-pointed. The loose shape takes three hops and is refused; on two hops
+      # the restatement before the last hop is the case the cap cuts back.
+      teste='test_ARestatementBeforeTheLastHopStaysWithTheStrandedBalance'),
  dict(nome='3310 made [890]: a leg that makes another token (hop 0 of A->B->C) counts as output',
       f='src/BlazePhoenixRouter.sol',
       old='                if (legOutRaw == tokenOut) outCap += legDecl;\n',
@@ -4761,6 +4777,10 @@ M = [
       f='src/BlazePhoenixRouter.sol',
       old='                else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;\n',
       new='                else if (legIn == tokenOut) outCap = outCap; // MUTANT\n',
+      # hops2 (2026-11-10): OPEN. The test below left with the three-hop loose shape, refused since
+      # the ceiling (RouterE(3)); on two hops this mutant survives the eight tests of
+      # SwapOutputNeverExceedsWhatTheVenuesDeclared. Its two-hop case is still to be stated; until
+      # then this entry names a test that no longer exists.
       teste='test_TheLooseShapeIsPaidWhatTheLastHopDeclared'),
  dict(nome='3310 handed floor [893]: hop 0 of a cyclic route spends its input against a cap no leg made',
       f='src/BlazePhoenixRouter.sol',
@@ -4771,6 +4791,10 @@ M = [
       f='src/BlazePhoenixRouter.sol',
       old='        if (hop.tokenIn == tokenOut) outCap = outCap > feeH ? outCap - feeH : 0;\n',
       new='        // MUTANT: a fee charged in tokenOut is not taken off the cap\n',
+      # hops2 (2026-11-10): OPEN. The test below left with the three-hop loose shape, refused since
+      # the ceiling (RouterE(3)); on two hops this mutant survives the eight tests of
+      # SwapOutputNeverExceedsWhatTheVenuesDeclared. Its two-hop case is still to be stated; until
+      # then this entry names a test that no longer exists.
       teste='test_TheLooseShapeIsPaidWhatTheLastHopDeclared'),
  dict(nome='3310 fee floor [895]: hop 0 of a cyclic route pays its fee in tokenOut against a cap no leg made',
       f='src/BlazePhoenixRouter.sol',

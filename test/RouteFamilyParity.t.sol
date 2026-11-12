@@ -20,12 +20,15 @@ pragma solidity 0.8.36;
 // bridge has no case here: the loop deducts its fee on the output and the Router on the input, so
 // the scalar there is a floor and is not equal to delivery to the wei (`_exact`, the comment
 // above `_fundedOut`'s call).
+// History: family B drew two or three hops of one to three legs until a route's ceiling came down
+// to MAX_HOPS = 2 hops (2026-11-06). Since 2026-11-10 B is drawn at the ceiling and the route one
+// hop past it has its own case: both doors refuse it.
 import {Test, Vm} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {Origin} from "./mocks/MockOriginFactory.sol";
@@ -280,14 +283,35 @@ contract RouteFamilyParityTest is Test {
         _parity(route, amountIn, _one(address(anch[1])));
     }
 
-    /// @notice B, exhaustion (no bridge, 2-3 hops of 1-3 legs): every hop pays on its own input,
-    ///         and the loop charges each hop where the Router charges it.
+    /// @notice B, exhaustion (no bridge, MAX_HOPS hops of 1-3 legs): every hop pays on its own
+    ///         input, and the loop charges each hop where the Router charges it.
     function testFuzz_B_Exhaustion_EveryHopPaysWhereTheRouterCharges(uint256 seed) public {
-        uint256 nHops = 2 + _pick(seed, "hops", 0, 1);
-        (Route memory route, uint256 amountIn) = _draw(false, nHops, 1, seed, false);
-        address[] memory fees = new address[](nHops);
-        for (uint256 h; h < nHops; h++) fees[h] = address(exh[h]);
-        _parity(route, amountIn, fees);
+        (Route memory route, uint256 amountIn) = _draw(false, MAX_HOPS, 1, seed, false);
+        _parity(route, amountIn, _exhFees());
+    }
+
+    /// @notice The edge of B: the same draw one hop past the ceiling. The exact door prices it at
+    ///         nothing and the Router refuses it by its code; cut back to the ceiling, the same
+    ///         pools and the same order are a parity case, so the extra hop is what was refused.
+    function testFuzz_B_OneHopPastTheCeilingIsRefusedByBothDoors(uint256 seed) public {
+        (Route memory route, uint256 amountIn) = _draw(false, MAX_HOPS + 1, 1, seed, false);
+        (, uint256 exactOut) = quoter.previewRouteExact(route, amountIn);
+        assertEq(exactOut, 0, "the exact door priced a route past the hop ceiling");
+        uint256 deadline = block.timestamp;
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(3)));
+        vm.prank(user);
+        router.swapExactIn(route, amountIn, 1, user, deadline);
+
+        Hop[] memory cut = new Hop[](MAX_HOPS);
+        for (uint256 h; h < MAX_HOPS; h++) cut[h] = route.hops[h];
+        route.hops = cut;
+        _parity(route, amountIn, _exhFees());
+    }
+
+    /// @dev The exhaustion calendar at the ceiling: one charge a hop, in the hop's input.
+    function _exhFees() private view returns (address[] memory fees) {
+        fees = new address[](MAX_HOPS);
+        for (uint256 h; h < MAX_HOPS; h++) fees[h] = address(exh[h]);
     }
 
     /// @notice C, one hop into the bridge (1-3 legs): the fee comes off the output, rounded up, and
