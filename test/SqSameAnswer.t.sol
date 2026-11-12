@@ -16,7 +16,10 @@ pragma solidity 0.8.36;
 // `SolverRefCb1d7d9` is the Solver of cb1d7d9 (literal, renamed), linked to the live Core and
 // Math, which this change does not touch. Both Solvers read the same Hub and the same state, and
 // each call must come back with the same success and the same returndata bytes, cold and warm,
-// with all the gas and at the door's budget (SOLVE_GAS).
+// with all the gas and at the door's budget (SOLVE_GAS). A rule that landed after cb1d7d9 is
+// carried into the reference, never frozen anew: G52's "every leg pays for its place" (48ff261,
+// marked `CARRY G52`), written from that rule with the reference's own MIN_SPLIT_IMPROVEMENT_PPM.
+// Its mutant: [morf-SQ2-17] (the carry's threshold at 0).
 //
 // RED BEFORE THE CHANGE (cb1d7d9): the two counting rows, `test_Sq_OneHoldingsReadPerCandidate`
 // and `test_Sq_OneManagerReadPerSingletonCandidate` - the Solver of cb1d7d9 reads the holdings
