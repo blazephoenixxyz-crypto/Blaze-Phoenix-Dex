@@ -2819,8 +2819,8 @@ M = [
       teste='test_OwedOnABridgeHop_IsNeitherSpentNorSwept'),
  dict(nome='fee seal [488]: the push is no longer gas-capped (a token that burns the gas takes the swap with it)',
       f='src/BlazePhoenixRouter.sol',
-      old='        bool ok = BPC.tryTransfer(token, to, amt, FEE_GAS);',
-      new='        bool ok = BPC.tryTransfer(token, to, amt, gasleft()); // MUTANT [488]',
+      old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
+      new='        BPC.tryTransfer(token, to, amt, gasleft()); // MUTANT [488]',
       teste='test_EveryRefusalShape_DoesNotBlock'),
  dict(nome='fee seal [489]: the rescue sweeps the owed fees too',
       f='src/BlazePhoenixRouter.sol',
@@ -2844,9 +2844,9 @@ M = [
       teste='test_ClaimBetweenTwoSwapsOfOneTransaction_KeepsTheCoordinate'),
  dict(nome='fee seal [493]: a push the token answered as refused but did move is booked in full (a claim pays the share twice)',
       f='src/BlazePhoenixRouter.sol',
-      old='        uint256 gone = b0 > b1 ? b0 - b1 : 0;',
-      new='        uint256 gone = 0; // MUTANT [493]',
-      teste='test_EveryRefusalShape_DoesNotBlock'),
+      old='        gone = b0 > gone ? b0 - gone : 0;',
+      new='        gone = 0; // MUTANT [493]',
+      teste='test_FeeOnTransferShare_TheTokensCutIsNotBooked'),
  # ─── gate-1021: KIND_EXTERNAL fails closed (phase 1) and the Gate (phase 2) ───
  dict(nome="gate-1021 [476]: provenShape stops refusing a kind with no reader, so a declared kind 9 (or a tombstone) is re-labelled as a pair",
       f="src/BlazePhoenixCore.sol",
@@ -5790,23 +5790,25 @@ M = [
       new='        bool anchored = true; // MUTANT [fix1102-premissa-b-3]',
       teste='test_INV7_SameTradesDifferentTiming_PayDifferently'),
  # fin-1111 router (3688/3995). [488] above was re-anchored on the same line: the push no longer
- # returns on the answer. The answer is heard only when the balance rose inside the push
- # (a restatement: the delta is not a measurement there); -1, -8 and -9 are the three ways
- # of getting that one line wrong.
+ # returns on the answer. Re-anchored 2026-11-12 (integ, fix1112-4122 merge): `_push` books by two
+ # witnesses (the Router's loss, the payee's gain) and `if (ok && b1 > b0) return;` is gone, so the
+ # three 3688 mutants now break the two-witness body: -1 trusts the answer again (the same edit as
+ # [1026], kept for its own killer), -8 lets a balance that rose excuse the push, -9 drops the
+ # payee witness.
  dict(nome='fin1111-router-1 (3688): the fee push trusts the answer again, a share whose token answers true without moving it is neither paid nor booked',
       f='src/BlazePhoenixRouter.sol',
-      old='        if (ok && b1 > b0) return;',
-      new='        if (ok) return; // MUTANT [fin1111-router-1]',
+      old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
+      new='        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return; // MUTANT [fin1111-router-1]',
       teste='test_AShareThatAnswersTrueWithoutMovingIsBooked'),
  dict(nome='fin1111-router-8 (3688): a balance that rose inside the push excuses a refusal too, a share the token refused is neither paid nor booked',
       f='src/BlazePhoenixRouter.sol',
-      old='        if (ok && b1 > b0) return;',
-      new='        if (b1 > b0) return; // MUTANT [fin1111-router-8]',
+      old='        gone = b0 > gone ? b0 - gone : 0;',
+      new='        gone = b0 > gone ? b0 - gone : amt; // MUTANT [fin1111-router-8]',
       teste='test_Control_ARefusalWhileTheBalanceRisesIsStillBooked'),
  dict(nome='fin1111-router-9 (3688): the delta rules even when the balance rose inside the push, a share the token paid while restating up is booked again out of the payer surplus',
       f='src/BlazePhoenixRouter.sol',
-      old='        if (ok && b1 > b0) return;',
-      new='        // MUTANT [fin1111-router-9]',
+      old='            uint256 got = BPC.balanceOf(token, to);',
+      new='            uint256 got = p0; // MUTANT [fin1111-router-9]',
       teste='test_ASharePaidWhileTheBalanceRestatesUpIsNotBooked'),
  # fin-1111 router (3948), re-anchored 2026-11-11 (fin2-router): the surplus of a pull is shared pro rata
  # between the ask and the balance held before it, one line in `_received`; there is no empty-Router case.
@@ -6598,6 +6600,39 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            amountIn = hopGot;\n',
       new="            // MUTANT: amountIn stays hop 0's pull\n",
       teste='test_ARestatementFiredByTheHop0FeePushStaysWithTheStrandedBridge'),
+ # fix1112-4122: the fee push is booked by two witnesses (the Router's loss and the payee's gain),
+ # never by the token's answer. A paid share restated up inside the transfer was booked again.
+ dict(nome='fix1112-4122 [1023]: the payee witness is dropped, so a share paid under a restatement up to k* is booked again',
+      f='src/BlazePhoenixRouter.sol',
+      old='            if (got > gone) gone = got;',
+      new='            if (got > gone) gone = gone; // MUTANT [1023]',
+      teste='test_FalseAndRestatedUpAtKStar_WholeShareIsNotBookedAgain'),
+ # [493] (fee seal) now watches the Router witness: `gone = 0` books the token's own cut under a FoT push.
+ dict(nome='fix1112-4122 [1024]: the Router\'s loss is not clamped at zero, so a restatement up reverts the swap',
+      f='src/BlazePhoenixRouter.sol',
+      old='        gone = b0 > gone ? b0 - gone : 0;',
+      new='        gone = b0 - gone; // MUTANT [1024]',
+      teste='test_FalseAndRestatedUp_AtTwoXAndBelowKStar_NothingBooked'),
+ dict(nome='fix1112-4122 [1025]: the smaller witness wins, so the paid share is booked at k*',
+      f='src/BlazePhoenixRouter.sol',
+      old='            if (got > gone) gone = got;',
+      new='            if (got < gone) gone = got; // MUTANT [1025]',
+      teste='test_FalseAndRestatedUp_AtTwoXAndBelowKStar_NothingBooked'),
+ dict(nome='fix1112-4122 [1026]: the answer is heard again, so a true with nothing moved books nothing (3688)',
+      f='src/BlazePhoenixRouter.sol',
+      old='        BPC.tryTransfer(token, to, amt, FEE_GAS);',
+      new='        if (BPC.tryTransfer(token, to, amt, FEE_GAS)) return; // MUTANT [1026]',
+      teste='test_TrueAndNothingMoved_IsBooked'),
+ dict(nome='fix1112-4122 [1027]: the payee is never asked when the Router\'s loss is short, so a half payment restated up is booked whole',
+      f='src/BlazePhoenixRouter.sol',
+      old='        if (gone < amt) {',
+      new='        if (gone > amt) { // MUTANT [1027]',
+      teste='test_ClaimAfterAHalfPaymentRestatedUp_PaysTheRestOnce'),
+ dict(nome='fix1112-4122 [1028]: the payee witness is a raw balance, not a delta, so what the payee already held counts as paid',
+      f='src/BlazePhoenixRouter.sol',
+      old='            got = got > p0 ? got - p0 : 0;',
+      new='            got = got; // MUTANT [1028]',
+      teste='test_PayeesPriorBalance_IsNotAPayment'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
