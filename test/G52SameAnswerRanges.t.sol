@@ -33,6 +33,18 @@ pragma solidity 0.8.36;
 //      decimals and the extreme sizes those two files do not seed.
 //  ExtremesSolidly compares sixteen refusals, so it pins that both sides refuse
 //  and does not see a cut of the price.
+//
+//  The floor's frame (4007, 2026-11-11): the Solver attests `singleOutFloor` on the
+//  output net of the input fees, where both frozen Solvers attested it on the gross
+//  output. As in test/G52SameAnswer.t.sol, the reference's floor is read in that
+//  frame (test/ref/Frame4007.sol, in `_same`); every other field is compared to the
+//  byte. Here no token is a bridge, so every hop pays on its input and the net
+//  output is the gross output scaled by (amountIn - ceil(amountIn * 28 / 10_000)) /
+//  amountIn: on the volatile Solidly row (1e18 in, 1e24 a side) the live floor is
+//  954339691683327390 wei where the frozen floor is 957019345851712184 wei; on the
+//  one-wei V2 row the fee swallows the input and the live floor is 0. The frame carries the reference's rate, not
+//  the live figure: a floor outside the band the reference's rate admits is still
+//  reported as a disagreement.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -41,6 +53,7 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {SolverRef653} from "./ref/SolverRef653.sol";
 import {SolverRefPoda1027} from "./ref/SolverRefPoda1027.sol";
+import {Frame4007} from "./ref/Frame4007.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {PathologicalERC20} from "./mocks/PathologicalERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
@@ -129,6 +142,9 @@ contract G52SameAnswerRangesTest is Test {
         emit log_named_bytes32("  live bytes", keccak256(rN));
         emit log_named_bytes32("  frozen bytes", keccak256(rR));
         assertEq(okN, okR, "one Solver answered and the other refused");
+        // 4007: the floor is attested on the net output since 2026-11-11; the reference's is read
+        // in that frame (test/ref/Frame4007.sol), every other field to the byte.
+        if (okN) rR = Frame4007.carry(hub, rN, rR);
         assertEq(keccak256(rN), keccak256(rR), "the live Solver and the frozen Solver disagree");
         if (needRoute) assertTrue(okN, "precondition: the row has a route");
     }
