@@ -19,6 +19,12 @@ pragma solidity 0.8.36;
 //
 //  and read with `python3 .github/scripts/assurance/pc_trace.py --check`.
 //
+//  Mutants, named here because the test is opt-in and mutants.py pairs only suite tests
+//  (both killed 2026-11-12): probe-dump-1, drop the `mstore(0x40, fmp)` that closes `_dump`'s
+//  loop, the release trace dies with MemoryOOG; probe-trace-1, record without
+//  `startDebugTraceRecording`, the cheatcode has nothing to return and `--check` refuses the
+//  trace (ground truth: FAIL).
+//
 //  Ground truth the reader must re-find: a second Router is deployed here and
 //  never called; its address is declared `never` in the trace header, and the
 //  reader fails if any frame ran its code. The one that is called must cross
@@ -105,6 +111,14 @@ contract PcTraceProbeTest is Test {
 
     function _dump(string memory path, Vm.DebugStep[] memory steps) private {
         for (uint256 i; i < steps.length; ++i) {
+            // Every iteration allocates strings it does not keep, and Solidity never frees
+            // memory: left alone, the dump grows by several hundred bytes per step and its
+            // memory-expansion cost with the square of the step count, which is what ran the
+            // release swap's trace out of gas (MemoryOOG, 2026-11-12). Nothing allocated inside
+            // the iteration outlives it (`s` is a reference into `steps`), so the free-memory
+            // pointer is restored at its end and the frame stays at `steps` plus a constant.
+            uint256 fmp;
+            assembly ("memory-safe") { fmp := mload(0x40) }
             Vm.DebugStep memory s = steps[i];
             uint256 op = uint256(s.opcode);
             uint256 a = _idx(s.contractAddr);
@@ -118,6 +132,7 @@ contract PcTraceProbeTest is Test {
                 vm.writeLine(path, string.concat(
                     vm.toString(a), " ", vm.toString(op), " ", vm.toString(uint256(s.depth))));
             }
+            assembly ("memory-safe") { mstore(0x40, fmp) }
         }
         for (uint256 i; i < seen.length; ++i) {
             vm.writeLine(path, string.concat("# addr ", vm.toString(i), " ", vm.toString(seen[i])));
