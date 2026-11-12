@@ -586,6 +586,7 @@ extended 2026-09-05) holds fourteen relations over the Core's quote maths; `test
 | Core, V2 · V3 · stable | MR4 scale equivariance | scaling order and pool together scales the output, to rounding |
 | Core, V2 · V3 | MR5 fee monotone | a higher fee never pays more |
 | Core, V3 | MR6 direction symmetry | at price 1.0 the two arms of `outV3` agree to two ulps |
+| Core, V3 | the single-range figure is the pool's swap | token0 in, `outV3` is the walk of a flat book to the wei while the swap ends inside the pool's first step (one producer of the price step; past a bitmap word the pool steps again, with its own rounding); token1 in, never above it (`test/OutV3IsNotAboveThePoolsSwap.t.sol`) |
 | Core, Solidly | MR7 identity | the volatile arm **is** `outV2`, one producer |
 | plan | MR-R1 | the split never pays less than the best single pool would, over pools above dust |
 | plan | MR-R2 | monotone in `amountIn` |
