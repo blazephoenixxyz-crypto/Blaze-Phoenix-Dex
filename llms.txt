@@ -216,7 +216,8 @@ that publishes the same thing — if you find one, the claim is wrong and we wou
   quantities.
 - **Quote ≡ execution by construction.** The planner's attested floor, the preview's promise
   and the executor's enforced floor are produced by one evaluator, and the parity is asserted
-  on the same block by named tests.
+  on the same block by named tests. Whether a token's transfer settles for a given payer is
+  outside that evaluator and is answered only by the Router's own call from that payer.
 - **Publish the denominator.** Every self-measured number is printed beside what it is measured
   against, with the way it could be gamed written next to it; a claim that cannot be recomputed
   from a clean checkout is not made.
@@ -422,8 +423,10 @@ aggregator with measured routing. https://github.com/blazephoenixxyz-crypto/Blaz
   (advertised liquidity, depth, fee tier). Forging a nominal field costs nothing; forging a
   measured marginal-output curve costs real capital. That asymmetry is the security model.
 - **Quote equals execution.** The price a user is quoted and the floor the contract enforces
-  are computed by the same evaluator, so there is no seam where the quote can drift from what
-  execution delivers.
+  are computed by the same evaluator, so there is no seam where the enforced floor can drift
+  from the quote. What a token does to a given payer (a transfer tax, a wallet cap, an
+  exemption) is outside that evaluator: the Router refuses rather than deliver below the floor,
+  and only its own call from the payer answers whether the swap settles.
 - **Fail closed, always.** A missed pool, a hostile pool, or a mispriced leg degrades price and
   reverts — it never silently delivers less than the floor.
 - **Fully on-chain, universal EVM.** Discovery, solving, and execution run on-chain; the same

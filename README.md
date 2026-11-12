@@ -118,7 +118,10 @@ do.
   the pool's measured marginal output. Forging a nominal field costs nothing; forging a measured
   output curve costs capital. That asymmetry is the security model.
 - **Quote ≡ execution.** The quote and the floor the contract enforces come from one evaluator,
-  so there is no seam where the quote can drift from what execution delivers.
+  so there is no seam where the enforced floor can drift from the quote. What a token does to a
+  given payer (a transfer tax, a wallet cap, an exemption) is outside that evaluator: the Router
+  refuses rather than deliver below the floor, and only its own call from the payer answers
+  whether the swap settles.
 - **Fail closed.** A missing, hostile or mispriced pool degrades the price or reverts. It never
   delivers below the protocol floor or the caller's mandatory minimum.
 - **Caller data is a coordinate, never a fact.** Every field an integrator writes into calldata
@@ -154,7 +157,7 @@ flowchart TD
 | **Gate** | One factory row in front of venues the Core cannot read natively (Balancer V2 and V3, Curve StableSwap-NG, Curve Twocrypto-NG and Tricrypto-NG). It creates a thin immutable wrapper per venue at a derived address; the wrapper looks like a Uniswap V3 pair to the Router and forwards what it measured arriving to the family's adapter. The output is the delta measured at the recipient, never a value the adapter returns. |
 | **Core** | The shared measured-math library: constant product, concentrated liquidity, the Solidly stable curve, Algebra dynamic fee, Uniswap V4. One evaluator prices both the quote and the floor. Each venue's vitality decays on its own clock, an exponential average of the interval between its own capital-anchored ticks, so a venue that trades every minute and one that trades weekly are each judged by their own rhythm. |
 | **Math** | The stateless library that makes one hop's choice (the band, the split weights, the funnel cut). The Solver calls it once per hop and pins its codehash at deploy. |
-| **Quoter** | Read-only preview surface: `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg, and `previewAndEncode` for ready-to-sign calldata. |
+| **Quoter** | Read-only preview surface: `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg, and `previewAndEncode` for the calldata of the route it prices (pool math; whether it settles for a payer is the Router's own call from that payer). |
 
 Every deployable contract stays under the EIP-170 limit of 24,576 bytes, enforced in CI with a margin and asserted
 inside the suite itself (`test/DeployedSizeGate.t.sol`). The full transaction path, step by step,
