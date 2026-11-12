@@ -2407,7 +2407,7 @@ library BlazePhoenixCore {
     ///      spending at most `rem` (fee included). Returns the price reached, the input
     ///      spent (fee included) and the output.
     function _v4Step(uint160 sp, uint160 target, uint128 liq, uint256 rem, uint24 fee, bool zeroForOne)
-        private pure returns (uint160 next, uint256 used, uint256 out)
+        internal pure returns (uint160 next, uint256 used, uint256 out)
     {
         uint256 remLessFee = mulDiv(rem, 1_000_000 - fee, 1_000_000);
         uint256 toTarget = zeroForOne ? _amount0Delta(target, sp, liq, true) : _amount1Delta(sp, target, liq, true);
