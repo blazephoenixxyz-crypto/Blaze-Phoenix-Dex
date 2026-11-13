@@ -62,8 +62,9 @@ jobs:
       max-parallel: 4
       matrix:
         chain: [arbitrum, avalanche, base, bsc, ethereum, optimism, robinhood]
-    # A push measures only when the head commit asks for it ("[g7-measure]"); otherwise smoke.
-    timeout-minutes: ${{ ((github.event_name == 'workflow_dispatch' && inputs.mode == 'measure') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[g7-measure]'))) && 350 || 30 }}
+    # A push measures only when the SUBJECT line of the head commit ends with "[g7-measure]"
+    # (a body that merely mentions the tag does not count); otherwise it runs the smoke.
+    timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' && inputs.mode == 'smoke') && 30 || 350 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -74,12 +75,17 @@ jobs:
       - name: Run g7 on ${{ matrix.chain }}
         env:
           DRPC_KEY: ${{ secrets.DRPC_KEY }}
-          MODE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.mode == 'measure') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[g7-measure]'))) && 'measure' || 'smoke' }}
+          EVENT: ${{ github.event_name }}
+          INPUT_MODE: ${{ inputs.mode }}
           CHAINS: ${{ github.event_name == 'workflow_dispatch' && inputs.chains || '' }}
           CHAIN: ${{ matrix.chain }}
         run: |
           set -euo pipefail
           mkdir -p out
+          if [ "$EVENT" = workflow_dispatch ]; then MODE="$INPUT_MODE"
+          elif git log -1 --format=%s | grep -qE '\[g7-measure\]$'; then MODE=measure
+          else MODE=smoke; fi
+          echo "mode: $MODE"
           if [ -n "$CHAINS" ] && ! printf '%s\n' "${CHAINS//,/$'\n'}" | grep -qxF "$CHAIN"; then
             echo "$CHAIN not selected: skipped"; exit 0
           fi
