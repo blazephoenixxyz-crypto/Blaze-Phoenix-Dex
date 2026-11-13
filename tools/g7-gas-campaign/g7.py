@@ -51,6 +51,8 @@ ERROR_SEL = "08c379a0"  # Error(string)
 NQ_CLASSES = ("S", "dust", "A", "A'", "B")  # noquote classes, classify_rows()
 MS_CASES = ("D", "hit", "partial", "miss", "expired")  # where the route came from, ms_case()
 SPLIT_SEGS = ("g_quote", "g_exec", "g_legs_sum", "dex_overhead", "g_record")  # the ms_case table
+PAIRED_SEGS = ("g_quote", "g_exec", "g_record")  # the paired vs D table
+PAIRED_MIN_N = 20  # p95 of a paired cell only from here: nearest-rank ceil(0.95 n) < n, i.e. not the maximum, iff n >= 20
 LEG_SELS = {SEL["v2swap"], SEL["v3swap"], SEL["unlock"]}
 GAS = hex(30_000_000)
 CALLER = "0x000000000000000000000000000000000000dEaD"
@@ -789,6 +791,34 @@ def split_value(r, s):
         return None
 
 
+def draw_key(r):
+    """The draw a row belongs to: every mode of one draw shares it (chain, stratum, idx, block b)."""
+    return r["chain"], r["stratum"], r["idx"], r["b"]
+
+
+def pairs_vs_d(rows, s):
+    """Paired by draw (pure): (chain, mode) -> [(ms_case, D value, mode value)], one entry per draw
+    whose D row and mode row are both ok with segment `s`. A draw missing either side is in
+    neither column, so no marginal leaks into a paired cell."""
+    d = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and r["outcome"] == "ok" and r.get(s) not in ("", None)}
+    out = {}
+    for r in rows:
+        k = draw_key(r)
+        if r["mode"] != "D" and r["outcome"] == "ok" and r.get(s) not in ("", None) and k in d:
+            out.setdefault((r["chain"], r["mode"]), []).append((r.get("ms_case", ""), d[k], int(r[s])))
+    return out
+
+
+def paired_cells(v):
+    """n, D p50, mode p50, delta p50, delta p95 of a list of (ms_case, D, mode) pairs; delta = mode - D
+    per draw. The p95 is empty below PAIRED_MIN_N (there it would be the maximum)."""
+    if not v:
+        return [0, "", "", "", ""]
+    dl = [m - d for _, d, m in v]
+    return [len(v), pct([d for _, d, _ in v], 50), pct([m for _, _, m in v], 50), pct(dl, 50),
+            pct(dl, 95) if len(v) >= PAIRED_MIN_N else ""]
+
+
 def load_liq(spec_path):
     """(stratum id -> liq_usd) per chain from prereg/strata.tsv next to the spec; {} when absent."""
     p = os.path.join(os.path.dirname(os.path.abspath(spec_path)), "prereg", "strata.tsv")
@@ -909,6 +939,20 @@ def cmd_report(spec_path, out_path):
             vn = [float(r["vs_mid_net_bps"]) for r in rs if r.get("vs_mid_net_bps")]
             print(f"{cn}\t{m}\t{len(rs)}\t{sum(r['swept'] == '1' for r in rs)}\t{sum(r['fits_2_10'] == '1' for r in rs)}\t"
                   f"{pct(vd, 50) if vd else ''}\t{pct(vm, 50) if vm else ''}\t{pct(vn, 50) if vn else ''}\t{rs[0]['label']}")
+    # Declared cells: every chain x mode (but D) x segment, with ms_case "all", printed even at n 0;
+    # the per-case lines follow only where a pair exists.
+    print(f"# paired vs D (same chain, stratum, idx, b; both ok; delta = mode - D per draw; delta_p95 only at n >= {PAIRED_MIN_N}): "
+          "chain\tmode\tms_case\tsegment\tn_pairs\tD_p50\tM_p50\tdelta_p50\tdelta_p95")
+    prs = {s: pairs_vs_d(rows, s) for s in PAIRED_SEGS}
+    for cn in spec["chains"]:
+        for m in [m for m, _, _ in modes(spec) if m != "D"]:
+            for s in PAIRED_SEGS:
+                ps = prs[s].get((cn, m), [])
+                for c in ("all",) + MS_CASES[1:]:
+                    v = ps if c == "all" else [p for p in ps if p[0] == c]
+                    if c != "all" and not v:
+                        continue
+                    print(f"{cn}\t{m}\t{c}\t{s}\t" + "\t".join(str(x) for x in paired_cells(v)))
 
 
 def main(a):

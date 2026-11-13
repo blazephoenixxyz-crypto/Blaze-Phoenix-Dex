@@ -71,6 +71,8 @@ M = [  # (test id, old, new)
  ("Universe.test_universe_input_and_spec_branch", '          [ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"\n          if [ "$MODE" = measure ]; then', '          if [ "$MODE" = measure ]; then', "g7-gas-campaign.yml"),
  ("Universe.test_universe_input_and_spec_branch", 'report "$SPEC" out/results.tsv', 'report "$D/spec.json" out/results.tsv', "g7-gas-campaign.yml"),
  ("MsCase.test_report_table_per_chain_kind_case", 'for r in rows if r["outcome"] == "ok" and r["ms_case"]})', 'for r in rows if r["ms_case"]})'),
+ ("PairedVsD.test_pairs_by_draw_not_by_stratum", 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and r["outcome"] == "ok" and', 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and'),
+ ("PairedVsD.test_p95_only_from_the_declared_minimum", "if len(v) >= PAIRED_MIN_N else", "if len(v) > PAIRED_MIN_N else"),
 ]
 # Draws.test_strata_streams: the mutant is one rng per chain, defined before the strata loop
 fail = 0

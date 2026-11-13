@@ -2,7 +2,7 @@
 """Offline tests for g7.py (no RPC, no key). Run: python3 -I tools/g7-gas-campaign/test_g7.py
 
 Each test names the mutant of g7.py that turns it red; mutants_g7.py applies every one of them
-and checks that its test goes red (65/65 on 2026-11-13).
+and checks that its test goes red (68/68 on 2026-11-13).
 """
 import os
 import sys
@@ -721,6 +721,66 @@ class ReportSplit(unittest.TestCase):
         self.assertIn("base\tg_quote\t1\t2000000\t2000000\t2\t1000000\t1100000\t1\t1800000\t1800000", lines)
         self.assertIn("base\tg_discovery\t1\t1700000\t1700000\t2\t0\t0\t1\t0\t0", lines)
         self.assertFalse([l for l in lines if l.startswith("base\tg_quote\t") and "MF1h" in l])
+
+
+class PairedVsD(unittest.TestCase):
+    """cmd_report "# paired vs D": per draw (chain, stratum, idx, b) the D row and the mode row, both
+    ok; delta = mode - D per draw; p95 only from PAIRED_MIN_N; every declared cell printed."""
+    HDR = ("# paired vs D (same chain, stratum, idx, b; both ok; delta = mode - D per draw; delta_p95 only at n >= 20): "
+           "chain\tmode\tms_case\tsegment\tn_pairs\tD_p50\tM_p50\tdelta_p50\tdelta_p95")
+
+    def draw(self, mode, idx, gq, b=None, **kw):
+        return okrow(mode, idx=idx, b=b if b is not None else 100 * idx, g_quote=gq, **kw)
+
+    def paired(self, lines):
+        i = lines.index(self.HDR)
+        return [ln for ln in lines[i + 1:] if ln]
+
+    # Meta-mutant "unpaired": draw_key -> (chain, stratum), so an M row meets another draw's D.
+    # Mutant: the ok filter of the D side dropped (a noquote D still pairs).
+    def test_pairs_by_draw_not_by_stratum(self):
+        rows = [self.draw("D", 1, 1000), self.draw("M0", 1, 900),
+                self.draw("D", 2, 5000), self.draw("M0", 2, 4000),
+                self.draw("D", 3, 2500000, outcome="noquote"), self.draw("M0", 3, 700),  # D not ok: out
+                self.draw("D", 4, 3000), self.draw("M0", 4, 600, outcome="revert")]  # mode not ok: out
+        p = self.paired(report_lines(rows))
+        # deltas -100 and -1000: the per-draw median is -1000; the marginal medians would give 900 - 1000 = -100
+        self.assertIn("base\tM0\tall\tg_quote\t2\t1000\t900\t-1000\t", p)
+        self.assertIn("base\tM0\thit\tg_quote\t2\t1000\t900\t-1000\t", p)
+
+    # Meta-mutant "p95 below the minimum": `if len(v) >= PAIRED_MIN_N else ""` -> `if True else ""`.
+    # Mutant: `>=` -> `>` (n = 20 loses its p95).
+    def test_p95_only_from_the_declared_minimum(self):
+        # the minimum is derived, not chosen: the smallest n whose nearest-rank p95 is not the maximum
+        self.assertEqual(min(n for n in range(1, 100) if g7.pct(list(range(n)), 95) != n - 1), g7.PAIRED_MIN_N)
+        rows = []
+        for i in range(1, 21):
+            rows += [self.draw("D", i, 1000), self.draw("M1h", i, 1000 - i)]
+            if i < 20:
+                rows.append(self.draw("M0", i, 1000 - i))
+        p = self.paired(report_lines(rows))
+        self.assertIn("base\tM0\tall\tg_quote\t19\t1000\t990\t-10\t", p)  # n 19: no p95
+        self.assertIn("base\tM1h\tall\tg_quote\t20\t1000\t989\t-11\t-2", p)  # n 20: rank 19 of 20
+
+    # Meta-mutant "mode summed": the cell key (chain, mode) -> (chain, mode.replace("F", "")), so MF1h
+    # folds into M1h.
+    def test_a_mode_is_never_summed_into_another(self):
+        rows = [self.draw("D", 1, 1000), self.draw("M1h", 1, 900), self.draw("MF1h", 1, 500)]
+        p = self.paired(report_lines(rows))
+        self.assertIn("base\tM1h\tall\tg_quote\t1\t1000\t900\t-100\t", p)
+        self.assertIn("base\tMF1h\tall\tg_quote\t1\t1000\t500\t-500\t", p)
+
+    # Meta-mutant "cell disappears": `if c != "all" and not v: continue` -> `if not v: continue`.
+    def test_every_declared_cell_is_printed(self):
+        import copy
+        spec = copy.deepcopy(SPEC)
+        spec["chains"]["bsc"] = copy.deepcopy(spec["chains"]["base"])
+        p = self.paired(report_lines([self.draw("D", 1, 1000), self.draw("M0", 1, 900)], spec))
+        alls = [ln for ln in p if ln.split("\t")[2] == "all"]
+        self.assertEqual(len(alls), 2 * 3 * len(g7.PAIRED_SEGS))  # chains x (M0, M1h, MF1h) x segments
+        self.assertIn("bsc\tMF1h\tall\tg_record\t0\t\t\t\t", p)
+        self.assertIn("base\tM1h\tall\tg_quote\t0\t\t\t\t", p)
+        self.assertFalse([ln for ln in p if ln.split("\t")[2] not in ("all", "hit")], "a case without a pair has no line")
 
 
 def workflow_text():
