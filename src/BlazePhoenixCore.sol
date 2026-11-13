@@ -2268,8 +2268,12 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice sqrt(1.0001^tick) * 2^96, rounded up - the TickMath table: each constant is
-    ///         2^128 / sqrt(1.0001)^(2^i), and the result is exact to the pool's own value.
+    /// @notice sqrt(1.0001)^tick * 2^96 in Q96 - the TickMath table, with the pool's own constants and
+    ///         rounding, so a tick's price here is the pool's to the bit. Each constant is derived from
+    ///         its definition, the integer nearest to 2^128 / sqrt(1.0001)^(2^i); CI recomputes all
+    ///         twenty (test/tools/tickmath_certificate.py). Certified on every tick
+    ///         (docs/assurance/tickmath-certificate.tsv): strictly increasing; ticks <= 0 are the true
+    ///         value rounded up; within one Q96 unit through tick 132,821, below 2^-63 relative above.
     function sqrtPriceAtTick(int24 tick) internal pure returns (uint160) {
         uint256 a = tick < 0 ? uint256(-int256(tick)) : uint256(int256(tick));
         require(a <= uint256(int256(V4_MAX_TICK)), "BPC:tick");
