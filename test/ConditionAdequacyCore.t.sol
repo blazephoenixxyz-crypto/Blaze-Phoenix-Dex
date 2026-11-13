@@ -261,19 +261,20 @@ contract ConditionAdequacyCoreTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Core:1113  outV3 !zeroForOne: `sqrtLimit != 0 && sqrtNew > sqrtLimit`
-    //             — sub-condition `sqrtNew > sqrtLimit`
+    //  Core outV3: `sqrtLimit != 0 ? sqrtLimit : <price bound>` (the step's target)
+    //  Until 2026-11-13 this was the up-direction clamp
+    //  `sqrtLimit != 0 && sqrtNew > sqrtLimit`; since then outV3 is the pool's
+    //  step toward its target, and a zero limit means the price bound.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// The up-direction clamp was never exercised WITH a limit (TickBoundary-
-    /// Clamp only tests zeroForOne). A permissive limit above the natural
-    /// landing price must not bend the quote: at price 1, L = 1e18, ain = 1e18,
-    /// fee 0, the swap lands at 2*Q96 and pays out exactly 5e17. Neutralised
-    /// (clamp fires whenever a limit exists), sqrtNew is dragged UP to the
-    /// 10*Q96 limit and the quote inflates to 9e17 — an over-quote in the one
-    /// direction the exact-or-below promise forbids. Both readings pinned:
-    /// the hand-derived constant and equality with the unlimited twin (which
-    /// is immune to this neutralisation because its first conjunct is false).
+    /// A permissive limit above the natural landing price must not bend the
+    /// quote: at price 1, L = 1e18, ain = 1e18, fee 0, the swap lands at
+    /// 2*Q96 and pays out exactly 5e17, with or without a 10*Q96 limit. The
+    /// guard is the `sqrtLimit != 0` test: neutralised (a zero limit read as
+    /// the target), the unlimited twin steps toward price 0, which lies behind
+    /// it, and quotes 0 instead of 5e17 (mutant in .github/scripts/mutants.py,
+    /// "the load-bearing half of the twin clamp"). Both readings pinned: the
+    /// hand-derived constant and equality with the limited twin.
     function test_OutV3_NonBindingUpperLimitDoesNotBendTheQuote() public pure {
         uint256 unlimited = BPC.outV3(1e18, SQRT_P_1, 1e18, 0, false, 0);
         uint256 limited   = BPC.outV3(1e18, SQRT_P_1, 1e18, 0, false, uint160(10 * BPC.Q96));

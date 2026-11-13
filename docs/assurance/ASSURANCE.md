@@ -488,9 +488,9 @@ promises more than the venue's maths delivers) and the tightness second.
 The V3 bound is stated in the quantity that causes it: the pool rounds its new price against the
 trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
 wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
-assertion is the bound, not the sample.
-Until 2026-11-13: since then `outV3` is SwapMath's exact-input step toward the range's boundary,
-the one the walk takes, so it rounds where the pool rounds and the bound holds with nothing to spare.
+assertion is the bound, not the sample. That held until 2026-11-13. Since then `outV3` is SwapMath's
+exact-input step toward the range's boundary, the one the walk takes, so it rounds where the pool
+rounds and the quote equals the pool's step to the wei.
 
 **Uniswap V4, walked.** A V4 pool is quoted by walking its own book (`Core.v4WalkOut`), so its
 oracle is a swap. `test/mocks/MockV4TickManager.sol` implements the specification's exact-input
