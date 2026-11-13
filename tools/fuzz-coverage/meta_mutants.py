@@ -44,7 +44,7 @@ def _reseal(rel, old_line, new_line):
     return (text[i:], body[i:] + "lock\t" + prereg.lock_of(body) + "\n")
 
 
-_MC3B = _reseal(MC_PRE, "const\tABS_TOL_WEI\t4\n", "const\tABS_TOL_WEI\t40\n")
+_MC3B = _reseal(MC_PRE, "const\tABS_TOL_WEI\t0\n", "const\tABS_TOL_WEI\t40\n")
 
 M = [
     dict(nome="meta [mm-1]: a matrix line is lost",
@@ -69,14 +69,14 @@ M = [
          new="    uint256 internal constant N_SAMPLES = 64; // MUTANT\n",
          teste="test_prereg_mc_binds_the_test"),
     dict(nome="meta [mm-7]: the MC prereg is edited after the results (lock left stale)",
-         f=MC_PRE, old="const\tMAX_DEV_BPS\t10\n", new="const\tMAX_DEV_BPS\t50\n",
+         f=MC_PRE, old="const\tN_SAMPLES\t4096\n", new="const\tN_SAMPLES\t64\n",
          teste="test_prereg_mc_lock_matches_body"),
     dict(nome="meta [mm-8]: the MC prereg is edited after the results and its lock recomputed",
          f=MC_PRE, old=_MC3B[0], new=_MC3B[1],
          teste="test_prereg_mc_binds_the_test"),
-    dict(nome="meta [mm-9]: the WF tolerance is raised in the test, not in the prereg",
-         f=WF_SOL, old="    uint256 internal constant MAX_DEV_BPS = 10;\n",
-         new="    uint256 internal constant MAX_DEV_BPS = 50; // MUTANT\n",
+    dict(nome="meta [mm-9]: the WF schedule is moved in the test, not in the prereg",
+         f=WF_SOL, old="    uint256 internal constant WF_DT = 19208;\n",
+         new="    uint256 internal constant WF_DT = 60; // MUTANT\n",
          teste="test_prereg_wf_binds_the_test"),
     dict(nome="meta [mm-10]: the WF hard rule is relaxed by a margin",
          f=WF_SOL, old="            assertLe(pv.netOut, got, \"WF: the quote promised more than the balance delta\");\n",

@@ -80,11 +80,11 @@ def _rows(*rows):
 class Anvil(unittest.TestCase):
     """anvil_compare: delivered (balance delta) against quoted, never the quote against itself."""
 
-    def _run(self, text, max_dev=10):
+    def _run(self, text):
         with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False) as fh:
             fh.write(text)
         try:
-            return anvil_compare.compare_rows(fh.name, max_dev)
+            return anvil_compare.compare_rows(fh.name)
         finally:
             os.unlink(fh.name)
 
@@ -96,8 +96,9 @@ class Anvil(unittest.TestCase):
         errs, _ = self._run(_rows(("base", "v2", "D", "ok", 1000, 999)))
         self.assertNotEqual(errs, [])
 
-    def test_anvil_compare_catches_a_wide_deviation(self):
-        errs, _ = self._run(_rows(("base", "v2", "miss", "ok", 1000, 1002)))   # +20 bps > 10
+    def test_anvil_compare_reads_an_absent_delivery_as_an_error(self):
+        errs, n = self._run(_rows(("base", "v2", "D", "ok", 1000, "")))       # absent is not zero
+        self.assertEqual(n, 0)
         self.assertNotEqual(errs, [])
 
     def test_anvil_compare_refuses_zero_measured_rows(self):
