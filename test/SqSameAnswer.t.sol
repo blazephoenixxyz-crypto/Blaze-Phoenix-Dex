@@ -21,7 +21,14 @@ pragma solidity 0.8.36;
 // inside the reference, G52's "every leg pays for its place" (48ff261, marked `CARRY G52`),
 // written from that rule with the reference's own MIN_SPLIT_IMPROVEMENT_PPM. Their mutants:
 // [morf-SQ2-17] (the carry's threshold at 0), [morf-SQ2-18] (the frame's dust floor) and
-// [morf-SQ2-19] (the frame's rate band collapsed to its top rate).
+// [morf-SQ2-19] (the frame's rate band collapsed to its top rate). Also carried: hops2's two
+// ceilings (051a0bb, marked `CARRY hops2`), at most MAX_HOPS hops and MAX_LEGS_PER_HOP legs a hop,
+// both read from the Core. Their mutants: [morf-SQ2-20] (the stage budget back at cb1d7d9's 4)
+// and [morf-SQ2-21] (three-hop topologies planned again). Also carried: MAT-01's funnel (53b04c0,
+// marked `CARRY MAT-01`), a row measured by the tokenOut it can pay (`BPC.hopMass18`, 0 for a
+// pair that does not hold what it declares) instead of the registry's short declared side. Its
+// mutant: [morf-SQ2-22] (cb1d7d9's read put back), red on
+// `test_Sq_SameAnswer_BooksDeclaringMoreThanTheyHold` and on the invariant.
 //
 // RED BEFORE THE CHANGE (cb1d7d9): the two counting rows, `test_Sq_OneHoldingsReadPerCandidate`
 // and `test_Sq_OneManagerReadPerSingletonCandidate` - the Solver of cb1d7d9 reads the holdings
@@ -389,6 +396,21 @@ contract SqSameAnswerTest is SqFixture {
         _row("two hops, tB -> tA", tB, tA, 9e21);
     }
 
+    /// Two bridges and a deep chain tA -> x -> y -> tB beside a shallow direct pair: a route has
+    /// at most MAX_HOPS = 2 hops since hops2 (051a0bb), so the chain is no route and the shallow
+    /// pair carries the order, in both Solvers. Red with the reference planning three hops again.
+    function test_Sq_SameAnswer_NoRouteOverTwoBridges() public {
+        address x = _bridge();
+        address y = _bridge();
+        _v2(tA, x, 3e24, 3e24);
+        _v2(x, y, 3e24, 3e24);
+        _v2(y, tB, 3e24, 3e24);
+        _v2(tA, tB, 1e21, 1e21);
+        RoutePlan memory plan = _row("two bridges, tA -> tB", tA, tB, 9e20);
+        assertEq(plan.best.hops.length, 1, "precondition: the direct pair carries the order");
+        _row("two bridges, tB -> tA", tB, tA, 9e20);
+    }
+
     // ─── a hostile tokenOut: the refusals are the same ───────────────────────
 
     /// A lone concentrated book and an order of one wei: the quote is zero, so the holdings are
@@ -574,6 +596,28 @@ contract SqSameAnswerInvariantTest is SqFixture {
     function invariant_Sq_BothSolversAnswerTheSameBytes() public {
         _same(tA, tB, 9e21, gasleft(), true);
         _same(tB, tA, 3e19, gasleft(), false);
+    }
+
+    /// The sequence the invariant shrank to on 2026-11-13 against a reference whose funnel still
+    /// read the registry's short declared side (before `CARRY MAT-01`): on tA/bridge three books
+    /// declare 137e21, 788e21 and 651e21 and hold a half or a third of it, among two honest ones;
+    /// on bridge/tB four honest books, and the fixture's bridge/tB pair re-declares (1e18, 3.94e18)
+    /// over the 3e24 it holds. The Solver measures a pair that does not hold what it declares at 0
+    /// and drops the three liars before the probe; cb1d7d9's funnel measured their declared side
+    /// and split the bridge hop over them. Replayed verbatim so the parting is a row, not a draw.
+    function test_Sq_SameAnswer_BooksDeclaringMoreThanTheyHold() public {
+        this.actAddBook(24519928653854221733733552434404946937899825954937634816);
+        this.actAddBook(1000);
+        this.actAddBook(19130);
+        this.actAddBook(8297786183884795021799820489619);
+        this.actAddBook(31);
+        this.actAddBook(11821672729397364816429906466566828502873557684231857);
+        this.actAddBook(6788);
+        this.actAddBook(224);
+        this.actAddBook(2641308033820279617402069386579361141392675241628117186487432747035196326624);
+        this.actDeclare(285518951, 0, 3940955466893621912);
+        assertEq(steps, 10, "precondition: every step took");
+        invariant_Sq_BothSolversAnswerTheSameBytes();
     }
 
     function afterInvariant() public view {

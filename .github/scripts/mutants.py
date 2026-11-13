@@ -4791,29 +4791,26 @@ M = [
       old='                if (legOutRaw == tokenOut) outCap += legDecl;\n',
       new='                if (legOutRaw == tokenOut) outCap = legDecl; // MUTANT\n',
       teste='test_TheCapIsTheSumOfTheLastHopsLegs'),
- dict(nome='3310 handed [892]: a leg that hands tokenOut to its venue does not take it off the cap',
-      f='src/BlazePhoenixRouter.sol',
-      old='                else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;\n',
-      new='                else if (legIn == tokenOut) outCap = outCap; // MUTANT\n',
-      # hops2 (2026-11-10): OPEN. The test below left with the three-hop loose shape, refused since
-      # the ceiling (RouterE(3)); on two hops this mutant survives the eight tests of
-      # SwapOutputNeverExceedsWhatTheVenuesDeclared. Its two-hop case is still to be stated; until
-      # then this entry names a test that no longer exists.
-      teste='test_TheLooseShapeIsPaidWhatTheLastHopDeclared'),
+ # retired 2026-11-13 (hops2): 3310 handed [892]: a leg that hands tokenOut to its venue does not take it off the cap
+ # EQUIVALENT since MAX_HOPS = 2: `outCap` grows only on a leg whose venue pays tokenOut, and a leg
+ # spends tokenOut only on a hop whose tokenIn is tokenOut (the pair guard below Router:1304 binds
+ # legIn to hop.tokenIn). At h = 0 that is the cyclic route, where no leg has made tokenOut yet
+ # and outCap is 0: the floor and the mutant both leave 0 ([893] pins the floor). At h = 1 it is a
+ # self-hop, refused at Router:1170 with RouterE(3). The take-off arm runs only on the three-hop
+ # loose shape A->X->B->X, refused at the ceiling since 051a0bb
+ # (test_TheLooseShapeIsPastTheHopCeilingAndRefused). Residual: a MAX_HOPS above 2 revives the
+ # arm, and this entry with it.
  dict(nome='3310 handed floor [893]: hop 0 of a cyclic route spends its input against a cap no leg made',
       f='src/BlazePhoenixRouter.sol',
       old='                else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;\n',
       new='                else if (legIn == tokenOut) outCap = outCap - scaledAmt; // MUTANT\n',
       teste='test_ACyclicRouteSpendsItsOwnInputAndIsPaidWhatItsLastPoolPaid'),
- dict(nome='3310 fee [894]: a fee charged in tokenOut is not taken off the cap',
-      f='src/BlazePhoenixRouter.sol',
-      old='        if (hop.tokenIn == tokenOut) outCap = outCap > feeH ? outCap - feeH : 0;\n',
-      new='        // MUTANT: a fee charged in tokenOut is not taken off the cap\n',
-      # hops2 (2026-11-10): OPEN. The test below left with the three-hop loose shape, refused since
-      # the ceiling (RouterE(3)); on two hops this mutant survives the eight tests of
-      # SwapOutputNeverExceedsWhatTheVenuesDeclared. Its two-hop case is still to be stated; until
-      # then this entry names a test that no longer exists.
-      teste='test_TheLooseShapeIsPaidWhatTheLastHopDeclared'),
+ # retired 2026-11-13 (hops2): 3310 fee [894]: a fee charged in tokenOut is not taken off the cap
+ # EQUIVALENT since MAX_HOPS = 2: the fee is charged in tokenOut only on a hop whose tokenIn is
+ # tokenOut. At h = 0 (the cyclic route) outCap is still 0 and the floor and the mutant both leave
+ # 0 ([895] pins the floor); at h = 1 the hop is a self-hop, refused at Router:1170. The take-off
+ # arm ran only on the three-hop loose shape, refused at the ceiling since 051a0bb. Residual: a
+ # MAX_HOPS above 2 revives the arm, and this entry with it.
  dict(nome='3310 fee floor [895]: hop 0 of a cyclic route pays its fee in tokenOut against a cap no leg made',
       f='src/BlazePhoenixRouter.sol',
       old='        if (hop.tokenIn == tokenOut) outCap = outCap > feeH ? outCap - feeH : 0;\n',
@@ -6636,6 +6633,21 @@ M = [
       old="        uint256 fLo = f == 0 ? 0 : (f - 1) * BPC.BPS / r.totalOut + 1;\n",
       new="        uint256 fLo = fHi; // MUTANT [morf-SQ2-19]\n",
       teste="test_Sq_SameAnswer_DustOrderFloorIsInsideTheRateBand"),
+ dict(nome="[morf-SQ2-20]: the reference's hops2 carry leaves the stage budget at cb1d7d9's 4 legs, and a hop of six kinds the Solver splits five ways no longer matches it",
+      f="test/morf/SolverRefCb1d7d9.sol",
+      old="    uint8   internal constant MAX_LEGS_PER_STAGE   = MAX_LEGS_PER_HOP;   // CARRY hops2 (051a0bb): was 4\n",
+      new="    uint8   internal constant MAX_LEGS_PER_STAGE   = 4; // MUTANT [morf-SQ2-20]\n",
+      teste="test_Sq_SameAnswer_EveryKindInOneHop"),
+ dict(nome="[morf-SQ2-21]: the reference's hops2 carry plans three-hop topologies over two bridges again, and a deep chain over two bridges outbids the direct pair the Solver keeps",
+      f="test/morf/SolverRefCb1d7d9.sol",
+      old="        if (n > MAX_HOPS) return;\n",
+      new="        // MUTANT [morf-SQ2-21]\n",
+      teste="test_Sq_SameAnswer_NoRouteOverTwoBridges"),
+ dict(nome="[morf-SQ2-22]: the reference's MAT-01 carry measures a row by the registry's short declared side again, and a book declaring more than it holds is kept where the Solver drops it",
+      f="test/morf/SolverRefCb1d7d9.sol",
+      old="            d[i] = r[i] = BPC.hopMass18(\n                p.pool, p.kind, tA, zfo ? p.token1 : p.token0, zfo, uint8(dec) - 1, mgr, pids[i]);\n",
+      new="            d[i] = r[i] = BPC.registryDepth18Dec(p.pool, p.kind, p.token0, uint8(zfo ? dec >> 8 : dec) - 1, p.token1, uint8(zfo ? dec : dec >> 8) - 1, mgr, pids[i]); // MUTANT [morf-SQ2-22]\n",
+      teste="test_Sq_SameAnswer_BooksDeclaringMoreThanTheyHold"),
  dict(nome='fin1111-qs [QS-1]: the preview does not ask whether a Gate wrapper leg is live (RouterE(19))',
       f='src/BlazePhoenixQuoter.sol',
       old='                            ? BPC.gateWrapperLive(address(hub), leg.pool, hop.tokenIn, hop.tokenOut, leg.fee)\n',
