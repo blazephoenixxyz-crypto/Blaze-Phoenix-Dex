@@ -610,7 +610,8 @@ the mechanism, not the sample:
 - **MR-R1 / MR-R3.** With one pool priced 10¹⁰ away from the other, the plan paid 35 % less than
   the outlier alone, and a deep mispriced pool displaced a shallow honest one. That is the Solver's
   band (`MEDIAN_FILTER_BPS`, ±5 % around the median rate, until 2026-10-28; since MED the band of no
-  arbitrage, the two fees widened by the two probes' error bounds) refusing to believe an outlier —
+  arbitrage, the two fees widened by the two rows' error bounds, whose impact term is taken at the
+  order's size since ROUTEQ, 2026-11-13, and at the probe's before) refusing to believe an outlier —
   the relations hold over pools it admits. MR-R1 and MR-R3 compare the plan with a pool the band
   may drop, so since MED their domain keeps the two prices within ±0.5 %, inside the band whichever
   pool sets the median; over the ±4 % kept until then the new band met a plan 1.9 % under the pool

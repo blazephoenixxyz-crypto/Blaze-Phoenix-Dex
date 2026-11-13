@@ -9,7 +9,7 @@ Credit: the fuzzed body contains `.name(` (library: `name(`); an invariant credi
 in its file, since its handlers live there. Credit is per name, so it errs toward coverage:
 a GAP row is a gap of this measure, an FUZZED row is not proof of depth.
 
-Totals: 206 functions, 215 fuzzed tests (50 invariants); 113 GAP, 19 INV_ONLY.
+Totals: 206 functions, 217 fuzzed tests (50 invariants); 113 GAP, 19 INV_ONLY.
 
 | unit | function | visibility | view | fuzz | inv | status |
 |---|---|---|---|---|---|---|
@@ -68,7 +68,7 @@ Totals: 206 functions, 215 fuzzed tests (50 invariants); 113 GAP, 19 INV_ONLY.
 | BlazePhoenixCore | `outSolidlyStable` | internal (lib) | y | 1 | 0 | FUZZED |
 | BlazePhoenixCore | `readDynamicFee` | internal (lib) | y | 0 | 0 | GAP |
 | BlazePhoenixCore | `universalQuoteRank` | public (lib) | y | 1 | 0 | FUZZED |
-| BlazePhoenixCore | `universalProbe` | public (lib) | y | 2 | 0 | FUZZED |
+| BlazePhoenixCore | `universalProbe` | public (lib) | y | 3 | 0 | FUZZED |
 | BlazePhoenixCore | `v4SqrtAndLiq` | public (lib) | y | 0 | 0 | GAP |
 | BlazePhoenixCore | `effV4Fee` | internal (lib) | y | 1 | 0 | FUZZED |
 | BlazePhoenixCore | `v4LegOut` | public (lib) | y | 2 | 0 | FUZZED |

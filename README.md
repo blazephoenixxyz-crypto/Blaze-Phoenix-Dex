@@ -110,7 +110,10 @@ file:
 
 The Certora Prover, Aderyn, Solhint, the secret scan, the mutation guard and the fork suites run
 alongside them; they report rather than block, and a red run on any of them is treated as work to
-do.
+do. Three workflows run on dispatch rather than on every push: the gas campaigns G7 and G8
+([docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md)) and `fuzz-mc`, the Monte Carlo and
+walk-forward runs pre-registered in [docs/prereg/](docs/prereg) and the anvil comparison, where a
+forge log counts as a result only when it carries the registered lock line.
 
 ## Why it is different
 
@@ -266,14 +269,14 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 2,958 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 441 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 34 | `test/fork/*.t.sol` |
+| Test declarations | 2,979 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 445 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 35 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,346 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,357 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
-| CI workflows | 7 | `.github/workflows/*.yml` |
+| CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
 

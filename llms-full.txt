@@ -189,14 +189,14 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 2,958 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 441 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 34 | `test/fork/*.t.sol` |
+| Test declarations | 2,979 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 445 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 35 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,346 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,357 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
-| CI workflows | 7 | `.github/workflows/*.yml` |
+| CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
 
@@ -621,7 +621,10 @@ file:
 
 The Certora Prover, Aderyn, Solhint, the secret scan, the mutation guard and the fork suites run
 alongside them; they report rather than block, and a red run on any of them is treated as work to
-do.
+do. Three workflows run on dispatch rather than on every push: the gas campaigns G7 and G8
+([docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md)) and `fuzz-mc`, the Monte Carlo and
+walk-forward runs pre-registered in [docs/prereg/](docs/prereg) and the anvil comparison, where a
+forge log counts as a result only when it carries the registered lock line.
 
 ## Why it is different
 
@@ -777,14 +780,14 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 2,958 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 441 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 34 | `test/fork/*.t.sol` |
+| Test declarations | 2,979 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 445 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 35 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,346 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,357 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
-| CI workflows | 7 | `.github/workflows/*.yml` |
+| CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
 
@@ -2093,8 +2096,11 @@ impact, and filtering on that rate discards good small pools on large trades. Th
 Solver separates the two signals:
 
 1. **Quality filter** — quote each candidate with a small probe (≈ `x/100`, so the
-   marginal rate is essentially spot) and keep only those within a tight band of a
-   reference rate.
+   marginal rate is essentially spot) and keep only those inside the band around the
+   depth-weighted median rate. A row's width in the band is its fee and its error bound,
+   whose impact term is taken at the order's size rather than the probe's (since
+   2026-11-13), so a book thin against the order cannot read as narrow and become the
+   band's base.
 2. **Depth allocation** — allocate the survivors by capacity (the fitness/`Ψ`
    weight), so a well-priced small pool is kept but receives proportionally less.
 
@@ -3081,7 +3087,8 @@ the mechanism, not the sample:
 - **MR-R1 / MR-R3.** With one pool priced 10¹⁰ away from the other, the plan paid 35 % less than
   the outlier alone, and a deep mispriced pool displaced a shallow honest one. That is the Solver's
   band (`MEDIAN_FILTER_BPS`, ±5 % around the median rate, until 2026-10-28; since MED the band of no
-  arbitrage, the two fees widened by the two probes' error bounds) refusing to believe an outlier —
+  arbitrage, the two fees widened by the two rows' error bounds, whose impact term is taken at the
+  order's size since ROUTEQ, 2026-11-13, and at the probe's before) refusing to believe an outlier —
   the relations hold over pools it admits. MR-R1 and MR-R3 compare the plan with a pool the band
   may drop, so since MED their domain keeps the two prices within ±0.5 %, inside the band whichever
   pool sets the median; over the ±4 % kept until then the new band met a plan 1.9 % under the pool

@@ -57,8 +57,11 @@ impact, and filtering on that rate discards good small pools on large trades. Th
 Solver separates the two signals:
 
 1. **Quality filter** — quote each candidate with a small probe (≈ `x/100`, so the
-   marginal rate is essentially spot) and keep only those within a tight band of a
-   reference rate.
+   marginal rate is essentially spot) and keep only those inside the band around the
+   depth-weighted median rate. A row's width in the band is its fee and its error bound,
+   whose impact term is taken at the order's size rather than the probe's (since
+   2026-11-13), so a book thin against the order cannot read as narrow and become the
+   band's base.
 2. **Depth allocation** — allocate the survivors by capacity (the fitness/`Ψ`
    weight), so a well-priced small pool is kept but receives proportionally less.
 
