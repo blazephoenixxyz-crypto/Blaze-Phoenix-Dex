@@ -63,28 +63,33 @@ jobs:
       # command trailing `|| true`. The log said `command not found`, the step
       # exited 0, and the badge went green. That is the exact failure this
       # project names a NOMINAL GATE: a check that blocks only what the platform
-      # forces it to block. Install from the release binary, verify the binary
-      # answers before trusting it, and let a real finding fail the build.
-      - name: Install Aderyn (verified)
+      # forces it to block. Build a pinned version, verify the binary answers
+      # before trusting it, and let a real finding fail the build.
+      #
+      # Upstream retired every binary channel: releases now carry only the
+      # .sha256 files, so `releases/latest/download/...tar.xz` returns 404.
+      # The source of the last release stays published, so the analyzer is
+      # built from that tag, pinned by commit, and cached by that commit.
+      - name: Cache Aderyn build
+        id: aderyn-cache
+        uses: actions/cache@v4
+        with:
+          path: ./aderyn-bin
+          key: aderyn-6db35c89ebc29b727e9719d2e9f645060c8c2cf7
+      - name: Build Aderyn v0.6.8 from source (pinned commit)
+        if: steps.aderyn-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          # No API call. An anonymous request to api.github.com is rate-limited
-          # on shared runners; when it is throttled the version comes back empty,
-          # the URL degrades to .../download//aderyn-... and curl reports (23) —
-          # a message about writing output that says nothing about the real cause.
-          # The `releases/latest/download/` path redirects to the current release
-          # with no API involved.
-          # Unpack inside the workspace, which the runner user owns outright:
-          # /usr/local/bin needs sudo and $RUNNER_TEMP was no better.
-          curl -fsSL --retry 3 --retry-delay 2 \
-            "https://github.com/Cyfrin/aderyn/releases/latest/download/aderyn-x86_64-unknown-linux-gnu.tar.xz" \
-            -o ./aderyn.tar.xz
-          test -s ./aderyn.tar.xz   # a zero-byte download is a failed download
-          mkdir -p ./.aderyn && tar -xJf ./aderyn.tar.xz -C ./.aderyn
-          BIN=$(find ./.aderyn -maxdepth 3 -name aderyn -type f | head -1)
-          cp "$BIN" ./aderyn-bin
+          git init -q ./.aderyn-src
+          git -C ./.aderyn-src fetch -q --depth 1 https://github.com/Cyfrin/aderyn \
+            6db35c89ebc29b727e9719d2e9f645060c8c2cf7
+          git -C ./.aderyn-src checkout -q FETCH_HEAD
+          test "$(git -C ./.aderyn-src rev-parse HEAD)" = 6db35c89ebc29b727e9719d2e9f645060c8c2cf7
+          cargo build --release --locked -p aderyn --manifest-path ./.aderyn-src/Cargo.toml
+          cp ./.aderyn-src/target/release/aderyn ./aderyn-bin
           chmod +x ./aderyn-bin
-          ./aderyn-bin --version   # fails the job if the binary is not really there
+      - name: Verify Aderyn answers
+        run: ./aderyn-bin --version   # fails the job if the binary is not really there
 
       - name: Aderyn — full report
         run: |
