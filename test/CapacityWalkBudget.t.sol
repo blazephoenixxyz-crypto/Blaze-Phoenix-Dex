@@ -241,19 +241,23 @@ contract CapacityWalkBudgetTest is Test {
 
     /// The direct grid of `DirectThreeBooks_FitsATenth`, by count. Each book alone would be held
     /// at its cap on the whole order, and is ranked there without a read of its book; the three
-    /// split the order, no leg of the winner is left at its cap, and nothing is rebuilt. The
-    /// only tick reads of the solve are then `_paysWhatItWalks`'s, the route's reads spent on
-    /// its first leg: three on that book, none on the other two. A count of reads, not a
-    /// ceiling: with a book walked while it is ranked this grid stays inside its tenth of the
-    /// search, 57 to 153 gas under it (mutants [716], [716l], [724] on their second rows), and
-    /// a winner rebuilt with nothing held reads the same books on any number of topologies
-    /// (mutant [723] on its third row).
-    function test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick() public {
+    /// split the order and no leg of the winner is left at its cap. `_paysWhatItWalks` spends the
+    /// route's reads on its first leg, three on that book, and a walk the reads cut on a book
+    /// that thins answers below `f` (G3): the promise fell, so the winner's topology is rebuilt
+    /// once (N1), without the book that fell, and each of the other two is ranked alone on the
+    /// whole order on its walk, sixteen stretches (`_capacity`, WALK). The book that fell is not
+    /// read again, and the rebuild does not lead (two books pay less than three): the plan built
+    /// at the cap stands. A count of reads, not a ceiling: a book walked while it is ranked
+    /// (mutants [716], [716l], [724] on their second rows), a winner rebuilt as held as well
+    /// (mutant [723] on its third row) and a book that fell walked by the rebuild (mutant
+    /// [g3-5] = [n1-3]) each read more. Red at 10a2ac4 with the count before G3 (0, 0, 3), when
+    /// a cut walk answered `f` and no promise fell on this grid.
+    function test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook() public {
         uint256 n0 = touched.length;
         _grid(0, 3);
         bytes memory ticks = abi.encodeWithSelector(HeavyBookPool.ticks.selector);
-        vm.expectCall(touched[n0], ticks, 0);
-        vm.expectCall(touched[n0 + 1], ticks, 0);
+        vm.expectCall(touched[n0], ticks, 16);
+        vm.expectCall(touched[n0 + 1], ticks, 16);
         vm.expectCall(touched[n0 + 2], ticks, 3);
         _cool();
         RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);

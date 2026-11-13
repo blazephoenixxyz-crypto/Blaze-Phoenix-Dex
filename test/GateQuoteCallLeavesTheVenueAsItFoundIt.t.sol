@@ -155,8 +155,11 @@ contract GateQuoteCallLeavesTheVenueAsItFoundItTest is Test {
     }
 
     /// previewRouteExact as an integrator runs it, by eth_call: its state is thrown away. Then the
-    /// fill of the route it returned, in the same block, and the floor `_exact` promises: the
-    /// lower of the output deduction and what the Router delivers (the funded pass).
+    /// fill of the route it returned, in the same block, and the figure `_exact` promises. With no
+    /// bridge the fee calendar (`BPC.feeCalendar`) charges this single hop on its INPUT, rounded
+    /// up, and the Router sells what is left; since 6c02eee the door follows the calendar and
+    /// promises the venue, as it stands, on that net input (never above the gross). Read here
+    /// from the venue itself, so the oracle is not the code under test.
     function _previewAndFill()
         internal
         returns (Route memory q, uint256 exactOut, uint256 delivered, uint256 floor)
@@ -169,10 +172,10 @@ contract GateQuoteCallLeavesTheVenueAsItFoundItTest is Test {
         assertEq(q.hops[0].legs[0].expectedOut, venue.peek(true, AMT),
             "premise: the first pass prices the committed leg on the venue as it stands");
         uint256 gross = venue.peek(true, AMT);
-        uint256 deduction = gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 funded = venue.peek(true, AMT - BPC.mulDivUp(AMT, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
         vm.prank(user);
         delivered = router.swapExactIn(q, AMT, 1, user, block.timestamp + 1);
-        floor = deduction < delivered ? deduction : delivered;
+        floor = funded < gross ? funded : gross;
     }
 
     /// @notice The scalar is the floor `_exact` promises: its funded pass meets the venue the
@@ -181,7 +184,7 @@ contract GateQuoteCallLeavesTheVenueAsItFoundItTest is Test {
         (, uint256 exactOut, uint256 delivered, uint256 floor) = _previewAndFill();
         assertGt(exactOut, 0, "premise: the leg is priced");
         assertLe(exactOut, delivered, "a floor the Router honours");
-        assertEq(exactOut, floor, "the lower of the output deduction and the delivery, not less");
+        assertEq(exactOut, floor, "the venue as it stands on the net input, not less");
     }
 
     /// @notice The preview leaves the venue as it found it, inside the one call it runs in.
@@ -199,6 +202,6 @@ contract GateQuoteCallLeavesTheVenueAsItFoundItTest is Test {
         (, uint256 exactOut, uint256 delivered, uint256 floor) = _previewAndFill();
         assertGt(exactOut, 0, "premise: the leg is priced");
         assertLe(exactOut, delivered, "a floor the Router honours");
-        assertEq(exactOut, floor, "the lower of the output deduction and the delivery");
+        assertEq(exactOut, floor, "the venue as it stands on the net input");
     }
 }

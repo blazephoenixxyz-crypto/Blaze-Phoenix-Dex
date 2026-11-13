@@ -3789,7 +3789,11 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='        if (quote <= cap) return (amountIn, quote, 0);',
       new='        // MUTANT [703]',
-      teste='test_3073_Solver_SingleLeg_UnderTheCap_PromiseIsTheQuote'),
+      # Retargeted 2026-11-13: on a book that empties (..._UnderTheCap_PromiseIsWhatTheBookPays)
+      # the in-frame check since G3 lowers the lifted cap to the same walk, so the mutant survives
+      # there. Only a book that deepens past F shows it: unmutated the promise is F (by hand),
+      # mutated it is the walk above F. Measured red on this test and its fuzz family.
+      teste='test_3073_Solver_SingleLeg_UnderTheCap_BookDeepensPastF_PromiseIsTheQuote'),
  dict(nome="3073 [704]: the walk steps against the price when a book's tick disagrees with it (the plan reverts)",
       f='src/BlazePhoenixCore.sol',
       old='            if (zeroForOne ? target > sp : target < sp) break;',
@@ -3804,7 +3808,10 @@ M = [
       f='src/BlazePhoenixCore.sol',
       old='arg, k == 1 || k == 4 ? 1 : 0',
       new='arg, k == 1 ? 1 : 0 // MUTANT [706]',
-      teste='test_3073_Solver_SingleLeg_BookEmptiesBelowTheCap_PromiseIsTheCap'),
+      # Renamed 2026-11-13 (was ..._PromiseIsTheCap). The oracle is PAYS_600, by hand, not the
+      # walk under test: mutated, the crossing no longer empties the book and the promise misses
+      # the hand figure (measured red on the value assert, not on a precondition).
+      teste='test_3073_Solver_SingleLeg_BookEmptiesBelowTheCap_PromiseIsWhatTheBookPays'),
  dict(nome="3073 [707]: the exact door stops dry-running concentrated legs and returns the plan's own claim",
       f='src/BlazePhoenixQuoter.sol',
       old='            legOut = _simConc(leg.pool, leg.zeroForOne, legIn);',
@@ -3865,13 +3872,13 @@ M = [
       old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
       new='        // MUTANT [716]',
       teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
- dict(nome='3073-2 [716d] = [716] on a second row: every candidate walks its held legs, and a direct book the pays-walk does not reach has its ticks read',
+ dict(nome='3073-2 [716d] = [716] on a second row: every candidate walks its held legs, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [716], held by a count on the direct grid, where the
       # ceiling of `DirectThreeBooks_FitsATenth` does not tell it from the source.
       old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
       new='        // MUTANT [716d] = [716]',
-      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
+      teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
  # integ (2026-11-12): hops2 e2c52e0 removed `_firstStage` and the MAX_LEGS_PER_STAGE direct build; [716f]/[716fl]
  # now flip the first stage's walk on the `_buildHop` stage loop and [724d] edits the one direct build, the same row as [724].
  dict(nome='3073-2 [716f]: the first stage of every ranked bridge asks its book, two bridges pass a tenth of the search',
@@ -3893,12 +3900,12 @@ M = [
       old='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, h, mode);',
       new='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, h, mode | WALK); // MUTANT [716l]',
       teste='test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles'),
- dict(nome='3073-2 [716ld] = [716l] on a second row: a single leg held at its cap asks its book while it is ranked, and a direct book the pays-walk does not reach has its ticks read',
+ dict(nome='3073-2 [716ld] = [716l] on a second row: a single leg held at its cap asks its book while it is ranked, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [716l], held by a count on the direct grid.
       old='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, h, mode);',
       new='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, h, mode | WALK); // MUTANT [716ld] = [716l]',
-      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
+      teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
  dict(nome='3073-2 [716ll] = [716l] on a third row: a single leg held at its cap asks its book while it is ranked, and a bridge that does not lead has its ticks read',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [716l], held by a count on the grid of three bridges.
@@ -3958,13 +3965,13 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723m] = [723]\n',
       teste='test_3073_WalkBudget_DirectThreeBooks_FitsATenth'),
- dict(nome='3073-3 [723d] = [723] on a third row: the winner is rebuilt with WALK on every solve, and a direct book the pays-walk does not reach has its ticks read',
+ dict(nome='3073-3 [723d] = [723] on a third row: the winner is rebuilt with WALK on every solve, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [723], held by a count. A count does not move with
       # the number of topologies, where the ceilings of the other two rows do.
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723d] = [723]\n',
-      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
+      teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
  dict(nome='3073-3 [723t]: the rebuild walks every topology, not the winner\'s alone, and three bridges pass a fifth of the search',
       f='src/BlazePhoenixSolver.sol',
       # A ceiling, not a count: 3,200,860 against 2,400,000 (1,550,335 unmutated; release, 2026-11-10).
@@ -3985,12 +3992,12 @@ M = [
       old='cands, MAX_LEGS_PER_HOP, m.walk | CUT | dec << 8);\n',
       new='cands, MAX_LEGS_PER_HOP, WALK | CUT | dec << 8); // MUTANT [724]\n',
       teste='test_3073_OneBasis_BridgeLeadsAndIsPromisedItsBook'),
- dict(nome='3073-3 [724d] = [724] on a second row: the direct topology is built with WALK while it is ranked, and a direct book the pays-walk does not reach has its ticks read',
+ dict(nome='3073-3 [724d] = [724] on a second row: the direct topology is built with WALK while it is ranked, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [724], held by a count on the direct grid.
       old='MAX_LEGS_PER_HOP, m.walk | CUT | dec << 8);\n',
       new='MAX_LEGS_PER_HOP, WALK | CUT | dec << 8); // MUTANT [724d] = [724]\n',
-      teste='test_3073_WalkBudget_DirectThreeBooks_OnlyThePaysWalkReadsATick'),
+      teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
  dict(nome='3073-3 [725]: the winner is built once more without WALK',
       f='src/BlazePhoenixSolver.sol',
       old='            m.walk = WALK;\n',
@@ -7338,6 +7345,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='BPC.universalProbe(xs[i], probe, 0, true, amountIn);',
       new='BPC.universalProbe(xs[i], probe, 0, true, probe); // MUTANT',
       teste='test_FarThinBaseNoLongerExcludesTheDeepRows_TwoHops'),
+ dict(nome='G3 [g3-5] = [n1-3] on a second row: the book that fell does not sit the rebuild out, and the rebuild walks it again (22 tick reads, 3 unmutated)',
+      f='src/BlazePhoenixSolver.sol',
+      # Not a mutant of its own: the old -> new of [n1-3], held by a count on the direct grid, where
+      # since G3 a cut walk on a book that thins falls and rebuilds the leader (N1) on every solve.
+      old='                for (uint256 o = 0xa4; o < msg.data.length; o += 0x60) _sitsOut(m, o);\n',
+      new='                // MUTANT [g3-5] = [n1-3]\n',
+      teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
  # ── THE EXACT DOOR FOLLOWS THE FEE CALENDAR (Base fork USDC->DAI, 2026-11-13) ──
  dict(nome='door-fee [door-fee-1]: a single hop is deducted on its output whatever the calendar says (the rule before 2026-11-13: the funded figure only bounds it)',
       f='src/BlazePhoenixQuoter.sol',
