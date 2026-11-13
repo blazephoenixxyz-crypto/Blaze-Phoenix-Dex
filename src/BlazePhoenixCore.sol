@@ -816,9 +816,10 @@ library BlazePhoenixCore {
         // (codehash 0) has no init hash and misses the address below.
         if (bytes32(w) != g.codehash) return false;
         (, w) = _askWord(g, abi.encodeWithSignature("WRAPPER_INIT_HASH()"));
-        (address t0, address t1) = sortTokens(tA, tB);
-        // A missing init hash reads 0; create2 over it is an address no deployment can match.
-        if (create2Address(g, v3Salt(t0, t1, fee), bytes32(w)) != pool) return false;
+        // The Hub's own derive for a kind-9 row (MODE_CREATE2_V3, Hub:179), so the door admits
+        // the address discovery finds and no other. A missing init hash reads 0; create2 over it
+        // is an address no deployment can match.
+        if (deriveAddress(g, tA, tB, fee, false, 0, 5, bytes32(w)) != pool) return false;
         (, w) = _askWord(g, abi.encodeWithSignature("liveAdapter(uint8)", uint8(fee >> 16)));
         return w != 0;
     }
