@@ -1,0 +1,112 @@
+name: fuzz-mc
+
+# The pre-registered families (docs/FUZZ_MATRIX.md, docs/prereg/): Monte Carlo preview parity
+# (mc-1113), walk-forward fork fidelity (wf-1113), the anvil comparison and the meta-mutants of
+# the infrastructure itself. Every forge log goes through prereg.check_results: a result that
+# does not carry the registered PREREG_LOCK line is not a result.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['ci-draft/**']
+
+permissions:
+  contents: read
+
+jobs:
+  meta-mutants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Infra tests, matrix and prereg binding
+        run: |
+          python3 -I tools/fuzz-coverage/test_infra.py
+          python3 -I tools/fuzz-coverage/matrix_check.py
+          python3 -I tools/fuzz-coverage/prereg.py check docs/prereg/mc-1113.tsv
+          python3 -I tools/fuzz-coverage/prereg.py check docs/prereg/wf-1113.tsv
+      - name: Meta-mutants (each must be killed by its named test)
+        run: |
+          python3 tools/fuzz-coverage/meta_mutants.py --check
+          python3 tools/fuzz-coverage/meta_mutants.py
+
+  mc:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: MC shard ${{ matrix.shard }} of 8
+        env:
+          MC_SHARDS: '8'
+          MC_SHARD: ${{ matrix.shard }}
+        run: |
+          set -o pipefail
+          forge test -vv --match-path test/MonteCarloPreviewParity.t.sol 2>&1 | tee mc.log
+          PASSED=$(grep -oE '[0-9]+ tests passed' mc.log | tail -n1 | grep -oE '^[0-9]+' || echo 0)
+          if [ "${PASSED:-0}" -lt 2 ]; then echo "::error::MC ran ${PASSED:-0} of 2 tests"; exit 1; fi
+          python3 -I -c "import sys; sys.path.insert(0, 'tools/fuzz-coverage'); import prereg; e = prereg.check_results('docs/prereg/mc-1113.tsv', open('mc.log').read()); print('\n'.join(e) or 'mc: results carry the registered lock'); sys.exit(1 if e else 0)"
+
+  wf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Resolve the registered blocks
+        run: |
+          B=$(python3 -I tools/fuzz-coverage/prereg.py wf-blocks docs/prereg/wf-1113.tsv "https://mainnet.base.org")
+          echo "WF_BLOCKS=$B" >> "$GITHUB_ENV"
+          echo "WF_BLOCKS=$B"
+      - name: Walk forward (must pass, with the lock)
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+        run: |
+          set -o pipefail
+          forge test -vv --match-path test/fork/WalkForwardFidelity.t.sol 2>&1 | tee wf.log
+          # Every fork setUp skips without DRPC_KEY: only a positive count is green.
+          PASSED=$(grep -oE '[0-9]+ tests passed' wf.log | tail -n1 | grep -oE '^[0-9]+' || echo 0)
+          if [ "${PASSED:-0}" -lt 1 ]; then echo "::error::WF finished with ${PASSED:-0} tests passed: the secret or WF_BLOCKS is missing"; exit 1; fi
+          python3 -I -c "import sys; sys.path.insert(0, 'tools/fuzz-coverage'); import prereg; e = prereg.check_results('docs/prereg/wf-1113.tsv', open('wf.log').read()); print('\n'.join(e) or 'wf: results carry the registered lock'); sys.exit(1 if e else 0)"
+      - name: The same walk under wf-1 must go red
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+        run: |
+          python3 tools/fuzz-coverage/meta_mutants.py --apply wf-1
+          if forge test -vv --match-path test/fork/WalkForwardFidelity.t.sol > wf-1.log 2>&1; then RC=0; else RC=1; fi
+          python3 tools/fuzz-coverage/meta_mutants.py --restore wf-1
+          git diff --exit-code -- src/
+          if [ "$RC" -eq 0 ]; then echo "::error::wf-1 survived: the walk-forward rule cannot fire"; exit 1; fi
+          grep -q 'WF: the quote promised more than the balance delta' wf-1.log || { echo "::error::wf-1 failed for another reason"; tail -n 40 wf-1.log; exit 1; }
+
+  anvil:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ci-draft/g7-quality
+          path: g7
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Deploy the state on anvil and compare quote against delivery
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+        run: |
+          set -o pipefail
+          KEYF="$RUNNER_TEMP/drpc.key"; printf '%s' "$DRPC_KEY" > "$KEYF"; export DRPC_KEY_FILE="$KEYF"
+          OUT="$RUNNER_TEMP/g7-out"; mkdir -p "$OUT"
+          g7/tools/g7-gas-campaign/deploy_state.sh "$GITHUB_WORKSPACE" "$OUT" base "${G7_FORK_BLOCK:-latest}" g7/tools/g7-gas-campaign
+          test -s "$OUT/results.tsv" || { echo "::error::no results.tsv: the campaign measured nothing (absent is not zero)"; exit 1; }
+          python3 -I tools/fuzz-coverage/anvil_compare.py "$OUT/results.tsv"

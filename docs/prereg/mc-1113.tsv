@@ -1,0 +1,15 @@
+tag	mc-1113
+sol	test/MonteCarloPreviewParity.t.sol
+seed	sha256(PREREG_TAG || uint256 i), i < N_SAMPLES
+const	N_SAMPLES	4096
+const	ABS_TOL_WEI	0
+const	AMOUNT_LO	1000
+const	AMOUNT_HI	500000e18
+must_contain	        assertLe(pv.netOut, got + ABS_TOL_WEI, "MC: the preview promised more than the balance delta");
+note	ABS_TOL_WEI = 0 is derived, not chosen: src/BlazePhoenixQuoter.sol:436-440 (R-C) rounds the safety buffer up so that netOut understates, and a preview must never promise more than execution delivers; one wei over is a broken promise
+note	delivered = balanceOf delta of tokenOut at the user (I2), never the router's return value
+note	class = i mod 4 over A->B, A->C, B->A, C->A (1 and 2 hops, both directions); amount = AMOUNT_LO + (s >> 8 mod 2^(10 + s mod 70)) mod (AMOUNT_HI - AMOUNT_LO + 1)
+note	N_SAMPLES = 4096: with zero failures the 95% upper bound of the failure rate is 3/4096 (rule of three); it is the registered count, not a tolerance
+owner	FIDELITY_TOL	the gap between delivered and netOut + safetyBuffer (the fee model against execution) is logged, not asserted: no tolerance in wei is derived for it here, the owner decides it
+owner	AMOUNT_RANGE	AMOUNT_LO and AMOUNT_HI are the registrant's extremes (1000 wei, half the 1e24 reserve of the test world); the owner may replace them before the first result
+lock	5e671a82a476fcc46f978db343b4a621201b6644372c65f0a3a737dce56b6f0d

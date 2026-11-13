@@ -1,0 +1,15 @@
+tag	wf-1113
+sol	test/fork/WalkForwardFidelity.t.sol
+extreme	WF_T0	1794528000	1794614399
+extreme	WF_DT	3600	86400
+extreme	WF_N	8	64
+const	WF_T0	1794529506
+const	WF_DT	19208
+const	WF_N	59
+must_contain	            assertLe(pv.netOut, got, "WF: the quote promised more than the balance delta");
+note	WF_T0, WF_DT and WF_N are drawn by prereg.schedule(): lo + sha256(tag || name) mod (hi - lo + 1) within the extreme rows; the WF_T0 extremes start at the registration day (2026-11-13T00:00:00Z), so every walked block is out of sample
+note	block k = the first Base block with timestamp >= WF_T0 + k * WF_DT (prereg.first_block_at); a target past the head is absent and the walk stops there
+note	the hard rule has no tolerance: netOut <= balance delta, exact (src/BlazePhoenixQuoter.sol:436-440, R-C)
+owner	FIDELITY_TOL	the gap between delivered and netOut + safetyBuffer on the fork is logged, not asserted: the owner decides it
+owner	EXTREMES	the WF_T0, WF_DT and WF_N extremes are the registrant's defaults; the owner may replace them before the first result (then reseal and update the test)
+lock	cf1be83b009bb87a135a70ed33f871dc7f5a52f48106d9aecea91ddfce626cd5
