@@ -321,6 +321,13 @@ class SeedGuards(unittest.TestCase):
         for x in (gate, major):
             self.assertNotIn(C1, [p["pool"] for p in x["seed_pools"]], x["id"])
 
+    # Mutant: the GATE_FAMS filter dropped in the site strata (C1 shares USDC/WETH with V3A).
+    def test_site_strata_filter_gate_families_even_if_seedable(self):
+        with mock.patch.dict(bs.SEED_KIND, {"curve_ng": 9}):
+            spec = run_build(SITE_ROWS, UNIVERSE, swaps=7)[0]
+        site = next(x for x in spec["chains"]["base"]["strata"] if x["id"] == "site-USDC-WETH")
+        self.assertEqual([p["pool"] for p in site["seed_pools"]], [V3A])
+
 
 class AddFactory(unittest.TestCase):
     # Real calldata: tx 0x5d932d0efa8e4d46255c3cb864ff002a7ddadcd518dd65b68dc115be26104e9e (ethereum,

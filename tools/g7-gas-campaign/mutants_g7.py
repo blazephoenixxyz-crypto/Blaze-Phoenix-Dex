@@ -54,7 +54,7 @@ M = [  # (test id, old, new)
  ("Segments.test_bridge_sweep_is_not_swept", '                seg["g_discovery_bridge"] += fgas(n)', "                pass"),
  ("Segments.test_bridge_sweep_is_not_swept", 'return "0x" + i[32:72].lower(), "0x" + i[96:136].lower()', 'return "0x" + i[32:72].lower(), "0x" + i[32:72].lower()'),
  ("QuoteRow.test_noquote_keeps_the_solver_error_and_the_pair", '(d["tin"], d["tout"]))', '(d["tout"], d["tout"]))'),
- ("QuoteRow.test_noquote_keeps_the_solver_error_and_the_pair", '[:40] + ":" + (tr.get("output") or "")[:74])', '[:60])'),
+ ("QuoteRow.test_noquote_keeps_the_solver_error_and_the_pair", '[:40] + ":" + revert_detail("", tr.get("output"), 72))', '[:60])'),
  ("BalanceSlot.test_balance_in_another_account_is_found_past_a_reverting_slot", "                except Reverted:\n                    continue\n", "                except KeyError:\n                    continue\n"),
  ("BalanceSlot.test_balance_in_another_account_is_found_past_a_reverting_slot", "            for s in (acc.get(\"storage\") or {}):\n                v = 987654321987654321", "            if acct.lower() != token:\n                continue\n            for s in (acc.get(\"storage\") or {}):\n                v = 987654321987654321"),
  ("BalanceSlot.test_override_funds_the_holder_account", "o.setdefault(acct.lower(), {})", "o.setdefault(self.probe, {})"),

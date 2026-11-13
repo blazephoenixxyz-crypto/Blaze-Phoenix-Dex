@@ -2,7 +2,7 @@
 """Offline tests for g7.py (no RPC, no key). Run: python3 -I tools/g7-gas-campaign/test_g7.py
 
 Each test names the mutant of g7.py that turns it red; mutants_g7.py applies every one of them
-and checks that its test goes red (25/25 on 2026-11-13).
+and checks that its test goes red (65/65 on 2026-11-13).
 """
 import os
 import sys
@@ -662,11 +662,12 @@ class MsCase(unittest.TestCase):
         self.assertEqual({m: r["ms_case"] for m, r in rows.items()}, {"D": "D", "M0": "hit", "M1h": "partial", "MF1h": "partial"})
         self.assertIn("ms_case", g7.COLS)
 
-    # Mutant: the ok filter of the table dropped (`and r["ms_case"]` alone): a noquote row with a
-    # quote trace joins the hit cell.
+    # Mutant: the ok filter of the table's key set dropped (`and r["ms_case"]` alone): a noquote row
+    # whose case has no ok row (the swept M1h miss) opens an empty cell (n 0, no percentiles).
     def test_report_table_per_chain_kind_case(self):
         rows = [okrow("D", swept=1, g_discovery=1700000), okrow("M0"), okrow("M0", g_exec=320000),
                 okrow("M0", outcome="noquote", g_exec="", g_legs_sum="", g_record=""),
+                okrow("M1h", outcome="noquote", swept=1, g_discovery=1700000, g_exec="", g_legs_sum="", g_record=""),
                 okrow("M1h", swept=1, g_discovery=1700000, age_real_s=g7.TTL + 1, g_exec=310000)]
         for r in rows:
             r["ms_case"] = g7.ms_case(r)
@@ -677,6 +678,8 @@ class MsCase(unittest.TestCase):
         self.assertIn("base\tpairs\thit\tg_record\t2\t30000\t30000", lines)
         self.assertIn("base\tpairs\texpired\tg_exec\t1\t310000\t310000", lines)
         self.assertIn("base\tpairs\tD\tg_legs_sum\t1\t200000\t200000", lines)
+        self.assertEqual(g7.ms_case(rows[4]), "miss")
+        self.assertFalse([ln for ln in lines if ln.startswith("base\tpairs\tmiss\t")], "a case with no ok row has no cell")
         # a results.tsv from before the column is classified on the fly
         for r in rows:
             r["ms_case"] = ""
