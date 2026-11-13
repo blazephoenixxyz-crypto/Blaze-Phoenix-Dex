@@ -22,6 +22,10 @@ pragma solidity 0.8.36;
 //  opposite ways (the pool rounds the price up), so its distance is MEASURED
 //  and logged here, not asserted.
 //
+//  What is asserted about the NEW figure: it IS the pool's step, to the wei, on
+//  every sample, both directions, with and without a limit, boundary reached
+//  or not (red at 5570321, where outV3 was still the old form).
+//
 //  SAMPLES. A grid over the extremes (input from one wei to 2^128 - 1, liquidity
 //  from one to 2^128 - 1, the price from the bound's neighbour to the other
 //  bound's, fees from 0 to 999999 pips, both directions) and a pre-registered
@@ -77,6 +81,7 @@ contract OutV3StepParityTripleTest is Test {
         (uint256 pool, bool reached) = poolOut(a, p, l, f, zfo, limit);
         uint256 nw = BPC.outV3(a, p, l, f, zfo, limit);
         if (nw != pool) t.newOff++;
+        assertEq(nw, pool, "new: the one-range quote is not the pool's step");
         t.n++;
         try this.oldOut(a, p, l, f, zfo, limit) returns (uint256 old) {
             if (old > pool) {
@@ -216,5 +221,82 @@ contract OutV3StepParityTripleTest is Test {
             _triple(a, p, l, f, zfo, limit, t);
         }
         _log("pre-registered draw", t);
+    }
+
+    // ------------------------------------------------------------------ behaviour changes, pinned
+    // Each was red at 5570321 (the old form) except the binding-limit pin, which held there too.
+
+    /// zeroForOne no longer quotes above the pool (L = 2^100 at price 1, 1e18 in, 0.3%).
+    function test_zfo_noLongerQuotesAboveThePool() public view {
+        uint160 p = uint160(Q96);
+        uint128 l = uint128(2 ** 100);
+        (uint256 pool, ) = poolOut(1e18, p, l, 3000, true, 0);
+        assertGt(this.oldOut(1e18, p, l, 3000, true, 0), pool, "witness: the old form sat above the pool here");
+        assertEq(BPC.outV3(1e18, p, l, 3000, true, 0), pool, "zeroForOne: the quote is the pool's step");
+    }
+
+    /// oneForZero quotes what the pool pays, no longer under it (L = 2^100 at sqrt price 2^-20).
+    function test_ofz_quotesThePoolNotUnderIt() public view {
+        uint160 p = uint160(Q96 >> 20);
+        uint128 l = uint128(2 ** 100);
+        (uint256 pool, ) = poolOut(1e18, p, l, 3000, false, 0);
+        assertLt(this.oldOut(1e18, p, l, 3000, false, 0), pool, "witness: the old form sat under the pool here");
+        assertEq(BPC.outV3(1e18, p, l, 3000, false, 0), pool, "oneForZero: the quote is the pool's step");
+    }
+
+    /// A price at the bound on the trade's side quotes nothing, never a revert: no limit a pool
+    /// accepts lies past it. The old form quoted 2^32 wei for a pool at MIN_SQRT_RATIO.
+    function test_aPriceAtTheBoundQuotesNothing() public view {
+        uint128 l = type(uint128).max;
+        uint256 a = 2 ** 100;
+        assertGt(this.oldOut(a, MIN_SQRT, l, 3000, true, 0), 0, "witness: the old form quoted a pool that cannot pay");
+        assertEq(BPC.outV3(a, MIN_SQRT, l, 3000, true, 0), 0, "falling from MIN_SQRT_RATIO: nothing");
+        assertEq(BPC.outV3(a, MIN_SQRT + 1, l, 3000, true, 0), 0, "falling from MIN_SQRT_RATIO + 1: nothing");
+        assertEq(BPC.outV3(a, MAX_SQRT - 1, l, 3000, false, 0), 0, "rising from MAX_SQRT_RATIO - 1: nothing");
+        assertEq(BPC.outV3(a, MAX_SQRT, l, 3000, false, 0), 0, "rising from MAX_SQRT_RATIO: nothing");
+        // control: the same pools trade the other way
+        assertGt(BPC.outV3(a, MIN_SQRT, l, 3000, false, 0), 0, "control: MIN_SQRT_RATIO rises");
+        assertGt(BPC.outV3(a, MAX_SQRT - 1, l, 3000, true, 0), 0, "control: MAX_SQRT_RATIO - 1 falls");
+    }
+
+    /// A limit at or past the price quotes 0; the old form reverted on one past it. No caller in
+    /// src/ passes a limit (all pass 0): the pin is on the function's own domain.
+    function test_aLimitAtOrPastThePriceQuotesNothing() public {
+        uint160 p = uint160(Q96);
+        assertEq(BPC.outV3(1e18, p, 1e18, 3000, true, p + 1), 0, "zeroForOne, limit above the price");
+        assertEq(BPC.outV3(1e18, p, 1e18, 3000, true, p), 0, "zeroForOne, limit at the price");
+        assertEq(BPC.outV3(1e18, p, 1e18, 3000, false, p - 1), 0, "oneForZero, limit below the price");
+        assertEq(BPC.outV3(1e18, p, 1e18, 3000, false, p), 0, "oneForZero, limit at the price");
+        vm.expectRevert(stdError.arithmeticError);
+        this.oldOut(1e18, p, 1e18, 3000, true, p + 1);
+    }
+
+    /// An input past 2^256 / 1e6 quotes the whole range to the bound; the old form overflowed on
+    /// ain * (1e6 - fee).
+    function test_aHugeInputQuotesTheWholeRange() public {
+        uint160 p = uint160(Q96);
+        uint128 l = 1e18;
+        uint256 a = type(uint256).max;
+        assertEq(BPC.outV3(a, p, l, 3000, true, 0), SqrtPriceMathRef.getAmount1Delta(MIN_SQRT + 1, p, l, false),
+            "zeroForOne: the whole range down to the bound");
+        assertEq(BPC.outV3(a, p, l, 3000, false, 0), SqrtPriceMathRef.getAmount0Delta(p, MAX_SQRT - 1, l, false),
+            "oneForZero: the whole range up to the bound");
+        vm.expectRevert(stdError.arithmeticError);
+        this.oldOut(a, p, l, 3000, true, 0);
+    }
+
+    /// A binding limit truncates at the boundary: the pool's step to it, under the unlimited quote.
+    function test_aBindingLimitTruncatesAtTheBoundary() public view {
+        uint160 p = uint160(Q96);
+        uint128 l = 1e18;
+        uint160 lo = uint160(Q96 * 9 / 10);
+        uint160 hi = uint160(Q96 * 11 / 10);
+        (uint256 pz, bool rz) = poolOut(1e18, p, l, 3000, true, lo);
+        (uint256 po, bool ro) = poolOut(1e18, p, l, 3000, false, hi);
+        assertTrue(rz && ro, "witness: both limits bind");
+        assertEq(BPC.outV3(1e18, p, l, 3000, true, lo), pz, "zeroForOne: truncated at the limit");
+        assertEq(BPC.outV3(1e18, p, l, 3000, false, hi), po, "oneForZero: truncated at the limit");
+        assertLt(pz, BPC.outV3(1e18, p, l, 3000, true, 0), "zeroForOne: the limit binds");
+        assertLt(po, BPC.outV3(1e18, p, l, 3000, false, 0), "oneForZero: the limit binds");
     }
 }
