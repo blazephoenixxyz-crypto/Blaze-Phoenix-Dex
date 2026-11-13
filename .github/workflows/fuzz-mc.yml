@@ -61,8 +61,11 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Resolve the registered blocks
+        # The public Base endpoint answers 403 to hosted runners; the masked dRPC secret is used instead.
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
         run: |
-          B=$(python3 -I tools/fuzz-coverage/prereg.py wf-blocks docs/prereg/wf-1113.tsv "https://mainnet.base.org")
+          B=$(python3 -I tools/fuzz-coverage/prereg.py wf-blocks docs/prereg/wf-1113.tsv "https://lb.drpc.live/base/$DRPC_KEY")
           echo "WF_BLOCKS=$B" >> "$GITHUB_ENV"
           echo "WF_BLOCKS=$B"
       - name: Walk forward (must pass, with the lock)
