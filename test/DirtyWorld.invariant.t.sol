@@ -46,7 +46,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter, IPermit2} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
@@ -317,13 +317,15 @@ contract DirtyWorldHandler is Test {
             hs[1] = _hop(X, A, x0, 0, _v2(w.pAX2, X, A, x0));
             r = _wrap(hs, 0, 0, false);
         } else if (kind == 6) {
-            // self-hop A -> X -> X -> C through the alias, alias leg attested (H3 lever)
+            // self-hop A -> X -> X through the alias, alias leg attested (H3 lever). Two hops:
+            // over MAX_HOPS = 2 the hop ceiling refuses with the same RouterE(3) first, and the
+            // self-hop guard went unread (mutant "dw-1020 = H3", PR #123 run).
             uint256 b = _q3(w.qAX, A, amt);
-            uint256 fair = _q3(w.qXC, X, _netOfFee(b));
-            Hop[] memory hs = new Hop[](3);
+            uint256 fair = b;
+            Hop[] memory hs = new Hop[](2);
             hs[0] = _hop(A, X, amt, 0, _v3(address(w.qAX), w.qAX.token0() == A, amt, 0));
             hs[1] = _hop(X, X, b, 0, _v3(address(w.aliasX), true, b, b));
-            hs[2] = _hop(X, C, b, 0, _v3(address(w.qXC), w.qXC.token0() == X, b, 0));
+            assertLe(hs.length, MAX_HOPS, "premise: under the hop ceiling, so RouterE(3) can only be the self-hop guard");
             r = _wrap(hs, fair, 1, false);
             attest = fair;
         } else if (kind == 7) {
