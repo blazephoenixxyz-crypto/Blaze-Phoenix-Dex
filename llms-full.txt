@@ -912,6 +912,7 @@ CITATION.cff            how to cite this repository
 | [docs/BOUNTY_METHOD.md](docs/BOUNTY_METHOD.md) | how a security report is reproduced, judged and credited |
 | [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | what is by design, a documented limit or out of scope, before you report it |
 | [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) | the assurance instruments: method, definitions, limits |
+| [docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md) | the gas campaigns G7 and G8: what is measured per chain, the source line of each number, what is not measured |
 | [TESTING.md](TESTING.md) | how the suite is organised and extended |
 | [Whitepaper v2.2](docs/papers/whitepaper-v2.2.md) · [Litepaper v2.2](docs/papers/litepaper-v2.2.md) | the design and its mathematics ([PDF editions](docs/papers)) |
 
