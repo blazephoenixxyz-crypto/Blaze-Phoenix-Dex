@@ -104,23 +104,40 @@ class Abi(unittest.TestCase):
         self.assertEqual(g7.fits(1, 1), 1)
 
 
+def disc(ta, tb, gas):
+    """A Hub.discoverFor(tA, tB) frame."""
+    return {"to": HUB, "input": "0x" + g7.SEL["discover"] + g7.addr(ta) + g7.addr(tb), "gasUsed": hex(gas), "calls": []}
+
+
 class Segments(unittest.TestCase):
-    def quote_trace(self, discover=True):
+    def quote_trace(self, discover=True, bridge=False):
         inner = [fr(GATE, g7.SEL["wrappers"], 50, [fr(WRAP, "c0ffee00", 20)]), fr(WRAP, "c0ffee00", 30)]
         if discover:
-            inner.insert(0, fr(HUB, g7.SEL["discover"], 300))
+            inner.insert(0, disc(A2, A1, 300))  # the measured pair, in the Solver's (sorted) order
+        if bridge:
+            inner.insert(0, disc(A1, TOKEN, 150))  # a 2-hop bridge leg: never seeded
         return fr("0xq", g7.SEL["preview"], 1000, [fr(SOLVER, g7.SEL["solve"], 800, inner)])
 
     # Mutant: `seg["swept"] = 1` deleted, or the discover selector check dropped.
     def test_discover_frame_means_swept(self):
-        s = g7.quote_segments(self.quote_trace(True), SOLVER, HUB, GATE, [WRAP])
-        self.assertEqual((s["swept"], s["g_discovery"], s["g_solve"], s["g_quote"]), (1, 300, 800, 1000))
-        s = g7.quote_segments(self.quote_trace(False), SOLVER, HUB, GATE, [WRAP])
+        s = g7.quote_segments(self.quote_trace(True), SOLVER, HUB, GATE, [WRAP], (A1, A2))
+        self.assertEqual((s["swept"], s["g_discovery"], s["g_discovery_bridge"], s["g_solve"], s["g_quote"]),
+                         (1, 300, 0, 800, 1000))
+        s = g7.quote_segments(self.quote_trace(False), SOLVER, HUB, GATE, [WRAP], (A1, A2))
         self.assertEqual((s["swept"], s["g_discovery"]), (0, 0))
+
+    # Run 43364491522, optimism major-5 idx3 M0: the seeded direct pair is fresh (its frame is gone)
+    # but the bridge pairs still sweep; counting those as `swept` made every MF row mf_unforced.
+    # Mutant: the pair test dropped (`set(frame_pair(n)) == want` -> True), or the bridge gas not added.
+    def test_bridge_sweep_is_not_swept(self):
+        s = g7.quote_segments(self.quote_trace(False, True), SOLVER, HUB, GATE, [WRAP], (A1, A2))
+        self.assertEqual((s["swept"], s["g_discovery"], s["g_discovery_bridge"]), (0, 150, 150))
+        s = g7.quote_segments(self.quote_trace(True, True), SOLVER, HUB, GATE, [WRAP], (A2, A1))
+        self.assertEqual((s["swept"], s["g_discovery"], s["g_discovery_bridge"]), (1, 450, 150))
 
     # Mutant: `and id(p) not in gated` dropped (the wrapper nested in the Gate counted twice: 100).
     def test_gates_count_top_most_frames_once(self):
-        s = g7.quote_segments(self.quote_trace(), SOLVER, HUB, GATE, [WRAP])
+        s = g7.quote_segments(self.quote_trace(), SOLVER, HUB, GATE, [WRAP], (A1, A2))
         self.assertEqual(s["g_gates"], 80)
 
     def exec_trace(self):
@@ -209,6 +226,17 @@ class Draws(unittest.TestCase):
             st = d["st"]
             self.assertIn(d["amount"], st["amounts"]["A" if d["tin"] == st["tA"] else "B"])
 
+    # Run 43364491522: V4-native strata (tA or tB = address(0)) all died in SolverE(4) at the Solver
+    # door, which takes WETH for native (Core.nativeMapVerified). Mutant: the sentinel not translated.
+    def test_native_sentinel_is_drawn_as_the_wrapped_token(self):
+        z = "0x" + "00" * 20
+        st = {**SPEC["chains"]["base"]["strata"][0], "tA": z}
+        spec2 = {**SPEC, "chains": {"base": {**SPEC["chains"]["base"], "strata": [st]}}}
+        ds = g7.draws(spec2, "ab12", "base", 1000, 2000)
+        self.assertTrue(all(z not in (d["tin"], d["tout"]) for d in ds))
+        self.assertEqual({d["tin"] for d in ds} | {d["tout"] for d in ds}, {A1, A2})
+        self.assertEqual(st["tA"], z)  # the stratum (seedPool's key) keeps the pool's own currency
+
     # Mutant: one rng for the whole chain (adding a stratum would shift the draws of the others).
     def test_strata_streams_are_independent(self):
         spec2 = {**SPEC, "chains": {"base": {**SPEC["chains"]["base"],
@@ -263,7 +291,7 @@ class MeasureDraw(unittest.TestCase):
 
     # Mutant: `ts_b - age <= ch.state_ts` -> `<` (the equality case is seeded at or before the state).
     def test_prereq_refuses_ts_b_minus_age_at_or_before_state_ts(self):
-        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(self.TSB - age)})  # noqa: E731
+        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(self.TSB - age)}, [True, False])  # noqa: E731
         rows, calls = self.run_draw(self.TSB - 3600, seeded, self.ok())
         self.assertEqual(rows["M1h"]["outcome"], "prereq")
         self.assertEqual(rows["MF1h"]["outcome"], "prereq")
@@ -272,14 +300,16 @@ class MeasureDraw(unittest.TestCase):
 
     # Mutant: `if not hits:` -> `if False:` (an MF row measured without its forced stamp).
     def test_mf_without_stamp_is_mf_unforced(self):
-        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(5)})  # noqa: E731
+        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(5)}, [True, False])  # noqa: E731
         rows, _ = self.run_draw(0, seeded, self.ok())
         self.assertEqual((rows["MF1h"]["outcome"], rows["MF1h"]["detail"]), ("mf_unforced", "stamp not found"))
         self.assertEqual(rows["M1h"]["outcome"], "ok")
+        # a refused seedPool (G7Probe.batch swallows it) is visible in the row, not silent
+        self.assertEqual((rows["MF1h"]["seeds_ok"], rows["MF1h"]["seeds_n"]), (1, 2))
 
     # Mutant: the swept check after measure_mode removed (a forced row that swept counts as moonslot).
     def test_mf_that_still_sweeps_is_mf_unforced(self):
-        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(self.TSB - age)})  # noqa: E731
+        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(self.TSB - age)}, [True, False])  # noqa: E731
         rows, calls = self.run_draw(0, seeded, self.ok(swept=1))
         self.assertEqual(rows["MF1h"]["outcome"], "mf_unforced")
         self.assertEqual(rows["M1h"]["outcome"], "ok")  # natural mode: sweeping is a legal result
@@ -288,12 +318,73 @@ class MeasureDraw(unittest.TestCase):
 
     # Mutant: out_vs_D_bps against the mode's own output, or the D reference not taken from `done`.
     def test_resume_skips_done_rows_and_keeps_the_D_reference(self):
-        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(self.TSB - age)})  # noqa: E731
+        seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(self.TSB - age)}, [True, False])  # noqa: E731
         done = {("base", "s1", "3", "D"): {"outcome": "ok", "net_out": "1000"}}
         rows, calls = self.run_draw(0, seeded, self.ok(net=1010), done)
         self.assertNotIn("D", rows)
         self.assertNotIn("D", [m for m, _ in calls["mm"]])
         self.assertEqual(rows["M0"]["out_vs_D_bps"], 100.0)
+
+
+class QuoteRow(unittest.TestCase):
+    """measure_mode up to a reverted quote (no exec): segments on the drawn pair, revert data kept."""
+    def chain(self, trace):
+        ch = mock.Mock()
+        ch.solver, ch.hub, ch.gate, ch.wrappers, ch.quoter, ch.probe, ch.spec = SOLVER, HUB, GATE, [WRAP], ROUTER, TOKEN, SPEC
+        ch.override.return_value = {}
+        ch.rpc.call.return_value = trace
+        return ch
+
+    # Mutant: the pair passed to quote_segments is not (tin, tout); or the detail drops the revert data
+    # (SolverE(5) = no route vs SolverE(4) = bad parameters were indistinguishable in run 43364491522).
+    def test_noquote_keeps_the_solver_error_and_the_pair(self):
+        tr = fr("0xq", g7.SEL["preview"], 1000, [fr(SOLVER, g7.SEL["solve"], 800, [disc(A1, A2, 300)])])
+        tr.update(error="execution reverted", output="0x3d0ccdde" + wd(5))
+        r = g7.measure_mode(self.chain(tr), draw(), 1, "D", None)
+        self.assertEqual(r["outcome"], "noquote")
+        self.assertEqual(r["detail"], "quote:execution reverted:0x3d0ccdde" + wd(5))
+        self.assertEqual(r["swept"], 1)
+
+
+class BalanceSlot(unittest.TestCase):
+    """sUSD (optimism shallow-1, run 43364491522): the token is a proxy, the balance lives in a
+    TokenState contract; overriding the proxy's target slot makes balanceOf revert."""
+    TOK, STATE, V = "0x" + "5a" * 20, "0x" + "5b" * 20, 987654321987654321
+
+    def chain(self):
+        tok, state, v = self.TOK, self.STATE, self.V
+
+        class R:
+            def call(self, method, params):
+                if method == "debug_traceCall":
+                    return {tok: {"storage": {"0x02": "0x" + wd(1)}}, state: {"storage": {"0x99": "0x0"}}}
+                (acct, o), = params[2].items()
+                if acct == tok:
+                    raise g7.Reverted(None)
+                return "0x" + wd(v if "0x99" in o["stateDiff"] else 0)
+        ch = g7.Chain.__new__(g7.Chain)
+        ch.probe, ch.slots, ch.lock, ch.rpc = TOKEN, {}, __import__("threading").Lock(), R()
+        ch.base = {TOKEN: {"code": "0x00"}}
+        return ch
+
+    # Mutants: `except Reverted: continue` dropped (the revert escapes), or only the token's own
+    # account searched (`if acct.lower() != token: continue` restored: slot not found).
+    def test_balance_in_another_account_is_found_past_a_reverting_slot(self):
+        ch = self.chain()
+        self.assertEqual(ch.balance_slot(self.TOK, 10), (self.STATE, "0x99"))
+
+    # Mutant: override() funds the token instead of the holder account it is given.
+    def test_override_funds_the_holder_account(self):
+        o = self.chain().override(fund={self.STATE: ("0x99", 5)})
+        self.assertEqual(o[self.STATE]["stateDiff"]["0x99"], "0x" + wd(5))
+        self.assertNotIn(self.TOK, o)
+
+
+class SeedOks(unittest.TestCase):
+    # Mutant: the length word off by one (a refused last seed vanishes) or `== 1` -> `!= 0` on a dirty word.
+    def test_decode_bools(self):
+        self.assertEqual(g7.decode_bools("0x" + wd(32) + wd(3) + wd(1) + wd(0) + wd(1)), [True, False, True])
+        self.assertEqual(g7.decode_bools("0x" + wd(32) + wd(0)), [])
 
 
 class Resume(unittest.TestCase):

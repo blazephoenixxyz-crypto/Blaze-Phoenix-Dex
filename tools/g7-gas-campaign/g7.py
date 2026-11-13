@@ -50,11 +50,11 @@ LEG_SELS = {SEL["v2swap"], SEL["v3swap"], SEL["unlock"]}
 GAS = hex(30_000_000)
 CALLER = "0x000000000000000000000000000000000000dEaD"
 OUTCOMES = ("ok", "noquote", "revert", "rpc_err", "timeout", "prereq", "mf_unforced")
-SEGS = ("g_quote", "g_solve", "g_discovery", "g_gates", "g_exec", "g_legs_sum", "g_sweep", "g_record",
+SEGS = ("g_quote", "g_solve", "g_discovery", "g_discovery_bridge", "g_gates", "g_exec", "g_legs_sum", "g_sweep", "g_record",
         "cd_intrinsic", "cd_floor7623", "g_cold", "g_warm", "g_coldpart")
 COLS = ["chain", "label", "max_hops_code", "stratum", "kind", "idx", "b", "ts_b", "mode", "age_nom_s", "age_real_s",
-        "b_seed", "tin", "tout", "amount_in", "outcome", "detail", "swept", "net_out", "eff_min_out",
-        "hops", "legs", "fits_2_10", "est_gas", "g_quote", "g_solve", "g_discovery", "g_gates", "g_exec",
+        "b_seed", "seeds_ok", "seeds_n", "tin", "tout", "amount_in", "outcome", "detail", "swept", "net_out", "eff_min_out",
+        "hops", "legs", "fits_2_10", "est_gas", "g_quote", "g_solve", "g_discovery", "g_discovery_bridge", "g_gates", "g_exec",
         "g_legs_sum", "legs_detail", "g_sweep", "g_record", "cd_bytes", "cd_zero", "cd_intrinsic", "cd_floor7623",
         "g_cold", "g_warm", "g_coldpart", "al_src", "delivered", "out_vs_D_bps", "mid", "out_vs_mid_bps",
         "gate_used", "vital_v", "vital_depth18", "vital_psi"]
@@ -183,6 +183,13 @@ def decode_run(res):
     return word(d, 0) == 1, dyn_bytes(d, word(d, 1)), word(d, 2), word(d, 3), word(d, 4)
 
 
+def decode_bools(res):
+    """abi.decode(res, (bool[]))."""
+    d = strip0x(res)
+    o = word(d, 0) * 2
+    return [word(d[o + 64:], i) == 1 for i in range(int(d[o:o + 64], 16))]
+
+
 def encode_seed(pool, kind, fee, hooks, ta, tb):
     return SEL["seed"] + addr(pool) + w(kind) + w(fee) + addr(hooks) + addr(ta) + addr(tb)
 
@@ -237,12 +244,22 @@ def sel_of(n):
     return strip0x(n.get("input") or "")[:8]
 
 
-def quote_segments(trace, solver, hub, gate, wrappers):
-    """Gas of the quote trace by segment. Discovery = Hub.discoverFor frames (presence => sweep);
-    gates = top-most frames to the Gate or one of its wrappers (nested ones are inside them)."""
+def frame_pair(n):
+    """The (tA, tB) of a discoverFor(address,address) frame, lower-case."""
+    i = strip0x(n.get("input") or "")
+    return "0x" + i[32:72].lower(), "0x" + i[96:136].lower()
+
+
+def quote_segments(trace, solver, hub, gate, wrappers, pair):
+    """Gas of the quote trace by segment. Discovery = Hub.discoverFor frames (the Core calls it
+    only when the Solver asks for a sweep, Core.discoverWithGate); g_discovery is all of them,
+    g_discovery_bridge the part on pairs other than {tin, tout} (the 2-hop search's bridge legs,
+    which seedPool never seeds). swept = a frame on the measured pair itself: a bridge sweep is
+    not the moonslot failing. gates = top-most frames to the Gate or one of its wrappers."""
     solver, hub, gate = solver.lower(), hub.lower(), (gate or "").lower()
     wr = {x.lower() for x in wrappers}
-    seg = {"g_quote": fgas(trace), "g_solve": 0, "g_discovery": 0, "g_gates": 0, "swept": 0}
+    want = {pair[0].lower(), pair[1].lower()}
+    seg = {"g_quote": fgas(trace), "g_solve": 0, "g_discovery": 0, "g_discovery_bridge": 0, "g_gates": 0, "swept": 0}
     gated = set()
     for n, _, p in frames(trace):
         to = (n.get("to") or "").lower()
@@ -250,7 +267,10 @@ def quote_segments(trace, solver, hub, gate, wrappers):
             seg["g_solve"] += fgas(n)
         if to == hub and sel_of(n) == SEL["discover"]:
             seg["g_discovery"] += fgas(n)
-            seg["swept"] = 1
+            if set(frame_pair(n)) == want:
+                seg["swept"] = 1
+            else:
+                seg["g_discovery_bridge"] += fgas(n)
         if (to == gate or to in wr) and id(p) not in gated:
             seg["g_gates"] += fgas(n)
             gated.add(id(n))
@@ -326,6 +346,10 @@ def stratum_rng(seed, sid):
     return random.Random(int.from_bytes(hashlib.sha256(f"{seed}:{sid}".encode()).digest(), "big"))
 
 
+def native(spec, chain, t):
+    return spec["chains"][chain]["native_wrap"] if int(t, 16) == 0 else t
+
+
 def draws(spec, seed, chain, b0, b1):
     """Every draw of one chain: per stratum, n draws of (b uniform in [b0, b1], direction,
     amount uniform over the stratum's list for that direction)."""
@@ -336,6 +360,9 @@ def draws(spec, seed, chain, b0, b1):
             b = rng.randint(b0, b1)
             fwd = rng.random() < 0.5
             tin, tout = (st["tA"], st["tB"]) if fwd else (st["tB"], st["tA"])
+            # Native is address(0) in a V4 pool key but WETH at the Solver door (Solver.sol:230
+            # refuses address(0); Core.nativeMapVerified maps WETH -> address(0) per V4-native key).
+            tin, tout = (native(spec, chain, t) for t in (tin, tout))
             amt = rng.choice(st["amounts"]["A" if fwd else "B"])
             out.append({"stratum": st["id"], "kind": st["kind"], "idx": idx, "b": b, "tin": tin, "tout": tout,
                         "amount": int(amt), "st": st})
@@ -389,13 +416,15 @@ class Chain:
             o[self.probe]["balance"] = hex(eth_wei)
         if admin_code:
             o[self.admin] = {"code": self.base[self.probe]["code"]}
-        for tok, (slot, val) in (fund or {}).items():
-            o.setdefault(tok.lower(), {}).setdefault("stateDiff", {})[slot] = "0x" + w(val)
+        for acct, (slot, val) in (fund or {}).items():
+            o.setdefault(acct.lower(), {}).setdefault("stateDiff", {})[slot] = "0x" + w(val)
         return o
 
     def balance_slot(self, token, blk):
-        """The storage word holding balanceOf(probe): the slots a balanceOf read touches
-        (prestateTracer), each tried by override and verified by balanceOf."""
+        """(holder account, slot) of the word holding balanceOf(probe): every slot of every account
+        a balanceOf read touches (prestateTracer; a proxy keeps balances in another contract, e.g.
+        sUSD's TokenState), each tried by override and verified by balanceOf. An override that
+        breaks the read (a proxy's target slot) reverts or empties the return: not a match."""
         token = token.lower()
         with self.lock:
             if token in self.slots:
@@ -403,17 +432,19 @@ class Chain:
         call = {"to": token, "data": "0x" + SEL["bal"] + addr(self.probe)}
         pre = self.rpc.call("debug_traceCall", [call, hex(blk), {"tracer": "prestateTracer"}])
         found = None
-        for acct, acc in pre.items():
-            if acct.lower() != token:
-                continue
+        for acct, acc in sorted(pre.items(), key=lambda kv: kv[0].lower() != token):
             for s in (acc.get("storage") or {}):
                 v = 987654321987654321
-                o = {token: {"stateDiff": {s: "0x" + w(v)}}}
-                r = self.rpc.call("eth_call", [call, hex(blk), o])
-                # an override of a non-balance word (a proxy's implementation slot) can empty the return
+                o = {acct.lower(): {"stateDiff": {s: "0x" + w(v)}}}
+                try:
+                    r = self.rpc.call("eth_call", [call, hex(blk), o])
+                except Reverted:
+                    continue
                 if r not in ("0x", "") and int(r, 16) == v:
-                    found = s
+                    found = (acct.lower(), s)
                     break
+            if found:
+                break
         if found is None:
             # a zero balance word may not appear in the prestate: derive the Solidity mapping slots
             raise RpcError(f"balance slot not found for {token}")
@@ -424,7 +455,8 @@ class Chain:
 
 def seed_memory(ch, d, age, ts_b):
     """Trace Hub.seedPool of the stratum's pools at the first block with ts >= ts(b) - age.
-    Returns (b_seed, ts_seed, hub_storage, changed_words, oks)."""
+    Returns (b_seed, ts_seed, hub_storage, changed_words, oks): oks = the batch's per-call
+    success (G7Probe.batch swallows a refused seedPool), read by an eth_call of the same tx."""
     b = d["b"]
     bs = ch.rpc.first_at_or_after(ts_b - age, b - 1 - int(age / ch.c["block_time_hint"]) - 2, b) if age else b
     ts_s = ch.rpc.ts(bs)
@@ -435,7 +467,8 @@ def seed_memory(ch, d, age, ts_b):
                                                         "stateOverrides": ch.override(admin_code=True)}])
     post = (tr.get("post") or {}).get(ch.hub) or next((v for k, v in (tr.get("post") or {}).items() if k.lower() == ch.hub), {})
     changed = {k.lower(): v for k, v in (post.get("storage") or {}).items()}
-    return bs, ts_s, merge_storage(ch.base[ch.hub]["state"], changed), changed
+    oks = decode_bools(ch.rpc.call("eth_call", [tx, hex(bs), ch.override(admin_code=True)]))
+    return bs, ts_s, merge_storage(ch.base[ch.hub]["state"], changed), changed, oks
 
 
 def measure_mode(ch, d, ts_b, mode, hub_state):
@@ -445,10 +478,11 @@ def measure_mode(ch, d, ts_b, mode, hub_state):
     tx = {"from": CALLER, "to": ch.quoter, "data": q, "gas": GAS}
     ov = ch.override(hub_state=hub_state)
     tr = ch.rpc.call("debug_traceCall", [tx, hex(d["b"]), {"tracer": "callTracer", "stateOverrides": ov}])
-    seg = quote_segments(tr, ch.solver, ch.hub, ch.gate, ch.wrappers)
+    seg = quote_segments(tr, ch.solver, ch.hub, ch.gate, ch.wrappers, (d["tin"], d["tout"]))
     r.update(seg)
     if tr.get("error"):
-        r.update(outcome="noquote", detail=("quote:" + str(tr.get("error")))[:60])
+        # the revert data (selector + first word: SolverE(5) = no route, SolverE(4) = bad params)
+        r.update(outcome="noquote", detail=("quote:" + str(tr.get("error")))[:40] + ":" + (tr.get("output") or "")[:74])
         return r
     pv = decode_preview(tr["output"])
     r.update(net_out=pv["netOut"], eff_min_out=pv["effectiveMinOut"], hops=pv["hops"], legs=pv["legs"],
@@ -459,7 +493,11 @@ def measure_mode(ch, d, ts_b, mode, hub_state):
     nb, nz, intr, floor = calldata_cost(pv["call"])
     r.update(cd_bytes=nb, cd_zero=nz, cd_intrinsic=intr, cd_floor7623=floor)
     wrap = d["tin"].lower() == ch.c["native_wrap"].lower()
-    fund = {} if wrap else {d["tin"]: (ch.balance_slot(d["tin"], d["b"]), d["amount"])}
+    if wrap:
+        fund = {}
+    else:
+        holder, slot = ch.balance_slot(d["tin"], d["b"])
+        fund = {holder: (slot, d["amount"])}
     ovx = ch.override(hub_state=hub_state, fund=fund, eth_wei=(d["amount"] if wrap else 0) + 10 ** 18)
     run = {"from": CALLER, "to": ch.probe, "data": encode_run(ch.router, d["tin"], d["tout"], d["amount"], wrap, pv["call"]), "gas": GAS}
     xt = ch.rpc.call("debug_traceCall", [run, hex(d["b"]), {"tracer": "callTracer", "stateOverrides": ovx}])
@@ -559,8 +597,8 @@ def measure_draw(ch, d, done):
                     row.update(outcome="prereq", detail="ts(b-age)<=stateTs")
                     rows.append(row)
                     continue
-                bs, ts_s, hub_state, changed = seed_memory(ch, d, age, ts_b)
-                row.update(b_seed=bs, age_real_s=ts_b - ts_s)
+                bs, ts_s, hub_state, changed, oks = seed_memory(ch, d, age, ts_b)
+                row.update(b_seed=bs, age_real_s=ts_b - ts_s, seeds_ok=sum(oks), seeds_n=len(oks))
                 if forced:
                     neww, hits = rewrite_stamp(changed, ts_s, ts_b)
                     hub_state = merge_storage(hub_state, neww)

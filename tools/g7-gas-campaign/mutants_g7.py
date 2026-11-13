@@ -43,6 +43,17 @@ M = [  # (test id, old, new)
  ("Vital.test_wrapper_resolved_by_gate_pool", "{r[5].lower(): r[6].lower() for r", "{r[5]: r[6].lower() for r"),
  ("Vital.test_refused_create_has_no_vital_and_no_call", 'for r in rows if r[7] == "created"}', 'for r in rows}'),
  ("KeyHygiene.test_rpc_error_never_carries_the_url", "last, timed_out = type(ex).__name__,", "last, timed_out = str(ex),"),
+ ("Segments.test_bridge_sweep_is_not_swept", "if set(frame_pair(n)) == want:", "if True:"),
+ ("Segments.test_bridge_sweep_is_not_swept", '                seg["g_discovery_bridge"] += fgas(n)', "                pass"),
+ ("Segments.test_bridge_sweep_is_not_swept", 'return "0x" + i[32:72].lower(), "0x" + i[96:136].lower()', 'return "0x" + i[32:72].lower(), "0x" + i[32:72].lower()'),
+ ("QuoteRow.test_noquote_keeps_the_solver_error_and_the_pair", '(d["tin"], d["tout"]))', '(d["tout"], d["tout"]))'),
+ ("QuoteRow.test_noquote_keeps_the_solver_error_and_the_pair", '[:40] + ":" + (tr.get("output") or "")[:74])', '[:60])'),
+ ("BalanceSlot.test_balance_in_another_account_is_found_past_a_reverting_slot", "                except Reverted:\n                    continue\n", "                except KeyError:\n                    continue\n"),
+ ("BalanceSlot.test_balance_in_another_account_is_found_past_a_reverting_slot", "            for s in (acc.get(\"storage\") or {}):\n                v = 987654321987654321", "            if acct.lower() != token:\n                continue\n            for s in (acc.get(\"storage\") or {}):\n                v = 987654321987654321"),
+ ("BalanceSlot.test_override_funds_the_holder_account", "o.setdefault(acct.lower(), {})", "o.setdefault(self.probe, {})"),
+ ("SeedOks.test_decode_bools", "for i in range(int(d[o:o + 64], 16))]", "for i in range(int(d[o:o + 64], 16) - 1)]"),
+ ("MeasureDraw.test_mf_without_stamp_is_mf_unforced", "seeds_ok=sum(oks), seeds_n=len(oks)", "seeds_ok=len(oks), seeds_n=len(oks)"),
+ ("Draws.test_native_sentinel_is_drawn_as_the_wrapped_token", "if int(t, 16) == 0 else t", "if False else t"),
 ]
 # Draws.test_strata_streams: the mutant is one rng per chain, defined before the strata loop
 fail = 0
