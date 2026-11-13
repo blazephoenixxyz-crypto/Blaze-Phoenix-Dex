@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mutation check for test_g7.py: each mutant of g7.py must turn its named test red.
 Run: python3 -I tools/g7-gas-campaign/mutants_g7.py (exit 1 if a mutant survives).
-A 4th tuple field names the mutated file (default g7.py)."""
+A 4th tuple field names the mutated file (default g7.py). META: the named meta-mutants."""
 import os, shutil, subprocess, sys, tempfile
 SRC = os.path.dirname(os.path.abspath(__file__))
 M = [  # (test id, old, new)
@@ -74,11 +74,20 @@ M = [  # (test id, old, new)
  ("PairedVsD.test_pairs_by_draw_not_by_stratum", 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and r["outcome"] == "ok" and', 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and'),
  ("PairedVsD.test_p95_only_from_the_declared_minimum", "if len(v) >= PAIRED_MIN_N else", "if len(v) > PAIRED_MIN_N else"),
 ]
+# Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
+# must turn its named test red.
+META = [
+ ("unpaired", "PairedVsD.test_pairs_by_draw_not_by_stratum", 'return r["chain"], r["stratum"], r["idx"], r["b"]', 'return r["chain"], r["stratum"]'),
+ ("p95-below-min-n", "PairedVsD.test_p95_only_from_the_declared_minimum", "if len(v) >= PAIRED_MIN_N else", "if True else"),
+ ("mode-summed", "PairedVsD.test_a_mode_is_never_summed_into_another", 'out.setdefault((r["chain"], r["mode"]), [])', 'out.setdefault((r["chain"], r["mode"].replace("F", "")), [])'),
+ ("declared-cell-gone", "PairedVsD.test_every_declared_cell_is_printed", 'if c != "all" and not v:', "if not v:"),
+ ("seed-chosen", "Seed.test_seed_is_the_committed_block_hash_never_an_input", 'SEED=$(cat "$D/seed.txt")', 'SEED="${{ inputs.seed }}"', "g7-gas-campaign.yml"),
+]
 # Draws.test_strata_streams: the mutant is one rng per chain, defined before the strata loop
 fail = 0
-for tid, old, new, *tgt in M:
+for name, tid, old, new, *tgt in [("",) + m for m in M] + META:
     d = tempfile.mkdtemp()
-    for f in ("g7.py", "test_g7.py", "deploy_state.sh"):
+    for f in ("g7.py", "test_g7.py", "deploy_state.sh", "seed.txt"):
         shutil.copy(os.path.join(SRC, f), d)
     shutil.copy(os.path.join(SRC, "..", "..", ".github", "workflows", "g7-gas-campaign.yml"), d)
     p = os.path.join(d, tgt[0] if tgt else "g7.py"); s = open(p).read()
@@ -90,8 +99,8 @@ for tid, old, new, *tgt in M:
     open(p, "w").write(s)
     r = subprocess.run([sys.executable, "-I", "-W", "ignore", os.path.join(d, "test_g7.py"), tid], capture_output=True, text=True, timeout=120)
     red = r.returncode != 0
-    print(("RED " if red else "GREEN!") + "\t" + tid)
+    print(("RED " if red else "GREEN!") + "\t" + (name + "\t" if name else "") + tid)
     fail += 0 if red else 1
     shutil.rmtree(d)
-print("survivors/bad:", fail, "of", len(M))
+print("survivors/bad:", fail, "of", len(M) + len(META))
 sys.exit(1 if fail else 0)

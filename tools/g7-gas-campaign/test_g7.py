@@ -2,7 +2,7 @@
 """Offline tests for g7.py (no RPC, no key). Run: python3 -I tools/g7-gas-campaign/test_g7.py
 
 Each test names the mutant of g7.py that turns it red; mutants_g7.py applies every one of them
-and checks that its test goes red (68/68 on 2026-11-13).
+and checks that its test goes red (73/73 on 2026-11-13, 5 of them the named meta-mutants).
 """
 import os
 import sys
@@ -781,6 +781,22 @@ class PairedVsD(unittest.TestCase):
         self.assertIn("bsc\tMF1h\tall\tg_record\t0\t\t\t\t", p)
         self.assertIn("base\tM1h\tall\tg_quote\t0\t\t\t\t", p)
         self.assertFalse([ln for ln in p if ln.split("\t")[2] not in ("all", "hit")], "a case without a pair has no line")
+
+
+class Seed(unittest.TestCase):
+    """The measure takes the pre-registered seed (seed.txt, a block hash fixed after the
+    pre-registration commit, seed.py); no dispatch input can choose it."""
+    # Meta-mutant "seed chosen" (yml): SEED=$(cat "$D/seed.txt") -> SEED="${{ inputs.seed }}".
+    def test_seed_is_the_committed_block_hash_never_an_input(self):
+        import re
+        y = workflow_text()
+        self.assertEqual(y.count('SEED=$(cat "$D/seed.txt")'), 1)
+        self.assertEqual(y.count("SEED="), 1)
+        self.assertIn('measure "$SPEC" "$D/state" "$OUT" "$SEED"', y)
+        self.assertNotIn("inputs.seed", y)
+        self.assertNotIn("      seed:\n", y)
+        txt = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.txt")).read()
+        self.assertRegex(txt, re.compile(r"\A0x[0-9a-f]{64}\n?\Z"))
 
 
 def workflow_text():
