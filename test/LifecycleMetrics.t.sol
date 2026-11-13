@@ -277,6 +277,7 @@ contract LifecycleMetricsTest is Test {
         for (uint256 i; i < N_POOLS; ++i) {
             hub.seedPool(address(pools[i]), BPC.KIND_V2, 30, address(0), address(tokenIn), address(tokenOut));
         }
+        hub.refreshPair(address(tokenIn), address(tokenOut));
         (uint256 gWarmSolve, uint256 legsWarm) = _solveGas();
         console2.log("findBestRoutePlan COLD, gas:", gColdSolve);
         console2.log("findBestRoutePlan WARM (curated), gas:", gWarmSolve);
