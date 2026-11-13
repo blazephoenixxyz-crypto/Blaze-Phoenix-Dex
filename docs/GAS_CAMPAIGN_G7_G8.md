@@ -22,7 +22,7 @@ with g7.py at `ac79b97` (command in section 5).
 | mode | D (Discovery), M0 / M1h (moonslot age) | `mode` | per mode (R:346-3790) |
 | moonslot case | hit / partial / miss / expired | `ms_case` (a column after this run; the report derives it per row, `g7.py` `ms_case`) | `# moonslot cases` per chain x kind x case (P:3971-4536); ok rows: D 459, hit 272, partial 879, miss 362, expired 1407 (sum 3379 = all ok rows); paired M0 vs D in section 5 |
 | quote | ABI quote (`est_gas`) vs on-chain quote (`g_quote`) | `est_gas`, `g_quote` | g_quote (R:346-3790); ABI vs on-chain split: **not measured** in this report |
-| segment | legs / overhead / g_record | `g_legs_sum`, `g_exec`, `g_record` | R:346-3790; overhead = g_exec - g_legs_sum - g_record - g_sweep is not a report column: **not measured** as such |
+| segment | legs / DEX overhead (g_record and the sweep inside it) | `g_legs_sum`, `g_exec`, `g_record`, `g_sweep` | each per chain x kind x mode (R:346-3790). `dex_overhead` = g_exec - g_legs_sum: all the Router frame pays above the venue legs (Router, Hub `recordSwap`, sweep); `rec_frac` = g_record / g_exec. Per chain x kind in `# exec split` (P:4537-4571), per case in P:3971-4536 (`g7.py` `split_value`, pinned by `ReportSplit.test_exec_split_per_chain_kind`). g_record is a part of the overhead, not a third disjoint segment |
 
 ## 2. Vectors and their extremes
 

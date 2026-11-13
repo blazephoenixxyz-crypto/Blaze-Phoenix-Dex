@@ -706,7 +706,8 @@ class ReportSplit(unittest.TestCase):
                 okrow("M1h", swept=1, g_discovery=1500000, g_quote=1900000, outcome="revert"),
                 okrow("M1h", kind="major", g_exec=400000, g_legs_sum=250000, g_record=40000, g_quote=1800000)]
 
-    # Mutants: dex_overhead = g_exec + g_legs_sum; rec_frac = g_record / g_legs_sum.
+    # Mutants: dex_overhead = g_exec + g_legs_sum; dex_overhead = g_exec - g_legs_sum - g_record - g_sweep
+    # (the overhead holds the record and the sweep); rec_frac = g_record / g_legs_sum.
     def test_exec_split_per_chain_kind(self):
         lines = report_lines(self.rows())
         self.assertIn("# exec split: chain\tkind\tn_ok\tlegs_p50\tlegs_p95\tdex_overhead_p50\tdex_overhead_p95\trec_frac_p50\trec_frac_p95", lines)
