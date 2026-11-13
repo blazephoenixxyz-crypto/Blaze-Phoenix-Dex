@@ -135,6 +135,7 @@ contract G7Deploy is Script {
         _core(me, 0x8366a39CC670B4001A1121B8F6A443A643e40951, true); // G7: Gate mounted for the gates stratum
         hub.addBridge(0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73); // WETH
         hub.addBridge(0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168); // USDG
+        hub.addBridge(0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31); // VIRTUAL (pool token, 18 decimals; owner decision 13/11)
         hub.addFactory(0x1f7d7550B1b028f7571E69A784071F0205FD2EfA, KIND_V3, MODE_CALL_V3, bytes32(0), _v3Fees(), _v3Sp());
         hub.addFactory(0x8bcEaA40B9AcdfAedF85AdF4FF01F5Ad6517937f, KIND_V2, MODE_CALL_GENERIC, bytes32(0), _n24(), _nSp());
     }

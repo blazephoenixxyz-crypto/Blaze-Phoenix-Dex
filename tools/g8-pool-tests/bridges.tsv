@@ -10,7 +10,7 @@ arbitrum	USDC	0xaf88d065e77c8cC2239327C5EDb3A432268e5831	site_tokens.json; G7Dep
 arbitrum	wstETH	0x5979D7b546E38E414F7E9822514be443A4800529	site_tokens.json; G7Deploy.s.sol:_arbitrum
 robinhood	WETH	0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73	site_tokens.json (owner order 13/11: RH = WETH, USDG, VIRTUAL); G7Deploy.s.sol:_robinhood bridge 0
 robinhood	USDG	0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168	site_tokens.json; G7Deploy.s.sol:_robinhood bridge 1
-robinhood	VIRTUAL		absent: G7Deploy.s.sol:_robinhood adds only WETH and USDG, hub.bridge(2) is not set on the G7 robinhood hub; the VIRTUAL of site_tokens.json (0x0b3e3284...) is on the Base list (absent, not zero)
+robinhood	VIRTUAL	0xc6911796042b15d7fa4f6cde69e245ddcd3d9c31	pool token of the G7 inventory (18 decimals; owner decision 13/11: RH = WETH, USDG, VIRTUAL); G7Deploy.s.sol:_robinhood bridge 2 + prereg/wiring.tsv addBridge row (state/robinhood.state.json predates it: rebuild with deploy_state.sh before measuring)
 avalanche	WAVAX	0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7	G7DeployAvax.s.sol:27,73 hub.addBridge (bridge 0); word present in state/avalanche.state.json
 avalanche	USDC	0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E	G7DeployAvax.s.sol:28,73 (bridge 1); word present in state/avalanche.state.json
 avalanche	BTC.b	0x152b9d0FdC40C096757F570A51E494bd4b943E50	G7DeployAvax.s.sol:29,73 (bridge 2); word present in state/avalanche.state.json
