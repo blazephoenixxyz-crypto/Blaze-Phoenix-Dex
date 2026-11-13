@@ -539,7 +539,7 @@ def measure_draw(ch, d, done):
     base["ts_b"] = ts_b
     try:
         mid = mid_price(ch, d)
-    except (RpcError, Reverted):
+    except (RpcError, Reverted, ValueError):
         mid = ""
     try:
         vt = vital(ch, d)
