@@ -791,10 +791,13 @@ library BlazePhoenixCore {
     ///              are bound transitively;
     ///           3. the family (key >> 16) must have a live adapter in the Gate NOW: a
     ///              cleared or drifted adapter refuses the leg here, not in the callback.
+    ///         Key 0 is refused before any read: in mode 5 it is the Algebra sentinel, so the
+    ///         Hub's discovery never derives a key-0 wrapper, and the Gate refuses it at create.
     ///         Every external read is GAS_CAP-bounded and reads 0 on failure: fail closed.
     function gateWrapperLive(address hub, address pool, address tA, address tB, uint24 fee)
         public view returns (bool)
     {
+        if (fee == 0) return false;
         // `_askWord` leaves the word 0 on a failed or short answer, so `ok` adds nothing here.
         (, uint256 w) = _askWord(pool, abi.encodeWithSignature("gate()"));
         address g = address(uint160(w));
