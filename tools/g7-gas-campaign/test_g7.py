@@ -7,6 +7,7 @@ and checks that its test goes red (25/25 on 2026-11-13).
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -260,6 +261,7 @@ class FakeChain:
         self.max_hops = 2
         self.c = SPEC["chains"]["base"]
         self.rpc = FakeRpc(tsb)
+        self.liq, self.b0 = {}, 0
 
 
 def draw():
@@ -450,6 +452,105 @@ class TreeLabel(unittest.TestCase):
             rows = g7.measure_draw(FakeChain(1793500000, 1), draw(), {})
         self.assertTrue(rows)
         self.assertTrue(all(r.get("max_hops_code") == 2 for r in rows))
+
+
+def err_string(txt):
+    h = txt.encode().hex()
+    return "0x" + g7.ERROR_SEL + wd(0x20) + wd(len(txt)) + h + "0" * ((64 - len(h) % 64) % 64)
+
+
+class RevertDetail(unittest.TestCase):
+    # Mutant: the Error(string) branch dropped (`if d[:8] == ERROR_SEL` -> `if False`): the reason is lost.
+    def test_error_string_is_decoded_else_the_selector_is_kept(self):
+        self.assertEqual(g7.revert_detail("exec:", err_string("Too little received")), "exec:Error:Too little received")
+        self.assertEqual(g7.revert_detail("call:", "0x3d0ccdde" + wd(5)), "call:0x3d0ccdde")
+        self.assertEqual(g7.revert_detail("exec:", ""), "exec:empty")
+
+
+def by_method(table):
+    return lambda method, params: table[method](params) if callable(table[method]) else table[method]
+
+
+class PoolFee(unittest.TestCase):
+    def chain(self, fee_pips):
+        ch = mock.Mock()
+        ch.lock, ch.fees = threading.Lock(), {}
+        ch.rpc.call.side_effect = by_method({"eth_call": "0x" + wd(fee_pips)})
+        return ch
+
+    # Mutant: the seed fee in pips not divided by 100 (`known[pool] / 100` -> `known[pool]`).
+    def test_seed_fee_first_then_fee_call_in_bps(self):
+        d = dict(draw(), st={"seed_pools": [{"pool": POOL1, "kind": 1, "fee": 500}]})
+        ch = self.chain(3000)
+        self.assertEqual(g7.pool_fee_bps(ch, d, f"{POOL1}:100;{POOL2}:200", 2, 2), 35)
+        self.assertEqual(ch.rpc.call.call_count, 1)  # POOL1 from the seed, POOL2 by fee()
+        self.assertEqual(g7.pool_fee_bps(ch, d, f"{POOL1}:100;{POOL2}:200", 1, 2), "")  # hops != legs: unknown
+        self.assertEqual(ch.fees[POOL2], 3000)
+
+
+class NqClass(unittest.TestCase):
+    def nq(self, amount, detail="quote:x", liq="100", chain="base"):
+        return {"chain": chain, "stratum": "s", "tin": A1, "tout": A2, "amount_in": str(amount), "outcome": "noquote",
+                "detail": detail, "liq_usd": liq}
+
+    # Mutant: A' without the amount comparison (`oks[k] < int(r["amount_in"])` dropped): a smaller
+    # amount that fails after a bigger one succeeded is not an amount effect.
+    def test_classes_s_dust_a_aprime_b(self):
+        ok = {"chain": "base", "stratum": "s", "tin": A1, "tout": A2, "amount_in": "10", "outcome": "ok", "detail": ""}
+        rows = [ok, self.nq(100, "quote:out of gas"), self.nq(100, "canExecute=0"), self.nq(100, liq="0.5"),
+                self.nq(100), self.nq(5), self.nq(100, chain="optimism")]
+        got = [r["nq_class"] for r in g7.classify_rows(rows)]
+        self.assertEqual(got, ["", "S", "dust", "A", "A'", "B", "B"])
+
+
+class MidGuard(unittest.TestCase):
+    def chain(self, code, calls):
+        ch = mock.Mock()
+        ch.b0 = 7
+        ch.rpc.call.side_effect = by_method({"eth_getCode": code, "eth_call": lambda p: calls[p[0]["data"][2:10]]})
+        return ch
+
+    # Mutant: the code check at b0 accepts "0x" (`in ("0x", "", None)` -> `in ("",)`): a pool born
+    # inside the window would price the whole window.
+    def test_no_code_at_window_start_or_empty_pool_gives_no_mid(self):
+        d = dict(draw(), st={"mid_pool": {"pool": POOL1, "family": "v2", "token0": A1}})
+        self.assertEqual(g7.mid_price(self.chain("0x", {}), d), "")
+        res = {g7.SEL["reserves"]: "0x" + wd(5) + wd(0) + wd(1)}
+        self.assertEqual(g7.mid_price(self.chain("0x6080", res), d), "")
+        res = {g7.SEL["reserves"]: "0x" + wd(5) + wd(10) + wd(1)}
+        self.assertEqual(g7.mid_price(self.chain("0x6080", res), d), 2.0)
+        d["st"]["mid_pool"] = {"pool": POOL1, "family": "v3", "token0": A1}
+        res = {g7.SEL["slot0"]: "0x" + wd(2 ** 96), g7.SEL["liquidity"]: "0x" + wd(0)}
+        self.assertEqual(g7.mid_price(self.chain("0x6080", res), d), "")
+
+
+class FundGuard(unittest.TestCase):
+    # Mutant: `if bal != d["amount"]` -> `if False`: an unfunded probe goes on to an exec that
+    # reverts for a reason that is not the Router's.
+    def test_unfunded_probe_is_prereq_not_revert(self):
+        ch = mock.Mock()
+        ch.solver, ch.hub, ch.gate, ch.wrappers, ch.quoter, ch.probe, ch.spec = SOLVER, HUB, GATE, [WRAP], ROUTER, TOKEN, SPEC
+        ch.c = {"native_wrap": WRAP}
+        ch.override.return_value = {}
+        ch.balance_slot.return_value = (A1, "0x1")
+        tr = fr("0xq", g7.SEL["preview"], 1000)
+        tr["output"] = Abi("test_fits_2_10_boundaries").preview_blob("aabb")
+        ch.rpc.call.side_effect = by_method({"debug_traceCall": tr, "eth_call": "0x" + wd(0)})
+        r = g7.measure_mode(ch, draw(), 1, "D", None)
+        self.assertEqual((r["outcome"], r["detail"]), ("prereq", "fund:0"))
+        self.assertEqual(r["g_quote_cap"], int(g7.GAS, 16))
+
+
+class OutOfGas(unittest.TestCase):
+    # Mutant: the retry keeps the same cap (`cap *= 2` -> `cap *= 1`).
+    def test_out_of_gas_trace_is_retried_once_with_twice_the_cap(self):
+        ch = mock.Mock()
+        ch.rpc.call.side_effect = [{"error": "out of gas"}, {"error": "execution reverted", "output": "0x"}]
+        tx = {"from": g7.CALLER, "to": ROUTER, "data": "0x", "gas": g7.GAS}
+        tr, cap = g7.trace_call(ch, tx, 5, {"tracer": "callTracer"})
+        self.assertEqual(cap, 2 * int(g7.GAS, 16))
+        self.assertEqual(ch.rpc.call.call_args_list[1][0][1][0]["gas"], hex(2 * int(g7.GAS, 16)))
+        self.assertEqual(tr["error"], "execution reverted")
 
 
 class CallRpc:
