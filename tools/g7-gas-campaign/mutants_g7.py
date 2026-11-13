@@ -103,8 +103,11 @@ for name, tid, old, new, *tgt in [("",) + m for m in M] + META:
         s = s.replace("    out = []\n    for st in spec[\"chains\"][chain][\"strata\"]:", "    out = []\n    rng = stratum_rng(seed.lower(), chain)\n    for st in spec[\"chains\"][chain][\"strata\"]:")
     open(p, "w").write(s)
     r = subprocess.run([sys.executable, "-I", "-W", "ignore", os.path.join(d, "test_g7.py"), tid], capture_output=True, text=True, timeout=120)
-    red = r.returncode != 0
-    print(("RED " if red else "GREEN!") + "\t" + (name + "\t" if name else "") + tid)
+    # Killed only by an assertion: a test that errors (exception, missing name) proves nothing about the guard.
+    red = r.returncode != 0 and "AssertionError" in r.stderr and "errors=" not in r.stderr
+    tag = "RED " if red else ("CRASH!" if r.returncode else "GREEN!")
+    why = [ln for ln in r.stderr.splitlines() if ln[:1].isalpha() and ("Error" in ln or "Exception" in ln)][-1:]
+    print(tag + "\t" + (name + "\t" if name else "") + tid + ("" if red or not why else "\t" + why[0][:160]))
     fail += 0 if red else 1
     shutil.rmtree(d)
 print("survivors/bad:", fail, "of", len(M) + len(META))

@@ -370,15 +370,20 @@ class BalanceSlot(unittest.TestCase):
         return ch
 
     # Mutants: `except Reverted: continue` dropped (the revert escapes), or only the token's own
-    # account searched (`if acct.lower() != token: continue` restored: slot not found).
+    # account searched (`if acct.lower() != token: continue` restored: slot not found). Either one
+    # raising out of the search is the guard failing, so it fails the test (not an error).
     def test_balance_in_another_account_is_found_past_a_reverting_slot(self):
         ch = self.chain()
-        self.assertEqual(ch.balance_slot(self.TOK, 10), (self.STATE, "0x99"))
+        try:
+            got = ch.balance_slot(self.TOK, 10)
+        except (g7.Reverted, g7.RpcError) as e:
+            self.fail("slot search raised %s: %s" % (type(e).__name__, e))
+        self.assertEqual(got, (self.STATE, "0x99"))
 
     # Mutant: override() funds the token instead of the holder account it is given.
     def test_override_funds_the_holder_account(self):
         o = self.chain().override(fund={self.STATE: ("0x99", 5)})
-        self.assertEqual(o[self.STATE]["stateDiff"]["0x99"], "0x" + wd(5))
+        self.assertEqual(o.get(self.STATE, {}).get("stateDiff", {}).get("0x99"), "0x" + wd(5))
         self.assertNotIn(self.TOK, o)
 
 
@@ -526,10 +531,11 @@ class MidGuard(unittest.TestCase):
         return ch
 
     # Mutant: the code check at b0 accepts "0x" (`in ("0x", "", None)` -> `in ("",)`): a pool born
-    # inside the window would price the whole window.
+    # inside the window would price the whole window (the no-code chain still answers getReserves
+    # at b, so the mutant returns that price).
     def test_no_code_at_window_start_or_empty_pool_gives_no_mid(self):
         d = dict(draw(), st={"mid_pool": {"pool": POOL1, "family": "v2", "token0": A1}})
-        self.assertEqual(g7.mid_price(self.chain("0x", {}), d), "")
+        self.assertEqual(g7.mid_price(self.chain("0x", {g7.SEL["reserves"]: "0x" + wd(5) + wd(10) + wd(1)}), d), "")
         res = {g7.SEL["reserves"]: "0x" + wd(5) + wd(0) + wd(1)}
         self.assertEqual(g7.mid_price(self.chain("0x6080", res), d), "")
         res = {g7.SEL["reserves"]: "0x" + wd(5) + wd(10) + wd(1)}
@@ -541,16 +547,22 @@ class MidGuard(unittest.TestCase):
 
 class FundGuard(unittest.TestCase):
     # Mutant: `if bal != d["amount"]` -> `if False`: an unfunded probe goes on to an exec that
-    # reverts for a reason that is not the Router's.
+    # reverts for a reason that is not the Router's. The fake fails the test if the exec is traced.
     def test_unfunded_probe_is_prereq_not_revert(self):
         ch = mock.Mock()
         ch.solver, ch.hub, ch.gate, ch.wrappers, ch.quoter, ch.probe, ch.spec = SOLVER, HUB, GATE, [WRAP], ROUTER, TOKEN, SPEC
+        ch.router = ROUTER
         ch.c = {"native_wrap": WRAP}
         ch.override.return_value = {}
         ch.balance_slot.return_value = (A1, "0x1")
         tr = fr("0xq", g7.SEL["preview"], 1000)
         tr["output"] = Abi("test_fits_2_10_boundaries").preview_blob("aabb")
-        ch.rpc.call.side_effect = by_method({"debug_traceCall": tr, "eth_call": "0x" + wd(0)})
+
+        def trace(p):  # the quote goes to the quoter (ROUTER here), the exec to the probe
+            if p[0]["to"] != ROUTER:
+                self.fail("exec traced with an unfunded probe (to " + p[0]["to"] + ")")
+            return tr
+        ch.rpc.call.side_effect = by_method({"debug_traceCall": trace, "eth_call": "0x" + wd(0)})
         r = g7.measure_mode(ch, draw(), 1, "D", None)
         self.assertEqual((r["outcome"], r.get("detail")), ("prereq", "fund:0"))
         self.assertEqual(r["g_quote_cap"], int(g7.GAS, 16))
