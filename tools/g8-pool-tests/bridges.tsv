@@ -1,13 +1,20 @@
 chain	symbol	address	source
-base	WETH	0x4200000000000000000000000000000000000006	site_tokens.json (owner order 13/11: Base/OP/Arb = WETH, USDC, wstETH)
-base	USDC	0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913	site_tokens.json
-base	wstETH	0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452	site_tokens.json
-optimism	WETH	0x4200000000000000000000000000000000000006	site_tokens.json
-optimism	USDC	0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85	site_tokens.json
-optimism	wstETH	0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb	site_tokens.json
-arbitrum	WETH	0x82aF49447D8a07e3bd95BD0d56f35241523fBab1	site_tokens.json
-arbitrum	USDC	0xaf88d065e77c8cC2239327C5EDb3A432268e5831	site_tokens.json
-arbitrum	wstETH	0x5979D7b546E38E414F7E9822514be443A4800529	site_tokens.json
-robinhood	WETH	0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73	site_tokens.json (owner order 13/11: RH = WETH, USDG, VIRTUAL)
-robinhood	USDG	0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168	site_tokens.json
-robinhood	VIRTUAL		absent: not in site_tokens.json for robinhood; to be read from hub.bridge(2) in src (absent, not zero)
+base	WETH	0x4200000000000000000000000000000000000006	site_tokens.json (owner order 13/11: Base/OP/Arb = WETH, USDC, wstETH); G7Deploy.s.sol:_base hub.addBridge
+base	USDC	0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913	site_tokens.json; G7Deploy.s.sol:_base
+base	wstETH	0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452	site_tokens.json; G7Deploy.s.sol:_base
+optimism	WETH	0x4200000000000000000000000000000000000006	site_tokens.json; G7Deploy.s.sol:_optimism
+optimism	USDC	0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85	site_tokens.json; G7Deploy.s.sol:_optimism
+optimism	wstETH	0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb	site_tokens.json; G7Deploy.s.sol:_optimism
+arbitrum	WETH	0x82aF49447D8a07e3bd95BD0d56f35241523fBab1	site_tokens.json; G7Deploy.s.sol:_arbitrum
+arbitrum	USDC	0xaf88d065e77c8cC2239327C5EDb3A432268e5831	site_tokens.json; G7Deploy.s.sol:_arbitrum
+arbitrum	wstETH	0x5979D7b546E38E414F7E9822514be443A4800529	site_tokens.json; G7Deploy.s.sol:_arbitrum
+robinhood	WETH	0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73	site_tokens.json (owner order 13/11: RH = WETH, USDG, VIRTUAL); G7Deploy.s.sol:_robinhood bridge 0
+robinhood	USDG	0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168	site_tokens.json; G7Deploy.s.sol:_robinhood bridge 1
+robinhood	VIRTUAL		absent: G7Deploy.s.sol:_robinhood adds only WETH and USDG, hub.bridge(2) is not set on the G7 robinhood hub; the VIRTUAL of site_tokens.json (0x0b3e3284...) is on the Base list (absent, not zero)
+avalanche	WAVAX	0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7	G7DeployAvax.s.sol:27,73 hub.addBridge (bridge 0); word present in state/avalanche.state.json
+avalanche	USDC	0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E	G7DeployAvax.s.sol:28,73 (bridge 1); word present in state/avalanche.state.json
+avalanche	BTC.b	0x152b9d0FdC40C096757F570A51E494bd4b943E50	G7DeployAvax.s.sol:29,73 (bridge 2); word present in state/avalanche.state.json
+bsc	WBNB	0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c	G7DeployBsc.s.sol:21,43 hub.addBridge (bridge 0); word present in state/bsc.state.json
+bsc	USDT	0x55d398326f99059fF775485246999027B3197955	G7DeployBsc.s.sol:22,43 (bridge 1); word present in state/bsc.state.json
+bsc	USDC	0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d	G7DeployBsc.s.sol:23,43 (bridge 2); word present in state/bsc.state.json
+ethereum	-		absent: no hub.addBridge in G7Deploy.s.sol:_ethereum and 0 addBridge rows in g7-gas-campaign/prereg/wiring.tsv: the G7 ethereum hub carries no bridge, so no bridge cases (absent, not zero)

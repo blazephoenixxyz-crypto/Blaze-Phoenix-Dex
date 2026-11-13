@@ -7,7 +7,9 @@ the pre-registered per-pool and bridge cases of spec.json, with a deterministic 
 draws: per stratum one block (seeded, uniform in the G7 window), both directions, every amount
 of the direction: idx 1..nA forward (tA -> tB), nA+1..nA+nB backward. Every mode of the spec
 (D, the moonslot ages, the forced ages) runs on each draw, so M and D sit side by side per row.
-The report prints the G7 tables and then one line per (chain, stratum, mode)."""
+The report prints the G7 tables, then one line per (chain, stratum, mode) and the per-case split:
+one line per (chain, stratum, ms_case, segment) with n, p50 and p95, where est_gas is the quote's
+own estimate (ABI preview) and the other segments are measured on chain."""
 import concurrent.futures as cf
 import json
 import os
@@ -19,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import g7  # noqa: E402
 
 CASE_SEGS = ("net_out", "g_quote", "g_exec", "g_legs_sum", "dex_overhead", "g_record", "out_vs_D_bps")
+CASE_SPLIT_SEGS = ("est_gas",) + g7.SPLIT_SEGS  # quote ABI estimate, then the on-chain segments
 
 
 def draws(spec, seed, chain, b0, b1):
@@ -92,6 +95,27 @@ def case_lines(spec, rows):
     return out
 
 
+def case_split(spec, rows):
+    """One line per (chain, stratum, ms_case, segment) over the ok rows: n, p50, p95. est_gas is the
+    quote's own estimate (ABI preview); g_quote, g_exec, g_legs_sum, dex_overhead (= g_exec -
+    g_legs_sum) and g_record are measured on chain. Strata in spec order, cases in g7.MS_CASES
+    order (D / hit / partial / miss / expired); a segment without a value prints nothing."""
+    for r in rows:
+        if not r.get("ms_case"):
+            r["ms_case"] = g7.ms_case(r)
+    out = ["# per case split: chain\tstratum\tkind\tfamily\tpool\tms_case\tsegment\tn\tp50\tp95"]
+    for cn, c in spec["chains"].items():
+        for st in c["strata"]:
+            for k in g7.MS_CASES:
+                rs = [r for r in rows if (r["chain"], r["stratum"], r["ms_case"]) == (cn, st["id"], k) and r["outcome"] == "ok"]
+                for s in CASE_SPLIT_SEGS:
+                    v = [x for x in (g7.split_value(r, s) for r in rs) if x is not None]
+                    if v:
+                        out.append("\t".join([cn, st["id"], st["kind"], st.get("_family", ""), st.get("_pool", ""), k, s,
+                                             str(len(v)), str(g7.pct(v, 50)), str(g7.pct(v, 95))]))
+    return out
+
+
 def _num(x):
     try:
         return int(x) if x not in ("", None) else None
@@ -102,7 +126,8 @@ def _num(x):
 def cmd_report(spec_path, out_path):
     g7.cmd_report(spec_path, out_path)
     spec = json.load(open(spec_path))
-    for ln in case_lines(spec, g7.classify_rows(g7.load_rows(out_path))):
+    rows = g7.classify_rows(g7.load_rows(out_path))
+    for ln in case_lines(spec, rows) + case_split(spec, rows):
         print(ln)
 
 
