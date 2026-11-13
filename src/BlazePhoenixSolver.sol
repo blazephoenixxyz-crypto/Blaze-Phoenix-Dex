@@ -65,6 +65,7 @@ interface IHubR {
     function psisOf(address[] calldata pools, address[] calldata tAs, address[] calldata tBs)
         external view returns (uint256[] memory);
     function getSlot(bytes32 key) external view returns (uint256);
+    function sweptAt(bytes32 pk) external view returns (uint256);
     function bridge(uint8 i) external view returns (address);
     function isBridgeToken(address t) external view returns (bool);
     function v4PoolManager() external view returns (address);
@@ -1511,7 +1512,7 @@ contract BlazePhoenixSolver {
         // THE GATE'S WRAPPERS ENTER EVERY MERGE (P3b), as discovery rows: Core.discoverWithGate
         // appends the immutable Gate's live wrappers whether or not the sweep runs. They do NOT
         // vote `_registryFresh` (it reads `reg` only), so they cannot switch discovery off.
-        PoolInfo[] memory dis = BPC.discoverWithGate(address(hub), gate, tA, tB, !_registryFresh(reg));
+        PoolInfo[] memory dis = BPC.discoverWithGate(address(hub), gate, tA, tB, !_registryFresh(tA, tB, reg));
         uint256 rn = reg.length;
         uint256 dn = dis.length;
         PoolInfo[] memory merged = new PoolInfo[](rn + dn);
@@ -1623,9 +1624,15 @@ contract BlazePhoenixSolver {
     ///         registered pools saw activity within DISCOVERY_TTL_SECONDS (wall
     ///         clock). A pool never ticked (lastUpdateTs == 0) counts as stale, so
     ///         genuinely new pairs always fall through to discovery.
-    function _registryFresh(PoolInfo[] memory reg) private view returns (bool) {
+    ///         AND the Hub swept the pair itself within the same TTL, over the current
+    ///         factory universe, and registered every hit (`Hub.refreshPair`): row age and
+    ///         count are not coverage — three fresh seeds hid a derivable venue the sweep
+    ///         ranks first (regfresh-1113, F7, -378.68 bps vs discovery).
+    function _registryFresh(address tA, address tB, PoolInfo[] memory reg) private view returns (bool) {
         uint256 rn = reg.length;
         if (rn < MIN_FRESH_VENUES) return false;
+        uint256 st = hub.sweptAt(BPC.pairKey(address(0), tA, tB));
+        if (st == 0 || block.timestamp - st > DISCOVERY_TTL_SECONDS) return false;
         uint256 fresh;
         for (uint256 i; i < rn; ) {
             // The row's key in this frame (`BPC.pairKey`, the word `Hub.keyOf` returns): one

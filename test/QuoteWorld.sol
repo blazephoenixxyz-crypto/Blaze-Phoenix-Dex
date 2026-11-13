@@ -45,6 +45,10 @@ abstract contract QuoteWorld is Test {
             hub.seedPool(address(AB2), BPC.KIND_V2, 30, address(0), address(A), address(B));
             hub.seedPool(address(AB3), BPC.KIND_V2, 30, address(0), address(A), address(B));
             hub.seedPool(address(BC1), BPC.KIND_V2, 30, address(0), address(B), address(C));
+            // The Hub's own sweep of each pair, stamped: curated rows skip discovery only over
+            // a sweep that found nothing they do not hold (AB1 and BC1 are already rows).
+            hub.refreshPair(address(A), address(B));
+            hub.refreshPair(address(B), address(C));
         }
     }
 

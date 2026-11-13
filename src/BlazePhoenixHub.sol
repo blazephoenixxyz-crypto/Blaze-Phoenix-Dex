@@ -376,6 +376,13 @@ contract BlazePhoenixHub {
         // address(0) = the factory itself is the origin (the answer was
         // zero/absent at admission — Core's own fallback, frozen).
         mapping(address => address) factoryDeployer;
+        // regfresh-1113: the pair's sweep stamp, `(sweepEpoch << 32) | ts`, keyed by
+        // `BPC.pairKey(address(0), t0, t1)` (pool 0: the pair itself). One writer, `refreshPair`, and only after every hit of this Hub's own
+        // `discoverFor` is a registry row. `sweepEpoch` counts writes to what that sweep
+        // reads (`factories` by addFactory, the V4 manager by setV4Manager): a stamp taken
+        // over an older sweep universe is not coverage.
+        mapping(bytes32 => uint256) sweptAt;
+        uint256 sweepEpoch;
     }
 
     function _store() private pure returns (HubStore storage $) {
@@ -523,7 +530,14 @@ contract BlazePhoenixHub {
     ///         Pins also cannot see a delegate proxy — the same limitation
     ///         written down for hooks above. This is an admission decision, and
     ///         it belongs to human review rather than to a guard.
-    function setV4Manager(address m) external onlyControl { _store().v4PoolManager = m; emit RoleSet(5, m); }
+    function setV4Manager(address m) external onlyControl {
+        HubStore storage $ = _store();
+        $.v4PoolManager = m;
+        // `discoverFor` probes V4 through this manager: a new one is a new sweep universe,
+        // so every pair's sweep stamp goes stale (regfresh-1113).
+        unchecked { ++$.sweepEpoch; }
+        emit RoleSet(5, m);
+    }
 
     // ─── Curator (permanent: grows the registry only) ──────────────────
 
@@ -919,6 +933,8 @@ contract BlazePhoenixHub {
                 : (!$.controlRenounced && live != address(0));
             if (mayPin) $.factoryDeployer[factory] = live;
         }
+        // The sweep universe moved: every pair's sweep stamp is now stale (regfresh-1113).
+        unchecked { ++$.sweepEpoch; }
         emit Factory_(factory, kind, mode);
         emit FactoryPinned(factory, initHash);
         return uint8(row);
@@ -963,10 +979,6 @@ contract BlazePhoenixHub {
             _ne0(c0);
         }
         (address s0, address s1) = BPC.sortTokens(c0, c1);
-        $.v4Entries.push(V4Entry({
-            currency0: s0, currency1: s1, fee: fee,
-            tickSpacing: tickSpacing, hooks: hooks
-        }));
         // Register under the SAME key formula recordSwap will later look up
         // (keyOf, keyed on the truncated poolId-as-address). A prior version
         // hashed a bespoke (pid, t0, t1) tuple here (_poolKeyV4) whose
@@ -978,13 +990,16 @@ contract BlazePhoenixHub {
         address poolAddr = address(uint160(uint256(pid)));
         (address r0, address r1) = nat ? BPC.sortTokens(w, c1) : (s0, s1);
         key = keyOf(poolAddr, r0, r1);
-        $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
+        _pushV4Entry(key, V4Entry({
+            currency0: s0, currency1: s1, fee: fee,
+            tickSpacing: tickSpacing, hooks: hooks
+        }));
         // Measured in the pool's own currency order: a native pool's currency0 is the
         // chain's coin, which WETH stands for (`r0`/`r1` are the WETH-sorted registry key,
         // and would swap the decimals when the other token sorts below WETH).
         uint8 kind4 = nat ? BPC.KIND_V4_NATIVE : BPC.KIND_V4;
         _register(key, poolAddr, r0, r1, _born(kind4, fee, true),
-                  BPC.registryDepth18(poolAddr, kind4, nat ? w : s0, s1, $.v4PoolManager, pid));
+                  _depth18(poolAddr, kind4, nat ? w : s0, s1, pid));
         if (hooks != address(0)) $.hooksOf[key] = hooks;
         // If sorting did not leave WETH in token0, mark the inversion so that
         // `_readPoolInfo` undoes it when reporting.
@@ -1033,12 +1048,9 @@ contract BlazePhoenixHub {
         (address s0, address s1) = BPC.sortTokens(c0, c1);
         // HOOKLESS ONLY — the poolId is derived with hooks == address(0).
         bytes32 pid = BPC.computeV4PoolId(s0, s1, fee, tickSpacing, address(0));
-        // On-chain existence + liquidity proof (unforgeable).
-        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
-            BPC.v4SqrtAndLiq($.v4PoolManager, pid);
-        if (sp == 0 || liq == 0) revert HubE(9);
-        // Dynamic fee must resolve to a quotable value (INV-20), else fail closed.
-        if (BPC.effV4Fee(fee, lpF, pF, true) >= 1_000_000) revert HubE(9);  // direction-free check: quotable at all?
+        // On-chain existence + liquidity proof (unforgeable), and a dynamic fee that
+        // resolves to a quotable value (INV-20), else fail closed.
+        if (!_v4Live($.v4PoolManager, pid, fee)) revert HubE(9);
         address poolAddr = address(uint160(uint256(pid)));
         key = keyOf(poolAddr, s0, s1);
         // Idempotent: a live re-claim must not push a duplicate V4Entry nor
@@ -1063,18 +1075,13 @@ contract BlazePhoenixHub {
         // Normalized: _canInsert compares buckets, and a bucket blind to decimals makes the
         // deep pool and the dust pool project the same psi. From the registry's one depth
         // producer, which the swap door and the operator's door call too.
-        uint256 depthTok = BPC.registryDepth18(poolAddr, BPC.KIND_V4, s0, s1, $.v4PoolManager, pid);
-        if (!_canInsert($.pairKeys[s0][s1], depthTok, _pairBridged($, s0, s1))) return key;
-        $.v4Entries.push(V4Entry({
-            currency0: s0, currency1: s1, fee: fee,
-            tickSpacing: tickSpacing, hooks: address(0)
-        }));
-        $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
         // A4: _register persists the MEASURED depth bucket, so a claimed pool is
         // fitness-ranked on its real liquidity instead of defaulting to bucket 0
         // (psi ~1) — the pool that just won admission on its depth is not the
         // pair's weakest slot / next eviction target the instant it is registered.
-        _register(key, poolAddr, s0, s1, _born(BPC.KIND_V4, fee, false), depthTok);
+        uint256 depthTok = _depth18(poolAddr, BPC.KIND_V4, s0, s1, pid);
+        if (!_seatDerived(key, poolAddr, s0, s1, _born(BPC.KIND_V4, fee, false), depthTok,
+                          s0, s1, fee, tickSpacing, pid)) return key;
         // Learn the token-side pattern code only from a claim that registered a row, weighed by
         // its depth bucket (3537): a refused or idempotent claim, or a lighter one, teaches nothing.
         _writeV4Code(s0, s1, fee, tickSpacing, BPC.depthBucket(depthTok));
@@ -1151,16 +1158,17 @@ contract BlazePhoenixHub {
         uint24[] storage fees = fac.fees;
         int24[]  storage sps  = fac.spacings;
         (uint256 fc, uint256 sc) = _axes(fac);
-        bool solidly = (fac.mode == 2 || fac.mode == 6);
+        // Solidly rows probe two curves per cell, volatile then stable; every other row one.
+        // One call site with a runtime `stable`: a literal at each site would let the
+        // specializer emit one copy of `_probe` per value.
+        uint256 curves = (fac.mode == 2 || fac.mode == 6) ? 2 : 1;
         for (uint256 fi; fi < fc; ) {
             uint24 fee = fees.length == 0 ? 0 : fees[fi];
             for (uint256 si; si < sc; ) {
                 int24 sp = sps.length == 0 ? int24(0) : sps[si];
-                if (solidly) {
-                    k = _probe(fac, t0, t1, fee, false, sp, hits, k);
-                    k = _probe(fac, t0, t1, fee, true,  sp, hits, k);
-                } else {
-                    k = _probe(fac, t0, t1, fee, false, sp, hits, k);
+                for (uint256 st; st < curves; ) {
+                    k = _probe(fac, t0, t1, fee, st == 1, sp, hits, k);
+                    unchecked { ++st; }
                 }
                 unchecked { ++si; }
             }
@@ -1358,6 +1366,14 @@ contract BlazePhoenixHub {
         return k;
     }
 
+    /// @dev The one liveness question both V4 doors ask (claimV4 and discovery): the pool is
+    ///      initialised, holds liquidity, and its fee resolves to a quotable value in either
+    ///      direction (INV-20). False on any miss: each caller fails closed its own way.
+    function _v4Live(address mgr, bytes32 pid, uint24 fee) private view returns (bool) {
+        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) = BPC.v4SqrtAndLiq(mgr, pid);
+        return sp != 0 && liq != 0 && BPC.effV4Fee(fee, lpF, pF, true) < 1_000_000;
+    }
+
     /// @dev Fully verify ONE hookless candidate tier and emit it if live:
     ///      re-reads slot0 + liquidity through the audited single-read path
     ///      (belt-and-braces over the batch filter; the re-read is warm),
@@ -1372,9 +1388,7 @@ contract BlazePhoenixHub {
         uint24 fee = uint24(code >> 24);
         int24  ts  = int24(uint24(code));
         bytes32 pid = BPC.computeV4PoolId(t0, t1, fee, ts, address(0));
-        (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) = BPC.v4SqrtAndLiq(mgr, pid);
-        if (sp == 0 || liq == 0) return k;                      // not live: fail closed
-        if (BPC.effV4Fee(fee, lpF, pF, true) >= 1_000_000) return k;  // unresolvable dynamic fee (direction-free check)
+        if (!_v4Live(mgr, pid, fee)) return k;                  // not live, or unresolvable dynamic fee: fail closed
         address p = address(uint160(uint256(pid)));
         for (uint256 d; d < k; ) {
             if (hits[d].pool == p) return k;
@@ -1519,29 +1533,15 @@ contract BlazePhoenixHub {
             if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
         }
         // 3) canonical tiers
-        uint256[] memory tiers = _v4CanonicalTiers();
-        for (uint256 i; i < tiers.length; ) {
-            if (uint24(tiers[i] >> 24) == fee) {
-                ts = int24(uint24(tiers[i]));
-                if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
-            }
-            unchecked { ++i; }
-        }
-        // 4) V4_DERIVE rows' paired extras
+        (ts, ok) = _matchTiers(_v4CanonicalTiers(), pool, t0, t1, fee);
+        if (ok) return (ts, true);
+        // 4) V4_DERIVE rows' paired extras (the same pairs the derive-scan probes)
         uint256 fn = $.factories.length;
         for (uint256 fi; fi < fn; ) {
             Factory storage fac = $.factories[fi];
             if (fac.mode == MODE_V4_DERIVE) {
-                uint256 en = fac.fees.length < fac.spacings.length
-                    ? fac.fees.length
-                    : fac.spacings.length;
-                for (uint256 i; i < en; ) {
-                    if (fac.fees[i] == fee) {
-                        ts = fac.spacings[i];
-                        if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
-                    }
-                    unchecked { ++i; }
-                }
+                (ts, ok) = _matchTiers(_v4ExtraTiers(fac), pool, t0, t1, fee);
+                if (ok) return (ts, true);
             }
             unchecked { ++fi; }
         }
@@ -1558,6 +1558,22 @@ contract BlazePhoenixHub {
         if (ep != 0) {
             ts = $.v4Entries[ep - 1].tickSpacing;
             if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+        }
+        return (0, false);
+    }
+
+    /// @dev The first tier in `tiers` (packed codes, in order) whose fee is `fee` and whose
+    ///      hookless poolId truncates to `pool`. One loop for the canonical tiers and for each
+    ///      row's paired extras, so both steps of `_recoverV4Ts` ask the same question.
+    function _matchTiers(uint256[] memory tiers, address pool, address t0, address t1, uint24 fee)
+        private pure returns (int24 ts, bool ok)
+    {
+        for (uint256 i; i < tiers.length; ) {
+            if (uint24(tiers[i] >> 24) == fee) {
+                ts = int24(uint24(tiers[i]));
+                if (_v4IdMatches(pool, t0, t1, fee, ts)) return (ts, true);
+            }
+            unchecked { ++i; }
         }
         return (0, false);
     }
@@ -1841,11 +1857,10 @@ contract BlazePhoenixHub {
             // itself is unaffected either way (fail closed, fail open).
             (int24 v4Ts, bool okTs) = _recoverV4Ts(key, pool, t0, t1, fee);
             if (!okTs) return;
-            $.v4Entries.push(V4Entry({
+            _pushV4Entry(key, V4Entry({
                 currency0: t0, currency1: t1, fee: fee,
                 tickSpacing: v4Ts, hooks: address(0)
             }));
-            $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
             if (anchored) _writeV4Code(t0, t1, fee, v4Ts, BPC.depthBucket(depthWad));
         }
         if (kind == BPC.KIND_V4_NATIVE) {
@@ -1868,11 +1883,10 @@ contract BlazePhoenixHub {
             (int24 nTs, bool okN) = _recoverV4Ts(key, pool, address(0), t1, fee);
             if (!okN) { ncp = t0; (nTs, okN) = _recoverV4Ts(key, pool, address(0), t0, fee); }
             if (!okN) return;
-            $.v4Entries.push(V4Entry({
+            _pushV4Entry(key, V4Entry({
                 currency0: address(0), currency1: ncp, fee: fee,
                 tickSpacing: nTs, hooks: address(0)
             }));
-            $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
             // Learn the tier on the ERC20 side only (passed twice: the second
             // write self-skips as unchanged) — a v4CodeOf[address(0)] entry
             // would be dead storage no scan ever reads (_scanV4 rejects
@@ -2210,11 +2224,10 @@ contract BlazePhoenixHub {
                 bool ok;
                 (ts, ok) = _recoverV4Ts(key, pool, t0, t1, fee);
                 if (!ok) revert HubE(4);
-                $.v4Entries.push(V4Entry({
+                _pushV4Entry(key, V4Entry({
                     currency0: t0, currency1: t1, fee: fee,
                     tickSpacing: ts, hooks: hooks
                 }));
-                $.v4EntryOf[key] = $.v4Entries.length;
             } else {
                 ts = $.v4Entries[$.v4EntryOf[key] - 1].tickSpacing;
             }
@@ -2249,7 +2262,82 @@ contract BlazePhoenixHub {
         // producer the Router calls, and `_register` writes it, so no door can skip it. Only the
         // bucket is written: no swap happened here, so the swap count stays what it was.
         _register(key, pool, t0, t1, _born(kind, fee, true),
-                  BPC.registryDepth18(pool, kind, t0, t1, $.v4PoolManager, pid));
+                  _depth18(pool, kind, t0, t1, pid));
         if (hooks != address(0)) $.hooksOf[key] = hooks;
+    }
+
+    /// @notice Materialise this Hub's own discovery sweep of a pair into the registry, then
+    ///         stamp the pair. The stamp is what lets the Solver skip the sweep: freshness
+    ///         measures COVERAGE (the rows hold what `discoverFor` finds), not only the age
+    ///         and count of curated rows (regfresh-1113, F7: three fresh seeds hid a
+    ///         derivable venue the sweep ranks first, -378.68 bps).
+    ///         Permissionless: the caller only pays. The set comes from `discoverFor`; a hit
+    ///         already registered is never rewritten (its tier and clock stay); a new row is
+    ///         born tier 2, the trust `recordSwap` gives, so it never votes a band or the
+    ///         freshness quorum; a full pair admits a hit only through `_canInsert`, the gate
+    ///         `recordSwap` and `claimV4` use, so the rows kept are the best by psi.
+    function refreshPair(address tA, address tB) external whenLive {
+        (address t0, address t1) = BPC.sortTokens(tA, tB);
+        HubStore storage $ = _store();
+        PoolInfo[] memory hits = discoverFor(t0, t1);
+        for (uint256 i; i < hits.length; ) {
+            PoolInfo memory h = hits[i];
+            bytes32 key = keyOf(h.pool, t0, t1);
+            if (h.kind != BPC.KIND_EXTERNAL && $.poolOf[key] == address(0)) {
+                // `_admitV4` derived it hookless; the native form keeps currency0 = 0.
+                address c0 = h.kind == BPC.KIND_V4 ? t0 : address(0);
+                bytes32 pid;
+                if (BPC.kindHas(h.kind, BPC.A_CONC_SING)) {
+                    pid = BPC.computeV4PoolId(c0, h.token1, h.fee, h.tickSpacing, address(0));
+                }
+                _seatDerived(key, h.pool, t0, t1, _born(h.kind, h.fee, false),
+                             _depth18(h.pool, h.kind, t0, t1, pid), c0, h.token1, h.fee, h.tickSpacing, pid);
+            }
+            unchecked { ++i; }
+        }
+        $.sweptAt[keyOf(address(0), t0, t1)] = ($.sweepEpoch << 32) | block.timestamp;
+    }
+
+    /// @notice The sweep stamp of the pair keyed `pk` = `BPC.pairKey(address(0), tA, tB)`
+    ///         (`refreshPair`), or 0 when never swept or swept over an older sweep universe.
+    ///         Read by `Solver._registryFresh`, which computes the key in its own frame.
+    function sweptAt(bytes32 pk) external view returns (uint256 ts) {
+        HubStore storage $ = _store();
+        uint256 w = $.sweptAt[pk];
+        if (w >> 32 == $.sweepEpoch) ts = uint32(w);
+    }
+
+    /// Seat a derived row (`born`: tier 2, its kind and fee) at its measured depth `d`, if the
+    /// pair admits it (`_canInsert`): one body for the two permissionless derived doors,
+    /// `claimV4` and `refreshPair`. A V4 row (`pid != 0`) also gets its entry, currencies
+    /// `(c0, c1)` (`c0` = 0: native). Every argument is a runtime value, so via-IR keeps
+    /// one body (a literal argument would let the specializer copy it per door).
+    function _seatDerived(
+        bytes32 key, address pool, address t0, address t1, uint256 born, uint256 d,
+        address c0, address c1, uint24 fee, int24 ts, bytes32 pid
+    ) private returns (bool) {
+        HubStore storage $ = _store();
+        if (!_canInsert($.pairKeys[t0][t1], d, _pairBridged($, t0, t1))) return false;
+        if (pid != 0) _pushV4Entry(key, V4Entry({
+            currency0: c0, currency1: c1, fee: fee, tickSpacing: ts, hooks: address(0)
+        }));
+        _register(key, pool, t0, t1, born, d);
+        return true;
+    }
+
+    /// One writer of the V4 entry table and its O(1) index (V1/I11: key -> 1-based entry).
+    /// The entry comes built in memory, so via-IR keeps one body for the six doors.
+    function _pushV4Entry(bytes32 key, V4Entry memory e) private {
+        HubStore storage $ = _store();
+        $.v4Entries.push(e);
+        $.v4EntryOf[key] = $.v4Entries.length;
+    }
+
+    /// The registry's one depth producer (`BPC.registryDepth18`) through the wired V4
+    /// manager: one ABI encoding of the library call for the four doors that measure a row.
+    function _depth18(address pool, uint8 kind, address t0, address t1, bytes32 pid)
+        private view returns (uint256)
+    {
+        return BPC.registryDepth18(pool, kind, t0, t1, _store().v4PoolManager, pid);
     }
 }

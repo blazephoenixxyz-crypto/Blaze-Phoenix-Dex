@@ -380,6 +380,14 @@
       "note": "gatedauto-1022. _registryFresh and MIN_FRESH_VENUES count curated Hub rows only; the Hub never holds a kind-9 row (seedPool refuses it, recordSwap skips it). Gated rows enter every merge, sweep or not. Mutant [688]."
     },
     {
+      "id": "REGISTRY-FRESH-BELOW-SWEEP",
+      "class": "Curated rows kept fresh by seeding or by trade switch the Hub sweep off while a derivable venue the sweep would rank first was never registered, so the fresh path quotes below discovery (Optimism WETH/wstETH, -378.68 bps)",
+      "status": "blocked",
+      "guard": "sweptAt",
+      "test": "test_ThreeCuratedSeeds_WithoutSweepStamp_StillSweep",
+      "note": "regfresh-1113. Freshness measures coverage as well as age: _registryFresh skips the sweep only when the curated quorum is fresh AND the pair carries this Hub's sweep stamp (Hub.sweptAt), written only by refreshPair after every hit of its own discoverFor is a row (born tier 2, existing rows untouched, a full pair through _canInsert), within DISCOVERY_TTL_SECONDS (inclusive) and in the current sweep epoch (addFactory and setV4Manager bump it). seedPool does not stamp. Mutants regfresh M1-M9."
+    },
+    {
       "id": "GATED-AUTO-LIST-GAS",
       "class": "An unbounded per-pair wrapper list makes every solve of the pair pay for each wrapper's adapter reads until the search runs out of SOLVE_GAS",
       "status": "blocked",

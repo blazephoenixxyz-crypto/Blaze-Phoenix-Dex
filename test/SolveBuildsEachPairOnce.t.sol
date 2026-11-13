@@ -110,6 +110,7 @@ abstract contract SolveWorld is Test {
         if (address(x) < address(y)) p.setReserves(uint112(rx), uint112(ry));
         else p.setReserves(uint112(ry), uint112(rx));
         hub.seedPool(address(p), BPC.KIND_V2, fee, address(0), address(x), address(y));
+        hub.refreshPair(address(x), address(y)); // the pair's sweep stamp: the seeds cover it
         return address(p);
     }
 }

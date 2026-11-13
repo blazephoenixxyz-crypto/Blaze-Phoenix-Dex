@@ -29,6 +29,9 @@ pragma solidity 0.8.36;
 //     axis are planted at that axis's LAST cell, so a mode that did read the
 //     axis would derive a different address there and the scan, which asks
 //     the first cell only, would miss it.
+//  3. Both curves: each Solidly shape (modes 2 and 6) asks `stable = false`
+//     then `stable = true` at every cell it keeps, so a row that has both
+//     curves lists its volatile pool right before its stable one.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -249,9 +252,14 @@ contract DiscoveryProbesEachDerivationOnceTest is Test {
     }
 
     function test_ScanListsWhatEveryCellLists() public view {
+        _assertListsEveryCell(14);
+    }
+
+    /// The scan against the whole grid, pool by pool and field by field, `n` pools in all.
+    function _assertListsEveryCell(uint256 n) internal view {
         PoolInfo[] memory got = hub.discoverFor(t0, t1);
         PoolInfo[] memory ref = _everyCell();
-        assertEq(ref.length, 14, "fixture: fourteen pools");
+        assertEq(ref.length, n, "fixture: pool count");
         assertEq(got.length, ref.length, "the scan lists as many pools as the whole grid");
         for (uint256 i; i < ref.length; ++i) {
             string memory where = string.concat(" at listing ", vm.toString(i));
@@ -265,5 +273,52 @@ contract DiscoveryProbesEachDerivationOnceTest is Test {
             assertEq(got[i].active, ref[i].active, string.concat("active", where));
             assertEq(got[i].hooks, ref[i].hooks, string.concat("hooks", where));
         }
+    }
+
+    /// Both curves on both Solidly shapes: a mode 2 factory that answers `stable = false` and
+    /// `stable = true`, a mode 6 row with code at both derived addresses. Besides the
+    /// differential, an oracle that does not lean on `_everyCell`'s loop order: on each row the
+    /// volatile pool is listed right before the stable one.
+    function test_SolidlyCells_ListVolatileThenStable() public {
+        uint24[] memory fees = new uint24[](3);
+        (fees[0], fees[1], fees[2]) = (100, 500, 3000);
+        int24[] memory sps = new int24[](3);
+        (sps[0], sps[1], sps[2]) = (1, 10, 60);
+        GridAskFactory s = _asker(BPC.KIND_SOLIDLY, 2, fees, sps);
+        s.setStable(false, _pair());
+        s.setStable(true, _pair());
+        address f6 = makeAddr("solidly factory 6, both curves");
+        _deriver(f6, BPC.KIND_SOLIDLY, 6, fees, sps);
+        _plant(6, 3000, false, 60);
+        _plant(6, 3000, true, 60);
+        assertEq(rows.length, 12, "fixture: twelve rows");
+
+        _assertListsEveryCell(18);
+
+        PoolInfo[] memory got = hub.discoverFor(t0, t1);
+        bytes32 ih = rows[rows.length - 1].initHash;
+        _assertVolatileThenStable(got, s.byStable(false), s.byStable(true), "mode 2");
+        _assertVolatileThenStable(
+            got,
+            BPC.deriveAddress(f6, t0, t1, 3000, false, 60, 6, ih),
+            BPC.deriveAddress(f6, t0, t1, 3000, true, 60, 6, ih),
+            "mode 6"
+        );
+    }
+
+    function _assertVolatileThenStable(PoolInfo[] memory got, address vol, address st, string memory row)
+        internal pure
+    {
+        uint256 iv = _indexOf(got, vol);
+        uint256 is_ = _indexOf(got, st);
+        assertTrue(iv < got.length, string.concat(row, ": volatile pool listed"));
+        assertTrue(is_ < got.length, string.concat(row, ": stable pool listed"));
+        assertEq(iv + 1, is_, string.concat(row, ": volatile right before stable"));
+        assertFalse(got[iv].stable, string.concat(row, ": volatile listed as volatile"));
+        assertTrue(got[is_].stable, string.concat(row, ": stable listed as stable"));
+    }
+
+    function _indexOf(PoolInfo[] memory got, address p) internal pure returns (uint256 i) {
+        while (i < got.length && got[i].pool != p) ++i;
     }
 }

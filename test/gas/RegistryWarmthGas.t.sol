@@ -546,6 +546,8 @@ contract RegistryDiscoveryGasTest is GasBase {
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
         _recordAll();
+        // Stamped: what keeps the sweep on below is the rows' tier, not a missing stamp.
+        hub.refreshPair(address(tokenIn), address(tokenOut));
         for (uint256 i; i < N_POOLS; ++i) {
             assertEq(BPC.decodeTier(hub.getSlot(_key(i))), 2, "every pool holds a permissionless row");
         }
@@ -555,6 +557,7 @@ contract RegistryDiscoveryGasTest is GasBase {
         for (uint256 i; i < N_POOLS; ++i) {
             hub.seedPool(address(pools[i]), BPC.KIND_V2, 30, address(0), address(tokenIn), address(tokenOut));
         }
+        hub.refreshPair(address(tokenIn), address(tokenOut)); // the sweep finds only these rows
         uint256 seededAt = block.timestamp;
         uint256 s1 = vm.snapshotState();
         assertFalse(_bestDoor(g, "curated_tx"), "fresh curated rows switch the sweep off");
