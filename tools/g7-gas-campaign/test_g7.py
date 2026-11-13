@@ -430,7 +430,11 @@ class RpcUrl(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             env = {"DRPC_KEY_FILE": os.path.join(t, "absent"), "G7_RPC_URL_BASE": "http://127.0.0.1:8545"}
             with mock.patch.dict(os.environ, env):
-                self.assertEqual(g7.Rpc("base", attempts=1, backoff=0, timeout=1)._url, "http://127.0.0.1:8545")
+                try:  # the mutant reads the absent key file: report it as a failed assertion, not an error
+                    url = g7.Rpc("base", attempts=1, backoff=0, timeout=1)._url
+                except FileNotFoundError:
+                    url = "the key file was read"
+                self.assertEqual(url, "http://127.0.0.1:8545")
                 with self.assertRaises(FileNotFoundError):  # another chain still needs the key file
                     g7.Rpc("optimism", attempts=1, backoff=0, timeout=1)
 
