@@ -39,7 +39,7 @@ def join(names, explained, files):
     for path in files:
         rows = read(path)
         done = [r for r in rows if r[0] == "-" and r[1] == "SHARD"]
-        sh = SHARD.match(done[-1][4]) if done else None
+        sh = SHARD.match(done[-1][5]) if done else None
         if not sh:
             problems.append(f"{path}: no closing SHARD row, the shard was cut short")
         else:

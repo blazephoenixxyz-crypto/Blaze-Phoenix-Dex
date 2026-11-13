@@ -438,7 +438,7 @@ def row(i, verdict, name):
 
 
 def done(k, n=2, total=4, judged=2):
-    return ["-", "SHARD", "", "", f"{k}/{n} of {total}", "", f"judged={judged} of {judged}"]
+    return ["-", "SHARD", "", "", "", f"{k}/{n} of {total}", f"judged={judged} of {judged}"]
 
 
 # shard 1 holds mutants 1 and 3, shard 2 holds 2 and 4: (i - 1) % n == k - 1
