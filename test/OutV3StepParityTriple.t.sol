@@ -299,4 +299,20 @@ contract OutV3StepParityTripleTest is Test {
         assertLt(pz, BPC.outV3(1e18, p, l, 3000, true, 0), "zeroForOne: the limit binds");
         assertLt(po, BPC.outV3(1e18, p, l, 3000, false, 0), "oneForZero: the limit binds");
     }
+
+    /// The walker's step is the pool's step: price reached, input spent (fee included), output.
+    /// In the partial branch the pool's next price never lands on the target (zeroForOne: it is
+    /// the ceiling of a price strictly above it; oneForZero: P + floor(n 2^96 / L) < target), so
+    /// amountIn + feeAmount = rem there, and the step's `used` = rem is the pool's.
+    function test_walkerStepIsThePoolStep() public view {
+        for (uint256 i; i < DRAWS; ++i) {
+            (uint256 a, uint160 p, uint128 l, uint24 f, bool zfo, uint160 limit) = _draw(i);
+            uint160 target = limit != 0 ? limit : (zfo ? MIN_SQRT + 1 : MAX_SQRT - 1);
+            (uint160 n1, uint256 used, uint256 o1) = BPC._v4Step(p, target, l, a, f, zfo);
+            (uint160 n2, uint256 ain, uint256 o2, uint256 fee) = SwapMathRef.computeSwapStep(p, target, l, int256(a), f);
+            assertEq(n1, n2, "step: the price reached is not the pool's");
+            assertEq(o1, o2, "step: the output is not the pool's");
+            assertEq(used, ain + fee, "step: the input spent is not the pool's");
+        }
+    }
 }

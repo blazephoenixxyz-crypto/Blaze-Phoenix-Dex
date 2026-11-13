@@ -3,11 +3,11 @@
   "readDynamicFee_noFactory": "3722",
   "solidlyGetAmountOut_stable": "23552",
   "solidlyGetAmountOut_volatile": "13980",
-  "universalQuote_algebra": "17089",
-  "universalQuote_solidly_stable": "42088",
-  "universalQuote_solidly_volatile": "32516",
-  "universalQuote_v2": "23668",
-  "universalQuote_v3": "19128",
-  "universalQuote_v4": "33631",
-  "v4LegOut": "29952"
+  "universalQuote_algebra": "19068",
+  "universalQuote_solidly_stable": "42342",
+  "universalQuote_solidly_volatile": "32770",
+  "universalQuote_v2": "23923",
+  "universalQuote_v3": "21107",
+  "universalQuote_v4": "34125",
+  "v4LegOut": "29930"
 }

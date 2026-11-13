@@ -22,6 +22,7 @@ pragma solidity 0.8.36;
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {SwapMathRef} from "./vendor/SwapMathRef.sol";
 
 contract CoreMetamorphicRelationsTest is Test {
     uint160 constant SQRT_P_1 = 79228162514264337593543950336; // price 1.0
@@ -89,8 +90,10 @@ contract CoreMetamorphicRelationsTest is Test {
     //     directions no oracle written from the same formula can fake. ───
 
     /// One ulp of the square-root price is worth L / 2^96 wei of output (ASSURANCE §4k): the
-    /// Core rounds the new price once and the two arms of outV3 round it in opposite
-    /// directions, so every V3 relation below tolerates one ulp plus the floor divisions.
+    /// Core rounds the new price once, so every V3 relation below tolerates one ulp plus the
+    /// floor divisions. Since 2026-11-13 outV3 is the pool's step and rounds the price as the
+    /// pool does, against the trader in both directions; a relation that sets two quotes
+    /// against one (MR2) carries one ulp per quote.
     function _ulp(uint128 liq) private pure returns (uint256) {
         return uint256(liq) / 2 ** 96 + 1;
     }
@@ -108,8 +111,33 @@ contract CoreMetamorphicRelationsTest is Test {
         (a, b, liq) = _v3dom(a, b, liq);
         uint256 whole = BPC.outV3(a + b, SQRT_P_1, liq, 3000, true, 0);
         uint256 parts = BPC.outV3(a, SQRT_P_1, liq, 3000, true, 0) + BPC.outV3(b, SQRT_P_1, liq, 3000, true, 0);
-        // two floor divisions on the parts against one on the whole, plus one ulp
-        assertLe(whole, parts + 2 + _ulp(liq), "MR2 (V3): splitting across the same pool gained");
+        // Derivation (price 1, zeroForOne, the step never reaches its bound in this domain).
+        // n(x) = floor(x * 0.997); o(n) the exact output, increasing, concave, o(0) = 0, slope
+        // (P'/2^96)^2 <= 1. The pool's step rounds the new price UP (under one ulp, which costs
+        // under L / 2^96 wei) and the output down (under 1 wei): o(n) - L/2^96 - 1 < q(n) <= o(n).
+        // n(a + b) <= n(a) + n(b) + 1, so whole <= o(n(a) + n(b)) + 1 <= o(n(a)) + o(n(b)) + 1,
+        // while parts > o(n(a)) + o(n(b)) - 2 L/2^96 - 2. Hence whole - parts < 3 + 2 L/2^96
+        // <= 3 + 2 ulp, so whole <= parts + 2 + 2 ulp. Until 2026-11-13 zeroForOne floored the
+        // price (each part sat up to one ulp ABOVE the pool) and one ulp sufficed; the pool
+        // itself needs two (test_MR2_OutV3_ThePoolSplitsByUpToTwoUlps).
+        assertLe(whole, parts + 2 + 2 * _ulp(liq), "MR2 (V3): splitting across the same pool gained");
+    }
+
+    /// The pool's own step, not the Core, sets MR2's budget: on the fuzzer's counterexample
+    /// (2026-11-13) the whole order beats its split by 25 wei in the pool's arithmetic, over the
+    /// 2 + 1 ulp = 15 the old quote kept, and under 2 + 2 ulps = 28. outV3 is that step to the wei.
+    function test_MR2_OutV3_ThePoolSplitsByUpToTwoUlps() public pure {
+        uint128 liq = 1e30;
+        uint160 lo = 4295128740;
+        (,, uint256 w,) = SwapMathRef.computeSwapStep(SQRT_P_1, lo, liq, 1811, 3000);
+        (,, uint256 x,) = SwapMathRef.computeSwapStep(SQRT_P_1, lo, liq, 1735, 3000);
+        (,, uint256 y,) = SwapMathRef.computeSwapStep(SQRT_P_1, lo, liq, 76, 3000);
+        assertEq(BPC.outV3(1811, SQRT_P_1, liq, 3000, true, 0), w, "whole: the pool's step");
+        assertEq(BPC.outV3(1735, SQRT_P_1, liq, 3000, true, 0), x, "part a: the pool's step");
+        assertEq(BPC.outV3(76, SQRT_P_1, liq, 3000, true, 0), y, "part b: the pool's step");
+        assertEq(w - (x + y), 25, "the pool's whole beats its split by 25 wei here");
+        assertGt(w, x + y + 2 + _ulp(liq), "one ulp is not the pool's budget");
+        assertLe(w, x + y + 2 + 2 * _ulp(liq), "two ulps are");
     }
 
     /// MR4 (V3): at a fixed price the output is linear in liquidity, so scaling the

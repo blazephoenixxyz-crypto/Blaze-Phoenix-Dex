@@ -1413,64 +1413,31 @@ library BlazePhoenixCore {
         return (amtFee * rOut) / (rIn * BPS + amtFee);
     }
 
-    /// @notice V3 single-pool exact-in via sqrtPrice (Q96-arithmetic).
-    /// @notice Single-pool V3 exact-input quote in Q96 sqrt-price space.
-    /// @dev    Two branches mirror the canonical Uniswap V3 SwapMath:
-    ///
-    ///         zeroForOne = true   (token0 in → token1 out):
-    ///             sqrtNew = (L · sqrtP · Q96) / (L · Q96 + amtIn · sqrtP)
-    ///             amtOut1 = L · (sqrtP − sqrtNew) / Q96
-    ///
-    ///         zeroForOne = false  (token1 in → token0 out):
-    ///             sqrtNew = sqrtP + amtIn · Q96 / L
-    ///             amtOut0 = L · Q96 · (sqrtNew − sqrtP) / (sqrtP · sqrtNew)
-    ///
-    ///         Fee is applied to the input as the canonical (1 − fee/1e6) ratio.
-    /// @param sqrtLimit Price boundary where the swap is TRUNCATED, or 0 for no
-    ///        truncation. Between initialized ticks `L` does
-    ///        not change, so truncating at the current range's boundary gives
-    ///        EXACT for what fits inside it and STRICTLY BELOW for the rest —
-    ///        never above, whatever the liquidity distribution ahead. That is
-    ///        the only acceptable direction of error: over-estimating promises
-    ///        what is not delivered, and the iron floor does not protect because
-    ///        it is derived from this very quote.
+    /// @notice Single-pool V3 exact-input quote over ONE range: what the pool's own step pays.
+    /// @dev    The pool's SwapMath.computeSwapStep, exact input, from `sqrtP` toward the range's
+    ///         boundary - the walker's step (`_v4Step`), not a second algebra beside it. It rounds
+    ///         where the pool rounds: the input to the boundary and the new price against the
+    ///         trader, the output down. While `liq` does not change the figure IS the pool's, to
+    ///         the wei, in both directions (test/OutV3StepParityTriple.t.sol). Until 2026-11-13 a
+    ///         two-branch Q96 form of its own sat here: zeroForOne it floored the new price and
+    ///         sat up to L / 2^96 wei above the pool; oneForZero it floored before scaling and
+    ///         sat up to 2^96 / sqrtP + 1 wei under it.
+    /// @param sqrtLimit Price boundary where the swap is TRUNCATED, or 0 for none: then the
+    ///        boundary is the price bound a swap may reach (MIN_SQRT_PRICE_PLUS_ONE falling,
+    ///        MAX_SQRT_PRICE_MINUS_ONE rising). Between initialized ticks `L` does not change, so
+    ///        truncating at the current range's boundary gives EXACT for what fits inside it and
+    ///        STRICTLY BELOW for the rest - never above, whatever the liquidity distribution
+    ///        ahead. A boundary at or past the price leaves no room to trade: 0, as the pool,
+    ///        which refuses such a limit.
     function outV3(
         uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee, bool zeroForOne,
         uint160 sqrtLimit
     ) internal pure returns (uint256 outAmt) {
         if (ain == 0 || liq == 0 || sqrtP == 0) return 0;
         if (fee >= 1_000_000) return 0;   // guard: fee ≥ 100% → unquotable
-        uint256 amtAfterFee = (ain * (1_000_000 - fee)) / 1_000_000;
-        uint256 L = uint256(liq);
-        uint256 P = uint256(sqrtP);
-        if (zeroForOne) {
-            // Canonical Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount0:
-            //     sqrtNew = (L · sqrtP) / (L + amtIn · sqrtP / Q96)
-            //
-            // To avoid the L·P overflow path (L ≤ 2¹²⁸, P ≤ 2¹⁶⁰ → 2²⁸⁸),
-            // we factor through mulDiv so every intermediate fits in 256 bits.
-            uint256 product = mulDiv(amtAfterFee, P, Q96);
-            uint256 sqrtNew = mulDiv(L, P, L + product);
-            if (sqrtNew >= P || sqrtNew == 0) return 0;
-            // zeroForOne: the price FALLS. Truncating means not letting it drop
-            // below the boundary.
-            if (sqrtLimit != 0 && sqrtNew < sqrtLimit) sqrtNew = sqrtLimit;
-            outAmt = mulDiv(L, P - sqrtNew, Q96);
-        } else {
-            // Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount1:
-            //     sqrtNew = sqrtP + amtIn · Q96 / L
-            //     amtOut0 = L · Q96 · (sqrtNew − sqrtP) / (sqrtP · sqrtNew)
-            //
-            // sqrtP · sqrtNew may exceed 2²⁵⁶, so we split the division into
-            // two stages: first scale by sqrtNew, then by sqrtP.
-            uint256 dSqrt = mulDiv(amtAfterFee, Q96, L);
-            uint256 sqrtNew = P + dSqrt;
-            if (sqrtNew <= P) return 0;
-            // oneForZero: the price RISES. The boundary is a ceiling.
-            if (sqrtLimit != 0 && sqrtNew > sqrtLimit) sqrtNew = sqrtLimit;
-            uint256 a = mulDiv(L, sqrtNew - P, sqrtNew);
-            outAmt = mulDiv(a, Q96, P);
-        }
+        uint160 target = sqrtLimit != 0 ? sqrtLimit : (zeroForOne ? MIN_SQRT_PRICE_PLUS_ONE : MAX_SQRT_PRICE_MINUS_ONE);
+        if (zeroForOne ? target >= sqrtP : target <= sqrtP) return 0;
+        (, , outAmt) = _v4Step(sqrtP, target, liq, ain, fee, zeroForOne);
     }
 
 
@@ -2060,12 +2027,11 @@ library BlazePhoenixCore {
     ///         output over the out-side reserve, the input over the in-side one. `depthWad` is the
     ///         short side min(x, y) in 18 decimals, so min(a, o) / depthWad >= i. Then rounding,
     ///         with n = floor(a * (1e6 - f) / 1e6) the input the curve is handed. Output side: its
-    ///         floor, the -1 of a Solidly ask, the sqrt price `outV3` floors (zeroForOne), which
-    ///         lifts o by up to L / 2^96 wei, and a unit each of the 1e18 rate the Solver forms
+    ///         floor, the -1 of a Solidly ask, the sqrt price `outV3` rounds up (zeroForOne, as the
+    ///         pool's step does), which lowers o by up to L / 2^96 wei, and a unit each of the 1e18 rate the Solver forms
     ///         and the price `_select` forms: 3 * WAD / o + 2 * a / o. Input side (V3, V4): n sits
-    ///         under a(1 - f) by less than a wei, 1/n of the price; `outV3`'s floors on
-    ///         n * sqrtP / 2^96 (zeroForOne) and on L * dSqrt / sqrtNew (the other way) each cost
-    ///         under 1 / sqrt(n * o) <= (1/n + 1/o) / 2, and its floor on dSqrt = n * 2^96 / L
+    ///         under a(1 - f) by less than a wei, 1/n of the price; `outV3`'s floor on
+    ///         L * 2^96 * dSqrt / sqrtNew (oneForZero) costs under 1 / sqrt(n * o) <= (1/n + 1/o) / 2, and its floor on dSqrt = n * 2^96 / L
     ///         under L / (2^96 * n). While L <= 2^96 the two ways total, to first order, under
     ///         1.5/n + 1.5/(o - 1) and 2.5/n + 1.5/o: 3 * WAD / n and 3 * WAD / o cover them
     ///         (2026-10-28: without the first a 62-wei probe behind a 54.66% fee read 0.42% under
@@ -2407,7 +2373,7 @@ library BlazePhoenixCore {
     ///      spending at most `rem` (fee included). Returns the price reached, the input
     ///      spent (fee included) and the output.
     function _v4Step(uint160 sp, uint160 target, uint128 liq, uint256 rem, uint24 fee, bool zeroForOne)
-        private pure returns (uint160 next, uint256 used, uint256 out)
+        internal pure returns (uint160 next, uint256 used, uint256 out)
     {
         uint256 remLessFee = mulDiv(rem, 1_000_000 - fee, 1_000_000);
         uint256 toTarget = zeroForOne ? _amount0Delta(target, sp, liq, true) : _amount1Delta(sp, target, liq, true);
