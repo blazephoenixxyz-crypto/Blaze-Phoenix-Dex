@@ -1,0 +1,36 @@
+name: mutation rerun (old shards 0 and 14 of 17)
+
+# One-off: run 43509365862 cancelled shards 0 and 14 of 17 at the 75-minute ceiling, so their
+# mutants were never judged. This re-runs exactly those mutants (MUTANTS_PRESHARD=17:0,14),
+# split across twenty jobs.
+on:
+  push:
+    branches: ['rerun/**']
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-rerun:
+    name: mutation rerun (part ${{ matrix.shard }} of 20)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.5
+      - name: Mutation guard (old shards 0 and 14 of 17)
+        env:
+          MUTANTS_PRESHARD: "17:0,14"
+          MUTANTS_SHARD: ${{ matrix.shard }}
+          MUTANTS_SHARDS: 20
+          PYTHONUNBUFFERED: "1"
+        run: python3 .github/scripts/mutants.py

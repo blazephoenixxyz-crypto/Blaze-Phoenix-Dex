@@ -7598,7 +7598,13 @@ def shard():
 def main():
     falhas = []
     k, n = shard()
-    mine = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % n == k]
+    pre = os.environ.get("MUTANTS_PRESHARD")  # "17:0,14" = only old shards 0 and 14 of 17
+    if pre:
+        pn, pks = pre.split(":"); pks = {int(x) for x in pks.split(",")}
+        base = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % int(pn) in pks]
+        mine = [x for j, x in enumerate(base) if j % n == k]
+    else:
+        mine = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % n == k]
     paired = {m["teste"] for _, m in mine}
     green, red, base_out, base_rc = baseline()
     if base_rc != 0 and not red:
