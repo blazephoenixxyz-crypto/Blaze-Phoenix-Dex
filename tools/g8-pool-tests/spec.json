@@ -99,7 +99,7 @@
        39698836157087560499
       ]
      },
-     "id": "xb-v2-WETH-0x0c880f67",
+     "id": "xb-v2-WETH-0x0c880f6761f1af8d9aa9c466984b80dab9a8c9e8",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v2",
@@ -134,7 +134,7 @@
        2992832001
       ]
      },
-     "id": "xb-v2-USDC-0x0c880f67",
+     "id": "xb-v2-USDC-0x0c880f6761f1af8d9aa9c466984b80dab9a8c9e8",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v3",
@@ -235,7 +235,7 @@
        856152983390025940992
       ]
      },
-     "id": "xb-v4-WETH-0x2f2a2543",
+     "id": "xb-v4-WETH-0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v3",
@@ -270,7 +270,7 @@
        425913700884
       ]
      },
-     "id": "xb-v4-USDC-0x2f2a2543",
+     "id": "xb-v4-USDC-0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -332,7 +332,7 @@
        2259105334675
       ]
      },
-     "id": "xb-v4native-USDC-0x00000000",
+     "id": "xb-v4native-USDC-0x0000000000000000000000000000000000000000",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -363,7 +363,7 @@
        643647513556840960
       ]
      },
-     "id": "xb-v4native-wstETH-0x00000000",
+     "id": "xb-v4native-wstETH-0x0000000000000000000000000000000000000000",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -493,6 +493,76 @@
      "tA": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
      "tB": "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
      "venue_key": 196609
+    },
+    {
+     "_family": "v3",
+     "_liq": "32308.64",
+     "_pool": "0x27b571f3e7f7827b13d927d2d59244e3e58a7d1a",
+     "amounts": {
+      "A": [
+       36463,
+       3646312,
+       364631228
+      ],
+      "B": [
+       34493169033992114,
+       3449316903399211401,
+       344931690339921140121
+      ]
+     },
+     "id": "xb-lb-WAVAX-0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v3",
+      "pool": "0x27b571f3e7f7827b13d927d2d59244e3e58a7d1a",
+      "token0": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0x27b571f3e7f7827b13d927d2d59244e3e58a7d1a"
+      }
+     ],
+     "tA": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
+     "tB": "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7"
+    },
+    {
+     "_family": "v3",
+     "_liq": "254701.65",
+     "_pool": "0x804226ca4edb38e7ef56d16d16e92dc3223347a0",
+     "amounts": {
+      "A": [
+       1495711,
+       149571111,
+       14957111134
+      ],
+      "B": [
+       1052640,
+       105264088,
+       10526408889
+      ]
+     },
+     "id": "xb-lb-USDC-0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v3",
+      "pool": "0x804226ca4edb38e7ef56d16d16e92dc3223347a0",
+      "token0": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 100,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0x804226ca4edb38e7ef56d16d16e92dc3223347a0"
+      }
+     ],
+     "tA": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
+     "tB": "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e"
     },
     {
      "_family": "pharaoh",
@@ -737,7 +807,7 @@
        20974263805670011699
       ]
      },
-     "id": "xb-solidly-WETH-0x940181a9",
+     "id": "xb-solidly-WETH-0x940181a94a35a4569e4529a3cdfb74e38fd98631",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v3",
@@ -772,7 +842,7 @@
        205896934119
       ]
      },
-     "id": "xb-solidly-USDC-0x940181a9",
+     "id": "xb-solidly-USDC-0x940181a94a35a4569e4529a3cdfb74e38fd98631",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v2",
@@ -908,7 +978,7 @@
        491598031410934841344
       ]
      },
-     "id": "xb-v4-WETH-0xcbb7c000",
+     "id": "xb-v4-WETH-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v3",
@@ -943,7 +1013,7 @@
        580847524270
       ]
      },
-     "id": "xb-v4-USDC-0xcbb7c000",
+     "id": "xb-v4-USDC-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -1005,7 +1075,7 @@
        2350927364302
       ]
      },
-     "id": "xb-v4native-USDC-0x00000000",
+     "id": "xb-v4native-USDC-0x0000000000000000000000000000000000000000",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -1036,7 +1106,7 @@
        46117260166309932
       ]
      },
-     "id": "xb-v4native-wstETH-0x00000000",
+     "id": "xb-v4native-wstETH-0x0000000000000000000000000000000000000000",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -1118,6 +1188,76 @@
      "tA": "0x55d398326f99059ff775485246999027b3197955",
      "tB": "0xce24439f2d9c6a2289f741120fe202248b666666",
      "venue_key": 393217
+    },
+    {
+     "_family": "v3",
+     "_liq": "3579406.16",
+     "_pool": "0x882e23dba77bfe0e514cf5bcdad7a58aceb01522",
+     "amounts": {
+      "A": [
+       17881343057366904345,
+       1788134305736690434572,
+       178813430573669043457228
+      ],
+      "B": [
+       27455753440526136,
+       2745575344052613677,
+       274557534405261367705
+      ]
+     },
+     "id": "xb-inf_cl-WBNB-0xce24439f2d9c6a2289f741120fe202248b666666",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v3",
+      "pool": "0x882e23dba77bfe0e514cf5bcdad7a58aceb01522",
+      "token0": "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 500,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0x882e23dba77bfe0e514cf5bcdad7a58aceb01522"
+      }
+     ],
+     "tA": "0xce24439f2d9c6a2289f741120fe202248b666666",
+     "tB": "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+    },
+    {
+     "_family": "v3",
+     "_liq": "8296.1",
+     "_pool": "0xb652630648cd0f98b9977c3b15d0bd693cf5f84f",
+     "amounts": {
+      "A": [
+       15751271851592109,
+       1575127185159210926,
+       157512718515921092608
+      ],
+      "B": [
+       67223083698431396,
+       6722308369843139641,
+       672230836984313964134
+      ]
+     },
+     "id": "xb-inf_cl-USDC-0xce24439f2d9c6a2289f741120fe202248b666666",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v3",
+      "pool": "0xb652630648cd0f98b9977c3b15d0bd693cf5f84f",
+      "token0": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 100,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0xb652630648cd0f98b9977c3b15d0bd693cf5f84f"
+      }
+     ],
+     "tA": "0xce24439f2d9c6a2289f741120fe202248b666666",
+     "tB": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"
     },
     {
      "_family": "v2",
@@ -1250,6 +1390,68 @@
      ],
      "tA": "0x0000000000000000000000000000000000000000",
      "tB": "0x55d398326f99059ff775485246999027b3197955"
+    },
+    {
+     "_family": "v4native",
+     "_liq": "5528046.77",
+     "_pool": "0xa77d89e40ddd6a57b72ad4a8c55554b2fd6171026c903462a9f9c7be133811a6",
+     "amounts": {
+      "A": [
+       42349795108478957,
+       4234979510847895764,
+       423497951084789576499
+      ],
+      "B": [
+       27686751400712401657,
+       2768675140071240165752,
+       276867514007124016575283
+      ]
+     },
+     "id": "xb-v4native-USDT-0x0000000000000000000000000000000000000000",
+     "kind": "exotic_bridge",
+     "mid_pool": null,
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 500,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 8,
+       "pool": "0xc55554b2fd6171026c903462a9f9c7be133811a6"
+      }
+     ],
+     "tA": "0x0000000000000000000000000000000000000000",
+     "tB": "0x55d398326f99059ff775485246999027b3197955"
+    },
+    {
+     "_family": "v4native",
+     "_liq": "160254.14",
+     "_pool": "0x963f416c93cc57e6a5711a22ac976c4990165d3f99b8fa3ee26c4ef7b53ed752",
+     "amounts": {
+      "A": [
+       1227058130499384,
+       122705813049938477,
+       12270581304993847705
+      ],
+      "B": [
+       801305796149059424,
+       80130579614905942409,
+       8013057961490594240921
+      ]
+     },
+     "id": "xb-v4native-USDC-0x0000000000000000000000000000000000000000",
+     "kind": "exotic_bridge",
+     "mid_pool": null,
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 500,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 8,
+       "pool": "0xac976c4990165d3f99b8fa3ee26c4ef7b53ed752"
+      }
+     ],
+     "tA": "0x0000000000000000000000000000000000000000",
+     "tB": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"
     }
    ]
   },
@@ -1390,6 +1592,179 @@
      ],
      "tA": "0x0000000000000000000000000000000000000000",
      "tB": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+    },
+    {
+     "_family": "v4native",
+     "_liq": "30365315.21",
+     "_pool": "0xdce6394339af00981949f5f3baf27e3610c76326a700af57e4b3e3ae4977f78d",
+     "amounts": {
+      "A": [
+       75425620716697786,
+       7542562071669778677,
+       754256207166977867776
+      ],
+      "B": [
+       151939013,
+       15193901368,
+       1519390136800
+      ]
+     },
+     "id": "xb-v4native-USDC-0x0000000000000000000000000000000000000000",
+     "kind": "exotic_bridge",
+     "mid_pool": null,
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 8,
+       "pool": "0xbaf27e3610c76326a700af57e4b3e3ae4977f78d"
+      }
+     ],
+     "tA": "0x0000000000000000000000000000000000000000",
+     "tB": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    },
+    {
+     "_family": "v4native",
+     "_liq": "28308032.59",
+     "_pool": "0x50b00c1a5a8e582ec808e97e71598cd135206a9f9c548eab2ed73659e7ee5fa8",
+     "amounts": {
+      "A": [
+       70310404863377748,
+       7031040486337774878,
+       703104048633777487872
+      ],
+      "B": [
+       141777477,
+       14177747784,
+       1417774778471
+      ]
+     },
+     "id": "xb-v4native-USDT-0x0000000000000000000000000000000000000000",
+     "kind": "exotic_bridge",
+     "mid_pool": null,
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 8,
+       "pool": "0x71598cd135206a9f9c548eab2ed73659e7ee5fa8"
+      }
+     ],
+     "tA": "0x0000000000000000000000000000000000000000",
+     "tB": "0xdac17f958d2ee523a2206206994597c13d831ec7"
+    },
+    {
+     "_family": "v3",
+     "_liq": "32937632.74",
+     "_pool": "0xcbcdf9626bc03e24f779434178a73a0b4bad62ed",
+     "amounts": {
+      "A": [
+       45659,
+       4565911,
+       456591122
+      ],
+      "B": [
+       147607272736833824,
+       14760727273683382435,
+       1476072727368338243584
+      ]
+     },
+     "id": "xb-v4native-WETH-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v3",
+      "pool": "0xcbcdf9626bc03e24f779434178a73a0b4bad62ed",
+      "token0": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0xcbcdf9626bc03e24f779434178a73a0b4bad62ed"
+      }
+     ],
+     "tA": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+     "tB": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+    },
+    {
+     "_family": "v3",
+     "_liq": "20950575.57",
+     "_pool": "0x99ac8ca7087fa4a2a1fb6357269965a2014abc35",
+     "amounts": {
+      "A": [
+       180478,
+       18047840,
+       1804784006
+      ],
+      "B": [
+       81148174,
+       8114817492,
+       811481749256
+      ]
+     },
+     "id": "xb-v4native-USDC-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v3",
+      "pool": "0x99ac8ca7087fa4a2a1fb6357269965a2014abc35",
+      "token0": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0x99ac8ca7087fa4a2a1fb6357269965a2014abc35"
+      }
+     ],
+     "tA": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+     "tB": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    },
+    {
+     "_family": "v4native",
+     "_hops": [
+      "0xdce6394339af00981949f5f3baf27e3610c76326a700af57e4b3e3ae4977f78d",
+      "0x99ac8ca7087fa4a2a1fb6357269965a2014abc35"
+     ],
+     "_liq": "680776742.69",
+     "_pool": "0x599326d9cd5e1ea0893305c87d5ec3199e7f05e94d72159f35dea381479a615e",
+     "amounts": {
+      "A": [
+       1692261806934732801,
+       169226180693473280131,
+       16922618069347328013107
+      ],
+      "B": [
+       4786063,
+       478606315,
+       47860631581
+      ]
+     },
+     "id": "via-v4native-USDC",
+     "kind": "exotic_via_bridge",
+     "mid_pool": null,
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 8,
+       "pool": "0xbaf27e3610c76326a700af57e4b3e3ae4977f78d"
+      },
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0x99ac8ca7087fa4a2a1fb6357269965a2014abc35"
+      }
+     ],
+     "tA": "0x0000000000000000000000000000000000000000",
+     "tB": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
     }
    ]
   },
@@ -1485,7 +1860,7 @@
        1480461176995889152
       ]
      },
-     "id": "xb-solidly-WETH-0x9560e827",
+     "id": "xb-solidly-WETH-0x9560e827af36c94d2ac33a39bce1fe78631088db",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v2",
@@ -1520,7 +1895,7 @@
        4942620736
       ]
      },
-     "id": "xb-solidly-USDC-0x9560e827",
+     "id": "xb-solidly-USDC-0x9560e827af36c94d2ac33a39bce1fe78631088db",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v2",
@@ -1590,7 +1965,7 @@
        1343345724947151667
       ]
      },
-     "id": "xb-v2-WETH-0x42000000",
+     "id": "xb-v2-WETH-0x4200000000000000000000000000000000000042",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v2",
@@ -1625,7 +2000,7 @@
        19815326690
       ]
      },
-     "id": "xb-v2-USDC-0x42000000",
+     "id": "xb-v2-USDC-0x4200000000000000000000000000000000000042",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -1722,7 +2097,7 @@
        2000144464799
       ]
      },
-     "id": "xb-v4-USDC-0x33800de7",
+     "id": "xb-v4-USDC-0x33800de7e817a70a694f31476313a7c572bba100",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -1784,7 +2159,7 @@
        17631638681
       ]
      },
-     "id": "xb-v4native-USDC-0x00000000",
+     "id": "xb-v4native-USDC-0x0000000000000000000000000000000000000000",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -1815,7 +2190,7 @@
        1903314407225682329
       ]
      },
-     "id": "xb-v4native-wstETH-0x00000000",
+     "id": "xb-v4native-wstETH-0x0000000000000000000000000000000000000000",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -1846,7 +2221,7 @@
        2799686510049312358
       ]
      },
-     "id": "xb-v4native-WETH-0x68f180fc",
+     "id": "xb-v4native-WETH-0x68f180fcce6836688e9084f035309e29bf0a2095",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v3",
@@ -1881,7 +2256,7 @@
        3290893663
       ]
      },
-     "id": "xb-v4native-USDC-0x68f180fc",
+     "id": "xb-v4native-USDC-0x68f180fcce6836688e9084f035309e29bf0a2095",
      "kind": "exotic_bridge",
      "mid_pool": {
       "family": "v3",
@@ -2066,7 +2441,7 @@
        20079964232056
       ]
      },
-     "id": "xb-v4-USDG-0x5d3a1ff2",
+     "id": "xb-v4-USDG-0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -2128,7 +2503,7 @@
        398763561547
       ]
      },
-     "id": "xb-v4native-USDG-0x00000000",
+     "id": "xb-v4native-USDG-0x0000000000000000000000000000000000000000",
      "kind": "exotic_bridge",
      "mid_pool": null,
      "n": 1,
@@ -2146,7 +2521,7 @@
    ]
   }
  },
- "criteria": "the G7 inventory (<g7dir>/inventory.tsv, S2) and the G7 spec (window, ages, chains, the\ngate strata with their created wrappers). Nothing here touches an RPC.\n  * pool-<family>: the deepest pool (liq_usd) of each family per chain, seeded ALONE (seed_pools =\n    that pool); a gate family reuses the G7 gate stratum of the same pool (the wrapper exists only\n    there); a gate pool without one is not_covered. Rows without liq_usd are not ranked.\n  * xb-<family>-<bridge>-<token>: exotic -> bridge (and back, the runner draws both directions):\n    each non-bridge token of the pool vs each bridge of the chain, the deepest non-gate pool of\n    that pair seeded alone; no pool = not_covered.\n  * via-<family>-<bridge>: exotic -> exotic through one bridge at 2 hops: the two non-bridge tokens\n    of the pool with ONLY the two hop pools seeded (the bridge is forced by the seed, not by a\n    flag); a pair with no common bridge is not_covered (S9-P register). The direct case is the\n    pool stratum itself.\n  * amounts: pool balance of the input token // 10^5, 10^3, 10^1 (dust, mid, deep).\n  * chains without a bridge list (bridges.tsv) get no bridge cases: not_covered, absent is not zero.\nEvery row of results.tsv then carries chain, label (tree commit), b, tin, tout, amount_in, mode,\ncalldata segments and gas by segment; README.md gives the exact command to redo it.",
+ "criteria": "the G7 inventory (<g7dir>/inventory.tsv, S2) and the G7 spec (window, ages, chains, the\ngate strata with their created wrappers). Nothing here touches an RPC.\n  * pool-<family>: the deepest pool (liq_usd) of each family per chain, seeded ALONE (seed_pools =\n    that pool); a gate family reuses the G7 gate stratum of the same pool (the wrapper exists only\n    there); a gate pool without one is not_covered. Rows without liq_usd are not ranked.\n  * xb-<family>-<bridge>-<token address>: exotic -> bridge (and back, the runner draws both directions):\n    each non-bridge token of the pool vs each bridge of the chain, the deepest non-gate pool of\n    that pair seeded alone; no pool = not_covered.\n  * via-<family>-<bridge>: exotic -> exotic through one bridge at 2 hops: the two non-bridge tokens\n    of the pool with ONLY the two hop pools seeded (the bridge is forced by the seed, not by a\n    flag); a pair with no common bridge is not_covered (S9-P register). The direct case is the\n    pool stratum itself.\n  * amounts: pool balance of the input token // 10^5, 10^3, 10^1 (dust, mid, deep).\n  * chains without a bridge list (bridges.tsv) get no bridge cases: not_covered, absent is not zero.\nEvery row of results.tsv then carries chain, label (tree commit), b, tin, tout, amount_in, mode,\ncalldata segments and gas by segment; README.md gives the exact command to redo it.",
  "deadline_s": 600,
  "mf_ages": [
   "M24h",

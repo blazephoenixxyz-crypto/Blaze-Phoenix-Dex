@@ -146,6 +146,10 @@ contract G7Deploy is Script {
     function _ethereum(address me) internal {
         _core(me, 0x000000000004444c5dc75cB358380D2e3dE08A90, true);
         router.setWeth(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+        // bridges (site_tokens.json ethereum: WETH, USDC, USDT), so G8 has bridge cases on ethereum
+        hub.addBridge(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // WETH
+        hub.addBridge(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48); // USDC
+        hub.addBridge(0xdAC17F958D2ee523a2206206994597C13D831ec7); // USDT
     }
 
     function _v3Fees() internal pure returns (uint24[] memory f) { f = new uint24[](4); f[0]=100; f[1]=500; f[2]=3000; f[3]=10000; }

@@ -17,4 +17,6 @@ avalanche	BTC.b	0x152b9d0FdC40C096757F570A51E494bd4b943E50	G7DeployAvax.s.sol:29
 bsc	WBNB	0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c	G7DeployBsc.s.sol:21,43 hub.addBridge (bridge 0); word present in state/bsc.state.json
 bsc	USDT	0x55d398326f99059fF775485246999027B3197955	G7DeployBsc.s.sol:22,43 (bridge 1); word present in state/bsc.state.json
 bsc	USDC	0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d	G7DeployBsc.s.sol:23,43 (bridge 2); word present in state/bsc.state.json
-ethereum	-		absent: no hub.addBridge in G7Deploy.s.sol:_ethereum and 0 addBridge rows in g7-gas-campaign/prereg/wiring.tsv: the G7 ethereum hub carries no bridge, so no bridge cases (absent, not zero)
+ethereum	WETH	0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2	site_tokens.json (owner order 13/11: ETH = WETH, USDC, USDT); G7Deploy.s.sol:_ethereum hub.addBridge + prereg/wiring.tsv addBridge rows (added 13/11; state/ethereum.state.json predates them: rebuild with deploy_state.sh before measuring)
+ethereum	USDC	0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48	site_tokens.json; G7Deploy.s.sol:_ethereum (bridge 1, pending state rebuild)
+ethereum	USDT	0xdAC17F958D2ee523a2206206994597C13D831ec7	site_tokens.json; G7Deploy.s.sol:_ethereum (bridge 2, pending state rebuild)

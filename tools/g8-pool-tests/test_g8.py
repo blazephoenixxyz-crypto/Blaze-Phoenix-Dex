@@ -91,11 +91,13 @@ class Cases(unittest.TestCase):
         self.assertIn(("base", "lb"), self.scopes)
 
     def test_exotic_bridge_seeds_the_deepest_non_gate_pool_alone(self):
-        # mutant: deepest "max(ok, key=bs.liq)" -> "ok[0]" (inventory order: P4 before P3)
-        st = self.st["xb-v3-USDC-" + Y[:10]]
+        # mutants: deepest "max(ok, key=bs.liq)" -> "ok[0]" (inventory order: P4 before P3); the stratum id
+        # "xb-%s-%s-%s" % (fam, sym, x) -> x[:10] (X and Y share the first 8 hex digits: the ids collide, last wins)
+        st = self.st["xb-v3-USDC-" + Y]
         self.assertEqual([p["pool"] for p in st["seed_pools"]], [P3])
         self.assertEqual((st["kind"], st["tA"], st["tB"], st["_pool"]), ("exotic_bridge", Y, USDC, P3))
-        self.assertEqual(self.st["xb-v3-USDC-" + X[:10]]["_pool"], P1)
+        self.assertEqual(self.st["xb-v3-USDC-" + X]["_pool"], P1)
+        self.assertEqual(sorted(k for k in self.st if k.startswith("xb-v3-USDC-")), ["xb-v3-USDC-" + X, "xb-v3-USDC-" + Y])
         self.assertIn(("base", "xb-v3-WETH"), self.scopes)  # no X/WETH nor Y/WETH pool
 
     def test_via_bridge_seeds_both_hop_pools(self):
@@ -114,12 +116,13 @@ class Cases(unittest.TestCase):
 
     def test_chain_without_a_bridge_list_has_no_bridge_cases(self):
         # mutants: build "if br is None: notcov.append(...)" -> "if False:"; read_bridges keeps rows without an address
+        # (the mixed-case address below is lower-cased by read_bridges; a "0X" prefix would be no address at all)
         self.assertIn(("nobr", "bridge"), self.scopes)
         self.assertEqual(list(strata(self.spec, "nobr")), ["pool-v3"])
         d = tempfile.mkdtemp()
         p = os.path.join(d, "bridges.tsv")
         with open(p, "w") as f:
-            f.write("chain\tsymbol\taddress\tsource\nbase\tWETH\t%s\ts\nethereum\t-\t\tabsent\n" % WETH.upper())
+            f.write("chain\tsymbol\taddress\tsource\nbase\tWETH\t%s\ts\nethereum\t-\t\tabsent\n" % ("0x" + WETH[2:].upper()))
         br = bc.read_bridges(p)
         self.assertEqual(br, {"base": [("WETH", WETH)]})
         self.assertNotIn("ethereum", br)
@@ -200,11 +203,15 @@ class Report(unittest.TestCase):
         # mutant: case_lines 'ok = [r for r in rs if r["outcome"] == "ok"]' -> "ok = rs"
         rows = [okrow("D", idx=1, g_quote=100), okrow("D", idx=2, g_quote=300),
                 okrow("D", idx=3, outcome="revert", g_quote=999999)]
-        ln = [l for l in report(self.spec, rows) if l.startswith("base\tpool-v3\tpool\tv3\t%s\tD\t" % P2)]
+        out = report(self.spec, rows)
+        i = [k for k, l in enumerate(out) if l.startswith("# per case:")]
+        j = [k for k, l in enumerate(out) if l.startswith("# per case split:")]
+        self.assertEqual((len(i), len(j)), (1, 1))
+        ln = [l for l in out[i[0] + 1:j[0]] if l.startswith("base\tpool-v3\tpool\tv3\t%s\tD\t" % P2)]
         self.assertEqual(len(ln), 1)
         c = ln[0].split("\t")
         self.assertEqual(c[6:9], ["3", "2", "0"])  # n, ok, noquote
-        self.assertEqual(c[8 + g7.OUTCOMES.index("revert")], "1")
+        self.assertEqual(c[7 + g7.OUTCOMES.index("revert")], "1")  # outcomes start after n (index 6)
         self.assertEqual(c[7 + len(g7.OUTCOMES) + g8.CASE_SEGS.index("g_quote")], "100")  # p50 of 100, 300
 
     def test_per_case_split_has_n_p50_p95_per_ms_case(self):

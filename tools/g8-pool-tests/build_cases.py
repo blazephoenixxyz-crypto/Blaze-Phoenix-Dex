@@ -8,7 +8,7 @@ gate strata with their created wrappers). Nothing here touches an RPC.
   * pool-<family>: the deepest pool (liq_usd) of each family per chain, seeded ALONE (seed_pools =
     that pool); a gate family reuses the G7 gate stratum of the same pool (the wrapper exists only
     there); a gate pool without one is not_covered. Rows without liq_usd are not ranked.
-  * xb-<family>-<bridge>-<token>: exotic -> bridge (and back, the runner draws both directions):
+  * xb-<family>-<bridge>-<token address>: exotic -> bridge (and back, the runner draws both directions):
     each non-bridge token of the pool vs each bridge of the chain, the deepest non-gate pool of
     that pair seeded alone; no pool = not_covered.
   * via-<family>-<bridge>: exotic -> exotic through one bridge at 2 hops: the two non-bridge tokens
@@ -117,7 +117,7 @@ def build(g7dir, g7spec, outdir, bridges):
                         notcov.append((chain, "xb-%s-%s" % (fam, sym), "no non-gate pool for %s/%s (absent, not zero)" % (x, b)))
                         continue
                     hop[(x, b)] = p
-                    s2 = pool_stratum("xb-%s-%s-%s" % (fam, sym, x[:10]), "exotic_bridge", p, x, b, [p], p["family"])
+                    s2 = pool_stratum("xb-%s-%s-%s" % (fam, sym, x), "exotic_bridge", p, x, b, [p], p["family"])
                     if s2:
                         strata.append(s2)
             if len(ex) == 2:
