@@ -50,14 +50,14 @@ G7SPEC = {
 }
 
 
-def build(inv=INV, bridges=BR, g7spec=G7SPEC):
+def build(inv=INV, bridges=BR, g7spec=G7SPEC, pairs=None):
     d = tempfile.mkdtemp()
     with open(os.path.join(d, "inventory.tsv"), "w") as f:
         f.write("\t".join(INV_COLS) + "\n")
         for r in inv:
             f.write("\t".join(r[c] for c in INV_COLS) + "\n")
     out = os.path.join(d, "out")
-    spec, nc = bc.build(d, g7spec, out, bridges)
+    spec, nc = bc.build(d, g7spec, out, bridges, pairs)
     return spec, nc, out
 
 
@@ -144,6 +144,17 @@ class Cases(unittest.TestCase):
         c = self.spec["chains"]["base"]
         self.assertEqual({k: c[k] for k in bc.CHAIN_COPY}, {k: G7SPEC["chains"]["base"][k] for k in bc.CHAIN_COPY})
         self.assertEqual(json.load(open(os.path.join(self.out, "spec.json")))["window"], G7SPEC["window"])
+
+    def test_pair_token_gets_bridge_cases_on_its_chain_only(self):
+        # mutants: build "(pairs or {}).get(chain, [])" -> "{}.get(chain, [])"; "if br else []" -> "if True else []"
+        spec, nc, _ = build(pairs={"base": [("X", X)], "nobr": [("X", X)]})
+        st = strata(spec)
+        s = st["xb-pair-USDC-" + X]
+        self.assertEqual((s["kind"], s["tA"], s["tB"], s["_pool"]), ("exotic_bridge", X, USDC, P1))  # deepest non-gate X/USDC
+        self.assertEqual(len(s["seed_pools"]), 1)
+        self.assertNotIn("xb-pair-WETH-" + X, st)
+        self.assertIn(("base", "xb-pair-WETH"), [(c, k) for c, k, _ in nc])
+        self.assertEqual(list(strata(spec, "nobr")), ["pool-v3"])
 
     def test_bridges_tsv_matches_deploy_addbridge(self):
         # mutant: the robinhood VIRTUAL hub.addBridge line removed from G7Deploy.s.sol

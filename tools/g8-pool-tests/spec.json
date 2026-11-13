@@ -1120,6 +1120,76 @@
      ],
      "tA": "0x0000000000000000000000000000000000000000",
      "tB": "0xc1cba3fcea344f92d9239c08c0568f6f2f0ee452"
+    },
+    {
+     "_family": "solidly",
+     "_liq": "566134.18",
+     "_pool": "0x21594b992f68495dd28d605834b58889d0a727c7",
+     "amounts": {
+      "A": [
+       5417554001998490862,
+       541755400199849086287,
+       54175540019984908628787
+      ],
+      "B": [
+       1410753645359307,
+       141075364535930716,
+       14107536453593071616
+      ]
+     },
+     "id": "xb-pair-WETH-0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v2",
+      "pool": "0x21594b992f68495dd28d605834b58889d0a727c7",
+      "token0": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 0,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 5,
+       "pool": "0x21594b992f68495dd28d605834b58889d0a727c7"
+      }
+     ],
+     "tA": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
+     "tB": "0x4200000000000000000000000000000000000006"
+    },
+    {
+     "_family": "v3",
+     "_liq": "663109.81",
+     "_pool": "0x529d2863a1521d0b57db028168fde2e97120017c",
+     "amounts": {
+      "A": [
+       10774093653802445124,
+       1077409365380244512440,
+       107740936538024451244032
+      ],
+      "B": [
+       1001636,
+       100163635,
+       10016363531
+      ]
+     },
+     "id": "xb-pair-USDC-0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
+     "kind": "exotic_bridge",
+     "mid_pool": {
+      "family": "v3",
+      "pool": "0x529d2863a1521d0b57db028168fde2e97120017c",
+      "token0": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b"
+     },
+     "n": 1,
+     "seed_pools": [
+      {
+       "fee": 3000,
+       "hooks": "0x0000000000000000000000000000000000000000",
+       "kind": 1,
+       "pool": "0x529d2863a1521d0b57db028168fde2e97120017c"
+      }
+     ],
+     "tA": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
+     "tB": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
     }
    ]
   },
@@ -2521,7 +2591,7 @@
    ]
   }
  },
- "criteria": "the G7 inventory (<g7dir>/inventory.tsv, S2) and the G7 spec (window, ages, chains, the\ngate strata with their created wrappers). Nothing here touches an RPC.\n  * pool-<family>: the deepest pool (liq_usd) of each family per chain, seeded ALONE (seed_pools =\n    that pool); a gate family reuses the G7 gate stratum of the same pool (the wrapper exists only\n    there); a gate pool without one is not_covered. Rows without liq_usd are not ranked.\n  * xb-<family>-<bridge>-<token address>: exotic -> bridge (and back, the runner draws both directions):\n    each non-bridge token of the pool vs each bridge of the chain, the deepest non-gate pool of\n    that pair seeded alone; no pool = not_covered.\n  * via-<family>-<bridge>: exotic -> exotic through one bridge at 2 hops: the two non-bridge tokens\n    of the pool with ONLY the two hop pools seeded (the bridge is forced by the seed, not by a\n    flag); a pair with no common bridge is not_covered (S9-P register). The direct case is the\n    pool stratum itself.\n  * amounts: pool balance of the input token // 10^5, 10^3, 10^1 (dust, mid, deep).\n  * chains without a bridge list (bridges.tsv) get no bridge cases: not_covered, absent is not zero.\nEvery row of results.tsv then carries chain, label (tree commit), b, tin, tout, amount_in, mode,\ncalldata segments and gas by segment; README.md gives the exact command to redo it.",
+ "criteria": "the G7 inventory (<g7dir>/inventory.tsv, S2) and the G7 spec (window, ages, chains, the\ngate strata with their created wrappers). Nothing here touches an RPC.\n  * pool-<family>: the deepest pool (liq_usd) of each family per chain, seeded ALONE (seed_pools =\n    that pool); a gate family reuses the G7 gate stratum of the same pool (the wrapper exists only\n    there); a gate pool without one is not_covered. Rows without liq_usd are not ranked.\n  * xb-<family>-<bridge>-<token address>: exotic -> bridge (and back, the runner draws both directions):\n    each non-bridge token of the pool vs each bridge of the chain, the deepest non-gate pool of\n    that pair seeded alone; no pool = not_covered.\n  * via-<family>-<bridge>: exotic -> exotic through one bridge at 2 hops: the two non-bridge tokens\n    of the pool with ONLY the two hop pools seeded (the bridge is forced by the seed, not by a\n    flag); a pair with no common bridge is not_covered (S9-P register). The direct case is the\n    pool stratum itself.\n  * xb-pair-<bridge>-<token address>: the same exotic -> bridge case for each pair token of\n    pair_tokens.tsv (chain symbol address source; a pair token is not a bridge), the deepest\n    non-gate pool of the token and each bridge seeded alone; no pool = not_covered.\n  * amounts: pool balance of the input token // 10^5, 10^3, 10^1 (dust, mid, deep).\n  * chains without a bridge list (bridges.tsv) get no bridge cases: not_covered, absent is not zero.\nEvery row of results.tsv then carries chain, label (tree commit), b, tin, tout, amount_in, mode,\ncalldata segments and gas by segment; README.md gives the exact command to redo it.",
  "deadline_s": 600,
  "mf_ages": [
   "M24h",

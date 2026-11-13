@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """G8: isolated per-pool cases (quote + execution, moonslot and Discovery side by side) and the
 bridge cases, pre-registered before any measurement.
-  build_cases.py build <g7dir> <g7 spec.json> <outdir> [--bridges bridges.tsv]
+  build_cases.py build <g7dir> <g7 spec.json> <outdir> [--bridges bridges.tsv] [--pairs pair_tokens.tsv]
 
 Inputs: the G7 inventory (<g7dir>/inventory.tsv, S2) and the G7 spec (window, ages, chains, the
 gate strata with their created wrappers). Nothing here touches an RPC.
@@ -15,6 +15,9 @@ gate strata with their created wrappers). Nothing here touches an RPC.
     of the pool with ONLY the two hop pools seeded (the bridge is forced by the seed, not by a
     flag); a pair with no common bridge is not_covered (S9-P register). The direct case is the
     pool stratum itself.
+  * xb-pair-<bridge>-<token address>: the same exotic -> bridge case for each pair token of
+    pair_tokens.tsv (chain symbol address source; a pair token is not a bridge), the deepest
+    non-gate pool of the token and each bridge seeded alone; no pool = not_covered.
   * amounts: pool balance of the input token // 10^5, 10^3, 10^1 (dust, mid, deep).
   * chains without a bridge list (bridges.tsv) get no bridge cases: not_covered, absent is not zero.
 Every row of results.tsv then carries chain, label (tree commit), b, tin, tout, amount_in, mode,
@@ -76,7 +79,7 @@ def pool_stratum(sid, kind, r, ta, tb, pools, fam):
             "_family": fam, "_liq": r.get("liq_usd", "")}
 
 
-def build(g7dir, g7spec, outdir, bridges):
+def build(g7dir, g7spec, outdir, bridges, pairs=None):
     inv = bs.read_tsv(os.path.join(g7dir, "inventory.tsv"))
     spec = {k: g7spec[k] for k in COPY}
     spec["criteria"] = __doc__.split("Inputs:")[1].strip()
@@ -133,6 +136,15 @@ def build(g7dir, g7spec, outdir, bridges):
                         strata.append(s3)
                 if not common:
                     notcov.append((chain, "via-" + fam, "pair without a common bridge (S9-P): %s/%s" % (x, y)))
+        for _, x in (pairs or {}).get(chain, []) if br else []:
+            for sym, b in br:
+                p = deepest(by_pair.get(tuple(sorted((x, b))), []))
+                if not p:
+                    notcov.append((chain, "xb-pair-" + sym, "no non-gate pool for pair token %s/%s (absent, not zero)" % (x, b)))
+                    continue
+                s2 = pool_stratum("xb-pair-%s-%s" % (sym, x), "exotic_bridge", p, x, b, [p], p["family"])
+                if s2:
+                    strata.append(s2)
         spec["chains"][chain] = dict({k: c7[k] for k in CHAIN_COPY}, strata=strata)
         cases += [(chain, st) for st in strata]
     pre = os.path.join(outdir, "prereg")
@@ -157,7 +169,8 @@ if __name__ == "__main__":
     if a[:1] == ["build"] and len(a) >= 4:
         here = os.path.dirname(os.path.abspath(__file__))
         bp = a[a.index("--bridges") + 1] if "--bridges" in a else os.path.join(here, "bridges.tsv")
-        s, nc = build(a[1], json.load(open(a[2])), a[3], read_bridges(bp))
+        pp = a[a.index("--pairs") + 1] if "--pairs" in a else os.path.join(here, "pair_tokens.tsv")
+        s, nc = build(a[1], json.load(open(a[2])), a[3], read_bridges(bp), read_bridges(pp) if os.path.exists(pp) else {})
         print("chains=%d strata=%d not_covered=%d" % (len(s["chains"]), sum(len(c["strata"]) for c in s["chains"].values()), len(nc)))
     else:
         sys.exit(__doc__)
