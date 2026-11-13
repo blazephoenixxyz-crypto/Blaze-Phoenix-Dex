@@ -446,5 +446,21 @@ class SiteUniverse(unittest.TestCase):
         self.assertEqual(self.on_disk["swaps_per_chain"], 7)
 
 
+class Criteria(unittest.TestCase):
+    """The spec's "criteria" is the module docstring's Criteria section, verbatim: in the built spec
+    and in every committed spec.json (the committed text had gone stale once, fixed in 19f96d3)."""
+
+    # Mutants: a criterion edited in the docstring without a rebuild (amounts 1e-7 -> 1e-6), or
+    # build() cutting the section short (split at "* amounts").
+    def test_spec_criteria_are_the_docstring_section(self):
+        want = bs.__doc__.split("Criteria:")[1].split("A chain or")[0].strip()
+        self.assertTrue(want.startswith("* gates stratum:") and "* amounts:" in want, want[:80])
+        self.assertEqual(run_build()[0]["criteria"], want)
+        here = os.path.dirname(os.path.abspath(__file__))
+        for f in ("spec.json", os.path.join("site", "spec.json")):
+            with open(os.path.join(here, f)) as fh:
+                self.assertEqual(json.load(fh)["criteria"], want, f)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

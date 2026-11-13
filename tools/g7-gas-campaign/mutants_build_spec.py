@@ -49,12 +49,15 @@ M = [  # (test id, old, new)
  ("SiteUniverse.test_swaps_argument_sets_the_sample_size", "n, rem = divmod(swaps, len(strata))", "n, rem = divmod(SWAPS_PER_CHAIN, len(strata))"),
  ("Build.test_prereg_and_spec_are_ascii_english", '"bsc": ("branch bsc-infinity-1106@7d7e40d, not main', '"bsc": ("branch bsc-infinity-1106@7d7e40d, n\\u00e3o main'),
  ("Parity.test_gate_fams_equal_inventory", '"inf_cl", "inf_bin"}', '"inf_cl"}'),
+ ("Criteria.test_spec_criteria_are_the_docstring_section", "x 1e-7 .. 1e-1.", "x 1e-6 .. 1e-1."),
+ ("Criteria.test_spec_criteria_are_the_docstring_section", '.split("A chain or")[0].strip(), "chains"', '.split("* amounts")[0].strip(), "chains"'),
 ]
 fail = 0
 for tid, old, new, *tgt in M:
     d = tempfile.mkdtemp()
-    for f in ("build_spec.py", "test_build_spec.py", "inventory.py", "g7.py"):
-        shutil.copy(os.path.join(SRC, f), d)
+    os.mkdir(os.path.join(d, "site"))
+    for f in ("build_spec.py", "test_build_spec.py", "inventory.py", "g7.py", "spec.json", os.path.join("site", "spec.json")):
+        shutil.copy(os.path.join(SRC, f), os.path.join(d, f))
     p = os.path.join(d, tgt[0] if tgt else "build_spec.py"); s = open(p).read()
     if s.count(old) != 1:
         print("BADPAT", tid, s.count(old)); fail += 1; continue
