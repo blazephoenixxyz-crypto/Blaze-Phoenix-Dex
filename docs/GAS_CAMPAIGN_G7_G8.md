@@ -45,7 +45,7 @@ Source run: **43376232767** (selar-G7 `e21e8f5`, dispatch 13/11 06:05), artefact
 
 The per-mode lines below are marginals over the ok rows of each mode. They are different
 populations: **do not subtract them**. The paired table (same chain, stratum, idx, b; both ok)
-is not in run 43376232767; the new campaign report carries it.
+is in section 5, from the report regenerated over the same `results.tsv`.
 
 | chain | mode | n | g_quote p50 / p95 | g_record p50 / p95 | g_exec p50 | source |
 |---|---|---|---|---|---|---|
@@ -68,14 +68,38 @@ With n = 9 (robinhood) the p95 is the maximum of nine rows; read it as such.
 ## 5. The owner's questions
 
 **Quote of a ready route, in Discovery and with a registered moonslot, per chain.** The
-marginals are in section 4 (g_quote, D and M0). A per-draw difference (the cost the moonslot
-saves on the same draw) is **not measured** in run 43376232767: the paired table and the
-hit / partial / miss / expired split arrive with the new campaign (measure with
-universe=site). The table below is ready for it.
+marginals are in section 4. The per-draw difference is in the `# paired vs D` section of the
+report, regenerated locally (no RPC) from the `results.tsv` of run 43376232767:
+`python3 -I tools/g7-gas-campaign/g7.py report <spec.json of e21e8f5> results.tsv` with g7.py at
+`ac79b97`. Below, `P:<n>` is line `n` of that regenerated report. A pair is the D row and the
+M0 row of the same draw (chain, stratum, idx, b), both ok; delta = M0 - D per draw, all kinds of
+the chain together. The delta p95 needs n >= 20 (below it the nearest-rank p95 is the maximum).
 
-| chain | ms_case | n_pairs | D p50 | M p50 | delta p50 | delta p95 |
-|---|---|---|---|---|---|---|
-| each chain | hit / partial / miss / expired | not measured | not measured | not measured | not measured | not measured |
+| chain | ms_case | n_pairs | g_quote D p50 | g_quote M0 p50 | delta p50 | delta p95 | source |
+|---|---|---|---|---|---|---|---|
+| arbitrum | all | 80 | 4,461,284 | 4,096,488 | -365,373 | 560,727 | P:4641 |
+| arbitrum | partial | 58 | 4,461,861 | 4,096,488 | -680,284 | 1,590,523 | P:4642 |
+| arbitrum | miss | 22 | 3,890,021 | 3,890,021 | 0 | 0 | P:4643 |
+| base | all | 77 | 9,714,814 | 8,721,866 | -1,346,531 | 0 | P:4710 |
+| base | partial | 46 | 11,403,868 | 9,066,990 | -1,922,298 | -1,154,203 | P:4711 |
+| base | miss | 31 | 7,184,386 | 7,184,386 | 0 | 0 | P:4712 |
+| bsc | all | 76 | 5,639,124 | 5,639,124 | 0 | 25,888 | P:4758 |
+| bsc | partial | 39 | 5,918,401 | 5,748,787 | -227,314 | 1,104,550 | P:4759 |
+| bsc | miss | 37 | 5,639,124 | 5,639,124 | 0 | 25,888 | P:4760 |
+| ethereum | all | 81 | 1,291,808 | 828,915 | -411,932 | 17,673 | P:4806 |
+| ethereum | hit | 58 | 1,291,808 | 708,585 | -581,012 | 44,714 | P:4807 |
+| ethereum | miss | 23 | 1,190,385 | 1,190,385 | 0 | 17,673 | P:4808 |
+| optimism | all | 86 | 3,622,412 | 3,589,711 | -26,256 | 630,160 | P:4854 |
+| optimism | partial | 58 | 3,809,102 | 3,647,566 | -242,367 | 3,035,036 | P:4855 |
+| optimism | miss | 28 | 2,573,546 | 2,573,546 | 0 | 12,206 | P:4856 |
+| robinhood | all | 58 | 1,520,169 | 1,439,500 | 0 | 50,906 | P:4902 |
+| robinhood | hit | 9 | 1,350,754 | 963,581 | -321,735 | n < 20 | P:4903 |
+| robinhood | partial | 9 | 1,559,780 | 1,491,205 | -68,631 | n < 20 | P:4904 |
+| robinhood | miss | 40 | 1,543,144 | 1,556,240 | 13,105 | 50,906 | P:4905 |
+| avalanche | all | 0 | not measured | not measured | not measured | not measured | P:4689 |
+
+No `expired` M0 pair exists (M0 is age 0). M1h, M6h, M24h, M72h and the MF modes have their own
+lines in the same section (P:4640-4961); g_exec and g_record are paired the same way.
 
 **Why Base costs ~0.6-0.7 M in the cold registry.** `g_record` is the gas of the
 `Hub.recordSwap` frames under the Router. When the executed AMM venue is not yet in the
