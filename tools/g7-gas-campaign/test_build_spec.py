@@ -360,9 +360,14 @@ class AddFactory(unittest.TestCase):
           "00000a000000000000000000000000000000000000000000000000000000000000003c000000000000000000000000000000"
           "00000000000000000000000000000000c8")
 
-    # Mutants: kind/mode swapped; init hash from the wrong word; array offset in words read as bytes/64.
+    # Mutants: kind/mode swapped; init hash from the wrong word; array offset in words read as bytes/64
+    # (that one reads a length past the calldata: the crash is turned into a failure).
     def test_real_uniswap_v3_registration(self):
-        self.assertEqual(bs.decode_add_factory(self.TX),
+        try:
+            got = bs.decode_add_factory(self.TX)
+        except (ValueError, IndexError) as e:
+            self.fail("decoder read past the calldata: %r" % e)
+        self.assertEqual(got,
                          "0x1f98431c8ad98523631ae4a59f267346ea31f984 1 5 "
                          "0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54 [100,500,3000,10000] [1,10,60,200]")
 
@@ -372,9 +377,10 @@ class AddFactory(unittest.TestCase):
         data = "0x" + bs.ADD_FACTORY_SEL + w(0xAB) + w(0) + w(0) + "00" * 32 + w(6 * 32) + w(7 * 32) + w(0) + w(1) + w(-1)
         self.assertEqual(bs.decode_add_factory(data), "0x" + "0" * 38 + "ab 0 0 0x" + "0" * 64 + " [] [-1]")
 
+    # Mutant: the selector check removed. The body is the real addFactory one, so only that check can refuse it.
     def test_other_selector_refused(self):
         with self.assertRaises(AssertionError):
-            bs.decode_add_factory("0xdeadbeef" + "00" * 64)
+            bs.decode_add_factory("0xdeadbeef" + self.TX[10:])
 
 
 class Parity(unittest.TestCase):
@@ -428,11 +434,12 @@ class SiteUniverse(unittest.TestCase):
         self.assertIn("site pair without a pool in the inventory (absent, not zero): TKB/USDC", reasons)
         self.assertIn("TKB/WETH", self.files["not_covered.tsv"])
 
-    # Mutant: amounts not taken from the inventory balances of the pair's pool.
+    # Mutant: mid_pool([]) for the site pair (None: the key is dropped, so it is asserted before indexing).
     def test_amounts_come_from_the_inventory_balance(self):
         st = next(s for s in self.base if s["id"] == "site-TKA-WETH")
         self.assertEqual(st["amounts"]["A"], bs.amounts(5 * 10 ** 18))
         self.assertEqual(st["amounts"]["B"], bs.amounts(10 ** 18))
+        self.assertIn("mid_pool", st)
         self.assertEqual(st["mid_pool"]["pool"], V2P)
 
     # Mutant: `chain in universe["chains"]` test dropped (bsc goes through the site path).
