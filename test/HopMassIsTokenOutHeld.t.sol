@@ -262,7 +262,7 @@ contract HopMassIsTokenOutHeldTest is Test {
         c.hub = address(hub);
         c.decIn1 = tIn.decimals() + 1;
         c.decOther1 = tOut.decimals() + 1;
-        (vote, , , ) = BPC.universalProbe(c, 10 ** tIn.decimals(), 0, true, 0);
+        (vote, , , , ) = BPC.universalProbe(c, 10 ** tIn.decimals(), 0, true, 0);
         if (pid == bytes32(0)) {
             uint256 held = BPC.to18(tOut.balanceOf(pool), tOut.decimals());
             if (held < vote) vote = held;

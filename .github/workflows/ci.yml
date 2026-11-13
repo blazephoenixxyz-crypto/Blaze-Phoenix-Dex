@@ -247,6 +247,15 @@ jobs:
         # copy of the predicate outside the Core.
         run: python3 .github/scripts/theta_membership_guard.py
 
+      - name: errOrder reader guard (the bound at the hop's size is read once, through _keep)
+        # ROUTEQ: universalProbe's errOrder is not clamped at WAD; the system reads min(errOrder,
+        # WAD) only because its one reader is Math._inBand's `_keep(fb, fe[b] >> 88)` and `_keep`
+        # reads a bound past WAD as WAD. Fails on a second reader of `fe` bits 88 up, on a read
+        # of bits 24 up without ERR_MASK, or on a second writer of bits 88 up.
+        run: |
+          python3 .github/scripts/err_order_reader_guard.py --self-test
+          python3 .github/scripts/err_order_reader_guard.py
+
       - name: V4 identity guard (the native side of a V4 leg is derived once)
         # Fusion 1 (2026-10-20): five hand-written copies of "which side of a native V4 leg is the
         # chain's coin" (Quoter x2, Solver x3) became calls to Core.v4LegCurrencies. Fails on a

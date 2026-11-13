@@ -756,10 +756,10 @@ contract SolverRefCb1d7d9 {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
             // CARRY ROUTEQ (2026-11-13): the error bound is asked at the hop's size, as the Solver asks it.
-            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe, 0, true, amountIn);
+            (uint256 d, uint256 o, uint256 f, uint256 e, uint256 eo) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe, 0, true, amountIn);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
-                fe[i]     = f | e << 24;
+                fe[i]     = f | e << 24 | eo << 88;   // CARRY ROUTEQ: the bound at the hop's size
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
                 // V3/BP-18 (CRITICAL, devil's-advocate): a V4 pool's address is a
                 // codeless truncated poolId whose balanceOf ANYONE can fund with

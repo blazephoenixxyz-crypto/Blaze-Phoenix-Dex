@@ -26,6 +26,7 @@ import {BlazePhoenixCore as BPC, QuoteCtx, Route, Leg} from "../src/BlazePhoenix
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 
 /// A bare token with the decimals it is built with.
 contract RqoToken {
@@ -70,8 +71,9 @@ contract RouteQualityOrderSizeErrorTest is Test {
     /// The bound at the probe `a` and at `order`, checked against the impact term at the order.
     function _check(uint8 dIn, uint8 dOut, uint256 x, uint256 y, uint256 a, uint256 order) internal {
         QuoteCtx memory c = _book(dIn, dOut, x, y);
-        (, uint256 o, , uint256 eP) = BPC.universalProbe(c, a, 0, true, a);
-        (, uint256 o2, , uint256 eO) = BPC.universalProbe(c, a, 0, true, order);
+        (, uint256 o, , uint256 eP, ) = BPC.universalProbe(c, a, 0, true, a);
+        (, uint256 o2, , uint256 eQ, uint256 eO) = BPC.universalProbe(c, a, 0, true, order);
+        assertEq(eQ, eP, "the probe's bound is the probe's, whatever the order");
         assertGt(o, 0, "precondition: a live probe");
         assertEq(o2, o, "the order's size moves the bound, never the rank");
         uint256 x18 = BPC.to18(x, dIn);
@@ -83,7 +85,12 @@ contract RouteQualityOrderSizeErrorTest is Test {
         if (m >= dW) assertEq(eO, WAD, "a row the order outgrows states no width");
         else assertGe(eO, BPC.mulDivUp(m, WAD, dW), "the bound covers the impact at the order's size");
         assertGe(eO, eP, "the order's bound is never narrower than the probe's");
-        if (order == a) assertEq(eO, eP, "at order == probe the bound is the probe's");
+        // `err` is the probe's question, asked at the probe whatever the order (ROUTEQ, two numbers)
+        uint256 mP = BPC.to18(a, dIn) < BPC.to18(o, dOut) ? BPC.to18(a, dIn) : BPC.to18(o, dOut);
+        if (mP >= dW) assertEq(eP, WAD, "a row the probe outgrows states no width");
+        else assertGe(eP, BPC.mulDivUp(mP, WAD, dW), "err covers the impact at the probe");
+        // errOrder is not clamped (Core.universalProbe, UNITS): the band reads min(errOrder, WAD)
+        if (order == a) assertEq(eO < WAD ? eO : WAD, eP, "at order == probe the bound is the probe's");
     }
 
     function test_ErrIsAskedAtTheOrdersSize_matrix() public {
@@ -106,11 +113,11 @@ contract RouteQualityOrderSizeErrorTest is Test {
     function test_ErrOrderUnderTheProbeReadsAsTheProbe() public {
         QuoteCtx memory c = _book(18, 18, 1e25, 1e25);
         uint256 a = 1e20;
-        (, , , uint256 eP) = BPC.universalProbe(c, a, 0, true, a);
-        (, , , uint256 e0) = BPC.universalProbe(c, a, 0, true, 0);
-        (, , , uint256 e1) = BPC.universalProbe(c, a, 0, true, a - 1);
-        (, , , uint256 e2) = BPC.universalProbe(c, a, 0, true, a + 1);
-        (, , , uint256 e3) = BPC.universalProbe(c, a, 0, true, a / 2);
+        (, , , , uint256 eP) = BPC.universalProbe(c, a, 0, true, a);
+        (, , , , uint256 e0) = BPC.universalProbe(c, a, 0, true, 0);
+        (, , , , uint256 e1) = BPC.universalProbe(c, a, 0, true, a - 1);
+        (, , , , uint256 e2) = BPC.universalProbe(c, a, 0, true, a + 1);
+        (, , , , uint256 e3) = BPC.universalProbe(c, a, 0, true, a / 2);
         assertEq(e3, eP, "orderIn at half the probe reads as the probe");
         assertEq(e0, eP, "orderIn 0 reads as the probe");
         assertEq(e1, eP, "orderIn one wei under the probe reads as the probe");
@@ -136,18 +143,79 @@ contract RouteQualityOrderSizeErrorTest is Test {
         for (uint256 d; d < 2; ++d) {
             QuoteCtx memory c = _book(18, dOut[d], 1e24, 3e6 * 10 ** dOut[d]);
             uint256 a = 1e20;
-            (uint256 mP, uint256 rP, uint256 fP, ) = BPC.universalProbe(c, a, 0, true, a);
+            (uint256 mP, uint256 rP, uint256 fP, , ) = BPC.universalProbe(c, a, 0, true, a);
             assertGt(rP * 1e18 / 10 ** dOut[d], 2 * a, "precondition: the rank outgrows the probe");
             uint256 edge = type(uint256).max / rP;
             uint256[3] memory orders = [edge, edge + 1, type(uint256).max];
             for (uint256 k; k < 3; ++k) {
-                (uint256 m, uint256 r, uint256 f, uint256 e) = BPC.universalProbe(c, a, 0, true, orders[k]);
+                (uint256 m, uint256 r, uint256 f, , uint256 e) = BPC.universalProbe(c, a, 0, true, orders[k]);
                 assertEq(e, WAD, "an order past every short side states no width, saturated or not");
                 assertEq(m, mP, "the order's size never moves the mass");
                 assertEq(r, rP, "nor the rank");
                 assertEq(f, fP, "nor the fee");
             }
         }
+    }
+
+    /// THE STEP AT THE SHORT SIDE (ROUTEQ, two numbers). errOrder jumps from
+    /// rnd + 3 * WAD / n + ceil(m * WAD / depth) to WAD where m reaches depth; the band reads it as
+    /// kbLo = _keep(fb, errOrder), which takes min(errOrder, WAD). [derived] Just under the step,
+    /// ceil((depth - 1) * WAD / depth) = WAD - floor(WAD / depth), and the rounding terms cover
+    /// floor(WAD / depth): on the in side n <= amountIn <= orderIn < depth, so 3 * WAD / n > WAD / depth;
+    /// on the out side rank <= o at the order < depth, so rnd > 3 * WAD / rank > WAD / depth (a
+    /// coarser token only raises both). So errOrder >= WAD on both sides of the step and kbLo is 0
+    /// on both: the lower edge has no step at m = depth. Checked at m = depth - 1, depth, depth + 1
+    /// (one wei of the short side's token), in side and out side short, a deep pool (depth >> WAD)
+    /// and a dust pool (depth < WAD, where floor(WAD / depth) > 0), 18->18, 6->18 and 18->6. Not
+    /// vacuous: at m = depth / 2 the lower edge is live (kbLo > 0 at f = 0).
+    /// Mutant: `mOrder >= depthWad ? WAD :` -> `mOrder >= depthWad ? rnd :` (an order the short side
+    /// cannot hold reads only the rounding) -> red: kbLo > 0 at m = depth, 0 just under it.
+    function test_TheLowerEdgeHasNoStepAtTheShortSide_plusMinusOneWei() public {
+        // dIn, dOut, x (in reserve), y (out reserve), probe a, in side short?
+        _noStep(18, 18, 1e22, 3e22, 1e20, true);
+        _noStep(18, 18, 3e22, 1e22, 1e20, false);
+        _noStep(18, 18, 5e17, 15e17, 1e15, true);
+        _noStep(18, 18, 15e17, 5e17, 1e15, false);
+        _noStep(6, 18, 1e10, 3e22, 1e8, true);
+        _noStep(18, 6, 3e22, 1e10, 1e20, false);
+    }
+
+    function _noStep(uint8 dIn, uint8 dOut, uint256 x, uint256 y, uint256 a, bool inShort) internal {
+        QuoteCtx memory c = _book(dIn, dOut, x, y);
+        (, uint256 r, , , ) = BPC.universalProbe(c, a, 0, true, a);
+        assertGt(r, 0, "precondition: a live probe");
+        if (!inShort) assertLe(r, a, "precondition: the probe's rate is under 1 raw unit per raw unit");
+        uint256 t = inShort ? x : y;   // the short side, raw units of its own token
+        uint8 dS = inShort ? dIn : dOut;
+        uint256 dW = BPC.to18(t, dS);
+        assertLt(dW, BPC.to18(inShort ? y : x, inShort ? dOut : dIn), "precondition: that side is the short one");
+        uint256 kHalf = BlazePhoenixMath._keep(0, _errOrderAt(c, a, r, dIn, dOut, inShort, t / 2));
+        assertGt(kHalf, 0, "not vacuous: at half the short side the lower edge is live");
+        uint24[3] memory fs = [uint24(0), 3000, 999_999];
+        for (uint256 j; j < 3; ++j) {
+            uint256 under = BlazePhoenixMath._keep(fs[j], _errOrderAt(c, a, r, dIn, dOut, inShort, t - 1));
+            uint256 at = BlazePhoenixMath._keep(fs[j], _errOrderAt(c, a, r, dIn, dOut, inShort, t));
+            uint256 over = BlazePhoenixMath._keep(fs[j], _errOrderAt(c, a, r, dIn, dOut, inShort, t + 1));
+            assertEq(under, 0, "one wei under the short side the lower edge already keeps nothing");
+            assertEq(at, 0, "at the short side the lower edge keeps nothing");
+            assertEq(over, 0, "past the short side the lower edge keeps nothing");
+        }
+    }
+
+    /// errOrder at the order whose m is exactly `mRaw` of the short side's token (asserted).
+    function _errOrderAt(QuoteCtx memory c, uint256 a, uint256 r, uint8 dIn, uint8 dOut, bool inShort, uint256 mRaw)
+        internal view returns (uint256 eO)
+    {
+        // in side: m = a at the order; out side: o = ceil(r * order / a) == mRaw iff
+        // order in ((mRaw - 1) * a / r, mRaw * a / r], which holds floor(mRaw * a / r) when r <= a
+        uint256 order = inShort ? mRaw : mRaw * a / r;
+        if (order < a) order = a;
+        uint256 o2;
+        (, o2, , , eO) = BPC.universalProbe(c, a, 0, true, order);
+        assertEq(o2, r, "the order moves the bound, never the rank");
+        uint256 a18 = BPC.to18(order, dIn);
+        uint256 o18 = BPC.to18(BPC.mulDivUp(r, order, a), dOut);
+        assertEq(a18 < o18 ? a18 : o18, BPC.to18(mRaw, inShort ? dIn : dOut), "precondition: m lands on the wei asked");
     }
 
     function testFuzz_ErrGrowsWithTheOrderAndCoversIt(uint256 x, uint256 y, uint256 a, uint256 o1, uint256 o2) public {
@@ -157,12 +225,13 @@ contract RouteQualityOrderSizeErrorTest is Test {
         o1 = bound(o1, a, 1e30);
         o2 = bound(o2, o1, 1e30);
         QuoteCtx memory c = _book(18, 18, x, y);
-        (, uint256 o, , uint256 eP) = BPC.universalProbe(c, a, 0, true, a);
+        (, uint256 o, , uint256 eP, ) = BPC.universalProbe(c, a, 0, true, a);
         if (o == 0) return;   // a dead probe has no bound to grow
-        (, , , uint256 e1) = BPC.universalProbe(c, a, 0, true, o1);
-        (, , , uint256 e2) = BPC.universalProbe(c, a, 0, true, o2);
+        (, , , , uint256 e1) = BPC.universalProbe(c, a, 0, true, o1);
+        (, , , , uint256 e2) = BPC.universalProbe(c, a, 0, true, o2);
         assertLe(eP, e1, "probe <= order");
-        assertLe(e1, e2, "monotone in the order");
+        // monotone in what the band reads, min(errOrder, WAD): past WAD every value states no width
+        assertLe(e1 < WAD ? e1 : WAD, e2 < WAD ? e2 : WAD, "monotone in the order");
         _check(18, 18, x, y, a, o2);
     }
 

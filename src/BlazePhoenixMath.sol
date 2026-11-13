@@ -67,7 +67,7 @@ library BlazePhoenixMath {
     ///         probe's bound e of its spot, s(1-e) <= p <= s / (1-e). With
     ///         k_i = (1-f_i)(1-f*)(1-e_i)(1-e*), every honest venue at rest has
     ///         k_i <= p_i / p* <= 1 / k_i. The band keeps row i iff
-    ///             below:  p_i >= p* * k_i
+    ///             below:  p_i >= p* * k_i, with e* read at the hop's size (ROUTEQ, `_inBand`)
     ///             above:  p_i * k_i * (1-f*) <= p*        (the base's fee counted twice)
     ///         and both hold for every honest venue at rest: the band never drops one.
     ///
@@ -101,6 +101,7 @@ library BlazePhoenixMath {
     ///         `BPC.universalProbe` lists as limits.
     uint256 private constant PIPS     = 1_000_000;           // a fee's whole, in pips
     uint256 private constant FEE_MASK = 0xFFFFFF;            // `fe` bits 0-23: the probe's fee
+    uint256 private constant ERR_MASK = 0xFFFFFFFFFFFFFFFF;  // `fe` bits 24-87: its bound; 88 up: at the order
     uint256 private constant NONE     = type(uint256).max;   // `_wMedian`: no row votes
 
     /// @notice THE ARITHMETIC OF ONE HOP, in one call (D10). It takes the probe pass the
@@ -504,21 +505,27 @@ library BlazePhoenixMath {
     /// @dev THE BAND around row `b`, the base (see THE BAND): bit i set = row i is live and its
     ///      price sits where an honest market at rest can put it beside the base's. `fe[i]` packs
     ///      the fee row i's probe charged, in pips (bits 0-23; 1e6 or more: unknown), and the
-    ///      probe's error bound, in WAD (bits 24 up). b >= n (no base) keeps nothing. n < 256: the
+    ///      probe's error bound e, in WAD (bits 24-87), and the bound at the hop's size e_o (bits 88
+    ///      up, `BPC.universalProbe`'s `errOrder`). Both edges read e; the lower edge reads the
+    ///      base's e_o in place of its e: impact only lowers a rate, so the base's fill of the whole
+    ///      order may sit e_o under its price, and a row priced between the two is not dropped
+    ///      (ROUTEQ). e_o >= e, so the lower edge only widens. b >= n (no base) keeps nothing. n < 256: the
     ///      funnel is bounded by the pair's table, sixteen registry slots, the wired rows' cells
     ///      and four wrappers. One producer for the filter in `_select` and for the S2 check
     ///      above. Every product rounds down, which only widens the band: rounding never drops an
     ///      honest row.
     function _inBand(uint256[] memory prices, uint256[] memory fe, uint256 n, uint256 b)
-        private pure returns (uint256 set)
+        internal pure returns (uint256 set)
     {
         if (b >= n) return 0;
         uint256 pb = prices[b];
         uint256 fb = fe[b] & FEE_MASK;
         uint256 kb;   // (1-f*)(1-e*), WAD
+        uint256 kbLo; // (1-f*)(1-e*_o), WAD: the base at the hop's size, below
         uint256 up;   // 1-f*, pips: the base's fee once more, above
         if (fb < PIPS) {
-            kb = _keep(fb, fe[b] >> 24);
+            kb = _keep(fb, (fe[b] >> 24) & ERR_MASK);
+            kbLo = _keep(fb, fe[b] >> 88);
             up = PIPS - fb;
         }
         for (uint256 i; i < n; ) {
@@ -527,9 +534,9 @@ library BlazePhoenixMath {
                 if (fb >= PIPS) set |= 1 << i;   // the base states no width: every live row
                 else {
                     uint256 f = fe[i] & FEE_MASK;
-                    uint256 k = _keep(f < PIPS ? f : 0, fe[i] >> 24) * kb / BPC.WAD;   // k_i
-                    if (BPC.mulDiv(p, k * up / PIPS, BPC.WAD) <= pb
-                        && (f >= PIPS || p >= BPC.mulDiv(pb, k, BPC.WAD))) set |= 1 << i;
+                    uint256 ki = _keep(f < PIPS ? f : 0, (fe[i] >> 24) & ERR_MASK);   // (1-f_i)(1-e_i)
+                    if (BPC.mulDiv(p, ki * kb / BPC.WAD * up / PIPS, BPC.WAD) <= pb
+                        && (f >= PIPS || p >= BPC.mulDiv(pb, ki * kbLo / BPC.WAD, BPC.WAD))) set |= 1 << i;
                 }
             }
             unchecked { ++i; }
@@ -537,8 +544,9 @@ library BlazePhoenixMath {
     }
 
     /// @dev (1 - f)(1 - e) in WAD, rounded down: f a fee in pips under 1e6, e a bound in WAD
-    ///      (more than WAD reads as WAD: no bound, nothing kept by it).
-    function _keep(uint256 f, uint256 e) private pure returns (uint256) {
+    ///      (more than WAD reads as WAD: no bound, nothing kept by it). The one reader of the base's
+    ///      errOrder, which Core does not clamp: this min is that clamp (test/ErrOrderHasOneReader.t.sol).
+    function _keep(uint256 f, uint256 e) internal pure returns (uint256) {
         if (e > BPC.WAD) e = BPC.WAD;
         return (PIPS - f) * 1e12 * (BPC.WAD - e) / BPC.WAD;
     }

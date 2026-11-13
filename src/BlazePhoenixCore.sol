@@ -2078,33 +2078,52 @@ library BlazePhoenixCore {
     ///         THE CALLER'S PAIR. The band's question is (bar = 0, wantFee = true) and the
     ///         Solver, the one caller, passes exactly that. Asked with `wantFee = false`, a
     ///         Solidly row answers fee 0 and `err` is formed without its fee: NOT the bound above.
-    ///         THE SIZE THE BAND DECIDES (ROUTEQ, 2026-11-13). The band judges a row's price for
-    ///         the whole order, so the impact term is taken at `orderIn`, the hop's amountIn,
-    ///         not at the probe: m = min(a, o) with a = orderIn and o = rank * orderIn / amountIn,
-    ///         rounded up (the probe's rate carried to the order over-states what a curve pays,
-    ///         so m only grows). At the probe a thin row far from the market read e ~ 0.9% and,
-    ///         as the base, kept itself alone for a 10k order it filled at 47% impact; at the
-    ///         order its own price cannot predict the fill and its width says so. An `orderIn`
-    ///         under the probe reads as the probe: the bound never shrinks below the quote's own.
-    ///         The rounding terms stay at the probe, the size that was quoted.
+    ///         TWO QUESTIONS, TWO NUMBERS (ROUTEQ, 2026-11-13). `err` answers how far the probe's
+    ///         fee-free price can sit from the spot at rest: the impact term at the probe, both
+    ///         edges of the band read it. `errOrder` answers how far the fill of the WHOLE order
+    ///         can fall under that price: the impact term taken at `orderIn`, the hop's amountIn,
+    ///         m = min(a, o) with a = orderIn and o = rank * orderIn / amountIn, rounded up (the
+    ///         probe's rate carried to the order over-states what a curve pays, so m only grows).
+    ///         Impact only lowers a rate, so `errOrder` opens only the band's lower edge, and only
+    ///         as the base's factor (`Math._inBand`): a thin base far above the market (USDC->DAI
+    ///         10k, a 47%-impact leg) then keeps the market rows under it, while a row above the
+    ///         base is still judged at the probe. An `orderIn` under the probe reads as the probe,
+    ///         so errOrder >= err; the rounding terms stay at the
+    ///         probe, the size that was quoted. KIND_EXTERNAL: both are the rounding terms.
+    ///         UNITS. err: WAD, clamped to [0, WAD] (the Solver packs it in 64 bits). errOrder:
+    ///         WAD, NOT clamped: it is >= err, and any value at or past WAD states no width. Its one
+    ///         reader, `Math._inBand` through `_keep`, reads min(errOrder, WAD) (one reader of the
+    ///         Solver's bits 88 up, pinned by .github/scripts/err_order_reader_guard.py); a value past
+    ///         the Solver's 168 bits needs rank * 1e18 < amountIn, a rate of 0 the lower edge
+    ///         (p >= 0 * k) never reads. At orderIn <= amountIn, min(errOrder, WAD) == err.
     function universalProbe(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee, uint256 orderIn)
-        public view returns (uint256 mass, uint256 rank, uint256 fee, uint256 err)
+        public view returns (uint256 mass, uint256 rank, uint256 fee, uint256 err, uint256 errOrder)
     {
         uint256 depthWad;
         (, depthWad, rank, , fee, mass) = _quoteArms(c, amountIn, bar, wantFee);
-        if (rank == 0) return (mass, 0, fee, WAD);
-        err = (3 * WAD + 2 * amountIn) / rank + 1;
+        if (rank == 0) return (mass, 0, fee, WAD, WAD);
+        // The rounding terms, at the probe (the size that was quoted): both bounds carry them.
+        uint256 rnd = (3 * WAD + 2 * amountIn) / rank + 1;
+        err = rnd;
+        errOrder = rnd;
         if (c.kind != KIND_EXTERNAL) {
             uint256 n = fee < 1_000_000 ? mulDiv(amountIn, 1_000_000 - fee, 1_000_000) : amountIn;
+            {   // err: the impact term at the probe, m = min(a, o) with a = amountIn and o = rank
+                uint256 aProbe = to18(amountIn, _decIn(c));
+                uint256 oProbe = to18(rank, _decOther(c));
+                uint256 mProbe = aProbe < oProbe ? aProbe : oProbe;
+                err = n == 0 || mProbe >= depthWad ? WAD : rnd + 3 * WAD / n + mulDivUp(mProbe, WAD, depthWad);
+            }
+            // errOrder: the impact term at the order, a = orderIn and o = rank * orderIn / amountIn
             if (orderIn < amountIn) orderIn = amountIn;
-            uint256 a18 = to18(orderIn, _decIn(c));
+            uint256 aOrder = to18(orderIn, _decIn(c));
             // A rank too large to carry saturates (a declared output is the venue's word): m = a.
-            uint256 o18 = rank > type(uint256).max / orderIn
+            uint256 oOrder = rank > type(uint256).max / orderIn
                 ? type(uint256).max : to18(mulDivUp(rank, orderIn, amountIn), _decOther(c));
-            uint256 m = a18 < o18 ? a18 : o18;
-            err = n == 0 || m >= depthWad ? WAD : err + 3 * WAD / n + mulDivUp(m, WAD, depthWad);
+            uint256 mOrder = aOrder < oOrder ? aOrder : oOrder;
+            errOrder = n == 0 || mOrder >= depthWad ? WAD : rnd + 3 * WAD / n + mulDivUp(mOrder, WAD, depthWad);
         }
-        if (err > WAD) err = WAD;
+        if (err > WAD) err = WAD;   // packed in 64 bits by the Solver: past WAD it would spill into errOrder's
     }
 
     /// @dev The V4 arm of `universalQuote`, the one producer for both entry points.

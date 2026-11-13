@@ -32,7 +32,7 @@ contract WrapperMassUnitTest is GateBaseCoherenceTest {
         c.hub = address(hub);
         c.decIn1 = 19;
         c.decOther1 = 19;
-        (m, , , ) = BPC.universalProbe(c, 1e18, 0, true, 1e18);
+        (m, , , , ) = BPC.universalProbe(c, 1e18, 0, true, 1e18);
     }
 
     /// One set of holdings (1M of t0, 10k of t1) behind two doors: a Gate wrapper over a venue

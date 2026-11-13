@@ -61,7 +61,7 @@ contract MedianProbeErrorBoundTest is Test {
         p.setReserves(uint112(r0), uint112(r1));
         MockERC20(p.token0()).mint(address(p), r0);
         MockERC20(p.token1()).mint(address(p), r1);
-        (, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(BPC.KIND_V2, address(p), tIn, tOut, uint24(bps)), a, 0, true, a);
+        (, uint256 o, uint256 f, uint256 e, ) = BPC.universalProbe(_ctx(BPC.KIND_V2, address(p), tIn, tOut, uint24(bps)), a, 0, true, a);
         if (o == 0) return;   // a dead probe has no price to bound
         assertEq(f, bps * 100, "the fee the pair charged, in pips");
         uint256 q = _price(o, a, f);
@@ -84,7 +84,7 @@ contract MedianProbeErrorBoundTest is Test {
         MockV3Pool p = new MockV3Pool(address(tA), address(tB), uint24(fee));
         p.setState(uint160(sp), uint128(l));
         (address tIn, address tOut) = zfo ? (p.token0(), p.token1()) : (p.token1(), p.token0());
-        (, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(BPC.KIND_V3, address(p), tIn, tOut, uint24(fee)), a, 0, true, a);
+        (, uint256 o, uint256 f, uint256 e, ) = BPC.universalProbe(_ctx(BPC.KIND_V3, address(p), tIn, tOut, uint24(fee)), a, 0, true, a);
         if (o == 0) return;
         assertEq(f, fee, "the fee the pool charged");
         uint256 q = _price(o, a, f);
@@ -102,7 +102,7 @@ contract MedianProbeErrorBoundTest is Test {
     function test_AProbeWhoseFeeFloorsAWeiOfInputIsInsideItsBound() public {
         MockV3Pool p = new MockV3Pool(address(tA), address(tB), 500_000);
         p.setState(uint160(100 * BPC.Q96), 1e18);
-        (, uint256 o, uint256 f, uint256 e) =
+        (, uint256 o, uint256 f, uint256 e, ) =
             BPC.universalProbe(_ctx(BPC.KIND_V3, address(p), p.token0(), p.token1(), 500_000), 43, 0, true, 43);
         uint256 q = _price(o, 43, f);
         emit log_named_decimal_uint("price read", q, 18);
@@ -119,7 +119,7 @@ contract MedianProbeErrorBoundTest is Test {
         p.setReserves(1e24, 1e24);
         tA.mint(address(p), 1e24);
         tB.mint(address(p), 1e24);
-        (, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(BPC.KIND_V2, address(p), address(tA), address(tB), 30), 1e23, 0, true, 1e23);
+        (, uint256 o, uint256 f, uint256 e, ) = BPC.universalProbe(_ctx(BPC.KIND_V2, address(p), address(tA), address(tB), 30), 1e23, 0, true, 1e23);
         uint256 q = _price(o, 1e23, f);
         emit log_named_decimal_uint("price read", q, 18);
         emit log_named_decimal_uint("error bound", e, 18);
