@@ -57,8 +57,20 @@ def definition(i):
 
 LINE0 = re.compile(r"uint256 r = a & 0x1 != 0 \? (0x[0-9a-f]+) : 0x100000000000000000000000000000000;")
 LINEI = re.compile(r"if \(a & (0x[0-9a-f]+) != 0\) r = \(r \* (0x[0-9a-f]+)\) >> 128;")
-TAIL = ["if (tick > 0) r = type(uint256).max / r;",
-        "return uint160((r >> 32) + (r % (1 << 32) == 0 ? 0 : 1));"]
+HEAD = ["function sqrtPriceAtTick(int24 tick) internal pure returns (uint160 p) {",
+        "unchecked {",
+        "uint256 a;",
+        'assembly ("memory-safe") {',
+        "tick := signextend(2, tick)",
+        "let m := sar(255, tick)",
+        "a := xor(m, add(m, tick)) // |tick|",
+        "}",
+        'require(a <= uint256(int256(V4_MAX_TICK)), "BPC:tick");']
+TAIL = ['assembly ("memory-safe") {',
+        "if sgt(tick, 0) { r := div(not(0), r) } // t > 0: the inverse, 1 / sqrt(1.0001)^-t",
+        "p := shr(32, add(r, 0xffffffff)) // Q128 -> Q96, rounded up: ceil(r / 2^32)",
+        "}",
+        "}"]
 
 
 def core_table():
@@ -68,16 +80,13 @@ def core_table():
     i = src.index("function sqrtPriceAtTick(int24 tick)")
     body = [l.strip() for l in src[i:src.index("\n    }\n", i)].splitlines()]
     body = [l for l in body if l and not l.startswith("//")]
-    want_head = ["function sqrtPriceAtTick(int24 tick) internal pure returns (uint160) {",
-                 "uint256 a = tick < 0 ? uint256(-int256(tick)) : uint256(int256(tick));",
-                 'require(a <= uint256(int256(V4_MAX_TICK)), "BPC:tick");']
-    if body[:3] != want_head or body[-2:] != TAIL or len(body) != 3 + 20 + 2:
+    if body[:len(HEAD)] != HEAD or body[-len(TAIL):] != TAIL or len(body) != len(HEAD) + 20 + len(TAIL):
         sys.exit("sqrtPriceAtTick changed shape: the certificate no longer describes it")
-    m = LINE0.fullmatch(body[3])
+    m = LINE0.fullmatch(body[len(HEAD)])
     if not m:
         sys.exit("sqrtPriceAtTick: the bit-0 line changed shape")
     table = [int(m.group(1), 16)]
-    for j, l in enumerate(body[4:23], 1):
+    for j, l in enumerate(body[len(HEAD) + 1:len(HEAD) + 20], 1):
         m = LINEI.fullmatch(l)
         if not m or int(m.group(1), 16) != 1 << j:
             sys.exit(f"sqrtPriceAtTick: the line for bit {j} changed shape: {l}")
@@ -109,7 +118,7 @@ def sqrt_price(t, C):
             r = (r * C[i]) >> 128
     if t > 0:
         r = M256 // r
-    return (r >> 32) + (1 if r & 0xFFFFFFFF else 0)
+    return (r + 0xFFFFFFFF) >> 32
 
 
 class Ticks(list):
@@ -223,7 +232,26 @@ def render():
     return "\n".join(L) + "\n", out, chains
 
 
+def bounds(C):
+    """The ranges the Core's unchecked block rests on, over every |tick| in [0, 887272]: the Q128 ratio
+    is in [2^64, 2^128] before the inversion (so no product wraps and the inversion divides), and the
+    inverse is below 2^192 (so r + 2^32 - 1 does not wrap)."""
+    lo, hi, inv = 1 << 256, 0, 0
+    for a in range(0, 887273):
+        r = C[0] if a & 1 else 1 << 128
+        for i in range(1, 20):
+            if a >> i & 1:
+                r = (r * C[i]) >> 128
+        lo, hi = min(lo, r), max(hi, r)
+        if a:
+            inv = max(inv, M256 // r)
+    if not (lo >= 1 << 64 and hi <= 1 << 128 and inv < 1 << 192):
+        sys.exit(f"sqrtPriceAtTick: a range of the unchecked block fails: {lo:#x} {hi:#x} {inv:#x}")
+    print(f"unchecked ranges hold: ratio in [2^{lo.bit_length() - 1}, 2^128], inverse below 2^{inv.bit_length()}")
+
+
 def check():
+    bounds(core_table())
     text, out, chains = render()
     if not os.path.exists(TSV) or open(TSV).read() != text:
         sys.exit("docs/assurance/tickmath-certificate.tsv is not what the certificate produces: run `write`")
