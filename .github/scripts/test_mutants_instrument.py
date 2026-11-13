@@ -66,6 +66,8 @@ if mode in ("prefix", "tuple"):
     out(*[("[FAIL: assertion failed] %s() (gas: 1)" if t == "test_xLonger" else "[PASS] %s() (gas: 1)") % t for t in sel],
         rc=1 if "test_xLonger" in sel else 0)
 if mode == "ambiguous": out("[PASS] test_x() (gas: 1)", "[FAIL: assertion failed] test_x() (gas: 1)")
+if mode in ("hang", "hanginert"):
+    import time; time.sleep(15); sys.exit(99)
 if mode == "oom":     sys.exit(137)
 if mode == "timeout": sys.exit(124)
 if mode == "crash":   sys.stderr.write("thread 'main' panicked\n"); sys.exit(101)
@@ -101,6 +103,11 @@ CASES = {
     "timeout":   (None, "NO EVIDENCE"),
     "crash":     (None, "NO EVIDENCE"),
     "basered":   (None, "BASELINE RED"),
+    # the run passed MUTANTS_TIMEOUT: killed, no kill, and read before INERT
+    "hang":      (None, "TIMEOUT"),
+    "hanginert": (None, "TIMEOUT"),
+    # the target is gone from the source: one verdict for the mutant all the same
+    "lost":      (None, "TARGET LOST"),
 }
 
 # (mutant of the instrument, old, new, the case it must turn red). Each `old` occurs once.
@@ -138,7 +145,8 @@ DRIVER_MUTANTS = [
      '    if own and rc == 0:\n        return "SURVIVED"', "snapother"),
     ("the baseline reads names with the old pattern", '    green = {n for st, n, _ in recs if st == "PASS"}\n    red = {n for st, n, _ in recs if st != "PASS"}',
      '    green = set(re.findall(r"\\[PASS\\]\\s+(\\w+)", out))\n    red = set(re.findall(r"\\[FAIL[^\\]]*\\]\\s+(\\w+)", out))', "basered"),
-    ("an INERT row loses its split", '"artefact unchanged", split)', '"artefact unchanged", [])', "inert"),
+    ("an INERT row loses its split", 'm["nome"], detail, split))',
+     'm["nome"], detail, split if verdict != "INERT" else []))', "inert"),
 ]
 
 # Result lines copied from real forge runs of these suites (the test renamed test_x, the rest
@@ -189,6 +197,8 @@ ROWS = {
     "inert": [("test_x", "INERT", "assert", "KILLED", "assertion failed: 1 != 2")],
     "missing": [("test_x", "TEST MISSING", "", "NOT RUN", "no test matches the paired name")],
     "silent": [("test_x", "TEST MISSING", "", "NOT RUN", "the run reported no result for the paired test")],
+    "hanginert": [("test_x", "TIMEOUT", "", "NOT RUN", "the run passed MUTANTS_TIMEOUT and was killed")],
+    "lost": [("test_x", "TARGET LOST", "", "NOT RUN", "the mutant target is not found exactly once")],
 }
 # mode -> what the console must print for the kill of a pairing with several tests
 CONSOLE = {
@@ -204,7 +214,7 @@ def pinned(mode, out, rows):
         assert CONSOLE[mode] in out, f"{mode}: expected '{CONSOLE[mode]}' in:\n{out}"
     if mode in ROWS:
         cols = [rows[0].index(c) for c in ("test", "verdict", "route", "test_verdict", "detail")]
-        got = sorted(tuple(r[c] for c in cols) for r in rows[1:])
+        got = sorted(tuple(r[c] for c in cols) for r in rows[1:] if r[0] != "-")
         assert got == sorted(ROWS[mode]), f"{mode}: verdict rows {got}"
 
 
@@ -226,15 +236,39 @@ DRIVER_MUTANTS += [
     ("the split loses how its test went red", 'rows.append((n, "KILLED", route(red[0][0], red[0][2]), red[0][2]))',
      'rows.append((n, "KILLED", "assert", red[0][2]))', "evmerror"),
     ("the verdict file gives every test the mutant's route",
-     "            for i, verdict, _, _, nome, detail, split in rows:\n                for test, tv, how, reason in split:\n"
-     "                    r = (i, verdict, how, test, tv, nome, reason or detail)",
-     "            for i, verdict, mh, _, nome, detail, split in rows:\n                for test, tv, how, reason in split:\n"
-     "                    r = (i, verdict, mh, test, tv, nome, reason or detail)", "tuple"),
+     "    for i, verdict, _, _, nome, detail, split in rows:\n        for test, tv, how, reason in split:\n"
+     "            r = (i, verdict, how, test, tv, nome, reason or detail)",
+     "    for i, verdict, mh, _, nome, detail, split in rows:\n        for test, tv, how, reason in split:\n"
+     "            r = (i, verdict, mh, test, tv, nome, reason or detail)", "tuple"),
     ("the verdict file drops each test's own reason", "r = (i, verdict, how, test, tv, nome, reason or detail)",
      "r = (i, verdict, how, test, tv, nome, detail)", "tuple"),
     ("the pairing count credits every test", 'red = sum(1 for r in split if r[1] == "KILLED")', "red = len(split)", "tuple"),
+    ('a run past the timeout read as no evidence', '    if rc is None:\n        return "TIMEOUT"',
+     '    if False:\n        return "TIMEOUT"', 'hang'),
+    ('the run is never cut short', 'float(os.environ.get("MUTANTS_TIMEOUT", "300")))',
+     'None)', 'hang'),
+    ('a run cut short read as INERT', 'if verdict not in ("NO COMPILE", "TIMEOUT") and pristine',
+     'if verdict != "NO COMPILE" and pristine', 'hanginert'),
+    ('a lost target leaves no verdict', '            record((i, "TARGET LOST",',
+     '            (lambda r: None)((i, "TARGET LOST",', 'lost'),
+    ('the closing row drops a class from the tally', '    for r in rows:\n        classes',
+     '    for r in rows[1:]:\n        classes', 'lost'),
+    ('the verdict file written only at the end', '            ledger.writelines(ledger_lines([row]))\n',
+     '            pass\n', 'assert'),
     ("the survivor of a pairing not named", '(", survivor=" + ",".join(rest) if rest else "")', '""', "tuple"),
 ]
+
+
+def ledger(mode, rows):
+    """Raises AssertionError unless the verdict file has one verdict for the one mutant and closes
+    with the SHARD row that counts it: the denominator the join adds up across shards."""
+    assert rows[0] == ["idx", "verdict", "route", "test", "test_verdict", "mutant", "detail"], rows[0]
+    if mode == "basered":
+        assert any(r[:2] == ["-", "BASELINE RED"] for r in rows), f"{mode}: no BASELINE RED row: {rows}"
+    verdicts = {(r[0], r[1]) for r in rows[1:] if r[0] != "-"}
+    assert len(verdicts) == 1 and next(iter(verdicts))[0] == "1", f"{mode}: verdicts {verdicts}"
+    assert rows[-1][:2] == ["-", "SHARD"] and rows[-1][5] == "1/1 of 1", f"{mode}: closing row {rows[-1]}"
+    assert rows[-1][6] == f"judged=1 of 1; {next(iter(verdicts))[1]} 1", f"{mode}: closing row {rows[-1]}"
 
 
 def load(text=None):
@@ -257,6 +291,7 @@ def verdict(mod, mode, tsv=None):
     """(exit code, stdout, forge calls) of mod.main() on one mutant whose run ends as `mode`; with
     `tsv`, the run writes its MUTANTS_VERDICTS there."""
     mod.M[0]["teste"] = ("test_x", "test_xLonger") if mode in TUPLES else "test_x"
+    mod.M[0]["old"] = "absent();" if mode == "lost" else "guard();"
     cwd, path = os.getcwd(), os.environ.get("PATH", "")
     with tempfile.TemporaryDirectory() as d:
         for sub in ("src", "bin", "snapshots"):
@@ -272,7 +307,7 @@ def verdict(mod, mode, tsv=None):
                 f.write(text)
         os.chmod(forge, os.stat(forge).st_mode | stat.S_IEXEC)
         out, code = io.StringIO(), 0
-        saved = {k: os.environ.get(k) for k in ("MUTANTS_SHARD", "MUTANTS_SHARDS", "MUTANTS_FUZZ_SEED", "MUTANTS_VERDICTS")}
+        saved = {k: os.environ.get(k) for k in ("MUTANTS_SHARD", "MUTANTS_SHARDS", "MUTANTS_FUZZ_SEED", "MUTANTS_VERDICTS", "MUTANTS_TIMEOUT")}
         try:
             os.chdir(d)
             for k in saved:
@@ -283,6 +318,8 @@ def verdict(mod, mode, tsv=None):
                 os.environ["FAKE_FORGE_OUT"] = "\n".join(REAL[mode])
             if tsv:
                 os.environ["MUTANTS_VERDICTS"] = tsv
+            if mode.startswith("hang"):
+                os.environ["MUTANTS_TIMEOUT"] = "2"
             with contextlib.redirect_stdout(out):
                 try:
                     mod.main()
@@ -295,7 +332,7 @@ def verdict(mod, mode, tsv=None):
         finally:
             os.chdir(cwd)
             os.environ["PATH"] = path
-            for k in ("FAKE_FORGE_MODE", "FAKE_FORGE_LOG", "FAKE_FORGE_OUT", "MUTANTS_VERDICTS"):
+            for k in ("FAKE_FORGE_MODE", "FAKE_FORGE_LOG", "FAKE_FORGE_OUT", "MUTANTS_VERDICTS", "MUTANTS_TIMEOUT"):
                 os.environ.pop(k, None)
             for k, v in saved.items():
                 if v is not None:
@@ -326,12 +363,12 @@ def check(mod, mode):
             with open(path) as f:
                 rows = [l.rstrip("\n").split("\t") for l in f]
         head = rows[0]
-        got = sorted((r[head.index("test")], r[head.index("verdict")], r[head.index("test_verdict")]) for r in rows[1:])
+        got = sorted((r[head.index("test")], r[head.index("verdict")], r[head.index("test_verdict")]) for r in rows[1:] if r[0] != "-")
         assert got == [("test_x", "KILLED", "SURVIVED"), ("test_xLonger", "KILLED", "KILLED")], f"split rows: {rows}"
         return
     kill, label = CASES[mode]
     fingerprint = mod.artefact_fingerprint
-    if mode == "inert":  # the build left the artefact as it was
+    if mode in ("inert", "hanginert"):  # the build left the artefact as it was
         mod.artefact_fingerprint = lambda *a, **k: {"x": 1}
     try:
         with tempfile.TemporaryDirectory() as d:
@@ -342,6 +379,7 @@ def check(mod, mode):
     finally:
         mod.artefact_fingerprint = fingerprint
     pinned(mode, out, rows)
+    ledger(mode, rows)
     assert label in out, f"{mode}: expected '{label}' in:\n{out}"
     if kill:
         assert code == 0 and CAUGHT in out and f"{kill} 1" in out, f"{mode}: not scored as a kill:\n{out}"

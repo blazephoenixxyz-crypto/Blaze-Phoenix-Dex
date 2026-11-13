@@ -24,8 +24,14 @@ not a kill and fails the guard under its own name. The paired name is anchored (
 the fuzz seed is fixed (`FUZZ_SEED`). A kill is routed halt or assert only from a recognised form;
 a bare message is `unread` (`route`), and MUTANTS_VERDICTS has one row per paired test (`per_test`).
 Self-test, no forge: .github/scripts/test_mutants_instrument.py.
+
+ONE DENOMINATOR, AND NO RUN WITHOUT AN END (2026-11-13). Every mutant of the shard gets exactly one
+verdict, a lost target included, and the classes add up to the shard's count. A mutant run that
+passes MUTANTS_TIMEOUT seconds is killed with its whole process group and is a TIMEOUT, never a
+kill. MUTANTS_VERDICTS is written as each mutant ends and closes with a `SHARD` row, so a shard cut
+short is told apart from a finished one; .github/scripts/mutants_join.py joins the shards.
 """
-import re, subprocess, sys, shutil, os, tempfile, json, hashlib
+import re, subprocess, sys, shutil, os, tempfile, json, hashlib, signal
 
 M = [
  dict(nome="V4 route: leg.pool must derive from the key that executes (BPX-2026-009)",
@@ -7093,11 +7099,26 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def run(t):
-    """(exit code, output) of the paired test alone, in the guard's profile and seed."""
-    r = subprocess.run(["forge", "test", "--match-test", pattern(t), "--fuzz-seed", FUZZ_SEED]
-                       + SNAPSHOT_FLAGS, capture_output=True, text=True,
-                       env={**os.environ, "FOUNDRY_PROFILE": "release"})
-    return r.returncode, ANSI.sub("", r.stdout + r.stderr)
+    """(exit code, output) of the paired test alone, in the guard's profile and seed; the exit code
+    is None when the run passed MUTANTS_TIMEOUT seconds."""
+    return run_forge(["forge", "test", "--match-test", pattern(t), "--fuzz-seed", FUZZ_SEED]
+                     + SNAPSHOT_FLAGS, float(os.environ.get("MUTANTS_TIMEOUT", "300")))
+
+
+def run_forge(cmd, timeout=None):
+    """(exit code, output) of cmd in the guard's profile, or (None, output so far) when it ran past
+    `timeout` seconds. The run is its own process group and the whole group is killed on timeout:
+    killing forge alone leaves its solc children running into the next mutant's build."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         start_new_session=True, env={**os.environ, "FOUNDRY_PROFILE": "release"})
+    try:
+        o, e = p.communicate(timeout=timeout)
+        rc = p.returncode
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        o, e = p.communicate()
+        rc = None
+    return rc, ANSI.sub("", (o or "") + (e or ""))
 
 
 # The fuzz and invariant campaigns run under one fixed seed, the one foundry.toml [fuzz] pins, passed
@@ -7185,9 +7206,13 @@ def classify(t, rc, out):
                    also selected): the kill belongs to that test, not to the pairing;
       NO EVIDENCE  the run exited non-zero naming no failure at all (137 out of memory, 124 timeout,
                    101 a crashed binary): the paired test never reached its check;
-      AMBIGUOUS    one name, two contracts, one passed and one failed: which one is paired is unknown.
+      AMBIGUOUS    one name, two contracts, one passed and one failed: which one is paired is unknown;
+      TIMEOUT      the run passed MUTANTS_TIMEOUT and was killed (rc None): whatever it printed so far
+                   is cut short, so it is read as nothing.
     The exit code is used only to tell NO EVIDENCE from TEST MISSING, never as a kill."""
     names = (t,) if isinstance(t, str) else tuple(t)
+    if rc is None:
+        return "TIMEOUT", "", "the run passed MUTANTS_TIMEOUT and was killed"
     if "Compiler run failed" in out:
         return "NO COMPILE", "", "the mutated tree did not compile"
     if NO_TESTS.search(out):
@@ -7296,15 +7321,13 @@ def baseline():
 
     A gas ledger whose committed snapshot no longer matches is red too, although every assert
     passed: forge prints [PASS] for it, names its group, and fails the run as a whole."""
-    r = subprocess.run(["forge", "test", "--fuzz-seed", FUZZ_SEED] + SNAPSHOT_FLAGS, capture_output=True,
-                       text=True, env={**os.environ, "FOUNDRY_PROFILE": "release"})
-    out = ANSI.sub("", r.stdout + r.stderr)
+    rc, out = run_forge(["forge", "test", "--fuzz-seed", FUZZ_SEED] + SNAPSHOT_FLAGS)
     # Read by the same parser as the verdicts: the old pattern missed a fuzz failure whose
     # counterexample holds `]` and an invariant failure whose name follows its call sequence.
     recs = results(out)
     green = {n for st, n, _ in recs if st == "PASS"}
     red = {n for st, n, _ in recs if st != "PASS"}
-    return green, red, out, r.returncode
+    return green, red, out, rc
 
 def shard():
     """(k, n): run the mutants whose 1-based index i has (i - 1) % n == k.
@@ -7320,9 +7343,35 @@ def shard():
     return k, n
 
 
+LEDGER_HEAD = "idx\tverdict\troute\ttest\ttest_verdict\tmutant\tdetail\n"
+
+
+def ledger_lines(rows):
+    """The MUTANTS_VERDICTS lines of `rows`: one per paired test of each mutant run, the mutant's
+    verdict, then that test's own (KILLED, SURVIVED, AMBIGUOUS, NOT RUN) and, for its kill, how
+    (assert, halt, unread, snapshot). A tuple pairing is split here by measured kill: a test of it
+    that passed mutated shows as SURVIVED although the mutant is KILLED. A row whose idx is `-` is
+    about the shard: a baseline failure, or the closing `SHARD` row."""
+    for i, verdict, _, _, nome, detail, split in rows:
+        for test, tv, how, reason in split:
+            r = (i, verdict, how, test, tv, nome, reason or detail)
+            yield "\t".join(str(x).replace("\t", " ").replace("\n", " ") for x in r) + "\n"
+
+
 def main():
     falhas = []
     k, n = shard()
+    path = os.environ.get("MUTANTS_VERDICTS")
+    ledger = open(path, "w", buffering=1) if path else None
+    if ledger:
+        ledger.write(LEDGER_HEAD)
+    rows = []
+
+    def record(row):
+        # Written as each mutant ends: a shard cut short keeps every verdict it reached.
+        rows.append(row)
+        if ledger:
+            ledger.writelines(ledger_lines([row]))
     mine = [(i, m) for i, m in enumerate(M, 1) if (i - 1) % n == k]
     paired = {n for _, m in mine for n in ((m["teste"],) if isinstance(m["teste"], str) else m["teste"])}
     green, red, base_out, base_rc = baseline()
@@ -7332,6 +7381,8 @@ def main():
         falhas.append(f"BASELINE FAILED: the unmutated suite exited {base_rc} and names no failed test "
                       f"or snapshot group, so no paired test can be cleared as green.")
         print(f"  BASELINE ?    exit {base_rc}, nothing named")
+        if ledger:
+            ledger.writelines(ledger_lines([("-", "BASELINE FAILED", "", "", "", f"exit {base_rc}", [("", "", "", "")])]))
     # `inl`: a harness file that is a library of internal functions (test/ref/Frame4007.sol) has an
     # artefact of its own that never moves; its code is inlined into the importer named by `inl`,
     # whose artefacts are hashed under the mutant's own prefix (read INERT by construction, 2026-11-12).
@@ -7341,24 +7392,32 @@ def main():
     # mutant on it left them: each mutant is judged on src plus its own file, never on another's.
     own = lambda d, m: {k: v for k, v in d.items() if ":" not in k or k.startswith(m["f"] + ":")
                         or (m.get("inl") and k.startswith(m["inl"] + ":"))}
-    inert, rows = [], []
+    inert = []
     unseen = paired - green - red
     if red & paired:
         for t in sorted(red & paired):
             falhas.append(f"BASELINE RED: '{t}' already fails with no mutation, so every mutant "
                           f"paired with it scores as killed for free and proves nothing.")
             print(f"  BASELINE RED  {t}")
+            if ledger:
+                ledger.writelines(ledger_lines([("-", "BASELINE RED", "", t, "", "", [(t, "FAIL", "", "red with no mutation")])]))
     if unseen:
         for t in sorted(unseen):
             falhas.append(f"BASELINE MISSING: '{t}' appeared as neither PASS nor FAIL in the "
                           f"baseline run, so whether it can fail at all is unknown.")
             print(f"  BASELINE ?    {t}")
+            if ledger:
+                ledger.writelines(ledger_lines([("-", "BASELINE MISSING", "", t, "", "", [(t, "NOT RUN", "", "absent at baseline")])]))
     for i, m in mine:
         src = open(m["f"]).read()
         if src.count(m["old"]) != 1:
             falhas.append(f"[{i}] {m['nome']}: the mutant target does not exist (or there are several) in {m['f']}. "
                           f"The code changed and this list was not updated.")
-            print(f"  [{i}] TARGET LOST  {m['nome']}"); continue
+            print(f"  [{i}] TARGET LOST  {m['nome']}")
+            names = (m["teste"],) if isinstance(m["teste"], str) else tuple(m["teste"])
+            record((i, "TARGET LOST", "", m["teste"], m["nome"], "the mutant target is not found exactly once",
+                    [(t, "NOT RUN", "", "") for t in names]))
+            continue
         bak = src
         try:
             open(m["f"],"w").write(src.replace(m["old"], m["new"]))
@@ -7366,16 +7425,21 @@ def main():
             fp = artefact_fingerprint(harness)
             verdict, how, detail = classify(m["teste"], rc, out)
             split = per_test(m["teste"], out)
-            rows.append((i, verdict, how, m["teste"], m["nome"], detail, split))
+            # NO COMPILE and TIMEOUT are read before INERT: a build that failed or was cut short
+            # leaves out/ as it was, so the artefact reads unchanged although nothing was built.
+            if verdict not in ("NO COMPILE", "TIMEOUT") and pristine and fp and own(fp, m) == own(pristine, m):
+                verdict, how, detail = "INERT", "", "artefact unchanged"
+            record((i, verdict, how, m["teste"], m["nome"], detail, split))
             if verdict == "NO COMPILE":
-                # Checked before INERT: a failed build leaves out/ as it was, so the artefact
-                # reads unchanged although the source never compiled.
                 falhas.append(f"[{i}] {m['nome']}: the mutated tree did not compile, so no test ran.")
                 print(f"  [{i}] NO COMPILE   {m['nome']}")
-            elif pristine and fp and own(fp, m) == own(pristine, m):
+            elif verdict == "TIMEOUT":
+                falhas.append(f"[{i}] {m['nome']}: TIMEOUT - the run of '{m['teste']}' was killed after "
+                              f"MUTANTS_TIMEOUT seconds, so it says nothing about the guard.")
+                print(f"  [{i}] TIMEOUT      {m['nome']}")
+            elif verdict == "INERT":
                 # The source moved and the artefact did not. Whatever the test did, it did not
                 # do it because of this mutant.
-                rows[-1] = (i, "INERT", "", m["teste"], m["nome"], "artefact unchanged", split)
                 inert.append(f"[{i}] {m['nome']}: INERT - the deployed bytecode is byte-identical "
                              f"to pristine, so this mutant exercises nothing.")
                 print(f"  [{i}] INERT        {m['nome']}  (artefact unchanged)")
@@ -7395,17 +7459,19 @@ def main():
         finally:
             open(m["f"],"w").write(bak)
     print()
-    if os.environ.get("MUTANTS_VERDICTS"):
-        # One row per paired test of each mutant run, for counting outside the run: the mutant's
-        # verdict, then that test's own (KILLED, SURVIVED, AMBIGUOUS, NOT RUN) and, for its kill, how
-        # (assert, halt, unread, snapshot). A tuple pairing is split here by measured kill: a test
-        # of it that passed mutated shows as SURVIVED although the mutant is KILLED.
-        with open(os.environ["MUTANTS_VERDICTS"], "w") as fh:
-            fh.write("idx\tverdict\troute\ttest\ttest_verdict\tmutant\tdetail\n")
-            for i, verdict, _, _, nome, detail, split in rows:
-                for test, tv, how, reason in split:
-                    r = (i, verdict, how, test, tv, nome, reason or detail)
-                    fh.write("\t".join(str(x).replace("\t", " ").replace("\n", " ") for x in r) + "\n")
+    # One denominator: every mutant of the shard has exactly one verdict, and the classes add up.
+    classes = {}
+    for r in rows:
+        classes[r[1]] = classes.get(r[1], 0) + 1
+    judged = sorted(r[0] for r in rows)
+    if judged != [i for i, _ in mine]:
+        falhas.append(f"DENOMINATOR: {len(judged)} verdicts for the {len(mine)} mutants of this shard.")
+    tally = ", ".join(f"{c} {classes[c]}" for c in sorted(classes))
+    print(f"classes: {tally or 'none'} = {len(rows)} of {len(mine)} (shard {k + 1}/{n} of {len(M)})")
+    if ledger:
+        ledger.writelines(ledger_lines([("-", "SHARD", "", "", f"{k + 1}/{n} of {len(M)}", "",
+                                         [("", "", "", f"judged={len(rows)} of {len(mine)}; {tally}")])]))
+        ledger.close()
     if inert:
         print("INERT MUTANTS (the artefact never moved, so their verdict means nothing):")
         for f in inert: print("  -", f)
