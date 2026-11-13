@@ -6176,11 +6176,14 @@ M = [
       old='BPC.universalProbe(xs[i], probe, 0, true, amountIn);',
       new='BPC.universalProbe(xs[i], probe, 0, false, amountIn); // MUTANT [morf-12 e]',
       teste='test_AWorseSolidlyVenueFarDeeperNeverLowersTheOutput'),
+ # Q2j does not see this one since the band's lower edge reads the base's error at the order's
+ # size: its order is half the rival's book, so the edge sits about half the base's rate down and
+ # keeps the cut probe rate. Q2j2 puts the same book beside a rival a hundred times deeper.
  dict(nome="morf-12 [f]: the Solver's probe asks at the top bar (a fragmented V4 row votes on its sixteen-stretch cut)",
       f='src/BlazePhoenixSolver.sol',
       old='BPC.universalProbe(xs[i], probe, 0, true, amountIn);',
       new='BPC.universalProbe(xs[i], probe, type(uint256).max, true, amountIn); // MUTANT [morf-12 f]',
-      teste='test_Q2j_FragmentedProbeKeepsTheHonestPoolInTheBand'),
+      teste='test_Q2j2_FragmentedProbeIsRankedOnTheDeepWalk_SmallOrder'),
  dict(nome="morf-12 [g]: the Solver's quote asks at the top bar instead of its rival's (a fragmented V4 route is ranked on its cut)",
       f='src/BlazePhoenixSolver.sol',
       old='BPC.universalQuoteRank(x, amt, bar, false);',

@@ -14,6 +14,8 @@ pragma solidity 0.8.36;
 //   Q2i  the split gate: a quote still truncated after the deep walk keeps the split instead
 //        of collapsing onto a rival (the `hMax` ceiling check).
 //   Q2j  the probe: dust inside the probe's reach must not price the honest pool out of the band.
+//   Q2j2 ...and at an order small beside a deep rival, where the band's lower edge is narrow
+//        enough that a cut probe rate falls under it: the V4 book keeps its leg.
 //   Q2k  `_considera` on a bridge route's FIRST hop: dust there must not cost the route the order
 //        (stage B is re-quoted on stage A's rank for the judgement). Red on f87364e.
 //   Q2l  ...and that re-quote replaces the promise in the judgement, never adds to it: a better
@@ -32,7 +34,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, RoutePlan, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
@@ -419,6 +421,59 @@ contract V4FragmentationRankingTest is Test {
         emit log_named_uint("delivered, attacked  ", dirty);
         assertLt(lo * 100, (ORDER / 100) * 90, "precondition: the probe's promise is cut more than 10%");
         assertGt(dirty, rivalOnly + rivalOnly / 10, "the probe dropped the honest pool on a cut rate");
+    }
+
+    /// Q2j2. The probe again, at an order small beside the base. In Q2j the rival holds 2e22 a
+    /// side and the order is half of it, so the base's error at the order's size (errOrder ~0.5)
+    /// opens the band's lower edge wide enough to keep a probe rate cut by a quarter: Q2j stays
+    /// green when the probe reads the sixteen-stretch cut. Here the rival is a hundred times
+    /// deeper (2e24 a side): the same order is 0.5% of it, the lower edge sits about 1.3% under
+    /// the base, and a probe rate cut by more than 10% (the precondition) falls under it, while
+    /// the deep walk's rate (rank at bar 0) does not. The oracle is membership, and its size is
+    /// derived, no threshold: inside the band the order is allocated by depth (the Solver's
+    /// "filter on QUALITY (rate), then allocate by CAPACITY (depth)"), so the book's leg is
+    /// ORDER * L / (L + 2e24) with L = 1e23 its in-range liquidity (the dust sits below the
+    /// current tick and adds none there). The control (no dust) shows that leg; the attacked plan
+    /// must keep it, and at one price a 1 bp book beside a 30 bp rival pays more than the rival
+    /// alone. Red when the probe asks at the top bar (morf-12 f): no leg, the rival's output.
+    function test_Q2j2_FragmentedProbeIsRankedOnTheDeepWalk_SmallOrder() public {
+        bytes32 pid = _pid(FEE);
+        uint256 snap = vm.snapshotState();
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 rivalOnly = _swap();
+        vm.revertToState(snap);
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
+        mgr.addPosition(pid, -20_000, 20_000, TS, 1e23);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 built = vm.snapshotState();
+        uint256 depthShare = ORDER * 1e23 / (1e23 + 2e24);
+        assertEq(_v4LegIn(pid), depthShare, "control: without the dust the V4 book takes its depth's share");
+        uint256 clean = _swap();
+        vm.revertToState(built);
+        _fragment(pid, -300, 0);
+        (uint256 lo, , ) = BPC.v4WalkRank(address(mgr), pid, ORDER / 100, FEE, TS, true, 0);
+        assertLt(lo * 100, (ORDER / 100) * 90, "precondition: the probe's promise is cut more than 10%");
+        uint256 legIn = _v4LegIn(pid);
+        uint256 dirty = _swap();
+        emit log_named_uint("rival alone          ", rivalOnly);
+        emit log_named_uint("delivered, clean     ", clean);
+        emit log_named_uint("delivered, attacked  ", dirty);
+        emit log_named_uint("V4 leg in, attacked  ", legIn);
+        assertGt(clean, rivalOnly, "control: the V4 leg pays more than the rival alone");
+        assertGt(legIn, 0, "the probe priced the honest pool out of the band on its cut");
+        assertEq(legIn, depthShare, "the attacked V4 book's leg is not its depth's share");
+        assertGt(dirty, rivalOnly, "the attacked plan pays no more than the rival alone");
+    }
+
+    /// The amount the plan's first hop sends to the V4 book `pid` (0 when it has no leg there).
+    function _v4LegIn(bytes32 pid) internal view returns (uint256 amt) {
+        RoutePlan memory p = solver.findBestRoutePlan(t0, t1, ORDER);
+        assertGt(p.best.hops.length, 0, "pre-condition: there must be a route");
+        Leg[] memory legs = p.best.hops[0].legs;
+        for (uint256 i; i < legs.length; ++i) {
+            if (legs[i].pool == address(uint160(uint256(pid)))) amt += legs[i].amountIn;
+        }
     }
 
     /// The ceiling. Fee 5% so the fee term is far wider than the rest's own slippage (~0.9%):
