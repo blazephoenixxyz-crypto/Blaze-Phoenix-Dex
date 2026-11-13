@@ -140,8 +140,9 @@ contract Guards123Test is Test {
         assertEq(tIn.balanceOf(address(router)), 0, "the Router keeps no input");
     }
 
-    /// @notice Control: no rebase, the same route spends exactly its legs and
-    ///         the clamp is a no-op (the last leg is not trimmed).
+    /// @notice Control: no rebase, the same route spends exactly its funded legs
+    ///         (each its share of the order net of the input fee) and the clamp
+    ///         is a no-op (the last leg is not trimmed).
     function test_LastLegClampIsANoOpWhenTheBalanceHolds() public {
         PathologicalERC20 tIn = new PathologicalERC20("In", "IN", 18);
         MockERC20 tOut = new MockERC20("Out", "OUT");
@@ -160,8 +161,13 @@ contract Guards123Test is Test {
         vm.prank(user);
         router.swapExactIn(_route(address(tIn), address(tOut), legs, amountIn), amountIn, 1, user, block.timestamp + 1);
 
-        assertEq(tIn.balanceOf(address(pA)), R + LEG, "pool A got its whole leg");
-        assertEq(tIn.balanceOf(address(pB)), R + LEG, "pool B got its whole leg");
+        // Neither token is a bridge, so the fee calendar (BPC.feeCalendar) charges this single
+        // hop on its INPUT: the Router pays mulDivUp(amountIn, 28, 1e4) to the treasury first
+        // (`_chargeHopFee`) and funds each leg pro rata on what is left (`legAmt = mulDiv(leg,
+        // realIn, legSum)` in `_hopScaleImpactAndQuote`). A whole leg is that share, not LEG.
+        uint256 share = BPC.mulDiv(LEG, amountIn - BPC.mulDivUp(amountIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS), amountIn);
+        assertEq(tIn.balanceOf(address(pA)), R + share, "pool A got its whole leg");
+        assertEq(tIn.balanceOf(address(pB)), R + share, "pool B got its whole leg");
         assertEq(tIn.balanceOf(address(router)), 0, "the Router keeps no input");
     }
 
