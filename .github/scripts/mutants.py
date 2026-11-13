@@ -7328,6 +7328,17 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            if (floorBps < hardFloor) floorBps = hardFloor;\n',
       new='            // MUTANT: hard floor removed\n',
       teste='testFuzz_IronFloorStaysInItsBandAndNeverRisesWithRisk'),
+ # -- MC preview parity (docs/prereg/mc-1113.tsv): the preview never promises more than the balance delta --
+ dict(nome='mc [mc-1]: the preview promises 50 bps more than the fee model (sampled seeds)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        pv.netOut       = afterFee > pv.safetyBuffer ? afterFee - pv.safetyBuffer : 0;\n',
+      new='        pv.netOut       = afterFee + afterFee / 200; // MUTANT\n',
+      teste='testMC_SampledNeverOverpromise'),
+ dict(nome='mc [mc-2]: the preview promises 50 bps more than the fee model (registered extremes)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        pv.netOut       = afterFee > pv.safetyBuffer ? afterFee - pv.safetyBuffer : 0;\n',
+      new='        pv.netOut       = afterFee + afterFee / 200; // MUTANT\n',
+      teste='testMC_ExtremesNeverOverpromise'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
