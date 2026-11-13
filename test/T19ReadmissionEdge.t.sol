@@ -53,7 +53,7 @@ pragma solidity 0.8.36;
 //
 //    test_C4_ReAdmit_AfterRenounce_MustNotFollowTheLiveAnswer      RED   then, GREEN since the fix
 //    test_C4_ReAdmit_WithDeadResolver_MustNotDemoteToZero          RED   then, GREEN since the fix
-//    test_C4_ReAdmit_UnderANonMode5Row_LeavesThePinIntact          GREEN today
+//    test_C4_ReAdmit_UnderAnAskingRow_LeavesThePinIntact           GREEN today
 //    test_C4_ReAdmit_UnchangedAnswer_AfterRenounce_IsAccepted      GREEN today
 //    test_C4_DiscoveryNeverRevertsAfterAnyReAdmission              GREEN today
 //    test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer     RED today
@@ -141,7 +141,6 @@ contract T19ReadmissionEdgeTest is Test {
     // Hub-internal constants, pinned here by value on purpose: if either moves
     // in the Hub, these tests must be revisited rather than silently follow.
     uint8   constant MODE_CREATE2_V3 = 5;
-    uint8   constant MODE_CREATE2_V2 = 4;
     bytes32 constant INIT_HASH = keccak256("c4-algebra-init");
 
     uint24[] internal noFees;
@@ -161,14 +160,6 @@ contract T19ReadmissionEdgeTest is Test {
     function _algebraPool(address origin) private pure returns (address) {
         return address(uint160(uint256(keccak256(abi.encodePacked(
             hex"ff", origin, keccak256(abi.encode(tokenA, tokenB)), INIT_HASH
-        )))));
-    }
-
-    /// The V2-salt derivation of the same factory: keccak(packed(t0, t1)),
-    /// origin = the factory itself (mode 4 never consults poolDeployer()).
-    function _v2SaltPool(address origin) private pure returns (address) {
-        return address(uint160(uint256(keccak256(abi.encodePacked(
-            hex"ff", origin, keccak256(abi.encodePacked(tokenA, tokenB)), INIT_HASH
         )))));
     }
 
@@ -424,14 +415,15 @@ contract T19ReadmissionEdgeTest is Test {
         assertEq(_pinOf(address(fac)), address(0),
             "premise: an unadmitted factory reads as never attested");
 
-        // TX 1 - F is admitted under a mode that never enters the T19 block.
+        // TX 1 - F is admitted under an asking mode (0-3): the only rows the pin
+        // block never enters, since every derive row (modes 4-7) is attested.
         hub.addFactory(
-            address(fac), BPC.KIND_V2, MODE_CREATE2_V2, INIT_HASH, noFees, noSpacings
+            address(fac), BPC.KIND_V2, 0, bytes32(0), noFees, noSpacings
         );
         assertEq(hub.factoryCount(), 2, "premise: F holds a row of its own");
         address pinBefore = _pinOf(address(fac));
         assertEq(pinBefore, address(0),
-            "premise: a non-mode-5 admission leaves the T19 attestation unwritten");
+            "premise: an asking-row admission leaves the T19 attestation unwritten");
 
         // TX 2 - ossification. Proved by a dead control-plane door, not assumed.
         hub.renounceControl();
@@ -478,29 +470,35 @@ contract T19ReadmissionEdgeTest is Test {
 
     /// CLAIM: the pin write is gated on MODE, not on kind, and that gate is
     /// load-bearing: re-admitting the same factory address under a mode that
-    /// never enters the Algebra derive must leave the existing attestation
-    /// exactly as it was.
+    /// never derives by CREATE2 (an asking row, modes 0-3) must leave the
+    /// existing attestation exactly as it was.
     ///
     /// REWRITTEN WITH THE FIX OF 2026-09-03 (cluster C3): `addFactory` now
     /// keeps ONE row per address and refreshes it in place, so the earlier
     /// shape of this test - "a second row in the V2 slot next to the Algebra
     /// row" - no longer exists. The attestation is keyed by address and
-    /// survives the refresh; what the test has to prove is that the mode-4
+    /// survives the refresh; what the test has to prove is that the asking
     /// refresh did not TOUCH it. The pin is not readable from outside, so it is
     /// made observable through the derive: the resolver is killed (a dead
     /// resolver can never re-attest, C4) and the row is put back in the Algebra
     /// slot, at which point whatever the pin holds is what discovery derives
     /// from - the attested origin if the mode gate held, the swapped one if
-    /// the mode-4 refresh had been allowed to re-attest.
+    /// the asking refresh had been allowed to re-attest.
     ///
-    /// GREEN today. Mutant C4-M1 (drop the `mode == MODE_CREATE2_V3` gate on
-    /// the pin write) turns this red: the mode-4 refresh re-attests
-    /// DEP_SWAPPED while the resolver is still alive, the dead-resolver
-    /// re-admission cannot undo it, and the steered pool is served.
+    /// REWRITTEN AGAIN WITH identity-2 (2026-11-13): the refresh used to be a
+    /// mode-4 row. Every CREATE2 row (modes 4-7) now derives from the pin, so a
+    /// live admin re-admitting under mode 4 re-attests ON PURPOSE (the same
+    /// power the mode-5 re-admission has). The rows that never read the pin are
+    /// the asking ones, and they are the ones that must not write it.
+    ///
+    /// GREEN today. Mutant C4-M1 (drop the mode gate on the pin write) turns
+    /// this red: the mode-0 refresh re-attests DEP_SWAPPED while the resolver
+    /// is still alive, the dead-resolver re-admission cannot undo it, and the
+    /// steered pool is served.
     ///
     /// Not vacuous: a pool exists at BOTH derivations, so if the pin moved the
     /// assertion would see the steered pool rather than simply seeing nothing.
-    function test_C4_ReAdmit_UnderANonMode5Row_LeavesThePinIntact() public {
+    function test_C4_ReAdmit_UnderAnAskingRow_LeavesThePinIntact() public {
         _admitAlgebra();
         address poolHonest  = _algebraPool(DEP_ATTESTED);
         address poolSteered = _algebraPool(DEP_SWAPPED);
@@ -508,18 +506,15 @@ contract T19ReadmissionEdgeTest is Test {
         vm.etch(poolSteered, hex"fe");
         fac.setPoolDeployer(DEP_SWAPPED);
 
-        // The SAME factory address, refreshed into the V2 CREATE2 slot. Mode 4
-        // derives keccak(packed(t0, t1)) from the factory itself and never
-        // consults poolDeployer(); nothing is deployed there.
+        // The SAME factory address, refreshed into an asking row (mode 0,
+        // getPair). The factory has no getPair, so the row lists nothing, and
+        // an asking row never consults poolDeployer().
         uint8 row = hub.addFactory(
-            address(fac), BPC.KIND_V2, MODE_CREATE2_V2, INIT_HASH, noFees, noSpacings
+            address(fac), BPC.KIND_V2, 0, bytes32(0), noFees, noSpacings
         );
         assertEq(row, 0, "premise: the row is refreshed in place, not duplicated");
-        assertFalse(
-            _v2SaltPool(address(fac)).code.length > 0,
-            "premise: the V2-salt derivation of this factory is empty"
-        );
-        assertFalse(_serves(poolHonest), "premise: under the mode-4 row the Algebra derive is idle");
+        assertFalse(_serves(poolHonest), "premise: under the asking row the Algebra derive is idle");
+        assertFalse(_serves(poolSteered), "premise: under the asking row nothing is served");
 
         // Kill the resolver, then put the row back in the Algebra slot: with no
         // live answer the re-admission cannot re-attest, so the derive below
@@ -529,7 +524,7 @@ contract T19ReadmissionEdgeTest is Test {
             address(fac), BPC.KIND_ALGEBRA, MODE_CREATE2_V3, INIT_HASH, noFees, noSpacings
         );
         _assertOnlyCandidateIs(
-            poolHonest, "a non-mode-5 re-admission must leave the Algebra attestation untouched"
+            poolHonest, "an asking re-admission must leave the Algebra attestation untouched"
         );
         _assertNeverServes(poolSteered, "the steered derivation must never become a candidate");
     }

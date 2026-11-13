@@ -876,17 +876,19 @@ contract BlazePhoenixHub {
             f.fees = fees; f.spacings = spacings;
         }
         $.factoryCodehash[factory] = factory.codehash;
-        // T19 sibling pin: freeze the Algebra CREATE2 origin at admission.
-        // Only mode-5 rows can enter the Algebra derive (sub == 1 && fee == 0,
-        // Core:448) — pin them all, kind V3 included: a V3 row admitted with
-        // a 0 fee reaches the same live-resolve path.
+        // T19 sibling pin: freeze the CREATE2 origin at admission, for EVERY derive
+        // row (modes 4-7): `_probe` derives each of them from this pin (or the
+        // factory when it is zero), so the origin is a coordinate written once,
+        // never a live answer. Pancake V3 (mode 5, fees != 0) and Algebra
+        // (mode 5, fee 0) deploy from a separate poolDeployer(); a factory
+        // without the selector pins zero and derives from itself, as before.
         //
         // RE-ADMISSION (review 2026-09-03, cluster C4): a live admin re-attests
         // on purpose, mirroring the codehash pin above — but a dead resolver
         // never demotes a good attestation to zero, and after renunciation the
         // attested origin is FROZEN: the live answer may not move it, or the
         // one surviving lever would re-open T19 for an already-admitted row.
-        if (mode == MODE_CREATE2_V3) {
+        if (mode >= MODE_CREATE2_V2 && mode <= MODE_CREATE2_V3CL) {
             address live = BPC.resolvePoolDeployer(factory);
             address pinned = $.factoryDeployer[factory];
             // A ZERO PIN IS NOT AN ABSENCE (review 2026-09-03, second pass).
@@ -1195,12 +1197,18 @@ contract BlazePhoenixHub {
         // rather than the primary one: one comparison in a view function,
         // zero user gas, and the derivation stays closed if admission changes.
         if (fac.mode >= 4 && fac.initHash == bytes32(0)) return k;
+        // THE CREATE2 ORIGIN IS A COORDINATE OF THE ROW, attested once at admission for every
+        // derive row (`factoryDeployer`; zero means the factory itself): Algebra and Pancake V3
+        // deploy from a separate PoolDeployer. An asking row (modes 0-3) asks the factory, never
+        // the pin: a row re-admitted under another mode keeps the pin it was given before.
+        address orig = _store().factoryDeployer[fac.factory];
+        if (orig == address(0)) orig = fac.factory;
         address p;
         if (fac.mode == MODE_CREATE2_V3 && fee == 0) {
             // T19 — same predicate as Core's `isAlgebra` (sub == 1 && fee == 0,
             // Core:448). The Algebra CREATE2 origin is the factory's
-            // poolDeployer() answer, which BPC.deriveAddress resolves with a
-            // LIVE staticcall — the one derive input a factory could still
+            // poolDeployer() answer, which BPC.deriveAddress used to resolve
+            // with a LIVE staticcall — the one derive input a factory could still
             // influence after admission (an EIP-1967 proxy changes its answer
             // with its codehash intact, so the L872 pin is blind to it; a
             // compare-then-derive check would still leave two live asks for a
@@ -1209,14 +1217,12 @@ contract BlazePhoenixHub {
             // answer has since diverged keeps serving the attested derivation
             // and cannot steer a new one (fail closed, never revert). t0 < t1
             // already (discoverFor sorts, Core re-sorts to the same order).
-            address orig = _store().factoryDeployer[fac.factory];
-            if (orig == address(0)) orig = fac.factory;
             // The salt and the ff-formula are NOT restated here: both come
             // from the Core producers `deriveAddress` itself uses, so the
             // attested derive and the live one cannot drift apart.
             p = BPC.create2Address(orig, BPC.algebraSalt(t0, t1), fac.initHash);
         } else {
-            p = BPC.deriveAddress(fac.factory, t0, t1, fee, stable, sp, fac.mode, fac.initHash);
+            p = BPC.deriveAddress(fac.mode < 4 ? fac.factory : orig, t0, t1, fee, stable, sp, fac.mode, fac.initHash);
         }
         if (p != address(0) && BPC.hasCode(p)) {
             // ASKED, NOT DERIVED. A derived address (modes 4-7) is a theorem over (t0, t1);

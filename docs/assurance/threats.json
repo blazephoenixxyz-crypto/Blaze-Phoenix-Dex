@@ -90,6 +90,14 @@
       "note": "Venue admission is curator-only, one row per address, and the derivation origin is attested at admission and frozen once control is renounced."
     },
     {
+      "id": "VENUE-DERIVE-ORIGIN",
+      "class": "A derived pool address whose CREATE2 origin is a live answer of the venue (a proxied factory or poolDeployer steering discovery after admission), or a derive row whose real deployer is not the factory (Pancake V3, Algebra) never finding its pools",
+      "status": "blocked",
+      "guard": "factoryDeployer",
+      "test": "test_Probe_EveryDeriveModeTakesTheAttestedOrigin",
+      "note": "identity-2, 2026-11-13. The CREATE2 origin is a coordinate of the row: addFactory attests it for every derive row (modes 4-7), _probe derives every derive row from it (zero = the factory), and Core.deriveAddress asks nothing (the origin is the caller's). An asking row (modes 0-3) asks its factory, never the pin."
+    },
+    {
       "id": "SOK-PROXY-VENUE",
       "class": "Admitted venue whose logic moves behind a proxy",
       "status": "blocked",
