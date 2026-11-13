@@ -413,5 +413,68 @@ class MutantInstrument(unittest.TestCase):
                     check(load(text.replace(old, new)), mode)
 
 
+
+def joined(shards, explained="", names=("a", "b", "c", "d")):
+    """(exit code, printed) of mutants_join.main on verdict files given as {name: [rows]}."""
+    spec = importlib.util.spec_from_file_location("mutants_join", os.path.join(HERE, "mutants_join.py"))
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    with tempfile.TemporaryDirectory() as d:
+        paths = []
+        for name, rows in shards.items():
+            paths.append(os.path.join(d, name))
+            with open(paths[-1], "w") as f:
+                f.write("idx\tverdict\troute\ttest\ttest_verdict\tmutant\tdetail\n")
+                f.writelines("\t".join(r) + "\n" for r in rows)
+        with open(os.path.join(d, "explained.tsv"), "w") as f:
+            f.write("mutant\tverdict\treason\n" + explained)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = mod.main([os.path.join(d, "explained.tsv")] + paths, names=list(names))
+    return code, out.getvalue()
+
+
+def row(i, verdict, name):
+    return [str(i), verdict, "", "t", "", name, ""]
+
+
+def done(k, n=2, total=4, judged=2):
+    return ["-", "SHARD", "", "", f"{k}/{n} of {total}", "", f"judged={judged} of {judged}"]
+
+
+# shard 1 holds mutants 1 and 3, shard 2 holds 2 and 4: (i - 1) % n == k - 1
+GOOD = {"v1.tsv": [row(1, "KILLED", "a"), row(3, "KILLED", "c"), done(1)],
+        "v2.tsv": [row(2, "KILLED", "b"), row(4, "KILLED", "d"), done(2)]}
+
+
+class MutantJoin(unittest.TestCase):
+    def test_AllKilledOnceAcrossTheShardsPasses(self):
+        code, out = joined(GOOD)
+        self.assertEqual(code, 0, out)
+        self.assertIn("total: 4 killed of 4 mutants", out)
+
+    def test_EveryGapFailsTheJoin(self):
+        cases = {
+            "survivor": ({**GOOD, "v2.tsv": [row(2, "SURVIVED", "b"), row(4, "KILLED", "d"), done(2)]}, "[2] SURVIVED"),
+            "timeout": ({**GOOD, "v2.tsv": [row(2, "TIMEOUT", "b"), row(4, "KILLED", "d"), done(2)]}, "[2] TIMEOUT"),
+            "cut short": ({**GOOD, "v2.tsv": [row(2, "KILLED", "b")]}, "no closing SHARD row"),
+            "unjudged": ({**GOOD, "v2.tsv": [row(2, "KILLED", "b"), done(2)]}, "[4] UNJUDGED"),
+            "shard lost": ({"v1.tsv": GOOD["v1.tsv"]}, "shard 2/2: no verdict file"),
+            "twice": ({**GOOD, "v3.tsv": [row(1, "KILLED", "a"), done(1)]}, "judged twice"),
+            "baseline": ({**GOOD, "v1.tsv": [["-", "BASELINE RED", "", "t", "FAIL", "", "red"]] + GOOD["v1.tsv"]}, "BASELINE RED"),
+            "other catalogue": ({**GOOD, "v1.tsv": GOOD["v1.tsv"][:2] + [done(1, total=5)]}, "the catalogue has 4"),
+        }
+        for name, (shards, why) in cases.items():
+            with self.subTest(case=name):
+                code, out = joined(shards)
+                self.assertEqual(code, 1, out)
+                self.assertIn(why, out)
+
+    def test_AnExplainedVerdictPassesOnlyForItsOwnVerdict(self):
+        shards = {**GOOD, "v2.tsv": [row(2, "SURVIVED", "b"), row(4, "KILLED", "d"), done(2)]}
+        self.assertEqual(joined(shards, "b\tSURVIVED\tequivalent: the branch is unreachable\n")[0], 0)
+        self.assertEqual(joined(shards, "b\tTIMEOUT\tslow\n")[0], 1)
+        self.assertEqual(joined(shards, "b\tSURVIVED\t\n")[0], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

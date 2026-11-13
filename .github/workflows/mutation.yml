@@ -1,0 +1,143 @@
+name: mutation (sharded, one denominator)
+
+# The mutation guard of .github/scripts/mutants.py, split into many short shards and joined by
+# .github/scripts/mutants_join.py: every mutant of the catalogue judged exactly once, and the run
+# fails on a survivor, on an inconclusive verdict (NO COMPILE, TIMEOUT, NO EVIDENCE, NEIGHBOUR,
+# AMBIGUOUS, TEST MISSING, INERT, TARGET LOST) with no row in mutants_explained.tsv, on a shard cut
+# short, and on a mutant left unjudged.
+#
+# Every job has a 30-minute ceiling (owner decision F05, 2026-11-13). The release build is compiled
+# once (job `build`) and handed to every shard, so a shard pays the baseline test run and one
+# sparse compile per mutant (19.6-29.6 s each on PR #123), not a full compile of its own. Add
+# shards, not minutes, when a shard nears the ceiling.
+
+on:
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: "number of shards"
+        default: "64"
+  push:
+    branches: [ci-draft/mutation-f01]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FOUNDRY_PROFILE: release
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      shards: ${{ steps.p.outputs.shards }}
+      list: ${{ steps.p.outputs.list }}
+    steps:
+      - id: p
+        env:
+          SHARDS: ${{ github.event.inputs.shards || '64' }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          n = int(os.environ["SHARDS"])
+          assert 1 <= n <= 200, n
+          print(f"shards={n}")
+          print("list=" + json.dumps(list(range(n))))
+          EOF
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with:
+          # Pinned: the gas ledgers' snapshots are this binary's measurement (mutants.py, SNAPSHOT_FLAGS).
+          version: v1.8.5
+      - name: Instrument self-test (no forge)
+        run: python3 .github/scripts/test_mutants_instrument.py -v
+      - name: Release build, once for every shard
+        run: forge build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-build
+          path: |
+            out
+            cache
+          retention-days: 1
+          include-hidden-files: true
+
+  shard:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.list) }}
+    name: shard ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with:
+          version: v1.8.5
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-build
+      - name: Mutation guard, this shard only
+        env:
+          MUTANTS_SHARD: ${{ matrix.shard }}
+          MUTANTS_SHARDS: ${{ needs.plan.outputs.shards }}
+          MUTANTS_TIMEOUT: "300"
+          MUTANTS_VERDICTS: verdicts-${{ matrix.shard }}.tsv
+        run: python3 .github/scripts/mutants.py
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: verdicts-${{ matrix.shard }}
+          path: verdicts-${{ matrix.shard }}.tsv
+          if-no-files-found: warn
+          retention-days: 14
+
+  join:
+    needs: [plan, shard]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: verdicts-*
+          path: verdicts
+          merge-multiple: true
+      - name: One verdict per mutant, all killed or explained
+        run: |
+          set -o pipefail
+          python3 .github/scripts/mutants_join.py .github/scripts/mutants_explained.tsv verdicts/*.tsv \
+            --out mutants-all.tsv | tee join.txt
+      - if: always()
+        run: |
+          { echo '```'; head -c 60000 join.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mutants-all
+          path: |
+            mutants-all.tsv
+            join.txt
+          retention-days: 14
