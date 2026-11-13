@@ -13,6 +13,7 @@ Q96. This script, with the standard library alone and integer arithmetic only:
              the error of the integer pipeline against the true value, bracketed by exact interval
              arithmetic (P = 256 fractional bits), strict monotonicity, and four sha256 chains of the
              outputs that test/TickMathCertificate.t.sol recomputes from the compiled Core.
+  self-test  shows bounds() (the ranges of the unchecked block) refusing a table that breaks them.
   check      constants + regenerates the certificate and requires it byte-identical to the committed
              one + requires the pins in test/TickMathCertificate.t.sol to be the certificate's and its
              twenty table lines to be the definition's.
@@ -23,7 +24,7 @@ recomputes, from the Core itself, the sha256 chain h = sha256(h || uint160 value
 of the tick range and compares it with the chain written here. One output differing anywhere turns
 the test red.
 
-Run: python3 -I test/tools/tickmath_certificate.py {constants|write|check}   (about 30 s)
+Run: python3 -I test/tools/tickmath_certificate.py {constants|write|check|self-test}   (about 30 s)
 """
 import hashlib, os, re, sys
 from math import isqrt
@@ -250,6 +251,29 @@ def bounds(C):
     print(f"unchecked ranges hold: ratio in [2^{lo.bit_length() - 1}, 2^128], inverse below 2^{inv.bit_length()}")
 
 
+def self_test():
+    """bounds() is the only guard behind the Core's unchecked block, so it has to be seen refusing. It
+    passes the Core's table, then must refuse each table below (a mutant of the table, not of the
+    Core): a ratio over 2^128 (bit 0's constant above one) and a ratio under 2^64, whose inverse
+    also reaches 2^192 (bit 19's constant cut to 2^63). Exit 1 if it passes one of them."""
+    C = core_table()
+    bounds(C)
+    cases = [("a ratio over 2^128", [(1 << 128) + 1] + C[1:]),
+             ("a ratio under 2^64, its inverse at 2^192 or more", C[:19] + [1 << 63])]
+    bad = []
+    for name, table in cases:
+        try:
+            bounds(table)
+            bad.append(name)
+        except SystemExit:
+            pass
+    for b in bad:
+        print(f"::error::tickmath bounds self-test: bounds() passed {b}")
+    print(f"tickmath bounds self-test: {len(cases)} mutants, {len(cases) - len(bad)} red as they must be")
+    if bad:
+        sys.exit(1)
+
+
 def check():
     bounds(core_table())
     text, out, chains = render()
@@ -282,5 +306,7 @@ if __name__ == "__main__":
             print(f'        _table("{l}");')
     elif cmd == "check":
         check()
+    elif cmd == "self-test":
+        self_test()
     else:
         sys.exit(__doc__)
