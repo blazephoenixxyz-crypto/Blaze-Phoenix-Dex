@@ -324,7 +324,7 @@ jobs:
         run: python3 .github/scripts/check_targets.py
 
   mutation-guard:
-    name: mutation guard (shard ${{ matrix.shard }} of 24)
+    name: mutation guard (shard ${{ matrix.shard }} of 20)
     runs-on: ubuntu-latest
     # Its own job since 2026-10-07, in four parallel shards. Inside `test` the guard took 80 of
     # the job's 90 minutes at ~271 mutants and was cancelled (runs 37653877143, 37653884792);
@@ -343,13 +343,15 @@ jobs:
     # 131028174955..175421): the baseline now takes 16.3-23.3 min and a mutant 19.6-29.6 s, so a
     # slow runner was on pace for 23.3 + 0.49 * 137 = 91 min and five of nine shards were
     # cancelled at 75 with 3-32 mutants unjudged. 23.3 + 0.49 * 1229 / 17 = 58.7.
-    # Twenty-four since 2026-11-13: at 1,368 mutants seventeen shards took 56-75 min and two were
-    # cancelled at 75 (run 43509365862); 23.3 + 0.49 * 1368 / 17 = 62.7, on twenty-four 51.2.
+    # Twenty since 2026-11-13: at 1,368 mutants seventeen shards took 56-75 min and two were
+    # cancelled at 75 (run 43509365862); 23.3 + 0.49 * 1368 / 17 = 62.7, on twenty 56.8.
+    # Not more: the account runs ~20 jobs at once and every shard pays the 23-minute baseline
+    # again, so past ~20 shards the run gets longer, not shorter (40 shards: two waves, ~80 min).
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -378,7 +380,7 @@ jobs:
         # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
         env:
           MUTANTS_SHARD: ${{ matrix.shard }}
-          MUTANTS_SHARDS: 24
+          MUTANTS_SHARDS: 20
           PYTHONUNBUFFERED: "1"
         run: python3 .github/scripts/mutants.py
 
