@@ -7305,6 +7305,9 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
 # into the pristine value of every later run.
 SNAPSHOT_FLAGS = ["--gas-snapshot-check", "true", "--gas-snapshot-emit", "false"]
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# One forge result: its [PASS]/[FAIL...] marker at a line start, then, never crossing the next
+# marker, the first `name(types) (gas: | (runs: | (block:` after it (see baseline()).
+RESULT = re.compile(r"^\[(PASS|FAIL)(?:(?!^\[(?:PASS|FAIL))[\s\S])*?\b(\w+)\([^()\n]*\) \((?:gas|runs|block):", re.M)
 
 
 def run(t):
@@ -7385,12 +7388,19 @@ def baseline():
     disagree about which binary they are talking about.
 
     A gas ledger whose committed snapshot no longer matches is red too, although every assert
-    passed: forge prints [PASS] for it, names its group, and fails the run as a whole."""
+    passed: forge prints [PASS] for it, names its group, and fails the run as a whole.
+
+    A result is read from its marker to the first `name(types) (gas:|runs:|block:` after it, not to
+    the first `]`: a fuzz failure's reason ends in `args=[... [4.72e39]]]` and an invariant's name
+    sits below its [Sequence], so the old reading named neither and both red tests read BASELINE
+    MISSING (testFuzz_Sq_SameAnswer and invariant_Sq_BothSolversAnswerTheSameBytes, run 43367296581
+    on ab0bc56, 2026-11-13)."""
     r = subprocess.run(["forge", "test"] + SNAPSHOT_FLAGS, capture_output=True, text=True,
                        env={**os.environ, "FOUNDRY_PROFILE": "release"})
     out = ANSI.sub("", r.stdout + r.stderr)
-    green = set(re.findall(r"\[PASS\]\s+(\w+)", out))
-    red = set(re.findall(r"\[FAIL[^\]]*\]\s+(\w+)", out))
+    seen = RESULT.findall(out)
+    green = {t for k, t in seen if k == "PASS"}
+    red = {t for k, t in seen if k == "FAIL"}
     red |= set(re.findall(r"^\s*\[(\w+)\] Failed to match snapshots", out, re.M))
     return green, red, out, r.returncode
 
