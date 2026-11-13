@@ -7468,6 +7468,14 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            return heldBy(pool, tIn, rI, tOut, rO) ? to18(rO, dOut) : 0;',
       new='            return heldBy(pool, tIn, rI, tOut, rO) ? to18(balanceOf(tOut, pool), dOut) : 0; // MUTANT',
       teste='test_DonationPastTheDustShare_HonestRowKeepsItsSeat_plusMinusOneWei'),
+# ANCHOR R8 (FindingAnchorDonation, CI run 43502199738 on 584e547): at m = 2 wei the fee rounded up is
+# 1 wei and leaves 1 wei, which a 1:1 pool pays nothing for, so the Router refuses, RouterE(8). The
+# sibling of "fee: rounding goes DOWN again" above, on the pinned order: no fee, no refusal (RouterE(15)).
+ dict(nome="ANCHOR R8: fee rounding goes DOWN again, so a 2 wei order is no longer refused as a 1 wei leg the pool pays nothing for",
+      f="src/BlazePhoenixRouter.sol",
+      old="        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
+      new="        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
+      teste="test_TwoWeiOrder_TheFeeLeavesOneWei_WhichThePoolPaysNothingFor_RouterRefuses"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

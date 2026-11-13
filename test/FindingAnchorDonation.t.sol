@@ -152,6 +152,32 @@ contract FindingAnchorDonationTest is Test {
         for (uint256 i; i < legs.length; ++i) s += legs[i].amountIn;
     }
 
+    /// Where the Router refuses the plan, RouterE(8), by its own formulas on the reserves read
+    /// here. Hop 0 charges fee = ceil(c * 28 / 1e4) on the committed sum c (Router._chargeHopFee,
+    /// the one reader of the fee) and scales each leg to floor(leg.amountIn * min(m - fee, c) / c)
+    /// (Router._execute). Two refusals, both before a pair swaps and both pre-existing (the same
+    /// lines on e01b503, main):
+    ///   - the fee takes the order, fee >= m (Router._chargeHopFee): only m = 1 wei;
+    ///   - a leg's net input quotes 0 by the V2 formula (Router._execPairAmt: outAmt == 0). A leg
+    ///     scaled to 0 is skipped, not refused. At 1:1 this is 1 wei net (m = 2, fee 1): the
+    ///     Solver, which does not read the fee, quotes 2 wei for 1; the Router has 1 wei for 0.
+    /// Exact, not a dust threshold: c <= m (asserted before), so the Router's fee base min(m, c)
+    /// is c. Every leg scaled to 0 would refuse too (totalReceived == 0), but that needs two legs
+    /// of 1 wei at 1 wei net (m = 2), and the honest pool's 1 wei leg quotes 0, which the Solver
+    /// drops (Solver._split): not reachable here.
+    function _routerRefuses(RoutePlan memory plan, uint256 m) internal view returns (bool) {
+        uint256 c = _committed(plan);
+        uint256 fee = (c * 28 + 9_999) / 10_000;
+        if (fee >= m) return true;
+        uint256 net = m - fee < c ? m - fee : c;
+        Leg[] memory legs = plan.best.hops[0].legs;
+        for (uint256 i; i < legs.length; ++i) {
+            uint256 x = legs[i].amountIn * net / c;
+            if (x != 0 && _alone(MockV2Pair(legs[i].pool), x) == 0) return true;
+        }
+        return false;
+    }
+
     /// (ii) and (iii) on one order.
     function _routeAndPay(RoutePlan memory plan, uint256 m) internal {
         uint256 committed = _committed(plan);
@@ -159,15 +185,13 @@ contract FindingAnchorDonationTest is Test {
         assertLt(m - committed, m / 100 == 0 ? m : m / 100, "(ii) what no leg takes is under the probe");
         assertGe(plan.best.totalOut, _honestAlone(committed), "(ii) the route never pays less than the base alone");
         tokenA.mint(USER, m);
-        // The Router's fee on hop 0 is ceil(min(m, committed) * 28 / 1e4); where it takes the
-        // whole order nothing is left to swap and the Router refuses before a pool moves
-        // (BlazePhoenixRouter: feeH >= amountIn -> RouterE(8); only m = 1 wei). Pre-existing:
-        // the Router is untouched by ROUTEQ and the 1 wei plan is the same on 8c100b3.
-        if ((committed * 28 + 9_999) / 10_000 >= m) {
+        if (_routerRefuses(plan, m)) {
             vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 8));
             vm.prank(USER);
             router.swapExactIn(plan.best, m, 1, USER, block.timestamp + 1);
-            emit log_named_uint("router_refuses_a_fee_that_takes_the_order_m", m);
+            assertEq(tokenA.balanceOf(USER), m, "refused: the order stays with the user");
+            assertEq(tokenB.balanceOf(USER), 0, "refused: nothing delivered");
+            emit log_named_uint("router_refuses_nothing_left_for_a_pool_to_pay_m", m);
             return;
         }
         uint256 before = tokenB.balanceOf(USER);
@@ -248,6 +272,9 @@ contract FindingAnchorDonationTest is Test {
     /// dropped at its share and 2 wei left unrouted; (ii) now reads the committed sum (header).
     /// Seed 0xa2fa3a53edbbe778 failed (iii) at args=[2, 179, 1, true, 1717033926673775]: m = 1
     /// wei, whose fee is the whole order; `_routeAndPay` asserts the Router's refusal there.
+    /// CI run 43502199738 (584e547) failed (iii) at args=[193130785639724, 4, 2, false, 1270]: m = 2
+    /// wei, whose fee leaves 1 wei, which the pool pays nothing for; `_routerRefuses` derives both
+    /// refusals from the Router's formulas on the reserves read here (pre-existing on e01b503).
     /// forge-config: default.fuzz.runs = 1000
     function testFuzz_NoPoolCapturesTheAnchor(uint256 depth, uint8 bucket, uint256 rawM, bool above, uint256 donation)
         public
@@ -278,6 +305,27 @@ contract FindingAnchorDonationTest is Test {
         assertEq(plan.best.totalOut, 1, "oracle: depth 1e20 + 2, 997 * (depth / 2) / (depth / 4 * 1000 + 997) = 1");
         assertEq(tokenB.balanceOf(USER), 0, "refused: nothing delivered");
         assertEq(tokenA.balanceOf(USER), 1, "refused: the order stays with the user");
+    }
+
+    /// The third counterexample, pinned (CI run 43502199738 on 584e547; pre-existing, the same
+    /// plan and the same refusal on e01b503): depth binds to 9999999900000193130785639725, m = 2
+    /// wei below, probe 2 wei, where the honest pool quotes floor(1.994) = 1 and the attacker
+    /// floor(0.997) = 0: the honest pool is the one live row, a plan of 2 wei for 1. The fee,
+    /// ceil(2 * 28 / 1e4) = 1, is not the order (1 < 2), so the Router goes on with 1 wei, and
+    /// 1 wei at 1:1 quotes floor(997 D / (1000 D + 997)) = 0: refused before the pair swaps,
+    /// RouterE(8) (Router._execPairAmt, outAmt == 0), not the fee refusal of m = 1.
+    /// Mutant: Router._chargeHopFee with mulDiv for mulDivUp charges no fee at 2 wei and the
+    /// swap no longer ends in RouterE(8) (it ends in RouterE(15)): red.
+    function test_TwoWeiOrder_TheFeeLeavesOneWei_WhichThePoolPaysNothingFor_RouterRefuses() public {
+        RoutePlan memory plan = _noPoolCapturesTheAnchor(193130785639724, 4, 2, false, 1270);
+        assertEq(plan.best.hops[0].legs.length, 1, "one leg");
+        assertEq(plan.best.hops[0].legs[0].pool, address(honest), "the honest pool, the one live row");
+        assertEq(plan.best.hops[0].legs[0].amountIn, 2, "the whole order committed");
+        assertEq(plan.best.totalOut, 1, "oracle: 2 * 997 * D / (1000 D + 1994) = 1 at D = 9999999900000193130785639725");
+        assertEq(_alone(honest, 1), 0, "oracle: 1 wei net of the fee pays nothing at 1:1");
+        assertTrue(_routerRefuses(plan, 2), "oracle: the refusal is derived, not read from the Router");
+        assertEq(tokenB.balanceOf(USER), 0, "refused: nothing delivered");
+        assertEq(tokenA.balanceOf(USER), 2, "refused: the order stays with the user");
     }
 
     function _noPoolCapturesTheAnchor(uint256 depth, uint8 bucket, uint256 rawM, bool above, uint256 donation)
