@@ -7261,6 +7261,17 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='                if sgt(tick, 0) { r := div(not(0), r) } // t > 0: the inverse, 1 / sqrt(1.0001)^-t',
       new='                if sgt(tick, 1) { r := div(not(0), r) } // MUTANT',
       teste='test_TickMathCert_Q2_FromOneThrough443636'),
+ # PR #123 guard review: two Router guards that held with no mutant (test/Guards123.t.sol).
+ dict(nome="last leg: the clamp to the Router's holdings is gone (the last leg pushes its whole scaled share)",
+      f='src/BlazePhoenixRouter.sol',
+      old='                    if (remaining < scaledAmt) scaledAmt = remaining;',
+      new='                    if (remaining < scaledAmt) remaining = scaledAmt; // MUTANT',
+      teste='test_LastLegSpendsWhatTheRouterHolds_WhenTheInputShrinksBetweenLegs'),
+ dict(nome='permit2 door: the pull asks for the permit ceiling instead of amountIn',
+      f='src/BlazePhoenixRouter.sol',
+      old='            IPermit2.SignatureTransferDetails({ to: address(this), requestedAmount: amountIn }),',
+      new='            IPermit2.SignatureTransferDetails({ to: address(this), requestedAmount: permit.permitted.amount }), // MUTANT',
+      teste='test_Permit2PullsAmountInNotThePermitCeiling'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
