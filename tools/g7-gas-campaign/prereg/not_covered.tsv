@@ -1,0 +1,7 @@
+chain	scope	reason
+base	curve_crypto_ng	not covered: no pool in the inventory (absent, not zero)
+optimism	gates	not covered: no gate-family row in the inventory (absent, not zero)
+arbitrum	gates	not covered: no gate-family row in the inventory (absent, not zero)
+robinhood	gates	not covered: no gate-family row in the inventory (absent, not zero)
+ethereum	gates	not covered: no gate-family row in the inventory (absent, not zero)
+avalanche	algebra_integral	no_hint: pool is not customPoolByPair of the G7DeployAvax deployers (0x7789fa308147eae364e3bcfa35351f2b9e0bd012)

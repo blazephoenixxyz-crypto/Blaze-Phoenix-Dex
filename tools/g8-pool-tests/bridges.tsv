@@ -1,0 +1,22 @@
+chain	symbol	address	source
+base	WETH	0x4200000000000000000000000000000000000006	site_tokens.json (owner order 13/11: Base/OP/Arb = WETH, USDC, wstETH); G7Deploy.s.sol:_base hub.addBridge
+base	USDC	0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913	site_tokens.json; G7Deploy.s.sol:_base
+base	wstETH	0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452	site_tokens.json; G7Deploy.s.sol:_base
+optimism	WETH	0x4200000000000000000000000000000000000006	site_tokens.json; G7Deploy.s.sol:_optimism
+optimism	USDC	0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85	site_tokens.json; G7Deploy.s.sol:_optimism
+optimism	wstETH	0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb	site_tokens.json; G7Deploy.s.sol:_optimism
+arbitrum	WETH	0x82aF49447D8a07e3bd95BD0d56f35241523fBab1	site_tokens.json; G7Deploy.s.sol:_arbitrum
+arbitrum	USDC	0xaf88d065e77c8cC2239327C5EDb3A432268e5831	site_tokens.json; G7Deploy.s.sol:_arbitrum
+arbitrum	wstETH	0x5979D7b546E38E414F7E9822514be443A4800529	site_tokens.json; G7Deploy.s.sol:_arbitrum
+robinhood	WETH	0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73	site_tokens.json (owner order 13/11: RH = WETH, USDG, VIRTUAL); G7Deploy.s.sol:_robinhood bridge 0
+robinhood	USDG	0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168	site_tokens.json; G7Deploy.s.sol:_robinhood bridge 1
+robinhood	VIRTUAL	0xc6911796042b15d7fa4f6cde69e245ddcd3d9c31	pool token of the G7 inventory (18 decimals; owner decision 13/11: RH = WETH, USDG, VIRTUAL); G7Deploy.s.sol:_robinhood bridge 2 + prereg/wiring.tsv addBridge row (state/robinhood.state.json predates it: rebuild with deploy_state.sh before measuring)
+avalanche	WAVAX	0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7	G7DeployAvax.s.sol:27,73 hub.addBridge (bridge 0); word present in state/avalanche.state.json
+avalanche	USDC	0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E	G7DeployAvax.s.sol:28,73 (bridge 1); word present in state/avalanche.state.json
+avalanche	BTC.b	0x152b9d0FdC40C096757F570A51E494bd4b943E50	G7DeployAvax.s.sol:29,73 (bridge 2); word present in state/avalanche.state.json
+bsc	WBNB	0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c	G7DeployBsc.s.sol:21,43 hub.addBridge (bridge 0); word present in state/bsc.state.json
+bsc	USDT	0x55d398326f99059fF775485246999027B3197955	G7DeployBsc.s.sol:22,43 (bridge 1); word present in state/bsc.state.json
+bsc	USDC	0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d	G7DeployBsc.s.sol:23,43 (bridge 2); word present in state/bsc.state.json
+ethereum	WETH	0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2	site_tokens.json (owner order 13/11: ETH = WETH, USDC, USDT); G7Deploy.s.sol:_ethereum hub.addBridge + prereg/wiring.tsv addBridge rows (added 13/11; state/ethereum.state.json predates them: rebuild with deploy_state.sh before measuring)
+ethereum	USDC	0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48	site_tokens.json; G7Deploy.s.sol:_ethereum (bridge 1, pending state rebuild)
+ethereum	USDT	0xdAC17F958D2ee523a2206206994597C13D831ec7	site_tokens.json; G7Deploy.s.sol:_ethereum (bridge 2, pending state rebuild)
