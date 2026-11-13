@@ -683,6 +683,32 @@ class MsCase(unittest.TestCase):
         self.assertIn("base\tpairs\texpired\tg_exec\t1\t310000\t310000", report_lines(rows))
 
 
+class ReportSplit(unittest.TestCase):
+    """cmd_report: the exec split (legs / DEX overhead / record fraction) and the moonslot effect
+    (D vs each natural mode) tables."""
+    def rows(self):
+        return [okrow("D", swept=1, g_discovery=1700000, g_quote=2000000), okrow("M0", g_quote=1000000),
+                okrow("M0", g_exec=320000, g_record=32000, g_quote=1100000),
+                okrow("M1h", swept=1, g_discovery=1500000, g_quote=1900000, outcome="revert"),
+                okrow("M1h", kind="major", g_exec=400000, g_legs_sum=250000, g_record=40000, g_quote=1800000)]
+
+    # Mutants: dex_overhead = g_exec + g_legs_sum; rec_frac = g_record / g_legs_sum.
+    def test_exec_split_per_chain_kind(self):
+        lines = report_lines(self.rows())
+        self.assertIn("# exec split: chain\tkind\tn_ok\tlegs_p50\tlegs_p95\tdex_overhead_p50\tdex_overhead_p95\trec_frac_p50\trec_frac_p95", lines)
+        # pairs: ok rows D, M0, M0 (the revert is out): legs 200000 x3; overhead 100000, 100000, 120000; rec 0.1, 0.1, 0.1
+        self.assertIn("base\tpairs\t3\t200000\t200000\t100000\t120000\t0.1\t0.1", lines)
+        self.assertIn("base\tmajor\t1\t250000\t250000\t150000\t150000\t0.1\t0.1", lines)
+
+    # Mutant: the moonslot effect table over every row (the revert row joins M1h g_quote).
+    def test_moonslot_effect_D_vs_each_natural_mode(self):
+        lines = report_lines(self.rows())
+        self.assertIn("# moonslot effect: chain\tsegment\tD_n\tD_p50\tD_p95\tM0_n\tM0_p50\tM0_p95\tM1h_n\tM1h_p50\tM1h_p95", lines)
+        self.assertIn("base\tg_quote\t1\t2000000\t2000000\t2\t1000000\t1100000\t1\t1800000\t1800000", lines)
+        self.assertIn("base\tg_discovery\t1\t1700000\t1700000\t2\t0\t0\t1\t0\t0", lines)
+        self.assertFalse([l for l in lines if l.startswith("base\tg_quote\t") and "MF1h" in l])
+
+
 class AcceptFams(unittest.TestCase):
     """deploy_state.sh accepts phase A's families (avalanche 1..4) AND the prereg ones."""
     def fams(self, chain, pre):

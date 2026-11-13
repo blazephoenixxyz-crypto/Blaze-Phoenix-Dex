@@ -64,6 +64,9 @@ M = [  # (test id, old, new)
  ("MsCase.test_cases", '    if int(row.get("g_discovery") or 0) > 0:\n        return "partial"\n', ""),
  ("MsCase.test_cases", "int(age) > ttl", "int(age) >= ttl"),
  ("MsCase.test_measure_draw_sets_the_case", '        row["ms_case"] = ms_case(row)\n', ""),
+ ("ReportSplit.test_exec_split_per_chain_kind", 'return int(r["g_exec"]) - int(r["g_legs_sum"])', 'return int(r["g_exec"]) + int(r["g_legs_sum"])'),
+ ("ReportSplit.test_exec_split_per_chain_kind", 'return round(int(r["g_record"]) / int(r["g_exec"]), 4)', 'return round(int(r["g_record"]) / int(r["g_legs_sum"]), 4)'),
+ ("ReportSplit.test_moonslot_effect_D_vs_each_natural_mode", 'r["mode"] == m and r["outcome"] == "ok" and r.get(s) not in ("", None)]', 'r["mode"] == m and r.get(s) not in ("", None)]'),
  ("MsCase.test_report_table_per_chain_kind_case", 'for r in rows if r["outcome"] == "ok" and r["ms_case"]})', 'for r in rows if r["ms_case"]})'),
 ]
 # Draws.test_strata_streams: the mutant is one rng per chain, defined before the strata loop

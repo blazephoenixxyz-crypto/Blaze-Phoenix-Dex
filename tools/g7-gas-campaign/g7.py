@@ -875,6 +875,25 @@ def cmd_report(spec_path, out_path):
         for s in SPLIT_SEGS:
             v = [x for x in (split_value(r, s) for r in rs) if x is not None]
             print("\t".join(k) + f"\t{s}\t{len(v)}\t{pct(v, 50) if v else ''}\t{pct(v, 95) if v else ''}")
+    print("# exec split: chain\tkind\tn_ok\tlegs_p50\tlegs_p95\tdex_overhead_p50\tdex_overhead_p95\trec_frac_p50\trec_frac_p95")
+    for k in sorted({(r["chain"], r["kind"]) for r in rows}):
+        rs = [r for r in rows if (r["chain"], r["kind"]) == k and r["outcome"] == "ok"]
+        cells = []
+        for s in ("g_legs_sum", "dex_overhead", "rec_frac"):
+            v = [x for x in (split_value(r, s) for r in rs) if x is not None]
+            cells += [pct(v, 50), pct(v, 95)] if v else ["", ""]
+        if rs:
+            print("\t".join(k) + f"\t{len(rs)}\t" + "\t".join(str(c) for c in cells))
+    nat = [m for m, _, forced in modes(spec) if not forced]
+    print("# moonslot effect: chain\tsegment\t" + "\t".join(f"{m}_n\t{m}_p50\t{m}_p95" for m in nat))
+    for cn in spec["chains"]:
+        for s in ("g_quote", "g_exec", "g_discovery"):
+            cells = []
+            for m in nat:
+                v = [int(r[s]) for r in rows if r["chain"] == cn and r["mode"] == m and r["outcome"] == "ok" and r.get(s) not in ("", None)]
+                cells += [len(v), pct(v, 50), pct(v, 95)] if v else [0, "", ""]
+            if any(c for c in cells):
+                print(f"{cn}\t{s}\t" + "\t".join(str(c) for c in cells))
     print("# moonslot vs Discovery vs market: chain\tmode\tn_ok\tswept\tfits_2_10\tvsD_p50_bps\tvsmid_p50_bps\tvsmid_net_p50_bps\tlabel")
     for cn in spec["chains"]:
         for m, _, _ in modes(spec):
