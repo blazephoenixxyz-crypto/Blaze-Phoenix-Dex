@@ -709,6 +709,35 @@ class ReportSplit(unittest.TestCase):
         self.assertFalse([l for l in lines if l.startswith("base\tg_quote\t") and "MF1h" in l])
 
 
+def workflow_text():
+    """The campaign workflow: a copy next to this file (the mutant runner) or the repo's."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for p in (os.path.join(here, "g7-gas-campaign.yml"), os.path.join(here, "..", "..", ".github", "workflows", "g7-gas-campaign.yml")):
+        if os.path.exists(p):
+            return open(p).read()
+    raise FileNotFoundError("g7-gas-campaign.yml")
+
+
+class Universe(unittest.TestCase):
+    """The workflow's `universe` input picks the spec (prereg/spec.json or site/spec.json) for the
+    measure, the smoke and the report alike."""
+    def test_universe_input_and_spec_branch(self):
+        y = workflow_text()
+        self.assertIn("      universe:\n", y)
+        self.assertIn("        options: [prereg, site]\n", y)
+        self.assertIn("        default: prereg\n", y)
+        # mutant (yml): the site branch of the run step removed (the site universe would measure spec.json)
+        run, report = y.split("      - name: Join and report")
+        self.assertEqual(run.count('[ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"'), 1)
+        self.assertIn('measure "$SPEC" "$D/state"', run)
+        self.assertIn('smoke "$SPEC" "$D/state"', run)
+        self.assertNotIn('"$D/spec.json" "$D/state"', run)
+        # mutant (yml): the report takes spec.json whatever the universe (liq_usd and strata of the wrong spec)
+        self.assertEqual(report.count('[ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"'), 1)
+        self.assertIn('report "$SPEC" out/results.tsv', report)
+        self.assertEqual(y.count("UNIVERSE: ${{ github.event_name == 'workflow_dispatch' && inputs.universe || 'prereg' }}"), 2)
+
+
 class AcceptFams(unittest.TestCase):
     """deploy_state.sh accepts phase A's families (avalanche 1..4) AND the prereg ones."""
     def fams(self, chain, pre):

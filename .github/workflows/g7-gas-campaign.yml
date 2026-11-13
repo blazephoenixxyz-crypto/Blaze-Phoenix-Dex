@@ -18,6 +18,12 @@ on:
         description: "comma-separated subset (empty = every chain of spec.json)"
         required: false
         default: ""
+      universe:
+        description: "prereg (spec.json) or site (site/spec.json: the site's token list, built with build_spec.py --universe)"
+        required: false
+        default: prereg
+        type: choice
+        options: [prereg, site]
   push:
     branches: [selar-G7]
     paths: ["tools/g7-gas-campaign/**", ".github/workflows/g7-gas-campaign.yml"]
@@ -78,6 +84,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           INPUT_MODE: ${{ inputs.mode }}
           CHAINS: ${{ github.event_name == 'workflow_dispatch' && inputs.chains || '' }}
+          UNIVERSE: ${{ github.event_name == 'workflow_dispatch' && inputs.universe || 'prereg' }}
           CHAIN: ${{ matrix.chain }}
         run: |
           set -euo pipefail
@@ -98,11 +105,14 @@ jobs:
           pip install requests==2.32.3
           D=tools/g7-gas-campaign
           OUT="out/results-$CHAIN.tsv"
+          # the universe picks the spec; prereg/strata.tsv (liq_usd) is read next to the chosen spec
+          SPEC="$D/spec.json"
+          [ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"
           if [ "$MODE" = measure ]; then
             SEED=$(cat "$D/seed.txt")
-            python3 -I "$D/g7.py" measure "$D/spec.json" "$D/state" "$OUT" "$SEED" -j 2 --chains "$CHAIN"
+            python3 -I "$D/g7.py" measure "$SPEC" "$D/state" "$OUT" "$SEED" -j 2 --chains "$CHAIN"
           else
-            python3 -I "$D/g7.py" smoke "$D/spec.json" "$D/state" "$OUT" --chains "$CHAIN"
+            python3 -I "$D/g7.py" smoke "$SPEC" "$D/state" "$OUT" --chains "$CHAIN"
           fi
           rm -f "$DRPC_KEY_FILE"
           # a non-empty sample is the only green: count the data rows
@@ -142,9 +152,14 @@ jobs:
           path: legs
           merge-multiple: true
       - name: Join and report
+        env:
+          UNIVERSE: ${{ github.event_name == 'workflow_dispatch' && inputs.universe || 'prereg' }}
         run: |
           set -euo pipefail
           mkdir -p out
+          D=tools/g7-gas-campaign
+          SPEC="$D/spec.json"
+          [ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"
           shopt -s nullglob
           F=(legs/results-*.tsv)
           if [ "${#F[@]}" -eq 0 ]; then echo "::error::no leg produced results"; exit 1; fi
@@ -154,7 +169,7 @@ jobs:
             tail -n +2 "$f" >> out/results.tsv
           done
           pip install requests==2.32.3
-          python3 -I tools/g7-gas-campaign/g7.py report tools/g7-gas-campaign/spec.json out/results.tsv > out/report.tsv
+          python3 -I "$D/g7.py" report "$SPEC" out/results.tsv > out/report.tsv
           echo "legs: ${#F[@]}; rows: $(($(wc -l < out/results.tsv) - 1))"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

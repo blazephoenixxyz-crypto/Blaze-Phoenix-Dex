@@ -67,6 +67,8 @@ M = [  # (test id, old, new)
  ("ReportSplit.test_exec_split_per_chain_kind", 'return int(r["g_exec"]) - int(r["g_legs_sum"])', 'return int(r["g_exec"]) + int(r["g_legs_sum"])'),
  ("ReportSplit.test_exec_split_per_chain_kind", 'return round(int(r["g_record"]) / int(r["g_exec"]), 4)', 'return round(int(r["g_record"]) / int(r["g_legs_sum"]), 4)'),
  ("ReportSplit.test_moonslot_effect_D_vs_each_natural_mode", 'r["mode"] == m and r["outcome"] == "ok" and r.get(s) not in ("", None)]', 'r["mode"] == m and r.get(s) not in ("", None)]'),
+ ("Universe.test_universe_input_and_spec_branch", '          [ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"\n          if [ "$MODE" = measure ]; then', '          if [ "$MODE" = measure ]; then', "g7-gas-campaign.yml"),
+ ("Universe.test_universe_input_and_spec_branch", 'report "$SPEC" out/results.tsv', 'report "$D/spec.json" out/results.tsv', "g7-gas-campaign.yml"),
  ("MsCase.test_report_table_per_chain_kind_case", 'for r in rows if r["outcome"] == "ok" and r["ms_case"]})', 'for r in rows if r["ms_case"]})'),
 ]
 # Draws.test_strata_streams: the mutant is one rng per chain, defined before the strata loop
@@ -75,6 +77,7 @@ for tid, old, new, *tgt in M:
     d = tempfile.mkdtemp()
     for f in ("g7.py", "test_g7.py", "deploy_state.sh"):
         shutil.copy(os.path.join(SRC, f), d)
+    shutil.copy(os.path.join(SRC, "..", "..", ".github", "workflows", "g7-gas-campaign.yml"), d)
     p = os.path.join(d, tgt[0] if tgt else "g7.py"); s = open(p).read()
     if s.count(old) != 1:
         print("BADPAT", tid, s.count(old)); fail += 1; continue
