@@ -61,6 +61,10 @@ M = [  # (test id, old, new)
  ("SeedOks.test_decode_bools", "for i in range(int(d[o:o + 64], 16))]", "for i in range(int(d[o:o + 64], 16) - 1)]"),
  ("MeasureDraw.test_mf_without_stamp_is_mf_unforced", "seeds_ok=sum(oks), seeds_n=len(oks)", "seeds_ok=len(oks), seeds_n=len(oks)"),
  ("Draws.test_native_sentinel_is_drawn_as_the_wrapped_token", "if int(t, 16) == 0 else t", "if False else t"),
+ ("MsCase.test_cases", '    if int(row.get("g_discovery") or 0) > 0:\n        return "partial"\n', ""),
+ ("MsCase.test_cases", "int(age) > ttl", "int(age) >= ttl"),
+ ("MsCase.test_measure_draw_sets_the_case", '        row["ms_case"] = ms_case(row)\n', ""),
+ ("MsCase.test_report_table_per_chain_kind_case", 'for r in rows if r["outcome"] == "ok" and r["ms_case"]})', 'for r in rows if r["ms_case"]})'),
 ]
 # Draws.test_strata_streams: the mutant is one rng per chain, defined before the strata loop
 fail = 0

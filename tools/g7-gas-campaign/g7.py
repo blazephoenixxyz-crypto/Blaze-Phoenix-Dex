@@ -49,6 +49,8 @@ SEL = {
 PROTOCOL_FEE_BPS = 28  # src/BlazePhoenixCore.sol:420
 ERROR_SEL = "08c379a0"  # Error(string)
 NQ_CLASSES = ("S", "dust", "A", "A'", "B")  # noquote classes, classify_rows()
+MS_CASES = ("D", "hit", "partial", "miss", "expired")  # where the route came from, ms_case()
+SPLIT_SEGS = ("g_quote", "g_exec", "g_legs_sum", "dex_overhead", "g_record")  # the ms_case table
 LEG_SELS = {SEL["v2swap"], SEL["v3swap"], SEL["unlock"]}
 GAS = hex(30_000_000)
 CALLER = "0x000000000000000000000000000000000000dEaD"
@@ -60,7 +62,7 @@ COLS = ["chain", "label", "max_hops_code", "stratum", "kind", "idx", "b", "ts_b"
         "hops", "legs", "fits_2_10", "est_gas", "g_quote", "g_solve", "g_discovery", "g_discovery_bridge", "g_gates", "g_exec",
         "g_legs_sum", "legs_detail", "g_sweep", "g_record", "cd_bytes", "cd_zero", "cd_intrinsic", "cd_floor7623",
         "g_cold", "g_warm", "g_coldpart", "al_src", "delivered", "out_vs_D_bps", "mid", "out_vs_mid_bps",
-        "pool_fee_bps", "vs_mid_net_bps", "liq_usd", "nq_class", "g_quote_cap",
+        "pool_fee_bps", "vs_mid_net_bps", "liq_usd", "nq_class", "g_quote_cap", "ms_case",
         "gate_used", "vital_v", "vital_depth18", "vital_psi"]
 TTL = 3600  # Solver DISCOVERY_TTL_SECONDS (src/BlazePhoenixSolver.sol:133)
 
@@ -700,6 +702,7 @@ def measure_draw(ch, d, done):
                 row["out_vs_mid_bps"] = bps(int(row["delivered"]), d["amount"] * mid)
                 if row.get("pool_fee_bps") not in ("", None):
                     row["vs_mid_net_bps"] = row["out_vs_mid_bps"] + row["pool_fee_bps"] + PROTOCOL_FEE_BPS
+        row["ms_case"] = ms_case(row)
         rows.append(row)
     return rows
 
@@ -746,6 +749,40 @@ def classify_rows(rows, liq=None):
         else:
             r["nq_class"] = "B"
     return rows
+
+
+def ms_case(row, ttl=TTL):
+    """Where the quote's route came from (pure). D = the Discovery mode. For a moonslot row:
+    expired when the record is older than the TTL (age_real_s > ttl; a forced stamp, MF, is fresh
+    by construction); miss when the quote swept the measured pair (nothing came from the record);
+    partial when it did not sweep but still paid discovery gas (record + residual g_discovery > 0);
+    hit when no discovery ran. "" when the quote did not run (no swept)."""
+    mode = row.get("mode", "")
+    if mode == "D":
+        return "D"
+    if row.get("swept") in ("", None):
+        return ""
+    age = row.get("age_real_s", "")
+    if not mode.startswith("MF") and age not in ("", None) and int(age) > ttl:
+        return "expired"
+    if int(row["swept"]) == 1:
+        return "miss"
+    if int(row.get("g_discovery") or 0) > 0:
+        return "partial"
+    return "hit"
+
+
+def split_value(r, s):
+    """One value of the exec split for a row (None when a term is absent): dex_overhead =
+    g_exec - g_legs_sum (the Router, Hub and record above the legs), rec_frac = g_record / g_exec."""
+    try:
+        if s == "dex_overhead":
+            return int(r["g_exec"]) - int(r["g_legs_sum"])
+        if s == "rec_frac":
+            return round(int(r["g_record"]) / int(r["g_exec"]), 4)
+        return int(r[s])
+    except (KeyError, ValueError, ZeroDivisionError):
+        return None
 
 
 def load_liq(spec_path):
@@ -829,6 +866,15 @@ def cmd_report(spec_path, out_path):
         rs = [r for r in rows if (r["chain"], r["kind"], r["mode"]) == k and r["outcome"] == "noquote"]
         if rs:
             print("\t".join(k) + f"\t{len(rs)}\t" + "\t".join(str(sum(r["nq_class"] == c for r in rs)) for c in NQ_CLASSES))
+    for r in rows:
+        if not r.get("ms_case"):  # a results.tsv from before the column
+            r["ms_case"] = ms_case(r)
+    print("# moonslot cases: chain\tkind\tms_case\tsegment\tn\tp50\tp95")
+    for k in sorted({(r["chain"], r["kind"], r["ms_case"]) for r in rows if r["outcome"] == "ok" and r["ms_case"]}):
+        rs = [r for r in rows if (r["chain"], r["kind"], r["ms_case"]) == k and r["outcome"] == "ok"]
+        for s in SPLIT_SEGS:
+            v = [x for x in (split_value(r, s) for r in rs) if x is not None]
+            print("\t".join(k) + f"\t{s}\t{len(v)}\t{pct(v, 50) if v else ''}\t{pct(v, 95) if v else ''}")
     print("# moonslot vs Discovery vs market: chain\tmode\tn_ok\tswept\tfits_2_10\tvsD_p50_bps\tvsmid_p50_bps\tvsmid_net_p50_bps\tlabel")
     for cn in spec["chains"]:
         for m, _, _ in modes(spec):

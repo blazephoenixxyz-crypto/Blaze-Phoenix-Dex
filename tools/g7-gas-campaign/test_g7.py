@@ -607,6 +607,82 @@ class Vital(unittest.TestCase):
             self.assertEqual(rpc.calls, [])
 
 
+def report_lines(rows, spec=None):
+    """cmd_report over a results.tsv of `rows` (COLS, missing cells empty) and `spec`; the printed lines."""
+    import contextlib
+    import io
+    import json
+    d = tempfile.mkdtemp()
+    sp, out = os.path.join(d, "spec.json"), os.path.join(d, "results.tsv")
+    json.dump(spec or SPEC, open(sp, "w"))
+    with open(out, "w") as f:
+        f.write("\t".join(g7.COLS) + "\n")
+        for r in rows:
+            f.write("\t".join(str(r.get(k, "")) for k in g7.COLS) + "\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        g7.cmd_report(sp, out)
+    return buf.getvalue().split("\n")
+
+
+def okrow(mode, kind="pairs", chain="base", **kw):
+    r = {"chain": chain, "label": "L", "stratum": "s1", "kind": kind, "idx": 1, "mode": mode, "tin": A1, "tout": A2,
+         "amount_in": 2, "outcome": "ok", "swept": 0, "g_quote": 2000000, "g_discovery": 0, "g_exec": 300000,
+         "g_legs_sum": 200000, "g_record": 30000, "age_real_s": 10, "net_out": 1000, "delivered": 1000}
+    r.update(kw)
+    return r
+
+
+class MsCase(unittest.TestCase):
+    """ms_case: where a quote's route came from (D / hit / partial / miss / expired)."""
+    def case(self, mode, swept=0, disc=0, age=10):
+        return g7.ms_case({"mode": mode, "swept": swept, "g_discovery": disc, "age_real_s": age})
+
+    # Mutants: `if int(row.get("g_discovery") or 0) > 0: return "partial"` dropped (partial folded
+    # into hit); `int(age) > ttl` -> `>=` (a record exactly at the TTL counted as expired).
+    def test_cases(self):
+        self.assertEqual(self.case("D", swept=1, disc=1700000), "D")
+        self.assertEqual(self.case("M0"), "hit")
+        self.assertEqual(self.case("M0", disc=500), "partial")
+        self.assertEqual(self.case("M1h", swept=1, disc=1700000, age=g7.TTL), "miss")  # at the TTL: still live
+        self.assertEqual(self.case("M1h", swept=1, disc=1700000, age=g7.TTL + 1), "expired")
+        self.assertEqual(self.case("M1h", age=g7.TTL + 1), "expired")  # age decides, even without a sweep
+        self.assertEqual(self.case("MF1h", age=g7.TTL + 1), "hit")  # a forced stamp is fresh by construction
+        self.assertEqual(g7.ms_case({"mode": "M0", "outcome": "prereq"}), "")  # the quote did not run
+        self.assertEqual(g7.ms_case({"mode": "M0", "swept": "0", "g_discovery": "", "age_real_s": "10"}), "hit")  # tsv strings
+
+    # Mutant: `row["ms_case"] = ms_case(row)` removed from measure_draw.
+    def test_measure_draw_sets_the_case(self):
+        seeded = lambda age: (400, MeasureDraw.TSB - age, {}, {"0x1": "0x" + wd(MeasureDraw.TSB - age)}, [True])  # noqa: E731
+        mm = lambda m: {"outcome": "ok", "swept": 0, "g_discovery": 0 if m == "M0" else 7, "net_out": 1, "delivered": 1}  # noqa: E731
+        with mock.patch.object(g7, "seed_memory", lambda ch, d, age, ts_b: seeded(age)), \
+                mock.patch.object(g7, "measure_mode", lambda ch, d, ts_b, m, h: mm(m)), \
+                mock.patch.object(g7, "mid_price", lambda ch, d: ""), mock.patch.object(g7, "vital", lambda ch, d: {}):
+            rows = {r["mode"]: r for r in g7.measure_draw(FakeChain(MeasureDraw.TSB, 0), draw(), {})}
+        self.assertEqual({m: r["ms_case"] for m, r in rows.items()}, {"D": "D", "M0": "hit", "M1h": "partial", "MF1h": "partial"})
+        self.assertIn("ms_case", g7.COLS)
+
+    # Mutant: the ok filter of the table dropped (`and r["ms_case"]` alone): a noquote row with a
+    # quote trace joins the hit cell.
+    def test_report_table_per_chain_kind_case(self):
+        rows = [okrow("D", swept=1, g_discovery=1700000), okrow("M0"), okrow("M0", g_exec=320000),
+                okrow("M0", outcome="noquote", g_exec="", g_legs_sum="", g_record=""),
+                okrow("M1h", swept=1, g_discovery=1700000, age_real_s=g7.TTL + 1, g_exec=310000)]
+        for r in rows:
+            r["ms_case"] = g7.ms_case(r)
+        lines = report_lines(rows)
+        self.assertIn("# moonslot cases: chain\tkind\tms_case\tsegment\tn\tp50\tp95", lines)
+        self.assertIn("base\tpairs\thit\tg_quote\t2\t2000000\t2000000", lines)
+        self.assertIn("base\tpairs\thit\tdex_overhead\t2\t100000\t120000", lines)
+        self.assertIn("base\tpairs\thit\tg_record\t2\t30000\t30000", lines)
+        self.assertIn("base\tpairs\texpired\tg_exec\t1\t310000\t310000", lines)
+        self.assertIn("base\tpairs\tD\tg_legs_sum\t1\t200000\t200000", lines)
+        # a results.tsv from before the column is classified on the fly
+        for r in rows:
+            r["ms_case"] = ""
+        self.assertIn("base\tpairs\texpired\tg_exec\t1\t310000\t310000", report_lines(rows))
+
+
 class AcceptFams(unittest.TestCase):
     """deploy_state.sh accepts phase A's families (avalanche 1..4) AND the prereg ones."""
     def fams(self, chain, pre):
