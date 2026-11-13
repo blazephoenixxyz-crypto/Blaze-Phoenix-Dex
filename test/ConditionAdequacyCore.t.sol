@@ -38,6 +38,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {CoreHarness} from "./mocks/CoreHarness.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
+import {SwapMathRef} from "./vendor/SwapMathRef.sol";
 import {
     AlgebraDeployerFactory,
     DialectFactory,
@@ -220,7 +221,8 @@ contract ConditionAdequacyCoreTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Core:1097  outV3 zeroForOne: `sqrtNew >= P || sqrtNew == 0`
+    //  outV3: the room check `zeroForOne ? target >= sqrtP : target <= sqrtP`
+    //  (until 2026-11-13 the zeroForOne arm `sqrtNew >= P || sqrtNew == 0`)
     // ─────────────────────────────────────────────────────────────────────────
 
     /// `sqrtNew >= P` arm. mulDiv floors, so sqrtNew <= P always; the arm only
@@ -229,6 +231,8 @@ contract ConditionAdequacyCoreTest is Test {
     /// swap falls into the clamp, sqrtNew is lifted past P, and P - sqrtNew
     /// underflows. Intact, the dust swap is refused with 0 before the clamp.
     /// No caller in src passes a limit at all, so nothing ever watched this.
+    /// Since 2026-11-13 outV3 is the pool's step and the room check answers the
+    /// same call: a falling swap whose limit sits above P has no room to trade.
     function test_OutV3_DustInputWithHighLimitIsZeroNotUnderflow() public pure {
         assertEq(
             BPC.outV3(1, uint160(BPC.Q96 / 2), 1e18, 0, true, uint160(BPC.Q96 / 2 + 1000)),
@@ -237,16 +241,23 @@ contract ConditionAdequacyCoreTest is Test {
         );
     }
 
-    /// `sqrtNew == 0` arm. sqrtNew rounds to zero when L*P < L + product —
-    /// an enormous input against dust L*P. Neutralised, the fall-through
-    /// computes mulDiv(L, P - 0, Q96): the ENTIRE virtual reserve (1000 here),
-    /// promised by a pool that was actually exhausted. Fuzz bounds
-    /// (L >= 1e15, P >= Q96/4) keep every existing test out of this regime.
-    function test_OutV3_PriceCollapseToZeroQuotesZeroNotWholeReserve() public pure {
-        // L = 1, P = 1000*Q96, ain = 2*Q96 -> product = 2000*Q96 >> L*P/…
-        // -> sqrtNew = floor(1000*Q96 / (2000*Q96 + 1)) = 0.
-        assertEq(BPC.outV3(2 * BPC.Q96, uint160(1000 * BPC.Q96), 1, 0, true, 0), 0,
-            "a swap that collapses the price must quote 0, never L*P/Q96");
+    /// The old `sqrtNew == 0` arm (until 2026-11-13): an enormous input against dust
+    /// L*P floored the new price to zero, and the arm quoted 0 so the fall-through
+    /// could not promise mulDiv(L, P - 0, Q96), the ENTIRE virtual reserve (1000 here).
+    /// Since then outV3 is the pool's step, and the pool's price never collapses: the
+    /// swap stops at the bound a swap may reach (MIN_SQRT_PRICE + 1), having spent
+    /// what reaching it costs, and pays L * (P - bound) / Q96 rounded down = 999.
+    /// The quote is that step to the wei, and still under the whole reserve.
+    function test_OutV3_PriceCollapseQuotesThePoolsStepNotWholeReserve() public pure {
+        // L = 1, P = 1000*Q96, ain = 2*Q96: reaching MIN_SQRT_PRICE + 1 costs about
+        // Q96 / 4.3e9 = 1.8e19 < ain, so the step ends at the bound.
+        uint160 p = uint160(1000 * BPC.Q96);
+        uint256 q = BPC.outV3(2 * BPC.Q96, p, 1, 0, true, 0);
+        (uint160 next,, uint256 poolOut,) = SwapMathRef.computeSwapStep(p, 4295128740, 1, int256(2 * BPC.Q96), 0);
+        assertEq(next, 4295128740, "the pool's step ends at the price bound");
+        assertEq(q, poolOut, "a swap that would collapse the price quotes the pool's step");
+        assertEq(q, 999, "the pool's step pays L * (P - bound) / Q96, rounded down");
+        assertLt(q, 1000, "never the whole virtual reserve L * P / Q96");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
