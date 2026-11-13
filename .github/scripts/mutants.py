@@ -7307,7 +7307,31 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        return (out < f ? out : f, left);\n',
       new='        return (out, left); // MUTANT\n',
       teste='test_ABookThatThickensPastTheCutIsPromisedNoMoreThanTheBand'),
+ # ── THE EXACT DOOR FOLLOWS THE FEE CALENDAR (Base fork USDC->DAI, 2026-11-13) ──
+ dict(nome='door-fee [door-fee-1]: a single hop is deducted on its output whatever the calendar says (the rule before 2026-11-13: the funded figure only bounds it)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        exactOut = funded != type(uint256).max\n',
+      new='        exactOut = route.hops.length > 1 // MUTANT [door-fee-1]\n',
+      teste='test_OneHop_InputCharged_ThinBook_6to18_DeliveredIsExactOut'),
+ dict(nome='door-fee [door-fee-2]: the output deduction is applied on every route, the input-charged ones included',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            ? gross // input-charged: the fee came off `carry` in the loop, or `funded` bounds below\n',
+      new='            ? gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS) // MUTANT [door-fee-2]\n',
+      teste='test_OneHop_InputCharged_ThinBook_18to6_DeliveredIsExactOut'),
+ dict(nome="door-fee [door-fee-3]: _fundedOut answers no bound for every calendar, so the pin between the two producers never fires",
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (feeOnOut) return type(uint256).max;\n',
+      new='        if (feeOnOut || !feeOnOut) return type(uint256).max; // MUTANT [door-fee-3]\n',
+      teste='test_OneHop_InputCharged_V2Pair_DeliveredIsExactOut'),
 ]
+# [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
+# asks the exact door for 1 bps of the delivery in the same block; its offline twin
+# (test/ExactDoorFollowsTheFeeCalendar.t.sol) asks for equality. The fork row skips without DRPC_KEY,
+# so no mutant of it can be killed here: this tripwire refuses a widened fork tolerance instead.
+_FORK_ROW = "test/fork/FidelityMatrix.t.sol"
+if os.path.exists(_FORK_ROW) and "assertLe((entregue - exactOut) * 10_000, exactOut," not in open(_FORK_ROW).read():
+    sys.exit("[door-fee-meta] " + _FORK_ROW + ": the exact-door row no longer asks for 1 bps; "
+             "the offline twin test/ExactDoorFollowsTheFeeCalendar.t.sol asserts equality")
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
 # after it), and a mutant that only costs gas fails nothing but that comparison. So every run checks
