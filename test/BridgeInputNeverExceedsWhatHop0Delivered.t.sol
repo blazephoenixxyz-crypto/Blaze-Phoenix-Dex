@@ -25,6 +25,12 @@ pragma solidity 0.8.36;
 // (fix-4111-fu, 2026-11-13): the in-leg restatement-up tests; the in-leg controls hold on both
 // sides of the fix.
 //
+// 4111/D1 (input): the tokenIn sweep (`residIn - baseIn`) and the cyclic refund
+// (`resid0 - baseIn`) had the bridge sweep's shape: a restatement of tokenIn fired inside a leg
+// window paid the payer F*(k-1) of the stranded input. Both now pay no more than hop 0 left
+// unspent. Red at the bridge fix (fix-4111-fu, 2026-11-13): the in-leg input tests; the input
+// controls hold on both sides of the fix.
+//
 // forge test --match-path test/BridgeInputNeverExceedsWhatHop0Delivered.t.sol -vv
 
 import {Test} from "forge-std/Test.sol";
@@ -167,7 +173,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
     ///         input). `foreign` B shares sit on the Router before the swap. `when` picks the
     ///         window of the x2 restatement of B: 0 none, 1 the hop-0 fee push (A lands on T1,
     ///         a hooked tokenIn), 2 the hop-1 fee push (B lands on T1). Hop 1 is attested at the
-    ///         figure the unfixed Router measured, so the unfixed swap settles at scale 1.
+    ///         figure the pre-fix Router measured, so the pre-fix swap settles at scale 1.
     function _run(uint256 foreign, uint8 when) internal returns (Run memory res) {
         return _runAt(foreign, when, 2, 1);
     }
@@ -189,7 +195,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         tA.approve(address(router), type(uint256).max);
 
         uint256 d = _quoteV2(pairAB, address(tA), amtIn - BPC.mulDivUp(amtIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
-        // The unfixed hop-1 measurement, by window: the fee base and the input it spends.
+        // The pre-fix hop-1 measurement, by window: the fee base and the input it spends.
         uint256 base1 = when == 1 && num > den ? foreign + d : d;
         uint256 fee1 = BPC.mulDivUp(base1, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         uint256 m = when == 0 || num < den ? d - fee1 : (when == 1 ? foreign + d - fee1 : foreign + 2 * (d - fee1));
@@ -445,5 +451,236 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         assertGe(r.routerShares, foreign, "the stranded shares stay with the rescue");
         assertEq(r.payerB, h.payerB, "the sweep hands the payer the honest residual and none of the restatement");
         assertEq(r.delivered, h.delivered, "the recipient is paid what hop 0 delivered buys, not the restatement");
+    }
+
+    uint8 constant ONE_HOP = 0;
+    uint8 constant TWO_HOPS = 1;
+    uint8 constant CYCLIC = 2;
+
+    struct InRun {
+        bool ok;
+        uint256 delivered;     // amountOut the Router returned
+        uint256 routerShares;  // shares of the restated token the Router ends with (the rescue's)
+        uint256 payerA;        // tokenIn swept or refunded to the payer
+        uint256 rebaseNum;
+        uint256 rebaseDen;
+    }
+
+    function _hop1(MockV2Pair p, address tIn, address tOut, uint256 amt, uint256 exp)
+        internal view returns (Hop memory)
+    {
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = Leg({
+            pool: address(p), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
+            zeroForOne: p.token0() == tIn, stable: false, amountIn: amt, expectedOut: exp, auxId: bytes32(0)
+        });
+        return Hop({tokenIn: tIn, tokenOut: tOut, amountIn: amt, expectedOut: exp, legs: legs});
+    }
+
+    function _swap(Hop[] memory hops) internal returns (bool ok, uint256 delivered) {
+        uint256 e = hops[hops.length - 1].expectedOut;
+        Route memory route = Route({
+            hops: hops, totalOut: e, singleOut: e, singleOutFloor: 0,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
+        });
+        vm.prank(user);
+        bytes memory ret;
+        (ok, ret) = address(router).call(
+            abi.encodeCall(router.swapExactIn, (route, IN, 1, recip, block.timestamp + 100))
+        );
+        if (ok) delivered = abi.decode(ret, (uint256));
+    }
+
+    /// @notice tokenIn A restates (PathologicalERC20); `foreign` A shares sit on the Router.
+    ///         shape: A->B, A->B->C, or the cyclic A->B->A. when: 0 none, 1 inside the hop-0 leg
+    ///         (B lands on the Router), 2 inside the hop-1 leg (C lands on the Router).
+    ///         `half`: hop 0 commits IN/2, so half the input is unspent and swept back.
+    function _runInputInLeg(uint256 foreign, uint8 shape, uint8 when, uint256 num, uint256 den, bool half)
+        internal returns (InRun memory res)
+    {
+        PathologicalERC20 tA = new PathologicalERC20("A", "A", 18);
+        HookedERC20 tB = new HookedERC20();
+        HookedERC20 tC = new HookedERC20();
+        MockV2Pair pAB = _pair(address(tA), address(tB), RESERVE, RESERVE);
+        if (foreign != 0) tA.mint(address(router), foreign);
+        if (when == 1) tB.arm(address(router), tA, num, den);
+        if (when == 2) tC.arm(address(router), tA, num, den);
+        tA.mint(user, IN);
+        vm.prank(user);
+        tA.approve(address(router), type(uint256).max);
+        uint256 l0 = half ? IN / 2 : IN;
+        uint256 d = _quoteV2(pAB, address(tA), half ? l0 : IN - BPC.mulDivUp(IN, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
+        Hop[] memory hops = new Hop[](shape == ONE_HOP ? 1 : 2);
+        hops[0] = _hop1(pAB, address(tA), address(tB), l0, d);
+        if (shape != ONE_HOP) {
+            uint256 m = d - BPC.mulDivUp(d, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            address t1 = shape == TWO_HOPS ? address(tC) : address(tA);
+            MockV2Pair p1 = _pair(address(tB), t1, RESERVE, RESERVE);
+            hops[1] = _hop1(p1, address(tB), t1, m, _quoteV2(p1, address(tB), m));
+        }
+        (res.ok, res.delivered) = _swap(hops);
+        res.routerShares = tA.sharesOf(address(router));
+        res.payerA = tA.balanceOf(user);
+        res.rebaseNum = tA.rebaseNum();
+        res.rebaseDen = tA.rebaseDen();
+    }
+
+    /// @dev The same stranded input with and without the in-leg restatement: the restated swap
+    ///      leaves the Router its stranded shares, sweeps the payer the plain swap's residual (the
+    ///      rebasing token may round the transfer down by one wei) and delivers the same output.
+    function _assertTheInputSweepLeavesTheRestatementWithTheRescue(
+        uint256 f, uint8 shape, uint8 when, uint256 num, uint256 den, bool half
+    ) internal {
+        InRun memory h = _runInputInLeg(f, shape, 0, 0, 0, half);
+        InRun memory r = _runInputInLeg(f, shape, when, num, den, half);
+        assertTrue(h.ok, "the plain swap settles");
+        assertTrue(r.ok, "the restated swap settles: the honest value is delivered, not refused");
+        assertEq(r.rebaseNum, num, "the restatement fired");
+        assertEq(r.rebaseDen, den, "the restatement fired");
+        assertGe(r.routerShares, f, "the stranded input shares stay with the rescue");
+        assertLe(r.payerA, h.payerA, "the payer is swept no more than the plain swap's residual");
+        assertApproxEqAbs(r.payerA, h.payerA, 1, "the payer is swept the plain swap's residual");
+        // The cyclic output is the restated token itself: its transfer rounds down by up to 2 wei.
+        assertLe(r.delivered, h.delivered, "the delivery is not raised by the restatement");
+        assertApproxEqAbs(r.delivered, h.delivered, 2, "the delivery is unchanged (token rounding)");
+    }
+
+    /// @notice 100 input tokens stranded, x2 inside the hop-0 leg of a one-hop route. Unfixed: the
+    ///         sweep pays the payer 100e18 A, half the stranded holder's shares.
+    function test_ARestatementInsideTheHop0LegLeavesTheStrandedInputWithTheRescue() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, ONE_HOP, 1, 2, 1, false);
+    }
+
+    /// @notice One input token stranded, x2. Unfixed: the Router ends with 0.5e18 shares.
+    function test_ARestatementInsideTheHop0LegLeavesOneStrandedInputTokenWithTheRescue() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(1e18, ONE_HOP, 1, 2, 1, false);
+    }
+
+    /// @notice Four inputs stranded, x2: the gain is not bounded by the swap's size.
+    function test_ARestatementInsideTheHop0LegLeavesFourInputsOfStrandedInputWithTheRescue() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(4 * IN, ONE_HOP, 1, 2, 1, false);
+    }
+
+    /// @notice A 1 % restatement over 100 stranded input tokens. Unfixed: ~1e18 A to the payer.
+    function test_AOnePercentRestatementInsideTheHop0LegLeavesTheStrandedInputWithTheRescue() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, ONE_HOP, 1, 101, 100, false);
+    }
+
+    /// @notice Half the input unspent: the payer gets that half back, and none of the restatement.
+    function test_AnInputRestatementWithHalfTheInputUnspentSweepsOnlyTheUnspentHalf() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, ONE_HOP, 1, 2, 1, true);
+    }
+
+    /// @notice Two hops, the input restated inside the hop-1 leg (after hop 0 spent it).
+    function test_AnInputRestatementInsideTheHop1LegLeavesTheStrandedInputWithTheRescue() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, TWO_HOPS, 2, 2, 1, false);
+    }
+
+    /// @notice Two hops, the input restated inside the hop-0 leg.
+    function test_AnInputRestatementInsideTheHop0LegOfATwoHopRouteLeavesItWithTheRescue() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, TWO_HOPS, 1, 2, 1, false);
+    }
+
+    /// @notice Cyclic A->B->A: the refund at the start of hop 1 (`resid0`) had the same shape.
+    function test_ACyclicRefundLeavesTheInputRestatementWithTheRescue() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, CYCLIC, 1, 2, 1, false);
+    }
+
+    /// @notice Cyclic, half the input unspent: the refund is that half, none of the restatement.
+    function test_ACyclicRefundWithHalfTheInputUnspentRefundsOnlyThatHalf() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, CYCLIC, 1, 2, 1, true);
+    }
+
+    /// @notice Control (dust): one stranded wei, x2. The sweep's 1-wei excess is 0 shares in the
+    ///         token's own rounding, so the Router keeps its share on both sides of the fix.
+    function test_AOneWeiStrandedInputIsBelowTheTokensOwnRounding() public {
+        _assertTheInputSweepLeavesTheRestatementWithTheRescue(1, ONE_HOP, 1, 2, 1, false);
+    }
+
+    /// @notice Control: stranded input, nothing restated, every shape. Left exactly; a committed
+    ///         input sweeps nothing and a half-committed one sweeps the unspent half.
+    function test_AStrandedInputWithNoRestatementIsLeftExactlyInEveryShape() public {
+        for (uint8 s; s < 3; ++s) {
+            InRun memory h = _runInputInLeg(FOREIGN, s, 0, 0, 0, false);
+            assertTrue(h.ok, "the swap settles");
+            assertEq(h.routerShares, FOREIGN, "the stranded input is left exactly");
+            assertEq(h.payerA, 0, "a fully committed input sweeps nothing");
+            InRun memory u = _runInputInLeg(FOREIGN, s, 0, 0, 0, true);
+            assertTrue(u.ok, "the half-committed swap settles");
+            assertEq(u.routerShares, FOREIGN, "the stranded input is left exactly");
+            assertGt(u.payerA, 0, "the unspent half is swept back");
+        }
+    }
+
+    /// @notice Control: the input halves inside the hop-0 leg. Nothing is past the baseline, so
+    ///         nothing is swept; the cyclic shape's output delta underflows and fails closed.
+    function test_AnInputRestatementDownSweepsNothing() public {
+        for (uint8 s; s < 3; ++s) {
+            InRun memory r = _runInputInLeg(FOREIGN, s, 1, 1, 2, false);
+            if (s == CYCLIC && !r.ok) {
+                assertEq(r.routerShares, FOREIGN, "a refused swap moves nothing");
+                continue;
+            }
+            assertTrue(r.ok, "the swap settles");
+            assertEq(r.rebaseDen, 2, "the restatement fired (factor 1/2)");
+            assertEq(r.routerShares, FOREIGN, "the Router keeps every stranded share");
+            assertEq(r.payerA, 0, "the sweep hands the payer none of the input");
+        }
+    }
+
+    /// @notice Gamut: stranded input from 1 wei to 4x the swap, restated up by 1 % to x3, in
+    ///         every shape and in either leg window, committed or half unspent.
+    function testFuzz_TheInputSweepNeverPaysTheStrandedRestatementToThePayer(
+        uint256 foreign, uint256 num, uint8 shape, bool hop1, bool half
+    ) public {
+        foreign = bound(foreign, 1, 4 * IN);
+        num = bound(num, 101, 300);
+        shape = uint8(bound(shape, 0, 2));
+        uint8 when = (shape == TWO_HOPS && hop1) ? 2 : 1;
+        InRun memory h = _runInputInLeg(foreign, shape, 0, 0, 0, half);
+        InRun memory r = _runInputInLeg(foreign, shape, when, num, 100, half);
+        if (!r.ok) {
+            assertEq(r.routerShares, foreign, "a refused swap moves nothing");
+            return;
+        }
+        assertGe(r.routerShares, foreign, "the stranded input shares stay with the rescue");
+        assertLe(r.payerA, h.payerA, "the payer is swept no more than the plain residual");
+        // Both runs sweep the same X (the cap binds at what hop 0 left unspent). At factor num/100
+        // the token moves floor(X * 100 / num) shares and shows floor(shares * num / 100), which is
+        // short of X by at most ceil((num - 1) / 100) wei: 1 at num <= 101, 3 at num = 300.
+        assertApproxEqAbs(r.payerA, h.payerA, (num + 98) / 100, "the payer is swept the plain residual");
+        // The cyclic output is the restated token itself: the Router's balance past baseIn may sit
+        // up to 1 wei under the venue's figure (the output lands as floor(Q * 100 / num) shares),
+        // and the payout to the recipient rounds down by up to ceil((num - 1) / 100) more.
+        assertLe(r.delivered, h.delivered, "the delivery is not raised by the restatement");
+        assertApproxEqAbs(r.delivered, h.delivered, (num + 198) / 100, "the delivery is unchanged (token rounding)");
+    }
+
+    /// @notice The output side is already capped (3310): C restates x2 inside the hop-0 leg over
+    ///         100 stranded C. The delta is capped at what the venues declared; the restatement stays.
+    function test_AStrandedOutputRestatedInsideTheHop0LegStaysWithTheRescue() public {
+        for (uint256 i; i < 2; ++i) {
+            HookedERC20 tA = new HookedERC20();
+            HookedERC20 tB = new HookedERC20();
+            PathologicalERC20 tC = new PathologicalERC20("C", "C", 18);
+            MockV2Pair pAB = _pair(address(tA), address(tB), RESERVE, RESERVE);
+            MockV2Pair pBC = _pair(address(tB), address(tC), RESERVE, RESERVE);
+            tC.mint(address(router), FOREIGN);
+            if (i == 1) tB.arm(address(router), tC, 2, 1);
+            tA.mint(user, IN);
+            vm.prank(user);
+            tA.approve(address(router), type(uint256).max);
+            uint256 d = _quoteV2(pAB, address(tA), IN - BPC.mulDivUp(IN, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
+            uint256 m = d - BPC.mulDivUp(d, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            // Quoted before the swap: the mock pair syncs its reserves to its (deep) balances after.
+            uint256 q = _quoteV2(pBC, address(tB), m);
+            Hop[] memory hops = new Hop[](2);
+            hops[0] = _hop1(pAB, address(tA), address(tB), IN, d);
+            hops[1] = _hop1(pBC, address(tB), address(tC), m, q);
+            (bool ok, uint256 delivered) = _swap(hops);
+            assertTrue(ok, "the swap settles");
+            assertGe(tC.sharesOf(address(router)), FOREIGN, "the stranded output shares stay with the rescue");
+            assertApproxEqAbs(delivered, q, 1, "the recipient is paid the venue's figure");
+        }
     }
 }

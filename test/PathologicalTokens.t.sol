@@ -283,6 +283,8 @@ contract PathologicalTokensTest is Test {
         // scaleNum <= scaleDen), delivering the normal ~99e18.
         assertGt(got, 99e18, "delivery unchanged by the surplus");
 
+        // The boundary of the 4111/D1 input cap (SHARED_QUANTITIES `residIn`, mutant [1100]): with
+        // baseIn == 0 nothing stranded can restate, so the cap must not bind on the payer's own growth.
         // THE QUESTION THE TEST EXISTS FOR: the ~99.9e18 surplus was returned
         // to the payer by the residual sweep — NOT left in the Router.
         assertLe(P1.balanceOf(address(router)), 1, "surplus must not be left for the next caller");

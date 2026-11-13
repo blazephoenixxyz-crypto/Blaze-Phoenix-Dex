@@ -6765,6 +6765,26 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='                if (rb > cap) rb = cap;\n',
       new='                // MUTANT [1097]: the sweep pays the whole balance past the baseline\n',
       teste='test_ARestatementInsideTheHop1LegLeavesTheStrandedBridgeWithTheRescue'),
+ # 4111/D1 input (2026-11-13): labels [1098]-[1100]. A restatement of tokenIn fired inside a leg
+ # window grows the stranded input after hop 0's scale, so the tokenIn sweep's `residIn - baseIn`
+ # and the cyclic refund's `resid0 - baseIn` paid that growth to the payer; both are now capped at
+ # what hop 0 left unspent of the input (slot n of bridgeBase). The tokenIn cap binds only when
+ # baseIn != 0: with nothing stranded the whole growth is the payer's own funds' ([1100]).
+ dict(nome='4111/D1 input sweep cap [1098]: the tokenIn sweep pays the whole balance past baseIn, not only what hop 0 left unspent',
+      f='src/BlazePhoenixRouter.sol',
+      old='            if (baseIn != 0 && residIn > baseIn + bridgeBase[route.hops.length]) residIn = baseIn + bridgeBase[route.hops.length];\n',
+      new='            // MUTANT [1098]: the tokenIn sweep pays the whole balance past baseIn\n',
+      teste='test_ARestatementInsideTheHop0LegLeavesTheStrandedInputWithTheRescue'),
+ dict(nome='4111/D1 cyclic refund cap [1099]: the cyclic refund pays the whole balance past baseIn, not only what hop 0 left unspent',
+      f='src/BlazePhoenixRouter.sol',
+      old='                    if (resid0 > baseIn + bridgeBase[2]) resid0 = baseIn + bridgeBase[2];\n',
+      new='                    // MUTANT [1099]: the cyclic refund pays the whole balance past baseIn\n',
+      teste='test_ACyclicRefundLeavesTheInputRestatementWithTheRescue'),
+ dict(nome='4111/D1 input cap guard [1100]: the tokenIn cap binds with nothing stranded, so a positive rebase of the payer own input is left in the Router',
+      f='src/BlazePhoenixRouter.sol',
+      old='            if (baseIn != 0 && residIn > baseIn + bridgeBase[route.hops.length]) residIn = baseIn + bridgeBase[route.hops.length];\n',
+      new='            if (residIn > baseIn + bridgeBase[route.hops.length]) residIn = baseIn + bridgeBase[route.hops.length]; // MUTANT [1100]\n',
+      teste='test_PositiveRebase_SurplusSweptToPayer_NotLeftInRouter'),
  # fix1112-4122: the fee push is booked by two witnesses (the Router's loss and the payee's gain),
  # never by the token's answer. A paid share restated up inside the transfer was booked again.
  dict(nome='fix1112-4122 [1023]: the payee witness is dropped, so a share paid under a restatement up to k* is booked again',
