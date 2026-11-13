@@ -92,7 +92,7 @@ contract LiveDoors {
         return BPC.universalQuoteRank(c, a, bar, false);
     }
     function probe(QuoteCtx memory c, uint256 a) external view returns (uint256, uint256, uint256, uint256) {
-        return BPC.universalProbe(c, a, 0, true);
+        return BPC.universalProbe(c, a, 0, true, a);
     }
 }
 

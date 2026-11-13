@@ -7307,6 +7307,22 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        return (out < f ? out : f, left);\n',
       new='        return (out, left); // MUTANT\n',
       teste='test_ABookThatThickensPastTheCutIsPromisedNoMoreThanTheBand'),
+ # ROUTEQ (2026-11-13): the band's error bound is asked at the order's size (Core.universalProbe).
+ dict(nome="ROUTEQ: the error bound's impact term is taken at the probe again, not at the order",
+      f='src/BlazePhoenixCore.sol',
+      old='            if (orderIn < amountIn) orderIn = amountIn;',
+      new='            orderIn = amountIn; // MUTANT',
+      teste='test_ErrIsAskedAtTheOrdersSize_matrix'),
+ dict(nome="ROUTEQ meta-guard: the Core is right but its one caller asks the bound at the probe",
+      f='src/BlazePhoenixSolver.sol',
+      old='BPC.universalProbe(xs[i], probe, 0, true, amountIn);',
+      new='BPC.universalProbe(xs[i], probe, 0, true, probe); // MUTANT',
+      teste='test_FarThinBaseNoLongerExcludesTheDeepRows'),
+ dict(nome="ROUTEQ floor: an order under the probe shrinks the bound below the quote's own",
+      f='src/BlazePhoenixCore.sol',
+      old='            if (orderIn < amountIn) orderIn = amountIn;',
+      new='            if (orderIn == 0) orderIn = amountIn; // MUTANT',
+      teste='test_ErrOrderUnderTheProbeReadsAsTheProbe'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named

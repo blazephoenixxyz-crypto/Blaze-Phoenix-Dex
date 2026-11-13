@@ -2078,7 +2078,16 @@ library BlazePhoenixCore {
     ///         THE CALLER'S PAIR. The band's question is (bar = 0, wantFee = true) and the
     ///         Solver, the one caller, passes exactly that. Asked with `wantFee = false`, a
     ///         Solidly row answers fee 0 and `err` is formed without its fee: NOT the bound above.
-    function universalProbe(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee)
+    ///         THE SIZE THE BAND DECIDES (ROUTEQ, 2026-11-13). The band judges a row's price for
+    ///         the whole order, so the impact term is taken at `orderIn`, the hop's amountIn,
+    ///         not at the probe: m = min(a, o) with a = orderIn and o = rank * orderIn / amountIn,
+    ///         rounded up (the probe's rate carried to the order over-states what a curve pays,
+    ///         so m only grows). At the probe a thin row far from the market read e ~ 0.9% and,
+    ///         as the base, kept itself alone for a 10k order it filled at 47% impact; at the
+    ///         order its own price cannot predict the fill and its width says so. An `orderIn`
+    ///         under the probe reads as the probe: the bound never shrinks below the quote's own.
+    ///         The rounding terms stay at the probe, the size that was quoted.
+    function universalProbe(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee, uint256 orderIn)
         public view returns (uint256 mass, uint256 rank, uint256 fee, uint256 err)
     {
         uint256 depthWad;
@@ -2087,8 +2096,11 @@ library BlazePhoenixCore {
         err = (3 * WAD + 2 * amountIn) / rank + 1;
         if (c.kind != KIND_EXTERNAL) {
             uint256 n = fee < 1_000_000 ? mulDiv(amountIn, 1_000_000 - fee, 1_000_000) : amountIn;
-            uint256 a18 = to18(amountIn, _decIn(c));
-            uint256 o18 = to18(rank, _decOther(c));
+            if (orderIn < amountIn) orderIn = amountIn;
+            uint256 a18 = to18(orderIn, _decIn(c));
+            // A rank too large to carry saturates (a declared output is the venue's word): m = a.
+            uint256 o18 = rank > type(uint256).max / orderIn
+                ? type(uint256).max : to18(mulDivUp(rank, orderIn, amountIn), _decOther(c));
             uint256 m = a18 < o18 ? a18 : o18;
             err = n == 0 || m >= depthWad ? WAD : err + 3 * WAD / n + mulDivUp(m, WAD, depthWad);
         }

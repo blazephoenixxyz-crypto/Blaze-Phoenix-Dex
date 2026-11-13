@@ -16,7 +16,6 @@ import {RouteQualityMathTap} from "./RouteQualityMathTap.sol";
 ///         seen. It asserts nothing: every reading is a log line starting with "RQ".
 abstract contract RouteQualityRecorder {
     Vm private constant RQ_VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-    bytes4 internal constant RQ_PROBE  = 0x5ada2df0;   // BPC.universalProbe, as the trace of run 43410379085 names it
     bytes4 internal constant RQ_SELECT = 0x05517f17;   // BlazePhoenixMath.select, same trace
 
     /// The calldata of `select`, one tuple (decoded behind a 0x20 head).
@@ -45,7 +44,7 @@ abstract contract RouteQualityRecorder {
             if (acc[i].account == address(BlazePhoenixMath) || bytes4(acc[i].data) == RQ_SELECT) {
                 ++nSel;
                 _rqSelect(tag, nSel, acc[i].data, tap);
-            } else if (bytes4(acc[i].data) == RQ_PROBE) {
+            } else if (bytes4(acc[i].data) == BPC.universalProbe.selector) {
                 ++nProbe;
                 _rqProbe(nProbe, acc[i].data);
             }

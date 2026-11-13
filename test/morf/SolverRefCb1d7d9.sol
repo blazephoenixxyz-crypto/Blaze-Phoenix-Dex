@@ -9,6 +9,7 @@
 // Core of cb1d7d9 wrote for itself, (0, true) and (bar, false). It links the live Core and
 // Math, which SQ2 does not touch. It is never
 // deployed outside tests; test/SqSameAnswer.t.sol compares the Solver with it, byte for byte.
+// The hop's size handed to the probe's error bound is carried in, marked `CARRY ROUTEQ`.
 // One rule landed after SQ2 is carried in, marked `CARRY G52 (48ff261)`: every leg of a split pays
 // for its place (`_carryG52`, written from that commit's rule, not copied from the Solver), with
 // the split of cb1d7d9 moved unchanged into `_splitCb1d7d9` and the probe rates following the
@@ -754,7 +755,8 @@ contract SolverRefCb1d7d9 {
         for (uint256 i; i < n; ) {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe, 0, true);
+            // CARRY ROUTEQ (2026-11-13): the error bound is asked at the hop's size, as the Solver asks it.
+            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(_ctx(cands[i], tIn, dIn1_, dOt1_), probe, 0, true, amountIn);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 fe[i]     = f | e << 24;

@@ -708,7 +708,7 @@ contract BlazePhoenixSolver {
             xs[i] = _ctx(cands[i], tIn, dIn1_, dOt1_);
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(xs[i], probe, 0, true);
+            (uint256 d, uint256 o, uint256 f, uint256 e) = BPC.universalProbe(xs[i], probe, 0, true, amountIn);
             // A fee at or above the route's ceiling on a leg's impact (MAX_ROUTE_IMPACT_BPS,
             // in pips) is that impact at ANY size: the leg would be refused as a destroyer
             // wherever it sat, and with it the whole route. The same number asks the same

@@ -765,7 +765,7 @@ contract SolverRef653 {
             // sixteen-stretch promise that dust inside the probe's reach can cut.
             // The vote's mass and rank come from the LIVE Core (see the header): the frozen
             // CoreRefCb1d7d9 has no `mass`, and the Core's unit is not what this reference tests.
-            (uint256 d, uint256 o, , ) = LiveCore.universalProbe(_liveCtx(_ctx(cands[i], tIn, dIn1_, dOt1_)), probe, 0, true);
+            (uint256 d, uint256 o, , ) = LiveCore.universalProbe(_liveCtx(_ctx(cands[i], tIn, dIn1_, dOt1_)), probe, 0, true, probe);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
