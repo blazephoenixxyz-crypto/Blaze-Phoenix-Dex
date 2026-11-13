@@ -1120,7 +1120,6 @@ contract BlazePhoenixHub {
         // `deriveAddress` computes `sub = mode - 4` and lands in the V3CL salt catch-all,
         // deriving phantom addresses on every scan. Stopping makes it PROVABLY inert
         // instead of accidentally inert.
-        if (((MODES_VALID >> fac.mode) & 1) == 0) return k;
         // THE APPARATUS MUST BE FIXED, TOO (the third corollary of I-measure).
         // Modes 0-3 ASK the factory where a pool lives; modes 4-7 DERIVE it, and a
         // derivation is a theorem the factory cannot influence. (One derive input
@@ -1135,27 +1134,58 @@ contract BlazePhoenixHub {
         // Fail CLOSED, never revert: a stale dependency stops producing candidates,
         // and every other factory keeps serving the pair (a new revert here would
         // let one dependency brick discovery outright).
-        if (fac.mode < 4 && fac.factory.codehash != _store().factoryCodehash[fac.factory]) return k;
+        // Both stops live in `_rowServes`, the one producer of "does this row serve".
+        if (!_rowServes(fac)) return k;
         if (fac.mode == MODE_V4_DERIVE)  return _scanV4(fac, t0, t1, hits, k);
         uint24[] storage fees = fac.fees;
-        int24[]  storage sps  = fac.spacings;
-        (uint256 fc, uint256 sc) = _axes(fac);
-        bool solidly = (fac.mode == 2 || fac.mode == 6);
+        (uint256 fc, ) = _axes(fac);
         for (uint256 fi; fi < fc; ) {
-            uint24 fee = fees.length == 0 ? 0 : fees[fi];
-            for (uint256 si; si < sc; ) {
-                int24 sp = sps.length == 0 ? int24(0) : sps[si];
-                if (solidly) {
-                    k = _probe(fac, t0, t1, fee, false, sp, hits, k);
-                    k = _probe(fac, t0, t1, fee, true,  sp, hits, k);
-                } else {
-                    k = _probe(fac, t0, t1, fee, false, sp, hits, k);
-                }
-                unchecked { ++si; }
-            }
+            k = _scanFeeCell(fac, t0, t1, fees.length == 0 ? 0 : fees[fi], hits, k);
             unchecked { ++fi; }
         }
         return k;
+    }
+
+    /// @dev True iff the row serves discovery: its mode is admissible (MODES_VALID) and, for an
+    ///      asking mode (< 4), the factory's runtime code is still the one pinned at admission.
+    ///      The one producer of the answer for the sweep (`_scanFactory`) and the targeted path
+    ///      (`_namedCell`), so the targeted path never accepts what the sweep refuses.
+    function _rowServes(Factory storage fac) private view returns (bool) {
+        return ((MODES_VALID >> fac.mode) & 1) != 0
+            && !(fac.mode < 4 && fac.factory.codehash != _store().factoryCodehash[fac.factory]);
+    }
+
+    /// @dev One fee cell of a non-V4 row: every spacing cell at `fee`, a Solidly row volatile
+    ///      then stable. The one producer of the cell, walked by the sweep (`_scanFactory`) and by
+    ///      the targeted proof (`_derivedByFactory`) with the same `_probe`.
+    function _scanFeeCell(
+        Factory storage fac, address t0, address t1, uint24 fee, PoolInfo[] memory hits, uint256 k
+    ) private view returns (uint256) {
+        int24[] storage sps = fac.spacings;
+        (, uint256 sc) = _axes(fac);
+        bool solidly = (fac.mode == 2 || fac.mode == 6);
+        for (uint256 si; si < sc; ) {
+            int24 sp = sps.length == 0 ? int24(0) : sps[si];
+            k = _probe(fac, t0, t1, fee, false, sp, hits, k);
+            if (solidly) k = _probe(fac, t0, t1, fee, true, sp, hits, k);
+            unchecked { ++si; }
+        }
+        return k;
+    }
+
+    /// @dev The fee cell of `fac` that `fee` names, if the row serves and has one. A row whose
+    ///      mode never reads the fee axis has one cell, its first, whatever `fee` says; a V4 row
+    ///      is bounded by its table, not a cell, and is left to the sweep.
+    function _namedCell(Factory storage fac, uint24 fee) private view returns (bool, uint24) {
+        if (!_rowServes(fac) || fac.mode == MODE_V4_DERIVE) return (false, 0);
+        uint24[] storage fees = fac.fees;
+        (uint256 fc, ) = _axes(fac);
+        if (fc == 1) return (true, fees.length == 0 ? 0 : fees[0]);
+        for (uint256 fi; fi < fees.length; ) {
+            if (fees[fi] == fee) return (true, fee);
+            unchecked { ++fi; }
+        }
+        return (false, 0);
     }
 
     /// @dev The grid a row is probed on: `fc` fee cells by `sc` spacing cells. An axis the row's
@@ -1953,7 +1983,7 @@ contract BlazePhoenixHub {
             // last, after the cheap reads: the scan is the costly one, and every check here only
             // skips, so the order changes the gas, never the answer.
             uint24 idFee;
-            (proven, idFee) = _derivedByFactory(pool, t0, t1);
+            (proven, idFee) = _derivedByFactory(pool, t0, t1, fee);
             if (!proven) return;
             // The row's fee is neither calldata's (REG-01) nor the pool's snapshot (aero-nova):
             // the fee its derivation is keyed by, when the pool agrees, else 0, the live read.
@@ -1982,12 +2012,31 @@ contract BlazePhoenixHub {
     }
 
     /// @dev True iff a wired factory derives `pool` for (t0, t1): it is among `discoverFor`'s
-    ///      hits. Reusing the discovery scan, not a second derivation, keeps one producer of the
-    ///      answer, so admission by swap can never accept a pool discovery would not list.
-    ///      `idFee` is the fee of that hit: the tier the derivation was keyed by.
-    function _derivedByFactory(address pool, address t0, address t1)
+    ///      hits. `fee` is a COORDINATE, never a fact: it names the one fee cell per row tried
+    ///      first, with the same `_scanFeeCell` and `_probe` the sweep walks, so a targeted hit is
+    ///      a pool the sweep lists, and a miss falls to the sweep itself, which decides. Lying
+    ///      about `fee` only costs the liar the sweep's gas; it never seats a pool the sweep would
+    ///      not. `idFee` is the fee of the hit: the tier the derivation was keyed by, the sweep's
+    ///      own, except where asking rows (mode < 4) answer the same pool at two cells, where it
+    ///      is the named one; `_concRowFee` keeps it only if the pool answers it.
+    function _derivedByFactory(address pool, address t0, address t1, uint24 fee)
         private view returns (bool, uint24 idFee)
     {
+        HubStore storage $ = _store();
+        for (uint256 r; r < $.factories.length; ) {
+            Factory storage fac = $.factories[r];
+            (bool ok, uint24 cell) = _namedCell(fac, fee);
+            if (ok) {
+                (, uint256 sc) = _axes(fac);
+                PoolInfo[] memory one = new PoolInfo[](2 * sc);
+                uint256 k = _scanFeeCell(fac, t0, t1, cell, one, 0);
+                for (uint256 d; d < k; ) {
+                    if (one[d].pool == pool) return (true, one[d].fee);
+                    unchecked { ++d; }
+                }
+            }
+            unchecked { ++r; }
+        }
         PoolInfo[] memory hits = discoverFor(t0, t1);
         for (uint256 i; i < hits.length; ) {
             if (hits[i].pool == pool) return (true, hits[i].fee);

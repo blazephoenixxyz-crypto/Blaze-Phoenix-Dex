@@ -324,6 +324,14 @@
       "note": "rizki-3107 (Rizki Armando), 2026-10-20. Admission requires proof of origin: the swap door seats a pair-shaped or concentrated pool only if Hub.discoverFor (the derivation from the wired factories) lists it; the pool's own token0()/token1() check stays beside it, because a CREATE2 hit proves the deployer and salt, not the tokens (test_Create2HitOnOtherTokens_IsRefusedByThePairCheck). An unproven pool stays tradable on a caller-built route, at the caller's risk."
     },
     {
+      "id": "REG-ORIGIN-COORDINATE-LIE",
+      "class": "A caller of the swap door names a fee that steers the origin proof: a valid fee for a pool no wired row derives, or a lied fee for a derived pool, to seat the wrong pool or the right pool at the wrong fee",
+      "status": "blocked",
+      "guard": "_derivedByFactory",
+      "test": "test_LiedFee_FallsBackAndSeatsWithTheDerivationFee",
+      "note": "base-gas, 2026-11-13. The fee is a coordinate, never a fact: Hub._derivedByFactory tries the fee cell it names with the producer the sweep walks (_scanFeeCell, _probe, _rowServes), so a hit is a pool discoverFor lists, and a miss falls to the sweep, which decides; the row's fee is the derivation's (REG-01). Lying only costs the liar the sweep's gas. test_AttackerPoolWithValidFee_IsRefused, test_WrongFactoryPool_IsRefused, test_TargetedOrigin_AgreesWithTheSweep."
+    },
+    {
       "id": "GATE-DUST-USE",
       "class": "Dust swaps through a Gate wrapper buy vitality: each swap counts once whatever its size, so a wrapper's use (and psi) is pumped for the price of gas",
       "status": "blocked",
