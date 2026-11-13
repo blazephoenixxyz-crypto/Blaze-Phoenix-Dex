@@ -107,5 +107,7 @@ registry, `recordSwap` admits it (writes the new registry rows); once it is regi
 same call is a short update. The tool's own trace split (`tools/g7-gas-campaign/g7.py:312-316`)
 measured 710,573 of a g_exec of 1,011,096 on Base for a cold admission against 12,706 once the
 venue is registered. In run 43376232767 the Base `major` p50 of g_record is 686,452 in D
-(n = 20, R:1363) and 30,379 in M0 (n = 19, R:1377). The ~591k figure quoted earlier is
-**not reproduced** from this report: its source line is still to be located.
+(n = 20, R:1363) and 30,379 in M0 (n = 19, R:1377). The ~591k figure quoted earlier is the
+Base D g_record p50 over 1-hop, 1-leg routes: 591,221 (n = 47), recomputed from the same
+`results.tsv` (rows with mode D, outcome ok, hops 1, legs 1). It is not a report line: the report
+does not split by hops.
