@@ -29,7 +29,7 @@ python3 -I "$D/test_g8.py"
 python3 -I "$D/mutants_g8.py"
 
 # offline: rebuild the cases from the G7 inventory (<g7dir>/inventory.tsv) and spec
-python3 -I "$D/build_cases.py" build <g7dir> "$G7/spec.json" "$D" --bridges "$D/bridges.tsv"
+python3 -I "$D/build_cases.py" build <g7dir> "$G7/spec.json" "$D" --bridges "$D/bridges.tsv" --pairs "$D/pair_tokens.tsv"
 
 # measure one chain (seed = the G7 seed; -j 2 keeps the RPC within its rate)
 python3 -I "$D/g8.py" measure "$D/spec.json" "$G7/state" out/results-base.tsv "$(cat "$G7/seed.txt")" -j 2 --chains base
@@ -50,8 +50,13 @@ CI: `.github/workflows/g8-pool-tests.yml` (dispatch only, one leg per chain, the
 * Failures are published: the report job runs even when a leg failed, and a leg with zero
   rows is red.
 * `bridges.tsv` provenance: base/optimism/arbitrum from `G7Deploy.s.sol` (`_base`,
-  `_optimism`, `_arbitrum`: WETH, USDC, wstETH); robinhood WETH, USDG (`_robinhood`; VIRTUAL
-  is absent: not in the deploy script nor in the site list for chain 4663); avalanche and bsc
+  `_optimism`, `_arbitrum`: WETH, USDC, wstETH); robinhood WETH, USDG, VIRTUAL (`_robinhood`;
+  VIRTUAL `0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31` is the pool token of the G7 inventory,
+  added on 13/11, so `state/robinhood.state.json` must be rebuilt with `deploy_state.sh` before
+  the robinhood bridge cases are measured); avalanche and bsc
   from `G7DeployAvax.s.sol` / `G7DeployBsc.s.sol`; ethereum WETH, USDC, USDT added to
   `G7Deploy.s.sol:_ethereum` and `prereg/wiring.tsv` on 13/11, so `state/ethereum.state.json`
   must be rebuilt with `deploy_state.sh` before the ethereum bridge cases are measured.
+* `pair_tokens.tsv`: tokens that get the exotic -> bridge cases (`xb-pair-<bridge>-<token>`)
+  without being bridges. Base VIRTUAL `0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b` comes from
+  the site token list (`src/config/tokens.ts:77`); the Base bridges stay WETH, USDC, wstETH.
