@@ -497,7 +497,13 @@ fuzzes the walk against it across tick spacing (1, 10, 60, 200), fee tier (0.01 
 on a tick's lower edge or inside it, one to four overlapping positions, orders from 10⁹ to 10²⁴ and
 both directions: the walk never exceeds the specification by more than 64 wei. The TickMath table
 the walk prices ticks with is checked exactly at the canonical endpoints and against an independent
-fixed point on every tick. The same walk reads a V3-shaped pool's own book when it is given no
+fixed point on fuzzed ticks, and certified on every tick: its twenty constants are derived from their
+definition (the integer nearest to 2^128 / sqrt(1.0001)^(2^i)) and `test/tools/tickmath_certificate.py`
+brackets each of the 1,774,545 outputs with exact interval arithmetic
+(`docs/assurance/tickmath-certificate.tsv`): strictly increasing, the true value rounded up at every
+tick ≤ 0, within one Q96 unit through tick 132,821 and below 2⁻⁶³ relative above it.
+`test/TickMathCertificate.t.sol` chains the compiled outputs against the certificate. The same walk
+reads a V3-shaped pool's own book when it is given no
 poolId (`slot0`, `liquidity`, `tickBitmap`, `ticks`, at the fee and spacing the pool reports); it
 prices the promise of a concentrated leg the capacity bound holds (`Solver._capacity`), and
 `test/CapacityPromiseWalksTheBook.t.sol` pins it against the single-tick figure on a flat book,

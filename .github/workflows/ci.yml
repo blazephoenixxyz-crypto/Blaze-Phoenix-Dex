@@ -68,6 +68,14 @@ jobs:
         # The generated rows must be the rows the generator produces for the declared factors.
         run: python3 .github/scripts/assurance/covering_array.py --check
 
+      - name: TickMath table is its definition, certified on every tick
+        # Each of the twenty constants of Core.sqrtPriceAtTick is recomputed from its definition, the
+        # integer nearest to 2^128 / sqrt(1.0001)^(2^i). The certificate is regenerated on all
+        # 1,774,545 ticks with exact interval arithmetic and must be the committed
+        # docs/assurance/tickmath-certificate.tsv; the chains, pinned ticks and table lines in
+        # test/TickMathCertificate.t.sol must be its. Standard library only, about 30 s.
+        run: python3 -I test/tools/tickmath_certificate.py check
+
       - name: Yul evaluation-order guard
         # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
         # `and(staticcall(...), eq(returndatasize(), 32))` tests the size left
