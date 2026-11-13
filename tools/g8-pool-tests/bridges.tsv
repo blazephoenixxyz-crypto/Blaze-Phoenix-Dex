@@ -1,0 +1,13 @@
+chain	symbol	address	source
+base	WETH	0x4200000000000000000000000000000000000006	site_tokens.json (owner order 13/11: Base/OP/Arb = WETH, USDC, wstETH)
+base	USDC	0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913	site_tokens.json
+base	wstETH	0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452	site_tokens.json
+optimism	WETH	0x4200000000000000000000000000000000000006	site_tokens.json
+optimism	USDC	0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85	site_tokens.json
+optimism	wstETH	0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb	site_tokens.json
+arbitrum	WETH	0x82aF49447D8a07e3bd95BD0d56f35241523fBab1	site_tokens.json
+arbitrum	USDC	0xaf88d065e77c8cC2239327C5EDb3A432268e5831	site_tokens.json
+arbitrum	wstETH	0x5979D7b546E38E414F7E9822514be443A4800529	site_tokens.json
+robinhood	WETH	0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73	site_tokens.json (owner order 13/11: RH = WETH, USDG, VIRTUAL)
+robinhood	USDG	0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168	site_tokens.json
+robinhood	VIRTUAL		absent: not in site_tokens.json for robinhood; to be read from hub.bridge(2) in src (absent, not zero)
