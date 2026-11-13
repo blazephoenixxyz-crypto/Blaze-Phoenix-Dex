@@ -84,7 +84,8 @@ class Cases(unittest.TestCase):
         self.assertEqual(bc.top_per_family([row("base", "v2", P5, Z, USDC, None, "x")]), {})
 
     def test_gate_pool_reuses_the_g7_stratum_or_is_not_covered(self):
-        # mutant: "if not g:" -> "if False:" (a gate pool without a wrapper would be built from None)
+        # mutant: the G7 stratum's venue_key replaced (dict(g, venue_key=None, ...)); the "if not g:" guard
+        # makes build() raise in setUpClass when mutated, so GateGuard pins it with its own build
         st = self.st["pool-curve_ng"]
         self.assertEqual((st["kind"], st["n"], st["gate_pool"], st["venue_key"], st["_pool"]), ("pool", 1, GP, "k", GP))
         self.assertEqual(st["amounts"], {"A": [1], "B": [2]})  # the G7 stratum's amounts, wrapper included
@@ -94,11 +95,11 @@ class Cases(unittest.TestCase):
     def test_exotic_bridge_seeds_the_deepest_non_gate_pool_alone(self):
         # mutants: deepest "max(ok, key=bs.liq)" -> "ok[0]" (inventory order: P4 before P3); the stratum id
         # "xb-%s-%s-%s" % (fam, sym, x) -> x[:10] (X and Y share the first 8 hex digits: the ids collide, last wins)
+        self.assertEqual(sorted(k for k in self.st if k.startswith("xb-v3-USDC-")), ["xb-v3-USDC-" + X, "xb-v3-USDC-" + Y])
         st = self.st["xb-v3-USDC-" + Y]
         self.assertEqual([p["pool"] for p in st["seed_pools"]], [P3])
         self.assertEqual((st["kind"], st["tA"], st["tB"], st["_pool"]), ("exotic_bridge", Y, USDC, P3))
         self.assertEqual(self.st["xb-v3-USDC-" + X]["_pool"], P1)
-        self.assertEqual(sorted(k for k in self.st if k.startswith("xb-v3-USDC-")), ["xb-v3-USDC-" + X, "xb-v3-USDC-" + Y])
         self.assertIn(("base", "xb-v3-WETH"), self.scopes)  # no X/WETH nor Y/WETH pool
 
     def test_via_bridge_seeds_both_hop_pools(self):
@@ -138,7 +139,7 @@ class Cases(unittest.TestCase):
     def test_spec_copies_window_and_modes_from_g7(self):
         # mutant: COPY without "mf_ages"
         for k in ("window", "ages", "mf_ages", "deadline_s", "retries", "state_fork"):
-            self.assertEqual(self.spec[k], G7SPEC[k], k)
+            self.assertEqual(self.spec.get(k), G7SPEC[k], k)
         self.assertEqual(g7.modes(self.spec), g7.modes(G7SPEC))
         self.assertNotIn("swaps_per_chain", self.spec)
         c = self.spec["chains"]["base"]
@@ -147,8 +148,13 @@ class Cases(unittest.TestCase):
 
     def test_pair_token_gets_bridge_cases_on_its_chain_only(self):
         # mutants: build "(pairs or {}).get(chain, [])" -> "{}.get(chain, [])"; "if br else []" -> "if True else []"
-        spec, nc, _ = build(pairs={"base": [("X", X)], "nobr": [("X", X)]})
+        # (the second one walks a missing bridge list: build() raising is the guard failing)
+        try:
+            spec, nc, _ = build(pairs={"base": [("X", X)], "nobr": [("X", X)]})
+        except TypeError as e:
+            self.fail("a pair token on a chain without a bridge list reached the bridge loop: %s" % e)
         st = strata(spec)
+        self.assertIn("xb-pair-USDC-" + X, st)
         s = st["xb-pair-USDC-" + X]
         self.assertEqual((s["kind"], s["tA"], s["tB"], s["_pool"]), ("exotic_bridge", X, USDC, P1))  # deepest non-gate X/USDC
         self.assertEqual(len(s["seed_pools"]), 1)
@@ -173,6 +179,18 @@ class Cases(unittest.TestCase):
             self.assertTrue(args, chain)
             wired = {a.lower() if a.startswith("0x") else names[a] for a in args}
             self.assertEqual({a for _, a in rows}, wired, chain)
+
+
+class GateGuard(unittest.TestCase):
+    # mutant: build "if not g:" -> "if False:": a gate venue without a created wrapper in the G7 prereg
+    # is built from None; build() raising is the guard failing (own build, not the Cases fixture).
+    def test_gate_venue_without_a_wrapper_is_not_covered(self):
+        try:
+            spec, nc, _ = build()
+        except TypeError as e:
+            self.fail("a gate venue without a wrapper reached the stratum builder: %s" % e)
+        self.assertIn(("base", "lb"), [(c, s) for c, s, _ in nc])
+        self.assertFalse([k for k in strata(spec) if k.endswith("-lb")])
 
 
 class Draws(unittest.TestCase):

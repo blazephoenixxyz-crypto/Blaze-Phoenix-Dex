@@ -4,7 +4,8 @@ Run: python3 -I tools/g8-pool-tests/mutants_g8.py (offline, no RPC, no key).
 
 Every mutant is applied alone in a temporary tree (tools/g8-pool-tests with bridges.tsv, a copy of
 tools/g7-gas-campaign without state/prereg/site, .github/workflows/g8-pool-tests.yml) and the
-named test runs there; a GREEN! line is a survivor and fails the run. BADPAT means the pattern
+named test runs there; a GREEN! line is a survivor and fails the run, and so does a CRASH! line
+(the test went red by an error, not by an assertion: that proves nothing). BADPAT means the pattern
 is not found exactly once: the mutant list is stale, fix it before trusting the green."""
 import os
 import shutil
@@ -20,7 +21,8 @@ YML = os.path.join(SRC, "..", "..", ".github", "workflows", "g8-pool-tests.yml")
 M = [
  ("Cases.test_top_pool_per_family_is_the_deepest", 'v > bs.liq(best[r["family"]])', 'v < bs.liq(best[r["family"]])'),
  ("Cases.test_rows_without_liq_are_not_ranked", "        v = bs.liq(r)\n        if v is None:\n            continue\n", "        v = bs.liq(r) or 0\n"),
- ("Cases.test_gate_pool_reuses_the_g7_stratum_or_is_not_covered", "                if not g:\n", "                if False:\n"),
+ ("GateGuard.test_gate_venue_without_a_wrapper_is_not_covered", "                if not g:\n", "                if False:\n"),
+ ("Cases.test_gate_pool_reuses_the_g7_stratum_or_is_not_covered", "st = dict(g, id=", "st = dict(g, venue_key=None, id="),
  ("Cases.test_exotic_bridge_seeds_the_deepest_non_gate_pool_alone", "return max(ok, key=bs.liq) if ok else None", "return ok[0] if ok else None"),
  ("Cases.test_exotic_bridge_seeds_the_deepest_non_gate_pool_alone", '"xb-%s-%s-%s" % (fam, sym, x)', '"xb-%s-%s-%s" % (fam, sym, x[:10])'),
  ("Cases.test_via_bridge_seeds_both_hop_pools", "r, x, y, [p1, p2], fam)", "r, x, y, [p1], fam)"),
@@ -66,8 +68,11 @@ for tid, old, new, *tgt in M:
     open(p, "w").write(s.replace(old, new))
     r = subprocess.run([sys.executable, "-I", "-W", "ignore", os.path.join(d, "test_g8.py"), tid],
                        capture_output=True, text=True, timeout=120)
-    red = r.returncode != 0
-    print(("RED " if red else "GREEN!") + "\t" + tid)
+    # Killed only by an assertion: a test that errors (exception, missing name) proves nothing about the guard.
+    red = r.returncode != 0 and "AssertionError" in r.stderr and "errors=" not in r.stderr
+    tag = "RED " if red else ("CRASH!" if r.returncode else "GREEN!")
+    why = [ln for ln in r.stderr.splitlines() if ln[:1].isalpha() and ("Error" in ln or "Exception" in ln)][-1:]
+    print(tag + "\t" + tid + ("" if red or not why else "\t" + why[0][:160]))
     fail += 0 if red else 1
     shutil.rmtree(root)
 print("survivors/bad:", fail, "of", len(M))
