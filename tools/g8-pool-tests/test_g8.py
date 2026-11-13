@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -143,6 +144,24 @@ class Cases(unittest.TestCase):
         c = self.spec["chains"]["base"]
         self.assertEqual({k: c[k] for k in bc.CHAIN_COPY}, {k: G7SPEC["chains"]["base"][k] for k in bc.CHAIN_COPY})
         self.assertEqual(json.load(open(os.path.join(self.out, "spec.json")))["window"], G7SPEC["window"])
+
+    def test_bridges_tsv_matches_deploy_addbridge(self):
+        # mutant: the robinhood VIRTUAL hub.addBridge line removed from G7Deploy.s.sol
+        g7dir = os.path.join(HERE, "..", "g7-gas-campaign")
+        br = bc.read_bridges(os.path.join(HERE, "bridges.tsv"))
+        own = {"avalanche": "G7DeployAvax.s.sol", "bsc": "G7DeployBsc.s.sol"}
+        self.assertEqual(set(br), {"base", "optimism", "arbitrum", "robinhood", "ethereum", "avalanche", "bsc"})
+        for chain, rows in br.items():
+            src = open(os.path.join(g7dir, own.get(chain, "G7Deploy.s.sol"))).read()
+            if chain not in own:
+                m = re.search(r"\n    function _%s\(.*?\n    }\n" % chain, src, re.S)
+                self.assertIsNotNone(m, chain)
+                src = m.group(0)
+            names = {n: v.lower() for n, v in re.findall(r"address\s+(?:constant\s+)?(\w+)\s*=\s*(0x[0-9a-fA-F]{40})\s*;", src)}
+            args = re.findall(r"hub\.addBridge\((\w+)\)", src)
+            self.assertTrue(args, chain)
+            wired = {a.lower() if a.startswith("0x") else names[a] for a in args}
+            self.assertEqual({a for _, a in rows}, wired, chain)
 
 
 class Draws(unittest.TestCase):

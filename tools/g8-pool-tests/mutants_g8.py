@@ -2,7 +2,7 @@
 """Mutants of build_cases.py, g8.py and g8-pool-tests.yml: each one must turn its test red.
 Run: python3 -I tools/g8-pool-tests/mutants_g8.py (offline, no RPC, no key).
 
-Every mutant is applied alone in a temporary tree (tools/g8-pool-tests, a copy of
+Every mutant is applied alone in a temporary tree (tools/g8-pool-tests with bridges.tsv, a copy of
 tools/g7-gas-campaign without state/prereg/site, .github/workflows/g8-pool-tests.yml) and the
 named test runs there; a GREEN! line is a survivor and fails the run. BADPAT means the pattern
 is not found exactly once: the mutant list is stale, fix it before trusting the green."""
@@ -29,6 +29,7 @@ M = [
  ("Cases.test_chain_without_a_bridge_list_has_no_bridge_cases", 'if r.get("address", "").startswith("0x") and len(r["address"]) == 42:', "if True:"),
  ("Cases.test_amounts_are_dust_mid_deep", "STEPS = (5, 3, 1)", "STEPS = (5, 3, 2)"),
  ("Cases.test_spec_copies_window_and_modes_from_g7", 'COPY = ("window", "ages", "mf_ages",', 'COPY = ("window", "ages",'),
+ ("Cases.test_bridges_tsv_matches_deploy_addbridge", "        hub.addBridge(0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31); // VIRTUAL (pool token, 18 decimals; owner decision 13/11)\n", "", "../g7-gas-campaign/G7Deploy.s.sol"),
  ("Draws.test_both_directions_every_amount", "for fwd in (True, False):", "for fwd in (True,):", "g8.py"),
  ("Draws.test_seed_fixes_the_block", "b, idx = rng.randint(b0, b1), 0", "b, idx = b0, 0", "g8.py"),
  ("Report.test_per_case_line_counts_only_ok_rows", 'ok = [r for r in rs if r["outcome"] == "ok"]', "ok = rs", "g8.py"),
@@ -42,7 +43,7 @@ def tree():
     root = tempfile.mkdtemp()
     d = os.path.join(root, "tools", "g8-pool-tests")
     os.makedirs(d)
-    for f in ("g8.py", "build_cases.py", "test_g8.py"):
+    for f in ("g8.py", "build_cases.py", "test_g8.py", "bridges.tsv"):
         shutil.copy(os.path.join(SRC, f), d)
     shutil.copytree(G7, os.path.join(root, "tools", "g7-gas-campaign"),
                     ignore=shutil.ignore_patterns("__pycache__", "state", "prereg", "site"))
