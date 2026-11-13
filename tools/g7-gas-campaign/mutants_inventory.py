@@ -49,13 +49,16 @@ for tid, old, new in M:
     if s.count(old) != 1:
         print("BADPAT", tid, s.count(old)); fail += 1; continue
     open(p, "w").write(s.replace(old, new))
+    # Killed only by an assertion: a test that errors (exception, missing name) or hangs proves nothing about the guard.
     try:
         r = subprocess.run([sys.executable, "-I", "-W", "ignore", os.path.join(d, "test_inventory.py"), tid],
                            capture_output=True, text=True, timeout=120)
-        red = r.returncode != 0
+        red = r.returncode != 0 and "AssertionError" in r.stderr and "errors=" not in r.stderr
+        tag = "RED " if red else ("CRASH!" if r.returncode else "GREEN!")
+        why = [ln for ln in r.stderr.splitlines() if ln[:1].isalpha() and ("Error" in ln or "Exception" in ln)][-1:]
     except subprocess.TimeoutExpired:
-        red = True
-    print(("RED " if red else "GREEN!") + "\t" + tid)
+        red, tag, why = False, "TIMEOUT!", []
+    print(tag + "\t" + tid + ("" if red or not why else "\t" + why[0][:160]))
     fail += 0 if red else 1
     shutil.rmtree(d)
 print("survivors/bad:", fail, "of", len(M))
