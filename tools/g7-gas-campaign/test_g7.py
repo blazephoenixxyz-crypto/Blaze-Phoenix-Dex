@@ -738,8 +738,7 @@ class PairedVsD(unittest.TestCase):
         return okrow(mode, idx=idx, b=b if b is not None else 100 * idx, g_quote=gq, **kw)
 
     def paired(self, lines):
-        i = lines.index(self.HDR)
-        return [ln for ln in lines[i + 1:] if ln]
+        return section(lines, self.HDR)
 
     # Meta-mutant "unpaired": draw_key -> (chain, stratum), so an M row meets another draw's D.
     # Mutant: the ok filter of the D side dropped (a noquote D still pairs).
@@ -786,6 +785,46 @@ class PairedVsD(unittest.TestCase):
         self.assertIn("bsc\tMF1h\tall\tg_record\t0\t\t\t\t", p)
         self.assertIn("base\tM1h\tall\tg_quote\t0\t\t\t\t", p)
         self.assertFalse([ln for ln in p if ln.split("\t")[2] not in ("all", "hit")], "a case without a pair has no line")
+
+
+def section(lines, hdr):
+    """The non-empty lines of the report section headed `hdr`, up to the next section header."""
+    out = []
+    for ln in lines[lines.index(hdr) + 1:]:
+        if ln.startswith("#"):
+            break
+        if ln:
+            out.append(ln)
+    return out
+
+
+class GRecordShape(unittest.TestCase):
+    """cmd_report "# g_record by hops x legs": per chain x hops x legs, the D (cold registry) and M0
+    g_record marginals over ok rows; p95 only from PAIRED_MIN_N."""
+    HDR = ("# g_record by hops x legs (ok rows; D vs M0 unpaired; p95 only at n >= 20): chain\thops\tlegs\t"
+           "D_n\tD_p50\tD_p95\tM0_n\tM0_p50\tM0_p95")
+
+    def row(self, mode, idx, g, hops=1, legs=1, **kw):
+        return okrow(mode, idx=idx, b=100 * idx, hops=hops, legs=legs, g_record=g, **kw)
+
+    # Mutant "legs folded": shape (chain, hops, legs) -> (chain, hops, hops) (the 1x2 row joins 1x1).
+    # Mutant "modes merged": the cell filter drops `r["mode"] == m` (D and M0 get the same cells).
+    # Mutant "not ok counted": the ok filter dropped (the noquote row joins D 1x1).
+    def test_split_by_hops_and_legs_per_mode_over_ok_rows(self):
+        rows = [self.row("D", 1, 600000), self.row("D", 2, 500000), self.row("M0", 1, 12000),
+                self.row("D", 3, 1000000, legs=2),
+                self.row("D", 4, 9999999, outcome="noquote"),  # not ok: out
+                self.row("M1h", 1, 77),  # neither D nor M0: out
+                self.row("D", 5, "", hops=2, legs=2)]  # no g_record: out (absent is not a value)
+        s = section(report_lines(rows), self.HDR)
+        # nearest-rank p50 of two values is the lower one; n < 20: no p95
+        self.assertEqual(s, ["base\t1\t1\t2\t500000\t\t1\t12000\t", "base\t1\t2\t1\t1000000\t\t0\t\t"])
+
+    # Mutant "p95 below the minimum": `>= PAIRED_MIN_N` -> `> PAIRED_MIN_N` (n = 20 loses its p95).
+    def test_p95_only_from_the_declared_minimum(self):
+        rows = [self.row("D", i, 1000 * i) for i in range(1, 21)] + [self.row("M0", i, 10 * i) for i in range(1, 20)]
+        s = section(report_lines(rows), self.HDR)
+        self.assertEqual(s, ["base\t1\t1\t20\t10000\t19000\t19\t100\t"])  # D rank 19 of 20; M0 n 19: none
 
 
 class Seed(unittest.TestCase):

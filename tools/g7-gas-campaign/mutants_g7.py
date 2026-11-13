@@ -74,6 +74,10 @@ M = [  # (test id, old, new)
  ("MsCase.test_report_table_per_chain_kind_case", 'for r in rows if r["outcome"] == "ok" and r["ms_case"]})', 'for r in rows if r["ms_case"]})'),
  ("PairedVsD.test_pairs_by_draw_not_by_stratum", 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and r["outcome"] == "ok" and', 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and'),
  ("PairedVsD.test_p95_only_from_the_declared_minimum", "if len(v) >= PAIRED_MIN_N else", "if len(v) > PAIRED_MIN_N else"),
+ ("GRecordShape.test_split_by_hops_and_legs_per_mode_over_ok_rows", 'shape = lambda r: (r["chain"], r["hops"], r["legs"])', 'shape = lambda r: (r["chain"], r["hops"], r["hops"])'),
+ ("GRecordShape.test_split_by_hops_and_legs_per_mode_over_ok_rows", 'if shape(r) == k and r["mode"] == m]', "if shape(r) == k]"),
+ ("GRecordShape.test_split_by_hops_and_legs_per_mode_over_ok_rows", 'rec = [r for r in rows if r["outcome"] == "ok" and r["mode"] in gm and', 'rec = [r for r in rows if r["mode"] in gm and'),
+ ("GRecordShape.test_p95_only_from_the_declared_minimum", "if len(g) >= PAIRED_MIN_N else", "if len(g) > PAIRED_MIN_N else"),
 ]
 # Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
 # must turn its named test red.

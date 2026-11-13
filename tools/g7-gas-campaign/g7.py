@@ -953,6 +953,20 @@ def cmd_report(spec_path, out_path):
                     if c != "all" and not v:
                         continue
                     print(f"{cn}\t{m}\t{c}\t{s}\t" + "\t".join(str(x) for x in paired_cells(v)))
+    # g_record per route shape: D (cold registry, the venue admitted by recordSwap) vs M0 (the route
+    # registered at age 0). Unpaired marginals over ok rows with a g_record; a line per (chain, hops,
+    # legs) present in either mode; an empty hops or legs stays its own key (absent is not a value).
+    gm = ("D", "M0")
+    print(f"# g_record by hops x legs (ok rows; D vs M0 unpaired; p95 only at n >= {PAIRED_MIN_N}): chain\thops\tlegs\t"
+          + "\t".join(f"{m}_n\t{m}_p50\t{m}_p95" for m in gm))
+    rec = [r for r in rows if r["outcome"] == "ok" and r["mode"] in gm and r.get("g_record") not in ("", None)]
+    shape = lambda r: (r["chain"], r["hops"], r["legs"])
+    for k in sorted({shape(r) for r in rec}, key=lambda k: (k[0], len(k[1]), k[1], len(k[2]), k[2])):
+        cells = []
+        for m in gm:
+            g = [int(r["g_record"]) for r in rec if shape(r) == k and r["mode"] == m]
+            cells += [len(g), pct(g, 50) if g else "", pct(g, 95) if len(g) >= PAIRED_MIN_N else ""]
+        print("\t".join(k) + "\t" + "\t".join(str(c) for c in cells))
 
 
 def main(a):
