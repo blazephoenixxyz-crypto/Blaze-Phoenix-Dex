@@ -229,7 +229,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
     }
 
     /// @notice The hop-1 fee push restates the bridge x2 (a reflection or rebase fired by the fee
-    ///         transfer). Unfixed: hop 1 spends F + 2(D - fee), the foreign holder's whole rebase
+    ///         transfer). Pre-fix: hop 1 spends F + 2(D - fee), the foreign holder's whole rebase
     ///         gain goes to the swapper and the Router ends with F/2 shares of the F it held.
     function test_ARestatementFiredByTheHop1FeePushStaysWithTheStrandedBridge() public {
         Run memory h = _run(0, 0);
@@ -242,7 +242,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
     }
 
     /// @notice The hop-0 fee push (tokenIn landing on T1) restates the bridge x2 BEFORE hop 0's
-    ///         leg delivers, so hop 1's fee base and input read F + D past the baseline. Unfixed:
+    ///         leg delivers, so hop 1's fee base and input read F + D past the baseline. Pre-fix:
     ///         the fee is charged on the foreign holder's gain and hop 1 spends it.
     function test_ARestatementFiredByTheHop0FeePushStaysWithTheStrandedBridge() public {
         Run memory h = _run(0, 0);
@@ -370,24 +370,24 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         assertEq(r.delivered, h.delivered, "the recipient is paid what hop 0 delivered buys, not the restatement");
     }
 
-    /// @notice One token stranded, the bridge doubles inside the hop-1 leg. Unfixed: the payer
+    /// @notice One token stranded, the bridge doubles inside the hop-1 leg. Pre-fix: the payer
     ///         is swept 1e18 B, half the stranded holder's shares.
     function test_ARestatementInsideTheHop1LegLeavesOneStrandedTokenWithTheRescue() public {
         _assertTheSweepLeavesTheRestatementWithTheRescue(1e18, 2, 1);
     }
 
-    /// @notice 100 tokens stranded, x2 inside the hop-1 leg. Unfixed: 100e18 B to the payer.
+    /// @notice 100 tokens stranded, x2 inside the hop-1 leg. Pre-fix: 100e18 B to the payer.
     function test_ARestatementInsideTheHop1LegLeavesTheStrandedBridgeWithTheRescue() public {
         _assertTheSweepLeavesTheRestatementWithTheRescue(FOREIGN, 2, 1);
     }
 
     /// @notice Four times the swap's input stranded, x2: the gain is not bounded by the swap's
-    ///         size, so neither may the test be. Unfixed: 400e18 B to the payer.
+    ///         size, so neither may the test be. Pre-fix: 400e18 B to the payer.
     function test_ARestatementInsideTheHop1LegLeavesFourInputsStrandedWithTheRescue() public {
         _assertTheSweepLeavesTheRestatementWithTheRescue(4 * IN, 2, 1);
     }
 
-    /// @notice A 1 % restatement over 100 stranded tokens. Unfixed: ~1e18 B to the payer.
+    /// @notice A 1 % restatement over 100 stranded tokens. Pre-fix: ~1e18 B to the payer.
     function test_AOnePercentRestatementInsideTheHop1LegLeavesTheStrandedBridgeWithTheRescue() public {
         _assertTheSweepLeavesTheRestatementWithTheRescue(FOREIGN, 101, 100);
     }
@@ -545,13 +545,13 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         assertApproxEqAbs(r.delivered, h.delivered, 2, "the delivery is unchanged (token rounding)");
     }
 
-    /// @notice 100 input tokens stranded, x2 inside the hop-0 leg of a one-hop route. Unfixed: the
+    /// @notice 100 input tokens stranded, x2 inside the hop-0 leg of a one-hop route. Pre-fix: the
     ///         sweep pays the payer 100e18 A, half the stranded holder's shares.
     function test_ARestatementInsideTheHop0LegLeavesTheStrandedInputWithTheRescue() public {
         _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, ONE_HOP, 1, 2, 1, false);
     }
 
-    /// @notice One input token stranded, x2. Unfixed: the Router ends with 0.5e18 shares.
+    /// @notice One input token stranded, x2. Pre-fix: the Router ends with 0.5e18 shares.
     function test_ARestatementInsideTheHop0LegLeavesOneStrandedInputTokenWithTheRescue() public {
         _assertTheInputSweepLeavesTheRestatementWithTheRescue(1e18, ONE_HOP, 1, 2, 1, false);
     }
@@ -561,7 +561,7 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         _assertTheInputSweepLeavesTheRestatementWithTheRescue(4 * IN, ONE_HOP, 1, 2, 1, false);
     }
 
-    /// @notice A 1 % restatement over 100 stranded input tokens. Unfixed: ~1e18 A to the payer.
+    /// @notice A 1 % restatement over 100 stranded input tokens. Pre-fix: ~1e18 A to the payer.
     function test_AOnePercentRestatementInsideTheHop0LegLeavesTheStrandedInputWithTheRescue() public {
         _assertTheInputSweepLeavesTheRestatementWithTheRescue(FOREIGN, ONE_HOP, 1, 101, 100, false);
     }
