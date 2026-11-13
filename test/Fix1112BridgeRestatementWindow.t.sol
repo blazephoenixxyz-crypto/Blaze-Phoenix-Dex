@@ -294,6 +294,7 @@ contract Fix1112BridgeRestatementWindowTest is Test {
     /// Red under [fin1111-router-1] / [1026] (the push believes the answer, the
     /// short wei is not booked: F + 1 held, nothing owed) and [bridge-1112 a]
     /// (the raw balance is spent, F included).
+    /// Bounty uids 4077, 4079, 4080 (one root: a negative rebase over a stranded balance).
     function test_ANegativeBridgeRestatementIsOneObservationWithAShortDelivery() public {
         Case memory cr = _c(RESTATE, 999, 1000, 9000, 0, 0, 9800);
         cr.overHold = _overHoldFor(999, 1000);

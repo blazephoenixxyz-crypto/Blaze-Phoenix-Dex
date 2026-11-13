@@ -279,4 +279,49 @@ contract QuoterMeasuresTheV3InputTaxTest is Test {
         assertTrue(ok, "the Router refuses the bytes of an untaxed leg");
         assertGe(abi.decode(ret, (uint256)), pv.effectiveMinOut, "the Router settles under the floor the bytes carry");
     }
+
+    // ───────────── taxed tokenOut on a concentrated leg -> RouterE(5) (bounty uid 3988) ─────────────
+    // The exact scalar is pool math: what the pool pays out. A tax on the way out of the pool and on
+    // to the recipient is a transfer the dry-run never makes (docs/KNOWN_ISSUES.md, "The encode doors
+    // answer pool math"). The caller's floor is what stands between that scalar and a short delivery:
+    // a floor at the scalar is refused by selector and code, a floor at the taxed net settles.
+
+    function _outRow(uint16 bps) internal returns (Route memory rt, uint256 exactOut) {
+        fot.setFeeOnTransferBps(bps);
+        tB.mint(user, AMOUNT_IN);
+        vm.prank(user);
+        tB.approve(address(router), type(uint256).max);
+        (rt, exactOut) = quoter.previewPlanExact(address(tB), address(fot), AMOUNT_IN);
+    }
+
+    function test_HopZero_V3LegWithATaxedOutput_TheFloorAtTheScalarIsRefused_TheNetSettles() public {
+        (Route memory rt, uint256 exactOut) = _outRow(TAX);
+        assertEq(rt.hops.length, 1, "pre-condition: the Solver seats the V3 pool");
+        assertGt(exactOut, 0, "pre-condition: the exact door answers pool math for a taxed output");
+
+        uint256 snap = vm.snapshotState();
+        vm.prank(user);
+        vm.expectRevert(_rerr(5));
+        router.swapExactIn(rt, AMOUNT_IN, exactOut, user, block.timestamp + 1);
+        vm.revertToState(snap);
+
+        // Two taxed transfers (pool -> Router -> recipient): the net the caller can floor at.
+        uint256 net = exactOut * (10_000 - TAX) / 10_000 * (10_000 - TAX) / 10_000 * 9_900 / 10_000;
+        uint256 before = fot.balanceOf(user);
+        vm.prank(user);
+        router.swapExactIn(rt, AMOUNT_IN, net, user, block.timestamp + 1);
+        uint256 got = fot.balanceOf(user) - before;
+        assertGe(got, net, "the recipient received under the floor the caller set");
+        assertLt(got, exactOut, "a taxed output delivered the untaxed scalar");
+    }
+
+    /// Range: every tax the output token can charge; a floor at the exact scalar is always refused.
+    function testFuzz_AnyOutputTax_AFloorAtTheScalarIsRefused(uint16 bps) public {
+        bps = uint16(bound(bps, 1, 9_999));
+        (Route memory rt, uint256 exactOut) = _outRow(bps);
+        assertGt(exactOut, 0, "pre-condition: the exact door answers pool math");
+        vm.prank(user);
+        vm.expectRevert(_rerr(5));
+        router.swapExactIn(rt, AMOUNT_IN, exactOut, user, block.timestamp + 1);
+    }
 }

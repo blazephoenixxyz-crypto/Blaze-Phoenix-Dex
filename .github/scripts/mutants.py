@@ -7087,6 +7087,24 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        pv.effectiveMinOut = userMinOut > pv.ironFloor ? userMinOut : pv.ironFloor;",
       new="        pv.effectiveMinOut = pv.ironFloor; // MUTANT",
       teste="test_Control_AFloorAbovePoolMath_TheDoorSaysNo_AndCarriesNoBytes"),
+# 3988 (F07, 2026-11-13): a taxed tokenOut on a concentrated leg; the exact scalar is pool math and the
+# caller's floor is the only guard between it and a short delivery (RouterE(5)).
+dict(nome="3988: the caller's floor is halved on entry to _execute (a floor at the pool-math scalar of a taxed output settles short)",
+     f="src/BlazePhoenixRouter.sol",
+     old="        uint256 effMin = userMinOut;",
+     new="        userMinOut = userMinOut / 2; uint256 effMin = userMinOut; // MUTANT",
+     teste="test_HopZero_V3LegWithATaxedOutput_TheFloorAtTheScalarIsRefused_TheNetSettles"),
+# P2zip-092 (F07, 2026-11-13): the two SeamParity pins that named no mutant.
+dict(nome="P2zip-092 Seam1: the Solidly curve ask drops its no-answer haircut (the quote is the raw replicated curve)",
+     f="src/BlazePhoenixCore.sol",
+     old="        out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * SOLIDLY_CURVE_ASK_BPS) / BPS;",
+     new="        out = solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn); // MUTANT",
+     teste="test_Seam1_SolidlyHaircut_CoreQuoteEqualsRouterDelivery"),
+dict(nome="P2zip-092 Seam4: the Solver's absolute impact ceiling is gone (the plan side stops refusing)",
+     f="src/BlazePhoenixSolver.sol",
+     old="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;",
+     new="        if (false) return route; // MUTANT",
+     teste="test_Seam4_ImpactCeiling_PlanRefuses_ExecutionDoesNot"),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named
