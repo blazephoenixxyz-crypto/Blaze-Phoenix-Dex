@@ -17,7 +17,7 @@ pragma solidity 0.8.36;
 //  the other token - and on the vector where a naive rewrite does not: key 0. `deriveAddress`
 //  reads `fee == 0` in mode 5 as the Algebra sentinel and takes its CREATE2 origin from the
 //  factory's `poolDeployer()`; a gate that answered it would make another deployer's wrapper pass.
-//  RED at 15dd13b (the rewrite without the key-0 refusal): the frozen identity refuses that
+//  RED at db6ab51 (the rewrite without the key-0 refusal): the frozen identity refuses that
 //  wrapper, the rewritten one accepted it. One verdict changes on purpose, and is pinned as such:
 //  a wrapper deployed AT key 0 (which the real Gate refuses to create) is refused, because the
 //  Hub's discovery never derives it (test_IdentityKeyZero_TheDoorAgreesWithDiscovery).

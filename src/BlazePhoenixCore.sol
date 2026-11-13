@@ -573,8 +573,9 @@ library BlazePhoenixCore {
     ///         discards any derivation that resolves to an address with no
     ///         bytecode.
     ///
-    ///         Public, so the Hub - its only caller, on the discovery probe - reaches it by
-    ///         DELEGATECALL into the deployed Core instead of carrying a copy: the Hub is the
+    ///         Public, so the Hub - its only external caller, on the discovery probe - reaches it by
+    ///         DELEGATECALL into the deployed Core instead of carrying a copy (inside the Core,
+    ///         `gateWrapperLive` calls it to derive a kind-9 wrapper the same way): the Hub is the
     ///         tightest contract against the size gate, and the probe is not on a swap's path.
     function deriveAddress(
         address factory, address tA, address tB,
@@ -793,8 +794,9 @@ library BlazePhoenixCore {
     ///         control:
     ///           1. the Hub must have admitted `g` as a factory, and `g` must still run the
     ///              code it was admitted with (the Hub's codehash pin);
-    ///           2. `pool` must equal create2(g, v3Salt(t0, t1, fee), g.WRAPPER_INIT_HASH())
-    ///              - the formula the Hub discovers kind-9 rows by - with the hop's own
+    ///           2. `pool` must equal deriveAddress(g, .., fee, mode 5, g.WRAPPER_INIT_HASH()),
+    ///              i.e. create2(g, v3Salt(t0, t1, fee), ..) - the very call the Hub discovers
+    ///              kind-9 rows by, key 0 refused before it - with the hop's own
     ///              tokens and the leg's own fee (the venue key). Only `g` can deploy at that
     ///              address, and only the wrapper's code hashes to that init hash; a pool
     ///              lying about its gate misses the address, and an admitted factory that is
@@ -808,6 +810,9 @@ library BlazePhoenixCore {
     function gateWrapperLive(address hub, address pool, address tA, address tB, uint24 fee)
         public view returns (bool)
     {
+        // Key 0 is mode 5's Algebra sentinel: `deriveAddress` would take the CREATE2 origin from
+        // the gate's poolDeployer() answer, not the gate. No Gate creates key 0 (GateE(3)).
+        if (fee == 0) return false;
         // `_askWord` leaves the word 0 on a failed or short answer, so `ok` adds nothing here.
         (, uint256 w) = _askWord(pool, abi.encodeWithSignature("gate()"));
         address g = address(uint160(w));
