@@ -1,0 +1,157 @@
+name: g8-pool-tests
+# G8: isolated per-pool and bridge cases over 7 chains, moonslot and Discovery side by side
+# (tools/g8-pool-tests). The runner is the G7 one (g7.py measure_draw, same columns and
+# segments) over the pre-registered cases of tools/g8-pool-tests/spec.json; the state and the
+# seed are the G7 ones (tools/g7-gas-campaign/state, seed.txt). Dispatch only: no push trigger.
+# The dRPC key comes only from secrets.DRPC_KEY: it is masked, written to a 0600 file in
+# RUNNER_TEMP and never echoed, logged or uploaded (g7.py never prints the URL).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "smoke (1 swap per chain, g7.py smoke over the G8 spec) or measure (every pre-registered case)"
+        required: true
+        default: smoke
+        type: choice
+        options: [smoke, measure]
+      chains:
+        description: "comma-separated subset (empty = every chain of spec.json)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g8-pool-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Offline tests and their mutants
+        run: |
+          set -euo pipefail
+          pip install requests==2.32.3
+          D=tools/g8-pool-tests
+          python3 -I "$D/test_g8.py"
+          python3 -I "$D/mutants_g8.py"
+
+  run:
+    # One leg per chain: the legs share nothing but the read-only spec/state of the commit, so
+    # they run in parallel; each leg writes its own results-<chain>.tsv.
+    needs: offline
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        chain: [arbitrum, avalanche, base, bsc, ethereum, optimism, robinhood]
+    timeout-minutes: ${{ inputs.mode == 'smoke' && 30 || 350 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Run g8 on ${{ matrix.chain }}
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+          MODE: ${{ inputs.mode }}
+          CHAINS: ${{ inputs.chains }}
+          CHAIN: ${{ matrix.chain }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          echo "mode: $MODE"
+          if [ -n "$CHAINS" ] && ! printf '%s\n' "${CHAINS//,/$'\n'}" | grep -qxF "$CHAIN"; then
+            echo "$CHAIN not selected: skipped"; exit 0
+          fi
+          if [ -z "${DRPC_KEY:-}" ]; then echo "::error::DRPC_KEY secret missing: no measurement"; exit 1; fi
+          echo "::add-mask::$DRPC_KEY"
+          umask 077
+          export DRPC_KEY_FILE="$RUNNER_TEMP/drpc-key"
+          printf '%s' "$DRPC_KEY" > "$DRPC_KEY_FILE"
+          unset DRPC_KEY
+          pip install requests==2.32.3
+          D=tools/g8-pool-tests
+          G7=tools/g7-gas-campaign
+          OUT="out/results-$CHAIN.tsv"
+          if [ "$MODE" = measure ]; then
+            SEED=$(cat "$G7/seed.txt")
+            python3 -I "$D/g8.py" measure "$D/spec.json" "$G7/state" "$OUT" "$SEED" -j 2 --chains "$CHAIN"
+          else
+            # g8.py has no smoke: the G7 smoke takes the first stratum of any spec of the same shape
+            python3 -I "$G7/g7.py" smoke "$D/spec.json" "$G7/state" "$OUT" --chains "$CHAIN"
+          fi
+          rm -f "$DRPC_KEY_FILE"
+          # a non-empty sample is the only green: count the data rows
+          ROWS=$(($(wc -l < "$OUT") - 1))
+          if [ "$ROWS" -le 0 ]; then echo "::error::no rows measured on $CHAIN"; exit 1; fi
+          echo "$CHAIN ($MODE): rows measured: $ROWS"
+      - name: Guard - the key is not in the artefacts
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+        run: |
+          if [ -n "$DRPC_KEY" ] && grep -rqF -- "$DRPC_KEY" out/; then echo "::error::key found in out/"; exit 1; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: g8-results-${{ matrix.chain }}-${{ github.run_id }}
+          path: out/results-${{ matrix.chain }}.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    # Joins the legs (header once) and builds the report; runs even when a leg failed, so the
+    # rows that were measured are published with the failures, not hidden.
+    needs: run
+    if: always() && needs.run.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: g8-results-*-${{ github.run_id }}
+          path: legs
+          merge-multiple: true
+      - name: Join and report
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          D=tools/g8-pool-tests
+          shopt -s nullglob
+          F=(legs/results-*.tsv)
+          if [ "${#F[@]}" -eq 0 ]; then echo "::error::no leg produced results"; exit 1; fi
+          head -n 1 "${F[0]}" > out/results.tsv
+          for f in "${F[@]}"; do
+            if [ "$(head -n 1 "$f")" != "$(head -n 1 out/results.tsv)" ]; then echo "::error::header differs in $f"; exit 1; fi
+            tail -n +2 "$f" >> out/results.tsv
+          done
+          pip install requests==2.32.3
+          python3 -I "$D/g8.py" report "$D/spec.json" out/results.tsv > out/report.tsv
+          echo "legs: ${#F[@]}; rows: $(($(wc -l < out/results.tsv) - 1))"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: g8-results-${{ github.run_id }}
+          path: |
+            out/results.tsv
+            out/report.tsv
+          if-no-files-found: error
+          retention-days: 30
