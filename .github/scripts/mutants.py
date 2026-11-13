@@ -4791,29 +4791,22 @@ M = [
       old='                if (legOutRaw == tokenOut) outCap += legDecl;\n',
       new='                if (legOutRaw == tokenOut) outCap = legDecl; // MUTANT\n',
       teste='test_TheCapIsTheSumOfTheLastHopsLegs'),
- dict(nome='3310 handed [892]: a leg that hands tokenOut to its venue does not take it off the cap',
-      f='src/BlazePhoenixRouter.sol',
-      old='                else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;\n',
-      new='                else if (legIn == tokenOut) outCap = outCap; // MUTANT\n',
-      # hops2 (2026-11-10): OPEN. The test below left with the three-hop loose shape, refused since
-      # the ceiling (RouterE(3)); on two hops this mutant survives the eight tests of
-      # SwapOutputNeverExceedsWhatTheVenuesDeclared. Its two-hop case is still to be stated; until
-      # then this entry names a test that no longer exists.
-      teste='test_TheLooseShapeIsPaidWhatTheLastHopDeclared'),
+ # [892] (Router `else if (legIn == tokenOut) outCap -= scaledAmt`, floored) and [894] (`_chargeHopFee`
+ # `if (hop.tokenIn == tokenOut) outCap -= feeH`, floored) deliberately have NO entry since F06
+ # (2026-11-13): both are EQUIVALENT while MAX_HOPS = 2, as Router:1147 above. tokenOut is the last
+ # hop's (`_execute`'s head); a hop never trades a token for itself (`legs == 0 || ...` guard); hop
+ # h >= 1 spends hop h-1's output (`if (h != 0)` guard); every leg's tokens are its hop's (`legIn !=
+ # hop.tokenIn || legOutRaw != hop.tokenOut`). So hop 1's input is never tokenOut, and the only hop
+ # spending tokenOut is hop 0 of a cyclic route, whose fee is charged before its legs and whose legs
+ # make hop 0's output, not tokenOut: at both lines the cap is still its initial zero and each
+ # mutant writes back the zero the floor writes. Their live case is the three-hop loose shape
+ # A -> X -> B -> X, refused at the ceiling and pinned by the MAX_HOPS entries' tests
+ # (test_TheLooseShapeIsPastTheHopCeilingAndRefused); the floors are [893] and [895].
  dict(nome='3310 handed floor [893]: hop 0 of a cyclic route spends its input against a cap no leg made',
       f='src/BlazePhoenixRouter.sol',
       old='                else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;\n',
       new='                else if (legIn == tokenOut) outCap = outCap - scaledAmt; // MUTANT\n',
       teste='test_ACyclicRouteSpendsItsOwnInputAndIsPaidWhatItsLastPoolPaid'),
- dict(nome='3310 fee [894]: a fee charged in tokenOut is not taken off the cap',
-      f='src/BlazePhoenixRouter.sol',
-      old='        if (hop.tokenIn == tokenOut) outCap = outCap > feeH ? outCap - feeH : 0;\n',
-      new='        // MUTANT: a fee charged in tokenOut is not taken off the cap\n',
-      # hops2 (2026-11-10): OPEN. The test below left with the three-hop loose shape, refused since
-      # the ceiling (RouterE(3)); on two hops this mutant survives the eight tests of
-      # SwapOutputNeverExceedsWhatTheVenuesDeclared. Its two-hop case is still to be stated; until
-      # then this entry names a test that no longer exists.
-      teste='test_TheLooseShapeIsPaidWhatTheLastHopDeclared'),
  dict(nome='3310 fee floor [895]: hop 0 of a cyclic route pays its fee in tokenOut against a cap no leg made',
       f='src/BlazePhoenixRouter.sol',
       old='        if (hop.tokenIn == tokenOut) outCap = outCap > feeH ? outCap - feeH : 0;\n',
@@ -4877,6 +4870,18 @@ M = [
       old='            uint256 plannedIn;\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
       new='            uint256 plannedIn;\n            if (h == 0) plannedIn = route.hops[h].amountIn; else // MUTANT\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
       teste='test_HopZeroCommitmentFundsTheLegsTheRouterFunds'),
+ # F06 (2026-11-13, P2px-243): the same mutant against the dirty world's B6 handler, which hands
+ # hop 0 a quarter to four times its legs' commitment and settles at the exact door's promise.
+ dict(nome="T04 B6: hop 0 divides its legs by the declared hop.amountIn, the dirty world's partial commitment breaks its promise",
+      f='src/BlazePhoenixQuoter.sol',
+      old='            uint256 plannedIn;\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
+      new='            uint256 plannedIn;\n            if (h == 0) plannedIn = route.hops[h].amountIn; else // MUTANT\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
+      teste='invariant_DirtyWorld'),
+ dict(nome="T04 B6 walk: hop 0 divides its legs by the declared hop.amountIn, the scripted walk's partial commitments break",
+      f='src/BlazePhoenixQuoter.sol',
+      old='            uint256 plannedIn;\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
+      new='            uint256 plannedIn;\n            if (h == 0) plannedIn = route.hops[h].amountIn; else // MUTANT\n            for (uint256 l; l < route.hops[h].legs.length; l++)\n',
+      teste='test_DirtyWorld_ScriptedWalkIsLiveAndClean'),
  dict(nome="T04: hop 0's fee is charged on the whole order, not on what its legs commit",
       f='src/BlazePhoenixQuoter.sol',
       old='                carry -= BPC.mulDivUp(h == 0 && carry > plannedIn ? plannedIn : carry,\n',

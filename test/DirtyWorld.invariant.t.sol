@@ -25,6 +25,9 @@ pragma solidity 0.8.36;
 //     B3  hostile venues: what settles never delivers under userMinOut.
 //     B4  caller-attested routes: what settles keeps at least 1/4 of the
 //         attested total (the per-leg floor is 80 % of the bound, 0.8^3 > 1/4).
+//     B6  partial commitment (P2px-243): a route built off-chain whose hop 0 is
+//         handed another amount than its legs commit is priced by the exact door
+//         as the Router funds it (T04): what previewRouteExact promises settles.
 //
 //  The world: tokens A, B, X (bridge), C, F (fee-on-transfer), W (WETH);
 //  V2 pairs A/X (x2), X/C, F/X, W/A; V3 pools A/X, X/C and a self-alias X/X;
@@ -204,6 +207,11 @@ contract DirtyWorldHandler is Test {
     uint256 public b2AtClaim;
     uint256 public b2Broken;
     bytes public lastB2;
+    uint256 public pcChecked;
+    uint256 public pcSettled;
+    uint256 public pcNoQuote;
+    uint256 public pcBroken;
+    bytes public lastPc;
     uint256 public delegatedCalls;
     uint256 public delegationLive;
     uint256 public delegatedSettled;
@@ -521,6 +529,38 @@ contract DirtyWorldHandler is Test {
         }
     }
 
+    /// B6: hop 0 of a hand-built direct route into the bridge (A -> X) commits `commit` in its
+    /// leg while the order, and hop 0's own amountIn, are a quarter to four times that, both
+    /// sides of the commitment. The Router funds the leg with min(order, Σ leg.amountIn) and
+    /// never reads hop.amountIn; the exact door's promise is userMinOut and must settle.
+    function partialCommitment(uint256 amtSeed, uint256 fracSeed) external {
+        address A = address(w.A);
+        address X = address(w.X);
+        uint256 commit = 1e15 + amtSeed % 1e19;
+        uint256 order = commit * (1 + fracSeed % 16) / 4;
+        Route memory r = _one(_hop(A, X, order, 0, _v2(w.pAX, A, X, commit)), 0, false);
+        Route memory q;
+        uint256 exactOut;
+        try w.quoter.previewRouteExact(r, order) returns (Route memory q_, uint256 e) {
+            q = q_;
+            exactOut = e;
+        } catch { pcNoQuote++; return; }
+        if (exactOut == 0) { pcNoQuote++; return; }
+        pcChecked++;
+        address payer = _payer();
+        w.A.mint(payer, order);
+        vm.prank(payer);
+        w.A.approve(address(w.router), order);
+        vm.prank(payer);
+        try w.router.swapExactIn(q, order, exactOut, RECIP, block.timestamp + 1) returns (uint256 got) {
+            pcSettled++;
+            if (got < exactOut) { pcBroken++; lastPc = abi.encode(commit, order, exactOut, got); }
+        } catch (bytes memory e) {
+            pcBroken++;
+            lastPc = abi.encode(commit, order, exactOut, e);
+        }
+    }
+
     /// Every door, reached at the 7702-delegated EOA instead of the Router (C).
     function swapDelegated(uint256 kindSeed, uint256 doorSeed, uint256 amtSeed) external {
         delegatedCalls++;
@@ -746,7 +786,8 @@ contract DirtyWorldInvariantTest is Test {
 
         handler = new DirtyWorldHandler(w);
         targetContract(address(handler));
-        bytes4[] memory sels = new bytes4[](7);
+        bytes4[] memory sels = new bytes4[](8);
+        sels[7] = DirtyWorldHandler.partialCommitment.selector;
         sels[6] = DirtyWorldHandler.swapMover.selector;
         sels[0] = DirtyWorldHandler.swapExplicit.selector;
         sels[1] = DirtyWorldHandler.swapBest.selector;
@@ -814,6 +855,7 @@ contract DirtyWorldInvariantTest is Test {
         assertEq(handler.mvShort(), 0, "B5: execution settled under userMinOut (admitted hook turned by storage)");
         assertEq(handler.b1Broken(), 0, "B1: the Solver door did not honour previewPlanExact");
         assertEq(handler.b2Broken(), 0, "B2: a hand-plan preview above its claim was not honoured");
+        assertEq(handler.pcBroken(), 0, "B6: the exact door's promise on a partial hop-0 commitment did not settle");
         assertEq(handler.b3Breaches(), 0, "B3: a settle delivered under userMinOut");
         assertEq(handler.b4Breaches(), 0, "B4: an attested route settled under a quarter of its attestation");
     }
@@ -849,6 +891,8 @@ contract DirtyWorldInvariantTest is Test {
         for (uint256 c; c < 14; ++c) handler.pokeCallbacks(c, c / 7, 1e18);
         handler.toggle(3, 7);                          // donate
         handler.swapExplicit(1, 0, 1e18, 0, 0);
+        handler.partialCommitment(1e18, 1);            // B6: order half the leg's commitment
+        handler.partialCommitment(1e18, 11);           // B6: order three times the commitment
 
         uint256[8] memory mustSettle = [uint256(0), 1, 2, 3, 5, 7, 8, 10];
         for (uint256 i; i < 8; ++i) {
@@ -865,6 +909,8 @@ contract DirtyWorldInvariantTest is Test {
         assertEq(handler.b2Checked(), 1, "live: B2 checked the live hook only");
         assertEq(handler.b2Settled(), 1, "live: B2 settle");
         assertEq(handler.b2AtClaim(), 1, "live: the paused hook preview stayed at the claim");
+        assertEq(handler.pcChecked(), 2, "live: B6 priced both sides of the commitment");
+        assertEq(handler.pcSettled(), 2, "live: B6 settle");
         assertEq(handler.delegationLive(), 4, "live: the EOA runs the Router code");
         assertEq(handler.delegatedErr18(), 4, "live: every door at the EOA reverts RouterE(18)");
         assertEq(handler.callbackCalls(), 14, "live: callbacks poked");
