@@ -7,7 +7,9 @@ Status: first version, 13/11. Every number below cites the CI run and the line o
 
 Source run: **43376232767** (selar-G7 `e21e8f5`, dispatch 13/11 06:05), artefacts
 `g7-results-43376232767/{report,results}.tsv`. `results.tsv` has 5600 rows; the draw key
-(chain, stratum, idx, b, mode) is unique. Below, `R:<n>` means `report.tsv` line `n` of that run.
+(chain, stratum, idx, b, mode) is unique. Below, `R:<n>` means `report.tsv` line `n` of that run,
+and `P:<n>` means line `n` of the report regenerated locally (no RPC) from the same `results.tsv`
+with g7.py at `ac79b97` (command in section 5).
 
 ## 1. Dimensions (declared cells)
 
@@ -15,10 +17,10 @@ Source run: **43376232767** (selar-G7 `e21e8f5`, dispatch 13/11 06:05), artefact
 |---|---|---|---|
 | chain | base, optimism, arbitrum, bsc, ethereum, robinhood, avalanche | `chain` column | avalanche: 0 ok rows (770 noquote, 30 mf_unforced): **not measured** |
 | AMM type | the inventory families (v2, v3, v4, solidly, cl, curve, gates...) | G7 `kind`; G8 one case per family | G7 by kind (R:346-3790); per family: **not measured** (G8 not run yet) |
-| hops | 1, 2 | `hops` column | per hops: **not measured** in the report (column present in results.tsv) |
+| hops | 1, 2, 3 | `hops` column | not a report split; `g_record` per hops x legs is recomputed from `results.tsv` in section 5 |
 | legs | 1..n | `legs`, `g_legs_sum` | g_legs_sum per chain x kind x mode (R:346-3790) |
 | mode | D (Discovery), M0 / M1h (moonslot age) | `mode` | per mode (R:346-3790) |
-| moonslot case | hit / partial / miss / expired | `ms_case` (added after this run) | **not measured** in this report: the new campaign (measure with universe=site) measures it |
+| moonslot case | hit / partial / miss / expired | `ms_case` (a column after this run; the report derives it per row, `g7.py` `ms_case`) | `# moonslot cases` per chain x kind x case (P:3971-4536); ok rows: D 459, hit 272, partial 879, miss 362, expired 1407 (sum 3379 = all ok rows); paired M0 vs D in section 5 |
 | quote | ABI quote (`est_gas`) vs on-chain quote (`g_quote`) | `est_gas`, `g_quote` | g_quote (R:346-3790); ABI vs on-chain split: **not measured** in this report |
 | segment | legs / overhead / g_record | `g_legs_sum`, `g_exec`, `g_record` | R:346-3790; overhead = g_exec - g_legs_sum - g_record - g_sweep is not a report column: **not measured** as such |
 
@@ -28,7 +30,7 @@ Source run: **43376232767** (selar-G7 `e21e8f5`, dispatch 13/11 06:05), artefact
 |---|---|---|---|
 | amount | dust (balance / 10^5) | deep (balance / 10) | G8 `amounts` (not run yet: **not measured**) |
 | registry state | venue already registered | venue admitted cold by `Hub.recordSwap` | `g_record` per mode |
-| moonslot age | M0 (fresh) | expired | `mode`, `ms_case` (ms_case **not measured** in this run) |
+| moonslot age | M0 (fresh) | expired (record older than the TTL, 3600 s) | `mode`, `ms_case` (P:3971-4536) |
 | route shape | 1 hop direct | 2 hops via a bridge | G8 `xb-*`, `via-*` (**not measured**) |
 | token | bridge token | pair token without bridge role (Base VIRTUAL) | G8 `xb-pair-*` (**not measured**) |
 
@@ -37,7 +39,7 @@ Source run: **43376232767** (selar-G7 `e21e8f5`, dispatch 13/11 06:05), artefact
 | Seam | Invariant | Measured by |
 |---|---|---|
 | quote <-> execution | the executed route is the quoted route; the delivered amount is measured (balance delta), not recomputed | `delivered`, `out_vs_D_bps`, `net_out` |
-| registry <-> moonslot <-> expiry | an expired or missing moonslot falls back to Discovery; it never quotes a stale route | `ms_case` (**not measured** in this run) |
+| registry <-> moonslot <-> expiry | an expired or missing moonslot falls back to Discovery; it never quotes a stale route | `ms_case` per chain x kind (P:3971-4536) and the paired M0 vs D table (section 5) |
 | bridge <-> pair token | a pair token gets bridge cases without becoming a bridge; the Hub bridge list equals the deploy script | G8 `bridges.tsv` pinned by `test_bridges_tsv_matches_deploy_addbridge` |
 | Hub <-> Core | the Hub records what the Core executed; `g_record` is the Hub cost, legs are the venue cost | `g_record`, `g_legs_sum` |
 
@@ -104,7 +106,7 @@ lines in the same section (P:4640-4961); g_exec and g_record are paired the same
 **Why Base costs ~0.6-0.7 M in the cold registry.** `g_record` is the gas of the
 `Hub.recordSwap` frames under the Router. When the executed AMM venue is not yet in the
 registry, `recordSwap` admits it (writes the new registry rows); once it is registered the
-same call is a short update. The tool's own trace split (`tools/g7-gas-campaign/g7.py:312-316`)
+same call is a short update. The tool's own trace split (`tools/g7-gas-campaign/g7.py:313-318`)
 measured 710,573 of a g_exec of 1,011,096 on Base for a cold admission against 12,706 once the
 venue is registered. In run 43376232767 the Base `major` p50 of g_record is 686,452 in D
 (n = 20, R:1363) and 30,379 in M0 (n = 19, R:1377). The ~591k figure quoted earlier is the
