@@ -32,6 +32,8 @@ M = [  # (test id, old, new)
  ("Build.test_shallow_ascending_and_absent_liq_never_chosen", "    except (TypeError, ValueError):\n        return None", "    except (TypeError, ValueError):\n        return 0.5"),
  ("Build.test_spec_on_disk_matches_and_carries_the_labels", 'label, mh = LABELS.get(chain, (MAIN_LABEL, 2))', 'label, mh = LABELS.get(chain, (MAIN_LABEL, 3))'),
  ("CtorGuard.test_family_without_ctor_source_is_not_covered", "if chain not in PHASE_A_FAMS and (chain, fn) not in ADAPTERS:", "if False:"),
+ ("Wiring.test_rebuild_keeps_the_addbridge_rows_of_wiring_tsv", "    wiring += [k for k in kept if len(k) == 3 and k[1] != ADD_FACTORY_SIG]\n", ""),
+ ("Wiring.test_rebuild_keeps_the_addbridge_rows_of_wiring_tsv", "k[1] != ADD_FACTORY_SIG]", "True]"),
  ("AddFactory.test_real_uniswap_v3_registration", "(fac, w(1), w(2),", "(fac, w(2), w(1),"),
  ("AddFactory.test_real_uniswap_v3_registration", "d[192:256]", "d[128:192]"),
  ("AddFactory.test_real_uniswap_v3_registration", "i = off // 32", "i = off // 64"),

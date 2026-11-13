@@ -337,6 +337,9 @@ def build(g7dir, onchain_rows, outdir, universe=None, swaps=SWAPS_PER_CHAIN):
         spec["chains"][chain] = {"label": label, "max_hops": mh, "native_wrap": wraps[0],
                                  "block_time_hint": float(bt), "strata": strata}
     wiring = [(o["subject"], ADD_FACTORY_SIG, o["value"]) for o in onchain_rows if o["key"] == "wiring"]
+    wp = os.path.join(pre, "wiring.tsv")  # the hand-added rows (addBridge) survive a rebuild
+    kept = [tuple(ln.split("\t")) for ln in open(wp).read().split("\n") if ln] if os.path.exists(wp) else []
+    wiring += [k for k in kept if len(k) == 3 and k[1] != ADD_FACTORY_SIG]
     _w(os.path.join(pre, "gate_adapters.tsv"), None, adapters)
     _w(os.path.join(pre, "gate_wrappers.tsv"), None, wrappers)
     _w(os.path.join(pre, "wiring.tsv"), None, wiring)

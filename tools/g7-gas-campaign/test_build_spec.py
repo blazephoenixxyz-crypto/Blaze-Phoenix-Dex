@@ -329,6 +329,22 @@ class SeedGuards(unittest.TestCase):
         self.assertEqual([p["pool"] for p in site["seed_pools"]], [V3A])
 
 
+class Wiring(unittest.TestCase):
+    def test_rebuild_keeps_the_addbridge_rows_of_wiring_tsv(self):
+        # mutant: the kept non-addFactory rows of the existing wiring.tsv dropped
+        derived = run_build()[4]["wiring.tsv"]
+        br = "base\taddBridge(address)\t%s\n" % a(0xB1)
+        with tempfile.TemporaryDirectory() as d:
+            write_inputs(d)
+            os.makedirs(os.path.join(d, "prereg"))
+            p = os.path.join(d, "prereg", "wiring.tsv")
+            with open(p, "w") as f:
+                f.write("base\t%s\t%s\n" % (bs.ADD_FACTORY_SIG, a(0xDEAD)) + br)
+            bs.build(d, ONCHAIN, d, None, bs.SWAPS_PER_CHAIN)
+            t = open(p).read()
+        self.assertEqual(t, derived + br)  # stale addFactory rows are re-derived, addBridge rows kept
+
+
 class AddFactory(unittest.TestCase):
     # Real calldata: tx 0x5d932d0efa8e4d46255c3cb864ff002a7ddadcd518dd65b68dc115be26104e9e (ethereum,
     # block 25487895, registry 0xc4fa9a5720fe3294d3aa9fc427e2a760591e57ae), read via dRPC 13/11.
