@@ -495,7 +495,8 @@ contract V3PromiseIsWhatThePoolPays is Test {
 
     /// The thick range's edge, the tick the order crosses, takes away twice what the book
     /// holds: subtracted as it stands, the liquidity would underflow. The walk saturates at
-    /// zero, as `_v4Walk` does, and on a book with nothing left in it the leg keeps the band.
+    /// zero, as `_v4Walk` does, and on a book with nothing left in it the leg is promised what
+    /// the walk reached (G3, 2026-11-13; until then the band).
     /// The book the solve ranks is the one around the price, so only the walk meets the edge.
     function test_ABookWhoseCrossingTakesMoreThanItHoldsLeavesTheSolveStanding() public {
         int128 more = int128(2 * (THICK + THIN));
@@ -506,10 +507,18 @@ contract V3PromiseIsWhatThePoolPays is Test {
 
     /// One range over the whole price line, on spacing 1: the walk meets no initialized tick,
     /// so each read after the first five is a bitmap word of 256 ticks, and the order needs
-    /// more words than the reads hold. A walk that does not finish keeps the band: the leg
-    /// promises the single-range figure (on a book this flat, what the pool pays), not the
-    /// share of it that the stretches it read would pay.
-    function test_AWalkTheReadsCannotFinishKeepsTheBand() public {
+    /// more words than the reads hold. A walk that does not finish prices the rest on the last
+    /// range it read (G3, 2026-11-13; until then it kept the band): on a book this flat, what
+    /// the pool pays, not the share of it that the stretches it read would pay.
+    ///
+    /// The tolerance, 20 wei (4 until G3), derived: the promise is min(walked + rest, band). The
+    /// band is within 4 wei of what the pool pays (this assert before G3). The walk splits the
+    /// spec's one stretch at six word edges; each split rounds its input up twice (`toTarget`,
+    /// the fee: under 2 wei spent that the rest does not get, under 2 wei of output at a price
+    /// at or below 1) and its output down once (under 1 wei): at most 3 wei a split, 18 for
+    /// six; the rest, one `outV3`, sits within 2 wei of the spec's step from the same price.
+    /// So the promise is at most 20 wei under what the pool pays, and at most 4 over it.
+    function test_AWalkTheReadsCannotFinishPricesTheRestOnItsLastRange() public {
         MockV3TickPool lie = _liar(1);
         lie.addPosition(-887272, 887272, FLAT);
         _seed(lie);
@@ -518,7 +527,7 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertEq(used, lg.amountIn, "premise: the pool takes the whole order");
         // Seven bitmap words: the first stretch ends where it starts, six more cover 1,536 ticks.
         assertLt(tickEnd, -1536, "premise: the order needs more stretches than the reads hold");
-        assertApproxEqAbs(lg.expectedOut, pays, 4, "the leg promises other than the band");
+        assertApproxEqAbs(lg.expectedOut, pays, 20, "the leg promises other than what the pool pays");
     }
 
     /// A pool on two fresh tokens, priced at tick 0 and holding plenty of both.

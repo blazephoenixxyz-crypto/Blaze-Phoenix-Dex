@@ -2461,8 +2461,11 @@ library BlazePhoenixCore {
     /// @notice DEX-01: what a V3-shaped pool pays for `amountIn`, against `f`, the single-range
     ///         figure. The book is walked as `v4WalkOut` walks it with a zero poolId, for at most
     ///         `reads` reads of the pool: a walk that finishes inside them and inside
-    ///         V4_WALK_MAX_STEPS stretches answers min(walk, f); one that does not, or a book that
-    ///         does not answer, answers `f`, the band. `left` is what the walk did not spend. Each
+    ///         V4_WALK_MAX_STEPS stretches answers min(walk, f). One that does not finish answers
+    ///         min(walked + rest, f): what the stretches it read pay, plus the single-range figure
+    ///         of the input left on the last range it read, from the price it reached (G3,
+    ///         2026-11-13: every tick it crossed counts, and it never answers above `f`). A book
+    ///         that does not answer answers `f`, the band. `left` is what the walk did not spend. Each
     ///         read holds ASK_GAS_FLOOR first, so it gets its whole GAS_CAP: a starved read
     ///         reverts empty, and the answer is the state's, never the caller's gas (R1). ONE
     ///         producer for the Solver's promise and the Router's in-frame quote.
@@ -2489,8 +2492,8 @@ library BlazePhoenixCore {
         uint256 out;
         for (uint256 i; ; ++i) {
             // The next read is a bitmap word: a walk that cannot pay for it, or whose sixteenth
-            // stretch closed with input unspent, keeps the band.
-            if (left == 0 || i == V4_WALK_MAX_STEPS) return (f, left);
+            // stretch closed with input unspent, prices the rest on the range it reached.
+            if (left == 0 || i == V4_WALK_MAX_STEPS) { out += outV3(rem, sp, liq, fee, zeroForOne, 0); break; }
             --left;
             _fedRead(pool, 6, 0);
             (int24 nt, bool init) = _v4NextTick(pool, 0, tick, ts, zeroForOne);
@@ -2503,7 +2506,8 @@ library BlazePhoenixCore {
             rem -= used;
             if (rem == 0) break;
             if (init) {
-                if (left == 0) return (f, 0);
+                // No read left for the crossing: the rest is priced from it on the range just read.
+                if (left == 0) { out += outV3(rem, target, liq, fee, zeroForOne, 0); break; }
                 --left;
                 // liquidityNet, negated crossing downward, saturating, as `_v4Walk` applies it.
                 int256 net = (zeroForOne ? -1 : int256(1)) * int256(int128(int256(_fedRead(pool, 4, nt))));
@@ -2516,7 +2520,8 @@ library BlazePhoenixCore {
             tick = zeroForOne ? nt - 1 : nt;
             sp = target;
         }
-        // The input spent (or the book ended) inside the reads: the promise is what the book pays.
+        // The input spent (or the book ended) inside the reads: the promise is what the book pays;
+        // the reads spent first: what they paid and the rest on the last range. Never above `f`.
         return (out < f ? out : f, left);
     }
 

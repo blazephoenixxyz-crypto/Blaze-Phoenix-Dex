@@ -344,7 +344,8 @@ contract BlazePhoenixSolver {
     /// @dev DEX-01: the plan's concentrated legs, in route order, promised what their own books
     ///      pay (`Core.v3PaysOnBudget`, the Router's own in-frame figure), on V3_PAY_READS reads
     ///      for the whole route: on a dense book a walk this short does not finish, and the leg
-    ///      keeps its promise. A promise only falls. What falls comes off its hop, the hops after
+    ///      is promised what it walked plus the rest on the last range it read, never more than
+    ///      its promise. A promise only falls. What falls comes off its hop, the hops after
     ///      it are scaled to what now reaches them - output is concave in input with none at
     ///      zero, so a leg on a share of its input pays at least that share of its promise - and
     ///      the route is assembled again, one producer of the floor. The ranking is not changed

@@ -554,6 +554,14 @@
       "note": "DEX-01 / 3331, 2026-10-27. One producer for the Solver's promise (_paysWhatItWalks, the plan's concentrated legs in route order on V3_PAY_READS = 12 reads for the whole route, on the rebuild's plan before its assembly return and on the plan built at the cap) and the Router's in-frame quote (legQuoteImpact, 12 reads per V3 leg): the pool's own book walked read by read, each read holding ASK_GAS_FLOOR first; a walk that finishes promises min(walk, single range), one that does not keeps the single-range band and never reverts on the pool's answers. A promise that falls comes off its hop, later hops are scaled, the route is assembled again; a build is ranked on the band, and since N1 the leader answers for what its books pay (V3-RANK-ON-THE-BAND). Red at 6a05394: 7 of 15 in test/V3PromiseIsWhatThePoolPays.t.sol (three with RouterE(5)), 15 of 15 with the fix; the read floor (a starved read never answered) in test/V3WalkNeverAnswersAStarvedRead.t.sol; mutants [991]-[1009]. Residual, by design: a book twelve reads cannot finish keeps the band and its route is still refused at its floor, no funds move; 3331's own two-hop Base route is such a book. Algebra (kind 6) stays on the band."
     },
     {
+      "id": "V3-PROMISE-CUT-WALK",
+      "class": "A concentrated V3-shaped leg whose walk the reads (or sixteen stretches) cut answered the single-range figure f, the band: on a book that thins across the ticks the walk had already crossed, the promise and the Router's in-frame quote (protocolFloorOut) asked for more than the pool pays, and the route was refused at its floor (RouterE(5)) though the Quoter called it executable (4229: 8-10 ETH WETH->USDS)",
+      "status": "blocked",
+      "guard": "v3PaysOnBudget",
+      "test": "test_ASparseBookCutAtTheReadsIsPromisedWhatItPays",
+      "note": "G3, 2026-11-13 (PR #123 guard review). A cut walk answers min(walked + outV3(rest, price reached, last liquidity read), f): every crossed tick counts, the rest stays a model on the last range read, and it never answers above f, so a promise only falls (same producer for Solver._paysWhatItWalks and Core.legQuoteImpact). No new read, no new constant: V3_PAY_READS stays 12. Tests in test/V3WalkCutPricesTheRest.t.sol: sparse (cut at a bitmap word), dense (cut at a crossing), thickening (the cap holds); mutants [g3-1]-[g3-4]. Residual: past the last read the model is the last range's, so a book thinning further is still over-promised up to f."
+    },
+    {
       "id": "V3-RANK-ON-THE-BAND",
       "class": "A route ranked on a figure no venue pays: the leading build's concentrated leg ranked on its single-range band, or at the cap of a held book, over a venue that pays more, then promised what its book pays, so the plan settled what the walked book paid and the better venue was passed over",
       "status": "blocked",
