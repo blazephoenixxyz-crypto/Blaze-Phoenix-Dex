@@ -37,6 +37,13 @@ M = [  # (test id, old, new)
  ("AddFactory.test_negative_int24_is_signed", "if signed and v >= 1 << 255", "if False and v >= 1 << 255"),
  ("AddFactory.test_other_selector_refused", 'assert d[:8] == ADD_FACTORY_SEL, "not addFactory"', "pass"),
  ("Build.test_prereg_and_spec_are_ascii_english", '.replace(OLD_VIRTUAL_LABEL, NEW_VIRTUAL_LABEL)', ''),
+ ("SiteUniverse.test_site_pairs_replace_the_classes_and_keep_the_gates", '    for t in toks:\n        add("site_stable", t, stable)\n', ""),
+ ("SiteUniverse.test_site_pairs_replace_the_classes_and_keep_the_gates", 'if t[1] in featured or t[0] in SITE_MAJORS]', 'if t[1] in featured]'),
+ ("SiteUniverse.test_pairs_are_deduped_by_address", "if x[1] == y[1] or key in seen:", "if x[1] == y[1]:"),
+ ("SiteUniverse.test_site_pair_without_a_pool_is_not_covered", '                    notcov.append((chain, "site", "site pair without a pool in the inventory (absent, not zero): %s/%s" % (sa, sb)))\n', "                    pass\n"),
+ ("SiteUniverse.test_amounts_come_from_the_inventory_balance", '"mid_pool": mid_pool(prs), "_liq": deepest.get("liq_usd", "")', '"mid_pool": mid_pool([]), "_liq": deepest.get("liq_usd", "")'),
+ ("SiteUniverse.test_chain_outside_the_universe_keeps_the_classes", 'for cls, k in ([] if universe and chain in universe["chains"] else CLASS_QUOTA):', 'for cls, k in ([] if universe else CLASS_QUOTA):'),
+ ("SiteUniverse.test_swaps_argument_sets_the_sample_size", "n, rem = divmod(swaps, len(strata))", "n, rem = divmod(SWAPS_PER_CHAIN, len(strata))"),
  ("Build.test_prereg_and_spec_are_ascii_english", '"bsc": ("branch bsc-infinity-1106@7d7e40d, not main', '"bsc": ("branch bsc-infinity-1106@7d7e40d, n\\u00e3o main'),
  ("Parity.test_gate_fams_equal_inventory", '"inf_cl", "inf_bin"}', '"inf_cl"}'),
 ]

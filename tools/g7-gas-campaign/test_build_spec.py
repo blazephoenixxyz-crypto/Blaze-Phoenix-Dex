@@ -124,10 +124,10 @@ def write_inputs(d, rows=None):
             f.write(f"{c}\t{t}\t{s}\t18\t100\t{src}\tx\n")
 
 
-def run_build(rows=None):
+def run_build(rows=None, universe=None, swaps=bs.SWAPS_PER_CHAIN):
     with tempfile.TemporaryDirectory() as d:
         write_inputs(d, rows)
-        spec, ad, wr, nc = bs.build(d, ONCHAIN, d)
+        spec, ad, wr, nc = bs.build(d, ONCHAIN, d, universe, swaps)
         files = {n: open(os.path.join(d, "prereg", n)).read() for n in os.listdir(os.path.join(d, "prereg"))}
         on_disk = json.load(open(os.path.join(d, "spec.json")))
     return spec, ad, wr, nc, files, on_disk
@@ -358,6 +358,69 @@ class Parity(unittest.TestCase):
     # Mutant: a family dropped from build_spec.GATE_FAMS (its pools would be seeded / never gated).
     def test_gate_fams_equal_inventory(self):
         self.assertEqual(bs.GATE_FAMS, inventory.GATE_FAMS)
+
+
+# site universe (build --universe): base listed, bsc not
+TA, TB, TU, TD = a(0x1103), a(0x1104), a(0x1105), a(0x1106)
+SITE_ROWS = [
+    row("base", "curve_ng", C1, W, U, 5000, "gate_top3"),            # gate stratum, kept as it is
+    row("base", "v3", V3A, W, U, 4000, "major"),                       # USDC/WETH: site_weth (and not site_stable again)
+    row("base", "v2", V2P, TA, W, 300, "midtail", bal0=5 * 10 ** 18),  # TKA/WETH: site_weth
+    row("base", "v3", V3B, TA, U, 200, "midtail"),                     # TKA/USDC: site_stable
+    row("base", "v3", a(0xA4), TU, TD, 150, "midtail"),                # USDT/DAI: site_major
+    row("bsc", "v3", a(0x31), BN, U3, 1000, "major"),                  # outside the universe: classes
+]
+UNIVERSE = {"stable": {"base": "USDC"}, "chains": {"base": {"chain_id": 8453, "tokens": [
+    {"symbol": "WETH", "address": W.upper().replace("0X", "0x"), "decimals": 18, "featured": True},
+    {"symbol": "USDC", "address": U, "decimals": 6, "featured": True},
+    {"symbol": "TKA", "address": TA, "decimals": 18, "featured": False},
+    {"symbol": "TKB", "address": TB, "decimals": 18, "featured": False},  # no pool in the inventory
+    {"symbol": "USDT", "address": TU, "decimals": 6, "featured": False},
+    {"symbol": "DAI", "address": TD, "decimals": 18, "featured": False}]}}}
+
+
+class SiteUniverse(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.spec, cls.ad, cls.wr, cls.nc, cls.files, cls.on_disk = run_build(SITE_ROWS, UNIVERSE, swaps=7)
+        cls.base = cls.spec["chains"]["base"]["strata"]
+
+    # Mutant: the site_stable loop dropped (TKA/USDC missing); or SITE_MAJORS ignored (USDT/DAI missing).
+    def test_site_pairs_replace_the_classes_and_keep_the_gates(self):
+        kinds = {st["id"]: st["kind"] for st in self.base}
+        self.assertEqual(kinds, {"gate-1-1": "gates", "site-USDC-WETH": "site_weth", "site-TKA-WETH": "site_weth",
+                                 "site-TKA-USDC": "site_stable", "site-USDT-DAI": "site_major"})
+        self.assertEqual(len(self.wr), 1)
+
+    # Mutant: dedupe by address pair removed (USDC/WETH appears again as site-WETH-USDC under site_stable).
+    def test_pairs_are_deduped_by_address(self):
+        pairs = [tuple(sorted((st["tA"], st["tB"]))) for st in self.base if st["kind"] != "gates"]
+        self.assertEqual(len(pairs), len(set(pairs)))
+        self.assertEqual(pairs.count(tuple(sorted((W, U)))), 1)
+
+    # Mutant: the not_covered append for a site pair without a pool removed.
+    def test_site_pair_without_a_pool_is_not_covered(self):
+        reasons = [r for c, scope, r in self.nc if c == "base" and scope == "site"]
+        self.assertIn("site pair without a pool in the inventory (absent, not zero): TKB/WETH", reasons)
+        self.assertIn("site pair without a pool in the inventory (absent, not zero): TKB/USDC", reasons)
+        self.assertIn("TKB/WETH", self.files["not_covered.tsv"])
+
+    # Mutant: amounts not taken from the inventory balances of the pair's pool.
+    def test_amounts_come_from_the_inventory_balance(self):
+        st = next(s for s in self.base if s["id"] == "site-TKA-WETH")
+        self.assertEqual(st["amounts"]["A"], bs.amounts(5 * 10 ** 18))
+        self.assertEqual(st["amounts"]["B"], bs.amounts(10 ** 18))
+        self.assertEqual(st["mid_pool"]["pool"], V2P)
+
+    # Mutant: `chain in universe["chains"]` test dropped (bsc goes through the site path).
+    def test_chain_outside_the_universe_keeps_the_classes(self):
+        self.assertEqual([st["kind"] for st in self.spec["chains"]["bsc"]["strata"]], ["major"])
+
+    # Mutant: the --swaps value ignored (SWAPS_PER_CHAIN used instead).
+    def test_swaps_argument_sets_the_sample_size(self):
+        self.assertEqual(sum(st["n"] for st in self.base), 7)
+        self.assertEqual(self.spec["swaps_per_chain"], 7)
+        self.assertEqual(self.on_disk["swaps_per_chain"], 7)
 
 
 if __name__ == "__main__":

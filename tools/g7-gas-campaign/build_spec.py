@@ -2,7 +2,8 @@
 """G7 pre-registration builder.
 
   build_spec.py fetch <g7dir> <onchain.tsv>           on-chain facts (dRPC), each with its source
-  build_spec.py build <g7dir> <onchain.tsv> <outdir>  -> <outdir>/spec.json + <outdir>/prereg/*.tsv
+  build_spec.py build <g7dir> <onchain.tsv> <outdir> [--universe site_tokens.json] [--swaps N]
+                                                      -> <outdir>/spec.json + <outdir>/prereg/*.tsv
 
 Inputs are the S2 tables in <g7dir>: inventory.tsv, tokens.tsv, venues.tsv. Nothing here is
 chosen by hand except the constants below, each with its source. Criteria:
@@ -12,6 +13,11 @@ chosen by hand except the constants below, each with its source. Criteria:
   * other strata: distinct pairs per chain, by class (major, midtail, fee_high, fee_low,
     family_rep: deepest liq_usd first; shallow: shallowest liq_usd > 0 first). A row without
     liq_usd is not ranked (absent is not zero).
+  * --universe: for the chains it lists, the pair strata are the site's token list instead of the
+    classes (site_weth: every token vs tokens[0] = WETH; site_stable: every token vs the stable;
+    site_major: pairs among featured tokens + SITE_MAJORS when listed), deduped by address pair;
+    a pair with no pool or balance in the inventory goes to not_covered (absent is not zero).
+    Chains outside the universe keep the classes; the gates strata never change.
   * amounts: measured balance of the input token in the pair's deepest pool x 1e-7 .. 1e-1.
   * seed_pools: <= 3 deepest seedable (non-gate) pools of the pair; mid_pool: deepest v2/v3/algebra.
 A chain or family that cannot be covered gets a row in prereg/not_covered.tsv, never a number.
@@ -30,6 +36,7 @@ LABELS = {"avalanche": ("branch avax-adapters-1103@d3fbd88 (= avax-adapters-1106
           "bsc": ("branch bsc-infinity-1106@7d7e40d, not main, MAX_HOPS=3", 3)}
 SWAPS_PER_CHAIN = 100
 CLASS_QUOTA = [("major", 5), ("midtail", 4), ("fee_high", 2), ("fee_low", 2), ("family_rep", 3), ("shallow", 3)]
+SITE_MAJORS = ("USDT", "DAI", "WBTC", "wstETH", "cbBTC")  # site_major: featured + these, when the site lists them
 FRACTIONS = [7, 5, 3, 2, 1]  # amount = depth // 10**k
 # Kind passed to Hub.seedPool per inventory family (S3.md session 4; v4: pool = address(uint160(poolId))).
 SEED_KIND = {"v2": 0, "v3": 1, "cl": 1, "v4": 4, "solidly": 5, "algebra": 6, "v4native": 8}
@@ -198,14 +205,40 @@ def decode_add_factory(data):
     return "%s %d %d 0x%s %s %s" % (fac, w(1), w(2), d[192:256], arr(w(4), False), arr(w(5), True))
 
 
-def build(g7dir, onchain_rows, outdir):
+def site_pairs(universe, chain):
+    """[(kind, (symA, addrA), (symB, addrB))] of the site's list for `chain`, deduped by address pair:
+    every token vs WETH (tokens[0]), every token vs the stable, then the pairs among the majors."""
+    toks = [(t["symbol"], t["address"].lower()) for t in universe["chains"][chain]["tokens"]]
+    weth = toks[0]
+    stable = next(t for t in toks if t[0] == universe["stable"][chain])
+    featured = {t["address"].lower() for t in universe["chains"][chain]["tokens"] if t.get("featured")}
+    majors = [t for t in toks if t[1] in featured or t[0] in SITE_MAJORS]
+    out, seen = [], set()
+
+    def add(kind, x, y):
+        key = tuple(sorted((x[1], y[1])))
+        if x[1] == y[1] or key in seen:
+            return
+        seen.add(key)
+        out.append((kind, x, y))
+    for t in toks:
+        add("site_weth", t, weth)
+    for t in toks:
+        add("site_stable", t, stable)
+    for i, x in enumerate(majors):
+        for y in majors[i + 1:]:
+            add("site_major", x, y)
+    return out
+
+
+def build(g7dir, onchain_rows, outdir, universe=None, swaps=SWAPS_PER_CHAIN):
     inv = read_tsv(os.path.join(g7dir, "inventory.tsv"))
     toks = read_tsv(os.path.join(g7dir, "tokens.tsv"))
     onchain = {(o["key"], o["subject"].lower()): o["value"] for o in onchain_rows}
     pre = os.path.join(outdir, "prereg")
     os.makedirs(pre, exist_ok=True)
     spec = {"state_fork": STATE_FORK, "window": WINDOW, "ages": AGES, "mf_ages": MF_AGES, "deadline_s": 600,
-            "retries": {"attempts": 3, "backoff_s": 2, "timeout_s": 90}, "swaps_per_chain": SWAPS_PER_CHAIN,
+            "retries": {"attempts": 3, "backoff_s": 2, "timeout_s": 90}, "swaps_per_chain": swaps,
             "criteria": __doc__.split("Criteria:")[1].split("A chain or")[0].strip(), "chains": {}}
     adapters, wrappers, notcov, strata_rows = [], [], [], []
     for chain in CHAINS:
@@ -256,9 +289,23 @@ def build(g7dir, onchain_rows, outdir):
                 adapters.append((chain, fn, c, a, src))
         if chain == "base" and not any(r["family"] == "curve_crypto_ng" for r in rows):
             notcov.append((chain, "curve_crypto_ng", "not covered: no pool in the inventory (absent, not zero)"))
-        # pair strata
+        # pair strata: the site's universe for the chains it lists, the classes otherwise
         used = set()
-        for cls, k in CLASS_QUOTA:
+        if universe and chain in universe["chains"]:
+            for kind, (sa, ta), (sb, tb) in site_pairs(universe, chain):
+                prs = by_pair.get(tuple(sorted((ta, tb))), [])
+                if not prs:
+                    notcov.append((chain, "site", "site pair without a pool in the inventory (absent, not zero): %s/%s" % (sa, sb)))
+                    continue
+                a, b = amounts(depth_of(prs, ta)), amounts(depth_of(prs, tb))
+                if not a or not b:
+                    notcov.append((chain, "site", "site pair without a measured balance (absent, not zero): %s/%s" % (sa, sb)))
+                    continue
+                deepest = max(prs, key=lambda r: liq(r) or 0)
+                strata.append({"id": "site-%s-%s" % (sa, sb), "kind": kind, "tA": ta, "tB": tb, "amounts": {"A": a, "B": b},
+                               "seed_pools": seed_pools([x for x in prs if x["family"] not in GATE_FAMS]),
+                               "mid_pool": mid_pool(prs), "_liq": deepest.get("liq_usd", ""), "_pool": deepest["pool"].lower()})
+        for cls, k in ([] if universe and chain in universe["chains"] else CLASS_QUOTA):
             cand = [r for r in rows if cls in classes(r) and liq(r) and liq(r) > 0]
             cand.sort(key=(lambda r: liq(r)) if cls == "shallow" else (lambda r: -liq(r)))
             fams, i = set(), 0
@@ -280,7 +327,7 @@ def build(g7dir, onchain_rows, outdir):
                 strata.append({"id": "%s-%d" % (cls, i), "kind": cls, "tA": ta, "tB": tb, "amounts": {"A": a, "B": b},
                                "seed_pools": seed_pools([x for x in prs if x["family"] not in GATE_FAMS]),
                                "mid_pool": mid_pool(prs), "_liq": r.get("liq_usd", ""), "_pool": r["pool"].lower()})
-        n, rem = divmod(SWAPS_PER_CHAIN, len(strata)) if strata else (0, 0)
+        n, rem = divmod(swaps, len(strata)) if strata else (0, 0)
         for j, st in enumerate(strata):
             st["n"] = n + (1 if j < rem else 0)
             strata_rows.append((chain, st["id"], st["kind"], st["tA"], st["tB"], st["n"], st.pop("_pool"), st.pop("_liq"),
@@ -367,8 +414,10 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     if a[:1] == ["fetch"] and len(a) == 3:
         fetch(a[1], a[2])
-    elif a[:1] == ["build"] and len(a) == 4:
-        s, ad, wr, nc = build(a[1], read_onchain(a[2]), a[3])
+    elif a[:1] == ["build"] and len(a) >= 4:
+        uni = json.load(open(a[a.index("--universe") + 1])) if "--universe" in a else None
+        swaps = int(a[a.index("--swaps") + 1]) if "--swaps" in a else SWAPS_PER_CHAIN
+        s, ad, wr, nc = build(a[1], read_onchain(a[2]), a[3], uni, swaps)
         print("chains=%d strata=%d adapters=%d wrappers=%d not_covered=%d" % (
             len(s["chains"]), sum(len(c["strata"]) for c in s["chains"].values()), len(ad), len(wr), len(nc)))
     else:
