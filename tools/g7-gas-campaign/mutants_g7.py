@@ -17,7 +17,7 @@ M = [  # (test id, old, new)
  ("Abi.test_encode_batch_second_head_skips_first_tail", "off += len(t) // 2", "off += 32"),
  ("Abi.test_calldata_cost_and_7623_floor", "10 * (z + 4 * nz)", "10 * (z + nz)"),
  ("Abi.test_fits_2_10_boundaries", "hops <= max_hops", "hops < max_hops"),
- ("Segments.test_discover_frame_means_swept", '            seg["swept"] = 1\n', ""),
+ ("Segments.test_discover_frame_means_swept", '                seg["swept"] = 1\n', "                pass\n"),
  ("Segments.test_gates_count_top_most_frames_once", "(to == gate or to in wr) and id(p) not in gated", "(to == gate or to in wr)"),
  ("Segments.test_sweep_excludes_callback_payments_inside_a_leg", "leg_end = i + subtree_size(n) - 1", "leg_end = i"),
  ("Segments.test_nested_swap_is_not_a_second_leg", "sel_of(n) in LEG_SELS and i > leg_end:", "sel_of(n) in LEG_SELS:"),

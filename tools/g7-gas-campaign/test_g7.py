@@ -304,7 +304,7 @@ class MeasureDraw(unittest.TestCase):
     def test_mf_without_stamp_is_mf_unforced(self):
         seeded = lambda age: (400, self.TSB - age, {}, {"0x1": "0x" + wd(5)}, [True, False])  # noqa: E731
         rows, _ = self.run_draw(0, seeded, self.ok())
-        self.assertEqual((rows["MF1h"]["outcome"], rows["MF1h"]["detail"]), ("mf_unforced", "stamp not found"))
+        self.assertEqual((rows["MF1h"]["outcome"], rows["MF1h"].get("detail")), ("mf_unforced", "stamp not found"))
         self.assertEqual(rows["M1h"]["outcome"], "ok")
         # a refused seedPool (G7Probe.batch swallows it) is visible in the row, not silent
         self.assertEqual((rows["MF1h"]["seeds_ok"], rows["MF1h"]["seeds_n"]), (1, 2))
@@ -325,7 +325,7 @@ class MeasureDraw(unittest.TestCase):
         rows, calls = self.run_draw(0, seeded, self.ok(net=1010), done)
         self.assertNotIn("D", rows)
         self.assertNotIn("D", [m for m, _ in calls["mm"]])
-        self.assertEqual(rows["M0"]["out_vs_D_bps"], 100.0)
+        self.assertEqual(rows["M0"].get("out_vs_D_bps"), 100.0)
 
 
 class QuoteRow(unittest.TestCase):
@@ -552,7 +552,7 @@ class FundGuard(unittest.TestCase):
         tr["output"] = Abi("test_fits_2_10_boundaries").preview_blob("aabb")
         ch.rpc.call.side_effect = by_method({"debug_traceCall": tr, "eth_call": "0x" + wd(0)})
         r = g7.measure_mode(ch, draw(), 1, "D", None)
-        self.assertEqual((r["outcome"], r["detail"]), ("prereq", "fund:0"))
+        self.assertEqual((r["outcome"], r.get("detail")), ("prereq", "fund:0"))
         self.assertEqual(r["g_quote_cap"], int(g7.GAS, 16))
 
 
@@ -674,7 +674,7 @@ class MsCase(unittest.TestCase):
                 mock.patch.object(g7, "measure_mode", lambda ch, d, ts_b, m, h: mm(m)), \
                 mock.patch.object(g7, "mid_price", lambda ch, d: ""), mock.patch.object(g7, "vital", lambda ch, d: {}):
             rows = {r["mode"]: r for r in g7.measure_draw(FakeChain(MeasureDraw.TSB, 0), draw(), {})}
-        self.assertEqual({m: r["ms_case"] for m, r in rows.items()}, {"D": "D", "M0": "hit", "M1h": "partial", "MF1h": "partial"})
+        self.assertEqual({m: r.get("ms_case") for m, r in rows.items()}, {"D": "D", "M0": "hit", "M1h": "partial", "MF1h": "partial"})
         self.assertIn("ms_case", g7.COLS)
 
     # Mutant: the ok filter of the table's key set dropped (`and r["ms_case"]` alone): a noquote row
