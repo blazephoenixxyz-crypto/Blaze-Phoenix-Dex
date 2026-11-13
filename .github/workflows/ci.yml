@@ -259,7 +259,9 @@ jobs:
         # quadratic in psi, RouterE(17) at the automatic door). "memory-safe" is a promise the
         # compiler does not check; this checks it. Fails on any assembly call or copy whose
         # literal output offset is below 0x80 and whose end passes 0x40. The self-test feeds it
-        # the 7b8df77 reader, so the guard is proven able to fail.
+        # the 7b8df77 reader, so the guard is proven able to fail. Since 2026-11-13 it also fails
+        # on an mstore into 0x40-0x7f other than moving the free pointer or zeroing 0x60, and on
+        # a block that hands mload(0x40) to Solidity, writes through it and never advances 0x40.
         run: |
           python3 .github/scripts/scratch_memory_guard.py --self-test
           python3 .github/scripts/scratch_memory_guard.py
