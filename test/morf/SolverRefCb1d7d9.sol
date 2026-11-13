@@ -12,7 +12,13 @@
 // One rule landed after SQ2 is carried in, marked `CARRY G52 (48ff261)`: every leg of a split pays
 // for its place (`_carryG52`, written from that commit's rule, not copied from the Solver), with
 // the split of cb1d7d9 moved unchanged into `_splitCb1d7d9` and the probe rates following the
-// band's map. Every other line is cb1d7d9's.
+// band's map. A second, marked `CARRY hops2 (051a0bb)`: a route has at most the Core's MAX_HOPS
+// hops and every hop at most its MAX_LEGS_PER_HOP legs (the stage budget of cb1d7d9 was 4, and
+// three-hop topologies over two bridges were planned). A third, marked `CARRY MAT-01 (53b04c0)`:
+// the funnel measures a row by the tokenOut it can pay (`_dropDust` reads `BPC.hopMass18` and
+// walks the singleton books, `_heldBooks`), not by the registry's short declared side; the band's
+// vote needs no carry, it reads the live Core's `universalProbe` (MAT-02). Every other line is
+// cb1d7d9's.
 //
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
@@ -69,7 +75,8 @@ pragma solidity 0.8.36;
 
 import {
     BlazePhoenixCore as BPC,
-    PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx
+    PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx,
+    MAX_HOPS, MAX_LEGS_PER_HOP   // CARRY hops2 (051a0bb): the Core's two ceilings
 } from "../../src/BlazePhoenixCore.sol";
 import {BlazePhoenixMath, IHubMath} from "../../src/BlazePhoenixMath.sol";
 
@@ -133,7 +140,7 @@ contract SolverRefCb1d7d9 {
     /// @notice PER-HOP leg ceiling, in any topology — including the direct
     ///         route. 4 since 2026-08-22 (was 3, and the direct route did not even
     ///         respect it: it used the global ceiling).
-    uint8   internal constant MAX_LEGS_PER_STAGE   = 4;
+    uint8   internal constant MAX_LEGS_PER_STAGE   = MAX_LEGS_PER_HOP;   // CARRY hops2 (051a0bb): was 4
 
 
     /// @notice Skip the full CREATE2 discovery sweep when the pair already has at
@@ -581,6 +588,8 @@ contract SolverRefCb1d7d9 {
         Melhores memory m, address tIn, address tOut, uint256 amountIn, address bA, address bB
     ) private view {
         uint256 n = bB == address(0) ? 2 : 3;
+        // CARRY hops2 (051a0bb): a route has at most MAX_HOPS hops; a three-hop topology plans none.
+        if (n > MAX_HOPS) return;
         address[4] memory path = [tIn, bA, bB, tOut];
         if (n == 2) path[2] = tOut;
         Hop[] memory hops = new Hop[](n);
@@ -1125,14 +1134,36 @@ contract SolverRefCb1d7d9 {
         t = r[x]; r[x] = r[y]; r[y] = r[z]; r[z] = t;
     }
 
+    // ===== CARRY MAT-01 (53b04c0): THE FUNNEL MEASURES A ROW BY THE tokenOut IT CAN PAY ==========
+    // In cb1d7d9 `_dropDust` read `BPC.registryDepth18Dec` for every row: the short side of a
+    // pair's DECLARED reserves (a book declaring d and holding d/3 measured d) and the virtual
+    // side of a singleton book. The Solver of 53b04c0 measures each row by `BPC.hopMass18` (0 for
+    // a pair that does not hold what it declares; the tokenOut side capped by holdings for a
+    // concentrated venue; the declared side of a singleton book, lowered to what a walk of it finds
+    // only when a seat depends on it: `_heldBooks`). This block is 53b04c0's `_dropDust` and
+    // `_heldBooks`, moved unchanged, so the two funnels drop the same rows: the band's vote already
+    // reads the same mass through the live Core (`universalProbe`, MAT-02). Mutant [morf-SQ2-22]
+    // puts cb1d7d9's read back.
+    // =============================================================================================
     /// @dev DUST IS MEASURED AGAINST THE PAIR, NOT COUNTED OUT (3317). The funnel kept the eight
     ///      rows psi ranked best, and a count is what dust buys: eight live pools of liquidity 1
     ///      filled the Hub's V4 cap, and psi multiplies a swap count anyone can pump by 2^bucket,
     ///      so eight pools holding 1/100 of the honest venue's mass out-ranked it and cut it before
     ///      it was quoted (bounty #82, Ronksok Gaming; root in mohaseenbasha dex-12). Each row is
-    ///      measured now by the registry's one depth producer (`Core.registryDepth18`), not by
-    ///      the bucket a registry door cached (Seavia Resources), and row j is dropped iff
+    ///      measured now by its mass on this hop (`Core.hopMass18`: the tokenOut it can pay), not
+    ///      by the bucket a registry door cached (Seavia Resources), and row j is dropped iff
     ///          d_j * 1e6 < MIN_SPLIT_IMPROVEMENT_PPM * (D - d_j),   D = the sum over the rows.
+    ///      ONE TOKEN (MAT-01): every term counts tokenOut, so the rule does not move when a
+    ///      token is restated, and out-massing a row costs tokenOut held. The registry's depth
+    ///      was the short side for a pair and the virtual one for a singleton book: a one-tick
+    ///      book holding ~2,500 USDC dropped a pair holding 1,000 WETH and 3,000,000 USDC.
+    ///      A SINGLETON BOOK (V4) is measured twice. Its OWN d_j is the side it declares, an
+    ///      upper bound: what it holds is read by a walk of sixteen stretches that one-wei
+    ///      positions can cut, and a cut walk must not unseat an honest book (S2). What it adds
+    ///      to the OTHER rows' D is what it holds over that walk (`_heldBooks`, the figure the
+    ///      band's vote reads). The walk is made only when a seat depends on it: with the books
+    ///      at their declared side D is at its largest and with them at zero at its smallest,
+    ///      so a row kept against the first or dropped against the second is decided unread.
     ///      For pools at one price and fee, the most a leg on j adds to what the others pay,
     ///      relative to it, is d_j / (D - d_j) at every size, so a dropped row cannot lift an
     ///      order by the improvement a split must show to be kept: no threshold of its own and no
@@ -1143,36 +1174,73 @@ contract SolverRefCb1d7d9 {
     ///      the deepest (d_max >= D / n). A Gate wrapper measures 0 because its mass is not read
     ///      here, and absent is not zero: it stays. Survivors keep their order and their psi.
     ///      The reads are the ones `_buildHop`'s probe makes next, so they are warm there, and the
-    ///      decimals are the pair's, read once (`dec`, +1 encoded: tA's above tB's). No product
-    ///      overflows: a depth is at most 2^128 * 1e18.
+    ///      decimals are tokenOut's, read once (`dec`, +1 encoded: tA's above tB's). No product
+    ///      overflows: a mass is at most 2^128 * 1e18.
     function _dropDust(PoolInfo[] memory rows, uint256[] memory ps, uint256 n, address tA, uint256 dec)
         private view returns (uint256 kept)
     {
         address mgr;
-        uint256[] memory d = new uint256[](n);
+        uint256[] memory d = new uint256[](n);       // the row's own mass
+        uint256[] memory r = new uint256[](n);       // what it adds to the other rows' D
+        bytes32[] memory pids = new bytes32[](n);    // nonzero: a singleton book
         uint256 sum;
+        uint256 v;                                   // the singleton books' part of `sum`
         for (uint256 i; i < n; ) {
             PoolInfo memory p = rows[i];
-            bytes32 pid;
             if (BPC.kindHas(p.kind, BPC.A_CONC_SING)) {
                 if (mgr == address(0)) mgr = hub.v4PoolManager();
                 (address c0, address c1) = BPC.v4LegCurrencies(p.kind, p.token0, p.token1, true);
-                pid = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
+                pids[i] = BPC.computeV4PoolId(c0, c1, p.fee, p.tickSpacing, p.hooks);
             }
-            d[i] = BPC.registryDepth18Dec(p.pool, p.kind,
-                p.token0, uint8(p.token0 == tA ? dec >> 8 : dec) - 1,
-                p.token1, uint8(p.token1 == tA ? dec >> 8 : dec) - 1, mgr, pid);
+            bool zfo = p.token0 == tA;
+            d[i] = r[i] = BPC.hopMass18(
+                p.pool, p.kind, tA, zfo ? p.token1 : p.token0, zfo, uint8(dec) - 1, mgr, pids[i]);
             sum += d[i];
+            if (pids[i] != 0) v += d[i];
             unchecked { ++i; }
         }
+        if (v != 0) {
+            for (uint256 i; i < n; ) {
+                uint256 x = d[i] * 1e6;
+                if (rows[i].kind != BPC.KIND_EXTERNAL
+                    && x < MIN_SPLIT_IMPROVEMENT_PPM * (sum - d[i])
+                    && x >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - v - (pids[i] != 0 ? 0 : d[i]))) {
+                    sum = _heldBooks(rows, pids, d, r, n, tA, uint8(dec) - 1, mgr, sum);
+                    break;
+                }
+                unchecked { ++i; }
+            }
+        }
         for (uint256 i; i < n; ) {
-            if (rows[i].kind == BPC.KIND_EXTERNAL || d[i] * 1e6 >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - d[i])) {
+            if (rows[i].kind == BPC.KIND_EXTERNAL || d[i] * 1e6 >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - r[i])) {
                 rows[kept] = rows[i];
                 ps[kept] = ps[i];
                 unchecked { ++kept; }
             }
             unchecked { ++i; }
         }
+    }
+
+    /// @dev What the singleton books of a hop HOLD of tokenOut, written over what each adds to
+    ///      the other rows' D (`_dropDust`): the output of an unbounded, fee-free walk of sixteen
+    ///      stretches, the `held` of `Core.v4HeldShare`. Only ever lowers `r` and `sum`.
+    function _heldBooks(
+        PoolInfo[] memory rows, bytes32[] memory pids, uint256[] memory d, uint256[] memory r,
+        uint256 n, address tA, uint8 dOut, address mgr, uint256 sum
+    ) private view returns (uint256) {
+        for (uint256 j; j < n; ) {
+            if (pids[j] != 0) {
+                (, uint256 held, ) = BPC.v4WalkRank(
+                    mgr, pids[j], type(uint256).max, 0, rows[j].tickSpacing, rows[j].token0 == tA, type(uint256).max);
+                held = BPC.to18(held, dOut);
+                if (held < d[j]) {
+                    sum -= d[j] - held;
+                    r[j] = held;
+                }
+            }
+            unchecked { ++j; }
+        }
+        return sum;
     }
 
     /// @dev CANONICAL ORDER (Layer 2), on the PLANNING side. STABLE partition of the legs of
