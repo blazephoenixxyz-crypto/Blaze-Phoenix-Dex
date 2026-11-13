@@ -7416,7 +7416,8 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       new='        return n0; // MUTANT\n',
       teste='testFuzz_ShortSideIsTheSmallerScaledSideInEitherOrder'),
  dict(nome='fuzz-gap [fg-3]: depthFromL answers the larger side',
-      f='src/BlazePhoenixCore.sol',
+      # depthFromL has no caller in src/, so no shipped artefact moves: the test inlines it (INERT on the PR #123 run).
+      f='src/BlazePhoenixCore.sol', inl='test/DecimalScaleDepthAndImpactAreBounded.t.sol',
       old='        return x0 < x1 ? x0 : x1;\n',
       new='        return x0 < x1 ? x1 : x0; // MUTANT\n',
       teste='testFuzz_DepthFromLNeverExceedsTheLiquidity'),
