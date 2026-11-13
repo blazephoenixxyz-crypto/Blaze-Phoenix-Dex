@@ -82,12 +82,16 @@ class Reverted(Exception):
 
 
 class Rpc:
-    """JSON-RPC over dRPC with the pre-registered retry policy (spec["retries"])."""
+    """JSON-RPC over dRPC with the pre-registered retry policy (spec["retries"]). Own node:
+    G7_RPC_URL_<CHAIN> (e.g. G7_RPC_URL_BASE) replaces the dRPC URL and the key file is not read."""
 
     def __init__(self, chain, attempts=3, backoff=2.0, timeout=90):
         import requests
-        key = open(os.path.expanduser(os.environ.get("DRPC_KEY_FILE", "~/.drpc-key"))).read().strip()
-        self._url = f"https://lb.drpc.live/{chain}/{key}"
+        url = os.environ.get("G7_RPC_URL_" + chain.upper())
+        if not url:
+            key = open(os.path.expanduser(os.environ.get("DRPC_KEY_FILE", "~/.drpc-key"))).read().strip()
+            url = f"https://lb.drpc.live/{chain}/{key}"
+        self._url = url
         self._s = requests.Session()
         self._hdr = {}
         self._lock = threading.Lock()

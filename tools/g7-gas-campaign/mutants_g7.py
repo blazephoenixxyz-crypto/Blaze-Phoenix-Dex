@@ -5,6 +5,7 @@ A 4th tuple field names the mutated file (default g7.py)."""
 import os, shutil, subprocess, sys, tempfile
 SRC = os.path.dirname(os.path.abspath(__file__))
 M = [  # (test id, old, new)
+ ("RpcUrl.test_own_url_replaces_drpc_and_skips_the_key_file", 'url = os.environ.get("G7_RPC_URL_" + chain.upper())', "url = None"),
  ("TreeLabel.test_state_of_another_tree_is_refused", 'if man["tree_commit"][:7] not in self.label:', 'if False:'),
  ("TreeLabel.test_every_row_carries_the_code_ceiling", '"max_hops_code": ch.max_hops, ', ''),
  ("FirstAtOrAfter.test_exact_timestamp_is_the_block_itself", "if ts(mid) >= t:", "if ts(mid) > t:"),

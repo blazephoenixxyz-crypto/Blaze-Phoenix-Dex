@@ -424,6 +424,17 @@ class KeyHygiene(unittest.TestCase):
             self.assertNotIn("SECRETKEY123", repr(cm.exception.args))
 
 
+class RpcUrl(unittest.TestCase):
+    # Mutant: `url = os.environ.get("G7_RPC_URL_" + chain.upper())` -> `url = None` (the override is ignored).
+    def test_own_url_replaces_drpc_and_skips_the_key_file(self):
+        with tempfile.TemporaryDirectory() as t:
+            env = {"DRPC_KEY_FILE": os.path.join(t, "absent"), "G7_RPC_URL_BASE": "http://127.0.0.1:8545"}
+            with mock.patch.dict(os.environ, env):
+                self.assertEqual(g7.Rpc("base", attempts=1, backoff=0, timeout=1)._url, "http://127.0.0.1:8545")
+                with self.assertRaises(FileNotFoundError):  # another chain still needs the key file
+                    g7.Rpc("optimism", attempts=1, backoff=0, timeout=1)
+
+
 class TreeLabel(unittest.TestCase):
     def make(self, t, commit):
         open(os.path.join(t, "base.manifest.tsv"), "w").write(

@@ -15,8 +15,9 @@ each chain, read in the deploy scripts: `source` column), `g8.py` (runner and re
 ## Run it with your own RPC
 
 The runner reads the dRPC key from `$DRPC_KEY_FILE` (default `~/.drpc-key`) and builds
-`https://lb.drpc.live/<chain>/<key>`; the key is never printed or written. There is no URL
-override yet (follow-up in g7.py). Put your own key in a 0600 file:
+`https://lb.drpc.live/<chain>/<key>`; the key is never printed or written. With your own node,
+`G7_RPC_URL_<CHAIN>` (e.g. `G7_RPC_URL_BASE=http://127.0.0.1:8545`) replaces that URL and the
+key file is not read for that chain. Otherwise put your own key in a 0600 file:
 
 ```sh
 umask 077; printf '%s' "<your dRPC key>" > ~/.drpc-key
