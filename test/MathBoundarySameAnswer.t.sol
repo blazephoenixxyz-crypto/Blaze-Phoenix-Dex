@@ -47,6 +47,19 @@ pragma solidity 0.8.36;
 // groups, so the base falls in the same group and the kept set is the same; nothing else the
 // hop computes reads the band.
 //
+// THE SIZE THE BAND DECIDES (ROUTEQ, 2026-11-13) widens the band with the order by design: a
+// row's error bound takes its impact term at the hop's amountIn, not at the probe
+// (Core.universalProbe, `orderIn`), so an order that is a large share of a book's short side
+// widens the band past the books at 1.20 and 0.80 of the market (and 2x from it), which the band of
+// 8938b6a, ±5% at every size, leaves out. The reference has nothing to carry: its band reads no
+// error bound, and the vote's mass and rank it takes from the live Core do not depend on the
+// order. So the two Solvers part wherever the order's bound reaches a far book, and the rows
+// that keep books out are drawn where it cannot: e_b + e_i, about orderIn over each of the two
+// short sides, stays under the gap (0.155 for a book at 1.20, about 0.45 for one at 2x or 0.5x),
+// every such order at most a tenth of the shallowest book's short side. The funnel at sizes near
+// a shallow book's depth is compared on books that all sit at the market, which both bands keep
+// at any size. Where the bands part, test/RouteQualityOrderSizeError.t.sol holds the new one.
+//
 // EVERY LEG PAYS FOR ITS PLACE (Solver, 2026-10-28) changes the split by design: in a split of
 // three or more legs, the leg whose probe paid least is tried when another leg pays at least
 // that rate on average, and it leaves unless the split with it pays MIN_SPLIT_IMPROVEMENT_PPM
@@ -244,18 +257,20 @@ contract MathBoundarySameAnswerTest is Test {
     /// History: until 2026-11-10 the fourth book was (1.15M, 2.3M), short of half the mass by
     /// its short side. A book's mass is the tokenB it holds (MAT-02): the books above the rate
     /// hold 600k + 850k = 1.45M against 1.5M, the 49.2% the row was drawn at.
+    /// The order was 300k until ROUTEQ (header): at 300k the bound of a 400k book reads ~0.74 and
+    /// the band keeps the books at 2x; at 30k it reads ~0.075, ~0.1 for the shallowest outlier.
     function test_D10_SameAnswer_BandAgainstAnOutlier() public {
         for (uint256 i; i < 3; ++i) _v2Found(tA, tB, 400_000e18, 400_000e18);
-        _row("3 honest books", tA, tB, 300_000e18);
+        _row("3 honest books", tA, tB, 30_000e18);
         _v2Found(tA, tB, 600_000e18, 300_000e18);
-        _row("an outlier below the rate", tA, tB, 300_000e18);
+        _row("an outlier below the rate", tA, tB, 30_000e18);
         _v2Found(tA, tB, 300_000e18, 600_000e18);
-        _row("and one above", tA, tB, 300_000e18);
+        _row("and one above", tA, tB, 30_000e18);
         _v2Found(tA, tB, 425_000e18, 850_000e18);
-        _row("and one short of half the mass", tA, tB, 300_000e18);
+        _row("and one short of half the mass", tA, tB, 30_000e18);
         _v2Found(tA, tB, 5_000_000e18, 2_500_000e18);
-        _row("and one past half the mass", tA, tB, 300_000e18);
-        _row("the other way", tB, tA, 300_000e18);
+        _row("and one past half the mass", tA, tB, 30_000e18);
+        _row("the other way", tB, tA, 30_000e18);
     }
 
     /// Nine curated books, some in the band and some out, against the per-hop budget of
@@ -264,6 +279,8 @@ contract MathBoundarySameAnswerTest is Test {
     /// shallow book's depth. Until MED (2026-10-28) the books in the band sat 1-3% apart
     /// and the largest order was 1M: the band of no arbitrage drops the first, and at 1M
     /// the probe's own impact took the 50k and 100k books out of the old band (header).
+    /// Until ROUTEQ (header) this row also ran 100k and 200k: there the bound of the 50k book
+    /// reaches the books at 1.20 and 0.80. Those sizes run on books at the market below.
     function test_D10_SameAnswer_FunnelCutAndSeat() public {
         uint16[9] memory pct = [uint16(100), 100, 100, 100, 100, 100, 120, 80, 100];
         for (uint256 i; i < 9; ++i) {
@@ -272,9 +289,24 @@ contract MathBoundarySameAnswerTest is Test {
         }
         _row("9 books, dust", tA, tB, 1e18);
         _row("9 books, 1k", tA, tB, 1_000e18);
-        _row("9 books, 100k", tA, tB, 100_000e18);
-        _row("9 books, 200k", tA, tB, 200_000e18);
-        _row("9 books, 200k, the other way", tB, tA, 200_000e18);
+        _row("9 books, 2k", tA, tB, 2_000e18);
+        _row("9 books, 5k", tA, tB, 5_000e18);
+        _row("9 books, 5k, the other way", tB, tA, 5_000e18);
+    }
+
+    /// The funnel cut and the seat of the remainder at sizes near a shallow book's depth
+    /// (ROUTEQ, header): nine curated books at the market (50k to 450k), against MAX_LEGS_PER_HOP
+    /// legs. At 100k and 200k the order's bound of the shallow books reaches 1 (no width), and
+    /// both bands keep all nine: the funnel decides.
+    function test_D10_SameAnswer_FunnelCutAndSeatAtSize() public {
+        for (uint256 i; i < 9; ++i) {
+            uint256 d = (i + 1) * 50_000e18;
+            _v2(tA, tB, d, d);
+        }
+        _row("9 books at the market, 1k", tA, tB, 1_000e18);
+        _row("9 books at the market, 100k", tA, tB, 100_000e18);
+        _row("9 books at the market, 200k", tA, tB, 200_000e18);
+        _row("9 books at the market, 200k, the other way", tB, tA, 200_000e18);
     }
 
     /// Discovered rows beside curated ones: the band's vote reads which rows are vouched.
