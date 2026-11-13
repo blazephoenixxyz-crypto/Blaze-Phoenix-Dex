@@ -9,7 +9,8 @@ Source run: **43376232767** (selar-G7 `e21e8f5`, dispatch 13/11 06:05), artefact
 `g7-results-43376232767/{report,results}.tsv`. `results.tsv` has 5600 rows; the draw key
 (chain, stratum, idx, b, mode) is unique. Below, `R:<n>` means `report.tsv` line `n` of that run,
 and `P:<n>` means line `n` of the report regenerated locally (no RPC) from the same `results.tsv`
-with g7.py at `ac79b97` (command in section 5).
+with g7.py at `ac79b97` (command in section 5). Lines 1-4961 are byte-identical with g7.py at
+`2bc266d`, which appends the `# g_record by hops x legs` section (P:4962-5003).
 
 ## 1. Dimensions (declared cells)
 
@@ -17,7 +18,7 @@ with g7.py at `ac79b97` (command in section 5).
 |---|---|---|---|
 | chain | base, optimism, arbitrum, bsc, ethereum, robinhood, avalanche | `chain` column | avalanche: 0 ok rows (770 noquote, 30 mf_unforced): **not measured** |
 | AMM type | the inventory families (v2, v3, v4, solidly, cl, curve, gates...) | G7 `kind`; G8 one case per family | G7 by kind (R:346-3790); per family: **not measured** (G8 not run yet) |
-| hops | 1, 2, 3 | `hops` column | not a report split; `g_record` per hops x legs is recomputed from `results.tsv` in section 5 |
+| hops | 1, 2, 3 | `hops` column | `g_record` per chain x hops x legs, D vs M0: `# g_record by hops x legs` (P:4962-5003), table in section 5 |
 | legs | 1..n | `legs`, `g_legs_sum` | g_legs_sum per chain x kind x mode (R:346-3790) |
 | mode | D (Discovery), M0 / M1h (moonslot age) | `mode` | per mode (R:346-3790) |
 | moonslot case | hit / partial / miss / expired | `ms_case` (a column after this run; the report derives it per row, `g7.py` `ms_case`) | `# moonslot cases` per chain x kind x case (P:3971-4536); ok rows: D 459, hit 272, partial 879, miss 362, expired 1407 (sum 3379 = all ok rows); paired M0 vs D in section 5 |
@@ -110,6 +111,70 @@ same call is a short update. The tool's own trace split (`tools/g7-gas-campaign/
 measured 710,573 of a g_exec of 1,011,096 on Base for a cold admission against 12,706 once the
 venue is registered. In run 43376232767 the Base `major` p50 of g_record is 686,452 in D
 (n = 20, R:1363) and 30,379 in M0 (n = 19, R:1377). The ~591k figure quoted earlier is the
-Base D g_record p50 over 1-hop, 1-leg routes: 591,221 (n = 47), recomputed from the same
-`results.tsv` (rows with mode D, outcome ok, hops 1, legs 1). It is not a report line: the report
-does not split by hops.
+Base D g_record p50 over 1-hop, 1-leg routes: 591,221 (n = 47, P:4972).
+
+**g_record, D cold vs M0, per chain x hops x legs.** From the `# g_record by hops x legs`
+section of the regenerated report (P:4962-5003): ok rows with a g_record, D and M0 each a
+marginal (NOT paired: the D row and the M0 row of one draw may route through a different number
+of hops or legs), all kinds of the chain together. The p95 needs n >= 20, as in the paired table.
+Avalanche has no ok row, so no line. The per-draw view is the paired g_record line of each chain
+(M0, ms_case all): P:4647 arbitrum, P:4716 base, P:4764 bsc, P:4812 ethereum, P:4860 optimism,
+P:4910 robinhood, P:4691 avalanche (n 0).
+
+| chain | hops | legs | D n | D p50 | D p95 | M0 n | M0 p50 | M0 p95 | source |
+|---|---|---|---|---|---|---|---|---|---|
+| arbitrum | 1 | 1 | 48 | 341,464 | 356,070 | 48 | 12,793 | 353,984 | P:4963 |
+| arbitrum | 1 | 2 | 5 | 514,764 | n < 20 | 5 | 21,552 | n < 20 | P:4964 |
+| arbitrum | 1 | 3 | 6 | 695,981 | n < 20 | 8 | 34,709 | n < 20 | P:4965 |
+| arbitrum | 1 | 4 | 2 | 811,400 | n < 20 | 2 | 811,400 | n < 20 | P:4966 |
+| arbitrum | 1 | 5 | 3 | 1,081,301 | n < 20 | 0 | not measured | not measured | P:4967 |
+| arbitrum | 2 | 2 | 10 | 615,178 | n < 20 | 11 | 615,178 | n < 20 | P:4968 |
+| arbitrum | 2 | 3 | 4 | 799,340 | n < 20 | 4 | 799,340 | n < 20 | P:4969 |
+| arbitrum | 2 | 4 | 1 | 1,006,943 | n < 20 | 1 | 1,006,943 | n < 20 | P:4970 |
+| arbitrum | 2 | 5 | 1 | 1,188,613 | n < 20 | 1 | 1,188,613 | n < 20 | P:4971 |
+| base | 1 | 1 | 47 | 591,221 | 742,969 | 42 | 12,793 | 735,471 | P:4972 |
+| base | 1 | 2 | 1 | 1,040,578 | n < 20 | 2 | 21,534 | n < 20 | P:4973 |
+| base | 1 | 3 | 5 | 1,366,207 | n < 20 | 6 | 30,380 | n < 20 | P:4974 |
+| base | 1 | 4 | 1 | 1,936,878 | n < 20 | 0 | not measured | not measured | P:4975 |
+| base | 1 | 5 | 2 | 1,755,759 | n < 20 | 0 | not measured | not measured | P:4976 |
+| base | 2 | 2 | 17 | 929,920 | n < 20 | 21 | 1,207,095 | 1,275,694 | P:4977 |
+| base | 2 | 3 | 2 | 1,630,308 | n < 20 | 3 | 1,630,308 | n < 20 | P:4978 |
+| base | 2 | 4 | 1 | 1,956,751 | n < 20 | 1 | 1,956,751 | n < 20 | P:4979 |
+| base | 2 | 5 | 1 | 2,461,246 | n < 20 | 1 | 2,461,246 | n < 20 | P:4980 |
+| base | 2 | 6 | 1 | 2,492,906 | n < 20 | 1 | 2,492,906 | n < 20 | P:4981 |
+| bsc | 1 | 1 | 39 | 300,604 | 320,599 | 39 | 16,124 | 315,743 | P:4982 |
+| bsc | 1 | 2 | 5 | 487,340 | n < 20 | 5 | 487,340 | n < 20 | P:4983 |
+| bsc | 1 | 3 | 0 | not measured | not measured | 1 | 40,301 | n < 20 | P:4984 |
+| bsc | 1 | 4 | 3 | 844,537 | n < 20 | 2 | 55,439 | n < 20 | P:4985 |
+| bsc | 2 | 2 | 19 | 552,842 | n < 20 | 19 | 552,842 | n < 20 | P:4986 |
+| bsc | 2 | 5 | 2 | 1,062,250 | n < 20 | 2 | 1,062,250 | n < 20 | P:4987 |
+| bsc | 3 | 3 | 8 | 805,073 | n < 20 | 8 | 805,073 | n < 20 | P:4988 |
+| ethereum | 1 | 1 | 53 | 391,480 | 450,367 | 53 | 12,793 | 414,051 | P:4989 |
+| ethereum | 1 | 2 | 14 | 587,766 | n < 20 | 20 | 26,555 | 589,717 | P:4990 |
+| ethereum | 1 | 3 | 10 | 801,298 | n < 20 | 6 | 35,658 | n < 20 | P:4991 |
+| ethereum | 1 | 5 | 4 | 1,254,267 | n < 20 | 3 | 1,254,267 | n < 20 | P:4992 |
+| optimism | 1 | 1 | 65 | 292,631 | 307,191 | 53 | 12,811 | 306,354 | P:4993 |
+| optimism | 1 | 2 | 6 | 447,584 | n < 20 | 5 | 447,584 | n < 20 | P:4994 |
+| optimism | 1 | 3 | 2 | 636,500 | n < 20 | 3 | 33,666 | n < 20 | P:4995 |
+| optimism | 2 | 2 | 8 | 525,410 | n < 20 | 18 | 518,277 | n < 20 | P:4996 |
+| optimism | 2 | 3 | 4 | 656,885 | n < 20 | 4 | 656,885 | n < 20 | P:4997 |
+| optimism | 2 | 4 | 1 | 826,560 | n < 20 | 2 | 826,560 | n < 20 | P:4998 |
+| optimism | 2 | 5 | 0 | not measured | not measured | 2 | 1,016,448 | n < 20 | P:4999 |
+| robinhood | 1 | 1 | 22 | 206,181 | 206,812 | 31 | 12,793 | 206,181 | P:5000 |
+| robinhood | 1 | 2 | 17 | 314,568 | n < 20 | 17 | 21,622 | n < 20 | P:5001 |
+| robinhood | 1 | 3 | 3 | 448,301 | n < 20 | 3 | 448,301 | n < 20 | P:5002 |
+| robinhood | 2 | 2 | 16 | 357,173 | n < 20 | 16 | 357,173 | n < 20 | P:5003 |
+
+In the 1-hop, 1-leg line of every chain the M0 p50 (12,793 to 16,124) is the short update and the
+D p50 (206,181 to 591,221) the cold admission. Where the M0 p50 equals the D p50 (for example
+P:4983, P:4986), the M0 rows of that cell paid the same g_record as D; why is not measured here.
+
+**An earlier note on the same run, not reproduced.** An earlier internal note gave the 1-hop,
+1-leg D g_record p50 of all six chains with these n: base 47, ethereum 50, arbitrum 47, bsc 39,
+optimism 65, robinhood 20. Its six p50 equal the lines above (P:4963, P:4972, P:4982, P:4989,
+P:4993, P:5000). Its n equals ours on base, bsc and optimism and differs on three chains:
+ethereum 53 here against 50, arbitrum 48 against 47, robinhood 22 against 20. The note did not
+record its row filter. Fourteen filters over the same `results.tsv` were tried and none gives
+its n on those three chains. The merged `results.tsv` and the per-chain artefact of each of the
+six chains give the same 800 rows and the same n, so the gap is not a merge artefact. The n
+used in this document are the report's (P:4962-5003); the three earlier n are not used.
