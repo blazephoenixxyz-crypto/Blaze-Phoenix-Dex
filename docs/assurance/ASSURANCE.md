@@ -483,12 +483,14 @@ promises more than the venue's maths delivers) and the tightness second.
 |---|---|---|
 | Uniswap V2 | the Core never exceeds the spec | exact to the wei |
 | Solidly stable | the Core never exceeds the curve by more than the solver's own last step | within 4 wei |
-| Uniswap V3 | the Core never exceeds the spec by more than **one ulp of the square-root price**, which is `L / 2⁹⁶` wei | below one wei for every pool with `L < 2⁹⁶`, i.e. every pool in existence |
+| Uniswap V3 | the Core never exceeds the spec by more than **one ulp of the square-root price**, which is `L / 2⁹⁶` wei; since 2026-11-13 it does not exceed it at all | since 2026-11-13 exact to the wei, both directions: `outV3` is the pool's own step (`_v4Step`, the walker's), `test/OutV3StepParityTriple.t.sol` |
 
 The V3 bound is stated in the quantity that causes it: the pool rounds its new price against the
 trader and the Core rounds it once, so the two can differ by one unit of `sqrtP`, worth `L / 2⁹⁶`
 wei of output. The fuzz found exactly that — 13 wei on a 6.5 × 10³⁴ output at `L = 10³⁰` — and the
 assertion is the bound, not the sample.
+Until 2026-11-13: since then `outV3` is SwapMath's exact-input step toward the range's boundary,
+the one the walk takes, so it rounds where the pool rounds and the bound holds with nothing to spare.
 
 **Uniswap V4, walked.** A V4 pool is quoted by walking its own book (`Core.v4WalkOut`), so its
 oracle is a swap. `test/mocks/MockV4TickManager.sol` implements the specification's exact-input
@@ -587,7 +589,7 @@ extended 2026-09-05) holds fourteen relations over the Core's quote maths; `test
 | level | relation | what it says |
 |---|---|---|
 | Core, V2 · V3 · stable | MR1 monotone | more in, never less out |
-| Core, V2 · V3 · stable | MR2 sub-additive | splitting an order across the same pool never gains |
+| Core, V2 · V3 · stable | MR2 sub-additive | splitting an order across the same pool never gains (V3: beyond one ulp per quote, the pool's own rounding, since 2026-11-13) |
 | Core, V2 · stable | MR3 no round trip | in, then back on the updated reserves, never returns more than went in |
 | Core, V2 · V3 · stable | MR4 scale equivariance | scaling order and pool together scales the output, to rounding |
 | Core, V2 · V3 | MR5 fee monotone | a higher fee never pays more |
