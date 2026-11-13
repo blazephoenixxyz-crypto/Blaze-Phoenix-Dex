@@ -299,5 +299,22 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("echo \"$DRPC_KEY\"", t)
 
 
+class Criteria(unittest.TestCase):
+    """The spec's "criteria" is the build_cases docstring from "Inputs:" on, verbatim: in the built spec,
+    in the spec.json written to outdir and in the committed spec.json."""
+
+    # Mutants: a criterion edited in the docstring without a rebuild (amounts // 10^5 -> // 10^6), or
+    # build() cutting the section short (split at "Every row").
+    def test_spec_criteria_are_the_docstring_inputs_section(self):
+        want = bc.__doc__.split("Inputs:")[1].strip()
+        self.assertTrue(want.startswith("the G7 inventory") and "  * amounts:" in want
+                        and want.endswith("README.md gives the exact command to redo it."), want[:80])
+        spec, _, out = build()
+        self.assertEqual(spec["criteria"], want)
+        for f in (os.path.join(out, "spec.json"), os.path.join(HERE, "spec.json")):
+            with open(f) as fh:
+                self.assertEqual(json.load(fh)["criteria"], want, f)
+
+
 if __name__ == "__main__":
     unittest.main()

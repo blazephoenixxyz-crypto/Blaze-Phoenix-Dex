@@ -6,7 +6,8 @@ Every mutant is applied alone in a temporary tree (tools/g8-pool-tests with brid
 tools/g7-gas-campaign without state/prereg/site, .github/workflows/g8-pool-tests.yml) and the
 named test runs there; a GREEN! line is a survivor and fails the run, and so does a CRASH! line
 (the test went red by an error, not by an assertion: that proves nothing). BADPAT means the pattern
-is not found exactly once: the mutant list is stale, fix it before trusting the green."""
+is not found exactly once: the mutant list is stale, fix it before trusting the green.
+spec.json is copied too: Criteria compares it with the build_cases docstring."""
 import os
 import shutil
 import subprocess
@@ -39,6 +40,8 @@ M = [
  ("Report.test_per_case_line_counts_only_ok_rows", 'ok = [r for r in rs if r["outcome"] == "ok"]', "ok = rs", "g8.py"),
  ("Report.test_per_case_split_has_n_p50_p95_per_ms_case", '== (cn, st["id"], k) and r["outcome"] == "ok"]', '== (cn, st["id"], k)]', "g8.py"),
  ("Report.test_per_case_split_has_n_p50_p95_per_ms_case", "str(g7.pct(v, 95))", "str(g7.pct(v, 50))", "g8.py"),
+ ("Criteria.test_spec_criteria_are_the_docstring_inputs_section", "input token // 10^5, 10^3, 10^1 (dust", "input token // 10^6, 10^3, 10^1 (dust"),
+ ("Criteria.test_spec_criteria_are_the_docstring_inputs_section", 'spec["criteria"] = __doc__.split("Inputs:")[1].strip()', 'spec["criteria"] = __doc__.split("Inputs:")[1].split("Every row")[0].strip()'),
  ("Workflow.test_dispatch_only_masked_key_and_g8_commands", '          echo "::add-mask::$DRPC_KEY"\n', "", "g8-pool-tests.yml"),
 ]
 
@@ -47,7 +50,7 @@ def tree():
     root = tempfile.mkdtemp()
     d = os.path.join(root, "tools", "g8-pool-tests")
     os.makedirs(d)
-    for f in ("g8.py", "build_cases.py", "test_g8.py", "bridges.tsv"):
+    for f in ("g8.py", "build_cases.py", "test_g8.py", "bridges.tsv", "spec.json"):
         shutil.copy(os.path.join(SRC, f), d)
     shutil.copytree(G7, os.path.join(root, "tools", "g7-gas-campaign"),
                     ignore=shutil.ignore_patterns("__pycache__", "state", "prereg", "site"))
