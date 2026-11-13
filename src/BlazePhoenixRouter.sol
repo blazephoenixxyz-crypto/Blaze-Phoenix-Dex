@@ -956,6 +956,7 @@ contract BlazePhoenixRouter {
                 // handing it to the payer.
                 realIn = _owned(bal, bridgeBase[h - 1], amountIn);
                 bridgeBase[h - 1] = bal - realIn;
+                bridgeBase[h] = realIn; // 4111/D1: slot n-1 (h = n-1 = 1, MAX_HOPS = 2), see _execute
             }
             uint256 quotedIn = _legSum(hop);
             // SECURITY (issue #1 cap × BP-02 floor seam): the hop-0 cap is
@@ -1084,6 +1085,12 @@ contract BlazePhoenixRouter {
         // guard, making both sweeps symmetric (finding: NetGakarot-class review —
         // the bridge sweep otherwise handed a crafted route the Router's
         // dust/mis-sent balance of any caller-named intermediate token).
+        // 4111/D1: [0, n-1) are the bridge baselines. Slot n-1 is never a baseline (the last
+        // hop has no bridge), so it holds what the swap left unspent of the bridge: the realIn
+        // hop n-1's scale measured, less what that hop's legs took from the Router. The sweep
+        // pays no more than that past the baseline. This layout holds because MAX_HOPS = 2
+        // (Core): one bridge, h = 0, its spender hop n-1 = 1. More hops need a slot per bridge;
+        // test_TheHopCeilingPinsTheBridgeLayout goes red the day MAX_HOPS moves.
         uint256[] memory bridgeBase = new uint256[](route.hops.length);
         for (uint256 bh; bh + 1 < route.hops.length; ) {
             address bt = route.hops[bh].tokenOut;
@@ -1361,6 +1368,12 @@ contract BlazePhoenixRouter {
                 );
                 legOut[legIdx] = legGot;
                 legTook[legIdx] = took;
+                // 4111/D1: what this leg took of the bridge. A pair leg is pushed scaledAmt (its
+                // `took` is the pool's side, short under a fee-on-transfer); a V3, External or V4
+                // leg pays `took` from its own callback or settle, short on a partial fill.
+                // Checked: the legs take no more than realIn (floored mulDiv, owed <= amt,
+                // owe <= amt), so an underflow fails closed. Slot h = n-1: MAX_HOPS = 2.
+                if (h != 0) bridgeBase[h] -= BPC.kindHas(leg.kind, BPC.A_RESERVES) ? scaledAmt : took;
                 unchecked { ++legIdx; }
                 hopGot += legGot;
                 hopAttested += legAtt;
@@ -1501,6 +1514,12 @@ contract BlazePhoenixRouter {
             if (bridge != tokenIn && bridge != tokenOut) {
                 uint256 rb = _bal(bridge);
                 uint256 bb = bridgeBase[h];
+                // 4111/D1: and no more past the baseline than the swap left unspent of the
+                // bridge. A restatement fired inside hop h+1's leg window grows the stranded
+                // balance too; that growth stays with the rescue. cap <= the balance the scale
+                // read, so the sum cannot overflow.
+                uint256 cap = bb + bridgeBase[1]; // slot n-1 = 1: h = 0, MAX_HOPS = 2
+                if (rb > cap) rb = cap;
                 if (rb > bb) BPC.safeTransfer(bridge, payer, rb - bb);
             }
             unchecked { ++h; }

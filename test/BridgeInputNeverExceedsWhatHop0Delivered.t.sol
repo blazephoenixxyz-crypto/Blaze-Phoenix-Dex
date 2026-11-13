@@ -18,13 +18,20 @@ pragma solidity 0.8.36;
 // Red at e01b503 (main, 2026-11-11): both restatement tests. The honest two-hop swap is the
 // control and holds on both sides of the fix.
 //
+// 4111/D1: the write-back cannot see a restatement fired AFTER the scale, inside a leg window of
+// the hop that spends the bridge (its output landing on the Router). The sweep paid the payer the
+// whole balance past the baseline, so the stranded holder's gain rode out through it. The sweep
+// now pays each bridge no more than this swap's unspent input of it. Red at 2e4fdaa
+// (fix-4111-fu, 2026-11-13): the in-leg restatement-up tests; the in-leg controls hold on both
+// sides of the fix.
+//
 // forge test --match-path test/BridgeInputNeverExceedsWhatHop0Delivered.t.sol -vv
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {PathologicalERC20} from "./mocks/PathologicalERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
@@ -152,6 +159,8 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         uint256 routerShares;   // B shares the Router ends with (the rescue's)
         uint256 payerB;         // B the sweep handed the payer
         uint256 rebaseNum;      // 2 once the restatement fired
+        uint256 routerBal;      // B the Router ends with, in the units it measures
+        uint256 rebaseDen;      // 2 once a restatement down fired
     }
 
     /// @notice A->B->C, two V2 hops, no bridge registered (the fee is charged on every hop's
@@ -160,14 +169,20 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
     ///         a hooked tokenIn), 2 the hop-1 fee push (B lands on T1). Hop 1 is attested at the
     ///         figure the unfixed Router measured, so the unfixed swap settles at scale 1.
     function _run(uint256 foreign, uint8 when) internal returns (Run memory res) {
+        return _runAt(foreign, when, 2, 1);
+    }
+
+    /// @notice `_run` with the restatement factor num/den. A restatement DOWN (num < den) attests
+    ///         hop 1 at the honest figure, D less its fee: the swap is priced as if nothing fired.
+    function _runAt(uint256 foreign, uint8 when, uint256 num, uint256 den) internal returns (Run memory res) {
         HookedERC20 tA = new HookedERC20();
         PathologicalERC20 tB = new PathologicalERC20("B", "B", 18);
         MockERC20 tC = new MockERC20("C", "C");
         MockV2Pair pairAB = _pair(address(tA), address(tB), 200e18, RESERVE);
         MockV2Pair pairBC = _pair(address(tB), address(tC), RESERVE, 200e18);
         if (foreign != 0) tB.mint(address(router), foreign);
-        if (when == 1) tA.arm(T1, tB, 2, 1);
-        if (when == 2) tB.setRebaseOnTransferTo(T1, 2, 1);
+        if (when == 1) tA.arm(T1, tB, num, den);
+        if (when == 2) tB.setRebaseOnTransferTo(T1, num, den);
         uint256 amtIn = _pickIn(pairAB, address(tA));
         tA.mint(user, amtIn);
         vm.prank(user);
@@ -175,9 +190,9 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
 
         uint256 d = _quoteV2(pairAB, address(tA), amtIn - BPC.mulDivUp(amtIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
         // The unfixed hop-1 measurement, by window: the fee base and the input it spends.
-        uint256 base1 = when == 1 ? foreign + d : d;
+        uint256 base1 = when == 1 && num > den ? foreign + d : d;
         uint256 fee1 = BPC.mulDivUp(base1, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-        uint256 m = when == 0 ? d - fee1 : (when == 1 ? foreign + d - fee1 : foreign + 2 * (d - fee1));
+        uint256 m = when == 0 || num < den ? d - fee1 : (when == 1 ? foreign + d - fee1 : foreign + 2 * (d - fee1));
         Route memory route = _route2(
             pairAB, address(tA), address(tB), amtIn, d, pairBC, address(tC), m, _quoteV2(pairBC, address(tB), m)
         );
@@ -190,6 +205,8 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         res.routerShares = tB.sharesOf(address(router));
         res.payerB = tB.balanceOf(user);
         res.rebaseNum = tB.rebaseNum();
+        res.routerBal = tB.balanceOf(address(router));
+        res.rebaseDen = tB.rebaseDen();
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -229,5 +246,204 @@ contract BridgeInputNeverExceedsWhatHop0DeliveredTest is Test {
         assertEq(r.delivered, h.delivered, "the swapper is paid what hop 0 delivered buys, not the restatement");
         assertGe(r.routerShares, FOREIGN, "the stranded shares stay with the rescue");
         assertEq(r.payerB, 0, "the sweep hands the payer none of the restatement");
+    }
+
+    // ─── the balance arm of `owned`: a restatement DOWN outside a leg window ───
+    //
+    // `owned` is the balance past the baseline AND no more than hopGot. The cap (hopGot) binds when
+    // the bridge grows; the balance arm (bal - bridgeBase) binds when it shrinks between the leg
+    // that measured hopGot and the read, and only a fee push sits there. Inside a leg window the
+    // two agree (hopGot already measured the shrink), which is why the restatements DEX-11 sees
+    // never told the arm from `own = decl`. Without it hop 1 spends hopGot of a balance that no
+    // longer holds it, and the difference comes out of the stranded bridge (R3 / BP-15's drain,
+    // reopened by the cap).
+
+    /// @notice The hop-1 fee push restates the bridge x1/2 after the fee base was read and
+    ///         before the scale reads it: the Router holds (F + D - fee)/2 and hop 1 may spend
+    ///         only what lies past F. Spending hopGot - fee instead runs past the balance.
+    function test_ARestatementDownFiredByTheHop1FeePushSpendsOnlyTheBalancePastTheBaseline() public {
+        uint256 f = 10e18;
+        Run memory h = _run(0, 0);
+        Run memory r = _runAt(f, 2, 1, 2);
+        assertTrue(r.ok, "the swap settles on the balance past the baseline");
+        assertEq(r.rebaseDen, 2, "the restatement fired (factor 1/2)");
+        assertLt(r.delivered, h.delivered, "the swapper bears the restatement's cut, as a short delivery");
+        assertGt(r.delivered, 0, "the recipient was paid");
+        assertGe(r.routerShares, 2 * f, "the Router keeps F in the units it measures: 2F shares at 1/2");
+        assertEq(r.payerB, 0, "the sweep hands the payer none of the bridge");
+    }
+
+    /// @notice The hop-0 fee push (A lands on T1) restates the bridge x1/2 before hop 0's leg:
+    ///         the leg measures D at the new factor, the Router holds F/2 + D, and hop 1's fee
+    ///         base and input are what lies past F. Spending hopGot leaves the Router below F.
+    function test_ARestatementDownFiredByTheHop0FeePushLeavesTheRouterItsBaseline() public {
+        uint256 f = 10e18;
+        Run memory h = _run(0, 0);
+        Run memory r = _runAt(f, 1, 1, 2);
+        assertTrue(r.ok, "the swap settles on the balance past the baseline");
+        assertEq(r.rebaseDen, 2, "the restatement fired (factor 1/2)");
+        assertLt(r.delivered, h.delivered, "the swapper bears the restatement's cut, as a short delivery");
+        assertGt(r.delivered, 0, "the recipient was paid");
+        assertGe(r.routerBal, f, "the Router never ends below the bridge it held before the swap");
+        assertEq(r.payerB, 0, "the sweep hands the payer none of the bridge");
+    }
+
+    /// @notice Gamut: any stranded balance from dust to 4x the delivery, either fee-push window,
+    ///         either direction (x2, x1/2). A swap that settles leaves the Router at least the
+    ///         bridge it held before, in shares and in the units it measures, and pays the payer
+    ///         none of it. A swap the Router refuses moves nothing.
+    function testFuzz_TheRouterNeverEndsBelowTheBridgeItHeldBeforeTheSwap(uint256 foreign, bool hop1, bool up)
+        public
+    {
+        foreign = bound(foreign, 1, 4 * IN);
+        Run memory r = _runAt(foreign, hop1 ? 2 : 1, up ? 2 : 1, up ? 1 : 2);
+        if (!r.ok) {
+            assertEq(r.routerShares, foreign, "a refused swap moves nothing of the stranded bridge");
+            return;
+        }
+        assertGe(r.routerShares, foreign, "the stranded shares stay with the rescue");
+        assertGe(r.routerBal, foreign, "the Router never ends below the bridge it held before the swap");
+        assertEq(r.payerB, 0, "the sweep hands the payer none of the bridge");
+    }
+
+    // ─── 4111/D1: a restatement fired INSIDE the hop-1 leg window, and the sweep ───
+    //
+    // The scale writes back what the balance holds past hop 1's input, but a restatement fired
+    // after it (the hop's output landing on the Router) grows the stranded balance again. The
+    // sweep paid the payer every unit past the baseline, so the stranded holder's gain,
+    // F * (num/den - 1), rode out to the payer: linear in F and bounded by nothing the swap sized.
+    // The sweep pays each bridge no more than this swap's unspent input of it.
+
+    /// @notice A->B->C, two V2 hops; `foreign` B shares sit on the Router. With `num` != 0 the
+    ///         C hook restates B by num/den when hop 1's leg pays C to the Router: inside the leg
+    ///         window, after the scale wrote the baseline back. Both hops are attested at the
+    ///         honest figure.
+    function _runInLeg(uint256 foreign, uint256 num, uint256 den) internal returns (Run memory res) {
+        HookedERC20 tA = new HookedERC20();
+        PathologicalERC20 tB = new PathologicalERC20("B", "B", 18);
+        HookedERC20 tC = new HookedERC20();
+        MockV2Pair pairAB = _pair(address(tA), address(tB), 200e18, RESERVE);
+        MockV2Pair pairBC = _pair(address(tB), address(tC), RESERVE, 200e18);
+        if (foreign != 0) tB.mint(address(router), foreign);
+        if (num != 0) tC.arm(address(router), tB, num, den);
+        uint256 amtIn = _pickIn(pairAB, address(tA));
+        tA.mint(user, amtIn);
+        vm.prank(user);
+        tA.approve(address(router), type(uint256).max);
+
+        uint256 d = _quoteV2(pairAB, address(tA), amtIn - BPC.mulDivUp(amtIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS));
+        uint256 m = d - BPC.mulDivUp(d, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        Route memory route = _route2(
+            pairAB, address(tA), address(tB), amtIn, d, pairBC, address(tC), m, _quoteV2(pairBC, address(tB), m)
+        );
+        vm.prank(user);
+        (bool ok, bytes memory ret) = address(router).call(
+            abi.encodeCall(router.swapExactIn, (route, amtIn, 1, recip, block.timestamp + 100))
+        );
+        res.ok = ok;
+        if (ok) res.delivered = abi.decode(ret, (uint256));
+        res.routerShares = tB.sharesOf(address(router));
+        res.payerB = tB.balanceOf(user);
+        res.rebaseNum = tB.rebaseNum();
+        res.routerBal = tB.balanceOf(address(router));
+        res.rebaseDen = tB.rebaseDen();
+    }
+
+    /// @dev The same stranded F with and without the in-leg restatement: the restated swap leaves
+    ///      the Router F shares, sweeps the payer exactly the residual the plain swap sweeps, and
+    ///      delivers the same C.
+    function _assertTheSweepLeavesTheRestatementWithTheRescue(uint256 f, uint256 num, uint256 den) internal {
+        Run memory h = _runInLeg(f, 0, 0);
+        Run memory r = _runInLeg(f, num, den);
+        assertTrue(h.ok, "the plain swap settles");
+        assertTrue(r.ok, "the restated swap settles: the honest value is delivered, not refused");
+        assertEq(r.rebaseNum, num, "the restatement fired");
+        assertEq(r.rebaseDen, den, "the restatement fired");
+        assertGe(r.routerShares, f, "the stranded shares stay with the rescue");
+        assertEq(r.payerB, h.payerB, "the sweep hands the payer the honest residual and none of the restatement");
+        assertEq(r.delivered, h.delivered, "the recipient is paid what hop 0 delivered buys, not the restatement");
+    }
+
+    /// @notice One token stranded, the bridge doubles inside the hop-1 leg. Unfixed: the payer
+    ///         is swept 1e18 B, half the stranded holder's shares.
+    function test_ARestatementInsideTheHop1LegLeavesOneStrandedTokenWithTheRescue() public {
+        _assertTheSweepLeavesTheRestatementWithTheRescue(1e18, 2, 1);
+    }
+
+    /// @notice 100 tokens stranded, x2 inside the hop-1 leg. Unfixed: 100e18 B to the payer.
+    function test_ARestatementInsideTheHop1LegLeavesTheStrandedBridgeWithTheRescue() public {
+        _assertTheSweepLeavesTheRestatementWithTheRescue(FOREIGN, 2, 1);
+    }
+
+    /// @notice Four times the swap's input stranded, x2: the gain is not bounded by the swap's
+    ///         size, so neither may the test be. Unfixed: 400e18 B to the payer.
+    function test_ARestatementInsideTheHop1LegLeavesFourInputsStrandedWithTheRescue() public {
+        _assertTheSweepLeavesTheRestatementWithTheRescue(4 * IN, 2, 1);
+    }
+
+    /// @notice A 1 % restatement over 100 stranded tokens. Unfixed: ~1e18 B to the payer.
+    function test_AOnePercentRestatementInsideTheHop1LegLeavesTheStrandedBridgeWithTheRescue() public {
+        _assertTheSweepLeavesTheRestatementWithTheRescue(FOREIGN, 101, 100);
+    }
+
+    /// @notice Control: nothing stranded, nothing restated. The in-leg route settles, the Router
+    ///         ends with none of the bridge and the payer is swept nothing.
+    /// The Router keeps what the swap left unspent of the bridge in bridgeBase[n - 1], the one slot
+    /// that is never a baseline because the last hop has no bridge. That holds for one bridge only:
+    /// with MAX_HOPS = 3 slot n - 1 would be bridge 1's baseline and the cap would overwrite it.
+    /// Raising the ceiling must come with a slot per bridge; this pin goes red first.
+    function test_TheHopCeilingPinsTheBridgeLayout() public pure {
+        assertEq(MAX_HOPS, 2, "4111/D1: bridgeBase[n - 1] holds the unspent bridge only while MAX_HOPS = 2");
+    }
+
+    function test_AnHonestInLegRouteSweepsNothingAndKeepsNothing() public {
+        Run memory h = _runInLeg(0, 0, 0);
+        assertTrue(h.ok, "the honest swap settles");
+        assertEq(h.rebaseNum, 1, "no restatement fired");
+        assertEq(h.routerShares, 0, "the Router holds no bridge after an honest swap");
+        assertEq(h.payerB, 0, "the honest swap leaves no bridge residual");
+        assertGt(h.delivered, 0, "the recipient was paid");
+    }
+
+    /// @notice Control: 100 tokens stranded, nothing restated. The sweep leaves them exactly.
+    function test_AStrandedBridgeWithNoRestatementIsLeftExactly() public {
+        Run memory h = _runInLeg(0, 0, 0);
+        Run memory r = _runInLeg(FOREIGN, 0, 0);
+        assertTrue(r.ok, "the swap settles");
+        assertEq(r.routerShares, FOREIGN, "the stranded shares are left exactly");
+        assertEq(r.payerB, 0, "the sweep hands the payer none of the bridge");
+        assertEq(r.delivered, h.delivered, "the stranded balance does not change the delivery");
+    }
+
+    /// @notice Control: the bridge halves inside the hop-1 leg. The balance past the baseline is
+    ///         gone, so the sweep has nothing to pay and the Router keeps every stranded share.
+    function test_ARestatementDownInsideTheHop1LegSweepsNothing() public {
+        Run memory h = _runInLeg(FOREIGN, 0, 0);
+        Run memory r = _runInLeg(FOREIGN, 1, 2);
+        assertTrue(r.ok, "the swap settles");
+        assertEq(r.rebaseDen, 2, "the restatement fired (factor 1/2)");
+        assertEq(r.routerShares, FOREIGN, "the Router keeps every stranded share");
+        assertEq(r.payerB, 0, "the sweep hands the payer none of the bridge");
+        assertEq(r.delivered, h.delivered, "the leg had already spent its input: the delivery is unchanged");
+    }
+
+    /// @notice Gamut: stranded from 1 wei to 4x the input, restated up by 1 % to x3 inside the
+    ///         hop-1 leg. A swap that settles leaves the Router at least the shares it held,
+    ///         sweeps the payer exactly the plain swap's residual and delivers the same C; a swap
+    ///         the Router refuses moves nothing.
+    function testFuzz_TheSweepNeverPaysTheStrandedBridgesRestatementToThePayer(uint256 foreign, uint256 num)
+        public
+    {
+        foreign = bound(foreign, 1, 4 * IN);
+        num = bound(num, 101, 300);
+        Run memory h = _runInLeg(foreign, 0, 0);
+        Run memory r = _runInLeg(foreign, num, 100);
+        if (!r.ok) {
+            assertEq(r.routerShares, foreign, "a refused swap moves nothing of the stranded bridge");
+            return;
+        }
+        assertGe(r.routerShares, foreign, "the stranded shares stay with the rescue");
+        assertEq(r.payerB, h.payerB, "the sweep hands the payer the honest residual and none of the restatement");
+        assertEq(r.delivered, h.delivered, "the recipient is paid what hop 0 delivered buys, not the restatement");
     }
 }

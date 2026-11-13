@@ -6743,6 +6743,28 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            amountIn = hopGot;\n',
       new="            // MUTANT: amountIn stays hop 0's pull\n",
       teste='test_ARestatementFiredByTheHop0FeePushStaysWithTheStrandedBridge'),
+ # 4111 follow-up (2026-11-13): labels [1095]-[1096]. The balance arm of `owned` (bal - bridgeBase)
+ # binds only when the bridge shrinks between the leg that measured hopGot and the read - a fee
+ # push; inside a leg window hopGot already measured the shrink, so `own = decl` survived every
+ # test that restated the bridge up or inside a window (verification of L-C34-2, mutant M-G).
+ dict(nome='4111 balance arm [1095]: _owned is the carried hopGot, not the balance past the baseline, so a restatement down spends the stranded bridge',
+      f='src/BlazePhoenixRouter.sol',
+      old='        own = bal > held ? bal - held : 0;\n',
+      new='        own = decl; // MUTANT: no balance arm\n',
+      teste='test_ARestatementDownFiredByTheHop0FeePushLeavesTheRouterItsBaseline'),
+ dict(nome='4111 scale balance arm [1096]: hop h>=1 spends the carried hopGot less its fee, whatever the balance past the baseline holds',
+      f='src/BlazePhoenixRouter.sol',
+      old='                realIn = _owned(bal, bridgeBase[h - 1], amountIn);\n',
+      new='                realIn = amountIn; // MUTANT: the scale trusts the carried figure\n',
+      teste='test_ARestatementDownFiredByTheHop1FeePushSpendsOnlyTheBalancePastTheBaseline'),
+ # 4111/D1 (2026-11-13): label [1097]. A restatement fired inside hop 1's leg window grows the
+ # stranded bridge after the scale wrote the baseline, so the sweep's `rb - bb` paid that growth to
+ # the payer; the sweep is now capped at what the swap left unspent of the bridge.
+ dict(nome='4111/D1 sweep cap [1097]: the bridge sweep pays the whole balance past the baseline, not only what the swap left unspent',
+      f='src/BlazePhoenixRouter.sol',
+      old='                if (rb > cap) rb = cap;\n',
+      new='                // MUTANT [1097]: the sweep pays the whole balance past the baseline\n',
+      teste='test_ARestatementInsideTheHop1LegLeavesTheStrandedBridgeWithTheRescue'),
  # fix1112-4122: the fee push is booked by two witnesses (the Router's loss and the payee's gain),
  # never by the token's answer. A paid share restated up inside the transfer was booked again.
  dict(nome='fix1112-4122 [1023]: the payee witness is dropped, so a share paid under a restatement up to k* is booked again',
