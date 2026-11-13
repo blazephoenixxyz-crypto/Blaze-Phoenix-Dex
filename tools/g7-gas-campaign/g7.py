@@ -410,7 +410,8 @@ class Chain:
                 v = 987654321987654321
                 o = {token: {"stateDiff": {s: "0x" + w(v)}}}
                 r = self.rpc.call("eth_call", [call, hex(blk), o])
-                if int(r, 16) == v:
+                # an override of a non-balance word (a proxy's implementation slot) can empty the return
+                if r not in ("0x", "") and int(r, 16) == v:
                     found = s
                     break
         if found is None:
