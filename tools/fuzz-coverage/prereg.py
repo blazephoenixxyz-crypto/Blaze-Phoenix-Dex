@@ -158,7 +158,7 @@ def seeds(tag, n):
 
 def _rpc(url, method, params):
     req = urllib.request.Request(url, json.dumps(dict(jsonrpc="2.0", id=1, method=method, params=params)).encode(),
-                                 {"Content-Type": "application/json"})
+                                 {"Content-Type": "application/json", "User-Agent": "bp-dex-ci"})
     with urllib.request.urlopen(req, timeout=30) as r:
         res = json.load(r)
     if res.get("result") is None:
