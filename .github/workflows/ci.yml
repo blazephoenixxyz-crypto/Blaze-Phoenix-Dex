@@ -74,7 +74,9 @@ jobs:
         # 1,774,545 ticks with exact interval arithmetic and must be the committed
         # docs/assurance/tickmath-certificate.tsv; the chains, pinned ticks and table lines in
         # test/TickMathCertificate.t.sol must be its. Standard library only, about 30 s.
-        run: python3 -I test/tools/tickmath_certificate.py check
+        run: |
+          python3 -I test/tools/tickmath_certificate.py self-test
+          python3 -I test/tools/tickmath_certificate.py check
 
       - name: Yul evaluation-order guard
         # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
