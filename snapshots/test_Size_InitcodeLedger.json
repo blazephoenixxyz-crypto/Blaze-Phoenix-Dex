@@ -3,12 +3,12 @@
   "BlazePhoenixAdapterBalancerV3": "6975",
   "BlazePhoenixAdapterCurveCryptoNG": "3319",
   "BlazePhoenixAdapterCurveNG": "3821",
-  "BlazePhoenixCore": "21924",
+  "BlazePhoenixCore": "21528",
   "BlazePhoenixGate": "15897",
   "BlazePhoenixGateWrapper": "4923",
   "BlazePhoenixHub": "23626",
-  "BlazePhoenixMath": "11221",
+  "BlazePhoenixMath": "10660",
   "BlazePhoenixQuoter": "18986",
-  "BlazePhoenixRouter": "24434",
-  "BlazePhoenixSolver": "35142"
+  "BlazePhoenixRouter": "24465",
+  "BlazePhoenixSolver": "32223"
 }
