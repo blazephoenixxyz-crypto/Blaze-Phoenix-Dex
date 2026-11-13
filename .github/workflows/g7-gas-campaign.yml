@@ -1,0 +1,160 @@
+name: g7-gas-campaign
+# G7: gas and swap campaign over 7 chains, moonslot vs Discovery (tools/g7-gas-campaign).
+# V2 is measured by debug_traceCall / eth_call with stateOverride over real blocks; the
+# pre-registered spec, state and seed live in tools/g7-gas-campaign/ on this branch.
+# The dRPC key comes only from secrets.DRPC_KEY: it is masked, written to a 0600 file in
+# RUNNER_TEMP and never echoed, logged or uploaded (g7.py never prints the URL).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "smoke (1 swap per chain) or measure (the pre-registered sample)"
+        required: true
+        default: smoke
+        type: choice
+        options: [smoke, measure]
+      chains:
+        description: "comma-separated subset (empty = every chain of spec.json)"
+        required: false
+        default: ""
+  push:
+    branches: [selar-G7]
+    paths: ["tools/g7-gas-campaign/**", ".github/workflows/g7-gas-campaign.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g7-gas-campaign-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Offline tests and their mutants
+        run: |
+          set -euo pipefail
+          pip install requests==2.32.3
+          D=tools/g7-gas-campaign
+          python3 -I "$D/test_g7.py"
+          python3 -I "$D/test_build_spec.py"
+          python3 -I "$D/test_inventory.py"
+          python3 -I "$D/mutants_g7.py"
+          python3 -I "$D/mutants_build_spec.py"
+          python3 -I "$D/mutants_inventory.py"
+
+  run:
+    # One leg per chain: the legs share nothing but the read-only spec/state of the commit, so
+    # they run in parallel; each leg writes its own results-<chain>.tsv.
+    needs: offline
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        chain: [arbitrum, avalanche, base, bsc, ethereum, optimism, robinhood]
+    # A push measures only when the head commit asks for it ("[g7-measure]"); otherwise smoke.
+    timeout-minutes: ${{ ((github.event_name == 'workflow_dispatch' && inputs.mode == 'measure') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[g7-measure]'))) && 350 || 30 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Run g7 on ${{ matrix.chain }}
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+          MODE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.mode == 'measure') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[g7-measure]'))) && 'measure' || 'smoke' }}
+          CHAINS: ${{ github.event_name == 'workflow_dispatch' && inputs.chains || '' }}
+          CHAIN: ${{ matrix.chain }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          if [ -n "$CHAINS" ] && ! printf '%s\n' "${CHAINS//,/$'\n'}" | grep -qxF "$CHAIN"; then
+            echo "$CHAIN not selected: skipped"; exit 0
+          fi
+          if [ -z "${DRPC_KEY:-}" ]; then echo "::error::DRPC_KEY secret missing: no measurement"; exit 1; fi
+          echo "::add-mask::$DRPC_KEY"
+          umask 077
+          export DRPC_KEY_FILE="$RUNNER_TEMP/drpc-key"
+          printf '%s' "$DRPC_KEY" > "$DRPC_KEY_FILE"
+          unset DRPC_KEY
+          pip install requests==2.32.3
+          D=tools/g7-gas-campaign
+          OUT="out/results-$CHAIN.tsv"
+          if [ "$MODE" = measure ]; then
+            SEED=$(cat "$D/seed.txt")
+            python3 -I "$D/g7.py" measure "$D/spec.json" "$D/state" "$OUT" "$SEED" -j 2 --chains "$CHAIN"
+          else
+            python3 -I "$D/g7.py" smoke "$D/spec.json" "$D/state" "$OUT" --chains "$CHAIN"
+          fi
+          rm -f "$DRPC_KEY_FILE"
+          # a non-empty sample is the only green: count the data rows
+          ROWS=$(($(wc -l < "$OUT") - 1))
+          if [ "$ROWS" -le 0 ]; then echo "::error::no rows measured on $CHAIN"; exit 1; fi
+          echo "$CHAIN ($MODE): rows measured: $ROWS"
+      - name: Guard - the key is not in the artefacts
+        env:
+          DRPC_KEY: ${{ secrets.DRPC_KEY }}
+        run: |
+          if [ -n "$DRPC_KEY" ] && grep -rqF -- "$DRPC_KEY" out/; then echo "::error::key found in out/"; exit 1; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: g7-results-${{ matrix.chain }}-${{ github.run_id }}
+          path: out/results-${{ matrix.chain }}.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    # Joins the legs (header once) and builds the report; runs even when a leg failed, so the
+    # rows that were measured are published with the failures, not hidden.
+    needs: run
+    if: always() && needs.run.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: g7-results-*-${{ github.run_id }}
+          path: legs
+          merge-multiple: true
+      - name: Join and report
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          shopt -s nullglob
+          F=(legs/results-*.tsv)
+          if [ "${#F[@]}" -eq 0 ]; then echo "::error::no leg produced results"; exit 1; fi
+          head -n 1 "${F[0]}" > out/results.tsv
+          for f in "${F[@]}"; do
+            if [ "$(head -n 1 "$f")" != "$(head -n 1 out/results.tsv)" ]; then echo "::error::header differs in $f"; exit 1; fi
+            tail -n +2 "$f" >> out/results.tsv
+          done
+          pip install requests==2.32.3
+          python3 -I tools/g7-gas-campaign/g7.py report tools/g7-gas-campaign/spec.json out/results.tsv > out/report.tsv
+          echo "legs: ${#F[@]}; rows: $(($(wc -l < out/results.tsv) - 1))"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: g7-results-${{ github.run_id }}
+          path: |
+            out/results.tsv
+            out/report.tsv
+          if-no-files-found: error
+          retention-days: 30
