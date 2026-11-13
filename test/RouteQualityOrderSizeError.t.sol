@@ -16,7 +16,9 @@ pragma solidity 0.8.36;
 //   outgrows the short side) and deep (1e3 orders)            x  V2 pair  x  unit on `err`
 //   orderIn 0, probe - 1, probe (the floor); orderIn at the short side and 1 wei under   x  unit
 //   any book, any probe, any two orders                        x  fuzz: monotone, covers m
+//   rank * orderIn past 2^256: the edge max / rank, +1, max; 18->18, 18->6  x  unit (saturation)
 //   a far thin base against two market rows, 10k order         x  Solver, 1 hop, ERC20
+//   the same books on the second hop, behind a deep bridge     x  Solver, 2 hops, ERC20
 //   the trace's book                                           x  fork (test/fork/RouteQualityProbe.t.sol)
 
 import {Test} from "forge-std/Test.sol";
@@ -123,6 +125,31 @@ contract RouteQualityOrderSizeErrorTest is Test {
         _check(18, 18, x, 3e22, 1e20, x + 1);
     }
 
+    /// THE SATURATION GUARD: a rank times the order past 2^256 (a hostile or huge declared output
+    /// against a huge orderIn) carries m = a, never a revert of the solve. The book pays 3 per unit
+    /// (rank ~3x the probe), so at orderIn = max the scaled rank, ~3 * max, cannot be held in a
+    /// word: the guard is the only thing between the probe and `BPC:mulDiv`. At the edge
+    /// o* = max / rank the product fits (no saturation) and at o* + 1 it does not (saturation):
+    /// both read no width, as any order past the short side does. 18->18 and 18->6.
+    function test_ErrSaturatesWhenRankTimesOrderOverflows() public {
+        uint8[2] memory dOut = [uint8(18), 6];
+        for (uint256 d; d < 2; ++d) {
+            QuoteCtx memory c = _book(18, dOut[d], 1e24, 3e6 * 10 ** dOut[d]);
+            uint256 a = 1e20;
+            (uint256 mP, uint256 rP, uint256 fP, ) = BPC.universalProbe(c, a, 0, true, a);
+            assertGt(rP * 1e18 / 10 ** dOut[d], 2 * a, "precondition: the rank outgrows the probe");
+            uint256 edge = type(uint256).max / rP;
+            uint256[3] memory orders = [edge, edge + 1, type(uint256).max];
+            for (uint256 k; k < 3; ++k) {
+                (uint256 m, uint256 r, uint256 f, uint256 e) = BPC.universalProbe(c, a, 0, true, orders[k]);
+                assertEq(e, WAD, "an order past every short side states no width, saturated or not");
+                assertEq(m, mP, "the order's size never moves the mass");
+                assertEq(r, rP, "nor the rank");
+                assertEq(f, fP, "nor the fee");
+            }
+        }
+    }
+
     function testFuzz_ErrGrowsWithTheOrderAndCoversIt(uint256 x, uint256 y, uint256 a, uint256 o1, uint256 o2) public {
         x = bound(x, 1e15, 1e30);
         y = bound(y, 1e15, 1e30);
@@ -163,6 +190,36 @@ contract RouteQualityOrderSizeErrorTest is Test {
             if (_venue(best.hops[0].legs[i]) == a) sawA = true;
         }
         assertTrue(sawA, "the deepest market row is in the hop");
+        assertGt(best.totalOut, pAlone, "the route pays more than the far row alone");
+    }
+
+    /// THE SOLVER (2 hops). The same three books sit on the SECOND hop (W -> DAI, 18 decimals),
+    /// behind a deep USDC -> W pair and no direct USDC/DAI book, so the order reaching them is the
+    /// first hop's output (~9,870 W), not the route's amountIn: the size the band decides is the
+    /// hop's. At the probe P's width read ~3.3% and the base kept itself alone on hop 2.
+    function test_FarThinBaseNoLongerExcludesTheDeepRows_TwoHops() public {
+        BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
+        hub.initialize(address(this), address(0));
+        BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
+        RqoToken usdc = new RqoToken(6);
+        RqoToken w = new RqoToken(18);
+        RqoToken dai = new RqoToken(18);
+        hub.addBridge(address(w));
+        _pair(hub, usdc, w, 1_000_000e6, 1_000_000e18);
+        _pair(hub, w, dai, 3_000e18, 9_000e18);
+        address a = _pair(hub, w, dai, 4_000e18, 4_000e18);
+        _pair(hub, w, dai, 3_000e18, 3_000e18);
+        uint256 amt = 10_000e6;
+        uint256 out1 = amt * 997 * 1_000_000e18 / (1_000_000e6 * 1000 + amt * 997);
+        uint256 pAlone = out1 * 997 * 9_000e18 / (3_000e18 * 1000 + out1 * 997);
+        Route memory best = solver.findBestRoutePlan(address(usdc), address(dai), amt).best;
+        assertEq(best.hops.length, 2, "two hops: through the bridge");
+        assertGt(best.hops[1].legs.length, 1, "the far thin base kept itself alone on the second hop");
+        bool sawA;
+        for (uint256 i; i < best.hops[1].legs.length; ++i) {
+            if (_venue(best.hops[1].legs[i]) == a) sawA = true;
+        }
+        assertTrue(sawA, "the deepest market row is in the second hop");
         assertGt(best.totalOut, pAlone, "the route pays more than the far row alone");
     }
 

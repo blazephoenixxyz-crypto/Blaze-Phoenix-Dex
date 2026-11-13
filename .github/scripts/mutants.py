@@ -7323,6 +7323,21 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            if (orderIn < amountIn) orderIn = amountIn;',
       new='            if (orderIn == 0) orderIn = amountIn; // MUTANT',
       teste='test_ErrOrderUnderTheProbeReadsAsTheProbe'),
+ dict(nome="ROUTEQ saturation: a rank times the order past 2^256 reverts the probe instead of carrying m = a",
+      f='src/BlazePhoenixCore.sol',
+      old='            uint256 o18 = rank > type(uint256).max / orderIn',
+      new='            uint256 o18 = false // MUTANT',
+      teste='test_ErrSaturatesWhenRankTimesOrderOverflows'),
+ dict(nome="ROUTEQ saturation: an overflowing rank saturates to 0, so the order reads a width it outgrew",
+      f='src/BlazePhoenixCore.sol',
+      old='                ? type(uint256).max : to18(mulDivUp(rank, orderIn, amountIn), _decOther(c));',
+      new='                ? 0 : to18(mulDivUp(rank, orderIn, amountIn), _decOther(c)); // MUTANT',
+      teste='test_ErrSaturatesWhenRankTimesOrderOverflows'),
+ dict(nome="ROUTEQ meta-guard, 2 hops: the Solver asks the second hop's bound at the probe",
+      f='src/BlazePhoenixSolver.sol',
+      old='BPC.universalProbe(xs[i], probe, 0, true, amountIn);',
+      new='BPC.universalProbe(xs[i], probe, 0, true, probe); // MUTANT',
+      teste='test_FarThinBaseNoLongerExcludesTheDeepRows_TwoHops'),
 ]
 
 # The gas ledgers in test/gas/ pin their numbers in snapshots/<test>.json (one group per test, named

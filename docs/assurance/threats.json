@@ -664,6 +664,14 @@
       "guard": "_heldBooks",
       "test": "test_HD01_OneCheapCutPerBridgeAcrossAUnitGapDoesNotTakeTheVictimsInput",
       "note": "HD-01, audit 2026-11-06 (hops2). The funnel's dust rule is asked once per bridge pair; a book measured by its virtual depth (MAT-01) cut the honest row of every bridge at the cost of a few units of capital each, and with MAX_HOPS 2 no longer route is left to rescue the order. Red at e2c52e0: test_HD01_OneCheapCutPerBridgeAcrossAUnitGapDoesNotTakeTheVictimsInput settled 99729878138123597 where the honest route pays 289392651744148172858586, and test_HD01_Liveness_OneQuietCutPerBridgeLeavesThePairRoutable found no plan at all. Blocked by the unit: a book adds to the other rows' D only the tokenOut it holds (Core.hopMass18, Solver._heldBooks). With a unit gap the red book held 0.13 % of the bought token the honest row holds; it now adds that and no more. What is left is a designed limit of the band, not of the funnel, pinned by test_limit_HD01_ABookHoldingMostOfTheBoughtTokenOnEachThinSideTakesTheRoute: a book that really holds more of the bought token than the honest rows of its pair is the pair's majority and takes the band's base (the 50 % breakdown point, test/BandBaseBreakdownPoint.t.sol), and with one bridge per route the majority is cheapest on the thin side of each bridge. MAX_HOPS, TOPOLOGIES and the 25 ppm are the owner's numbers and are as they were."
+    },
+    {
+      "id": "ROUTEQ-BAND-WIDTH-AT-THE-PROBE",
+      "class": "A thin book far from the market reads a narrow error bound at the probe, becomes the band's base and keeps itself alone for an order it fills at a large impact",
+      "status": "blocked",
+      "guard": "universalProbe",
+      "test": "test_FarThinBaseNoLongerExcludesTheDeepRows",
+      "note": "ROUTEQ, 2026-11-13. Core.universalProbe formed a row's error bound with its impact term at the probe (1% of the order) while Math._inBand decides the whole order with it. On Base at block 49800000 (run 43410379085) USDC->DAI 10k went whole into one Pancake V3 venue 1631 ticks off the market, 47% impact, 6550 DAI out. Since 2026-11-13 the impact term is taken at orderIn, the hop's amountIn passed by the Solver (m = min(a, o) at the order, rounded up; an orderIn under the probe reads as the probe; a rank times the order past 2^256 saturates to m = a). Held by test/RouteQualityOrderSizeError.t.sol (unit matrix, floor, +-1 wei, saturation, fuzz, the Solver at 1 and 2 hops) and the fork assertion in test/fork/RouteQualityProbe.t.sol; mutants ROUTEQ in .github/scripts/mutants.py."
     }
   ]
 }
