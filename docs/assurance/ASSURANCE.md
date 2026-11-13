@@ -748,6 +748,18 @@ anchored route. They are kept — they are the contract refusing at run time wha
 at review time, on paths that do not exist yet — listed as belts here, counted as covered nowhere,
 and absent from the mutation guard, which admits only mutants a named test kills.
 
+**The exact door follows the calendar (2026-11-13).** The Base fork row `test_Matriz_DaiEPortaExata`
+(USDC->DAI 10k at block 49800000) found the exact door 25.5 bps UNDER the delivery: a single hop
+was deducted on its output whatever the calendar said, and on an input-charged hop a concave venue
+priced on the net input pays more than the gross less the fee, by the curve's bend over the fee.
+`Quoter._exact` now applies the output deduction only where `_fundedOut` read the calendar as
+output-charged and takes the funded figure, the Router's own, elsewhere; the min of the two is the
+pin (SHARED_QUANTITIES, "the net output the exact door promises"). The offline twin
+`test/ExactDoorFollowsTheFeeCalendar.t.sol` asserts equality (delivered == exactOut) over decimals
+6/8/18/24, thin and deep books, dust and the fee's rounding seam, V3 and V2, both regimes and two
+hops; mutants [door-fee-1..3] and the tripwire [door-fee-meta], which refuses a widened fork
+tolerance since the fork row cannot run in the guard.
+
 ## 4p. How a quote ages — the promise measured against time and drift
 
 A quote is a promise about a future block. `test/QuoteDelayStatistics.t.sol` takes it the way an

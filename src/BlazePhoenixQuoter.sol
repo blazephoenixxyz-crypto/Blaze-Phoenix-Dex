@@ -920,19 +920,29 @@ contract BlazePhoenixQuoter {
         // bridge - or on every hop when none is. Taken on the output instead, the
         // fee was priced through the later hops' curves and the preview could
         // promise more than delivery. The multi-hop deduction happens in the loop.
-        exactOut = route.hops.length > 1
-            ? gross // the fee was taken inside the loop, at the hop the Router takes it (#44)
-            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         // A SINGLE HOP IS NOT ALWAYS CHARGED ON ITS OUTPUT (2026-10-13). The Router takes the fee
         // off the output only on a direct route INTO a bridge; a direct route whose input is a
         // bridge, or that touches none, pays on its INPUT (`_chargeHopFee`, rounded up) and the
-        // venue prices what is left. A venue's output is an integer step function of its input:
-        // the wei the round-up removes, and the sqrt-price quantum, can leave delivery a few wei
-        // under the output deduction above, and a userMinOut taken from it is then refused.
-        // `_fundedOut` funds the returned route exactly as the Router will and prices it on the
-        // venues; the scalar is the lower of the two, so it is a floor in every regime and
-        // unchanged wherever the deduction above was already the lower one.
+        // venue prices what is left. `_fundedOut` funds the returned route exactly as the Router
+        // will and prices it on the venues, and answers `type(uint256).max` where the calendar
+        // puts the fee on the output: the calendar's answer, read once, for every route.
+        //
+        // THE DEDUCTION FOLLOWS THE CALENDAR (Base fork, USDC->DAI 10k at block 49800000,
+        // 2026-11-13). Until then a single hop was deducted on its output whatever the calendar
+        // said and the funded figure only bounded it from below. A venue's output is concave in
+        // its input, so on an input-charged hop the venue priced on the net input pays MORE than
+        // the gross output less the fee - by the curve's bend over the fee: 25.5 bps on that thin
+        // DAI pool (6533.52 promised, 6550.18 delivered), 0.005 bps on a deep one - and a floor
+        // taken from the scalar sat that far under the fill. The output deduction is applied
+        // only where the Router applies it; elsewhere the scalar is the funded figure, the
+        // Router's own, and the min below is the pin between the two producers
+        // (SHARED_QUANTITIES.md, "the net output the exact door promises"). A multi-hop route
+        // took its fee inside the loop, at the hop the Router takes it (#44), and its funded
+        // figure is the same walk.
         uint256 funded = _fundedOut(route, amountIn);
+        exactOut = funded != type(uint256).max
+            ? gross // input-charged: the fee came off `carry` in the loop, or `funded` bounds below
+            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         if (funded < exactOut) exactOut = funded;
         // Q3 AT THE EXACT DOORS (W3-F2, Luis_MZ, bounty). A leg the Router refuses (RouterE(9)
         // hook, RouterE(11) key, RouterE(8) native side) falls back to the plan's claim in
