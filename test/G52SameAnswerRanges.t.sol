@@ -45,6 +45,12 @@ pragma solidity 0.8.36;
 //  one-wei V2 row the fee swallows the input and the live floor is 0. The frame carries the reference's rate, not
 //  the live figure: a floor outside the band the reference's rate admits is still
 //  reported as a disagreement.
+//
+//  THE STEP SUBSTITUTED (2026-11-13). The frozen Core's outV3 is no longer the cb1d7d9 body:
+//  it is Uniswap v3-core's exact-input SwapMath step (test/vendor/SwapMathRef.sol), since the
+//  live Core quotes one V3/Algebra range with the pool's own step. The oracle is still not the
+//  code under test; the header of the frozen file says why, and test/OutV3StepParityTriple.t.sol
+//  pins live, Uniswap and the old body against each other.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";

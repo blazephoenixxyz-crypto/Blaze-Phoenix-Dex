@@ -46,6 +46,12 @@ pragma solidity 0.8.36;
 // other. Rate order and price order agree across those groups, so the base falls in the same
 // group and the kept set is the same; nothing else the hop computes reads the band.
 // The rows log the cold gas of both Solvers on the same state.
+//
+// THE STEP SUBSTITUTED (2026-11-13). The frozen Core's outV3 is no longer the cb1d7d9 body:
+// it is Uniswap v3-core's exact-input SwapMath step (test/vendor/SwapMathRef.sol), since the
+// live Core quotes one V3/Algebra range with the pool's own step. The oracle is still not the
+// code under test; the header of the frozen file says why, and test/OutV3StepParityTriple.t.sol
+// pins live, Uniswap and the old body against each other.
 
 import {Test} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";

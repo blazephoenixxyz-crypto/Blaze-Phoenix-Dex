@@ -17,7 +17,8 @@
 //  call answers what the old door answered: same success flag, same returndata
 //  byte for byte (so the same rounding and the same revert). The oracle is not
 //  the code under test: it is src/BlazePhoenixCore.sol of cb1d7d9, frozen in
-//  test/morf/CoreRefCb1d7d9.sol with only the library name changed.
+//  test/morf/CoreRefCb1d7d9.sol with only the library name changed and, since
+//  2026-11-13, one body substituted (see THE STEP SUBSTITUTED below).
 //
 //  THE WORLD. `HashWorld` stands in for the pool, both tokens, the V4 manager,
 //  the hooks and the Hub. It answers ANY call with words derived from
@@ -62,6 +63,13 @@
 //        test_Witness_V4BookLeavesInputUnspent.
 //    [m] the live Solidly arm pays 1 ppm less than the frozen one -> testFuzz_universalQuote_SameAnswer,
 //        testFuzz_universalQuoteRank_SameAnswer and five more: the body drifting is seen at every door.
+//
+//  THE STEP SUBSTITUTED (2026-11-13). The frozen Core's outV3 is no longer the cb1d7d9 body:
+//  it is Uniswap v3-core's exact-input SwapMath step (test/vendor/SwapMathRef.sol), since the
+//  live Core quotes one V3/Algebra range with the pool's own step. The oracle is still not the
+//  code under test; the header of the frozen file says why, and test/OutV3StepParityTriple.t.sol
+//  pins live, Uniswap and the old body against each other.
+//
 // =============================================================================
 pragma solidity 0.8.36;
 

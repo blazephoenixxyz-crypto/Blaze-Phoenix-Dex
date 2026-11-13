@@ -4,6 +4,14 @@
 // and the interface name (IBridgeAskCRefCb1d7d9). The three frozen Solver/Math references
 // import it instead of the live Core, so the same-answer comparisons see every change the
 // live Core makes to an answer; before this they compiled the same Core on both sides.
+//
+// THE STEP SUBSTITUTED (2026-11-13). outV3 below is not the cb1d7d9 body: since the Core quotes
+// one V3/Algebra range with the pool's own exact-input step (fix(core) "outV3 is the pool's step
+// toward the range's boundary"), the frozen side answers that range with Uniswap v3-core's
+// SwapMath.computeSwapStep from test/vendor/SwapMathRef.sol, a port that imports nothing from the
+// Core, so the oracle is still not the code under test. Every other line stays cb1d7d9's. The old
+// body is frozen in test/legacy/OutV3Legacy.sol, and test/OutV3StepParityTriple.t.sol pins the
+// three against each other (live == SwapMathRef to the wei, legacy off it by its witnesses).
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixCore
 //  Version    : 2.0.0
@@ -69,6 +77,7 @@
 //  as BPC.
 // =============================================================================
 pragma solidity 0.8.36;
+import {SwapMathRef} from "../vendor/SwapMathRef.sol";
 
 // ─── Shared structs (used by Solver, Router, Quoter) ────────────────────────
 
@@ -1385,37 +1394,14 @@ library CoreRefCb1d7d9 {
     ) internal pure returns (uint256 outAmt) {
         if (ain == 0 || liq == 0 || sqrtP == 0) return 0;
         if (fee >= 1_000_000) return 0;   // guard: fee ≥ 100% → unquotable
-        uint256 amtAfterFee = (ain * (1_000_000 - fee)) / 1_000_000;
-        uint256 L = uint256(liq);
-        uint256 P = uint256(sqrtP);
-        if (zeroForOne) {
-            // Canonical Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount0:
-            //     sqrtNew = (L · sqrtP) / (L + amtIn · sqrtP / Q96)
-            //
-            // To avoid the L·P overflow path (L ≤ 2¹²⁸, P ≤ 2¹⁶⁰ → 2²⁸⁸),
-            // we factor through mulDiv so every intermediate fits in 256 bits.
-            uint256 product = mulDiv(amtAfterFee, P, Q96);
-            uint256 sqrtNew = mulDiv(L, P, L + product);
-            if (sqrtNew >= P || sqrtNew == 0) return 0;
-            // zeroForOne: the price FALLS. Truncating means not letting it drop
-            // below the boundary.
-            if (sqrtLimit != 0 && sqrtNew < sqrtLimit) sqrtNew = sqrtLimit;
-            outAmt = mulDiv(L, P - sqrtNew, Q96);
-        } else {
-            // Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount1:
-            //     sqrtNew = sqrtP + amtIn · Q96 / L
-            //     amtOut0 = L · Q96 · (sqrtNew − sqrtP) / (sqrtP · sqrtNew)
-            //
-            // sqrtP · sqrtNew may exceed 2²⁵⁶, so we split the division into
-            // two stages: first scale by sqrtNew, then by sqrtP.
-            uint256 dSqrt = mulDiv(amtAfterFee, Q96, L);
-            uint256 sqrtNew = P + dSqrt;
-            if (sqrtNew <= P) return 0;
-            // oneForZero: the price RISES. The boundary is a ceiling.
-            if (sqrtLimit != 0 && sqrtNew > sqrtLimit) sqrtNew = sqrtLimit;
-            uint256 a = mulDiv(L, sqrtNew - P, sqrtNew);
-            outAmt = mulDiv(a, Q96, P);
-        }
+        // THE STEP SUBSTITUTED (2026-11-13, see the header): Uniswap v3-core's exact-input
+        // SwapMath step from the vendored port, toward the limit or the price bound. The
+        // cb1d7d9 body stands frozen in test/legacy/OutV3Legacy.sol.
+        uint160 target = sqrtLimit != 0 ? sqrtLimit : (zeroForOne ? MIN_SQRT_PRICE_PLUS_ONE : MAX_SQRT_PRICE_MINUS_ONE);
+        if (zeroForOne ? target >= sqrtP : target <= sqrtP) return 0;
+        // An input past int256 reaches the target all the same: the step's need is below 2^193.
+        uint256 a = ain > uint256(type(int256).max) ? uint256(type(int256).max) : ain;
+        (,, outAmt,) = SwapMathRef.computeSwapStep(sqrtP, target, liq, int256(a), fee);
     }
 
 
