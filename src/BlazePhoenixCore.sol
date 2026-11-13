@@ -601,27 +601,14 @@ library BlazePhoenixCore {
         else if (sub == 2) salt = keccak256(abi.encodePacked(t0, t1, stable));
         else               salt = keccak256(abi.encode(t0, t1, tickSpacing));
 
-        // CREATE2 origin resolution. For most families the factory itself is
-        // the CREATE2 deployer. Algebra-based DEXes (e.g. Camelot V3) deploy
-        // pools from a SEPARATE PoolDeployer contract, which the factory
-        // exposes via poolDeployer(). For an Algebra pool we staticcall
-        // poolDeployer() and use the returned address as the CREATE2 origin.
-        // If the call fails (a plain V3 factory has no such selector) we fall
-        // back to the factory itself — so a non-Algebra V3 in this slot still
-        // derives correctly, and a wrong slot is later discarded by the Hub's
-        // hasCode guard.
-        // T19: this live ask is the one derive input a factory could still
-        // steer after admission (an EIP-1967 proxy changes its answer with
-        // its codehash intact). The Hub therefore never reaches this branch
-        // for Algebra rows: it attests the answer once at addFactory and
-        // derives through `create2Address(attested, algebraSalt(..), ih)`.
-        // This entry stays for callers that hold no attestation.
-        address origin = factory;
-        if (isAlgebra) {
-            address dep = resolvePoolDeployer(factory);
-            if (dep != address(0)) origin = dep;
-        }
-        pool = create2Address(origin, salt, initCodeHash);
+        // THE CREATE2 ORIGIN IS THE CALLER'S, NEVER ASKED. In modes 4-7 `factory` is the
+        // address that deploys the pool: the factory itself for most families, the separate
+        // PoolDeployer for Algebra (Camelot) and Pancake V3. The Hub passes the origin it
+        // attested at admission (`factoryDeployer`, or the factory when none was answered).
+        // The derive used to resolve Algebra's poolDeployer() with a LIVE staticcall here: the
+        // one derive input a factory could still steer after admission (an EIP-1967 proxy
+        // changes its answer with its codehash intact; T19). No derive input is live now.
+        pool = create2Address(factory, salt, initCodeHash);
     }
 
     /// @dev THE producer of the CREATE2 address formula in this codebase —

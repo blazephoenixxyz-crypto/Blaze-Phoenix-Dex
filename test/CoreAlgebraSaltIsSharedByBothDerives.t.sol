@@ -106,18 +106,19 @@ contract CoreAlgebraSaltIsSharedByBothDerivesTest is Test {
 
     // ─── 2. the two producers agree ──────────────────────────────────────────
 
-    /// Mode 5 with `fee == 0` is the Algebra arm. Its origin is the deployer the
-    /// factory answers, and its salt is `algebraSalt` — exactly the expression
-    /// the Hub's attested derive spells out. Sorted internally:
-    /// the SAME expected address must come out of either argument order.
-    function test_DeriveAlgebraSlotIsTheSaltWithoutTheFee() public {
-        DeployerAnsweringFactory fac = new DeployerAnsweringFactory(POOL_DEPLOYER);
+    /// Mode 5 with `fee == 0` is the Algebra arm. Its origin is the one the
+    /// caller passes - the Hub passes the deployer it attested at admission
+    /// (identity-2, 2026-11-13: the derive no longer asks the factory) - and
+    /// its salt is `algebraSalt`, exactly the expression the Hub's attested
+    /// derive spells out. Sorted internally: the SAME expected address must
+    /// come out of either argument order.
+    function test_DeriveAlgebraSlotIsTheSaltWithoutTheFee() public view {
         (address t0, address t1) = TOK_A < TOK_B ? (TOK_A, TOK_B) : (TOK_B, TOK_A);
         address want = _create2(POOL_DEPLOYER, keccak256(abi.encode(t0, t1)), INIT_HASH);
 
-        assertEq(BPC.deriveAddress(address(fac), TOK_A, TOK_B, ALGEBRA_FEE, false, 0, 5, INIT_HASH), want,
-            "mode 5 with fee 0 must derive from algebraSalt and the answered deployer");
-        assertEq(BPC.deriveAddress(address(fac), TOK_B, TOK_A, ALGEBRA_FEE, false, 0, 5, INIT_HASH), want,
+        assertEq(BPC.deriveAddress(POOL_DEPLOYER, TOK_A, TOK_B, ALGEBRA_FEE, false, 0, 5, INIT_HASH), want,
+            "mode 5 with fee 0 must derive from algebraSalt and the given deployer");
+        assertEq(BPC.deriveAddress(POOL_DEPLOYER, TOK_B, TOK_A, ALGEBRA_FEE, false, 0, 5, INIT_HASH), want,
             "the derive sorts the pair itself: both argument orders are one address");
     }
 
@@ -132,6 +133,10 @@ contract CoreAlgebraSaltIsSharedByBothDerivesTest is Test {
     /// the FACTORY itself, deployer-answer or not. This block first expected
     /// the answered deployer there and was red; the expectation was wrong, and
     /// the pair of assertions below now pins both origins at once.
+    ///
+    /// identity-2 (2026-11-13): the override is gone in every arm, the Algebra
+    /// one included - the origin is the caller's. A factory with no code is
+    /// still the origin it was given.
     function test_DeriveKeepsTheFeeWhenItIsNotAlgebra_AndFallsBackWithoutADeployer() public {
         DeployerAnsweringFactory fac = new DeployerAnsweringFactory(POOL_DEPLOYER);
         (address t0, address t1) = TOK_A < TOK_B ? (TOK_A, TOK_B) : (TOK_B, TOK_A);
@@ -154,14 +159,14 @@ contract CoreAlgebraSaltIsSharedByBothDerivesTest is Test {
 
     /// The Hub's attested derive is the same expression, so pinning it here is
     /// pinning the Hub's address for an Algebra row: one salt producer, one
-    /// preimage producer (`Core.create2Address`), zero live input.
-    function test_TheAttestedExpressionAndTheLiveDeriveAreOneAddress() public {
+    /// preimage producer (`Core.create2Address`), zero live input. Both are
+    /// handed the same origin, as the Hub hands its attested one to each.
+    function test_TheAttestedExpressionAndTheModeFiveDeriveAreOneAddress() public view {
         (address t0, address t1) = TOK_A < TOK_B ? (TOK_A, TOK_B) : (TOK_B, TOK_A);
-        DeployerAnsweringFactory fac = new DeployerAnsweringFactory(POOL_DEPLOYER);
 
         address attestedShaped = BPC.create2Address(POOL_DEPLOYER, BPC.algebraSalt(t0, t1), INIT_HASH);
         assertEq(attestedShaped,
-            BPC.deriveAddress(address(fac), t0, t1, ALGEBRA_FEE, false, 0, 5, INIT_HASH),
+            BPC.deriveAddress(POOL_DEPLOYER, t0, t1, ALGEBRA_FEE, false, 0, 5, INIT_HASH),
             "the Hub's expression and Core's mode-5 arm must produce one address");
         assertEq(attestedShaped, _create2(POOL_DEPLOYER, keccak256(abi.encode(t0, t1)), INIT_HASH),
             "and that address must be the textbook ff-form CREATE2 of the salt");

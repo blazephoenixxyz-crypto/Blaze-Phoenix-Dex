@@ -669,7 +669,7 @@ contract CoreExternalReadsTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  §I  deriveAddress's reads — poolDeployer resolution (Core:466-484) and
+    //  §I  deriveAddress's reads — the poolDeployer read addFactory attests with and
     //      the factory-lookup dialects (Core:497-539). These are the reads
     //      that decide WHICH ADDRESS the protocol treats as the pool.
     // ─────────────────────────────────────────────────────────────────────────
@@ -678,19 +678,23 @@ contract CoreExternalReadsTest is Test {
     address constant TB = address(0xBBB1); // TA < TB, so t0 = TA
     bytes32 constant INIT_HASH = keccak256("core-reads:init-code-hash");
 
-    /// Algebra (mode 5, fee == 0): the factory's poolDeployer() answer BECOMES
-    /// the CREATE2 origin — delete Core:468 or the read at 484 and the derived
-    /// address silently reverts to the factory origin: red. And the gate is
-    /// exactly `fee == 0`: the SAME factory with a static fee must NOT have
-    /// its deployer consulted (Core:466 false arm) — widen the gate and the
-    /// static-fee expectation breaks: red.
+    /// Algebra (mode 5, fee == 0). identity-2 (2026-11-13): the derive no longer
+    /// asks the factory for its deployer - the origin is the caller's, and the Hub
+    /// passes the one it attested at admission. The read itself (`resolvePoolDeployer`,
+    /// which `addFactory` attests with) is pinned here: the answered deployer is read
+    /// back; handed to the derive it is the origin; the factory handed in is the
+    /// factory. A static fee in the same slot keeps the fee in the salt.
     function test_DeriveAlgebra_DeployerBecomesOrigin_StaticFeeDoesNot() public {
         address dep = address(0xDE9107E4);
         AlgebraDeployerFactory fac = new AlgebraDeployerFactory(dep);
+        assertEq(BPC.resolvePoolDeployer(address(fac)), dep, "the poolDeployer() answer is read");
 
-        address got = BPC.deriveAddress(address(fac), TA, TB, 0, false, 0, 5, INIT_HASH);
+        address got = BPC.deriveAddress(dep, TA, TB, 0, false, 0, 5, INIT_HASH);
         assertEq(got, _create2(dep, keccak256(abi.encode(TA, TB)), INIT_HASH),
-            "algebra derive must originate from poolDeployer(), not the factory");
+            "algebra derive originates from the deployer it is handed");
+        got = BPC.deriveAddress(address(fac), TA, TB, 0, false, 0, 5, INIT_HASH);
+        assertEq(got, _create2(address(fac), keccak256(abi.encode(TA, TB)), INIT_HASH),
+            "handed the factory, the derive never swaps it for the answered deployer");
 
         uint24 fee_ = POOL_FEE;
         got = BPC.deriveAddress(address(fac), TA, TB, fee_, false, 0, 5, INIT_HASH);
@@ -698,28 +702,18 @@ contract CoreExternalReadsTest is Test {
             "a static-fee V3 in the same slot derives from the factory itself");
     }
 
-    /// The refusal arms of the poolDeployer probe: a factory WITHOUT the
-    /// selector (probe reverts) and a factory answering a NON-WORD (20 junk
-    /// bytes) must both fall back to the factory origin. The 20-byte case is
-    /// the guard test: delete `eq(returndatasize(), 32)` at Core:484 and the
-    /// junk bytes land inside the masked address -> a garbage origin -> a
-    /// different derived address: red.
+    /// The refusal arms of the poolDeployer read: a factory WITHOUT the selector
+    /// (the call reverts) and a factory answering a NON-WORD (20 junk bytes) both
+    /// read zero, which `addFactory` attests as "the factory is the origin". The
+    /// 20-byte case is the guard test: relax the `>= 32` returndata check and the
+    /// junk bytes land inside the masked address -> a garbage origin: red.
     function test_DeriveAlgebra_UnreadableDeployerFallsBackToFactory() public {
-        bytes32 saltAlg = keccak256(abi.encode(TA, TB));
-
         NoDeployerFactory plain = new NoDeployerFactory();
-        assertEq(
-            BPC.deriveAddress(address(plain), TA, TB, 0, false, 0, 5, INIT_HASH),
-            _create2(address(plain), saltAlg, INIT_HASH),
-            "no poolDeployer() -> the factory is the origin"
-        );
+        assertEq(BPC.resolvePoolDeployer(address(plain)), address(0), "no poolDeployer() -> no origin read");
 
         ShortAnswerer odd = new ShortAnswerer(20);
-        assertEq(
-            BPC.deriveAddress(address(odd), TA, TB, 0, false, 0, 5, INIT_HASH),
-            _create2(address(odd), saltAlg, INIT_HASH),
-            "a 20-byte poolDeployer answer is not an address -> factory origin"
-        );
+        assertEq(BPC.resolvePoolDeployer(address(odd)), address(0),
+            "a 20-byte poolDeployer answer is not an address -> no origin read");
     }
 
     /// The dialect fallbacks are ordered reads: canonical first, dialect only

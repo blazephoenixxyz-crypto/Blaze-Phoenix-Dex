@@ -104,20 +104,23 @@ contract ConditionAdequacyCoreTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Neutralised (isAlgebra = fee == 0), EVERY CREATE2 sub-mode with a zero
-    /// fee consults poolDeployer(). A mode-4 factory that answers the probe
-    /// then derives from the WRONG CREATE2 origin. The expectation is the
-    /// spec formula pinned to the factory address — it cannot follow the
-    /// origin swap. The mode-5 control proves the probe is live in this very
-    /// fixture (dep really answers), so the mode-4 pin cannot pass vacuously
-    /// off a dead deployer.
+    /// fee consulted poolDeployer() while the derive still asked it. Since
+    /// identity-2 (2026-11-13) no derive asks: the origin is the caller's in
+    /// every sub-mode, and `isAlgebra` only picks the salt inside sub == 1.
+    /// The expectation is the spec formula pinned to the factory address, so
+    /// it cannot follow an origin swap in either slot. The control proves the
+    /// deployer really answers in this very fixture (the read is live), so
+    /// neither pin can pass vacuously off a dead deployer.
     function test_DeriveAddress_Mode4ZeroFeeNeverConsultsPoolDeployer() public {
         AlgebraDeployerFactory fac = new AlgebraDeployerFactory(DEP);
 
-        // Control: the true Algebra slot (sub == 1, fee == 0) does swap origin.
+        // Control: the deployer answers, and the true Algebra slot (sub == 1,
+        // fee == 0) still derives from the origin it is given, not from it.
+        assertEq(BPC.resolvePoolDeployer(address(fac)), DEP, "control: poolDeployer() answers in this fixture");
         assertEq(
             BPC.deriveAddress(address(fac), TA, TB, 0, false, 0, 5, INIT_HASH),
-            _create2(DEP, keccak256(abi.encode(TA, TB)), INIT_HASH),
-            "control: mode 5 fee 0 must originate from poolDeployer()"
+            _create2(address(fac), keccak256(abi.encode(TA, TB)), INIT_HASH),
+            "control: mode 5 fee 0 originates from the caller's origin, never from poolDeployer()"
         );
 
         // The kill: same factory, same zero fee, sub == 0. Origin must stay
