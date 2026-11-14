@@ -2265,12 +2265,20 @@ M = [
       f='src/BlazePhoenixMath.sol',
       old='                    if (h < d) cut |= 1 << i;',
       new='                    // MUTANT',
-      teste='test_Q2h_FragmentedHeldVoteDoesNotDropTheHonestPool'),
+      # 2026-11-14: re-pointed from Q2h, whose pair is thin (1e22 a side against a 1e22 order): its error
+      # opens the band wide under either base, both bases keep the same pools and the re-read never
+      # changes the outcome there. Q2p: a deep pair 5.6% above a book fifty times deeper, dust under the
+      # book's tick; only the deep re-read puts the base back on the book.
+      teste='test_Q2p_TheDeepReReadPutsTheBaseBackOnTheHonestBook'),
  dict(nome='S2: the median keeps the sixteen-stretch votes even when they change the band',
       f='src/BlazePhoenixMath.sol',
       old='                if (_inBand(prices, fe, n, base) == _inBand(prices, fe, n, first)) return first;',
       new='                return first; // MUTANT',
-      teste='test_Q2h_FragmentedHeldVoteDoesNotDropTheHonestPool'),
+      # 2026-11-14: re-pointed from Q2h, whose pair is thin (1e22 a side against a 1e22 order): its error
+      # opens the band wide under either base, both bases keep the same pools and the re-read never
+      # changes the outcome there. Q2p: a deep pair 5.6% above a book fifty times deeper, dust under the
+      # book's tick; only the deep re-read puts the base back on the book.
+      teste='test_Q2p_TheDeepReReadPutsTheBaseBackOnTheHonestBook'),
  dict(nome='S2: the probe rate reads the sixteen-stretch promise again (dust inside its reach drops the pool)',
       f='src/BlazePhoenixCore.sol',
       # MED (2026-10-28): re-pointed; the probe moved into Core.universalProbe, which reads `rank`.
