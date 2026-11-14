@@ -13,7 +13,7 @@ pragma solidity 0.8.36;
 // sixteen-stretch walk spends its stretches on dust and leaves most of the input unspent.
 //
 // Oracle: `v4WalkRank` at the same bar - the door is the walk, at the bar the caller chose.
-// Mutant (mutants.py «L0-124 Core:2024»): the arm passes 0 instead of `bar`, so the Quoter's
+// Mutant (mutants.py "L0-124 Core:2024"): the arm passes 0 instead of `bar`, so the Quoter's
 // promise-only call resolves the deep walk and its ceiling falls under 2^128 - 1.
 //
 //   forge test --match-path test/V4QuoteHonoursTheCallersBar.t.sol -vv
