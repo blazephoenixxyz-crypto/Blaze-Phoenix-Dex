@@ -7546,6 +7546,21 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = h; break; }",
       new="                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = 0; break; } // MUTANTE",
       teste="test_TheFeeIsChargedOnceAtTheCalendarHop"),
+ dict(nome="124-L2 Router:1909: the per-leg floor turns non-strict, so a leg delivering exactly ceil(80% of its bound) is refused",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);",
+      new="            if (bound != 0 && got <= BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5); // MUTANTE",
+      teste="test_LegFloorIsCeilOnTheProRataBound"),
+ dict(nome="124-L2 Router:1422: the hop slack is sized on the whole hop instead of one average leg, so an over-promising multi-leg hop settles",
+      f="src/BlazePhoenixRouter.sol",
+      old="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);",
+      new="                uint256 slack = BPC.mulDiv(hopAttested, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS); // MUTANTE",
+      teste="test_HopFloorSlackIsOneAverageLeg_Grid"),
+ dict(nome="124-L2 Router:1422: the hop slack takes the kept share (80%) instead of the tolerated one (20%), four times too loose",
+      f="src/BlazePhoenixRouter.sol",
+      old="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);",
+      new="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.LEG_FLOOR_BPS, BPC.BPS); // MUTANTE",
+      teste="testFuzz_HopFloorSlackIsOneAverageLeg"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
