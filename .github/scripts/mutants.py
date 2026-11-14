@@ -7656,6 +7656,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = zeroForOne ? nt - 1 : nt;",
       new="            tick = zeroForOne ? nt - 1 : nt; // MUTANTE",
       teste="test_AnOrderPastTheLastTickIsPaidWhatTheBookHolds"),
+ # Where no live row carries a vote the base is the plain median's row, not the cheapest one
+ # (test/NoVoteBaseIsTheMedianRow.t.sol).
+ dict(nome="L1-124 Math:599: a hop where no row votes is based on its cheapest row, not its median one",
+      f="src/BlazePhoenixMath.sol",
+      old="        if (m == 0 || massa == 0) return NONE;",
+      new="        if (m == 0) return NONE; // MUTANTE",
+      teste="test_AHopWhereNoRowVotesIsBasedOnItsMedianRow"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
