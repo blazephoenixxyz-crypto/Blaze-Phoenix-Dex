@@ -636,6 +636,13 @@ jobs:
     name: formal verification (Halmos symbolic)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Halmos 0.3.3 reports a path cut by the loop bound as a WARNING and the check still
+      # PASSES: a bound that was hit proves nothing. Both PROOF steps below already look for
+      # that warning and annotate it. Set this to "1" (the warning then fails the step) only
+      # after one CI run on this pin has measured both specs with no such annotation; until
+      # then the switch reports and gates nothing, so a proof is not turned red unmeasured.
+      LOOP_BOUND_GATE: "0"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -653,7 +660,13 @@ jobs:
         # (0.04–0.19s each, run 31532581231): iron-floor bounds unconditional
         # (INV-1's arithmetic heart), impactV2Bps <= BPS, outV3 fail-closed on
         # degenerate inputs. REAL gate — no `|| true`.
-        run: halmos --contract CoreFormalGateSpec -v
+        run: |
+          set -o pipefail
+          halmos --contract CoreFormalGateSpec -v 2>&1 | tee halmos-core-gate.log
+          if grep -q 'not been fully explored due to the loop unrolling bound' halmos-core-gate.log; then
+            echo "::warning::CoreFormalGateSpec: a path was cut by the loop bound, so that check is not a proof"
+            [ "$LOOP_BOUND_GATE" != 1 ]
+          fi
 
       - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
         # test/formal/EffV4FeeFormalSpec.t.sol. Pure comparison logic, no 512-bit
@@ -668,7 +681,13 @@ jobs:
         # guards against a non-zero exit, not against exhausting the clock — so
         # this proof was never reaching the runner at all. We believed we had two
         # hard gates and were running one.
-        run: halmos --contract EffV4FeeFormalSpec -v
+        run: |
+          set -o pipefail
+          halmos --contract EffV4FeeFormalSpec -v 2>&1 | tee halmos-effv4fee.log
+          if grep -q 'not been fully explored due to the loop unrolling bound' halmos-effv4fee.log; then
+            echo "::warning::EffV4FeeFormalSpec: a path was cut by the loop bound, so that check is not a proof"
+            [ "$LOOP_BOUND_GATE" != 1 ]
+          fi
 
       # A SECOND SYMBOLIC ENGINE BELONGS HERE, AND IS NOT WIRED YET.
       # hevm was added beside Halmos on these same specs and removed in the same
