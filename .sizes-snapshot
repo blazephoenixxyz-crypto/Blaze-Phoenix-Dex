@@ -1,5 +1,5 @@
 BlazePhoenixAdapterBalancerV2 runtime=5208 initcode=5781
-BlazePhoenixAdapterBalancerV3 runtime=6140 initcode=6743
+BlazePhoenixAdapterBalancerV3 runtime=6179 initcode=6782
 BlazePhoenixAdapterCurveCryptoNG runtime=3026 initcode=3343
 BlazePhoenixAdapterCurveNG runtime=3528 initcode=3845
 BlazePhoenixCore runtime=21741 initcode=21771
