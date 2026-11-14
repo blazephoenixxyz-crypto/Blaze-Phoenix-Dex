@@ -285,7 +285,10 @@ contract BlazePhoenixRouter {
     ///         · `quoted` is the `finalHopQuote` — the quote of the LAST hop, not of the route. On
     ///           a multi-hop route the comparison with `realized` is in the right units but does
     ///           NOT measure the quality of the earlier hops. This proves the last leg; it does
-    ///           not prove the route.
+    ///           not prove the route. And where a leg of the last hop could not be priced
+    ///           in-frame, `quoted` includes that leg's attested (caller-supplied) figure, and on
+    ///           a blind last hop it is the hop's declared expectedOut (NM-002 in `_execute`):
+    ///           that part is not reproducible by eth_call.
     ///         · `realized` is what was delivered, MEASURED at the recipient, after anything cut
     ///           on the way out (the output-side fee where it applies, a transfer tax).
     ///         · `floorUsed` is the floor that had to be beaten, checked before those cuts and
@@ -304,7 +307,8 @@ contract BlazePhoenixRouter {
     event PausedSet(bool paused);
 
     error RouterE(uint16 code);
-    // 1 = unauthorized, 2 = paused, 3 = bad input, 4 = deadline,
+    // 1 = unauthorized (claimFee: also "nothing owed to the caller's slot"),
+    // 2 = paused, 3 = bad input, 4 = deadline,
     // 5 = slippage, 6 = callback auth, 7 = reentrancy, 8 = swap failed,
     // 9 = disallowed V4 hook, 10 = userMinOut == 0 with amountIn > 0 (BP-04),
     // 11 = a V4 leg's fields disagree: its direction is not the direction of its tokens, or the pool it names (leg.pool) is not the pool its key derives to (BPX-2026-009),
@@ -377,10 +381,11 @@ contract BlazePhoenixRouter {
     function setWeth(address w)             external onlyControl { weth=w; emit Cfg(4,w); }
     function setPaused(bool b)              external onlyControl { paused=b; emit PausedSet(b); }
 
-    /// @notice Permanently surrender every control power. Treasuries, the
-    ///         Permit2 address, the pause flag and admin transfer are frozen at
-    ///         their current values forever. The Router keeps executing swaps
-    ///         under that fixed configuration. Irreversible.
+    /// @notice Permanently surrender every control power. The Permit2 and WETH
+    ///         addresses, the pause flag, admin transfer and `setTreasuries` are
+    ///         frozen forever; each treasury can still move its own slot, and
+    ///         only that (`moveTreasury`). The Router keeps executing swaps
+    ///         under that configuration. Irreversible.
     function renounceControl() external onlyControl {
         // REFUSED WHILE PAUSED, and the reason is that the resulting state is
         // one nobody wants and nobody can leave. `whenLive` gates all four
@@ -444,9 +449,11 @@ contract BlazePhoenixRouter {
     /// @dev    userMinOut is the PRIMARY slippage guard — derive it from a
     ///         fresh quote (Quoter.previewPlanExact) on every call. BP-04:
     ///         passing 0 with a non-zero amountIn REVERTS (RouterE(10)) in
-    ///         all three entry points — the protocol floors alone (hard-
-    ///         capped at 25% below the attested quote per leg, 20% below
-    ///         the realised total in aggregate) only BOUND sandwich loss,
+    ///         all three entry points — the protocol floors alone (per leg,
+    ///         at least BPC.LEG_FLOOR_BPS = 80% of the leg's bound, i.e. hard-
+    ///         capped at 20% below the attested quote; in aggregate, at least
+    ///         floorBps, never under 80%, of the last hop's in-frame quote)
+    ///         only BOUND sandwich loss,
     ///         they do not eliminate it, so a real bound is mandatory.
     ///         I8 (idempotence) is preserved: the guard is conditioned on
     ///         amountIn > 0, so a zero-amount call never reverts solely
@@ -693,6 +700,14 @@ contract BlazePhoenixRouter {
         return _execute(route, amountIn, userMinOut, recipient, tokenIn, payer);
     }
 
+    /// @dev THE ONE PRODUCER of "how much does this hop commit?" — the sum of its legs' declared
+    ///      inputs. The fee base at hop 0 and the scale denominator read this same function; before
+    ///      2026-09-05 each summed the legs in its own loop, which is two producers of one number
+    ///      and the defect signature this codebase names first.
+    function _legSum(Hop calldata hop) private pure returns (uint256 c) {
+        for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
+    }
+
     /// @notice The fee for hop `h`, charged in THAT hop's token.
     ///
     /// @dev WHY IN THE MIDDLE AND NOT AT AN END — and this is the result that cost two attempts.
@@ -741,17 +756,11 @@ contract BlazePhoenixRouter {
     ///      REAL balance of that token minus the foreign baseline — the same number the scaling
     ///      already uses. Zero new staticcalls: both quantities were already read.
     ///
-    ///      THE COST, stated where it is decided: an honest H-hop route pays ~H times the rate.
-    ///      With this design's 2-hop budget, the honest worst case is double. The minimum charged
-    ///      is ALWAYS the full rate on the value moved — never less, which was the condition.
-    /// @dev THE ONE PRODUCER of "how much does this hop commit?" — the sum of its legs' declared
-    ///      inputs. The fee base at hop 0 and the scale denominator read this same function; before
-    ///      2026-09-05 each summed the legs in its own loop, which is two producers of one number
-    ///      and the defect signature this codebase names first.
-    function _legSum(Hop calldata hop) private pure returns (uint256 c) {
-        for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
-    }
-
+    ///      THE COST, stated where it is decided: a route with a registered bridge as some hop's
+    ///      input (ANCHORED: every multi-hop route the Solver builds) pays the rate ONCE, on that
+    ///      hop. Only a route with no bridge input anywhere (EXHAUSTION) pays on every hop, so
+    ///      there an H-hop route pays ~H times the rate. A direct route into a bridge pays once,
+    ///      on the output (see `BPC.feeCalendar` and `BPC.paysOnInput`).
     /// @return The input left to the hop (hop 0: the pull less this fee; hop h>=1: the bridge it
     ///         owns less this fee, 4111) and `_execute`'s output cap, less this fee when the
     ///         hop's token is tokenOut (3310): a fee charged in tokenOut leaves the Router as a
@@ -866,6 +875,34 @@ contract BlazePhoenixRouter {
         assembly { let k := tload(s) b := mul(gt(b, k), sub(b, k)) }
     }
 
+    /// @dev A leg's impact, weighted by its SHARE of the hop.
+    ///
+    ///      Impact is a RATIO — amountIn/(reserveIn+amountIn) — so it is blind to
+    ///      how much value a leg actually carries. A one-wei leg against a
+    ///      dust-reserve pool scores near 100%. The route's floor then averaged
+    ///      those ratios UNWEIGHTED, and `ironFloorBps` SUBTRACTS impact, so
+    ///      padding a route with such legs walked the floor down from 96% toward
+    ///      its 80% clamp while the real trade sat in one honest deep leg. The
+    ///      caller writes the Route, so that lever was theirs.
+    ///
+    ///      Weighting by `leg.amountIn / scaleDen` (the leg's share of the hop's
+    ///      declared input) is self-consistent: the same field decides how much
+    ///      the leg actually spends, so a caller cannot buy weight without
+    ///      routing the value. The `* legs` normalisation makes equal-sized legs
+    ///      reproduce the previous unweighted sum EXACTLY — the shares are then
+    ///      1/legs each — so honest routes do not move, and the division by
+    ///      `declaredLegs` downstream is left untouched.
+    ///
+    ///      The clamp mirrors `ironFloorBps`, which caps impact at BPS anyway;
+    ///      doing it here keeps `imp * legs` small enough that only `mulDiv`'s
+    ///      512-bit intermediate has to carry the amount.
+    function _wImp(uint256 imp, uint256 legAmountIn, uint256 legs, uint256 scaleDen)
+        private pure returns (uint256)
+    {
+        if (imp > BPC.BPS) imp = BPC.BPS;
+        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);
+    }
+
     /// @notice Per-hop real-balance-ratio scaling AND price impact (BPS) AND
     ///         the on-chain quote for the legs as actually executed, all
     ///         computed in one pass so V2/Solidly reserves and V3/Algebra
@@ -884,8 +921,9 @@ contract BlazePhoenixRouter {
     ///         scaleNum is the amountIn parameter itself — already measured
     ///         via one balance-delta in _swap (covers a fee-on-transfer
     ///         tokenIn without a second staticcall). For hop 1+, scaleNum is
-    ///         a fresh balanceOf() of the bridge token actually received
-    ///         from the previous hop (covers that hop's own slippage).
+    ///         the bridge balance past its pre-swap baseline, capped by what
+    ///         the previous hop's legs were measured to deliver less this
+    ///         hop's fee (`_owned`, 4111; covers that hop's own slippage).
     ///
     ///         The quote return feeds the fee-base re-derivation in _execute
     ///         (see "Fee base" below): it replaces the caller-supplied,
@@ -901,34 +939,6 @@ contract BlazePhoenixRouter {
     ///      already paid and the measurement served as nobody's floor. It is what feeds the
     ///      coverage gate in `_execScaled`. Length = the hop's leg count; zero means "no
     ///      measurement", and the gate fails OPEN in that case.
-    /// @dev A leg's impact, weighted by its SHARE of the hop.
-    ///
-    ///      Impact is a RATIO — amountIn/(reserveIn+amountIn) — so it is blind to
-    ///      how much value a leg actually carries. A one-wei leg against a
-    ///      dust-reserve pool scores near 100%. The route's floor then averaged
-    ///      those ratios UNWEIGHTED, and `ironFloorBps` SUBTRACTS impact, so
-    ///      padding a route with such legs walked the floor down from 96% toward
-    ///      its 80% clamp while the real trade sat in one honest deep leg. The
-    ///      caller writes the Route, so that lever was theirs.
-    ///
-    ///      Weighting by `leg.amountIn / scaleDen` (the leg's share of the hop's
-    ///      declared input) is self-consistent: the same field decides how much
-    ///      the leg actually spends, so a caller cannot buy weight without
-    ///      routing the value. The `* legs` normalisation makes equal-sized legs
-    ///      reproduce the previous unweighted sum EXACTLY — the shares are then
-    ///      1/legs each — so honest routes do not move, and the division by
-    ///      `totalLegs` downstream is left untouched.
-    ///
-    ///      The clamp mirrors `ironFloorBps`, which caps impact at BPS anyway;
-    ///      doing it here keeps `imp * legs` small enough that only `mulDiv`'s
-    ///      512-bit intermediate has to carry the amount.
-    function _wImp(uint256 imp, uint256 legAmountIn, uint256 legs, uint256 scaleDen)
-        private pure returns (uint256)
-    {
-        if (imp > BPC.BPS) imp = BPC.BPS;
-        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);
-    }
-
     function _hopScaleImpactAndQuote(
         Hop calldata hop, uint256 h, uint256 amountIn, uint256[] memory bridgeBase,
         uint256[] memory legQuotes
@@ -996,9 +1006,8 @@ contract BlazePhoenixRouter {
         }
     }
 
-    /// @dev Extracted from _hopScaleImpactAndQuote for the same stack-depth reason
-    ///      as _stableLegQuote — the V4 branch's locals (tokenOther, t0, t1,
-    ///      pid, sp4, lq4) were the other major contributor.
+    /// @dev Extracted from _hopScaleImpactAndQuote for stack depth: the V4
+    ///      branch's locals were a major contributor to that frame.
     function _v4LegQuote(Leg calldata leg, address tokenIn, uint256 legAmt, address v4mgr)
         private view returns (uint256 quote)
     {
@@ -1073,9 +1082,9 @@ contract BlazePhoenixRouter {
         // caller-supplied route.totalOut as the fee-base reference (see the
         // "Fee base" section below).
         // Quote of the FINAL hop only, denominated in tokenOut — the correct
-        // reference for the protocol floor. onchainQuoteAcc SUMS the per-hop
-        // quotes, whose units differ across a multi-hop route, so it cannot
-        // serve as a tokenOut-denominated floor; the last hop's quote can.
+        // reference for the protocol floor. A sum of the per-hop quotes
+        // (`quoteAcc`) would mix units, which differ across a multi-hop route, so it
+        // cannot serve as a tokenOut-denominated floor; the last hop's quote can.
         uint256 finalHopQuote;
 
         // Pre-swap balance of every intermediate (bridge) token, so the residual
@@ -1154,8 +1163,9 @@ contract BlazePhoenixRouter {
         // closed the intra-hop vector and left the cross-hop one open — while
         // its own justification names "the pool of a leg of this same route
         // that has not executed yet", which every leg of a later hop is. Hoisted
-        // here, a hooked leg may only sit in the LAST hop; the Solver builds
-        // nothing else (`_assembleRouteMulti`).
+        // here, the rule is route-wide: after a hooked leg, every later leg of the
+        // route must be hooked too. It does not confine hooked legs to the last
+        // hop; that is only what the Solver builds (`_assembleRouteMulti`).
         bool sawHooked;
         // The tokenOut the legs' venues declare they paid the Router, less what later legs and fee
         // charges took back out of it (3310, see totalReceived below).
@@ -1207,7 +1217,7 @@ contract BlazePhoenixRouter {
             // One allocation per hop (MAX_LEGS_PER_HOP entries, memory, no storage). It carries
             // each leg's MEASURED quote through to the coverage gate in `_execScaled` — before,
             // these measurements were summed and the per-leg value thrown away.
-            // ─── THE FEE IS CHARGED ONCE, ON THE FIRST BRIDGE COIN ───
+            // ─── THE FEE IS CHARGED ON THE FIRST BRIDGE COIN (ONCE WHEN ANCHORED) ───
             //
             // OWNER'S DECISION 2026-08-22. It used to be charged on EVERY hop, in
             // that hop's token: a 2-hop route paid ~56 effective bps and a 3-hop
@@ -1216,9 +1226,12 @@ contract BlazePhoenixRouter {
             // said one thing and the route charged another, and H only grew with
             // this session.
             //
-            // THE NEW RULE, and there is only one: charge on the INPUT of hop 1,
-            // which is the route's first BRIDGE coin. On a direct route there is
-            // no hop 1, so it is charged on hop 0 (behaviour unchanged).
+            // THE RULE AS FIRST WRITTEN (2026-08-22): charge on the INPUT of hop 1,
+            // the route's first BRIDGE coin, and on hop 0 of a direct route.
+            // THE RULE TODAY (`BPC.feeCalendar`, `BPC.paysOnInput`): charge on the
+            // input of the FIRST hop whose input is a registered bridge, which may be
+            // hop 0; with no bridge input anywhere, on EVERY hop (exhaustion); on a
+            // direct route into a bridge, on the output and not here.
             //
             // WHY ON THE BRIDGE AND NOT ON THE DESTINATION: the bridges are WETH
             // and USDC. The treasury receives a liquid token it wants to hold,
@@ -1538,7 +1551,7 @@ contract BlazePhoenixRouter {
         // user sets from the quote they saw. A caller can no longer RELAX
         // protection via route fields, but users must still pass a real
         // userMinOut to be protected against a bad quote-to-fill gap.
-        // `totalLegs` is counted HERE and not inside the execution loop, on purpose: accumulated
+        // `declaredLegs` is counted HERE and not inside the execution loop, on purpose: accumulated
         // there it stayed live across the whole loop body and via_ir had no slot for it. Here it is
         // its own loop over CALLDATA (cheap, no storage, no external calls) and the value is born
         // exactly where it is consumed. Readability improves too: the loop above executes, this
@@ -1573,15 +1586,19 @@ contract BlazePhoenixRouter {
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.
-        // protocolFloorOut is a fraction of the in-frame on-chain quote of the
-        // final hop (denominated in tokenOut, unforgeable by calldata), NOT of
+        // protocolFloorOut is a fraction of finalHopQuote (denominated in
+        // tokenOut): the final hop's in-frame quote, where a leg the frame could
+        // not price enters at its attested figure and a blind last hop anchors on
+        // the hop's declared expectedOut (NM-002 above; calldata can only raise
+        // it), NOT of
         // the realised output. Anchoring it to the realised output made it
         // mathematically inert: with floorBps <= BPS it could never exceed the
         // realised amount, so the guard below never fired. Deriving it from the
         // measured final-hop quote lets a fill that lands far below the quote
         // revert. userMinOut is an absolute amount; effMin is the strictest of
-        // all three. If the final-hop quote is unavailable (finalHopQuote == 0)
-        // the protocol floor is inert for this swap and userMinOut, which the
+        // all three. Only when finalHopQuote is still 0 after those fallbacks
+        // (nothing priced in-frame and nothing attested) is the protocol floor
+        // inert for this swap; userMinOut, which the
         // entrypoints force to be non-zero, remains the backstop.
         // R-C: round the protective floor UP. Rounding it down hands the
         // executor a free wei on every swap and, at tiny quotes, a free floor.
@@ -1701,8 +1718,10 @@ contract BlazePhoenixRouter {
         // `tinStart` minus the baseline gives the ORIGINAL amount with not one new local: the
         // tokens are pre-pulled, so tinStart >= amountIn0 and baseIn == tinStart - amountIn0 by
         // construction.
-        // The count published here is the MEASURED one for the same reason the volume is
-        // (VOL_01): an event that reports the caller's declaration reports the caller.
+        // The count published here is the DECLARED one (`declaredLegs`, summed over the
+        // route's calldata; the same count the floor divides by): it includes a leg whose
+        // scaled amount was 0 and never ran. The MEASURED set is `executedMask`, which
+        // `_recordHits` reads. Unlike the volume (VOL_01), this field reports the caller.
         emit Swap(payer, tokenIn, tokenOut, tinStart - baseIn, delivered, declaredLegs);
         emit ExecutionProof(payer, tokenOut, finalHopQuote, delivered, protocolFloorOut, block.number);
         return delivered;
@@ -1746,8 +1765,9 @@ contract BlazePhoenixRouter {
         // each leg means a single sandwiched or manipulated pool reverts the
         // swap immediately instead of hiding its loss inside an otherwise
         // healthy total. Purely additive: it can only revert, never relax.
-        // Legs without an attested quote (expectedOut == 0) fail open to the
-        // aggregate floors — a caller weakening its own crafted route gains
+        // A leg with NEITHER an attestation NOR an in-frame quote fails open to
+        // the aggregate floors; `expectedOut == 0` alone does not switch this floor
+        // off (see `guard` below) — a caller weakening its own crafted route gains
         // nothing that userMinOut and the protocol floor don't already bound.
         address legOut = legOutRaw == tokenIn ? address(0) : legOutRaw;
         // The guard runs if there is ANY floor basis: the caller's attestation OR the quote
@@ -1885,8 +1905,9 @@ contract BlazePhoenixRouter {
             // `local = after * BPS / prev`. mulDiv rounds down, so the recovered local is <= the
             // true one: it understates the discount, tightens the floor, fails OPEN.
             //
-            // HONEST SCOPE: `_noteFot` is only called on the V2 and SOLIDLY arms, and measures only
-            // the INPUT side. A V3/V4 leg with a FoT token records nothing, and an OUTPUT-side tax
+            // HONEST SCOPE: `_noteFot` is called on the entry pull of tokenIn (`_received`) and
+            // on the V2 and SOLIDLY arms (`_execPairAmt`), and measures only the INPUT side.
+            // A V3/V4 leg with a FoT token records nothing past that pull, and an OUTPUT-side tax
             // is not measured anywhere. This closes what is measurable.
             {
                 uint256 s1 = TSLOT_FOT;
@@ -1938,10 +1959,6 @@ contract BlazePhoenixRouter {
         legIn  = leg.zeroForOne ? t0 : t1;
         legOut = leg.zeroForOne ? t1 : t0;
     }
-
-    /// @notice Resolve the actual tokenIn for a leg by inspecting its pool.
-    ///         This is robust against bridge collapsing where two stages with
-    ///         different token pairs share a single hop wrapper.
 
     /// @notice Record a measured fee-on-transfer NET ratio (bps) for this
     ///         swap in transient storage. TSLOT_FOT == 0 means "no FoT seen";
