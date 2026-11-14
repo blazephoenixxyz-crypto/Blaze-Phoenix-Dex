@@ -7552,6 +7552,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            uint256 w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10_000, mx);",
       new="            uint256 w = 1; // MUTANTE",
       teste="test_GapIsWithinTheCertificate"),
+ dict(nome="124-L3 B13-M1 Core:2607: a narrow V4 position keeps the whole band's figure, so stacked liquidity buys the band",
+      f="src/BlazePhoenixCore.sol",
+      old="        d = mulDiv(d, held, vOut);",
+      new="        d = d; // MUTANTE",
+      teste="test_aStackedNarrowPositionDoesNotBuyTheBand"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

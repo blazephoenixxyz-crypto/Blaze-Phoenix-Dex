@@ -832,6 +832,28 @@ the ABI as mean, minimum, maximum and spread: on the three-token universe `previ
 prices three; `batchQuote` of ten, 205,539 per entry; on live Base 1,524,221 cold, 1,414,633 warm,
 1,359,925 cold again — the discovery sweep is about 7 % of a live quote.
 
+## 4q. Three ledgers: what the models cost, measured
+
+Three measurements, no fix behind them, each printing its cells into a ledger under
+`docs/assurance/`. `kkt-gap.tsv` (`test/bench/KktGapCertificate.t.sol`, seed and bound
+pre-registered in `docs/prereg/kkt-1114.tsv`): 36 V2 universes, 2, 3 and 5 pools, the split's
+output against a KKT optimum found by bisection outside the code under test. In every cell the
+gap stays within the certificate the split computes; at one price and one fee the certificate is
+at most 3,014 ppm, under the pre-registered 3,500; across a band of prices the gap reaches
+154,129 ppm and is recorded, not asserted. Weighing every depth the same (mutant `124-L3 B9-M1`)
+lifts the certificate to 5,669 ppm and turns the bench red. `v3-reads.tsv`
+(`test/fork/V3ReadsBudgetLoss.t.sol`, Base block 52,900,000, the WETH/DAI pool
+`0xC18F50d6A832f12F6DcAaeEe8D0c87A65B96787E`): what a V3 walk capped at `V3_PAY_READS` promises
+against what the pool pays, four sizes, both directions. The signed error runs from −2 ppm to
++364,529,849 ppm on a book that thins past the last range read; a promise above what the pool
+pays is refused by the floor (`RouterE 5`), so the error is a ledger line and only the walk's
+own theorems are asserted. One QuoterV2 answer reverts and is written `n/a`, not zero.
+`v4-narrow.tsv` (`test/V4NarrowPositionDoesNotBuyTheBand.t.sol`, mock V4): a one-spacing position
+with 100× the honest liquidity, stacked on the same pool, takes the book's held share from
+857,598 ppm to 8,496 ppm (853,408 to 8,647 on the exact-input side), so it does not buy the
+band; dropping the held-share scaling (`124-L3 B13-M1`) turns the band test red. Allocation
+numbers drawn from these ledgers are the owner's to set.
+
 ## 5. What none of this establishes
 
 Three limits, stated plainly because a document that omits them is not an assurance case.
