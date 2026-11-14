@@ -62,6 +62,12 @@ jobs:
         # dependency order; the failure names it: python3 .github/scripts/regen.py
         run: python3 .github/scripts/regen.py --check
 
+      - name: The regeneration order can fail (regen self-test)
+        # On a scratch copy of the tree, a new test and a new llms.txt line must reach llms-full.txt
+        # after one regen, and a conflict marker in prose must be reported as one. A step dropped
+        # from STEPS, or moved before its producer, or a conflict check that crashes, turns this red.
+        run: python3 .github/scripts/regen.py --self-test
+
       - name: TickMath table is its definition, certified on every tick
         # Each of the twenty constants of Core.sqrtPriceAtTick is recomputed from its definition, the
         # integer nearest to 2^128 / sqrt(1.0001)^(2^i). The certificate is regenerated on all
