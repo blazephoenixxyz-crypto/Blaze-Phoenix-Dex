@@ -15,8 +15,12 @@ pragma solidity 0.8.36;
 //  ask written here as 9,800 BPS, never the Core's branch. The seam test pins `out > 1`: a
 //  pair answering 2 is taken at its word less one wei; a pair answering 1 is not an answer.
 //
+//  The volatile law also runs on N_SAMPLES pre-registered samples (docs/prereg/solidly-ask-1113.tsv,
+//  seed_i = sha256(PREREG_TAG || uint256 i)); the stable curve and a factory's fee each have a case.
+//
 //  Guards, green at bb4cdbb: their reds are the mutants labelled `124-L2 Core:1545`,
-//  `124-L2 Core:1546` and `124-L2 Core:1537` in .github/scripts/mutants.py.
+//  `124-L2 Core:1546` and `124-L2 Core:1537` in .github/scripts/mutants.py; the stable and the
+//  factory cases are `124-L2 Core:1545-stable` and `124-L2 Core:1546-factory`.
 //
 //  forge test --match-path test/SolidlyCurvePriceIsInvariantToTheAsk.t.sol -vv
 // =============================================================================
@@ -42,7 +46,29 @@ contract SilentSolidlyPair is MockSolidlyPair {
     }
 }
 
+/// @dev The factory a Solidly pair asks for its fee: it answers `bps` for every pool.
+contract AskFeeFactory {
+    uint256 public bps;
+    constructor(uint256 b) { bps = b; }
+    function getFee(address, bool) external view returns (uint256) { return bps; }
+}
+
+/// @dev A silent pair behind a factory: its own curve charges what the factory reports.
+contract FactorySilentPair is SilentSolidlyPair {
+    address public factory;
+    constructor(address a, address b, bool s, uint256 g) SilentSolidlyPair(a, b, s) {
+        factory = address(new AskFeeFactory(g));
+    }
+}
+
 contract SolidlyCurveAskTest is Test {
+    string internal constant PREREG_TAG = "solidly-ask-1113";
+    bytes32 internal constant PREREG_LOCK = 0x47310c72bad08a9947836369ec741469f25fb3ae0dbf9039773a346ac340b0ae;
+    uint256 internal constant N_SAMPLES = 1024;
+    uint256 internal constant R_LO = 1e15;
+    uint256 internal constant R_HI = 1e30;
+    uint256 internal constant F_LO = 1;
+    uint256 internal constant F_HI = 100;
     uint256 constant BPS = 10_000;
     uint256 constant ASK = 9_800;     // the replicated curve less 200 bps
     uint256 constant PIPS = 1_000_000;
@@ -59,11 +85,47 @@ contract SolidlyCurveAskTest is Test {
     /// Reserves in [1e15, 1e30], an order up to a tenth of the input side, the pair's fee in
     /// [1, 100] bps (the declared fee's ceiling: this pair has no factory), both directions.
     function testFuzz_ProbePriceIgnoresTheAsk(uint256 rIn, uint256 rOut, uint256 a, uint256 f, bool zfo) public {
-        rIn = bound(rIn, 1e15, 1e30);
-        rOut = bound(rOut, 1e15, 1e30);
+        rIn = bound(rIn, R_LO, R_HI);
+        rOut = bound(rOut, R_LO, R_HI);
         a = bound(a, 1, rIn / 10);
-        f = bound(f, 1, 100);
-        QuoteCtx memory c = _book(rIn, rOut, f, zfo);
+        f = bound(f, F_LO, F_HI);
+        _assertAsk(_book(rIn, rOut, f, zfo), a, f);
+    }
+
+    /// The same law on the registered samples: nobody picks a sample after seeing a result.
+    function test_RegisteredSamplesPriceIgnoreTheAsk() public {
+        emit log_named_bytes32("PREREG_LOCK", PREREG_LOCK);
+        for (uint256 i; i < N_SAMPLES; ++i) {
+            uint256 s = _seed(i);
+            uint256 rIn = _logIn(_word(s, 0), R_LO, R_HI);
+            uint256 rOut = _logIn(_word(s, 1), R_LO, R_HI);
+            uint256 a = _logIn(_word(s, 2), 1, rIn / 10);
+            uint256 f = F_LO + _word(s, 3) % (F_HI - F_LO + 1);
+            _assertAsk(_book(rIn, rOut, f, _word(s, 4) & 1 == 1), a, f);
+        }
+        emit log_named_uint("solidly-ask samples", N_SAMPLES);
+    }
+
+    /// The stable curve (the Newton) is asked the same 9,800 bps and charged the same fee.
+    function test_StableCurveIsAskedLikeTheVolatile() public {
+        pair = new SilentSolidlyPair(address(A), address(B), true);
+        QuoteCtx memory c = _book(1e24, 3e24, 5, true);
+        c.stable = true;
+        _assertAsk(c, 1e21, 5);
+    }
+
+    /// A pair behind a factory charges the factory's fee, not the declared one: the ask's fee
+    /// is 1 - (1 - g)(ASK / BPS) with g the factory's answer.
+    function test_FactoryFeeIsTheFeeTheAskCharges() public {
+        uint256 g = 4;
+        pair = new FactorySilentPair(address(A), address(B), false, g);
+        QuoteCtx memory c = _book(1e24, 1e24, g, false);
+        c.fee = 30; // declared, and not what the pair charges
+        _assertAsk(c, 1e20, g);
+    }
+
+    /// The pair's own curve asked 9,800 bps, and a kept share of (1 - f) times the ask.
+    function _assertAsk(QuoteCtx memory c, uint256 a, uint256 f) internal {
         pair.setAsk(0);
         uint256 cv = pair.curve(a, c.tokenIn);
 
@@ -73,6 +135,20 @@ contract SolidlyCurveAskTest is Test {
         assertEq((PIPS - fee) * BPS, (BPS - f) * 100 * ASK, "the kept share is (1 - f) times the ask");
         // The price the band reads, out / (1 - fee), is the curve's price / (1 - f), to one wei of out.
         assertApproxEqAbs(out * (BPS - f) * 100, cv * (PIPS - fee), (BPS - f) * 100, "one price");
+    }
+
+    function _seed(uint256 i) internal pure returns (uint256) {
+        return uint256(sha256(abi.encodePacked(PREREG_TAG, i)));
+    }
+
+    /// The k-th word of a sample.
+    function _word(uint256 s, uint256 k) internal pure returns (uint256) {
+        return uint256(keccak256(abi.encode(s, k)));
+    }
+
+    /// The registered rule: log-spread over 0..99 bits, folded into [lo, hi].
+    function _logIn(uint256 w, uint256 lo, uint256 hi) internal pure returns (uint256) {
+        return lo + ((w >> 8) % (uint256(1) << (w % 100))) % (hi - lo + 1);
     }
 
     /// The seam `out > 1`: a pair answering 2 is taken at its word less one wei and its fee; a
