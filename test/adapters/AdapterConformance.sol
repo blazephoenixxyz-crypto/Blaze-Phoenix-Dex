@@ -2,6 +2,8 @@
 pragma solidity 0.8.36;
 
 import {AdapterHarness} from "./AdapterHarness.sol";
+import {Vm, VmSafe} from "forge-std/Vm.sol";
+import {MockV3Pool} from "../mocks/MockV3Pool.sol";
 import {BlazePhoenixGateWrapper, IExtAdapter} from "../../src/BlazePhoenixGate.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
@@ -296,6 +298,186 @@ abstract contract AdapterConformance is AdapterHarness {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(19)));
         router.swapExactIn(_route1(true, amt), amt, 1, USER, block.timestamp + 1);
         vm.stopPrank();
+    }
+
+    // ─── A13: the kind-9 column of the route matrix (route length x Gate hop x fee calendar) ───
+    //
+    // test/DimensionMatrixRoutes.t.sol walks the route rules over native legs only; a fix that
+    // holds on a V3 leg and fails on the Gate leg beside it is the cell this column adds. Each
+    // cell asserts the Router's rules where they land: the fee is taken on the hop the calendar
+    // names, in that hop's input token, once per paying hop (exhaustion: every hop; anchored: the
+    // first hop whose input is a bridge; a direct route into a bridge: on the output only), the
+    // Quoter's calendar door gives the same answer, the user receives what the Router reports and
+    // the Router keeps nothing, and the registry feedback reaches the native leg of the route and
+    // never the Gate leg (a kind-9 leg's one vitality producer is its wrapper, Router._recordHits).
+
+    uint160 internal constant A13_Q96 = uint160(uint256(1) << 96);
+    uint128 internal constant A13_LIQ = uint128(1e27);
+
+    function _a13V3(MockERC20 x, MockERC20 y) internal returns (MockV3Pool p) {
+        p = new MockV3Pool(address(x), address(y), 3000);
+        p.setState(A13_Q96, A13_LIQ);
+        x.mint(address(p), HOLD);
+        y.mint(address(p), HOLD);
+    }
+
+    function _a13Native(MockV3Pool p, MockERC20 x, MockERC20 y, uint256 amt) internal pure returns (Hop memory h) {
+        bool z = address(x) < address(y);
+        uint256 o = BPC.outV3(amt, A13_Q96, A13_LIQ, 3000, z, 0);
+        Leg[] memory l = new Leg[](1);
+        l[0] = Leg({pool: address(p), hooks: address(0), kind: BPC.KIND_V3, fee: 3000, tickSpacing: 0,
+            zeroForOne: z, stable: false, amountIn: amt, expectedOut: o, auxId: bytes32(0)});
+        h = Hop({tokenIn: address(x), tokenOut: address(y), amountIn: amt, expectedOut: o, legs: l});
+    }
+
+    function _a13Gate(uint256 amt) internal returns (Hop memory h) {
+        h = _route1(true, amt).hops[0];
+        uint256 o = _price(true, amt);
+        (h.legs[0].expectedOut, h.expectedOut) = (o, o);
+    }
+
+    /// The registry feedback calls the Router made to the Hub since the recording began, for the
+    /// Gate leg's wrapper `g` and for the native pool `n`.
+    function _a13Records(address hub, address g, address n) internal returns (uint256 rg, uint256 rn) {
+        Vm.AccountAccess[] memory acc = vm.stopAndReturnStateDiff();
+        for (uint256 i; i < acc.length; ++i) {
+            bytes memory d = acc[i].data;
+            if (acc[i].account != hub || acc[i].kind != VmSafe.AccountAccessKind.Call || d.length < 36) continue;
+            if (bytes4(d) != BlazePhoenixHub.recordSwap.selector) continue;
+            address p;
+            assembly ("memory-safe") { p := mload(add(d, 36)) }
+            if (p == g) ++rg;
+            if (p == n && n != address(0)) ++rn;
+        }
+    }
+
+    struct A13Ctx {
+        BlazePhoenixHub hub;
+        BlazePhoenixRouter router;
+        BlazePhoenixQuoter quoter;
+        MockERC20[3] tk;
+        MockV3Pool after_;
+        MockV3Pool before_;
+        uint256 amt;
+    }
+
+    /// @notice A13: nine cells, generated: one hop x calendar {exhaustion, input is a bridge,
+    ///         output is a bridge}, and two hops x Gate leg on hop {0, 1} x calendar {exhaustion,
+    ///         hop 0's input is a bridge, hop 1's input is a bridge}. The count is asserted, so a
+    ///         generator that drops a cell is red.
+    function test_Conf_A13_KindNineColumn_FeeOnTheCalendarHop_FeedbackOnlyNative() public {
+        A13Ctx memory x;
+        (x.hub, x.router, x.quoter) = _stack(true);
+        MockERC20 t2 = new MockERC20("C", "C");
+        x.tk = [t0, t1, t2];
+        x.after_ = _a13V3(t1, t2);  // t0 -(Gate)-> t1 -(V3)-> t2
+        x.before_ = _a13V3(t2, t0); // t2 -(V3)-> t0 -(Gate)-> t1
+        x.amt = HOLD / 100;
+        uint256 cells;
+        for (uint256 c; c < 9; ++c) {
+            uint256 snap = vm.snapshotState();
+            _a13Cell(x, c);
+            vm.revertToState(snap);
+            ++cells;
+        }
+        assertEq(cells, 9, "A13 the generator ran every cell");
+    }
+
+    function _a13Cell(A13Ctx memory x, uint256 c) internal {
+        string memory cell = string.concat("A13 cell ", vm.toString(c));
+        uint256 k = c < 3 ? c : (c - 3) % 3;
+        (Hop[] memory hs, address nat) = _a13Hops(x, c);
+        (bool onOut, uint256 payHop) = _a13Calendar(x, hs, k, cell);
+        uint256[3] memory feeBefore = _a13FeeBal(x.tk);
+        _a13Swap(x, hs, nat, cell);
+        uint256 paying = _a13Fees(x, hs, feeBefore, onOut, payHop, cell);
+        uint256 feeOut = _a13Paid(x.tk, feeBefore, hs[hs.length - 1].tokenOut);
+        if (onOut) assertGt(feeOut, 0, string.concat(cell, ": a direct route into a bridge pays on its output"));
+        else assertEq(feeOut, 0, string.concat(cell, ": no output fee off a direct bridge route"));
+        assertEq(paying, onOut ? 0 : (k == 0 ? hs.length : 1), string.concat(cell, ": the number of paying hops"));
+    }
+
+    function _a13Hops(A13Ctx memory x, uint256 c) internal returns (Hop[] memory hs, address nat) {
+        hs = new Hop[](c < 3 ? 1 : 2);
+        if (c < 3) {
+            hs[0] = _a13Gate(x.amt);
+        } else if (c < 6) {
+            hs[0] = _a13Gate(x.amt);
+            hs[1] = _a13Native(x.after_, t1, x.tk[2], hs[0].expectedOut);
+            nat = address(x.after_);
+        } else {
+            hs[0] = _a13Native(x.before_, x.tk[2], t0, x.amt);
+            hs[1] = _a13Gate(hs[0].expectedOut);
+            nat = address(x.before_);
+        }
+    }
+
+    /// The calendar of the cell, written from its definition, never read from the Core; the
+    /// Quoter's calendar door must give the same answer.
+    function _a13Calendar(A13Ctx memory x, Hop[] memory hs, uint256 k, string memory cell)
+        internal
+        returns (bool onOut, uint256 payHop)
+    {
+        address tokenOut = hs[hs.length - 1].tokenOut;
+        if (k == 1) x.hub.addBridge(hs[0].tokenIn);
+        if (k == 2) x.hub.addBridge(hs.length == 1 ? tokenOut : hs[1].tokenIn);
+        onOut = hs.length == 1 && k == 2;
+        payHop = k == 0 ? type(uint256).max : (hs.length == 1 ? 0 : k - 1);
+        (uint256 qHop, bool qOut) = x.quoter.feeCalendarOf(hs, tokenOut);
+        assertEq(qHop, onOut ? type(uint256).max : payHop, string.concat(cell, ": the Quoter's fee hop"));
+        assertEq(qOut, onOut, string.concat(cell, ": the Quoter's fee on output"));
+    }
+
+    function _a13Swap(A13Ctx memory x, Hop[] memory hs, address nat, string memory cell) internal {
+        address tokenOut = hs[hs.length - 1].tokenOut;
+        Route memory r = Route({hops: hs, totalOut: hs[hs.length - 1].expectedOut,
+            singleOut: hs[hs.length - 1].expectedOut, singleOutFloor: 0, expectedImpactBps: 0,
+            confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+        MockERC20(hs[0].tokenIn).mint(USER, x.amt);
+        uint256 userBefore = MockERC20(tokenOut).balanceOf(USER);
+        vm.startPrank(USER);
+        MockERC20(hs[0].tokenIn).approve(address(x.router), x.amt);
+        vm.startStateDiffRecording();
+        uint256 got = x.router.swapExactIn(r, x.amt, 1, USER, block.timestamp + 1);
+        vm.stopPrank();
+        (uint256 rg, uint256 rn) = _a13Records(address(x.hub), w_, nat);
+        assertEq(rg, 0, string.concat(cell, ": the Gate leg never reaches recordSwap"));
+        assertEq(rn, hs.length - 1, string.concat(cell, ": the native leg beside it reaches recordSwap once"));
+        assertEq(MockERC20(tokenOut).balanceOf(USER) - userBefore, got, string.concat(cell, ": delivered is reported"));
+        assertGt(got, 0, string.concat(cell, ": settled with something"));
+        for (uint256 i; i < 3; ++i) assertEq(x.tk[i].balanceOf(address(x.router)), 0, string.concat(cell, ": the Router keeps nothing"));
+    }
+
+    function _a13Fees(
+        A13Ctx memory x,
+        Hop[] memory hs,
+        uint256[3] memory feeBefore,
+        bool onOut,
+        uint256 payHop,
+        string memory cell
+    ) internal view returns (uint256 paying) {
+        for (uint256 h; h < hs.length; ++h) {
+            uint256 fee = _a13Paid(x.tk, feeBefore, hs[h].tokenIn);
+            bool pays = !onOut && (payHop == type(uint256).max || payHop == h);
+            if (!pays) { assertEq(fee, 0, string.concat(cell, ": a hop off the calendar pays nothing")); continue; }
+            ++paying;
+            if (h == 0) assertEq(fee, BPC.mulDivUp(x.amt, BPC.PROTOCOL_FEE_BPS, 10_000), string.concat(cell, ": hop 0 pays the fee once"));
+            else assertGt(fee, 0, string.concat(cell, ": the calendar's hop pays"));
+        }
+    }
+
+    function _a13FeeBal(MockERC20[3] memory tk) internal view returns (uint256[3] memory b) {
+        for (uint256 i; i < 3; ++i) b[i] = tk[i].balanceOf(address(0xFEE1)) + tk[i].balanceOf(address(0xFEE2));
+    }
+
+    /// The fee the treasury (0xFEE1 + 0xFEE2) took in token `t` since `before`.
+    function _a13Paid(MockERC20[3] memory tk, uint256[3] memory before, address t) internal view returns (uint256) {
+        uint256 i = _a13Ix(tk, t);
+        return tk[i].balanceOf(address(0xFEE1)) + tk[i].balanceOf(address(0xFEE2)) - before[i];
+    }
+
+    function _a13Ix(MockERC20[3] memory tk, address t) internal pure returns (uint256 i) {
+        while (address(tk[i]) != t) ++i;
     }
 }
 

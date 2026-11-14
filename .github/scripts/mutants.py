@@ -7718,6 +7718,19 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="_walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true);",
       new="_walk(route, amountIn, feeHop, feeOnOut, true); // MUTANT",
       teste="test_OneHop_TheWalkLeavesTheFeeToTheFundedPass"),
+# 124-L5 B7: the kind-9 column of the route matrix (A13 of test/adapters/AdapterConformance.sol, run
+# against the four adapters by test/adapters/conformance/*): route length x Gate hop x fee calendar;
+# the registry feedback reaches the native leg beside a Gate leg and never the Gate leg.
+ dict(nome="124-L5 B7 Router: the registry feedback skips the V3 leg and feeds the kind-9 leg",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (!ran || leg.kind == BPC.KIND_EXTERNAL) { unchecked { ++l; } continue; }",
+      new="                if (!ran || leg.kind == BPC.KIND_V3) { unchecked { ++l; } continue; } // MUTANT",
+      teste="test_Conf_A13_KindNineColumn_FeeOnTheCalendarHop_FeedbackOnlyNative"),
+ dict(nome="124-L5 B7 meta: the A13 generator drops a cell",
+      f="test/adapters/AdapterConformance.sol", inl="test/adapters/conformance/CurveNGConformance.t.sol",
+      old="        for (uint256 c; c < 9; ++c) {",
+      new="        for (uint256 c; c < 8; ++c) { // MUTANT",
+      teste="test_Conf_A13_KindNineColumn_FeeOnTheCalendarHop_FeedbackOnlyNative"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
