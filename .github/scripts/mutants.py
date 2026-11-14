@@ -7615,6 +7615,21 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = zeroForOne ? nt - 1 : nt;",
       new="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = nt; // MUTANTE",
       teste="test_ZeroForOneCrossesBelowTheTick"),
+ # The input probe reads a payment one wei short as taxed: the Router refuses one wei short
+ # (`< owed`, Router:2193), so the probe's edge is the same strict `<`
+ # (test/QuoterMeasuresTheV3InputTax.t.sol).
+ dict(nome="L1-124 Quoter:600: a payment one wei short of what the pool paid back is read as untaxed",
+      f="src/BlazePhoenixQuoter.sol",
+      old="            revert InputProbe(held != 0 && BPC.balanceOf(t, msg.sender) - before < held);",
+      new="            revert InputProbe(held != 0 && BPC.balanceOf(t, msg.sender) - before + 1 < held); // MUTANTE",
+      teste="test_OneWeiShort_IsMeasuredAndNotPromised"),
+ # Only a concentrated leg is probed: asking the reserve kinds instead leaves the V3 leg the
+ # Router refuses unasked (test/QuoterMeasuresTheV3InputTax.t.sol).
+ dict(nome="L1-124 Quoter:694: the probe asks the reserve legs, so a taxed concentrated leg is never measured",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_CONC_POOL)",
+      new="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_RESERVES) // MUTANTE",
+      teste="test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
