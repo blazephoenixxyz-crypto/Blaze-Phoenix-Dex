@@ -80,8 +80,9 @@ abstract contract AdapterHarness is Test {
         return false;
     }
 
-    /// The gas each adapter answer runs under: BPC.GATE_QUOTE_GAS, the one the Gate's vitalOf and
-    /// the Quoter's kind-9 arm read (BlazePhoenixQuoter.GATE_QUOTE_GAS), never a copy of its value.
+    /// The gas each adapter answer runs under, read from its one producer (the Quoter's
+    /// GATE_QUOTE_GAS is BPC.GATE_QUOTE_GAS). A copy here let the Core's number move under a
+    /// green test: mutant [AI-41].
     uint256 internal constant GATE_QUOTE_GAS = BPC.GATE_QUOTE_GAS;
 
     /// The Quoter's kind-9 arm on the leg `w`, under GATE_QUOTE_GAS and without a cap, on the

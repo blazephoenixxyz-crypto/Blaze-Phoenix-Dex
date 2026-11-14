@@ -267,15 +267,15 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,134 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 477 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 37 | `test/fork/*.t.sol` |
-| Stateful invariants | 50 | `function invariant*` |
+| Test declarations | 3,516 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 509 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 38 | `test/fork/*.t.sol` |
+| Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,482 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,824 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
-| Contracts whose runtime size is pinned to the byte | 12 | `.sizes-snapshot` |
+| Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
 | CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
@@ -293,18 +293,22 @@ above is the place for it.
 
 | Contract | Runtime bytes | EIP-170 headroom (24,576) |
 |---|---:|---:|
+| `BlazePhoenixAdapterAlgebraIntegral` | 6,648 | 17,928 |
 | `BlazePhoenixAdapterBalancerV2` | 5,208 | 19,368 |
-| `BlazePhoenixAdapterBalancerV3` | 6,179 | 18,397 |
+| `BlazePhoenixAdapterBalancerV3` | 6,231 | 18,345 |
 | `BlazePhoenixAdapterCurveCryptoNG` | 3,026 | 21,550 |
 | `BlazePhoenixAdapterCurveNG` | 3,528 | 21,048 |
-| `BlazePhoenixCore` | 21,741 | 2,835 |
+| `BlazePhoenixAdapterInfinityBin` | 5,791 | 18,785 |
+| `BlazePhoenixAdapterInfinityCL` | 6,182 | 18,394 |
+| `BlazePhoenixAdapterLB` | 3,118 | 21,458 |
+| `BlazePhoenixCore` | 21,765 | 2,811 |
 | `BlazePhoenixGate` | 10,710 | 13,866 |
 | `BlazePhoenixGateWrapper` | 4,408 | 20,168 |
 | `BlazePhoenixHub` | 23,360 | 1,216 |
-| `BlazePhoenixMath` | 10,680 | 13,896 |
-| `BlazePhoenixQuoter` | 18,634 | 5,942 |
-| `BlazePhoenixRouter` | 23,711 | 865 |
-| `BlazePhoenixSolver` | 21,202 | 3,374 |
+| `BlazePhoenixMath` | 10,678 | 13,898 |
+| `BlazePhoenixQuoter` | 18,569 | 6,007 |
+| `BlazePhoenixRouter` | 23,786 | 790 |
+| `BlazePhoenixSolver` | 21,222 | 3,354 |
 <!-- protocol-constants:end -->
 
 ### Gas case studies (measured; linked as they are published)

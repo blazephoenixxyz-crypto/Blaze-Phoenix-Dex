@@ -635,6 +635,7 @@ extended 2026-09-05) holds fourteen relations over the Core's quote maths; `test
 | Core, V2 · V3 · stable | MR4 scale equivariance | scaling order and pool together scales the output, to rounding |
 | Core, V2 · V3 | MR5 fee monotone | a higher fee never pays more |
 | Core, V3 | MR6 direction symmetry | at price 1.0 the two arms of `outV3` agree to two ulps |
+| Core, V3 | the single-range figure is the pool's swap | token0 in, `outV3` is the walk of a flat book to the wei while the swap ends inside the pool's first step (one producer of the price step; past a bitmap word the pool steps again, with its own rounding); token1 in, never above it (`test/OutV3IsNotAboveThePoolsSwap.t.sol`) |
 | Core, Solidly | MR7 identity | the volatile arm **is** `outV2`, one producer |
 | plan | MR-R1 | the split never pays less than the best single pool would, over pools above dust |
 | plan | MR-R2 | monotone in `amountIn` |
@@ -802,7 +803,11 @@ pin (SHARED_QUANTITIES, "the net output the exact door promises"). The offline t
 `test/ExactDoorFollowsTheFeeCalendar.t.sol` asserts equality (delivered == exactOut) over decimals
 6/8/18/24, thin and deep books, dust and the fee's rounding seam, V3 and V2, both regimes and two
 hops; mutants [door-fee-1..3] and the tripwire [door-fee-meta], which refuses a widened fork
-tolerance since the fork row cannot run in the guard.
+tolerance since the fork row cannot run in the guard. On Avalanche the Blackhole row
+(`test_AvaxBH_Q4_BaseMinted_AutoDoor_CrossesTick_QuoteExecOracle`, an Algebra Integral venue
+crossing an initialized tick) asks min(gross, funded) of the raw venue to the wei; its oracle
+still asked the rule before the fix until 2026-11-14 (F-11), and [door-fee-fork-1] in M_FORK
+pairs it with the old rule.
 
 **One fee walk for both exact passes (2026-11-14).** `Quoter._exact` priced the route in
 its own loop and `_fundedOut` funded it in a second; only the second stopped when a fee rounded up

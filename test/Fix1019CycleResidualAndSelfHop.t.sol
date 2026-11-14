@@ -24,7 +24,7 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 
@@ -175,15 +175,18 @@ contract Fix1019CycleResidualAndSelfHopTest is Test {
         r = _route(hs, y);
     }
 
-    /// A -> B -> B -> C with the self-hop through `aliasB`; `aliasExp` is the
-    /// caller's attestation on the alias leg (0 = none).
+    /// A -> B -> B with the self-hop through `aliasB`; `aliasExp` is the caller's
+    /// attestation on the alias leg (0 = none). Two hops, not three: the hop ceiling
+    /// (MAX_HOPS = 2) refuses a longer route with the same RouterE(3) before any hop
+    /// is read, so a fixture over the ceiling stays green with the self-hop guard
+    /// deleted (mutant "fix-1019 H3 (fix A)", PR #123 run). `fair` is the honest hop's output.
     function _selfHop(uint256 aliasExp) private view returns (Route memory r, uint256 fair) {
         uint256 b = _q(pAB, address(tokenA), AMT);
-        fair = _q(pBC, address(tokenB), _netOfFee(b));
-        Hop[] memory hs = new Hop[](3);
+        fair = b;
+        Hop[] memory hs = new Hop[](2);
         hs[0] = _hop(address(tokenA), address(tokenB), AMT, _leg(address(pAB), pAB.token0() == address(tokenA), AMT, 0));
         hs[1] = _hop(address(tokenB), address(tokenB), b, _leg(address(aliasB), true, b, aliasExp));
-        hs[2] = _hop(address(tokenB), address(tokenC), b, _leg(address(pBC), pBC.token0() == address(tokenB), b, 0));
+        assertLe(hs.length, MAX_HOPS, "premise: under the hop ceiling, so RouterE(3) can only be the self-hop guard");
         r = _route(hs, fair);
     }
 

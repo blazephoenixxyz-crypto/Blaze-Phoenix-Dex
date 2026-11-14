@@ -398,6 +398,8 @@ jobs:
     # 131028174955..175421): the baseline now takes 16.3-23.3 min and a mutant 19.6-29.6 s, so a
     # slow runner was on pace for 23.3 + 0.49 * 137 = 91 min and five of nine shards were
     # cancelled at 75 with 3-32 mutants unjudged. 23.3 + 0.49 * 1229 / 17 = 58.7.
+    # Twenty since 2026-11-13: at 1,368 mutants seventeen shards took 56-75 min and two were
+    # cancelled at 75 (run 43509365862); 23.3 + 0.49 * 1368 / 17 = 62.7, on twenty 56.8.
     # Forty since 2026-11-14 (owner's order): on twenty shards the jobs ran out of their 75
     # minutes. 1,482 mutants give 23.3 + 0.49 * 1482 / 40 = 41.5, under 60 up to ~2,990 mutants.
     # Branch protection requires these forty names; the aggregator `mutation guard` below runs
@@ -514,8 +516,6 @@ jobs:
 
   fork-tests:
     name: fork tests (archive RPC)
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -540,7 +540,16 @@ jobs:
         # this cuts the false-red rate without weakening the signal at all.
         run: |
           set -o pipefail
-          SPEC="RpcProbeTest|NestedHookSettlementFork|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|DeployedCodehashPinTest|DeployedParityTest|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1"
+          # Avalanche is not in foundry.toml: test/fork/avax/AvaxForkBase.sol reads AVAX_FORK_URL
+          # only, and skips without it. Its URL follows the key this lane forks the other chains
+          # with: Alchemy while ALCHEMY_KEY is set (DRPC_KEY is then a placeholder), else dRPC on
+          # DRPC_KEY. Both serve its fork block (99_270_000) from archive.
+          if [ -n "${ALCHEMY_KEY:-}" ]; then
+            export AVAX_FORK_URL="https://avax-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
+          elif [ -n "${DRPC_KEY:-}" ]; then
+            export AVAX_FORK_URL="https://lb.drpc.live/avalanche/${DRPC_KEY}"
+          fi
+          SPEC="RpcProbeTest|NestedHookSettlementFork|BaseForkTest|BaseTop100Test|CurveExcisionRegistration|OptimismProbeTest|ArbitrumProbeTest|RobinhoodProbeTest|BaseV4ProbeTest|V4DynamicDiscoveryTest|RobinhoodV4DiscoveryTest|RobinhoodV4SweepTest|RobinhoodV4DeriveTest|RobinhoodV4NativeTest|FidelityMatrixBaseTest|FidelityMatrixArbitrumTest|FidelityMatrixOptimismTest|FidelityMatrixRobinhoodTest|TokenSweepBaseChainTest|TokenSweepArbitrumTest|TokenSweepOptimismTest|MetricsSweepBaseTest|DiscoveryColdWarmTest|QuoteExecDivergenceTest|FactoryWorthBaseTest|ReproClFeeSentinelBase|DeployedCodehashPinTest|DeployedParityTest|IsoladaExecucaoCL|IsoladaExecucaoV4Nativa|IsoladaExecucaoSolidlyV1|AvaxCoreV3Fork|AvaxBlackholeCoreFork|AvaxLBFork|AvaxAIFork"
           for attempt in 1 2 3; do
             if forge test -j 2 -vvv --match-path "test/fork/**" --match-contract "$SPEC" 2>&1 | tee fork.log; then
               # Exit code 0 is NOT a verdict here: every fork setUp `vm.skip`s
@@ -549,6 +558,22 @@ jobs:
               # count is green (the house rule: "0 failed" on nothing proves
               # nothing; "N passed" does).
               PASSED=$(grep -oE '[0-9]+ tests passed' fork.log | tail -n1 | grep -oE '^[0-9]+' || echo 0)
+              # Avalanche counts apart: its URL comes from the export above, not from the
+              # rewritten foundry.toml, so the other chains' passes cannot stand in for it.
+              # Green needs its suites run, at least one pass and nothing skipped.
+              read -r AVAX_SUITES AVAX_PASSED AVAX_SKIPPED < <(awk '
+                /^Ran [0-9]+ tests? for test\/fork\/avax\// { a = 1; n++ }
+                a && /^Suite result/ { for (i = 1; i < NF; i++) { if ($(i+1) ~ /^passed/) p += $i; if ($(i+1) ~ /^skipped/) s += $i }; a = 0 }
+                END { print n + 0, p + 0, s + 0 }' fork.log)
+              # Each Avalanche suite the SPEC names must have run: a lost or renamed one leaves
+              # no "Ran N tests for ...:<Class>" line, and the others' passes cannot cover for it.
+              for c in $(printf '%s' "$SPEC" | tr '|' '\n' | grep '^Avax'); do
+                grep -qE "^Ran [0-9]+ tests? for test/fork/avax/.*:${c}\$" fork.log || { echo "::error::Avalanche fork suite ${c} did not run; this is not green"; exit 1; }
+              done
+              if [ "${PASSED:-0}" -gt 0 ] &&{ [ "$AVAX_PASSED" -eq 0 ] || [ "$AVAX_SKIPPED" -gt 0 ]; }; then
+                echo "::error::Avalanche fork suites: ${AVAX_SUITES} run, ${AVAX_PASSED} passed, ${AVAX_SKIPPED} skipped — AVAX_FORK_URL is not reaching them; this is not green"
+                exit 1
+              fi
               if [ "${PASSED:-0}" -gt 0 ]; then exit 0; fi
               echo "::error::fork lane finished with ${PASSED:-0} tests passed — the secret is missing or every suite skipped; this is not green"
               exit 1
@@ -718,8 +743,11 @@ jobs:
           forge test --match-contract PcTraceProbe -vvv
           python3 .github/scripts/assurance/pc_trace.py --check
 
-  formal:
-    name: formal verification (Halmos symbolic)
+  formal-spec:
+    name: formal verification (Halmos ${{ matrix.spec }})
+    # One job per spec since 2026-11-14: in run 43593384783 the single job was shut down by the
+    # runner at ~19-24 min (exit 143) before both specs had run. Each spec now gets its own clock;
+    # the job below keeps the required check name and fails if any spec fails.
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
@@ -731,6 +759,10 @@ jobs:
       # after one CI run on this pin has measured both specs with no such annotation; until
       # then the switch reports and gates nothing, so a proof is not turned red unmeasured.
       LOOP_BOUND_GATE: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        spec: [CoreFormalGateSpec, EffV4FeeFormalSpec]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -748,6 +780,7 @@ jobs:
         # (0.04–0.19s each, run 31532581231): iron-floor bounds unconditional
         # (INV-1's arithmetic heart), impactV2Bps <= BPS, outV3 fail-closed on
         # degenerate inputs. REAL gate — no `|| true`.
+        if: matrix.spec == 'CoreFormalGateSpec'
         run: |
           set -o pipefail
           halmos --contract CoreFormalGateSpec -v 2>&1 | tee halmos-core-gate.log
@@ -769,6 +802,7 @@ jobs:
         # guards against a non-zero exit, not against exhausting the clock — so
         # this proof was never reaching the runner at all. We believed we had two
         # hard gates and were running one.
+        if: matrix.spec == 'EffV4FeeFormalSpec'
         run: |
           set -o pipefail
           halmos --contract EffV4FeeFormalSpec -v 2>&1 | tee halmos-effv4fee.log
@@ -792,7 +826,7 @@ jobs:
       # work. Different implementations mean agreement is evidence and
       # disagreement is a question worth answering.
       #
-      # Considered and rejected: Kontrol treats every revert as a test failure,
+      # Considered and deferred: Kontrol treats every revert as a test failure,
       # and in a codebase where failing closed IS the design that manufactures
       # false positives faster than it finds defects.
 
@@ -834,6 +868,26 @@ jobs:
           timeout 1500 halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
             --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
           ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
+
+  formal:
+    # The required status check keeps this exact name; it is green only when every spec is.
+    # A run with no code change skips the specs (the `changes` filter) and passes here.
+    name: formal verification (Halmos symbolic)
+    needs: [changes, formal-spec]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every Halmos spec discharged
+        env:
+          SPEC_RESULT: ${{ needs.formal-spec.result }}
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+        run: |
+          echo "formal-spec matrix result: $SPEC_RESULT (code changed: $CODE_CHANGED)"
+          if [ "$SPEC_RESULT" = "success" ]; then exit 0; fi
+          if [ "$SPEC_RESULT" = "skipped" ] && [ "$CODE_CHANGED" = "false" ]; then exit 0; fi
+          echo "::error::formal: at least one Halmos spec did not succeed ($SPEC_RESULT)"
+          exit 1
 
   gas-metrics:
     name: gas metrics (offline ledger)

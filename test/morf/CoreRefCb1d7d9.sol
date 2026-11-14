@@ -2,6 +2,11 @@
 // FROZEN REFERENCE for test/CoreQuoteDoorsSameAnswer.t.sol: src/BlazePhoenixCore.sol of cb1d7d9,
 // literally, except the library name (CoreRefCb1d7d9). It keeps the three quote doors as they
 // were (`universalQuote`, `universalQuoteRank(c, a, bar)`, `universalProbe(c, a)`).
+// ONE CHANGE PORTED: `outV3`'s token0->token1 step is the live Core's since e5ced25 (the pool's
+// own `_nextSqrtFromInput`, rounded up; a collapsed price reads 1). That is a change to the
+// mathematics, not to the doors; the doors are the unit this reference stands in for, so it
+// carries the new step and the comparison still fixes everything but the doors. The step itself
+// is held by test/OutV3IsNotAboveThePoolsSwap.t.sol and mutants [1081] [1082].
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixCore
 //  Version    : 2.0.0
@@ -1390,11 +1395,9 @@ library CoreRefCb1d7d9 {
             // Canonical Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount0:
             //     sqrtNew = (L · sqrtP) / (L + amtIn · sqrtP / Q96)
             //
-            // To avoid the L·P overflow path (L ≤ 2¹²⁸, P ≤ 2¹⁶⁰ → 2²⁸⁸),
-            // we factor through mulDiv so every intermediate fits in 256 bits.
-            uint256 product = mulDiv(amtAfterFee, P, Q96);
-            uint256 sqrtNew = mulDiv(L, P, L + product);
-            if (sqrtNew >= P || sqrtNew == 0) return 0;
+            // PORTED FROM e5ced25 (see the header): the pool's own step, rounded up.
+            uint256 sqrtNew = _nextSqrtFromInput(sqrtP, liq, amtAfterFee, true);
+            if (sqrtNew >= P || sqrtNew <= 1) return 0;
             // zeroForOne: the price FALLS. Truncating means not letting it drop
             // below the boundary.
             if (sqrtLimit != 0 && sqrtNew < sqrtLimit) sqrtNew = sqrtLimit;

@@ -164,16 +164,20 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- mutation-guard:begin -->
 | Mutated file | Mutants | Distinct tests that must kill them | Target is exactly one line |
 |---|---:|---:|---:|
-| `src/BlazePhoenixCore.sol` | 364 | 293 | 364 |
-| `src/BlazePhoenixRouter.sol` | 360 | 303 | 360 |
-| `src/BlazePhoenixSolver.sol` | 211 | 153 | 211 |
-| `src/BlazePhoenixHub.sol` | 207 | 184 | 207 |
-| `src/BlazePhoenixQuoter.sol` | 114 | 102 | 114 |
-| `src/BlazePhoenixGate.sol` | 71 | 60 | 71 |
-| `src/BlazePhoenixMath.sol` | 46 | 36 | 46 |
+| `src/BlazePhoenixRouter.sol` | 428 | 361 | 428 |
+| `src/BlazePhoenixCore.sol` | 394 | 316 | 394 |
+| `src/BlazePhoenixSolver.sol` | 237 | 169 | 237 |
+| `src/BlazePhoenixHub.sol` | 218 | 190 | 218 |
+| `src/BlazePhoenixQuoter.sol` | 126 | 113 | 126 |
+| `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
+| `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 55 | 41 | 55 |
+| `src/BlazePhoenixMath.sol` | 50 | 37 | 50 |
+| `src/adapters/BlazePhoenixAdapterInfinityCL.sol` | 45 | 38 | 45 |
+| `src/adapters/BlazePhoenixAdapterLB.sol` | 43 | 31 | 43 |
+| `src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol` | 40 | 40 | 40 |
 | `src/adapters/BlazePhoenixAdapterBalancerV3.sol` | 21 | 19 | 21 |
+| `src/adapters/ExtAdapterBase.sol` | 21 | 18 | 21 |
 | `src/adapters/BlazePhoenixAdapterCurveNG.sol` | 18 | 17 | 18 |
-| `src/adapters/ExtAdapterBase.sol` | 17 | 14 | 17 |
 | `src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol` | 15 | 15 | 15 |
 | `src/adapters/BlazePhoenixAdapterBalancerV2.sol` | 13 | 11 | 13 |
 | `test/DirtyWorld.invariant.t.sol` | 12 | 2 | 12 |
@@ -183,7 +187,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/ref/Frame4007.sol` | 2 | 2 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,482 | 1,166 | 1,482 |
+| **all** | 1,824 | 1,430 | 1,824 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -215,7 +219,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
   import; the code's earlier history is not in this git.
 - **Gate adapters by network** (generated from `docs/deployments/gate-adapters.tsv`):
 <!-- gate-adapters:begin -->
-Gate adapter families in `src/adapters/`: `BlazePhoenixAdapterBalancerV2`, `BlazePhoenixAdapterBalancerV3`, `BlazePhoenixAdapterCurveCryptoNG`, `BlazePhoenixAdapterCurveNG`.
+Gate adapter families in `src/adapters/`: `BlazePhoenixAdapterAlgebraIntegral`, `BlazePhoenixAdapterBalancerV2`, `BlazePhoenixAdapterBalancerV3`, `BlazePhoenixAdapterCurveCryptoNG`, `BlazePhoenixAdapterCurveNG`, `BlazePhoenixAdapterInfinityBin`, `BlazePhoenixAdapterInfinityCL`, `BlazePhoenixAdapterLB`.
 No deployed Gate adapter is recorded in `docs/deployments/gate-adapters.tsv`, the single source for their addresses per network; a row carries the address, the runtime codehash and where both were read.
 <!-- gate-adapters:end -->
 - Measured by RPC on 2026-09-04: the deployed V1 router is the same 14,624-byte contract on
@@ -237,15 +241,15 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,134 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 477 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 37 | `test/fork/*.t.sol` |
-| Stateful invariants | 50 | `function invariant*` |
+| Test declarations | 3,516 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 509 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 38 | `test/fork/*.t.sol` |
+| Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,482 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,824 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
-| Contracts whose runtime size is pinned to the byte | 12 | `.sizes-snapshot` |
+| Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
 | CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
@@ -263,18 +267,22 @@ declaration counts, not pass counts.
 
 | Contract | Runtime bytes | EIP-170 headroom (24,576) |
 |---|---:|---:|
+| `BlazePhoenixAdapterAlgebraIntegral` | 6,648 | 17,928 |
 | `BlazePhoenixAdapterBalancerV2` | 5,208 | 19,368 |
-| `BlazePhoenixAdapterBalancerV3` | 6,179 | 18,397 |
+| `BlazePhoenixAdapterBalancerV3` | 6,231 | 18,345 |
 | `BlazePhoenixAdapterCurveCryptoNG` | 3,026 | 21,550 |
 | `BlazePhoenixAdapterCurveNG` | 3,528 | 21,048 |
-| `BlazePhoenixCore` | 21,741 | 2,835 |
+| `BlazePhoenixAdapterInfinityBin` | 5,791 | 18,785 |
+| `BlazePhoenixAdapterInfinityCL` | 6,182 | 18,394 |
+| `BlazePhoenixAdapterLB` | 3,118 | 21,458 |
+| `BlazePhoenixCore` | 21,765 | 2,811 |
 | `BlazePhoenixGate` | 10,710 | 13,866 |
 | `BlazePhoenixGateWrapper` | 4,408 | 20,168 |
 | `BlazePhoenixHub` | 23,360 | 1,216 |
-| `BlazePhoenixMath` | 10,680 | 13,896 |
-| `BlazePhoenixQuoter` | 18,634 | 5,942 |
-| `BlazePhoenixRouter` | 23,711 | 865 |
-| `BlazePhoenixSolver` | 21,202 | 3,374 |
+| `BlazePhoenixMath` | 10,678 | 13,898 |
+| `BlazePhoenixQuoter` | 18,569 | 6,007 |
+| `BlazePhoenixRouter` | 23,786 | 790 |
+| `BlazePhoenixSolver` | 21,222 | 3,354 |
 <!-- protocol-constants:end -->
 
 ### Gas case studies (measured; linked as they are published)
