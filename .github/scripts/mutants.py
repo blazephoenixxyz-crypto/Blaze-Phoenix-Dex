@@ -7571,6 +7571,21 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                    : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));",
       new="                    : (l + uint256(net) > type(uint128).max ? l : l + uint256(net))); // MUTANTE",
       teste="testFuzz_LiquidityNetSaturatesAtUint128"),
+ dict(nome="124-L2 Core:1546: the Solidly ask's fee drops the ask (divides by 10,000, not 100): the price the band reads moves with the haircut",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (wantFee) fee = 1_000_000 - (BPS - readDynamicFee(pool, stable, cfgFee)) * SOLIDLY_CURVE_ASK_BPS / 100;",
+      new="        if (wantFee) fee = 1_000_000 - (BPS - readDynamicFee(pool, stable, cfgFee)) * SOLIDLY_CURVE_ASK_BPS / 10_000; // MUTANTE",
+      teste="testFuzz_ProbePriceIgnoresTheAsk"),
+ dict(nome="124-L2 Core:1545: the Solidly replicated curve is asked whole, without the 200 bps haircut its fee charges",
+      f="src/BlazePhoenixCore.sol",
+      old="        out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * SOLIDLY_CURVE_ASK_BPS) / BPS;",
+      new="        out = solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn); // MUTANTE",
+      teste="testFuzz_ProbePriceIgnoresTheAsk"),
+ dict(nome="124-L2 Core:1537: a Solidly pair answering 1 is taken at its word (0 after the margin) instead of priced on the curve",
+      f="src/BlazePhoenixCore.sol",
+      old="        out = solidlyGetAmountOut(pool, amountIn, tokenIn);\n        if (out > 1) {",
+      new="        out = solidlyGetAmountOut(pool, amountIn, tokenIn);\n        if (out > 0) { // MUTANTE",
+      teste="test_AskAtTheSeamMatchesTheGetAmountOutPath"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
