@@ -36,7 +36,7 @@ contract BaseProbe is ExtAdapterBase {
     function noAllowance(address token, address spender) external view { _requireNoAllowance(token, spender); }
 }
 
-/// The base every Gate adapter inherits (PR 124, L4): the hooks pin with three slots, the venue
+/// The base every Gate adapter inherits (L4): the hooks pin with three slots, the venue
 /// callback guard and the amount ceiling moved out of Balancer V3 into ExtAdapterBase, and the error
 /// table's codes read by selector and code. Codes 0, 1, 3, 5, 6, 7 and 9 are read here on the probe;
 /// 2, 4 and 8 by the adapters' own tests (test_CurveNG_Resolve_PoolNotFromFactory_Refused,

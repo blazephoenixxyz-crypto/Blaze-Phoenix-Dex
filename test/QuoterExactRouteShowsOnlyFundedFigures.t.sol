@@ -94,8 +94,8 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
         assertEq(q.hops[h].legs[0].expectedOut, funded, string.concat(what, ": leg expectedOut"));
     }
 
-    /// @notice RED-FIRST (JUNTA-ENSAIO-124, 72bb176). Gama: 1 wei. Vetor: no bridge, so the calendar
-    ///         charges every hop on its input. Dimensão: unit, 2 hops. The fee on hop 0's 1 wei is
+    /// @notice RED-FIRST (JUNTA-ENSAIO-124, 72bb176). Range: 1 wei. Vector: no bridge, so the calendar
+    ///         charges every hop on its input. Dimension: unit, 2 hops. The fee on hop 0's 1 wei is
     ///         1 wei: nothing reaches either hop, the door promises 0, and the route it returns must
     ///         fund no leg. Red while the walk's early `return 0` leaves the plan's figures in the
     ///         hops it never reached (hop 0: 1/1, hop 1: PLANNED/PLANNED).
@@ -109,8 +109,8 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
         _assertHop(q, 1, 0, "hop 1, never reached");
     }
 
-    /// @notice RED-FIRST. Gama: 2 wei, the first order hop 0's fee leaves something of (1 wei), which
-    ///         hop 1's fee then eats. Vetor: no bridge. Dimensão: unit, 2 hops. Hop 0 is written with
+    /// @notice RED-FIRST. Range: 2 wei, the first order hop 0's fee leaves something of (1 wei), which
+    ///         hop 1's fee then eats. Vector: no bridge. Dimension: unit, 2 hops. Hop 0 is written with
     ///         its funded 1 wei; hop 1 must show 0, not PLANNED.
     function test_TwoHops_AFeeThatEatsHopOne_LeavesNoUnfundedFigureInTheRoute() public {
         assertEq(_fee(2), 1, "premise: the fee on 2 wei is 1 wei");
@@ -120,8 +120,8 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
         _assertHop(q, 1, 0, "hop 1, eaten by its fee");
     }
 
-    /// @notice RED-FIRST. Gama: 1 wei. Vetor: tk[1] a bridge, so only the anchor hop (hop 1) pays,
-    ///         on what arrived (1 wei). Dimensão: unit, 2 hops, fee at a later hop. Hop 0 is funded
+    /// @notice RED-FIRST. Range: 1 wei. Vector: tk[1] a bridge, so only the anchor hop (hop 1) pays,
+    ///         on what arrived (1 wei). Dimension: unit, 2 hops, fee at a later hop. Hop 0 is funded
     ///         whole; hop 1 must show 0, not PLANNED.
     function test_TwoHops_AFeeThatEatsTheAnchorHop_LeavesNoUnfundedFigureInTheRoute() public {
         hub.addBridge(address(tk[1]));
@@ -146,10 +146,10 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
     }
 
     /// @notice Control, green today: above the fee every hop is written with what the Router funds.
-    ///         Gama: 3 wei (the boundary +1: hop 1 keeps 1 wei) and 1e18. Vetor: no bridge.
-    ///         Dimensão: unit, 2 hops. Red under: the walk's hop write `(carry, hopOut)` ->
+    ///         Range: 3 wei (the boundary +1: hop 1 keeps 1 wei) and 1e18. Vector: no bridge.
+    ///         Dimension: unit, 2 hops. Red under: the walk's hop write `(carry, hopOut)` ->
     ///         `(hop.amountIn, hopOut)` (the route keeps the hop's planned input; registered mutant
-    ///         «JE-124 Quoter: the exact walk leaves a hop's planned input in the returned route»).
+    ///         «Quoter: the exact walk leaves a hop's planned input in the returned route»).
     function test_Control_TwoHops_TheRouteCarriesTheFundedFigures() public {
         uint256[2] memory amts = [uint256(3), 1e18];
         for (uint256 i; i < 2; ++i) {

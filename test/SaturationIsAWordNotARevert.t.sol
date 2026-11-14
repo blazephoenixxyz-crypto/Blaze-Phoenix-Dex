@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 // =============================================================================
-//  A LIQUIDITY THAT WOULD PASS 2^128 SATURATES; IT NEVER WRAPS (C10, PR #124).
+//  A LIQUIDITY THAT WOULD PASS 2^128 SATURATES; IT NEVER WRAPS (C10).
 //
 //  `Core.v3PaysOnBudget` applies a crossed tick's liquidityNet as `_v4Walk` does: upward it
 //  adds, and a sum past type(uint128).max is held at type(uint128).max. The book is the

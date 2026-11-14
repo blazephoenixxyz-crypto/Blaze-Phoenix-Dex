@@ -3,13 +3,14 @@ pragma solidity 0.8.36;
 
 // THE LAST LEG TAKES THE REMAINDER, AND THE REMAINDER CANNOT BE NEGATIVE (Solver `_split`).
 //
-// Every leg but the last takes floor(A * psi_i / S); the last takes A - allocated. `S` is the sum
-// of psis[0..n) for the whole life of the split: Math `_weights` sums the n rows, `_cutByWeight`
-// re-sums the budget, `_seatTheSplit` zeroes a row that cannot pay and subtracts it, and the
-// Solver's `_placed` takes psis[j] out with the row it drops. So the floors sum to at most A, and
-// to A only when psi_{n-1} == 0, where every form gives the last leg 0. The old guard
-// `allocated >= amountIn ? 0 : amountIn - allocated` could not fire; the subtraction is now plain
-// and checked, so the impossible case reverts instead of silently reading 0.
+// Every leg but the last takes floor(A * psi_i / S); the last takes A - allocated. `S` (`sumPsi`,
+// the SHARED_QUANTITIES row this file pins) is the sum of psis[0..n) for the whole life of the
+// split: Math `_weights` sums the n rows, `_cutByWeight` re-sums the budget, `_seatTheSplit` zeroes
+// a row that cannot pay and subtracts it, and the Solver's `_placed` takes psis[j] out with the row
+// it drops. So the floors sum to at most A, and to A only when psi_{n-1} == 0, where every form
+// gives the last leg 0. The old guard `allocated >= amountIn ? 0 : amountIn - allocated` could not
+// fire; the subtraction is now plain and checked, so the impossible case reverts instead of
+// silently reading 0.
 //
 // What this file pins: a split hop spends EXACTLY the caller's input, no wei lost to the floors
 // and none invented. The oracle is the caller's own number, not the Solver's: `committedIn`

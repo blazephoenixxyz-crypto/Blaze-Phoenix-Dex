@@ -7904,9 +7904,9 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="_walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true);",
       new="_walk(route, amountIn, feeHop, feeOnOut, true); // MUTANT",
       teste="test_OneHop_TheWalkLeavesTheFeeToTheFundedPass"),
-# JE-124 (junta de ensaio do PR 124, 2026-11-14): the route the exact door returns carries each hop's
+# Exact-door route (2026-11-14): the route the exact door returns carries each hop's
 # funded input, not the plan's (test/QuoterExactRouteShowsOnlyFundedFigures.t.sol, the control).
- dict(nome="JE-124 Quoter: the exact walk leaves a hop's planned input in the returned route",
+ dict(nome="Quoter: the exact walk leaves a hop's planned input in the returned route",
       f="src/BlazePhoenixQuoter.sol",
       old="            if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);",
       new="            if (write) (hop.amountIn, hop.expectedOut) = (hop.amountIn, hopOut); // MUTANT",

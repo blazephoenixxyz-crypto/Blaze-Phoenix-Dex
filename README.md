@@ -276,9 +276,44 @@ above is the place for it.
 | Symbolic properties (Halmos) | 16 | `function check*` |
 | Curated mutants, each paired with the test that must kill it | 1,445 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
+| Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
+| Contracts whose runtime size is pinned to the byte | 12 | `.sizes-snapshot` |
 | CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
+
+### Protocol constants and contract sizes (read from `src/` and `.sizes-snapshot`; CI fails if stale)
+
+<!-- protocol-constants:begin -->
+| Protocol constant | Value | Read from |
+|---|---:|---|
+| Protocol fee, basis points | 28 | `PROTOCOL_FEE_BPS`, `src/BlazePhoenixCore.sol` |
+| Hops per route, at most | 2 | `MAX_HOPS`, `src/BlazePhoenixCore.sol` |
+| Venue legs per hop, at most | 5 | `MAX_LEGS_PER_HOP`, `src/BlazePhoenixCore.sol` |
+| Venue legs per route, at most | 10 | `MAX_HOPS` x `MAX_LEGS_PER_HOP` |
+| Route topologies the Solver compares | 4 | `TOPOLOGIES`, `src/BlazePhoenixSolver.sol` |
+
+| Contract | Runtime bytes | EIP-170 headroom (24,576) |
+|---|---:|---:|
+| `BlazePhoenixAdapterBalancerV2` | 5,208 | 19,368 |
+| `BlazePhoenixAdapterBalancerV3` | 6,179 | 18,397 |
+| `BlazePhoenixAdapterCurveCryptoNG` | 3,026 | 21,550 |
+| `BlazePhoenixAdapterCurveNG` | 3,528 | 21,048 |
+| `BlazePhoenixCore` | 21,741 | 2,835 |
+| `BlazePhoenixGate` | 10,710 | 13,866 |
+| `BlazePhoenixGateWrapper` | 4,408 | 20,168 |
+| `BlazePhoenixHub` | 23,360 | 1,216 |
+| `BlazePhoenixMath` | 10,680 | 13,896 |
+| `BlazePhoenixQuoter` | 18,509 | 6,067 |
+| `BlazePhoenixRouter` | 23,711 | 865 |
+| `BlazePhoenixSolver` | 21,202 | 3,374 |
+<!-- protocol-constants:end -->
+
+### Gas case studies (measured; linked as they are published)
+
+<!-- gas-case-studies:begin -->
+
+<!-- gas-case-studies:end -->
 
 ## Assurance: what the repository measures about its own evidence
 
@@ -342,8 +377,7 @@ solhint 'src/**/*.sol'
 
 # Registers and generated files must agree with the repository
 bash .github/scripts/shared-quantities.sh
-python3 .github/scripts/readme_stats.py --check
-python3 .github/scripts/llms_full.py --check
+python3 .github/scripts/regen.py --check   # rewrite with: python3 .github/scripts/regen.py
 ```
 
 The static guards are plain `grep` invocations inside [`.github/workflows/ci.yml`](.github/workflows/ci.yml),

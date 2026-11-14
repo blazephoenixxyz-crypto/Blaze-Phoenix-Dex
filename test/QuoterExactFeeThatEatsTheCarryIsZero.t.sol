@@ -89,8 +89,8 @@ contract QuoterExactFeeThatEatsTheCarryIsZeroTest is Test {
         vm.revertToState(s);
     }
 
-    /// @notice Gama: 1 wei, the only order a 28 bps fee rounded up eats whole. Vetor: a venue that
-    ///         quotes FIXED for an input of 0. Dimensão: unit, 1 hop. The fee on 1 wei is 1 wei,
+    /// @notice Range: 1 wei, the only order a 28 bps fee rounded up eats whole. Vector: a venue that
+    ///         quotes FIXED for an input of 0. Dimension: unit, 1 hop. The fee on 1 wei is 1 wei,
     ///         nothing reaches the venue, and the door promises 0, not the venue's FIXED.
     ///         Red under: `fee >= carry` -> `fee > carry` in the walk (the carry 0 asks the venue).
     function test_OneHop_AFeeThatEatsTheWholeInputPromisesZero() public {
@@ -109,7 +109,7 @@ contract QuoterExactFeeThatEatsTheCarryIsZeroTest is Test {
 
     /// @notice Control: above the fee the same venue is asked and what the fee leaves is what the
     ///         door promises (one hop: the funded figure), so the zeros above are the guard's.
-    ///         Gama: 2 wei (the first order the fee leaves something of) and 1e18.
+    ///         Range: 2 wei (the first order the fee leaves something of) and 1e18.
     function test_Control_AboveTheFeeTheVenueIsAsked() public {
         assertEq(_exactOut(1, 2), 1, "2 wei: 1 wei reaches the venue");
         uint256 fee = BPC.mulDivUp(1e18, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
@@ -119,7 +119,7 @@ contract QuoterExactFeeThatEatsTheCarryIsZeroTest is Test {
     /// @notice One hop, no bridge: the Router takes the fee on the hop's input itself, so the
     ///         exact walk prices the order as committed and only the funded walk takes the fee.
     ///         The route the door returns keeps the gross figure; the promise is the funded one.
-    ///         Gama: 1e18. Vetor: a 1:1 venue. Dimensão: unit, 1 hop.
+    ///         Range: 1e18. Vector: a 1:1 venue. Dimension: unit, 1 hop.
     ///         Red under: the walk's `feeOnOut || route.hops.length == 1` -> `feeOnOut` (the fee
     ///         taken in the route too, and once more by the funded walk that reads it).
     function test_OneHop_TheWalkLeavesTheFeeToTheFundedPass() public {

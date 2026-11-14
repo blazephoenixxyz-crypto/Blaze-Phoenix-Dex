@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 // =============================================================================
-//  THE SOLIDLY ASK LOWERS THE OUTPUT AND RAISES THE FEE IN THE SAME PROPORTION (B14b/C7, PR #124).
+//  THE SOLIDLY ASK LOWERS THE OUTPUT AND RAISES THE FEE IN THE SAME PROPORTION (B14b/C7).
 //
 //  When a Solidly pair's own getAmountOut answers 0 or 1 (a venue gone silent mid-block, or a
 //  fork without the selector) and the pair answers stable(), `Core._solidlyAsk` prices the
