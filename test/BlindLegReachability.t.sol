@@ -12,7 +12,7 @@ pragma solidity 0.8.36;
 //              || (legQuote != 0 && legAmt != 0));
 //
 //  so a leg with neither a caller attestation nor an in-frame quote returns zero
-//  for BOTH `got` and `attested`. The hop loop adds both, which means the leg
+//  for BOTH `got` and `bound`. The hop loop adds both, which means the leg
 //  leaves no trace on either side of the aggregate comparison at Router:1299:
 //
 //      slack = mulDiv(hopBound / hopQuoted, BPS - LEG_FLOOR_BPS, BPS);

@@ -147,28 +147,28 @@ abstract contract SqFixture is Test {
     }
 
     /// A V3 book the capacity clamp can bind (test/CapacityWalkBudget.t.sol's), twenty ticks on
-    /// each side, holding `held` of each token.
-    function _heavy(address a, address b, uint24 fee, uint128 liq, uint256 held) internal returns (address) {
+    /// each side, holding `holdings` of each token.
+    function _heavy(address a, address b, uint24 fee, uint128 liq, uint256 holdings) internal returns (address) {
         HeavyBookPool p = new HeavyBookPool(a, b, fee, TS);
         p.setState(SP, liq);
         for (int24 i = 1; i <= 20; ++i) {
             p.setTick(-i * TS, int128(liq / 1000));
             p.setTick(i * TS, -int128(liq / 1000));
         }
-        MockERC20(a).mint(address(p), held);
-        MockERC20(b).mint(address(p), held);
+        MockERC20(a).mint(address(p), holdings);
+        MockERC20(b).mint(address(p), holdings);
         hub.seedPool(address(p), BPC.KIND_V3, fee, address(0), a, b);
         touched.push(address(p));
         return address(p);
     }
 
     /// An Algebra book at price 1: concentrated at the pool as V3 is, and its own kind.
-    function _algebra(address a, address b, uint128 liq, uint256 held) internal returns (address) {
+    function _algebra(address a, address b, uint128 liq, uint256 holdings) internal returns (address) {
         (address c0, address c1) = a < b ? (a, b) : (b, a);
         MockAlgebraPool p = new MockAlgebraPool(c0, c1, 500);
         p.setState(SP, liq);
-        MockERC20(a).mint(address(p), held);
-        MockERC20(b).mint(address(p), held);
+        MockERC20(a).mint(address(p), holdings);
+        MockERC20(b).mint(address(p), holdings);
         hub.seedPool(address(p), BPC.KIND_ALGEBRA, 0, address(0), c0, c1);
         touched.push(address(p));
         return address(p);
@@ -528,9 +528,9 @@ contract SqSameAnswerTest is SqFixture {
         rs = bound(rs, 1e21, 1e27);
         off = bound(off, -3, 3);
         uint256 out = amt * 997 * rs / (rs * 1000 + amt * 997);
-        uint256 held = off < 0 ? out - uint256(-off) : out + uint256(off);
+        uint256 holdings = off < 0 ? out - uint256(-off) : out + uint256(off);
         _v2(tA, tB, rs, rs);
-        _v2Held(tA, tB, rs, rs, rs, held, 30);
+        _v2Held(tA, tB, rs, rs, rs, holdings, 30);
         _sameEveryWay(tA, tB, amt);
     }
 }

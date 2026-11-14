@@ -712,7 +712,7 @@ contract ConditionAdequacyRouterTest is Test {
     ///      delivers real tokenOut that the real program does NOT count into
     ///      hopGot (its guard is false: expectedOut == 0 AND legQuote == 0).
     ///      Neutralising either disjunct arm turns that leg's guard ON with
-    ///      attested still 0, so its delivery joins hopGot and Layer 1 passes.
+    ///      bound still 0, so its delivery joins hopGot and Layer 1 passes.
     function _uncountedDeliveryRoute(uint256 payoutNum, uint256 payoutDen)
         private returns (Route memory r)
     {
@@ -758,7 +758,7 @@ contract ConditionAdequacyRouterTest is Test {
     /// hopGot(2q) + slack(0.2·1.1966q) < hopBound(2.393q). The stunt leg's
     /// q-sized delivery is NOT counted because its guard is false. Force
     /// `expectedOut != 0` true: the stunt guard becomes amt != 0 (its 1462
-    /// ternary still yields bound 0, so no floor and attested 0), its
+    /// ternary still yields bound 0, so no floor and no bound), its
     /// delivery joins hopGot (3q + 0.239q ≥ 2.393q), Layer 1 passes and the
     /// swap SETTLES — the expectRevert is left unsatisfied.
     function test_L1433_expectedOut_uncountedDeliveryDoesNotRescueLayer1() public {

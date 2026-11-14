@@ -77,8 +77,8 @@ contract QuoterExactFloorHoldsWhenTheFeeIsChargedOnTheInputTest is Test {
         Route memory route;
         uint256 exactOut;
         (route, exactOut) = quoter.previewPlanExact(address(tokenA), address(tokenB), 12748);
-        uint256 gross = route.totalOut;
-        assertEq(exactOut, gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS), "plain deduction");
+        uint256 walkOut = route.totalOut;
+        assertEq(exactOut, walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS), "plain deduction");
         tokenA.mint(address(this), 12748);
         tokenA.approve(address(router), 12748);
         uint256 out = router.swapExactIn(route, 12748, exactOut, recipient, block.timestamp + 1);

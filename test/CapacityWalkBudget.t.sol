@@ -124,15 +124,15 @@ contract CapacityWalkBudgetTest is Test {
 
     /// A book the cap binds, twenty initialized ticks on both sides of the price, so a walk
     /// in either direction runs its sixteen stretches.
-    function _heavy(address a, address b, uint24 fee, uint128 liq, uint256 held) internal {
+    function _heavy(address a, address b, uint24 fee, uint128 liq, uint256 holdings) internal {
         HeavyBookPool p = new HeavyBookPool(a, b, fee, TS);
         p.setState(SP, liq);
         for (int24 i = 1; i <= 20; ++i) {
             p.setTick(-i * TS, int128(liq / 1000));
             p.setTick(i * TS, -int128(liq / 1000));
         }
-        MockERC20(a).mint(address(p), held);
-        MockERC20(b).mint(address(p), held);
+        MockERC20(a).mint(address(p), holdings);
+        MockERC20(b).mint(address(p), holdings);
         hub.seedPool(address(p), BPC.KIND_V3, fee, address(0), a, b);
         touched.push(address(p));
     }
@@ -140,17 +140,17 @@ contract CapacityWalkBudgetTest is Test {
     /// Every pair of tIn, tOut and `nBridges` bridges gets `perPair` heavy books.
     function _grid(uint256 nBridges, uint256 perPair) internal { _grid(nBridges, perPair, HELD, L); }
 
-    /// The same grid, every book holding `held` of each token, the direct books declaring `dLiq`.
-    function _grid(uint256 nBridges, uint256 perPair, uint256 held, uint128 dLiq) internal {
+    /// The same grid, every book holding `holdings` of each token, the direct books declaring `dLiq`.
+    function _grid(uint256 nBridges, uint256 perPair, uint256 holdings, uint128 dLiq) internal {
         uint24[6] memory fees = [uint24(3_000), 500, 10_000, 100, 2_500, 400];
         address[] memory b = new address[](nBridges);
         for (uint256 i; i < nBridges; ++i) { b[i] = _token(); hub.addBridge(b[i]); }
         for (uint256 k; k < perPair; ++k) {
-            _heavy(t0, t1, fees[k], dLiq, held);
+            _heavy(t0, t1, fees[k], dLiq, holdings);
             for (uint256 i; i < nBridges; ++i) {
-                _heavy(t0, b[i], fees[k], L, held);
-                _heavy(b[i], t1, fees[k], L, held);
-                for (uint256 j; j < i; ++j) _heavy(b[j], b[i], fees[k], L, held);
+                _heavy(t0, b[i], fees[k], L, holdings);
+                _heavy(b[i], t1, fees[k], L, holdings);
+                for (uint256 j; j < i; ++j) _heavy(b[j], b[i], fees[k], L, holdings);
             }
         }
     }
@@ -482,11 +482,11 @@ contract CapacityWalkBudgetTest is Test {
         assertEq(g.expectedOut, BPC.mulDiv(50e18, 3_000, BPC.BPS), "the leg is promised the cap of its holdings");
     }
 
-    function _pool(address a, address b, uint128 liq, uint256 held) internal returns (HeavyBookPool p) {
+    function _pool(address a, address b, uint128 liq, uint256 holdings) internal returns (HeavyBookPool p) {
         p = new HeavyBookPool(a, b, FEE, TS);
         p.setState(SP, liq);
-        MockERC20(a).mint(address(p), held);
-        MockERC20(b).mint(address(p), held);
+        MockERC20(a).mint(address(p), holdings);
+        MockERC20(b).mint(address(p), holdings);
         hub.seedPool(address(p), BPC.KIND_V3, FEE, address(0), a, b);
     }
 
@@ -565,11 +565,11 @@ contract CapacityWalkBudgetTest is Test {
 
     // ─── One hop: a held book against the rest of its hop ──────────────
 
-    function _book(address a, address b, uint24 fee, uint128 liq, uint256 held) internal returns (MockV3BookPool p) {
+    function _book(address a, address b, uint24 fee, uint128 liq, uint256 holdings) internal returns (MockV3BookPool p) {
         p = new MockV3BookPool(a, b, fee, TS);
         p.setState(SP, liq);
-        MockERC20(a).mint(address(p), held);
-        MockERC20(b).mint(address(p), held);
+        MockERC20(a).mint(address(p), holdings);
+        MockERC20(b).mint(address(p), holdings);
         hub.seedPool(address(p), BPC.KIND_V3, fee, address(0), a, b);
     }
 
