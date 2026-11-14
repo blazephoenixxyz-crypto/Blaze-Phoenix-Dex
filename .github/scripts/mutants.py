@@ -7557,6 +7557,12 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                uint256 aProbe = to18(amountIn, _decIn(c));",
       new="                uint256 aProbe = to18(orderIn, _decIn(c)); // MUTANTE",
       teste="testFuzz_ErrAtTheProbeIgnoresTheOrder"),
+ # 124-L1 C6: tau's rising step, the twin of "L1-124 Core:3242" (test/DimensionsTime.t.sol).
+ dict(nome="L1-124 Core:3241: tau's rising step rounds a whole eighth up, so dt == tau moves the clock",
+      f="src/BlazePhoenixCore.sol",
+      old="                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT) - 1) >> TAU_EMA_SHIFT;",
+      new="                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT)) >> TAU_EMA_SHIFT; // MUTANTE",
+      teste="test_TauFallsWhenTheIntervalShrinks"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
