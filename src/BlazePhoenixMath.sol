@@ -601,12 +601,13 @@ library BlazePhoenixMath {
         // is no chance of overflow in the double of a sum of depths.
         uint256 metade = (massa + 1) / 2;
         uint256 acc;
-        for (uint256 i; i < m; ) {
+        uint256 last = m - 1;   // m >= 1 past the NONE return above
+        for (uint256 i; i < last; ) {
             acc += w[ord[i]];
             if (acc >= metade) return ord[i];
             unchecked { ++i; }
         }
-        return ord[m - 1];
+        return ord[last];   // the last row needs no test: acc plus its vote is massa >= metade
     }
 
     /// @dev Allocation weights for the band's survivors, normalized to [1..10000]:

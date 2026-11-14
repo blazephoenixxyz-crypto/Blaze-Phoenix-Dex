@@ -196,4 +196,59 @@ contract MedianBandMathTest is Test {
         r[3] = _row(0, UNKNOWN, 0, 1e18, true);
         assertEq(_kept(r), 1 | 2 | 4, "a blind base judged the rows on a width it does not have");
     }
+
+
+    // ─── the median's walk: the last row crosses (Math `_wMedian`, INERT-3) ─────────────────
+
+    /// Three rows priced far apart (0.5, 0.7, 0.9: each one past the others' band), so the band
+    /// keeps the base alone and `select`'s kept set names the median. The deepest row is the
+    /// dearest, last in the price order: masses (1, 1, 3), total 5, the walk reaches 1, then 2,
+    /// short of half (2.5), and crosses only at the last row. Mutant (`return ord[last]` ->
+    /// `return ord[0]`): the base is the cheapest row and the kept set is {row 0}.
+    function test_MedianCrossesAtTheLastRow() public view {
+        assertEq(_kept(_spread(1e18, 1e18, 3e18)), 1 << 2, "the median crossing at the last row was not the base");
+    }
+
+    /// Control: masses (1, 1, 2), total 4: the walk reaches exactly half at the middle row, so the
+    /// inner loop returns before the last row. Mutant (the walk stops one row early, `i + 1 < last`):
+    /// the middle row is never tested and the last row is read as the base.
+    function test_MedianCrossesBeforeTheLastRow_Control() public view {
+        assertEq(_kept(_spread(1e18, 1e18, 2e18)), 1 << 1, "a median crossing at the middle row was not the base");
+    }
+
+    /// Twins (two rows, one mass each): half the mass is the first row's, so the base is the
+    /// cheaper one - the walk's tie goes to the lower price.
+    function test_MedianOfTwinsIsTheCheaperRow() public view {
+        Row[] memory r = new Row[](2);
+        r[0] = _row(9e17, 3000, 0, 1e18, false);
+        r[1] = _row(5e17, 3000, 0, 1e18, false);
+        assertEq(_kept(r), 1 << 1, "the twins' median was not the cheaper row");
+    }
+
+    /// [derivado] Any masses, any arrival order: the base is the lowest-priced row at which the
+    /// cumulative mass reaches half the total, read here as 2 * cum >= total (an oracle that is
+    /// not `_wMedian`'s `(massa + 1) / 2`). Masses up to 1e30 each (no overflow in either form).
+    function testFuzz_TheBaseIsTheWeightedMedian(uint96 a, uint96 b, uint96 c, uint8 perm) public view {
+        uint256[3] memory m = [uint256(bound(a, 1, 1e30)), uint256(bound(b, 1, 1e30)), uint256(bound(c, 1, 1e30))];
+        uint256 total = m[0] + m[1] + m[2];
+        uint256 want = 2;   // price rank 0, 1, 2 = 0.5, 0.7, 0.9
+        if (2 * m[0] >= total) want = 0;
+        else if (2 * (m[0] + m[1]) >= total) want = 1;
+        // arrival order: one of the six permutations, rank k sits at position pos[k]
+        uint256[3][6] memory P = [[uint256(0), 1, 2], [uint256(0), 2, 1], [uint256(1), 0, 2],
+                                  [uint256(1), 2, 0], [uint256(2), 0, 1], [uint256(2), 1, 0]];
+        uint256[3] memory pos = P[perm % 6];
+        uint256[3] memory rate = [uint256(5e17), 7e17, 9e17];
+        Row[] memory r = new Row[](3);
+        for (uint256 k; k < 3; ++k) r[pos[k]] = _row(rate[k], 3000, 0, m[k], false);
+        assertEq(_kept(r), 1 << pos[want], "the base was not the weighted median");
+    }
+
+    /// Rows at 0.5, 0.7, 0.9 (0.3% each, exact probes) carrying the given masses, in price order.
+    function _spread(uint256 m0, uint256 m1, uint256 m2) internal pure returns (Row[] memory r) {
+        r = new Row[](3);
+        r[0] = _row(5e17, 3000, 0, m0, false);
+        r[1] = _row(7e17, 3000, 0, m1, false);
+        r[2] = _row(9e17, 3000, 0, m2, false);
+    }
 }

@@ -273,6 +273,17 @@ quote is the **lowest observed** across pinned-seed runs, because every run's cl
 of what that run executed, so a lower number is never contradicted by a higher one. Any citation
 should say how many runs it rests on — this one rests on two.
 
+**A fallback no input could reach, made the regular case (2026-11-14).** `Math._wMedian` walked
+every row of the price order and then returned the last row in case none had crossed half the
+mass. None could fail to: the mass is the checked sum of the votes, the running sum after the last
+row equals it, and half is `(massa + 1) / 2 <= massa` once `massa >= 1` (a zero mass returns
+earlier). The line never ran, `_wMedian` is private, and no mutant on it could die. The walk now
+stops before the last row and returns it untested, since its vote always completes the half: the
+line is the median whenever the mass crosses only at the dearest row. `test/MedianBandMath.t.sol`
+reads it through `select` (masses 1, 1, 3: the last row; control 1, 1, 2: the middle row; twins;
+a fuzz over three masses and six arrival orders against `2 * cum >= total`); the mutants
+[L0-124 Math:609] return the cheapest row instead, or stop the walk one row early.
+
 ## 4f. How far each refusal observes from what decides
 
 Every defect confirmed in this repository, internal or reported, has one shape: a check observes

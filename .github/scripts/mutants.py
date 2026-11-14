@@ -7520,6 +7520,20 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (!fell) return (r, fl);",
       new="        if (true) return (r, fl); // MUTANTE",
       teste="test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay"),
+# [L0-124 Math:609] (2026-11-14, owner's decision): `_wMedian`'s fallback `return ord[m - 1];`
+# after the walk could not run (acc reaches massa >= metade = (massa + 1) / 2 at the last row at the
+# latest), so no mutant on it could die. The walk now stops before the last row and returns it
+# untested; the two mutants below guard that return and the walk's bound.
+ dict(nome="L0-124 Math:609: the weighted median falls back to the cheapest row when the mass crosses half only at the last row",
+      f="src/BlazePhoenixMath.sol",
+      old="        return ord[last];   // the last row needs no test: acc plus its vote is massa >= metade",
+      new="        return ord[0]; // MUTANTE",
+      teste="test_MedianCrossesAtTheLastRow"),
+ dict(nome="L0-124 Math:609: the median walk stops one row early, so a crossing at the middle row is read as the last row",
+      f="src/BlazePhoenixMath.sol",
+      old="        uint256 last = m - 1;   // m >= 1 past the NONE return above\n        for (uint256 i; i < last; ) {",
+      new="        uint256 last = m - 1;   // m >= 1 past the NONE return above\n        for (uint256 i; i + 1 < last; ) { // MUTANTE",
+      teste="test_MedianCrossesBeforeTheLastRow_Control"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
