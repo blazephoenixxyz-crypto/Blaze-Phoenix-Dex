@@ -453,6 +453,122 @@ class SiteUniverse(unittest.TestCase):
         self.assertEqual(self.on_disk["swaps_per_chain"], 7)
 
 
+class AliveAtB0(unittest.TestCase):
+    """H1/H1b (G7-COBERTURA 1c): a class stratum ranks only a pool that exists at b0, the window's
+    first block. The inventory is measured at B_inv, after the window, so a pool created inside the
+    window ranked as a stratum and every draw before its creation was a noquote of a market that
+    did not exist yet (55 + 17 draws in results-bb4cdbb). Red at 3388b86 (before the fix)."""
+    V4P = "0x" + "78" * 32  # v4native PoolId
+
+    def rows(self):
+        t = lambda n: a(0x1100 + n)
+        R = inventory_rows()
+        R.append(row("base", "v4native", self.V4P, bs.Z, t(40), 20, "fee_low", factory=a(0x4444)))
+        return R
+
+    def facts(self, dead, missing=()):
+        """alive_b0 for every class candidate of base: 0 for `dead`, none for `missing`."""
+        out = []
+        for r in self.rows():
+            if r["chain"] != "base" or r["pool"] in missing or not (bs.classes(r) - {"gate_top3"}):
+                continue
+            out.append({"chain": "base", "key": "alive_b0", "subject": r["pool"].lower(),
+                        "value": "0" if r["pool"] in dead else "1", "source": "t"})
+        return out
+
+    def build(self, facts):
+        with tempfile.TemporaryDirectory() as d:
+            write_inputs(d, self.rows())
+            spec, _, _, nc = bs.build(d, ONCHAIN + facts, d)
+        return spec["chains"]["base"]["strata"], nc
+
+    # Mutant: the alive_b0 condition removed (a pool without code / an uninitialised V4 pool at b0 ranks).
+    def test_dead_pool_at_b0_is_not_covered_not_a_stratum(self):
+        t = lambda n: a(0x1100 + n)
+        strata, nc = self.build(self.facts(dead={a(0x1223), self.V4P}))
+        toks = {s["tA"] for s in strata} | {s["tB"] for s in strata}
+        self.assertNotIn(t(23), toks)  # shallow pool without code at b0
+        self.assertNotIn(t(40), toks)  # v4 pool with slot0 = 0 at b0
+        self.assertEqual([s["tA"] for s in strata if s["kind"] == "shallow"], [t(27), t(21), t(29)])
+        why = {r for c, scope, r in nc if c == "base"}
+        self.assertIn("pool not alive at b0 (created after the window start): %s" % a(0x1223), why)
+        self.assertIn("pool not alive at b0 (created after the window start): %s" % self.V4P, why)
+
+    # Mutant: a candidate without an alive_b0 fact treated as alive (absent read as alive).
+    def test_unmeasured_candidate_is_not_ranked_when_the_pass_ran(self):
+        t = lambda n: a(0x1100 + n)
+        strata, nc = self.build(self.facts(dead=set(), missing={a(0x1223)}))
+        self.assertNotIn(t(23), {s["tA"] for s in strata})
+        self.assertIn(("base", "shallow", "liveness at b0 not measured (absent, not zero): %s" % a(0x1223)), nc)
+
+    # Mutant: the rule applied without facts (every class stratum dropped on the committed onchain.tsv).
+    def test_chain_without_the_liveness_pass_keeps_the_classes(self):
+        strata, _ = self.build([])
+        self.assertIn(a(0x1100 + 40), {s["tB"] for s in strata if s["kind"] == "fee_low"})
+
+
+class AliveProbe(unittest.TestCase):
+    """bs.alive_at(rpc, row, block): the fact fetch() writes. V2/V3-like: eth_getCode(pool, b0) != 0x.
+    V4: extsload(keccak(poolId, 6)) at b0 != 0 and code at b0 for each non-native token."""
+    PM, T1 = a(0x4444), a(0x13F8)
+
+    class Rpc:
+        def __init__(self, code, slot0):
+            self.code, self.slot0, self.seen = code, slot0, []
+
+        def call(self, method, params):
+            self.seen.append((method, params[-1]))
+            if method == "eth_getCode":
+                return self.code.get(params[0].lower(), "0x")
+            assert method == "eth_call", method
+            return "0x" + format(self.slot0, "064x")
+
+    def v4row(self):
+        return row("robinhood", "v4native", AliveAtB0.V4P, bs.Z, self.T1, 1, "fee_low", factory=self.PM)
+
+    # Mutant: the eth_getCode test removed (a pool without code at b0 reads alive).
+    def test_v2_without_code_at_b0_is_dead(self):
+        r = row("base", "v2", a(0x77), a(1), a(2), 1, "shallow")
+        rpc = self.Rpc({}, 0)
+        self.assertEqual(bs.alive_at(rpc, r, 100)[0], "0")
+        self.assertEqual(rpc.seen, [("eth_getCode", hex(100))])
+        self.assertEqual(bs.alive_at(self.Rpc({a(0x77): "0x60"}, 0), r, 100)[0], "1")
+
+    # Mutant: the slot0 test removed (an uninitialised V4 pool at b0 reads alive).
+    def test_v4_with_slot0_zero_at_b0_is_dead(self):
+        self.assertEqual(bs.alive_at(self.Rpc({self.T1: "0x60"}, 0), self.v4row(), 103312738)[0], "0")
+        self.assertEqual(bs.alive_at(self.Rpc({self.T1: "0x60"}, 1 << 100), self.v4row(), 103312738)[0], "1")
+
+    # Mutant: the token code test removed (a V4 pool whose token has no code at b0 reads alive).
+    def test_v4_token_without_code_at_b0_is_dead(self):
+        self.assertEqual(bs.alive_at(self.Rpc({}, 1 << 100), self.v4row(), 103312738)[0], "0")
+
+    # Mutant: the state slot taken as keccak(id, 0) instead of keccak(id, 6) (v4-core StateLibrary.POOLS_SLOT).
+    def test_v4_reads_the_pools_slot_of_the_pool_manager(self):
+        rpc = self.Rpc({self.T1: "0x60"}, 1)
+        _, src = bs.alive_at(rpc, self.v4row(), 7)
+        self.assertEqual([p for p in rpc.seen if p[0] == "eth_call"], [("eth_call", hex(7))])
+        self.assertIn(inventory.k256hex(bytes.fromhex(AliveAtB0.V4P[2:] + "00" * 31 + "06"))[2:], src)
+
+
+@unittest.skipUnless(os.environ.get("G7_FORK") == "1", "fork test: set G7_FORK=1 (RPC from g7.Rpc, key never printed)")
+class ForkAliveAtB0(unittest.TestCase):
+    """H1b on the chain: robinhood fee_low-1 ranked the v4native pool 0x78b6...018a (liq_usd 58790 at
+    B_inv), whose slot0 is 0 at the draw block 103312738 (G7-COBERTURA 1, v4key.py). Run:
+    G7_FORK=1 python3 -I tools/g7-gas-campaign/test_build_spec.py ForkAliveAtB0"""
+    ROW = row("robinhood", "v4native", "0x78b62952f2c142c0f777bf580a3da68e42e4ed6a911011d747674250dc87018a",
+              bs.Z, "0x13f84889496a614ae99f9227f534700c10694055", 58790.2, "fee_low",
+              factory="0x8366a39cc670b4001a1121b8f6a443a643e40951")
+
+    # Mutant: the slot0 test and the token code test both removed (either one alone kills this pool:
+    # slot0 = 0 and the token 0x13f8... has no code at 103312738; one-check mutants die offline).
+    def test_robinhood_fee_low_1_pool_is_dead_at_the_draw_block_and_alive_at_head(self):
+        from g7 import Rpc
+        rpc = Rpc("robinhood")
+        self.assertEqual(bs.alive_at(rpc, self.ROW, 103312738)[0], "0")
+        self.assertEqual(bs.alive_at(rpc, self.ROW, int(rpc.call("eth_blockNumber", []), 16))[0], "1")
+
+
 class Criteria(unittest.TestCase):
     """The spec's "criteria" is the module docstring's Criteria section, verbatim: in the built spec
     and in every committed spec.json (the committed text had gone stale once, fixed in 19f96d3)."""

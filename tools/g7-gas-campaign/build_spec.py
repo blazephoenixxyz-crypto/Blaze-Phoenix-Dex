@@ -21,6 +21,12 @@ chosen by hand except the constants below, each with its source. Criteria:
   * amounts: measured balance of the input token in the pair's deepest pool x 1e-7 .. 1e-1.
   * seed_pools: <= 3 deepest seedable (non-gate) pools of the pair; mid_pool: deepest v2/v3/algebra.
 A chain or family that cannot be covered gets a row in prereg/not_covered.tsv, never a number.
+
+Liveness at b0 (H1/H1b, G7-COBERTURA 1c; an amendment to the criteria above, pending the owner):
+fetch writes alive_b0 for every class candidate (eth_getCode(pool, b0) != 0x; V4 / Infinity:
+the pool's state word at b0 != 0 and code at b0 for each non-native token), b0 = the first block
+with ts >= window t0. When a chain has alive_b0 facts, a class candidate ranks only with
+alive_b0 = 1; 0 or absent goes to not_covered. A chain without the facts keeps the classes.
 """
 import json, os, sys
 
@@ -153,6 +159,34 @@ def seed_pools(rows):
              "hooks": (r.get("hooks") or Z).lower()} for r in ok[:3]]
 
 
+V4_FAMS = {"v4", "v4native"}
+ID_FAMS = V4_FAMS | {"inf_bin", "inf_cl"}  # pool column is a PoolId; the manager is the factory column
+
+
+def alive_at(rpc, r, block):
+    """("1" | "0", source): does the row's pool exist at `block`? Address pools: code at block.
+    PoolId pools: the manager's state word (V4 extsload(keccak(id, 6)) = slot0; Infinity getSlot0)
+    != 0 and code for each non-native token. An RPC error raises: no fact is written (absent)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import inventory as inv
+    b, p = hex(block), r["pool"].lower()
+    if r["family"] not in ID_FAMS:
+        c = rpc.call("eth_getCode", [p, b])
+        return ("0" if c in ("0x", "", None) else "1"), "eth_getCode(pool)@%d" % block
+    pm = r["factory"].lower()
+    if r["family"] in V4_FAMS:
+        slot = inv.w(hex(inv.v4_state_slot(p)))
+        data, src = "0x" + inv.SEL["extsload"][2:] + slot, "extsload(%s)" % slot
+    else:
+        data, src = "0x" + inv.SEL["getSlot0"][2:] + inv.w(p), "getSlot0(id)"
+    s0 = rpc.call("eth_call", [{"to": pm, "data": data}, b])
+    ok = int(s0[2:66] or "0", 16) != 0
+    for t in (r["token0"].lower(), r["token1"].lower()):
+        if ok and t != Z:
+            ok = rpc.call("eth_getCode", [t, b]) not in ("0x", "", None)
+    return ("1" if ok else "0"), "%s@%d on %s;eth_getCode(tokens)" % (src, block, pm)
+
+
 def mid_pool(rows):
     ok = sorted((r for r in rows if r["family"] in MID_FAM and liq(r)), key=lambda r: -liq(r))
     if not ok:
@@ -243,6 +277,7 @@ def build(g7dir, onchain_rows, outdir, universe=None, swaps=SWAPS_PER_CHAIN):
     adapters, wrappers, notcov, strata_rows = [], [], [], []
     for chain in CHAINS:
         rows = [r for r in inv if r["chain"] == chain]
+        live_pass = any(o["chain"] == chain and o["key"] == "alive_b0" for o in onchain_rows)
         by_pair = {}
         for r in rows:
             by_pair.setdefault(pair(r), []).append(r)
@@ -315,6 +350,11 @@ def build(g7dir, onchain_rows, outdir, universe=None, swaps=SWAPS_PER_CHAIN):
                 pk = pair(r)
                 if pk in used or (cls == "family_rep" and r["family"] in fams):
                     continue
+                alive = onchain.get(("alive_b0", r["pool"].lower()))
+                if live_pass and alive != "1":
+                    notcov.append((chain, cls, ("pool not alive at b0 (created after the window start): %s" if alive == "0" else
+                                                "liveness at b0 not measured (absent, not zero): %s") % r["pool"].lower()))
+                    continue
                 prs = by_pair[pk]
                 ta, tb = r["token0"].lower(), r["token1"].lower()
                 a, b = amounts(depth_of(prs, ta)), amounts(depth_of(prs, tb))
@@ -375,6 +415,11 @@ def fetch(g7dir, out):
         bt = (rpc.ts(latest) - rpc.ts(f0)) / (latest - f0)
         rows.append({"chain": chain, "key": "block_time", "subject": chain, "value": "%.4f" % bt,
                      "source": "(ts(%d)-ts(%d))/(%d-%d)" % (latest, f0, latest, f0)})
+        b0 = rpc.first_at_or_after(WINDOW["t0"], f0, latest)
+        for r in inv:
+            if r["chain"] == chain and classes(r) - {"gate_top3"} and liq(r) and liq(r) > 0:
+                v, src = alive_at(rpc, r, b0)
+                rows.append({"chain": chain, "key": "alive_b0", "subject": r["pool"].lower(), "value": v, "source": src})
         for r in inv:
             if r["chain"] != chain or "gate_top3" not in classes(r):
                 continue

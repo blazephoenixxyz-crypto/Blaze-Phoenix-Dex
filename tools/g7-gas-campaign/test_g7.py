@@ -839,6 +839,42 @@ class GRecordShape(unittest.TestCase):
         self.assertEqual(s, ["base\t1\t1\t20\t10000\t19000\t19\t100\t"])  # D rank 19 of 20; M0 n 19: none
 
 
+class SwapCoverage(unittest.TestCase):
+    """H2 (G7-COBERTURA 1c): mf_unforced says the MF counterfactual could not be forced, not that the
+    swap failed. Swap coverage counts an mf_unforced row as its natural twin M<age> (same draw, same
+    seeded memory, unforced): ok if the twin is ok. The denominator stays every row. In
+    results-bb4cdbb 366 of 534 mf_unforced rows were of draws whose 6 other modes were ok.
+    Red at a1849b4 (before the fix)."""
+    SPEC8 = dict(SPEC, ages={"M0": 0, "M1h": 3600, "M6h": 21600, "M24h": 86400, "M72h": 259200},
+                 mf_ages=["M24h", "M72h"])
+    HDR = ("# swap coverage (mf_unforced counts as its twin M<age>; denominator = every row): "
+           "chain\tn\tok\tmf_unforced_twin_ok\tswap_ok\tswap_ok_pct")
+    NAT = ("D", "M0", "M1h", "M6h", "M24h", "M72h")
+
+    def draw(self, idx, nat, mf=("mf_unforced", "mf_unforced")):
+        rows = [okrow(m, idx=idx, b=100 * idx, outcome=o) for m, o in zip(self.NAT, nat)]
+        return rows + [okrow(m, idx=idx, b=100 * idx, outcome=o) for m, o in zip(("MF24h", "MF72h"), mf)]
+
+    def rows(self):
+        return (self.draw(1, ["ok"] * 6) +                                     # oooooouu: 8/8
+                self.draw(2, ["noquote"] * 6) +                                # nnnnnnuu: 0/8
+                self.draw(3, ["ok", "ok", "ok", "ok", "noquote", "ok"]))       # MF24h twin noquote: 6/8
+
+    # Mutant "mf_unforced is a swap failure": the twin rule dropped (oooooouu counts 6/8, not 8/8).
+    def test_draw_with_swap_ok_and_mf_unforced_counts_8_of_8(self):
+        cov = g7.swap_coverage(self.draw(1, ["ok"] * 6))
+        self.assertEqual(cov, {"base": (8, 6, 2)})
+
+    # Mutant "any mf_unforced is ok": the twin's outcome not checked (draws 2 and 3 gain 3 rows).
+    # Mutant "twin is D": the twin taken as the draw's D row (draw 3 MF24h counts ok).
+    def test_report_counts_mf_unforced_as_its_twin_over_every_row(self):
+        lines = report_lines(self.rows(), self.SPEC8)
+        self.assertIn(self.HDR, lines)
+        self.assertEqual(section(lines, self.HDR), ["base\t24\t11\t3\t14\t58.3"])
+        # the outcomes table still counts mf_unforced as its own outcome
+        self.assertIn("base\tpairs\tMF24h\t3\t0\t0\t0\t0\t0\t0\t3", lines)
+
+
 class Seed(unittest.TestCase):
     """The measure takes the pre-registered seed (seed.txt, a block hash fixed after the
     pre-registration commit, seed.py); no dispatch input can choose it."""
