@@ -5,19 +5,19 @@ pragma solidity 0.8.36;
 //  C4 - the T19 RE-ADMISSION edge: addFactory called TWICE on an Algebra-mode
 //  factory whose poolDeployer() answer moved between the two calls.
 //
-//  WHAT T19 BOUGHT. Hub:690-692 freezes the Algebra CREATE2 origin at
+//  WHAT T19 BOUGHT. Hub:902-934 freezes the Algebra CREATE2 origin at
 //  admission:
 //
 //      if (mode == MODE_CREATE2_V3) {
 //          $.factoryDeployer[factory] = BPC.resolvePoolDeployer(factory);
 //      }
 //
-//  and Hub:962-967 derives mode-5 fee-0 probes from that attested value
+//  and Hub:1225-1230 derives mode-5 fee-0 probes from that attested value
 //  instead of asking the factory live. The stated guarantee is that the one
 //  derive input a factory could still steer after admission is no longer live.
 //
 //  WHAT THIS FILE IS ABOUT. `addFactory` is a CURATOR power: `onlyAdmin`, and
-//  `renounceControl()` deliberately keeps it alive (Hub:408-416). Every call
+//  `renounceControl()` deliberately keeps it alive (Hub:468-476). Every call
 //  re-executes the write above unconditionally. So a SECOND admission of an
 //  already-admitted factory re-attests whatever the factory answers at that
 //  moment, and the mapping is keyed by factory ADDRESS - it is shared by every
@@ -31,12 +31,12 @@ pragma solidity 0.8.36;
 //             A second `addFactory` on an already-admitted mode-5 factory must
 //             never leave any of that factory's rows deriving from an origin
 //             the operator did not attest, and must never leave them deriving
-//             from NO attestation at all (a zero pin, which Hub:963 degrades to
+//             from NO attestation at all (a zero pin, which Hub:1226 degrades to
 //             `orig = fac.factory` and which darkens every Algebra pool of that
 //             factory permanently, since there is no removeFactory and every
 //             later re-admission re-resolves to the same zero).
 //
-//  THE SIBLING THAT WAS ALREADY FIXED. `allowHook` (Hub:488-496) is the same
+//  THE SIBLING THAT WAS ALREADY FIXED. `allowHook` (Hub:551-559) is the same
 //  shape and was closed hours ago: after renunciation, re-listing an
 //  already-listed hook whose runtime moved is REFUSED, while re-listing an
 //  UNCHANGED hook still works. `addFactory` is the untreated twin of that fix
@@ -59,7 +59,7 @@ pragma solidity 0.8.36;
 //    test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer     RED today
 //
 //  THE ROW THE FIX OF 2026-09-03 DID NOT COVER (added 2026-09-03, second
-//  pass). The freeze the comment at Hub:720-726 promises is written as two
+//  pass). The freeze the comment at Hub:896-902 promises is written as two
 //  arms, and only the second one is gated:
 //
 //      if (pinned == address(0))                           $.factoryDeployer[factory] = live;
@@ -69,7 +69,7 @@ pragma solidity 0.8.36;
 //  five and none of them ever reaches the first arm. A row that was admitted
 //  under a NON-mode-5 configuration never executed the block at all, so its
 //  pin is still zero - and `addFactory` is `onlyAdmin`, which outlives
-//  `renounceControl()`, while the codehash guard at Hub:710 is satisfied by a
+//  `renounceControl()`, while the codehash guard at Hub:882 is satisfied by a
 //  factory that moved its answer in STORAGE (asserted, not assumed, at :239).
 //  Three transactions - admit F at mode 4, renounce, re-admit F at mode 5 -
 //  therefore take the UNGATED arm and write a live, factory-chosen attestation
@@ -174,13 +174,13 @@ contract T19ReadmissionEdgeTest is Test {
 
     // ─── reading the T19 attestation itself ──────────────────────────────
     //
-    // `$.factoryDeployer` (Hub:339) lives inside the ERC-7201 struct and has no
+    // `$.factoryDeployer` (Hub:386) lives inside the ERC-7201 struct and has no
     // getter, so the pin is read straight out of storage. The namespace is
     // RE-DERIVED here from the ERC-7201 formula over the same literal string
     // rather than imported, in the same spirit as `_algebraPool`: the object
     // under test is never its own oracle.
     //
-    // The field index is COUNTED from the struct declaration (Hub:283-340) —
+    // The field index is COUNTED from the struct declaration (Hub:330-387) —
     // admin, router, solver, quoter (two addresses never share a slot), then
     // operator, slot, poolOf, hooksOf, pairKeys, the three-word `bridges` fixed
     // array, bridgeCount_, isBridge, factories, v4Entries, v4PoolManager,
@@ -261,13 +261,13 @@ contract T19ReadmissionEdgeTest is Test {
     // =========================================================================
 
     /// CLAIM: after `renounceControl()` there is no control-plane response left
-    /// (Hub:408-416 says so, and `allowHook` was closed on exactly that
-    /// argument at Hub:496). The surviving curator lever must therefore not
+    /// (Hub:468-476 says so, and `allowHook` was closed on exactly that
+    /// argument at Hub:559). The surviving curator lever must therefore not
     /// double as the cancel button of the T19 attestation: re-admitting a
     /// factory whose poolDeployer() answer MOVED since admission must not hand
     /// the derivation back to the live answer.
     ///
-    /// RED before the fix: `addFactory` survives renunciation, re-executes Hub:691
+    /// RED before the fix: `addFactory` survives renunciation, re-executes Hub:933
     /// unconditionally, and `factoryDeployer[fac]` becomes DEP_SWAPPED for the
     /// pre-renounce row as well as the new one. Discovery then serves the pool
     /// the factory steered to, and the honestly attested pool stops being
@@ -318,8 +318,8 @@ contract T19ReadmissionEdgeTest is Test {
     /// origin falling back to the factory and "every Algebra pool of that
     /// factory going dark" - is a failure this codebase already paid to fix
     /// once, at the returndata-policy level. Re-admission re-opens it from the
-    /// other side: the write at Hub:691 is unconditional, so a factory whose
-    /// resolver has since died attests address(0), Hub:963 degrades that to
+    /// other side: the write at Hub:933 was unconditional (before the `row == n` gate), so a factory whose
+    /// resolver has since died attests address(0), Hub:1226 degrades that to
     /// `orig = fac.factory`, and the previously served pools stop being
     /// derived. It is unrecoverable: there is no removeFactory, and every
     /// further re-admission resolves to the same zero.
@@ -369,11 +369,11 @@ contract T19ReadmissionEdgeTest is Test {
 
     /// CLAIM: after `renounceControl()` no factory-supplied answer may become
     /// an attested CREATE2 origin - not for a row that already has one (arm #1
-    /// above), and not for a row that has none. Hub:720-726 states the property
+    /// above), and not for a row that has none. Hub:896-902 states the property
     /// without the qualifier: "after renunciation the attested origin is FROZEN:
     /// the live answer may not move it". A slot that has never been written is
-    /// as much part of "the attested origin" as one that has, because Hub:1001
-    /// reads the same mapping either way and Hub:339 documents zero as a
+    /// as much part of "the attested origin" as one that has, because Hub:1225
+    /// reads the same mapping either way and Hub:386 documents zero as a
     /// MEANING ("the factory itself is the origin"), not as an absence.
     ///
     /// THE ORDERING, three transactions, none of which needs a malicious admin:
@@ -383,7 +383,7 @@ contract T19ReadmissionEdgeTest is Test {
     ///   2. `renounceControl()`. Every control-plane response is now dead:
     ///      there is no setPaused, no removeFactory, no de-listing, for ever.
     ///   3. F is re-admitted at mode 5 - the ordinary curator gesture the
-    ///      docstring at Hub:411-418 promises to keep alive, and which
+    ///      docstring at Hub:468-475 promises to keep alive, and which
     ///      `..._UnchangedAnswer_AfterRenounce_IsAccepted` below REQUIRES to
     ///      keep working. `pinned == 0`, so the UNGATED first arm runs and
     ///      writes whatever the factory answers at that moment.
@@ -399,7 +399,7 @@ contract T19ReadmissionEdgeTest is Test {
     ///     delta is attributable to that call alone;
     ///   * `setPaused` is shown to be dead, so renunciation really happened;
     ///   * the factory's codehash is shown to be unchanged across the answer
-    ///     swap, so the guard at Hub:710 is passed rather than dodged;
+    ///     swap, so the guard at Hub:882 is passed rather than dodged;
     ///   * a pool is etched at the steered derivation before the call, so its
     ///     appearance in discovery is a behavioural change and not an artefact
     ///     of `hasCode`.
@@ -409,7 +409,7 @@ contract T19ReadmissionEdgeTest is Test {
     /// Hub, not written down here.
     ///
     /// try/catch: a fix that REFUSES the third call and a fix that accepts it
-    /// while leaving the pin at zero (Hub:1001 then derives from the factory
+    /// while leaving the pin at zero (Hub:1225 then derives from the factory
     /// itself, which is the documented meaning of a zero pin) both satisfy it.
     function test_C4_FirstPin_AfterRenounce_MustNotAttestTheLiveAnswer() public {
         // Premise A: the storage reader really addresses $.factoryDeployer. A
@@ -441,11 +441,11 @@ contract T19ReadmissionEdgeTest is Test {
         assertFalse(controlAlive, "premise: control is really renounced");
 
         // The factory moves its answer in STORAGE. Its runtime - and therefore
-        // its codehash - is untouched, which is precisely what Hub:710 checks.
+        // its codehash - is untouched, which is precisely what Hub:882 checks.
         bytes32 chBefore = address(fac).codehash;
         fac.setPoolDeployer(DEP_SWAPPED);
         assertEq(address(fac).codehash, chBefore,
-            "premise: the codehash guard at Hub:710 sees nothing here");
+            "premise: the codehash guard at Hub:882 sees nothing here");
 
         // Fixtures BEFORE the call under test: a pool exists at the steered
         // derivation, and is not being served yet.
@@ -465,7 +465,7 @@ contract T19ReadmissionEdgeTest is Test {
         assertEq(hub.factoryCount(), 2,
             "premise: the third call refreshed F's row, it did not push a new one");
         assertEq(_pinOf(address(fac)), pinBefore,
-            "a factory-chosen CREATE2 origin was attested for the FIRST time AFTER renounceControl: the ungated arm at Hub:729 wrote the live answer into a pin that had never been set");
+            "a factory-chosen CREATE2 origin was attested for the FIRST time AFTER renounceControl: the ungated arm at Hub:933 wrote the live answer into a pin that had never been set");
         _assertNeverServes(poolSteered,
             "the steered derivation must never become a candidate");
         assertEq(_pinOf(address(control)), DEP_HEALTHY,
@@ -574,7 +574,7 @@ contract T19ReadmissionEdgeTest is Test {
     /// REPAIRED 2026-09-03 (VACUOUS as drafted). The drafted assertion was
     /// `assertTrue(hits.length <= 1)`, which is true on the broken tree, the
     /// fixed tree and the zero-pin tree alike: one factory address yields one
-    /// derived origin and `_probe` dedups (Hub:973-978). Only the absence of a
+    /// derived origin and `_probe` dedups (Hub:1242-1247). Only the absence of a
     /// revert carried meaning, so a green stated no behaviour.
     ///
     /// WHY NOT THE FORM THE LENS PROPOSED. One recheck offered
@@ -626,8 +626,8 @@ contract T19ReadmissionEdgeTest is Test {
     //  RED at 6334df6; green under the `row == n` gate.
     // =========================================================================
 
-    /// CLAIM: the same freeze, reached without ever changing a row's mode. `Hub:729` writes
-    /// `live` even when the resolver answers NOTHING, and `Hub:339` documents zero as a
+    /// CLAIM: the same freeze, reached without ever changing a row's mode. `Hub:933` writes
+    /// `live` even when the resolver answers NOTHING, and `Hub:386` documents zero as a
     /// MEANING - "the factory itself is the origin" - not as an absence. So a row admitted
     /// while its resolver was silent carries a zero pin FOR EVER, and the `pinned == 0` arm
     /// stays open on it. Every plain V3-family factory with no `poolDeployer()` selector is
@@ -661,7 +661,7 @@ contract T19ReadmissionEdgeTest is Test {
         fac.setAnswers(true);
         fac.setPoolDeployer(DEP_SWAPPED);
         assertEq(address(fac).codehash, chBefore,
-            "premise: the codehash guard at Hub:710 sees nothing - only the ANSWER moved");
+            "premise: the codehash guard at Hub:882 sees nothing - only the ANSWER moved");
         vm.etch(_algebraPool(DEP_SWAPPED), hex"fe");
 
         hub.addFactory(
@@ -682,11 +682,11 @@ contract T19ReadmissionEdgeTest is Test {
     ///
     /// WHY THIS IS WORSE THAN THE PIN IT SITS NEXT TO. A moved derivation origin still binds
     /// the result to `create2(origin, salt, initHash)` - the attacker must find an origin whose
-    /// derivation lands somewhere useful. An ASK row has no such binding: `Hub:951` applies the
+    /// derivation lands somewhere useful. An ASK row has no such binding: `Hub:1162` applies the
     /// codehash pin only to `fac.mode < 4`, and it is satisfied by code that never moved, so a
     /// proxy is asked, live, for the pool address of every pair and may answer anything.
     ///
-    /// The docstring at Hub:937-947 is right that a derive row answers "a theorem the factory
+    /// The docstring at Hub:1148-1158 is right that a derive row answers "a theorem the factory
     /// cannot influence". What it does not say is that the row's mode is mutable by the one
     /// lever that outlives the control plane, so the theorem can be revoked after nobody is
     /// left to object.
@@ -705,7 +705,7 @@ contract T19ReadmissionEdgeTest is Test {
         bytes32 chBefore = address(fac).codehash;
         fac.setPoolDeployer(DEP_SWAPPED);
         assertEq(address(fac).codehash, chBefore,
-            "premise: only the ANSWER moved - the codehash guard at Hub:710 is passed, not dodged");
+            "premise: only the ANSWER moved - the codehash guard at Hub:882 is passed, not dodged");
 
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, uint16(1)));
         hub.addFactory(

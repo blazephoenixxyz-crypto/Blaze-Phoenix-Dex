@@ -11,13 +11,13 @@ pragma solidity 0.8.36;
 //  Mutation is the only instrument that answers "does a test NOTICE when this
 //  guard is deleted?", so an unmutated modifier is a guard nobody is watching.
 //
-//      Hub:434  modifier onlyAdmin()    { _auth(msg.sender == _store().admin); _; }
-//      Hub:436  modifier onlyControl()  { ... _auth(msg.sender == $.admin && !$.controlRenounced); ... }
-//      Hub:441  modifier onlyOperator() { _auth(_store().operator[msg.sender] || msg.sender == _store().admin); _; }
-//      Hub:442  modifier onlyRouter()   { _auth(msg.sender == _store().router); _; }
-//      Hub:443  modifier whenLive()     { if (_store().paused) revert HubE(2); _; }
-//      Hub:396  function initialize(address admin_, address v4Manager_) external
-//      Hub:476  function setV4Manager(address m) external onlyControl
+//      Hub:494  modifier onlyAdmin()    { _auth(msg.sender == _store().admin); _; }
+//      Hub:496  modifier onlyControl()  { ... _auth(msg.sender == $.admin && !$.controlRenounced); ... }
+//      Hub:501  modifier onlyOperator() { _auth(_store().operator[msg.sender] || msg.sender == _store().admin); _; }
+//      Hub:502  modifier onlyRouter()   { _auth(msg.sender == _store().router); _; }
+//      Hub:503  modifier whenLive()     { if (_store().paused) revert HubE(2); _; }
+//      Hub:451  function initialize(address admin_, address v4Manager_) external
+//      Hub:536  function setV4Manager(address m) external onlyControl
 //
 //  RED OR GREEN TODAY, against main @ 6438fe4: EVERY TEST IN THIS FILE IS
 //  EXPECTED GREEN. This cluster reports no defect. It closes an EVIDENCE gap,
@@ -38,8 +38,8 @@ pragma solidity 0.8.36;
 //
 //  WHY THE ERROR CODE IS NOT ENOUGH, and how this file answers it. `_auth`
 //  reverts HubE(1) and so do OTHER checks inside the Hub - notably the two
-//  inside `allowHook` (Hub:488, Hub:496) and the compound inside `initialize`
-//  (Hub:399). A test that only asserts "it reverted with HubE(1)" can be green
+//  inside `allowHook` (Hub:551, Hub:559) and the compound inside `initialize`
+//  (Hub:457). A test that only asserts "it reverted with HubE(1)" can be green
 //  because a check two steps further on produced the same code; that is the
 //  exact defect the header of mutants.py documents. Three answers are used
 //  here, in this order of preference:
@@ -82,7 +82,7 @@ contract HubAuthorityLayerTest is Test {
     address constant BRIDGE   = address(0x7001);
     address constant BRIDGE2  = address(0x7002);
 
-    /// Hub:381 `_auth` and Hub:382 `_ne0` / Hub:443 `whenLive` codes, pinned
+    /// Hub:436 `_auth` and Hub:437 `_ne0` / Hub:503 `whenLive` codes, pinned
     /// here so a renumbering of the error table breaks this file loudly.
     function _e(uint16 code) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(BlazePhoenixHub.HubE.selector, code);
@@ -100,7 +100,7 @@ contract HubAuthorityLayerTest is Test {
     }
 
     // =========================================================================
-    //  1. onlyAdmin  (Hub:434) - the curator seat that survives renunciation
+    //  1. onlyAdmin  (Hub:494) - the curator seat that survives renunciation
     //
     //  REMOVED BY THE RECHECK (duplicate): StrangerCannotAddBridge, already
     //  pinned by test/HubRefusalsObserved.t.sol:338
@@ -134,7 +134,7 @@ contract HubAuthorityLayerTest is Test {
 
     /// CLAIM: after renunciation the seat is STILL admin-only on the one arm
     /// the body itself never refuses. `allowHook(h, false)` dies in the body
-    /// after renounce for everyone (Hub:488), so on that arm the modifier is
+    /// after renounce for everyone (Hub:551), so on that arm the modifier is
     /// masked: a stranger and the admin are refused alike, and nothing
     /// observable tells the two refusals apart. (The gas ordering an earlier
     /// version of this test measured did not either: the admin's call warms
@@ -167,7 +167,7 @@ contract HubAuthorityLayerTest is Test {
     }
 
     // =========================================================================
-    //  2. onlyControl  (Hub:436) - two sub-conditions, tested one at a time
+    //  2. onlyControl  (Hub:496) - two sub-conditions, tested one at a time
     //
     //  REMOVED BY THE RECHECK (duplicates):
     //    StrangerCannotSetV4Manager        -> test/UntestedSurface.t.sol:103
@@ -204,7 +204,7 @@ contract HubAuthorityLayerTest is Test {
         assertEq(hub.v4PoolManager(), NEWMGR, "after renunciation the singleton is frozen");
 
         // The caller is still the admin - proven by a CURATOR power, which
-        // renunciation is documented to keep (Hub:408-415). Without this the
+        // renunciation is documented to keep (Hub:468-475). Without this the
         // refusal above could be read as "this caller stopped being admin".
         hub.addBridge(BRIDGE);
         assertTrue(hub.isBridgeToken(BRIDGE),
@@ -239,8 +239,8 @@ contract HubAuthorityLayerTest is Test {
     }
 
     // =========================================================================
-    //  3. onlyOperator  (Hub:441) - a disjunction, one arm at a time
-    //  4. onlyRouter  (Hub:442) - the only writer of swap-driven registry state
+    //  3. onlyOperator  (Hub:501) - a disjunction, one arm at a time
+    //  4. onlyRouter  (Hub:502) - the only writer of swap-driven registry state
     //
     //  THESE TWO SECTIONS HOLD NO TEST ON PURPOSE. The recheck of 2026-09-03
     //  found that every test drafted here already existed in the suite, so the
@@ -266,7 +266,7 @@ contract HubAuthorityLayerTest is Test {
     // =========================================================================
 
     // =========================================================================
-    //  5. whenLive  (Hub:443) - the emergency switch on the only surface it guards
+    //  5. whenLive  (Hub:503) - the emergency switch on the only surface it guards
     //
     //  REMOVED BY THE RECHECK (duplicate): PausedHubRefusesRecordSwap, already
     //  pinned by test/BlazePhoenixHub.t.sol:235 test_RecordSwap_RevertsWhenPaused,
@@ -297,7 +297,7 @@ contract HubAuthorityLayerTest is Test {
     }
 
     /// CLAIM: the two modifiers on `recordSwap` fire in declaration order -
-    /// `onlyRouter` first, `whenLive` second (Hub:1474).
+    /// `onlyRouter` first, `whenLive` second (Hub:1773).
     /// GREEN today.
     /// WHY IT MATTERS: the ordering is what stops the pause flag from being a
     /// side channel. If `whenLive` ran first, any caller could probe the hub's
@@ -321,7 +321,7 @@ contract HubAuthorityLayerTest is Test {
     }
 
     // =========================================================================
-    //  6. initialize  (Hub:396) - one compound guard, two independent arms
+    //  6. initialize  (Hub:451) - one compound guard, two independent arms
     //
     //  REMOVED BY THE RECHECK (duplicates):
     //    OnlyTheConstructorAdminMayInitialize -> test/BlazePhoenixHub.t.sol:345

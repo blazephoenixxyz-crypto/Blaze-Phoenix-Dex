@@ -5,7 +5,7 @@ pragma solidity 0.8.36;
 //  C3 - addFactory WAS THE UNTREATED TWIN OF THE HOOK RE-ARM GUARD, and this
 //  file is the set of pins that closed it on 2026-09-03.
 //
-//  THE CLAIM. PR #24-#27 closed the hook half of a two-channel defect. Hub:496
+//  THE CLAIM. PR #24-#27 closed the hook half of a two-channel defect. Hub:559
 //  now reads:
 //
 //      if (ok && $.controlRenounced && $.hookAllowed[h] && $.hookCodehash[h] != h.codehash)
@@ -17,19 +17,19 @@ pragma solidity 0.8.36;
 //
 //  The factory channel is the same shape and has no such guard.
 //
-//    * Factories carry the same kind of pin (Hub:912, inside `_scanFactory`):
+//    * Factories carry the same kind of pin (Hub:1162, inside `_scanFactory`):
 //        if (fac.mode < 4 && fac.factory.codehash != _store().factoryCodehash[fac.factory])
 //            return k;
 //      A factory-call factory (modes 0-3) whose runtime code changed after
 //      admission stops producing discovery candidates. Fail-closed, not a
 //      revert. That is the factory's auto-pause.
 //
-//    * `addFactory` is `onlyAdmin` (Hub:620), so it survives `renounceControl()`
-//      by design - the docstring at Hub:408-415 promises exactly that ("the
+//    * `addFactory` is `onlyAdmin` (Hub:750), so it survives `renounceControl()`
+//      by design - the docstring at Hub:468-475 promises exactly that ("the
 //      CURATOR powers that only grow the registry - addFactory, addBridge,
 //      allowHook - remain available so new venues can still be listed").
 //
-//    * And `addFactory` re-pins UNCONDITIONALLY (Hub:684):
+//    * And `addFactory` re-pins UNCONDITIONALLY (Hub:891):
 //        $.factoryCodehash[factory] = factory.codehash;
 //      There is no `if (already listed)` arm, no `controlRenounced` arm, and no
 //      `removeFactory` anywhere in the contract.
@@ -43,7 +43,7 @@ pragma solidity 0.8.36;
 //
 //  SECOND, SMALLER DEFECT ON THE SAME CALL. `addFactory` also has no
 //  duplicate-address guard. Its own sibling in the same curator group,
-//  `addBridge` (Hub:551-560), has one and documents WHY:
+//  `addBridge` (Hub:649-658), has one and documents WHY:
 //
 //      if ($.isBridge[t]) return;
 //      ...
@@ -52,7 +52,7 @@ pragma solidity 0.8.36;
 //       administrative call fail on a retry."
 //
 //  `addFactory` pushes a second row instead. The table is capped
-//  (MAX_FACTORIES = 16, Hub:135) and there is no removal path, so a retried or
+//  (MAX_FACTORIES = 16, Hub:144) and there is no removal path, so a retried or
 //  repeated administrative call permanently consumes slots of the very
 //  grow-only power `renounceControl` promises to keep alive.
 //
@@ -136,7 +136,7 @@ contract RenouncedFactoryRearmTest is Test {
     bytes32 internal codehashAtAdmission;
 
     /// MAX_FACTORIES is `internal` in the Hub, so the test cannot read it. It is
-    /// 16 (Hub:135). Nothing below hard-codes the number: the exhaustion test
+    /// 16 (Hub:144). Nothing below hard-codes the number: the exhaustion test
     /// discovers the cap by adding until the Hub refuses, and only asserts that
     /// the cap was actually reached.
     uint256 internal constant ADD_ATTEMPTS_CEILING = 64;
@@ -218,7 +218,7 @@ contract RenouncedFactoryRearmTest is Test {
     /// really does auto-pause a factory whose runtime moved: the mutated factory
     /// produces NO candidates, so neither the pool it used to name nor the one
     /// it now names appears.
-    /// NOT VACUOUS: if Hub:912 were deleted or inverted, the hostile answer would
+    /// NOT VACUOUS: if Hub:1162 were deleted or inverted, the hostile answer would
     /// surface here and this assertion would fail. Without this test the RED ones
     /// could go green for the wrong reason - "the attacker pool was not seen"
     /// would no longer prove that the re-arm was refused, only that discovery
