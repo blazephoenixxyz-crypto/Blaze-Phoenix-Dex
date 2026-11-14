@@ -35,6 +35,32 @@ STRENGTH = 2
 # (of the 258) were held by H3 rows alone: they would have stopped reaching a settlement.
 MAX_HOPS = int(re.search(r"uint256 constant MAX_HOPS = (\d+);",
                          open(os.path.join(ROOT, "src", "BlazePhoenixCore.sol")).read()).group(1))
+MAX_LEGS_PER_HOP = int(re.search(r"uint8 constant MAX_LEGS_PER_HOP = (\d+);",
+                                 open(os.path.join(ROOT, "src", "BlazePhoenixCore.sol")).read()).group(1))
+
+# Required cells of the legs axis that the pairwise rows do not hold: the harness builds one or two
+# legs per hop, so the route ceiling (MAX_HOPS x MAX_LEGS_PER_HOP legs, every hop full) is held by a
+# named witness test instead. `--check` fails when the witness file or its test is missing, or when
+# the ceiling read from the Core no longer equals the cell the witness names.
+# (cell, hops, legs per hop, witness file, witness test)
+WITNESS_CELLS = [
+    ("C11", 2, 5, "test/WitnessCellTenLegsTwoHops.t.sol", "test_ThePlanIsTwoHopsOfFiveLegsTenInAll"),
+]
+
+
+def witness_cells():
+    """The required legs-axis cells, each with its witness; returns the failures (empty when all hold)."""
+    bad = []
+    for cell, hops, per_hop, rel, fn in WITNESS_CELLS:
+        if (hops, per_hop) != (MAX_HOPS, MAX_LEGS_PER_HOP):
+            bad.append(f"{cell}: the cell is {hops} hops x {per_hop} legs but the Core's ceiling is "
+                       f"MAX_HOPS={MAX_HOPS} x MAX_LEGS_PER_HOP={MAX_LEGS_PER_HOP}")
+        path = os.path.join(ROOT, rel)
+        if not os.path.isfile(path):
+            bad.append(f"{cell}: witness {rel} is missing")
+        elif not re.search(r"\bfunction\s+%s\s*\(" % re.escape(fn), open(path).read()):
+            bad.append(f"{cell}: witness {rel} has no {fn}()")
+    return bad
 
 # (factor, [values]) - the order is the harness's Row struct order. Values are the harness's
 # enum names. Families and doors outside this list (V4, Algebra, the native door) are stated
@@ -246,6 +272,14 @@ STRENGTHS = [2, 3]
 
 
 def main():
+    bad = witness_cells()
+    if bad:
+        print("regime covering array: a required legs-axis cell has no witness")
+        for b in bad:
+            print("  " + b)
+        sys.exit(1)
+    print("legs-axis cells held by a witness: " + ", ".join(
+        f"{c} ({h} hops x {p} legs = {h * p}, {fn})" for c, h, p, _, fn in WITNESS_CELLS))
     strengths = STRENGTHS
     if "--strength" in sys.argv:
         strengths = [int(sys.argv[sys.argv.index("--strength") + 1])]
