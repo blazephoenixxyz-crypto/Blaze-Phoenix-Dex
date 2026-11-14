@@ -42,7 +42,9 @@ interface ICurveTricryptoWETH {
 contract BlazePhoenixAdapterCurveCryptoNG is ExtAdapterBase, IExtAdapter {
     address public immutable FACTORY;
 
-    constructor(address gate, address factory) ExtAdapterBase(gate) {
+    constructor(address gate, address factory)
+        ExtAdapterBase(gate, [bytes32(0), bytes32(0), bytes32(0)])
+    {
         if (factory == address(0)) revert AdapterE(0);
         FACTORY = factory;
     }

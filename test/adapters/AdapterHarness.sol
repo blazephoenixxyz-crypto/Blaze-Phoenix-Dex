@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {ExtAdapterBase} from "../../src/adapters/ExtAdapterBase.sol";
+import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
 
 /// The adapters behind the real wrapper (src/BlazePhoenixGate.sol). This contract plays the Router:
 /// it calls `wrapper.swap` exactly as `_execV3Amt` does (recipient = itself, exact-in, data empty)
@@ -79,8 +80,9 @@ abstract contract AdapterHarness is Test {
         return false;
     }
 
-    /// BlazePhoenixQuoter.GATE_QUOTE_GAS (internal there): the gas each adapter answer runs under.
-    uint256 internal constant GATE_QUOTE_GAS = 500_000;
+    /// The gas each adapter answer runs under: BPC.GATE_QUOTE_GAS, the one the Gate's vitalOf and
+    /// the Quoter's kind-9 arm read (BlazePhoenixQuoter.GATE_QUOTE_GAS), never a copy of its value.
+    uint256 internal constant GATE_QUOTE_GAS = BPC.GATE_QUOTE_GAS;
 
     /// The Quoter's kind-9 arm on the leg `w`, under GATE_QUOTE_GAS and without a cap, on the
     /// same state (snapshot) and in the eth_call context (tx.origin 0, which Balancer V3's

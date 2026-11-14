@@ -34,7 +34,7 @@ import {IExtAdapter} from "../src/adapters/IExtAdapter.sol";
 /// handed down to a floor. venuePool = itself: `vitalOf` reads balanceOf there and finds 0, so
 /// the declared depth is capped to 0 anyway — the test is about gas, not the depth value.
 contract GasBombAdapter is ExtAdapterBase, IExtAdapter {
-    constructor(address gate) ExtAdapterBase(gate) {}
+    constructor(address gate) ExtAdapterBase(gate, [bytes32(0), bytes32(0), bytes32(0)]) {}
 
     function resolve(address, address, uint24, bytes calldata)
         external view returns (address venuePool, bytes32 aux0, bytes32 aux1)
