@@ -3,11 +3,11 @@
   "readDynamicFee_noFactory": "3722",
   "solidlyGetAmountOut_stable": "23552",
   "solidlyGetAmountOut_volatile": "13980",
-  "universalQuote_algebra": "17571",
+  "universalQuote_algebra": "18011",
   "universalQuote_solidly_stable": "42326",
   "universalQuote_solidly_volatile": "32754",
   "universalQuote_v2": "23907",
-  "universalQuote_v3": "19610",
+  "universalQuote_v3": "20050",
   "universalQuote_v4": "33601",
   "v4LegOut": "29422"
 }
