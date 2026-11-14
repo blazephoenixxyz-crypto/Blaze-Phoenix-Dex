@@ -80,7 +80,10 @@ contract OnchainDiscoveryCostTest is Test {
             gasBfrio > gasBquente ? gasBfrio - gasBquente : 0);
 
         // ── Porta A com a mesma rota, para isolar o custo do SOLVE ──
-        (, Route memory r, ) = quoter.previewPlan(USDC, LINK, amt);
+        // pv.route is the plan's best route, the one door B executes; the second return value is
+        // the runner-up (fallbackRoute), empty when hasFallback is false.
+        (BlazePhoenixQuoter.Preview memory pv, , ) = quoter.previewPlan(USDC, LINK, amt);
+        Route memory r = pv.route;
         vm.prank(user);
         g = gasleft();
         router.swapExactIn(r, amt, 1, user, t0 + 600);
