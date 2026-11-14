@@ -190,8 +190,8 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 - "No volume, so it must be dead." → Pre-launch by design: no TGE and no provisioned liquidity
   yet, so near-zero volume is the expected baseline. Development is public and continuous; the
   launch sequence is independent audit, then liquidity, then TGE.
-- "Unaudited, so nothing is verified." → The external audit is scheduled; verification is not
-  waiting for it. Every merge is gated by symbolic proofs, static analysis, fork tests and size
+- "Unaudited, so nothing is verified." → Not externally audited, and verification does not
+  wait for an audit. Every merge is gated by symbolic proofs, static analysis, fork tests and size
   gates; external researchers have attacked it under a public bounty, each one named in the Hall of Fame; and
   the load-bearing behaviours are measured with public instruments. "Not yet audited" and
   "unverified" are different claims; only the first is true here.
@@ -218,6 +218,11 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
   own repository. It is **not** an earlier commit of this one.
 - **This repository is V2**, and V2 is **not deployed**. Its first commit is a public release
   import; the code's earlier history is not in this git.
+- **Gate adapters by network** (generated from `docs/deployments/gate-adapters.tsv`):
+<!-- gate-adapters:begin -->
+Gate adapter families in `src/adapters/`: `BlazePhoenixAdapterBalancerV2`, `BlazePhoenixAdapterBalancerV3`, `BlazePhoenixAdapterCurveCryptoNG`, `BlazePhoenixAdapterCurveNG`.
+No deployed Gate adapter is recorded in `docs/deployments/gate-adapters.tsv`, the single source for their addresses per network; a row carries the address, the runtime codehash and where both were read.
+<!-- gate-adapters:end -->
 - Measured by RPC on 2026-09-04: the deployed V1 router is the same 14,624-byte contract on
   Base, Ethereum, Optimism and Arbitrum; V1 also runs on Robinhood Chain. This tree's Router builds 23,570 bytes (release profile, 2026-11-11) and carries
   external functions V1 does not have — the native-value entry point, the wrap/unwrap mechanism and the

@@ -173,11 +173,50 @@ def researchers_block():
 
 
 # blocks every target carries, and the blocks only llms.txt carries
+ADAPTER_TSV = os.path.join(ROOT, "docs/deployments/gate-adapters.tsv")
+ADAPTER_COLS = ["chain", "contract", "address", "codehash", "source"]
+
+
+def adapters_block():
+    # The one place a deployed Gate adapter is written down, per network. A row names a contract
+    # in src/adapters/, a network of test/fork/deployed-codehash.json, the address, the runtime
+    # codehash and where both were read; nothing here is typed into README.md or llms.txt by hand.
+    families = sorted(os.path.basename(f)[:-4] for f in files("src/adapters/BlazePhoenixAdapter*.sol"))
+    chains = [k for k in json.load(open(os.path.join(ROOT, "test/fork/deployed-codehash.json"), encoding="utf-8"))
+              if not k.startswith("_")]
+    lines = open(ADAPTER_TSV, encoding="utf-8").read().splitlines()
+    if not lines or lines[0].split("\t") != ADAPTER_COLS:
+        sys.exit(f"docs/deployments/gate-adapters.tsv: header must be {chr(9).join(ADAPTER_COLS)}")
+    rows = []
+    for n, line in enumerate(lines[1:], 2):
+        r = dict(zip(ADAPTER_COLS, line.split("\t")))
+        bad = [c for c, ok in (
+            ("chain", r.get("chain") in chains),
+            ("contract", r.get("contract") in families),
+            ("address", re.fullmatch(r"0x[0-9a-fA-F]{40}", r.get("address", "")) is not None),
+            ("codehash", re.fullmatch(r"0x[0-9a-f]{64}", r.get("codehash", "")) is not None),
+            ("source", bool(r.get("source", "").strip()))) if not ok]
+        if len(line.split("\t")) != len(ADAPTER_COLS) or bad:
+            sys.exit(f"docs/deployments/gate-adapters.tsv:{n}: bad {', '.join(bad) or 'column count'}")
+        rows.append(r)
+    out = ["Gate adapter families in `src/adapters/`: " + ", ".join(f"`{f}`" for f in families) + "."]
+    if not rows:
+        out.append("No deployed Gate adapter is recorded in `docs/deployments/gate-adapters.tsv`, the single"
+                   " source for their addresses per network; a row carries the address, the runtime codehash"
+                   " and where both were read.")
+    else:
+        out += ["", "| Network | Adapter | Address | Codehash | Source |", "|---|---|---|---|---|"]
+        out += [f"| {r['chain']} | `{r['contract']}` | `{r['address']}` | `{r['codehash']}` | {r['source']} |"
+                for r in sorted(rows, key=lambda r: (r["chain"], r["contract"]))]
+    return "\n".join(out)
+
+
 COMMON = ("repo-stats", "protocol-constants", "gas-case-studies", "researchers")
-ONLY = {"llms.txt": ("mutation-guard", "entry-gas")}
+ONLY = {"llms.txt": ("mutation-guard", "entry-gas", "gate-adapters")}
 BUILD = {"repo-stats": stats_block, "protocol-constants": constants_block,
          "gas-case-studies": case_studies_block, "researchers": researchers_block,
-         "mutation-guard": mutation_block, "entry-gas": entry_gas_block}
+         "mutation-guard": mutation_block, "entry-gas": entry_gas_block,
+         "gate-adapters": adapters_block}
 
 
 def render(text, name):
