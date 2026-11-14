@@ -7644,6 +7644,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (c.kind != KIND_EXTERNAL) {",
       new="        if (true) { // MUTANTE",
       teste="test_AGateWrapperIsBoundByItsRoundingAlone"),
+ # The V3 walk saturates a crossed tick's net at uint128.max and stops at the price bound
+ # (test/V3WalkEndsWhereTheBookEnds.t.sol).
+ dict(nome="L1-124 Core:2547: liquidityNet past uint128.max wraps to its low bits instead of saturating",
+      f="src/BlazePhoenixCore.sol",
+      old="                    : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));",
+      new="                    : (l + uint256(net))); // MUTANTE",
+      teste="test_ACrossingPastUint128MaxSaturates"),
+ dict(nome="L1-124 Core:2550: the walk goes on past the price bound and prices the rest beyond the book",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = zeroForOne ? nt - 1 : nt;",
+      new="            tick = zeroForOne ? nt - 1 : nt; // MUTANTE",
+      teste="test_AnOrderPastTheLastTickIsPaidWhatTheBookHolds"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
