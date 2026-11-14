@@ -8094,6 +8094,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="    uint256 constant LEGS_HOP1 = 5;",
       new="    uint256 constant LEGS_HOP1 = 4; // MUTANT",
       teste="test_ThePlanIsTwoHopsOfFiveLegsTenInAll"),
+# fu-126 item 2 (2026-11-14): a factory lookup returns an ABI address, so only an exact 32-byte
+# answer is a pool; a wide answer is not read from its first word (test/CoreReadsBranches.t.sol).
+ dict(nome="_askPool: a wide factory answer is read from its first word (== 32 becomes >= 32)",
+      f="src/BlazePhoenixCore.sol",
+      old="            if and(ok, eq(returndatasize(), 32)) {\n                pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)",
+      new="            if and(ok, iszero(lt(returndatasize(), 32))) { // MUTANT\n                pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)",
+      teste="test_FactoryLookup_OnlyAnExactWordIsAPool_AllModesAndFallbacks"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
