@@ -7593,17 +7593,23 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       teste="test_SkewedPoolConverges"),
  dict(nome="124-L2 Core:1863: the converged Newton exit is not bumped to the safe side (K_post < K_pre)",
       f="src/BlazePhoenixCore.sol",
-      old="                if (_solK(x, y) < K) y += 1;",
-      new="                // MUTANTE",
+      old="                for (uint256 j; _solK(x, y) < K; ++j) {",
+      new="                for (uint256 j; false; ++j) { // MUTANTE",
       teste="testFuzz_ExitIsOnTheSafeSide"),
+ dict(nome="124-L2 Core:1863-fix: the converged exit climbs one wei at most, as before the fix: a thin input side exits K-deficient",
+      f="src/BlazePhoenixCore.sol",
+      old="                    if (j == 2) return y0;",
+      new="                    if (j == 1) return y; // MUTANTE",
+      teste="test_ThinInputSideExitsOnTheSafeSide"),
  dict(nome="124-L2 Core:1844: the Newton derivative undercounts the y^2 term (2 instead of 3): the step overshoots and never settles",
       f="src/BlazePhoenixCore.sol",
       old="            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 3 * mulDiv(y, y, WAD), WAD);",
       new="            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 2 * mulDiv(y, y, WAD), WAD); // MUTANTE",
       teste="test_ShallowTradeOnADeepSideConverges"),
- # 124-L2 Core:1853 `if (dy >= y) dy = y / 2;` -> `dy = y` has NO entry: EQUIVALENT. Seeded at the
- # output reserve, Newton descends a convex k(x, .) from above, and a tangent from above never
- # crosses zero, so dy < y on every reachable step (no input changed by the swap, sampled 2026-11-14).
+ # 124-L2 Core:1853 `if (dy >= y) dy = y / 2;` -> `dy = y` has NO entry: EQUIVALENT. The guard
+ # FIRES (9118 times over 53517 sampled cases, X, Y, A log-uniform in 1..3.4e38; driven by
+ # test_InputThatSwampsThePoolHalvesTheStep), but in 0/3475 sampled cases where it fires does
+ # `dy = y` change the exit y: the next steps climb back to the same root (2026-11-14).
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
