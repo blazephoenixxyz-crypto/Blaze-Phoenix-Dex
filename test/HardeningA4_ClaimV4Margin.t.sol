@@ -137,7 +137,9 @@ contract HardeningA4ClaimV4MarginTest is Test {
             "slot must persist the measured depth bucket"
         );
         assertGt(BPC.decodeBucket(s), 0, "a deep-liq claim must not land in bucket 0");
-        assertEq(BPC.decodeSwapCount(s), 1, "claim must tick the slot once (recordSwap parity)");
+        // fix-1102 A: was 1 because the claim ticked the row after _register, as recordSwap did; now 0 and stamped now, still in parity, because both doors seat a row born with swapCount 0 and lastUpdateTs = block.timestamp (BlazePhoenixHub.sol:1064, :1972, :2168)
+        assertEq(BPC.decodeSwapCount(s), 0, "claim must seat the row unticked (recordSwap parity)");
+        assertEq(BPC.decodeLastUpdateTs(s), block.timestamp, "claim must stamp the row at birth (recordSwap parity)");
         // psi reflects the bucket: at least the raw bucket weight (bonuses only
         // add), and clearly above the bucket-0 minimum of ~1.
         assertGe(

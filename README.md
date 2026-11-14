@@ -110,7 +110,10 @@ file:
 
 The Certora Prover, Aderyn, Solhint, the secret scan, the mutation guard and the fork suites run
 alongside them; they report rather than block, and a red run on any of them is treated as work to
-do.
+do. Three workflows run on dispatch rather than on every push: the gas campaigns G7 and G8
+([docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md)) and `fuzz-mc`, the Monte Carlo and
+walk-forward runs pre-registered in [docs/prereg/](docs/prereg) and the anvil comparison, where a
+forge log counts as a result only when it carries the registered lock line.
 
 ## Why it is different
 
@@ -266,14 +269,14 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 2,497 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 376 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 32 | `test/fork/*.t.sol` |
-| Stateful invariants | 48 | `function invariant*` |
+| Test declarations | 3,003 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 447 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 35 | `test/fork/*.t.sol` |
+| Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 867 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,370 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
-| CI workflows | 7 | `.github/workflows/*.yml` |
+| CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
 
@@ -401,6 +404,7 @@ CITATION.cff            how to cite this repository
 | [docs/BOUNTY_METHOD.md](docs/BOUNTY_METHOD.md) | how a security report is reproduced, judged and credited |
 | [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | what is by design, a documented limit or out of scope, before you report it |
 | [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) | the assurance instruments: method, definitions, limits |
+| [docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md) | the gas campaigns G7 and G8: what is measured per chain, the source line of each number, what is not measured |
 | [TESTING.md](TESTING.md) | how the suite is organised and extended |
 | [Whitepaper v2.2](docs/papers/whitepaper-v2.2.md) · [Litepaper v2.2](docs/papers/litepaper-v2.2.md) | the design and its mathematics ([PDF editions](docs/papers)) |
 

@@ -19,7 +19,7 @@ contract RatesAlignmentBandTest is Test {
     MockERC20 tB;
     MockV2Pair R; // rejeitada pela banda, mas com o psi mais alto -> cands[0]
     MockV2Pair D; // mais funda, preco justo 1.00
-    MockV2Pair Bp; // menos funda, MELHOR preco 1.04
+    MockV2Pair Bp; // menos funda, MELHOR preco 1.005
 
     uint256 constant ORDER = 1_000e18;
 
@@ -31,10 +31,14 @@ contract RatesAlignmentBandTest is Test {
         tA = new MockERC20("A", "A");
         tB = new MockERC20("B", "B");
 
-        // preco 3.0 -> fora da banda (+-5%); psi maximo para ficar em cands[0]
+        // preco 3.0 -> fora da banda; psi maximo para ficar em cands[0]
         R  = _pool(100_000e18, 300_000e18, 20_000_000e18, 16);
         D  = _pool(1_000_000e18, 1_000_000e18, 1_000_000e18, 4);
-        Bp = _pool(900_000e18, 936_000e18, 900_000e18, 4);
+        // MED (2026-10-28): a banda e a de nao-arbitragem (BlazePhoenixMath, THE BAND), que
+        // guarda uma pool de 0.3% ate cerca de 0.9% acima de uma base de 0.3%. Com o preco 1.04
+        // usado ate entao (dentro dos +-5% de entao) Bp saia pela banda e o teste lia a banda,
+        // nao o gate; a 1.005 fica dentro e continua a ser a melhor perna unica.
+        Bp = _pool(900_000e18, 904_500e18, 900_000e18, 4);
     }
 
     function _pool(uint256 resIn, uint256 resOut, uint256 depthRegistada, uint256 swaps)
@@ -72,7 +76,7 @@ contract RatesAlignmentBandTest is Test {
         }
 
         uint256 soD = _v2out(ORDER, 1_000_000e18, 1_000_000e18);
-        uint256 soB = _v2out(ORDER, 900_000e18, 936_000e18);
+        uint256 soB = _v2out(ORDER, 900_000e18, 904_500e18);
         emit log_named_uint("totalOut da rota escolhida", p.best.totalOut);
         emit log_named_uint("perna unica em D (cands[0], mais funda)", soD);
         emit log_named_uint("perna unica em Bp (melhor taxa)", soB);

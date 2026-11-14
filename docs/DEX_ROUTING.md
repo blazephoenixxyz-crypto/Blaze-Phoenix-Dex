@@ -33,18 +33,21 @@ In short, the route is a proposal and the floor is a verdict.
 
 ## 2. Route topologies
 
-The Solver searches a deliberately small space, with a strict global budget of
-**five legs**:
+The Solver searches a deliberately small space, bounded by two constants of the
+Core that the Router enforces too: at most **two hops** (`MAX_HOPS`) and at most
+**five legs per hop** (`MAX_LEGS_PER_HOP`), so ten legs a route:
 
 - **Direct** — `tIn → tOut` in one hop, splitting the input across up to five
   parallel pools of the pair.
-- **Bridge** — for exotic↔exotic pairs with no single deep venue, route through a
-  canonical intermediary (WETH or USDC), partitioning the five-leg budget between
-  the two stages (typically 3 in, 2 out).
+- **Bridge** — for exotic↔exotic pairs with no single deep venue, route through
+  one registered intermediary (up to three bridge tokens in the Hub, typically WETH
+  or USDC): `tIn → bridge → tOut`, each of the two stages splitting across up to
+  five pools of its pair.
 
-The Solver evaluates direct and both bridge candidates and returns the
-highest-scoring route per trade — direct when a venue is deepest, composed when
-splitting pays.
+The Solver evaluates four topologies - direct and one per bridge slot - and returns
+the highest-scoring route per trade, with the runner-up as a fallback: direct when
+a venue is deepest, composed when splitting or the bridge pays. Until 2026-11-06 it
+also built three-hop routes over two bridges (thirteen topologies).
 
 ## 3. Capital-anchored split
 
@@ -54,8 +57,11 @@ impact, and filtering on that rate discards good small pools on large trades. Th
 Solver separates the two signals:
 
 1. **Quality filter** — quote each candidate with a small probe (≈ `x/100`, so the
-   marginal rate is essentially spot) and keep only those within a tight band of a
-   reference rate.
+   marginal rate is essentially spot) and keep only those inside the band around the
+   depth-weighted median rate. A row's width in the band is its fee and its error bound,
+   whose impact term is taken at the order's size rather than the probe's (since
+   2026-11-13), so a book thin against the order cannot read as narrow and become the
+   band's base.
 2. **Depth allocation** — allocate the survivors by capacity (the fitness/`Ψ`
    weight), so a well-priced small pool is kept but receives proportionally less.
 

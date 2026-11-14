@@ -133,7 +133,7 @@ abstract contract TokenSweepBase is Test {
 
         uint256 achou; uint256 semRota; uint256 proprio;
         uint256 somaLegs; uint256 somaHops; uint256 maxLegs; uint256 maxHops;
-        uint256[3] memory topo;          // 0=directo 1=uma ponte 2=duas pontes
+        uint256[3] memory topo;          // 0=directo 1=uma ponte 2=tres hops (acima do MAX_HOPS desde 2026-11-06)
         // NOVE, nao oito. O `KIND_V4_NATIVE` e 8 — com um array de 8 e um
         // guarda `kd < 8` as pernas nativas nao eram contadas em lado
         // nenhum, e o resumo dizia `legs V4: 0` com a V4 nativa a rotear.
@@ -192,7 +192,7 @@ abstract contract TokenSweepBase is Test {
         }
         console2.log("TOPOLOGIA  directo:", topo[0]);
         console2.log("TOPOLOGIA  uma ponte:", topo[1]);
-        console2.log("TOPOLOGIA  DUAS pontes (3 hops):", topo[2]);
+        console2.log("TOPOLOGIA  3 hops (acima do MAX_HOPS, tem de ser 0):", topo[2]);
         console2.log("legs V2:", porKind[0]);
         console2.log("legs V3:", porKind[1]);
         console2.log("legs V4 wrapped:", porKind[4]);
@@ -236,8 +236,8 @@ abstract contract TokenSweepBase is Test {
         for (uint256 i; i < hits.length; ++i) {
             PoolInfo memory h = hits[i];
             if (!h.active || h.pool == address(0)) continue;
-            (uint256 out01, uint256 d01) = BPC.universalQuote(_gateCtx(h, true),  a0);
-            (uint256 out10, uint256 d10) = BPC.universalQuote(_gateCtx(h, false), a1);
+            (uint256 out01, uint256 d01, , ) = BPC.universalQuoteRank(_gateCtx(h, true),  a0, type(uint256).max, false);
+            (uint256 out10, uint256 d10, , ) = BPC.universalQuoteRank(_gateCtx(h, false), a1, type(uint256).max, false);
             uint256 depth = d01 > d10 ? d01 : d10;
             if (depth > 0 && out01 == 0 && out10 == 0) {
                 violacoes++;

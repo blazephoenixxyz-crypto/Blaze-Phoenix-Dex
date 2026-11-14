@@ -99,10 +99,8 @@ contract Fix1019FotFloorsHoldTest is Test {
     F19FotToken tokenA;
     F19FotToken tokenB;
     F19FotToken tokenC;
-    F19FotToken tokenD;
     F19Pair pAB;
     F19Pair pBC;
-    F19Pair pCD;
 
     address user = address(0xBEEF);
     address recip = address(0xCAFE);
@@ -118,20 +116,15 @@ contract Fix1019FotFloorsHoldTest is Test {
         tokenA = new F19FotToken("A", "A");
         tokenB = new F19FotToken("B", "B");
         tokenC = new F19FotToken("C", "C");
-        tokenD = new F19FotToken("D", "D");
         hub.addBridge(address(tokenB));
         pAB = new F19Pair(address(tokenA), address(tokenB));
         pBC = new F19Pair(address(tokenB), address(tokenC));
-        pCD = new F19Pair(address(tokenC), address(tokenD));
         tokenA.mint(address(pAB), R);
         tokenB.mint(address(pAB), R);
         tokenB.mint(address(pBC), R);
         tokenC.mint(address(pBC), R);
-        tokenC.mint(address(pCD), R);
-        tokenD.mint(address(pCD), R);
         pAB.setReserves(uint112(R), uint112(R));
         pBC.setReserves(uint112(R), uint112(R));
-        pCD.setReserves(uint112(R), uint112(R));
         tokenA.mint(user, 10_000e18);
         vm.prank(user);
         tokenA.approve(address(router), type(uint256).max);
@@ -176,17 +169,6 @@ contract Fix1019FotFloorsHoldTest is Test {
         return _route(hs, q1, floor);
     }
 
-    function _threeHop(uint256 floor) private view returns (Route memory) {
-        uint256 q0 = _outV2(AMT);
-        uint256 q1 = _outV2(q0);
-        uint256 q2 = _outV2(q1);
-        Hop[] memory hs = new Hop[](3);
-        hs[0] = _hop(address(tokenA), address(tokenB), AMT, q0, _leg(pAB, address(tokenA), AMT, q0));
-        hs[1] = _hop(address(tokenB), address(tokenC), q0, q1, _leg(pBC, address(tokenB), q0, q1));
-        hs[2] = _hop(address(tokenC), address(tokenD), q1, q2, _leg(pCD, address(tokenC), q1, q2));
-        return _route(hs, q2, floor);
-    }
-
     /// H4a, first hop FOT: the input tax drops `singleOutFloor` (documented,
     /// Router `fotSeen != 0` branch), the 82 % pool slips under it, and the
     /// caller's own userMinOut at that same floor refuses the swap.
@@ -200,12 +182,32 @@ contract Fix1019FotFloorsHoldTest is Test {
         router.swapExactIn(r, AMT, floor, recip, block.timestamp + 1);
     }
 
-    /// H4a, FOT in the middle of three hops: same refusal by userMinOut.
-    function test_H4a_MiddleHopFot_HonestUserMinOut_RevertsRouterE5() public {
+    /// H4a, FOT on the INTERMEDIATE token: B, taxed on every transfer, sits between hop 0 and
+    /// hop 1. The tax B pays entering hop 1 is measured there and drops `singleOutFloor`, as an
+    /// input tax does. The shortfall is UPSTREAM, in pAB (90 %), where the protocol floor cannot
+    /// see it: that floor is a fraction of the last hop's in-frame quote on the B the Router
+    /// actually holds, re-priced by the measured tax. So the per-leg floors and the protocol
+    /// floor all pass (the premise below settles the same route with userMinOut = 1), and the
+    /// one arm that refuses is the caller's own userMinOut at the declared floor.
+    /// pAB pays 90 %, not the 82 % of the first-hop test: the leg measures B after B's own tax,
+    /// and 0.82 x 0.95 is under the 80 % per-leg floor, which would refuse first.
+    /// History: until 2026-11-06 (MAX_HOPS = 3) this was
+    /// `test_H4a_MiddleHopFot_HonestUserMinOut_RevertsRouterE5`: A>B>C>D, B taxed, pBC paying
+    /// 82 %. Two hops have no middle hop: the hop B feeds is the last one, and an 82 % pBC there
+    /// is refused with userMinOut = 1 too (measured 2026-11-06: the floors anchored on the last
+    /// hop see it), so the shortfall moved upstream to pAB.
+    function test_H4a_IntermediateTokenFot_HonestUserMinOut_RevertsRouterE5() public {
         tokenB.setFeeBps(500);
-        pBC.setPayBps(8_200);
-        uint256 floor = _declaredFloor(_outV2(_outV2(_outV2(AMT))));
-        Route memory r = _threeHop(floor);
+        pAB.setPayBps(9_000);
+        uint256 floor = _declaredFloor(_outV2(_outV2(AMT)));
+        Route memory r = _twoHop(floor);
+
+        uint256 snap = vm.snapshotState();
+        vm.prank(user);
+        uint256 out = router.swapExactIn(r, AMT, 1, recip, block.timestamp + 1);
+        assertLt(out, floor, "premise: only userMinOut stands between this route and a fill under the declared floor");
+        vm.revertToState(snap);
+
         vm.prank(user);
         vm.expectRevert(_e5());
         router.swapExactIn(r, AMT, floor, recip, block.timestamp + 1);

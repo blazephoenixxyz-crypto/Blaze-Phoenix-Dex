@@ -13,7 +13,9 @@ pragma solidity 0.8.36;
 //  single-tick quote the Solver already computed. Pinned here: each bound on
 //  its own (a book that empties below the cap, one that deepens past F, one in
 //  between, a flat one), the unreadable book (the old promise), and both Solver
-//  sites (single leg and split) at the committed input.
+//  sites (single leg and split) at the committed input. A single leg's P is then
+//  re-asked in frame (`_paysWhatItWalks`, DEX-01), which only lowers it: since G3
+//  (ac580b5) a book that empties under P is promised what it pays, cap or not.
 //
 //  forge test --match-path test/CapacityPromiseWalksTheBook.t.sol -vv
 // =============================================================================
@@ -38,6 +40,16 @@ contract CapacityPromiseWalksTheBookTest is Test {
     int24   constant TS   = 60;
     uint256 constant IN   = 200e18;             // moves the price to ~0.69: one bitmap word at TS 60
     uint256 constant HELD = 400e18;             // cap = 120e18 < F (~166e18) <= HELD
+
+    // Oracles derived by hand, not by the walk or the Solver under test (Uniswap V3 TickMath and
+    // SqrtPriceMath in exact integers; the real-number figures beside them).
+    // F_IN: the single-tick quote of IN. At price 1 one range is the constant product on virtual
+    // reserves (L, L): L * a / (L + a), a = IN less the 30 bps fee = 199.4e18. Real: 166.2497915...e18.
+    uint256 constant F_IN = 166249791562447890611;
+    // PAYS_600: a book that empties at tick -600 pays the stretch from price 1 down to it at L and
+    // nothing past it: L * (Q96 - sqrtAt(-600)) / Q96, sqrtAt(-600) = 76886731765546235930195592750.
+    // Real: L * (1 - 1.0001^-300) = 29553010879137169680.83. Reaching -600 spends 30.54e18 of IN.
+    uint256 constant PAYS_600 = 29553010879137169680;
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -135,11 +147,43 @@ contract CapacityPromiseWalksTheBookTest is Test {
         assertGt(got, _cap(HELD), "above the old promise");
     }
 
-    function test_3073_Solver_SingleLeg_BookEmptiesBelowTheCap_PromiseIsTheCap() public {
+    /// The book empties at its first crossing, so the pool pays the stretch down to it and nothing
+    /// past it. `_capacity` still hands the cap up as the leg's promise, but the in-frame check
+    /// (`_paysWhatItWalks`, DEX-01) re-asks the book and a promise only falls: since G3 (ac580b5)
+    /// a walk that runs out of reads on the empty range beyond the crossing is priced at what it
+    /// crossed plus nothing, not at the band, so the promise is what the book pays, under the cap.
+    /// The oracle is PAYS_600, by hand: the walk reads the same book the Solver does, so a walk
+    /// that misreads a crossing (mutants.py [706]) would agree with itself.
+    function test_3073_Solver_SingleLeg_BookEmptiesBelowTheCap_PromiseIsWhatTheBookPays() public {
         MockV3BookPool p = _seed(HELD);
         p.setTick(-600, int128(L));            // crossing down removes all liquidity
-        assertLt(_walk(address(p), IN, true), _cap(HELD), "precondition: the walk ends under the cap");
-        assertEq(_single(p), _cap(HELD), "lower bound: the old promise");
+        assertLt(PAYS_600, _cap(HELD), "precondition: the book pays under the cap");
+        assertEq(_single(p), PAYS_600, "the book's answer by hand: the stretch to -600, nothing past it");
+        assertEq(_walk(address(p), IN, true), PAYS_600, "and the walk reads that book");
+    }
+
+    /// [706] family: the book empties at any crossing the order reaches (-3600 .. -60; reaching
+    /// -3600 spends 197.8e18 of IN), and the pool holds anything from the quote up, so the cap
+    /// binds or not. Either way the promise is the stretch down to the crossing, by hand from the
+    /// tick's price: L * (Q96 - sqrtAt(t)) / Q96 (`sqrtPriceAtTick`, certified by
+    /// test/TickMathCertificate.t.sol), never the walk under test.
+    function testFuzz_3073_Solver_SingleLeg_BookEmptiesAtAnyCrossing_PromiseIsTheStretchToIt(uint256 k, uint256 held)
+        public
+    {
+        int24 t = -int24(int256(bound(k, 1, 60))) * TS;
+        held = bound(held, F_IN, 1e30);
+        MockV3BookPool p = _seed(held);
+        p.setTick(t, int128(L));               // crossing down removes all liquidity
+        uint256 s = BPC.sqrtPriceAtTick(t);
+        uint256 pays = BPC.mulDiv(L, SP - s, BPC.Q96);
+        uint256 reach = BPC.mulDivUp(L, SP - s, s);   // token0 that moves price 1 to the crossing
+        assertLt(reach + BPC.mulDivUp(reach, FEE, 1_000_000 - FEE), IN, "precondition: the order reaches the crossing");
+        assertLt(pays, F_IN, "precondition: the book pays under the quote");
+        RoutePlan memory plan = solver.findBestRoutePlan(_tIn(), _tOut(), IN);
+        Leg memory leg = plan.best.hops[0].legs[0];
+        assertEq(leg.pool, address(p), "the booked pool");
+        assertEq(leg.amountIn, IN, "the whole input commits");
+        assertEq(leg.expectedOut, pays, "the promise is the stretch to the crossing, nothing past it");
     }
 
     function test_3073_Solver_SingleLeg_BookDeepensPastF_PromiseIsTheQuote() public {
@@ -156,6 +200,27 @@ contract CapacityPromiseWalksTheBookTest is Test {
         assertEq(got, _walk(address(p), IN, true), "the book's answer");
         assertGt(got, _cap(HELD), "between the bounds: above the cap");
         assertLt(got, _f(IN), "between the bounds: below the single-tick quote");
+    }
+
+    /// The book thins on the other side of the price: its only crossing lies above it, where
+    /// a rising swap lands. The leg sells token0 (falling price), so its own walk never reaches
+    /// that tick and pays the flat figure, and that is its promise. Walked the wrong way the
+    /// book crosses the tick and pays less, and a promise handed down lower stays lower: the
+    /// in-frame check (`_paysWhatItWalks`) only lowers a promise, it never lifts one back to
+    /// the leg's own walk.
+    function test_3073_Solver_SingleLeg_BookThinsAboveThePrice_PromiseIsTheLegsOwnWalk() public {
+        MockV3BookPool p = _seed(HELD);
+        p.setTick(600, -int128(700e18));       // crossing up leaves 300e18; a falling swap never crosses it
+        uint256 own = _walk(address(p), IN, true);
+        uint256 wrong = _walk(address(p), IN, false);
+        emit log_named_uint("own walk", own);
+        emit log_named_uint("wrong-way walk", wrong);
+        assertGt(wrong, _cap(HELD), "precondition: the wrong-way walk still clears the cap");
+        assertLt(wrong, own, "precondition: the wrong-way walk pays less than the leg's own");
+        uint256 got = _single(p);
+        emit log_named_uint("promised", got);
+        assertEq(got, own, "the book's answer in the leg's own direction");
+        assertLe(_f(IN) - got, _f(IN) / 1e9, "flat on the leg's side: the walk is the single-tick quote");
     }
 
     function test_3073_Solver_SingleLeg_UnreadableBook_PromiseIsTheCap() public {
@@ -203,17 +268,59 @@ contract CapacityPromiseWalksTheBookTest is Test {
         assertGt(sum, 2 * c, "and the hop beats the plan at the cap");
     }
 
-    /// The cap does not bind (F <= cap): the promise is the quote, and the book is not asked.
-    function test_3073_Solver_SingleLeg_UnderTheCap_PromiseIsTheQuote() public {
+    /// The cap does not bind (F <= cap): `_capacity` hands the quote up without walking the book.
+    /// The in-frame check (`_paysWhatItWalks`, DEX-01) then asks the book what it pays, and on a
+    /// book that empties under the quote the promise falls to that walk (G3, ac580b5). Read
+    /// without `_single`, whose precondition is that the cap binds.
+    function test_3073_Solver_SingleLeg_UnderTheCap_PromiseIsWhatTheBookPays() public {
         uint256 held = 1_000e18;               // cap 300e18 > F (~166e18)
         MockV3BookPool p = _seed(held);
         p.setTick(-600, int128(L));            // a book that empties: its walk sits under the quote
         RoutePlan memory plan = solver.findBestRoutePlan(_tIn(), _tOut(), IN);
         Leg memory leg = plan.best.hops[0].legs[0];
         assertEq(leg.pool, address(p), "the booked pool");
-        assertLe(_f(IN), _cap(held), "precondition: the cap does not bind");
-        assertLt(_walk(address(p), IN, true), _f(IN), "precondition: the walk is below the quote");
-        assertEq(leg.expectedOut, _f(IN), "an unbound leg keeps its quote");
+        assertEq(leg.amountIn, IN, "the whole input commits");
+        assertLe(F_IN, _cap(held), "precondition: the cap does not bind");
+        assertEq(leg.expectedOut, PAYS_600, "an unbound leg is promised what its book pays (by hand)");
+    }
+
+    /// The cap does not bind and the book DEEPENS at its nearest crossing: walked, it pays more
+    /// than the single-tick quote, and an unbound leg is still promised the quote, never more
+    /// (P <= F). The cap (300e18) sits above anything IN can be paid at price 1 or below, so a
+    /// leg walked anyway would be lifted to it and the in-frame check would lower it only to its
+    /// walk, above F (mutants.py [703]). F_IN is the hand figure, not the Solver's quote.
+    function test_3073_Solver_SingleLeg_UnderTheCap_BookDeepensPastF_PromiseIsTheQuote() public {
+        uint256 held = 1_000e18;               // cap 300e18 >= IN
+        MockV3BookPool p = _seed(held);
+        p.setTick(-60, -int128(9_000e18));     // crossing down adds 9,000e18
+        assertGe(_cap(held), IN, "precondition: no output of IN reaches the cap");
+        RoutePlan memory plan = solver.findBestRoutePlan(_tIn(), _tOut(), IN);
+        Leg memory leg = plan.best.hops[0].legs[0];
+        assertEq(leg.pool, address(p), "the booked pool");
+        assertEq(leg.amountIn, IN, "the whole input commits");
+        assertEq(leg.expectedOut, F_IN, "an unbound leg is promised the single-tick quote, by hand");
+        assertEq(_f(IN), F_IN, "the Core's single tick is the hand figure");
+        assertGt(_walk(address(p), IN, true), F_IN, "and its book would pay more: the figure an unbound leg is never promised");
+    }
+
+    /// [703] family: any crossing the order reaches (-3600 .. -60) adds anything from 1e18 to
+    /// 1e27, and the pool holds anything from IN * 10/3 up (the cap at or above IN). The promise
+    /// is F_IN on every one of them, by hand; walked, every such book pays more.
+    function testFuzz_3073_Solver_SingleLeg_UnderTheCap_BookDeepens_PromiseIsTheQuote(uint256 k, uint256 add, uint256 held)
+        public
+    {
+        int24 t = -int24(int256(bound(k, 1, 60))) * TS;
+        add = bound(add, 1e18, 1e27);
+        held = bound(held, 667e18, 1e30);
+        MockV3BookPool p = _seed(held);
+        p.setTick(t, -int128(int256(add)));    // crossing down adds `add`
+        assertGe(_cap(held), IN, "precondition: no output of IN reaches the cap");
+        RoutePlan memory plan = solver.findBestRoutePlan(_tIn(), _tOut(), IN);
+        Leg memory leg = plan.best.hops[0].legs[0];
+        assertEq(leg.pool, address(p), "the booked pool");
+        assertEq(leg.amountIn, IN, "the whole input commits");
+        assertEq(leg.expectedOut, F_IN, "an unbound leg is promised the single-tick quote, by hand");
+        assertGt(_walk(address(p), IN, true), F_IN, "and its book would pay more");
     }
 
     function test_3073_Solver_Split_EveryLegAsksTheBook() public {

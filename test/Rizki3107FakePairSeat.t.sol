@@ -111,6 +111,16 @@ contract Rizki3107FakePairSeatTest is Test {
     uint256 constant DUST  = 1e15;
     uint256 constant ORDER = 1_000e18;
 
+    /// The trap's price edge over the market, in bps, where a SEATED trap is given a leg. The
+    /// band (BlazePhoenixMath, THE BAND) keeps a 0.3 % row beside a 0.3 % base up to
+    /// 1 / (1 - f)^3 - 1 = 90.5 bps above it, the base's fee counted twice, plus the probes'
+    /// error. Past that edge the Solver drops the trap as too good, seat or no seat, and the two
+    /// Solver-door trap tests settle at the oracle whether the origin proof ran or not: they
+    /// carried a 200 bps edge, which the fixed +-5 % band of a591f97 admitted and this one does
+    /// not, and passed with `_derivedByFactory` answering true for everything.
+    /// `_seatIsAllTheTrapLacks` pins the edge to the band instead of to this comment.
+    uint256 constant EDGE_BPS = 50;
+
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
@@ -206,6 +216,22 @@ contract Rizki3107FakePairSeatTest is Test {
         assertGt(got, 0, "oracle: the honest-only swap must deliver");
     }
 
+    /// The positive control of the Solver-door trap tests: a trap of `hold` at EDGE_BPS, seated
+    /// by the operator's door as the honest pool was, IS given a leg of `amt`. So where the
+    /// trap tests find no leg and no loss, the refused seat is the reason and not the trap's
+    /// price or depth. Measured on a snapshot and reverted, as the oracle is.
+    function _seatIsAllTheTrapLacks(uint256 hold, uint256 amt) internal {
+        uint256 snap = vm.snapshotState();
+        vm.prank(ATTACKER);
+        TrapPair t = new TrapPair(address(tokenA), address(tokenB), ATTACKER);
+        tokenA.mint(address(t), hold);
+        tokenB.mint(address(t), hold * (10_000 + EDGE_BPS) / 10_000);
+        hub.seedPool(address(t), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
+        bool planned = _inPlan(address(t), amt);
+        vm.revertToState(snap);
+        assertTrue(planned, "fixture: a seated trap of this depth and edge must be given a leg");
+    }
+
     function _inPlan(address t, uint256 amt) internal view returns (bool inPlan) {
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amt);
         for (uint256 h; h < plan.best.hops.length; ++h)
@@ -223,11 +249,13 @@ contract Rizki3107FakePairSeatTest is Test {
         assertTrue(_seated(address(honest)), "the honest seed must stay seated");
     }
 
-    /// Red on a591f97 (`Error("trap")`): the Solver gave the trap 0.99 % of the order and the
-    /// whole swapBestExactIn reverted.
+    /// Red on a591f97 (`Error("trap")`, with a 200 bps edge): the Solver gave the trap 0.99 % of
+    /// the order and the whole swapBestExactIn reverted. Red with the origin proof answering
+    /// true (mutant [463]): the seated trap is planned for the same 0.99 %.
     function test_TrapPairWithoutFactoryOrigin_SolverDoorSettles() public {
+        _seatIsAllTheTrapLacks(30_000e18, ORDER);
         uint256 oracle = _honestOnly(ORDER);
-        TrapPair t = _seatTrapSkew(30_000e18, 200);
+        TrapPair t = _seatTrapSkew(30_000e18, EDGE_BPS);
         vm.prank(ATTACKER); t.setMode(1, 0);
         assertFalse(_inPlan(address(t), ORDER), "the Solver planned a leg through the trap");
         (bool ok, uint256 got, bytes memory err) = _swapAmt(ORDER, 1);
@@ -236,12 +264,14 @@ contract Rizki3107FakePairSeatTest is Test {
         assertEq(got, oracle, "the Solver door must deliver what it delivers with no trap deployed");
     }
 
-    /// Red on a591f97: a 750k trap paying 80 % took 20 % of a 100k order and kept 305 bps of it
-    /// at userMinOut = 1.
+    /// Red on a591f97 (with a 200 bps edge): a 750k trap paying 80 % took 20 % of a 100k order
+    /// and kept 305 bps of it at userMinOut = 1. Red with the origin match inverted (mutant
+    /// [464]): the seated trap takes its 20 % again and pays 80 % of it.
     function test_TrapPairWithoutFactoryOrigin_ShortPayLeaksNothing() public {
         uint256 amt = 100_000e18;
+        _seatIsAllTheTrapLacks(750_000e18, amt);
         uint256 oracle = _honestOnly(amt);
-        TrapPair t = _seatTrapSkew(750_000e18, 200);
+        TrapPair t = _seatTrapSkew(750_000e18, EDGE_BPS);
         vm.prank(ATTACKER); t.setMode(2, 8_000);
         (bool ok, uint256 got, ) = _swapAmt(amt, 1);
         assertTrue(ok, "the honest-only route must settle");
@@ -273,6 +303,16 @@ contract Rizki3107FakePairSeatTest is Test {
     /// the test contract, deploying an A/C pair at the A/B salt) yields a hit `discoverFor` lists
     /// for A/B. It holds what it reports in A and B and is V2-shaped, so only the pair check
     /// refuses it. Measured red with the check deleted; so the check stays.
+    ///
+    /// FORCED STATE, and what the green measures. `recordSwap` is called as the Router
+    /// (vm.prank), on a hit whose depth is written by hand, not through a swap. The Router of
+    /// this tree has a gate of its own before it records anything: a leg whose pool trades
+    /// other tokens than its hop is refused with RouterE(3) (`_legTokens`, pinned in
+    /// test/LegDivergentStrandedDrain.t.sol and test/Fix1019CycleResidualAndSelfHop.t.sol),
+    /// and that path is not exercised here. The green is
+    /// the Hub's own acceptance for a caller it cannot vouch for: `$.router` is swappable
+    /// (setRoles), so the Hub keeps its local defence on every write its Router makes. It is
+    /// not a claim that the current Router reaches this call.
     function test_Create2HitOnOtherTokens_IsRefusedByThePairCheck() public {
         MockERC20 tokenC = new MockERC20("C", "C");
         (address t0, address t1) = address(tokenA) < address(tokenB)
@@ -384,9 +424,24 @@ contract Rizki3107FakePairSeatTest is Test {
         hub.seedPool(address(warm), BPC.KIND_V2, 30, address(0), address(tokenA), address(tokenB));
         MockV2Pair[] memory fill = _fill(14, 1_000e18);       // honest + warm + 14 = 16 rows
         _age(60);
-        uint256 d = BPC.registryDepth18(address(warm), BPC.KIND_V2, address(tokenA), address(tokenB), address(0), bytes32(0));
+        // fix-1102 A: dust no longer warms a row. The 1e15 trade this test used to warm it with is below
+        // 2^-16 of the row's depth, so it carries no anchor and psi stays 0 (BlazePhoenixCore.sol:2854, :2898).
+        uint256 dust = BPC.tickDepth18(
+            address(warm), BPC.KIND_V2, address(tokenA), address(tokenB), address(0), bytes32(0), 1e15, 1e15, true);
+        assertLt(dust, BPC.TICK_ANCHORED, "non-vacuity: 1e15 is dust against this row");
         vm.prank(address(router));
-        hub.recordSwap(address(warm), BPC.KIND_V2, 0, address(0), address(tokenA), address(tokenB), 1e15, 1e15, d);
+        hub.recordSwap(address(warm), BPC.KIND_V2, 0, address(0), address(tokenA), address(tokenB), 1e15, 1e15, dust);
+        assertEq(hub.getPsi(address(warm), address(tokenA), address(tokenB)), 0, "dust does not warm a row");
+        // fix-1102 A: was a 1e15 trade handed the bare depth, which warmed the row because every tick
+        // counted; now only an anchored tick counts (BlazePhoenixCore.sol:2898) and 1e15 is dust here
+        // (100e18 >> 16 > 1e15, BlazePhoenixCore.sol:2854), so the trade is 1e18 and the depth word is
+        // the Router's own producer, anchor bit included (Core.tickDepth18).
+        uint256 out = BPC.outV2(1e18, 100e18, 100e18, 30);
+        uint256 d = BPC.tickDepth18(
+            address(warm), BPC.KIND_V2, address(tokenA), address(tokenB), address(0), bytes32(0), 1e18, out, true);
+        assertGe(d, BPC.TICK_ANCHORED, "non-vacuity: the warming trade is material, so it anchors");
+        vm.prank(address(router));
+        hub.recordSwap(address(warm), BPC.KIND_V2, 0, address(0), address(tokenA), address(tokenB), 1e18, out, d);
         assertGt(hub.getPsi(address(warm), address(tokenA), address(tokenB)), 0, "non-vacuity: the shallow row is warm");
         assertEq(hub.getPsi(address(fill[0]), address(tokenA), address(tokenB)), 0, "non-vacuity: the rest are at psi 0");
         _seedFresh();

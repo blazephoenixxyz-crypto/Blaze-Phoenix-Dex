@@ -30,7 +30,8 @@ pragma solidity 0.8.36;
 //     ranked at its cap; the bridge that leads keeps the lead and its walk.
 //   - One hop: a held single beside an unheld rival or an unheld split, held
 //     legs of a split, a held book the band leaves alone, and a held book the
-//     funnel leaves out of a split the gate collapses are each settled by the walk.
+//     funnel leaves out of a split the gate collapses, onto a book or onto a V2
+//     pair whose promise no walk lowers, are each settled by the walk.
 //
 //  forge test --match-path test/CapacityWalkBudget.t.sol -vv
 // =============================================================================
@@ -43,6 +44,7 @@ import {BlazePhoenixCore as BPC, RoutePlan, Route, Leg} from "../src/BlazePhoeni
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV3BookPool} from "./mocks/MockV3BookPool.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 /// A V3-shaped book whose ticks() reads four storage words per tick, as UniswapV3Pool's does.
 contract HeavyBookPool is MockV3Pool {
@@ -99,6 +101,7 @@ contract CapacityWalkBudgetTest is Test {
     int24   constant TS   = 60;
     uint256 constant IN   = 200e18;             // F ~166e18 > cap 120e18, F <= HELD
     uint256 constant HELD = 400e18;
+    uint256 constant UNHELD = 1_000e18;         // cap 300e18 >= F: no cap binds, even on one book
 
     function setUp() public {
         hub = new BlazePhoenixHub(address(this));
@@ -194,8 +197,119 @@ contract CapacityWalkBudgetTest is Test {
     function test_3073_WalkBudget_TwoBridges_FitsATenth() public { _grid(2, 1); _fits("2 bridges, 1 book per pair", SEARCH_GAS / 10); }
     function test_3073_WalkBudget_ThreeBridges_FitsAFifth() public { _grid(3, 1); _fits("3 bridges, 1 book per pair", SEARCH_GAS / 5); }
     function test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles() public { _grid(3, 3); _fits("3 bridges, 3 books per pair", SEARCH_GAS * 3 / 4); }
-    /// No build of this grid is held: the search alone, inside the search's share.
+    /// No build of this grid is held: the search alone, inside the search's share. Since DEX-01
+    /// the plan's concentrated legs are walked by `Core.v3PaysOnBudget` on V3_PAY_READS reads for
+    /// the whole route, inside the same share (that the reads are the route's is
+    /// `test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan`).
     function test_3073_WalkBudget_ThreeBridgesSixBooks_Settles() public { _grid(3, 6); _fits("3 bridges, 6 books per pair", SEARCH_GAS); }
+
+    /// The walk runs on one topology per solve, the winner's, never per ranked candidate. The
+    /// grid of `ThreeBridges_FitsAFifth` (one book per pair, every book the same shape): the
+    /// direct book leads, held at its cap with its input whole, so the cap binds on the first
+    /// hop of every bridge too, and none of those books, ranked at the cap and beaten, has a
+    /// tick read. A count of reads, not a ceiling: a share of SOLVE_GAS stops telling the two
+    /// apart once the search itself costs less (mutant [716]: every ranked candidate walks its
+    /// held legs, sixteen tick reads on the first hop of a bridge).
+    ///
+    /// The leader is walked, and that half is a count too. Its walk stops short of the cap here,
+    /// so the plan is the one built at the cap with or without it, and only the reads tell:
+    /// nineteen on the leader's book, three by `_paysWhatItWalks` (the leader answers for what
+    /// its book pays) and the sixteen stretches of the rebuild (mutant [722h]: a leader held at
+    /// its cap is not rebuilt, three reads).
+    function test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked() public {
+        _heavy(t0, t1, FEE, L, HELD);
+        address direct = touched[touched.length - 1];
+        address[3] memory br;
+        address[3] memory firstHop;
+        for (uint256 i; i < 3; ++i) {
+            br[i] = _token();
+            hub.addBridge(br[i]);
+            _heavy(t0, br[i], FEE, L, HELD);
+            firstHop[i] = touched[touched.length - 1];
+            _heavy(br[i], t1, FEE, L, HELD);
+            for (uint256 j; j < i; ++j) _heavy(br[j], br[i], FEE, L, HELD);
+        }
+        for (uint256 i; i < 3; ++i) vm.expectCall(firstHop[i], abi.encodeWithSelector(HeavyBookPool.ticks.selector), 0);
+        vm.expectCall(direct, abi.encodeWithSelector(HeavyBookPool.ticks.selector), 19);
+        _cool();
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
+        assertEq(plan.best.hops.length, 1, "precondition: the direct book leads");
+        assertEq(plan.best.hops[0].legs.length, 1, "precondition: one direct book, one leg");
+        Leg memory g = plan.best.hops[0].legs[0];
+        assertEq(g.pool, direct, "precondition: the direct book leads");
+        assertEq(g.amountIn, IN, "precondition: the book holds its quote, so the input is whole");
+        assertEq(g.expectedOut, BPC.mulDiv(HELD, 3_000, BPC.BPS), "precondition: the cap binds on a book of this shape");
+    }
+
+    /// The direct grid of `DirectThreeBooks_FitsATenth`, by count. Each book alone would be held
+    /// at its cap on the whole order, and is ranked there without a read of its book; the three
+    /// split the order and no leg of the winner is left at its cap. `_paysWhatItWalks` spends the
+    /// route's reads on its first leg, three on that book, and a walk the reads cut on a book
+    /// that thins answers below `f` (G3): the promise fell, so the winner's topology is rebuilt
+    /// once (N1), without the book that fell, and each of the other two is ranked alone on the
+    /// whole order on its walk, sixteen stretches (`_capacity`, WALK). The book that fell is not
+    /// read again, and the rebuild does not lead (two books pay less than three): the plan built
+    /// at the cap stands. A count of reads, not a ceiling: a book walked while it is ranked
+    /// (mutants [716], [716l], [724] on their second rows), a winner rebuilt as held as well
+    /// (mutant [723] on its third row) and a book that fell walked by the rebuild (mutant
+    /// [g3-5] = [n1-3]) each read more. Red at 10a2ac4 with the count before G3 (0, 0, 3), when
+    /// a cut walk answered `f` and no promise fell on this grid.
+    function test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook() public {
+        uint256 n0 = touched.length;
+        _grid(0, 3);
+        bytes memory ticks = abi.encodeWithSelector(HeavyBookPool.ticks.selector);
+        vm.expectCall(touched[n0], ticks, 16);
+        vm.expectCall(touched[n0 + 1], ticks, 16);
+        vm.expectCall(touched[n0 + 2], ticks, 3);
+        _cool();
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
+        assertEq(plan.best.hops.length, 1, "precondition: the direct books lead");
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, 3, "precondition: the three books split the order");
+        assertEq(legs[0].pool, touched[n0 + 2], "precondition: the route's reads are spent on its first leg");
+        uint256 cap = BPC.mulDiv(HELD, 3_000, BPC.BPS);
+        for (uint256 l; l < 3; ++l) assertLt(legs[l].expectedOut, cap, "precondition: no leg of the winner is left at its cap");
+    }
+
+    /// The grid of `ThreeBridgesThreeBooks_Settles`, by count: the three direct books split the
+    /// order, the first leg is the book of 3_000. A count of reads, not a ceiling: on this grid
+    /// the share of SOLVE_GAS passes with a candidate walked while it is ranked (mutant [716l])
+    /// and with the rebuild walking every topology (mutant [723t]), and the count does not.
+    function test_3073_WalkBudget_ThreeBridgesThreeBooks_OnlyTheWinningTopologyIsRead() public {
+        _onlyTheWinningTopologyIsRead(3, 0, 3);
+    }
+
+    /// The grid of `ThreeBridgesSixBooks_Settles`, by count: five of the six direct books split
+    /// the order, the first leg is the book of 100. A count of reads, not a ceiling: on this grid
+    /// the search's budget passes with the winner rebuilt with WALK on every solve (mutant
+    /// [723]), and the count does not.
+    function test_3073_WalkBudget_ThreeBridgesSixBooks_OnlyTheWinningTopologyIsRead() public {
+        _onlyTheWinningTopologyIsRead(6, 3, 5);
+    }
+
+    /// `_grid(3, perPair)`: the direct books lead and split the order, so the walk is the direct
+    /// topology's alone. `_paysWhatItWalks` spends the route's reads on the first leg, three on
+    /// its book (the direct book of the `lead`-th fee); the promise falls, and the rebuild (N1)
+    /// ranks each other direct book alone on the whole order on its walk, sixteen stretches. No
+    /// book of a bridge has a tick read, by the search or by the rebuild.
+    function _onlyTheWinningTopologyIsRead(uint256 perPair, uint256 lead, uint256 nLegs) internal {
+        uint256 n0 = touched.length;
+        _grid(3, perPair);
+        bytes memory ticks = abi.encodeWithSelector(HeavyBookPool.ticks.selector);
+        // After n0: the three bridges, then ten books for each fee, the direct book first.
+        for (uint256 k; k < perPair; ++k) {
+            vm.expectCall(touched[n0 + 3 + 10 * k], ticks, k == lead ? 3 : 16);
+            for (uint256 b = 1; b < 10; ++b) vm.expectCall(touched[n0 + 3 + 10 * k + b], ticks, 0);
+        }
+        _cool();
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
+        assertEq(plan.best.hops.length, 1, "precondition: the direct books lead");
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, nLegs, "precondition: the direct books split the order");
+        assertEq(legs[0].pool, touched[n0 + 3 + 10 * lead], "precondition: the route's reads are spent on its first leg");
+        uint256 cap = BPC.mulDiv(HELD, 3_000, BPC.BPS);
+        for (uint256 l; l < nLegs; ++l) assertLt(legs[l].expectedOut, cap, "precondition: no leg of the winner is left at its cap");
+    }
 
     // ─── Held legs: the door settles the plan quoted, the walk on its own budget ──
 
@@ -260,6 +374,43 @@ contract CapacityWalkBudgetTest is Test {
         for (uint256 i; i < legs.length; ++i) assertEq(legs[i].expectedOut, cap, "the walk's own budget, not the caller's gas, keeps the cap");
     }
 
+    function _burnBook(uint256 k) internal {
+        BurnBookPool p = new BurnBookPool(t0, t1, uint24(500 + k * 1000));
+        p.setState(SP, L);
+        MockERC20(t0).mint(address(p), UNHELD);
+        MockERC20(t1).mint(address(p), UNHELD);
+        hub.seedPool(address(p), BPC.KIND_V3, uint24(500 + k * 1000), address(0), t0, t1);
+        touched.push(address(p));
+    }
+
+    function _coldPlan() internal returns (uint256 used, RoutePlan memory plan) {
+        _cool();
+        uint256 g0 = gasleft();
+        plan = solver.findBestRoutePlan(t0, t1, IN);
+        used = g0 - gasleft();
+    }
+
+    /// The walk's V3_PAY_READS reads are the plan's, not each leg's. Books whose every read burns
+    /// its whole GAS_CAP, each holding UNHELD, so no cap binds and the search walks none of them:
+    /// the only book reads of the plan are its promise's. Three more such books then cost the
+    /// plan less than the one walk the budget allows, V3_PAY_READS * GAS_CAP. Relative, not a
+    /// ceiling: both plans are measured cold on the same build (mutant [1006]: twelve reads for
+    /// each leg walk every book).
+    function test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan() public {
+        _burnBook(0);
+        (uint256 g1, RoutePlan memory one) = _coldPlan();
+        for (uint256 k = 1; k < 4; ++k) _burnBook(k);
+        (uint256 g4, RoutePlan memory four) = _coldPlan();
+        emit log_named_uint("plan gas, cold, 1 hostile book", g1);
+        emit log_named_uint("plan gas, cold, 4 hostile books", g4);
+        assertEq(one.best.hops[0].legs.length, 1, "precondition: one book, one leg");
+        assertEq(four.best.hops[0].legs.length, 4, "precondition: every hostile book is a leg");
+        uint256 cap = BPC.mulDiv(UNHELD, 3_000, BPC.BPS);
+        assertLe(one.best.hops[0].legs[0].expectedOut, cap, "precondition: no cap binds");
+        for (uint256 i; i < 4; ++i) assertLe(four.best.hops[0].legs[i].expectedOut, cap, "precondition: no cap binds");
+        assertLt(g4, g1 + BPC.V3_PAY_READS * BPC.GAS_CAP, "each leg of the plan walked on reads of its own");
+    }
+
     /// T3 on a walk that changes the plan (four books holding 100e18 each: a cap of 30e18 per
     /// leg, and each book pays more): across the threshold, a capped solve returns the uncapped
     /// plan or stops with empty revert data, never the plan at the cap - also where the gas
@@ -288,6 +439,47 @@ contract CapacityWalkBudgetTest is Test {
         emit log_named_uint("uncapped cost, warm", cost);
         assertGt(done, 0, "no budget in the range completes");
         assertGt(stopped, 0, "every budget in the range completes");
+    }
+
+    /// N2 (reports/plano-1026/onda5/X6), at the threshold itself: the rebuild is called only on
+    /// gas enough for EIP-150 to hand it all of WALK_GAS (WALK_GAS * 64 / 63 + 20,000 left in
+    /// `_walkOnItsOwnBudget`). Completion is monotone in the gas - below the least that completes,
+    /// every stop is out of gas or that check - so a bisection finds the least; there the rebuild
+    /// is handed its whole budget and the uncapped plan returns, and one gas less, or the 1/63 of
+    /// WALK_GAS the check keeps above it less, the solve stops with empty revert data.
+    function test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing() public {
+        _grid(0, 4, 100e18, L);
+        RoutePlan memory ref = solver.findBestRoutePlan(t0, t1, IN);   // warm, as every call below
+        assertGt(ref.best.totalOut, 4 * 30e18, "premise: the walk changes the plan");
+        bytes32 h = keccak256(abi.encode(ref));
+        uint256 g0 = gasleft();
+        solver.findBestRoutePlan(t0, t1, IN);
+        uint256 lo = g0 - gasleft() - 1;   // less than the solve spends: it cannot complete
+        uint256 hi = lo + 2_700_000;
+        solver.findBestRoutePlan{gas: hi}(t0, t1, IN);
+        while (hi - lo > 1) {
+            uint256 g = (lo + hi) / 2;
+            try solver.findBestRoutePlan{gas: g}(t0, t1, IN) returns (RoutePlan memory) { hi = g; }
+            catch (bytes memory e) {
+                assertEq(e.length, 0, "a capped solve failed with something other than out-of-gas");
+                lo = g;
+            }
+        }
+        for (uint256 i; i < 2; ++i) {
+            // 39_683 = WALK_GAS * 64 / 63 - WALK_GAS, rounded up.
+            uint256 g = i == 0 ? hi - 1 : hi - 39_683;
+            try solver.findBestRoutePlan{gas: g}(t0, t1, IN) returns (RoutePlan memory) {
+                revert("a solve short of the walk's whole budget returned a plan");
+            } catch (bytes memory e) {
+                assertEq(e.length, 0, "a solve short of the walk's whole budget failed with data");
+            }
+        }
+        // 2_500_000 = the Solver's WALK_GAS. From here two calls carry the solve's three words:
+        // the one below and the rebuild's self-call. Each must have had the walk's whole budget.
+        vm.expectCallMinGas(address(solver), 0, 2_500_000, abi.encodeCall(solver.findBestRoutePlan, (t0, t1, IN)), 2);
+        RoutePlan memory p = solver.findBestRoutePlan{gas: hi}(t0, t1, IN);
+        assertEq(keccak256(abi.encode(p)), h, "the least gas that completes returned another plan");
+        emit log_named_uint("least gas that completes, warm", hi);
     }
 
     // ─── I2 on a later hop ─────────────────────────────────────────────
@@ -541,6 +733,38 @@ contract CapacityWalkBudgetTest is Test {
         _log(plan);
         _i2(plan.best);
         assertGt(hPays, uPays, "precondition: the held book pays more than the collapsed single");
+        assertEq(plan.best.hops[0].legs.length, 1, "the hop is one leg");
+        assertEq(plan.best.hops[0].legs[0].pool, address(h), "on the held book");
+        assertEq(plan.best.totalOut, hPays, "promised what its book pays");
+        assertGe(_settles(amt, plan), _net(hPays), "and delivers it, net of the protocol fee");
+    }
+
+    /// The same collapse onto a V2 pair (reserves 50,000e18, 0.3%) in place of the 0.05%
+    /// book. No walk lowers a pair's promise, so the build goes back to the walk only on the
+    /// mark the collapse leaves. The pair pays ~119.35e18 for the order and leads at the
+    /// held book's cap (45e18); the held book pays ~119.97e18, and the walk settles it.
+    function test_3073_OneHop_CollapseOntoAV2Pair_PromiseIsTheHeldBook() public {
+        _book(t0, t1, 10_000, 1_000_000e18, 4_000e18);
+        _book(t0, t1, 10_000, 1_000_000e18, 4_001e18);
+        _book(t0, t1, 10_000, 1_000_000e18, 4_002e18);
+        uint112 r = 50_000e18;
+        MockV2Pair u = new MockV2Pair(t0, t1);
+        MockERC20(t0).mint(address(u), r);
+        MockERC20(t1).mint(address(u), r);
+        u.setReserves(r, r);
+        hub.seedPool(address(u), BPC.KIND_V2, 30, address(0), t0, t1);
+        MockV3BookPool h = _book(t0, t1, 100, 1_000_000e18, 150e18);
+        uint256 amt = 120e18;
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), amt, 0, 0, h.token0() == t0);
+        // Uniswap V2's getAmountOut at 0.3%, written out: the oracle is not the code under test.
+        uint256 uPays = amt * 997 * r / (uint256(r) * 1000 + amt * 997);
+        emit log_named_uint("hPays", hPays);
+        emit log_named_uint("uPays", uPays);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertGt(hPays, uPays, "precondition: the held book pays more than the pair");
+        assertGt(uPays, BPC.mulDiv(150e18, 3_000, BPC.BPS), "precondition: the pair pays past the held book's cap");
         assertEq(plan.best.hops[0].legs.length, 1, "the hop is one leg");
         assertEq(plan.best.hops[0].legs[0].pool, address(h), "on the held book");
         assertEq(plan.best.totalOut, hPays, "promised what its book pays");

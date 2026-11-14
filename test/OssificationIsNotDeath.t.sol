@@ -350,16 +350,20 @@ contract OssificationIsNotDeathTest is Test {
             quoter.previewPlanExact(address(tokenA), address(tokenB), amountIn);
         assertEq(rt.totalOut, BPC.outV2(amountIn, R, R, 30),
             "route total == V2 formula after full renounce");
-        assertEq(exactOut, _netOfFee(BPC.outV2(amountIn, R, R, 30)),
-            "preview == V2 formula less the protocol fee, after full renounce");
+        // No bridge on the route: the calendar charges this single hop on its input, so the
+        // preview is the V2 formula on the order less the fee (6c02eee), the Router's funding.
+        assertEq(exactOut, BPC.outV2(_netIn(amountIn), R, R, 30),
+            "preview == V2 formula on the order less the protocol fee, after full renounce");
     }
     /// Since 2026-09-03 (register escape FEE-02) `previewPlanExact` returns the
-    /// NET output: the dry-run total less the protocol fee, deducted once and
-    /// rounded up exactly as `_pack` and the Router do. The route keeps the
-    /// pool-math attestation in `totalOut`. Written from the constants so the
-    /// expectation never comes from the code under test.
-    function _netOfFee(uint256 gross) internal pure returns (uint256) {
-        return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    /// NET output; the route keeps the pool-math attestation in `totalOut`. Since
+    /// 6c02eee the net follows the fee calendar (`BPC.feeCalendar`): a single hop
+    /// with no bridge pays the fee on its INPUT, rounded up, and the venue prices
+    /// what is left, so the scalar is the pool's math on this net input, the
+    /// Router's own funding. Written from the constants so the expectation never
+    /// comes from the code under test.
+    function _netIn(uint256 amountIn) internal pure returns (uint256) {
+        return amountIn - BPC.mulDivUp(amountIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 
 

@@ -12,6 +12,39 @@
 // so this reference stays under EIP-170 and runs the same code). It is never deployed; it exists
 // so that test/MathBoundarySameAnswer.t.sol can hold the new Solver to the old answer, to the wei.
 //
+// ALIGNED 2026-11-06 TO THE TWO-HOP POLICY (Core's MAX_HOPS = 2): two literals moved with the
+// Solver, TOPOLOGIES 13 -> 4 (the direct route and the three one-bridge routes) and
+// MAX_LEGS_PER_STAGE 4 -> 5 (Core's MAX_LEGS_PER_HOP, every stage's budget in the Solver since
+// that day); the rest is the 8938b6a text. What still differs from the Solver's planners changes
+// no answer. With k < 4, `_planTopology`'s three-hop branch (k >= 4) is unreachable, so
+// `_planViaBridges` always runs n = 2 with bB = 0; each of its stages then gets
+// min(MAX_LEGS + i + 1 - n - used, MAX_LEGS_PER_STAGE) = 5 (room 10 into stage A, 11 into stage
+// B with used <= 5), the Solver's 5, and used <= 10, so `used > MAX_LEGS` (11) never fires.
+// Until that day the reference also judged the nine three-hop topologies (k 4-12), as the
+// Solver did; on the four topologies both judge now, the move of the hop's arithmetic into
+// BlazePhoenixMath is still held to this text.
+//
+// ALIGNED 2026-11-10 TO THE UNIT OF THE BAND'S MASS (MAT-02). A book's vote is now a count of
+// tokenOut: the side of the bought token it declares (Core.universalProbe's `mass`), under the
+// cap by the tokenOut it holds. In 8938b6a it was the short side (`universalQuoteRank`'s depth)
+// under the same cap, a count of whichever token had fewer units, so the old reference answered
+// for a rule the tree no longer has wherever a book's short side is not its tokenOut side. ONE
+// read moved with the Solver: the band's vote takes its mass and its rank from the LIVE Core's
+// `universalProbe` (src/BlazePhoenixCore.sol, at bar 0 with the fee: the rank is the figure
+// `universalQuoteRank` read before), through `_ctx`, the context builder split out of
+// `_quoteWithDepth` as in the Solver, and `_liveCtx`, which restates it in the live Core's
+// struct type. It reads the live Core, not the frozen CoreRefCb1d7d9, on purpose (2026-11-12):
+// a differential test of the Solver fixes everything but the unit under test, and the unit here
+// is the Solver. The frozen Core has no `mass`; adding one would unfreeze it, and reading its
+// short side would mix two changes (the Core's unit and the Solver's mechanisms) in one
+// comparison, so a red row would say nothing about which moved. The Core's mass is guarded
+// where it is made: test/Mat01FunnelMassIsHeld.t.sol, test/Mat02BandVoteIsOneUnit.t.sol and
+// the `massa` mutants of .github/scripts/mutants.py. Every other Core read of this reference
+// stays on CoreRefCb1d7d9. NOT moved: the funnel's dust rule (`_dropDust`) still reads
+// `BPC.registryDepth18Dec`, where the Solver reads `BPC.hopMass18` and walks the held books.
+// test/MathBoundarySameAnswer.t.sol holds the two to one answer on the rows it draws; it proves nothing
+// where the two funnels would part.
+//
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
 //  Version    : 2.0.0
@@ -66,9 +99,10 @@
 pragma solidity 0.8.36;
 
 import {
-    BlazePhoenixCore as BPC,
+    CoreRefCb1d7d9 as BPC,
     PoolInfo, Route, Hop, Leg, RoutePlan, QuoteCtx
-} from "../../src/BlazePhoenixCore.sol";
+} from "./CoreRefCb1d7d9.sol";
+import {BlazePhoenixCore as LiveCore, QuoteCtx as LiveQuoteCtx} from "../../src/BlazePhoenixCore.sol";
 
 /// The public entry `Core.v4HeldShare` had at 59ecf3f, as a linked library of its own.
 library CoreHeldShareRef {
@@ -140,7 +174,9 @@ contract SolverRefPoda1027 {
     /// @notice PER-HOP leg ceiling, in any topology — including the direct
     ///         route. 4 since 2026-08-22 (was 3, and the direct route did not even
     ///         respect it: it used the global ceiling).
-    uint8   internal constant MAX_LEGS_PER_STAGE   = 4;
+    ///         5 since 2026-11-06 (4 at 8938b6a): Core's MAX_LEGS_PER_HOP, the Solver's budget
+    ///         for every stage (file header).
+    uint8   internal constant MAX_LEGS_PER_STAGE   = 5;
 
 
     /// @notice Skip the full CREATE2 discovery sweep when the pair already has at
@@ -383,7 +419,9 @@ contract SolverRefPoda1027 {
     ///      Bridge topologies only ADD candidates to the judgement: a direct route still wins
     ///      whenever it delivers more, because the comparison is by the output built and not
     ///      by topology depth.
-    uint256 private constant TOPOLOGIES = 13;
+    ///      4 since 2026-11-06 (13 at 8938b6a): two hops, so k 4-12 are no longer judged and
+    ///      their branch below is unreachable (file header).
+    uint256 private constant TOPOLOGIES = 4;
 
     function _planTopology(
         Melhores memory m, uint256 k, address[4] memory bs, address tIn, address tOut, uint256 amountIn
@@ -653,7 +691,9 @@ contract SolverRefPoda1027 {
         for (uint256 i; i < n; ) {
             // S2: the probe rate is a RANKING figure, so it reads the deep rank (bar 0), not the
             // sixteen-stretch promise that dust inside the probe's reach can cut.
-            (, uint256 d, uint256 o, ) = _quoteWithDepth(cands[i], tIn, probe, dIn1_, dOt1_, 0);
+            // The vote's mass and rank come from the LIVE Core (see the header): the frozen
+            // CoreRefCb1d7d9 has no `mass`, and the Core's unit is not what this reference tests.
+            (uint256 d, uint256 o, , , ) = LiveCore.universalProbe(_liveCtx(_ctx(cands[i], tIn, dIn1_, dOt1_)), probe, 0, true, probe);
             if (o > 0) {
                 rates[i]  = BPC.mulDiv(o, 1e18, probe);
                 depths[i] = d == 0 ? 1 : d;   // matches the legacy "if (d==0) d=1"
@@ -1535,6 +1575,14 @@ contract SolverRefPoda1027 {
     function _quoteWithDepth(
         PoolInfo memory cand, address tIn, uint256 amt, uint8 dIn1, uint8 dOt1, uint256 bar
     ) private view returns (uint256 out, uint256 depth, uint256 rank, uint256 hi) {
+        (out, depth, rank, hi) = BPC.universalQuoteRank(_ctx(cand, tIn, dIn1, dOt1), amt, bar);
+    }
+
+    /// @dev ALIGNED 2026-11-10 (MAT-02, see the header): the Solver's own context builder, split
+    ///      out of `_quoteWithDepth` so the band's vote can read `BPC.universalProbe`.
+    function _ctx(PoolInfo memory cand, address tIn, uint8 dIn1, uint8 dOt1)
+        private view returns (QuoteCtx memory c)
+    {
         bool zfo = cand.token0 == tIn;
         // Native V4: PoolInfo carries the pair in WETH-canonical form with token0 = the
         // wrapped-native side (the registry's orientation contract - see Hub._readPoolInfo).
@@ -1543,7 +1591,7 @@ contract SolverRefPoda1027 {
         // poolId. zeroForOne needs no branch: token0 == tIn already means "input is
         // currency0" under this orientation. Every other kind passes through untouched.
         (address qIn, address other) = BPC.v4LegCurrencies(cand.kind, tIn, zfo ? cand.token1 : cand.token0, zfo);
-        QuoteCtx memory c = QuoteCtx({
+        c = QuoteCtx({
             kind:        cand.kind,
             pool:        cand.pool,
             zeroForOne:  zfo,
@@ -1565,7 +1613,17 @@ contract SolverRefPoda1027 {
             decIn1:      dIn1,
             decOther1:   dOt1
         });
-        (out, depth, rank, hi) = BPC.universalQuoteRank(c, amt, bar);
+    }
+
+    /// @dev The same context as the live Core's `QuoteCtx` type (the two structs are field for
+    ///      field the same), for the one read that goes to the live Core: the band's vote.
+    function _liveCtx(QuoteCtx memory c) private pure returns (LiveQuoteCtx memory l) {
+        l = LiveQuoteCtx({
+            kind: c.kind, pool: c.pool, zeroForOne: c.zeroForOne, fee: c.fee,
+            tickSpacing: c.tickSpacing, stable: c.stable, tokenIn: c.tokenIn,
+            tokenOther: c.tokenOther, hooks: c.hooks, v4Manager: c.v4Manager, hub: c.hub,
+            decIn1: c.decIn1, decOther1: c.decOther1
+        });
     }
 
     /// @dev Depth-free quote. Delegates to `_quoteWithDepth` and drops the depth rather than

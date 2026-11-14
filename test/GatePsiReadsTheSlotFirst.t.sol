@@ -29,7 +29,8 @@ pragma solidity 0.8.36;
 //  2^bucket of a depth word chosen per decade), and gatePsi as it stood at
 //  59ecf3f (GatePsiAt59ecf3f below, its whole body); never the shortcut.
 //
-//  Cheatcodes: vm.warp (time is the route: the adapter timelock and the decay),
+//  Cheatcodes: vm.warp (time is the route: the adapter timelock, the interval
+//  between two uses, and the decay),
 //  vm.expectCall (the call not made is the property), vm.cool (each gas reading
 //  starts from cold accounts), vm.store (slots no swap writes: a count of
 //  2^32 - 1, a count never stamped, a stamp in the future, any word; each read
@@ -37,6 +38,7 @@ pragma solidity 0.8.36;
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../src/BlazePhoenixGate.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -249,24 +251,30 @@ contract GatePsiReadsTheSlotFirstTest is Test {
     // ─── 2. the Gate's psi, bit for bit ───
 
     /// Quantity: psi along a wrapper's life, at every bucket 0..15, by hand and from gatePsi at
-    /// 59ecf3f. Vitality: 0 unused; 1 after one material swap; 3 after three; at 2 steps
-    /// 3 >> 2 = 0, floored to 1 (a shortcut on the decayed count alone, without the floor, reads
-    /// it dead: [838]); at 32 * STEP - 1 (31 steps) the floor, 1; at 32 * STEP (32 steps, past
-    /// the horizon) 0, dead by decay, its slot not empty. psi = v * 2^b.
+    /// 59ecf3f. Vitality: 0 unused; 1 after one material swap; 3 after three, STEP / 4 apart
+    /// (tau starts at 24 576 / m = STEP / 4 and an interval of exactly that moves it by 0, so
+    /// the step stays STEP); counted from the third swap, at 2 steps 3 >> 2 = 0, floored to 1
+    /// (a shortcut on the decayed count alone, without the floor, reads it dead: [838]); at
+    /// 32 * STEP - 1 (31 steps) the floor, 1; at 32 * STEP (32 steps, past the horizon) 0, dead
+    /// by decay, its slot not empty. psi = v * 2^b.
     function test_GatePsi_IsTheGatesPsiAlongAWrappersLife() public {
         BlazePhoenixGateWrapper w = _wrapper();
         vm.warp(T0);
         _allBuckets(address(w), 0, "unused");
         _swap(w);
         _allBuckets(address(w), 1, "one swap");
+        // fix-1102 A: was three swaps at T0, the steps counted from T0, because every tick counted; now STEP / 4 apart, the steps counted from the third, because a tick inside the stamped second leaves the clock as it was (BlazePhoenixCore.sol:2898)
+        uint256 t3 = T0 + STEP / 2;
+        vm.warp(T0 + STEP / 4);
         _swap(w);
+        vm.warp(t3);
         _swap(w);
         _allBuckets(address(w), 3, "three swaps");
-        vm.warp(T0 + 2 * STEP);
+        vm.warp(t3 + 2 * STEP);
         _allBuckets(address(w), 1, "two steps, the floor");
-        vm.warp(T0 + 32 * STEP - 1);
+        vm.warp(t3 + 32 * STEP - 1);
         _allBuckets(address(w), 1, "31 steps, the floor");
-        vm.warp(T0 + 32 * STEP);
+        vm.warp(t3 + 32 * STEP);
         _allBuckets(address(w), 0, "32 steps, dead by decay");
         assertTrue(w.vitalSlot() != 0, "the dead slot is not empty");
     }
@@ -373,5 +381,30 @@ contract GatePsiReadsTheSlotFirstTest is Test {
         assertEq(q, 0, "psi 0 at 59ecf3f");
         assertGt(eagerGas, BPC.GATE_QUOTE_GAS * 63 / 64, "the neighbour: at 59ecf3f the adapter burned its cap");
         assertLt(lazyGas, 50_000, "gatePsi never reaches the adapter");
+    }
+
+    // ─── the same property as calls, not gas (INV-S6) ───
+
+    /// Quantity: the calls gatePsi makes for a wrapper nobody used, recorded. Its psi is its own
+    /// slot's answer, so no call reaches the Gate and none reaches the adapter behind it,
+    /// whatever that adapter would burn. Kills [morf-1f] (the depth read paid before the slot,
+    /// [831]) and [morf-1g] (a slot read that never floors to 0, [832]) by the calls made, where
+    /// the two tests above kill them by the gas spent.
+    function test_GatePsi_AnUnusedWrapperNeverCallsTheGate() public {
+        address w = _burningWrapper();
+        vm.startStateDiffRecording();
+        (, uint256 p) = probe.lazy{gas: 3_000_000}(address(gate), w);
+        VmSafe.AccountAccess[] memory acc = vm.stopAndReturnStateDiff();
+        uint256 toGate;
+        uint256 toWrapper;
+        for (uint256 i; i < acc.length; ++i) {
+            VmSafe.AccountAccessKind k = acc[i].kind;
+            if (k != VmSafe.AccountAccessKind.Call && k != VmSafe.AccountAccessKind.StaticCall) continue;
+            if (acc[i].account == address(gate)) ++toGate;
+            if (acc[i].account == w) ++toWrapper;
+        }
+        assertEq(p, 0, "psi 0");
+        assertGt(toWrapper, 0, "the neighbour: gatePsi reads the wrapper's slot");
+        assertEq(toGate, 0, "an unused wrapper's psi never calls the Gate");
     }
 }

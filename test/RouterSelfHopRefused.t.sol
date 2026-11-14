@@ -18,7 +18,7 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 
@@ -149,18 +149,23 @@ contract RouterSelfHopRefusedTest is Test {
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
     }
 
-    /// A -> B honest, B -> B through a (B,B) pool, B -> C honest. `att` is the
-    /// caller's attestation on the self-hop leg (0 = none).
+    /// A -> B honest, then B -> B through a (B,B) pool. `att` is the caller's
+    /// attestation on the self-hop leg (0 = none). Two hops, not three: the hop
+    /// ceiling (MAX_HOPS = 2) refuses a longer route with the same RouterE(3) before
+    /// any hop is read, and a fixture over the ceiling stays green with the self-hop
+    /// guard deleted (mutant "H3: a self-hop through a token0 == token1 pool is
+    /// accepted again", which survived the PR #123 run).
     function _selfHopRoute(uint256 att) private view returns (Route memory) {
         uint256 b = BPC.outV3(AMT, Q96, LIQ, 3000, pAB.token0() == address(tokenA), 0);
-        Hop[] memory hs = new Hop[](3);
+        Hop[] memory hs = new Hop[](2);
         hs[0] = _hop(address(tokenA), address(tokenB), _legV3(address(pAB), address(tokenA), AMT, 0));
         hs[1] = _hop(address(tokenB), address(tokenB), _legSelf(address(selfB), b, att));
-        hs[2] = _hop(address(tokenB), address(tokenC), _legV3(address(pBC), address(tokenB), b, 0));
+        assertLe(hs.length, MAX_HOPS, "premise: under the hop ceiling, so RouterE(3) can only be the self-hop guard");
         return _wrap(hs);
     }
 
-    /// THE RED: the mid-route self-hop whose leg has legOutRaw == legIn == B is
+    /// THE RED: the self-hop after an honest hop (hop 1 of 2; under MAX_HOPS = 2 no
+    /// route holds one between two honest hops) whose leg has legOutRaw == legIn == B is
     /// refused with RouterE(3) and nothing moves. Unfixed: settles far below the
     /// pool-state oracle (the per-leg floor failed open).
     function test_legOutRaw_MidRouteSelfHop_IsRefused() public {
@@ -175,7 +180,7 @@ contract RouterSelfHopRefusedTest is Test {
         assertTrue(!ok, "a self-hop (hop.tokenIn == hop.tokenOut) must be refused");
         assertEq(keccak256(err), keccak256(_e(3)), "the refusal is the route-shape RouterE(3)");
         assertEq(tokenA.balanceOf(user), userBefore, "nothing may move on a refused route");
-        assertEq(tokenC.balanceOf(user), 0, "no output on a refused route");
+        assertEq(tokenB.balanceOf(user), 0, "no output on a refused route");
     }
 
     /// The same self-hop WITH the caller's attestation on the leg: the alias used to

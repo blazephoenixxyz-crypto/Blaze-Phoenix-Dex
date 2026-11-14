@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -67,6 +67,16 @@ jobs:
       - name: regime covering array is current
         # The generated rows must be the rows the generator produces for the declared factors.
         run: python3 .github/scripts/assurance/covering_array.py --check
+
+      - name: TickMath table is its definition, certified on every tick
+        # Each of the twenty constants of Core.sqrtPriceAtTick is recomputed from its definition, the
+        # integer nearest to 2^128 / sqrt(1.0001)^(2^i). The certificate is regenerated on all
+        # 1,774,545 ticks with exact interval arithmetic and must be the committed
+        # docs/assurance/tickmath-certificate.tsv; the chains, pinned ticks and table lines in
+        # test/TickMathCertificate.t.sol must be its. Standard library only, about 30 s.
+        run: |
+          python3 -I test/tools/tickmath_certificate.py self-test
+          python3 -I test/tools/tickmath_certificate.py check
 
       - name: Yul evaluation-order guard
         # Yul evaluates a builtin's arguments RIGHT TO LEFT, so
@@ -237,6 +247,15 @@ jobs:
         # copy of the predicate outside the Core.
         run: python3 .github/scripts/theta_membership_guard.py
 
+      - name: errOrder reader guard (the bound at the hop's size is read once, through _keep)
+        # ROUTEQ: universalProbe's errOrder is not clamped at WAD; the system reads min(errOrder,
+        # WAD) only because its one reader is Math._inBand's `_keep(fb, fe[b] >> 88)` and `_keep`
+        # reads a bound past WAD as WAD. Fails on a second reader of `fe` bits 88 up, on a read
+        # of bits 24 up without ERR_MASK, or on a second writer of bits 88 up.
+        run: |
+          python3 .github/scripts/err_order_reader_guard.py --self-test
+          python3 .github/scripts/err_order_reader_guard.py
+
       - name: V4 identity guard (the native side of a V4 leg is derived once)
         # Fusion 1 (2026-10-20): five hand-written copies of "which side of a native V4 leg is the
         # chain's coin" (Quoter x2, Solver x3) became calls to Core.v4LegCurrencies. Fails on a
@@ -305,7 +324,7 @@ jobs:
         run: python3 .github/scripts/check_targets.py
 
   mutation-guard:
-    name: mutation guard (shard ${{ matrix.shard }} of 8)
+    name: mutation guard (shard ${{ matrix.shard }} of 20)
     runs-on: ubuntu-latest
     # Its own job since 2026-10-07, in four parallel shards. Inside `test` the guard took 80 of
     # the job's 90 minutes at ~271 mutants and was cancelled (runs 37653877143, 37653884792);
@@ -318,11 +337,21 @@ jobs:
     # ~190 mutants left without a verdict (runs 40417743525, 40424845798). Eight: ~37 fast, ~52 slow,
     # ~55 at 800. Unbuffered output, so a cancelled shard still shows every verdict it reached.
     # Add shards, not minutes, when 15 + 0.4 * (mutants / shards) passes 60.
+    # Nine since the gas ledgers (2026-11-09): 940 mutants give 15 + 0.4 * 940 / 8 = 62.0 on
+    # eight shards and 56.8 on nine.
+    # Seventeen since 2026-11-12, measured on PR #123 (1,229 mutants, 137 per shard, run
+    # 131028174955..175421): the baseline now takes 16.3-23.3 min and a mutant 19.6-29.6 s, so a
+    # slow runner was on pace for 23.3 + 0.49 * 137 = 91 min and five of nine shards were
+    # cancelled at 75 with 3-32 mutants unjudged. 23.3 + 0.49 * 1229 / 17 = 58.7.
+    # Twenty since 2026-11-13: at 1,368 mutants seventeen shards took 56-75 min and two were
+    # cancelled at 75 (run 43509365862); 23.3 + 0.49 * 1368 / 17 = 62.7, on twenty 56.8.
+    # Not more: the account runs ~20 jobs at once and every shard pays the 23-minute baseline
+    # again, so past ~20 shards the run gets longer, not shorter (40 shards: two waves, ~80 min).
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -330,6 +359,10 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: the gas ledgers' snapshots (snapshots/*.json) are this binary's measurement,
+          # and every run of the guard checks them (mutants.py, SNAPSHOT_FLAGS).
+          version: v1.8.5
 
       - name: Mutation guard (os guardas tem de ter testes que os apanhem)
         # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
@@ -347,7 +380,7 @@ jobs:
         # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
         env:
           MUTANTS_SHARD: ${{ matrix.shard }}
-          MUTANTS_SHARDS: 8
+          MUTANTS_SHARDS: 20
           PYTHONUNBUFFERED: "1"
         run: python3 .github/scripts/mutants.py
 
@@ -455,15 +488,17 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Build the Core probe under two other optimiser settings
+      - name: Build the Core and Math probes under three other code generations
         # test/nversion: the suite executes one binary (the release settings). This lane
-        # compiles the same quote maths at optimizer_runs = 1 and 20000 and asserts the
-        # three binaries agree on fuzzed inputs. A disagreement is a compiler-setting
+        # compiles the same quote maths and band selection at optimizer_runs = 1 and 20000,
+        # and under a Yul step sequence with no FunctionSpecializer (nver3), and asserts the
+        # four binaries agree on fuzzed inputs. A disagreement is a compiler-setting
         # dependence in the source, and would be invisible to a suite that runs under one
         # setting alone.
         run: |
           FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'
           FOUNDRY_PROFILE=nver2 forge build --skip '*.t.sol'
+          FOUNDRY_PROFILE=nver3 forge build --skip '*.t.sol'
 
       - name: Compare the binaries
         # NVERSION_LANE=1 turns the test's "no artefacts" skip into a failure, so the lane
@@ -491,6 +526,22 @@ jobs:
         run: |
           set -o pipefail
           forge build --sizes | tee sizes.txt
+
+      - name: Every size is the committed one (.sizes-snapshot)
+        # The margin check below only fails at 24000. This one fails on ANY byte that moves,
+        # in either direction, and names the contract: a change that spends size updates
+        # .sizes-snapshot in the same commit (sizes_snapshot.py update), so the spend is reviewed.
+        run: |
+          python3 .github/scripts/assurance/sizes_snapshot.py --self-test
+          python3 .github/scripts/assurance/sizes_snapshot.py check .
+
+      - name: The tested binary is the shipped one, on its pin (profile parity)
+        # default vs release on every code-generating setting, both on absolute pins, and what
+        # forge itself resolved for them (a key the toml leaves out takes the default of
+        # whichever forge this runner installed). The self-test proves each guard can go red.
+        run: |
+          python3 .github/scripts/assurance/profile_parity.py --self-test .
+          python3 .github/scripts/assurance/profile_parity.py . --effective
 
       - name: Enforce EIP-170 with margin (< 24000 bytes runtime)
         env:
@@ -640,7 +691,13 @@ jobs:
   gas-metrics:
     name: gas metrics (offline ledger)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30 since the snapshot gate below (2026-11-09): both steps share one release compile, and a
+    # full one takes 10.8 min on a fast runner and 15.3 on a slow one (see mutation-guard).
+    timeout-minutes: 30
+    env:
+      # The profile the snapshots were measured in and the mutation guard checks them in. Its
+      # codegen settings are the default profile's, so the reporting step measures the same code.
+      FOUNDRY_PROFILE: release
     steps:
       - uses: actions/checkout@v7
         with:
@@ -648,6 +705,9 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: the committed snapshots are this binary's measurement.
+          version: v1.8.5
 
       - name: Measure gas ledger (offline harness, reporting-only)
         # Not a pass/fail correctness gate - surfaces the MEASURED gas ledger
@@ -656,3 +716,26 @@ jobs:
         # regressions are visible per-commit and the warm/cold numbers stay
         # current instead of being trusted from a stale one-off measurement.
         run: forge test --match-contract "LifecycleMetrics|SecurityArchitectureGas|Sstore2RegistryGas|DiscoveryModeGas" -vv
+
+      - name: Gas ledgers match their snapshots (test/gas, a gate)
+        # Each gas ledger in test/gas/ writes one snapshot group named after its test
+        # (snapshots/<test>.json): the gas of each window it measures, each top-level call its own
+        # transaction (isolate, set in foundry.toml and asserted by the tests). With the check on,
+        # forge fails the run when a committed number moved; a run that passes rewrites every group
+        # it ran and no other. The check compares only the entries both sides hold, so the git line
+        # fails on an entry that was added, renamed or dropped and on a group that was added or
+        # renamed, and the guard on a committed group this run did not write: one no test is named
+        # after, and one whose test was skipped, filtered out or stopped recording, whose numbers
+        # nothing would otherwise have read. The self-test feeds the guard such groups, so it is
+        # proven able to fail. A gas change therefore lands only with its snapshots regenerated in
+        # the same commit.
+        # Offline: local mocks and harnesses only, no RPC and no secret.
+        env:
+          FORGE_SNAPSHOT_CHECK: "true"
+        run: |
+          python3 .github/scripts/gas_snapshot_guard.py --self-test
+          touch "$RUNNER_TEMP/gas-ledgers-start"
+          forge test --match-path "test/gas/**"
+          git status --porcelain -- snapshots/
+          test -z "$(git status --porcelain -- snapshots/)"
+          python3 .github/scripts/gas_snapshot_guard.py "$RUNNER_TEMP/gas-ledgers-start"

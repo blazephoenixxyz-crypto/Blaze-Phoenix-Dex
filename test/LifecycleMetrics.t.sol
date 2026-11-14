@@ -191,6 +191,7 @@ contract LifecycleMetricsTest is Test {
         // The history R3 protects, read while the pools are hot. Since each pool decays on its
         // own clock (2026-10-27), a pair swapped every minute has decayed to its floor within
         // the hour of phase 4: read after it, "before decay" would already be decayed.
+        // fix-1102 A: was true at tau 60 (a 240 s step); now four 60 s intervals leave tau 3 624 (a 14 496 s step), so the hour keeps the figure (vitBeforeDecay == vitHot below) (BlazePhoenixCore.sol:2904-2908)
         (, uint256 vitHot,) = _vitalitySnapshot(uint32(t));
 
         console2.log("");
@@ -210,6 +211,7 @@ contract LifecycleMetricsTest is Test {
         console2.log("vitality sum 24 576 s later:", vitOneStep);
         // past the old fixed horizon (33 * 24 576 s ~ 9.4 days), far past these pools' own
         // (32 * m * tau, tau ~ the minute between their swaps)
+        // fix-1102 A: was tau ~ the minute; now tau 3 624, so their own horizon is 32 * 4 * 3 624 = 463 872 s, still short of these 814 609 s (BlazePhoenixCore.sol:2637)
         uint256 tDead = t + (DECAY_STEP * 33);
         (, uint256 vitDead,) = _vitalitySnapshot(uint32(tDead));
         console2.log("vitality sum past the horizon (~9.4d):", vitDead);
@@ -226,29 +228,26 @@ contract LifecycleMetricsTest is Test {
         console2.log("(hot vitality sum was:", vitHot);
 
         // Every figure above, by value (one swap ticks all four pools, every leg anchored).
-        // Hot: five swaps 60 s apart leave each pool count 5, tau 60, so step h = 4 * 60 = 240
-        // and v = 5 * 24 576 / 240 = 512 per pool.
-        assertEq(vitHot, 4 * 512, "hot: count 5 on a 240 s step scores 512 per pool");
-        // TTL + 1 = 3 601 s later the count has halved 15 times (3 601 / 240): live, scored 0,
-        // floored to 1 per pool.
-        assertEq(vitBeforeDecay, 4, "an hour on: 15 steps, still live, the floor of 1 per pool");
-        // One fixed step (24 576 s) further is 117 of these pools' own steps (28 177 / 240),
-        // past the 31 a count survives: dead. The old fixed step would still score 2 per pool.
-        assertEq(vitOneStep, 0, "one fixed step later the pools' own clock has killed them");
+        // fix-1102 A: was count 5, tau 60, h 240, 512 per pool, because the registration ticked and the first interval was read whole; now count 4, because a row is born with swapCount 0 (BlazePhoenixHub.sol:2168), and tau 6 144 -> 5 383 -> 4 717 -> 4 134 -> 3 624, because the first interval moves from 24 576 / 4 and each EMA step rounds up (BlazePhoenixCore.sol:2904-2908): h = 4 * 3 624 = 14 496, v = 4 * 24 576 / 14 496 = 6 per pool
+        assertEq(vitHot, 4 * 6, "hot: count 4 on a 14 496 s step scores 6 per pool");
+        // fix-1102 A: was 4 (3 601 s were 15 steps of 240 s: live, floored to 1 per pool); now 24, because 3 601 s sit inside the first 14 496 s step and the chord takes 4 * 3 601 / 28 992 = 0: count 4, 6 per pool (BlazePhoenixCore.sol:2636-2642)
+        assertEq(vitBeforeDecay, 4 * 6, "an hour on: inside the pools' first step, still 6 per pool");
+        // fix-1102 A: was 0 (28 177 s were 117 steps of 240 s: dead); now 12, because 28 177 s are one 14 496 s step plus 13 681 s: 4 >> 1 = 2, the chord takes 2 * 13 681 / 28 992 = 0, v = 2 * 24 576 / 14 496 = 3 per pool (BlazePhoenixCore.sol:2636-2642, :2598)
+        assertEq(vitOneStep, 4 * 3, "one fixed step later: one of the pools' own steps, 3 per pool");
         // (vitDead == 0 is pinned with the report-grade assertions below.)
         // R3, by value. The revive swap counts from what survives on the OLD clock: nothing,
-        // so count 1. Its interval since the last hot swap, dt = 814 609 s, moves tau by the
-        // EMA: 60 + (814 609 - 60) / 8 = 101 878. Score 24 576 / (4 * 101 878) = 0, floor 1.
+        // so count 1.
+        // fix-1102 A: was tau 60 + (814 609 - 60) / 8 = 101 878; now 3 624 + (814 609 - 3 624 + 7) / 8 = 104 998, the EMA rounded up from the hot tau (BlazePhoenixCore.sol:2907). Score 24 576 / (4 * 104 998) = 0, floor 1.
         assertEq(regRevive, 4, "the revive swap reaches the same four pools");
         assertEq(vitRevive, 4, "R3: a swap after full decay scores the floor, not the old history");
-        // The sum alone cannot see a tick that skips the decay: count 6 on that tau also
+        // The sum alone cannot see a tick that skips the decay: count 5 on that tau also
         // floors to 1. The count per pool can.
         PoolInfo[] memory revived = hub.getActivePools(address(tokenIn), address(tokenOut));
         for (uint256 i; i < revived.length; ++i) {
             uint256 slot = hub.getSlot(hub.keyOf(revived[i].pool, revived[i].token0, revived[i].token1));
             assertEq(BPC.decodeSwapCount(slot), 1,
-                "R3: the revive swap counts from the decayed zero, not from the hot five");
-            assertEq(BPC.decodeTau(slot), 101_878, "the revive interval moved tau by its EMA");
+                "R3: the revive swap counts from the decayed zero, not from the hot four");
+            assertEq(BPC.decodeTau(slot), 104_998, "the revive interval moved tau by its EMA");
             assertEq(BPC.decodeLastUpdateTs(slot), uint32(t), "the revive swap stamps its time");
         }
 

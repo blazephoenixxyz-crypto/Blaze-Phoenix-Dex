@@ -396,7 +396,8 @@ contract BlazePhoenixHub {
     event Factory_(address indexed factory, uint8 kind, uint8 mode);
     event Bridge_(address indexed token, bool added);
     event V4Add(uint256 indexed idx, address c0, address c1, uint24 fee);
-    /// @dev ids: 0 admin · 1 router · 2 solver · 3 quoter · 4 operator · 5 v4PoolManager.
+    /// @dev ids: 0 admin · 1 router · 2 solver · 3 quoter · 4 operator granted · 5 v4PoolManager ·
+    ///      6 operator revoked (a seat taken away is not logged as a seat given).
     ///      5 is not a "role" in the permission sense — it is the SINGLETON against which the
     ///      extsloads that constitute claimV4's authenticity proof run. It goes here instead of
     ///      in its own event because it IS a protocol address and fits the shape at no cost.
@@ -404,6 +405,11 @@ contract BlazePhoenixHub {
     ///      fixed measurement APPARATUS, and a mutable, unobservable instrument returns a
     ///      perfectly valid number from the wrong place, with no symptom at all.
     event RoleSet(uint8 role, address who);
+    /// @notice The pin a hook's admission wrote: its runtime codehash, or HOOK_REVOKED when the
+    ///         curator revoked it. The value the auto-pause (Layer 3) compares the live code to.
+    event HookPinned(address indexed hook, bytes32 codehash);
+    /// @notice The CREATE2 init hash a factory row derives its pools with (additive to Factory_).
+    event FactoryPinned(address indexed factory, bytes32 initHash);
     /// @notice The emergency switch changed.
     event PausedSet(bool paused);
     event ControlRenounced();
@@ -445,6 +451,8 @@ contract BlazePhoenixHub {
         $.operator[admin_] = true;
         $.v4PoolManager = v4Manager_;
         emit RoleSet(0, admin_);
+        emit RoleSet(4, admin_);
+        emit RoleSet(5, v4Manager_);
     }
 
     /// @notice Permanently surrender the CONTROL powers — the ones that can
@@ -492,7 +500,7 @@ contract BlazePhoenixHub {
         emit RoleSet(1, r); emit RoleSet(2, s); emit RoleSet(3, q);
     }
     function setOperator(address who, bool ok) external onlyControl {
-        _store().operator[who] = ok; emit RoleSet(4, who);
+        _store().operator[who] = ok; emit RoleSet(ok ? 4 : 6, who);
     }
     function setPaused(bool b) external onlyControl { _store().paused = b; emit PausedSet(b); }
     /// @notice THIS ADDRESS IS THE SINGLE LEVER THE V4 HOOK SIEVE RESTS ON, and
@@ -550,7 +558,9 @@ contract BlazePhoenixHub {
         // unknown hook (never listed) has no pin and is the caller's own choice on the
         // explicit door. The sentinel is not a codehash (no runtime hashes to 1), and it
         // does not depend on the hook having code at all.
-        $.hookCodehash[h] = ok ? h.codehash : HOOK_REVOKED;
+        bytes32 pin = ok ? h.codehash : HOOK_REVOKED;
+        $.hookCodehash[h] = pin;
+        emit HookPinned(h, pin);
     }
 
     /// @dev Registering a hooked pool is the admission of its hook: the operator who writes the
@@ -561,7 +571,9 @@ contract BlazePhoenixHub {
         if (hooks == address(0) || $.hookAllowed[hooks]) return;
         if ($.hookCodehash[hooks] == HOOK_REVOKED) revert HubE(8);
         $.hookAllowed[hooks] = true;
-        $.hookCodehash[hooks] = hooks.codehash;
+        bytes32 pin = hooks.codehash;
+        $.hookCodehash[hooks] = pin;
+        emit HookPinned(hooks, pin);
     }
 
     /// @notice Is routing through this hook refused on every door? True for a hook the
@@ -908,6 +920,7 @@ contract BlazePhoenixHub {
             if (mayPin) $.factoryDeployer[factory] = live;
         }
         emit Factory_(factory, kind, mode);
+        emit FactoryPinned(factory, initHash);
         return uint8(row);
     }
 
@@ -1026,9 +1039,6 @@ contract BlazePhoenixHub {
         if (sp == 0 || liq == 0) revert HubE(9);
         // Dynamic fee must resolve to a quotable value (INV-20), else fail closed.
         if (BPC.effV4Fee(fee, lpF, pF, true) >= 1_000_000) revert HubE(9);  // direction-free check: quotable at all?
-        // Learn the token-side pattern code from every successful on-chain
-        // proof — idempotent re-claims included, so a stale hint self-heals.
-        _writeV4Code(s0, s1, fee, tickSpacing);
         address poolAddr = address(uint160(uint256(pid)));
         key = keyOf(poolAddr, s0, s1);
         // Idempotent: a live re-claim must not push a duplicate V4Entry nor
@@ -1060,13 +1070,14 @@ contract BlazePhoenixHub {
             tickSpacing: tickSpacing, hooks: address(0)
         }));
         $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
+        // A4: _register persists the MEASURED depth bucket, so a claimed pool is
+        // fitness-ranked on its real liquidity instead of defaulting to bucket 0
+        // (psi ~1) — the pool that just won admission on its depth is not the
+        // pair's weakest slot / next eviction target the instant it is registered.
         _register(key, poolAddr, s0, s1, _born(BPC.KIND_V4, fee, false), depthTok);
-        // A4: persist the MEASURED depth bucket (mirrors recordSwap's new-pool
-        // path) so a claimed pool is fitness-ranked on its real liquidity instead
-        // of defaulting to bucket 0 (psi ~1) — otherwise the pool that just won
-        // admission on its depth becomes the pair's weakest slot / next eviction
-        // target the instant it is registered.
-        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], false, depthTok, uint32(block.timestamp)));
+        // Learn the token-side pattern code only from a claim that registered a row, weighed by
+        // its depth bucket (3537): a refused or idempotent claim, or a lighter one, teaches nothing.
+        _writeV4Code(s0, s1, fee, tickSpacing, BPC.depthBucket(depthTok));
         emit V4Add($.v4Entries.length - 1, s0, s1, fee);
     }
 
@@ -1452,22 +1463,26 @@ contract BlazePhoenixHub {
     /// @dev Write the pattern code on the pair's NON-BRIDGE side(s). Bridges
     ///      pair with many tokens at many tiers — a per-bridge code would
     ///      thrash — so the code is the launch-tier fingerprint of the minted
-    ///      token only. Last proof wins: self-correcting toward the tier that
-    ///      actually trades. Skips the SSTORE when the code is unchanged.
-    function _writeV4Code(address t0, address t1, uint24 fee, int24 ts) private {
+    ///      token only. The heaviest proof wins (3537): the code carries its
+    ///      teacher's depth bucket in bits [51:48], and a witness of a lower
+    ///      bucket never rewrites it; an equal or deeper one does, so the hint
+    ///      still corrects toward the tier that actually trades. Skips the
+    ///      SSTORE when the code is unchanged.
+    function _writeV4Code(address t0, address t1, uint24 fee, int24 ts, uint8 bucket) private {
         HubStore storage $ = _store();
-        uint256 c = _v4Code(fee, ts);
-        if (!$.isBridge[t0] && $.v4CodeOf[t0] != c) $.v4CodeOf[t0] = c;
-        if (!$.isBridge[t1] && $.v4CodeOf[t1] != c) $.v4CodeOf[t1] = c;
+        uint256 c = _v4Code(fee, ts) | (uint256(bucket) << 48);
+        uint256 o; // the side's current code, read only past the bridge check
+        if (!$.isBridge[t0] && (o = $.v4CodeOf[t0]) != c && o >> 48 <= bucket) $.v4CodeOf[t0] = c;
+        if (!$.isBridge[t1] && (o = $.v4CodeOf[t1]) != c && o >> 48 <= bucket) $.v4CodeOf[t1] = c;
     }
 
     /// @dev recordSwap-side healer for an already-registered V4 pool: recover
     ///      the swapped pool's tickSpacing (steady state: one SLOAD + one
     ///      keccak — the learned code already describes the pool) and refresh
     ///      the non-bridge side(s). Fail-open: unrecoverable means no update.
-    function _noteV4Code(address pool, address t0, address t1, uint24 fee) private {
+    function _noteV4Code(address pool, address t0, address t1, uint24 fee, uint8 bucket) private {
         (int24 ts, bool ok) = _recoverV4Ts(keyOf(pool, t0, t1), pool, t0, t1, fee);
-        if (ok) _writeV4Code(t0, t1, fee, ts);
+        if (ok) _writeV4Code(t0, t1, fee, ts, bucket);
     }
 
     /// @dev Recover the tickSpacing of a routed hookless V4 pool from
@@ -1777,14 +1792,16 @@ contract BlazePhoenixHub {
             // the seat back. Evicting it here was measured at +431 B of runtime, past this
             // contract's gate. The swap itself already executed and is unaffected.
             if (!_held(pool, BPC.decodeKind(s), t0, t1)) return;
-            // existing pool — tick + stamp wall-clock activity time
-            uint256 newSlot = BPC.tickSlot(s, anchored, depthWad, uint32(block.timestamp));
-            $.slot[key] = _stampTs(newSlot);
-            // Hookless V4 leg: refresh the tokens' learned pattern code
+            // existing pool — tickSlot is the one writer of the clock: only an anchored tick
+            // that closes a real interval moves the count, tau and lastUpdateTs (fix-1102)
+            $.slot[key] = BPC.tickSlot(s, anchored, depthWad, uint32(block.timestamp));
+            // Hookless anchored V4 leg: refresh the tokens' learned pattern code
             // (discovery-hint metadata only — never fitness; see INV-16
             // boundary at the learning section). Hooked pools are excluded:
             // the code describes a hookless derivation.
-            if (kind == BPC.KIND_V4 && hooks == address(0)) _noteV4Code(pool, t0, t1, fee);
+            if (anchored && kind == BPC.KIND_V4 && hooks == address(0)) {
+                _noteV4Code(pool, t0, t1, fee, BPC.depthBucket(depthWad));
+            }
             emit Volume(key, amtIn, amtOut);
             return;
         }
@@ -1829,7 +1846,7 @@ contract BlazePhoenixHub {
                 tickSpacing: v4Ts, hooks: address(0)
             }));
             $.v4EntryOf[key] = $.v4Entries.length; // V1/I11: O(1) key -> V4Entry
-            _writeV4Code(t0, t1, fee, v4Ts);
+            if (anchored) _writeV4Code(t0, t1, fee, v4Ts, BPC.depthBucket(depthWad));
         }
         if (kind == BPC.KIND_V4_NATIVE) {
             // Native V4 pool routed under its WETH-canonical pair (tA/tB are
@@ -1860,7 +1877,7 @@ contract BlazePhoenixHub {
             // write self-skips as unchanged) — a v4CodeOf[address(0)] entry
             // would be dead storage no scan ever reads (_scanV4 rejects
             // native-side pairs), costing a 20k SSTORE on a user's swap.
-            _writeV4Code(ncp, ncp, fee, nTs);
+            if (anchored) _writeV4Code(ncp, ncp, fee, nTs, BPC.depthBucket(depthWad));
         }
         // ─── REG-02 + REG-01: THE PROPOSER'S DATA ARE COORDINATES, NOT FACTS ───
         // This line wrote into the registry the `fee` and the `hooks` COMING FROM the
@@ -1963,22 +1980,10 @@ contract BlazePhoenixHub {
             // at its own fee; only a later quote's cost differs. (+1_000: up to the read's check.)
             feeReg = gasleft() < BPC.CL_FEE_FLOOR + 1_000 ? 0 : _concRowFee(pool, kind, idFee);
         }
+        // The born slot is the row's whole start: stamped, bucketed, count 0 (a registration
+        // closes no interval, so no tick follows it).
         _register(key, pool, t0, t1, _born(kind, feeReg, false), depthWad);
-        // initial tick + stamp wall-clock activity time (a registration closes no interval)
-        $.slot[key] = _stampTs(BPC.tickSlot($.slot[key], false, depthWad, uint32(block.timestamp)));
         emit Volume(key, amtIn, amtOut);
-    }
-
-    /// @dev Refresh the slot's lastUpdateTs (bits [95:64]) to the current
-    ///      wall-clock time. The field is otherwise write-once at registration and
-    ///      is read by nothing on-chain except the Solver's discovery-freshness
-    ///      gate — so repurposing it as "last activity time" is behaviour-neutral
-    ///      for fitness/eviction. The Core's `vitality` and `_decay` read `decodeLastUpdateTs`
-    ///      and `decodeTau`, the pool's own clock in bits [255:224]. Those bits carried a
-    ///      last-touch block until 2026-10-27, written on every tick and read by nothing (the
-    ///      Monoslot's dead-bit census); the owner reserved them for the clock.
-    function _stampTs(uint256 s) private view returns (uint256) {
-        return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(uint32(block.timestamp)) << 64);
     }
 
     /// @dev True iff a wired factory derives `pool` for (t0, t1): it is among `discoverFor`'s

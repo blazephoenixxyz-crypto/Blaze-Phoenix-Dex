@@ -54,6 +54,8 @@ contract RobinhoodV4DeriveTest is Test {
 
     uint8 constant KIND_V4        = 4;
     uint8 constant MODE_V4_DERIVE = 9;
+    // v4CodeOf packs (fee << 24 | ts) below bit 48 and the teacher's depth bucket above it.
+    uint256 constant CODE_MASK = (uint256(1) << 48) - 1;
 
     BlazePhoenixHub    hub;
     BlazePhoenixSolver solver;
@@ -195,7 +197,8 @@ contract RobinhoodV4DeriveTest is Test {
         assertEq(hub.v4CodeOf(MOMO), 0, "code before any state-changing proof");
 
         hub.claimV4(USDG, MOMO, MOMO_FEE, MOMO_TS);
-        assertEq(hub.v4CodeOf(MOMO), _code(MOMO_FEE, MOMO_TS), "claim did not learn the code");
+        assertEq(hub.v4CodeOf(MOMO) & CODE_MASK, _code(MOMO_FEE, MOMO_TS), "claim did not learn the code");
+        assertEq(hub.v4CodeOf(MOMO) >> 48, 3, "the code carries its teacher's depth bucket (block 42518592)");
         assertEq(hub.v4CodeOf(USDG), 0, "bridge must never learn a code");
 
         // warm: phase (a) finds the pool from the learned code, grid skipped
@@ -251,10 +254,13 @@ contract RobinhoodV4DeriveTest is Test {
         address pool = address(uint160(uint256(
             BPC.computeV4PoolId(USDG, MOMO, MOMO_FEE, MOMO_TS, address(0))
         )));
-        hub.recordSwap(pool, KIND_V4, MOMO_FEE, address(0), USDG, MOMO, 1e18, 1e18, 1e20);
+        // The Router's depth word carries TICK_ANCHORED for a material leg (Core.tickDepth18);
+        // the code is learned only from an anchored tick (Hub.recordSwap, fix-1102).
+        hub.recordSwap(pool, KIND_V4, MOMO_FEE, address(0), USDG, MOMO, 1e18, 1e18, 1e20 | BPC.TICK_ANCHORED);
 
-        // Code learned on the non-bridge side only.
-        assertEq(hub.v4CodeOf(MOMO), _code(MOMO_FEE, MOMO_TS), "recordSwap did not learn the code");
+        // Code learned on the non-bridge side only, with its teacher's depth bucket above bit 48.
+        assertEq(hub.v4CodeOf(MOMO) & CODE_MASK, _code(MOMO_FEE, MOMO_TS), "recordSwap did not learn the code");
+        assertEq(hub.v4CodeOf(MOMO) >> 48, BPC.depthBucket(1e20), "the code carries the tick's depth bucket");
         assertEq(hub.v4CodeOf(USDG), 0, "bridge must never learn a code");
 
         // The registry entry is coherent: getActivePools recovers the real
@@ -264,6 +270,34 @@ contract RobinhoodV4DeriveTest is Test {
         assertEq(act[0].kind, KIND_V4, "wrong kind registered");
         assertEq(act[0].tickSpacing, MOMO_TS, "V4Entry tickSpacing not recovered");
         assertEq(act[0].pool, pool, "wrong pool address registered");
+    }
+
+    /// The same routed tick WITHOUT TICK_ANCHORED (a leg the Router measured as immaterial,
+    /// Core.tickDepth18) registers the entry but teaches no code: not on the first tick
+    /// (the insert path, Hub:1849) and not on the second (the existing row, Hub:1802).
+    /// Mutants, named here because mutants.py pairs no test under test/fork/:
+    /// fork-anchored-1 (Hub:1802, drop `anchored &&`) and fork-anchored-2 (Hub:1849, drop
+    /// `if (anchored)`); each one learns the code from an unanchored tick and goes red here.
+    function test_RecordSwap_UnanchoredTickTeachesNoCode() public {
+        (PoolInfo[] memory hits,) = _scanGas(USDG, MOMO);
+        assertTrue(_hasV4(hits, MOMO_FEE, MOMO_TS), "precondition: venue not derivable");
+        hub.setRoles(address(this), address(solver), address(quoter));
+        address venue = address(uint160(uint256(
+            BPC.computeV4PoolId(USDG, MOMO, MOMO_FEE, MOMO_TS, address(0))
+        )));
+
+        // First tick: the insert path registers the entry and must not write the code.
+        hub.recordSwap(venue, KIND_V4, MOMO_FEE, address(0), USDG, MOMO, 1e18, 1e18, 1e20);
+        assertEq(hub.v4CodeOf(MOMO), 0, "an unanchored first tick must not teach a code");
+        PoolInfo[] memory act = hub.getActivePools(USDG, MOMO);
+        assertEq(act.length, 1, "the unanchored tick still registers the entry");
+        assertEq(act[0].kind, KIND_V4, "wrong kind registered");
+        assertEq(act[0].tickSpacing, MOMO_TS, "V4Entry tickSpacing not recovered");
+
+        // Second tick: the existing row's gate must not note the code either.
+        hub.recordSwap(venue, KIND_V4, MOMO_FEE, address(0), USDG, MOMO, 1e18, 1e18, 1e20);
+        assertEq(hub.v4CodeOf(MOMO), 0, "an unanchored tick on a known row must not teach a code");
+        assertEq(hub.v4CodeOf(USDG), 0, "bridge must never learn a code");
     }
 
     // ─── 4. fail-closed ────────────────────────────────────────────────

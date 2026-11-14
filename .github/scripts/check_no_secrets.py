@@ -79,6 +79,16 @@ TEXT_NAMES = (".gitignore", ".gitattributes", ".editorconfig")
 # (path suffix, exact substring that may appear, why). All three are required:
 # an exemption without a reason is a silencer.
 ALLOW = [
+    ("tools/g7-gas-campaign/inventory.py", "0x",
+     "Public on-chain constants: event topics, factory init-code hashes, pool ids."),
+    ("tools/g7-gas-campaign/build_spec.py", "0x",
+     "Public on-chain constants: event topics and pool ids pinned to fork tests."),
+    ("tools/g7-gas-campaign/test_build_spec.py", "0x",
+     "Public on-chain constants: event topics and pool ids pinned to fork tests."),
+    ("tools/g7-gas-campaign/test_inventory.py", '"',
+     "Fixtures copied from real mainnet logs and calldata (topics, data words, tx hashes)."),
+    ("tools/g7-gas-campaign/test_inventory.py", "0x",
+     "As above: the tx hashes and addresses quoted in the fixture comments."),
     (".github/scripts/check_no_secrets.py", "AKIA",
      "This file. The patterns have to be written down somewhere to be checked."),
     (".github/scripts/check_no_secrets.py", "workers.dev",
@@ -93,6 +103,8 @@ ALLOW = [
      "As above."),
     (".github/scripts/mutants.py", "mstore(0x00, 0xddca3f43",
      "The fee() selector left-aligned in a word, copied from BlazePhoenixCore.getV3Fee by the aero-nova mutant."),
+    (".github/scripts/mutants.py", "mstore(m, 0xe76c01e4",
+     "The globalState() selector left-aligned in a word, copied from the Algebra read in BlazePhoenixCore by the gas-1106 G2-6 mutant."),
 ]
 
 

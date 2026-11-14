@@ -10,11 +10,12 @@ pragma solidity 0.8.36;
 //
 // What this file pins, each with the mutant it kills (.github/scripts/mutants.py, "VT:" rows):
 //   - the DIFFERENTIAL: at tau = 24 576 / m, and at tau = 0 (not yet measured), vitality and the
-//     decayed count are the pre-change functions to the wei;
+//     decayed count are the pre-change functions to the wei at every step's deadline, and the
+//     pre-change stair less the chord of fix-1102 A between deadlines;
 //   - a fast pool dies after 32 * m of its own intervals of silence; a weekly pool outlives the
 //     old 9-day horizon;
-//   - the clock: the first anchored interval IS tau, later ones move it by 2^-k, over the
-//     PREVIOUS stamp, and it converges;
+//   - the clock: every anchored interval, the first one from the fixed step's 24 576 / m, moves
+//     tau 2^-k of the way, rounded up, over the PREVIOUS stamp, and it converges;
 //   - tau = 0 and the extremes of tau never divide by zero or overflow;
 //   - any clock, read and ticked, is its definition, written here by hand (fuzz, every regime
 //     drawn by construction);
@@ -77,6 +78,32 @@ contract PoolClockDifferentialTest is Test {
         return uint32(uint256(swapCount) >> shift);
     }
 
+    // ─── the sealed reference (fix-1102 A, coordinator decision 2) ───
+    // Inside a step the count no longer stands on a stair until the step's end: it falls on the
+    // chord from its stair value c toward c / 2, so r seconds past the step's own deadline it has
+    // lost c * r / (2 * step) (BlazePhoenixCore.sol:2642). At the fixed clock the step is S: the
+    // sealed value is the pre-change one less that chord, and at a deadline (r = 0) it IS the
+    // pre-change one. The chord takes less than c / 2 (r < S), so 1 stays 1 and 0 stays 0: the
+    // floor of a live slot and the dead slot read as they did.
+
+    /// Seconds past the last whole-S deadline since the stamp; 0 when the clock runs backwards.
+    function _intoStep(uint256 slot, uint32 ts) internal pure returns (uint256) {
+        uint32 lastTs = BPC.decodeLastUpdateTs(slot);
+        if (ts <= lastTs) return 0;
+        uint256 age = ts - lastTs;
+        return age - (age / S) * S;
+    }
+
+    function _decayedSealed(uint256 slot, uint32 ts) internal pure returns (uint256 c) {
+        c = _decayedOld(slot, ts);
+        c -= c * _intoStep(slot, ts) / (2 * S);
+    }
+
+    function _vitalitySealed(uint256 slot, uint32 ts) internal pure returns (uint256 v) {
+        v = _vitalityOld(slot, ts);
+        v -= v * _intoStep(slot, ts) / (2 * S);
+    }
+
     function _withTau(uint256 slot, uint32 tau) internal pure returns (uint256) {
         return (slot & ~TAU_MASK) | (uint256(tau) << 224);
     }
@@ -97,6 +124,8 @@ contract PoolClockDifferentialTest is Test {
     /// surviving count per step in trades per S, and a live slot never scores below 1. Steps
     /// are counted by walking the deadlines (stamp + n * step <= now) and the count is halved by
     /// division: no shift and no division of the age, so a slip in either is not mirrored here.
+    /// Since fix-1102 A the count also falls inside the step, on the chord toward half of it: r
+    /// seconds past the last deadline walked, it has lost c * r / (2 * step) (decision 2).
     function _byDefinition(uint32 lastTs, uint32 count, uint32 tau, uint32 ts)
         internal pure returns (bool dead, uint256 c, uint256 v)
     {
@@ -104,9 +133,17 @@ contract PoolClockDifferentialTest is Test {
         if (tau == 0) step = S;
         if (lastTs == 0 || uint256(lastTs) + 32 * step <= ts) return (true, 0, 0);
         c = count;
-        for (uint256 n = 1; uint256(lastTs) + n * step <= ts; ++n) c /= 2;
+        uint256 deadline = lastTs;
+        for (; deadline + step <= ts; deadline += step) c /= 2;
+        // fix-1102 A: was the stair value c because the count only fell at a deadline; now c less the chord, because inside a step it falls toward c / 2 (BlazePhoenixCore.sol:2642)
+        if (ts > deadline) c -= c * (ts - deadline) / (2 * step);
         v = c * S / step;
         if (v == 0) v = 1;
+    }
+
+    /// x / 2^k rounded up, by the definition: the whole quotient, plus one if anything is left.
+    function _upByK(uint256 x) internal pure returns (uint256) {
+        return x / 2 ** K + (x % 2 ** K == 0 ? 0 : 1);
     }
 
     function _slot(uint32 lastTs, uint32 count, uint32 tau) internal pure returns (uint256) {
@@ -124,8 +161,9 @@ contract PoolClockDifferentialTest is Test {
 
     // ─── 1. THE DIFFERENTIAL ───────────────────────────────────────────────────────────────
 
-    /// At tau = S / m the step is S: every slot, at every instant, scores what it scored before
-    /// the clock existed, to the wei. Kills "score division removed" (v = c * S), any change of
+    /// At tau = S / m the step is S: every slot, at every step's deadline, scores what it scored
+    /// before the clock existed, to the wei, and between deadlines that stair less the chord of
+    /// fix-1102 A (the sealed reference above). Kills "score division removed" (v = c * S), any change of
     /// the horizon, and "an unmeasured clock has no prior step" (tau 0, h = 0). The instant is
     /// drawn within 40 steps of the slot's own stamp: 32 of the 40 are live, where the count
     /// halves, 8 are dead. A free uint32 pair (stamp, now) was live in ~2e-4 of the runs and
@@ -137,7 +175,11 @@ contract PoolClockDifferentialTest is Test {
     {
         slot = _fixedClockSlot(slot, lastTs, unmeasured);
         uint32 ts = BPC.decodeLastUpdateTs(slot) + uint32(bound(age, 0, 40 * S));
-        assertEq(BPC.vitality(slot, ts), _vitalityOld(slot, ts), "vitality moved at the fixed clock");
+        // fix-1102 A: was _vitalityOld at every instant because the count stood on a stair; now the stair less the chord, which falls toward c / 2 inside the step (BlazePhoenixCore.sol:2642)
+        assertEq(BPC.vitality(slot, ts), _vitalitySealed(slot, ts), "vitality moved at the fixed clock");
+        // At the step's own deadline the chord is null: there the score is today's, to the wei.
+        uint32 deadline = ts - uint32(_intoStep(slot, ts));
+        assertEq(BPC.vitality(slot, deadline), _vitalityOld(slot, deadline), "vitality left today's at a deadline");
     }
 
     function testFuzz_FixedClock_IsTodaysDecayedCount(uint256 slot, uint32 lastTs, uint256 age, bool unmeasured)
@@ -146,7 +188,11 @@ contract PoolClockDifferentialTest is Test {
         ClockHarness h = new ClockHarness();
         slot = _fixedClockSlot(slot, lastTs, unmeasured);
         uint32 ts = BPC.decodeLastUpdateTs(slot) + uint32(bound(age, 0, 40 * S));
-        assertEq(h.decayed(slot, ts), _decayedOld(slot, ts), "decayed count moved at the fixed clock");
+        // fix-1102 A: was _decayedOld at every instant because the count stood on a stair; now the stair less the chord, which falls toward c / 2 inside the step (BlazePhoenixCore.sol:2642)
+        assertEq(h.decayed(slot, ts), _decayedSealed(slot, ts), "decayed count moved at the fixed clock");
+        // At the step's own deadline the chord is null: there the count is today's, to the wei.
+        uint32 deadline = ts - uint32(_intoStep(slot, ts));
+        assertEq(h.decayed(slot, deadline), _decayedOld(slot, deadline), "decayed count left today's at a deadline");
     }
 
     /// The branches by hand: same step, alive-rounded, last live step, first dead step, never
@@ -158,9 +204,12 @@ contract PoolClockDifferentialTest is Test {
         uint32[7] memory at = [t0, t0 + uint32(S) - 1, t0 + uint32(S), t0 + uint32(3 * S),
                                t0 + uint32(32 * S) - 1, t0 + uint32(32 * S), t0 - 1];
         for (uint256 i; i < at.length; ++i) {
-            assertEq(BPC.vitality(s, at[i]), _vitalityOld(s, at[i]), "case");
-            assertEq(BPC.vitality(_withTau(s, 0), at[i]), _vitalityOld(s, at[i]), "case, unmeasured");
+            // fix-1102 A: was _vitalityOld because the count stood on its stair until the step's end; now the sealed reference, that stair less the chord inside the step (BlazePhoenixCore.sol:2642)
+            assertEq(BPC.vitality(s, at[i]), _vitalitySealed(s, at[i]), "case");
+            assertEq(BPC.vitality(_withTau(s, 0), at[i]), _vitalitySealed(s, at[i]), "case, unmeasured");
         }
+        // fix-1102 A: was 5 because the count stood whole until the step's end; now 3 because one second short of the step the chord has taken 5 * (S - 1) / (2 * S) = 2 (BlazePhoenixCore.sol:2642)
+        assertEq(BPC.vitality(s, t0 + uint32(S) - 1), 3, "one second short of the step the chord has taken 2");
         assertEq(BPC.vitality(_slot(0, 5, tau), t0), 0, "never stamped is dead");
         // A tau so long the horizon never closes: only the lastTs == 0 arm can kill a never-stamped slot.
         assertEq(BPC.vitality(_slot(0, 5, type(uint32).max), t0), 0, "never stamped is dead, whatever its tau");
@@ -190,7 +239,8 @@ contract PoolClockDifferentialTest is Test {
         uint32 t0 = 1_000_000;
         uint256 s = BPC.stampTs(BPC.tickSlot(_slot(t0, 0, 0), false, 1e18, t0), t0);
         (s, t0) = _ticks(s, t0, week, 6);
-        assertEq(BPC.decodeTau(s), week, "the first interval is tau, a steady rhythm keeps it");
+        // fix-1102 A: was 604 800 because the first interval was read whole as tau; now 336 127 because each week moves tau from S / m = 6 144 by 2^-k of the gap, rounded up: 80 976, 146 454, 203 748, 253 880, 297 745, 336 127 (BlazePhoenixCore.sol:2904, :2907)
+        assertEq(BPC.decodeTau(s), 336_127, "six weekly intervals pull tau up from S / m by 2^-k each");
         assertGt(BPC.vitality(s, t0 + uint32(32 * S) + 1), 0, "a weekly pool died at the old horizon");
         assertGt(BPC.vitality(s, t0 + 2 * week), 0, "a weekly pool died after one missed trade");
         assertEq(BPC.vitality(s, t0 + uint32(32 * M) * week), 0, "it still dies, on its own clock");
@@ -198,19 +248,22 @@ contract PoolClockDifferentialTest is Test {
 
     // ─── 3. THE CLOCK ──────────────────────────────────────────────────────────────────────
 
-    /// The first anchored interval after registration IS tau; the next moves it by 2^-k of the
-    /// difference, up and down, over the PREVIOUS stamp. Exact values: kills "swap k", "dt
-    /// inverted" and "the new lastTs instead of the old".
+    /// The first anchored interval after registration moves tau from the fixed step's S / m, and
+    /// every interval moves it by 2^-k of the difference, rounded up, up and down, over the
+    /// PREVIOUS stamp. Exact values: kills "swap k", "dt inverted", "the new lastTs instead of
+    /// the old" and "the first interval read whole as tau".
     function test_Clock_FirstIntervalThenEma_Exact() public pure {
         uint32 t0 = 1_000_000;
         uint256 s = _slot(t0, 1, 0);
         s = BPC.stampTs(BPC.tickSlot(s, true, 1e18, t0 + 1_000), t0 + 1_000);
-        assertEq(BPC.decodeTau(s), 1_000, "first interval since registration");
+        // fix-1102 A: was 1 000 because the first interval was read whole as tau; now 5 501 because it moves from S / m = 6 144 down by ceil((6 144 - 1 000) / 2^k) = 643 (BlazePhoenixCore.sol:2904, :2908)
+        assertEq(BPC.decodeTau(s), 5_501, "the first interval moves tau from S / m, it is not read whole");
         s = BPC.stampTs(BPC.tickSlot(s, true, 1e18, t0 + 1_100), t0 + 1_100);
-        assertEq(BPC.decodeTau(s), 1_000 - ((1_000 - 100) >> K), "a short interval pulls tau down by 2^-k");
-        uint256 tau = BPC.decodeTau(s);
+        // fix-1102 A: was 1 000 - (900 >> k) = 888 because the step was rounded down from tau 1 000; now 5 501 - ceil((5 501 - 100) / 2^k) = 5 501 - 676 = 4 825 (BlazePhoenixCore.sol:2908)
+        assertEq(BPC.decodeTau(s), 4_825, "a short interval pulls tau down by 2^-k, rounded up");
         s = BPC.stampTs(BPC.tickSlot(s, true, 1e18, t0 + 1_100 + 5_000), t0 + 1_100 + 5_000);
-        assertEq(BPC.decodeTau(s), tau + ((5_000 - tau) >> K), "a long interval pushes tau up by 2^-k");
+        // fix-1102 A: was 888 + ((5 000 - 888) >> k) = 1 402, the step rounded down; now 4 825 + ceil((5 000 - 4 825) / 2^k) = 4 825 + 22 = 4 847 (BlazePhoenixCore.sol:2907)
+        assertEq(BPC.decodeTau(s), 4_847, "a long interval pushes tau up by 2^-k, rounded up");
     }
 
     /// From any start, a steady rhythm pulls tau to within 2^k of it (the integer EMA's fixed
@@ -254,45 +307,59 @@ contract PoolClockDifferentialTest is Test {
         assertEq(BPC.vitality(s, ts), v, "the score is not the definition's");
         assertEq(BPC._decayedSwapCount(s, ts), c, "the decayed count is not the definition's");
 
-        // An anchored tick: the count it carries is what survives plus this trade, at most the
-        // field's ceiling; the first interval IS tau, a later one moves it by 2^-k of the gap.
+        // An anchored tick after the stamp: the count it carries is what survives plus this
+        // trade, at most the field's ceiling; every interval, the first one from S / m, moves
+        // tau by 2^-k of the gap, rounded up. A tick at or before the stamp moves nothing.
         uint256 t = BPC.tickSlot(s, true, 1e18, ts);
-        uint256 dt = ts > lastTs ? ts - lastTs : 0;
-        uint256 want;
-        if (tau == 0) want = dt;
-        else if (dt >= tau) want = tau + (dt - tau) / 2 ** K;
-        else want = tau - (tau - dt) / 2 ** K;
+        // fix-1102 A: was "count + 1 and tau moved at any instant" because every tick counted; now nothing moves at or before the stamp (BlazePhoenixCore.sol:2898)
+        uint256 want = tau;
+        uint256 wantCount = c;
+        if (ts > lastTs) {
+            uint256 dt = ts - lastTs;
+            // fix-1102 A: was dt for tau 0 and a step rounded down; now from S / m and rounded up (BlazePhoenixCore.sol:2904, :2907-2908)
+            uint256 from = tau == 0 ? S / M : tau;
+            if (dt >= from) want = from + _upByK(dt - from);
+            else want = from - _upByK(from - dt);
+            wantCount = c == type(uint32).max ? c : c + 1;
+        }
         assertEq(BPC.decodeTau(t), want, "the tick moved tau off its EMA");
-        assertEq(BPC.decodeSwapCount(t), c == type(uint32).max ? c : c + 1,
+        assertEq(BPC.decodeSwapCount(t), wantCount,
             "the tick did not count from what survives on the old clock");
     }
 
     /// A tick that closes an interval longer than the step (dt > m * tau) decays the count on the
     /// clock that ran over that interval, the OLD tau, and only then moves tau. 64 trades on a
-    /// 100 s clock (step 400 s) ticked 1 200 s later: 3 steps, 64 / 2^3 = 8, plus this trade, 9;
-    /// tau moves to 100 + (1 200 - 100) / 2^3 = 237. Decayed on the new clock (step 948 s) the
-    /// same interval is one step: 64 / 2 + 1 = 33. Kills "the count decays after tau moves".
+    /// 100 s clock (step 400 s) ticked 1 200 s later: 3 whole steps, no chord, 64 / 2^3 = 8, plus
+    /// this trade, 9; tau moves to 100 + ceil(1 100 / 2^3) = 238. Decayed on the new clock (step
+    /// 952 s) the same interval is one step and 248 s of chord: 32 - 32 * 248 / 1 904 = 28, plus
+    /// one, 29. Kills "the count decays after tau moves".
     function test_Tick_CountDecaysOnTheOldClock_ThenTheClockMoves() public pure {
         uint32 t0 = 1_000_000;
         uint256 t = BPC.tickSlot(_slot(t0, 64, 100), true, 1e18, t0 + 1_200);
         assertEq(BPC.decodeSwapCount(t), 9, "the count decays on the clock that ran over the interval");
-        assertEq(BPC.decodeTau(t), 237, "and the clock moves by 2^-k of the gap");
-        // The same interval unanchored moves no clock and decays the count alike.
+        // fix-1102 A: was 237 = 100 + 1 100 / 2^3 rounded down; now 238 = 100 + ceil(1 100 / 2^3) (BlazePhoenixCore.sol:2907)
+        assertEq(BPC.decodeTau(t), 238, "and the clock moves by 2^-k of the gap, rounded up");
+        // The same interval unanchored is dust: it moves no clock and counts nothing.
         t = BPC.tickSlot(_slot(t0, 64, 100), false, 1e18, t0 + 1_200);
-        assertEq(BPC.decodeSwapCount(t), 9, "unanchored: same decay");
+        // fix-1102 A: was 9 because an unanchored tick counted from the decayed count; now 64 because dust neither counts nor stamps, the slot keeps its raw count (BlazePhoenixCore.sol:2898)
+        assertEq(BPC.decodeSwapCount(t), 64, "unanchored: the count is not touched");
         assertEq(BPC.decodeTau(t), 100, "unanchored: same clock");
     }
 
     /// A count at its 32-bit ceiling stays there: the trade counts as far as the field goes,
     /// never wraps to 0 and never carries into tau above it. One under the ceiling reaches it.
-    /// Kills "the saturation removed".
+    /// The clock is 2^30 s and the tick 1 s after the stamp, so the chord inside the step takes
+    /// max * 1 / (2 * 4 * 2^30) = 0 and the count reaches the tick whole. Kills "the saturation
+    /// removed".
     function test_Tick_CountSaturatesAtItsCeiling() public pure {
         uint32 t0 = 1_000_000;
         uint32 max = type(uint32).max;
-        uint256 t = BPC.tickSlot(_slot(t0, max, 100), true, 1e18, t0 + 10);
+        // fix-1102 A: was tau 100 ticked 10 s later because the count stood whole inside the step; now tau 2^30 ticked 1 s later because the chord on a 400 s step took 53 687 091 off the ceiling in 10 s, on a 2^32 s step it takes 0 in 1 s (BlazePhoenixCore.sol:2642)
+        uint256 t = BPC.tickSlot(_slot(t0, max, 2 ** 30), true, 1e18, t0 + 1);
         assertEq(BPC.decodeSwapCount(t), max, "the ceiling holds");
-        assertEq(BPC.decodeTau(t), 100 - (100 - 10) / 2 ** K, "and tau is its own: nothing carried into it");
-        t = BPC.tickSlot(_slot(t0, max - 1, 100), true, 1e18, t0 + 10);
+        // fix-1102 A: was 100 - (100 - 10) / 2^3 on the old fixture, rounded down; now 2^30 - ceil((2^30 - 1) / 2^3) = 2^30 - 2^27, rounded up (BlazePhoenixCore.sol:2908)
+        assertEq(BPC.decodeTau(t), 2 ** 30 - 2 ** 27, "and tau is its own: nothing carried into it");
+        t = BPC.tickSlot(_slot(t0, max - 1, 2 ** 30), true, 1e18, t0 + 1);
         assertEq(BPC.decodeSwapCount(t), max, "one under the ceiling is counted to it");
     }
 
@@ -395,7 +462,8 @@ contract PoolClockDifferentialTest is Test {
 }
 
 /// The Hub's door: the anchor bit travels in the Router's depth word, the Hub clears it before
-/// the depth is used, and ticks BEFORE it stamps, so the interval closes on the old stamp.
+/// the depth is used, and tickSlot, the stamp's one writer, closes the interval on the old stamp
+/// before it writes the new one.
 contract PoolClockHubTest is Test {
     BlazePhoenixHub hub;
     address constant TA = address(0xAAA1);
@@ -424,25 +492,28 @@ contract PoolClockHubTest is Test {
         assertEq(BPC.decodeTau(hub.getSlot(key)), 0, "a registration measures no clock");
     }
 
-    /// An anchored tick 100 s after registration sets tau = 100: the Hub ticked over the OLD
-    /// stamp. Kills "stamp before tick" (tau would read a 0 interval).
+    /// An anchored tick 100 s after registration moves tau from S / m by 2^-k of a 100 s
+    /// interval: the Hub ticked over the OLD stamp. Kills "stamp before tick" (a 0 interval
+    /// moves no clock, tau would stay 0).
     function test_Hub_AnchoredTick_ClosesTheIntervalOnTheOldStamp() public {
         (address p, bytes32 key) = _seated();
         vm.warp(1_000_100);
         _rec(p, DEPTH | BPC.TICK_ANCHORED);
         uint256 s = hub.getSlot(key);
-        assertEq(BPC.decodeTau(s), 100, "tau is the interval since the previous stamp");
+        // fix-1102 A: was 100 because the first interval was read whole as tau; now 5 388 = 6 144 - ceil((6 144 - 100) / 8), moved from S / m (BlazePhoenixCore.sol:2904, :2908)
+        assertEq(BPC.decodeTau(s), 5_388, "tau moved by the interval since the previous stamp");
         assertEq(BPC.decodeBucket(s), BPC.depthBucket(DEPTH), "the anchor bit never reaches the bucket");
     }
 
-    /// The same tick without the bit counts but moves no clock. Kills "every tick anchors" at
-    /// the Hub.
+    /// The same tick without the bit moves no clock and counts nothing. Kills "every tick
+    /// anchors" at the Hub.
     function test_Hub_DustTick_MovesNoClock() public {
         (address p, bytes32 key) = _seated();
         vm.warp(1_000_100);
         _rec(p, DEPTH);
         uint256 s = hub.getSlot(key);
         assertEq(BPC.decodeTau(s), 0, "an unanchored tick moved the clock");
-        assertEq(BPC.decodeSwapCount(s), 2, "it still counts, as before");
+        // fix-1102 A: was 2 because registration ticked once and dust counted; now 0 because the slot is born with count 0 (BlazePhoenixHub.sol:2168) and dust returns before counting (BlazePhoenixCore.sol:2898)
+        assertEq(BPC.decodeSwapCount(s), 0, "dust no longer counts");
     }
 }

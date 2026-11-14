@@ -362,7 +362,7 @@ contract V4DynamicFeeBeforeSwapHookQuoteTest is Test {
         assertFalse(BPC.hookAltersDeltas(HOOK_BS), "setup: no delta bit, the delta sieve passes it");
         assertFalse(hub.hookPaused(HOOK_BS), "setup: listed and pinned, the pause sieve passes it");
 
-        (uint256 out, uint256 depth) = BPC.universalQuote(_ctx(DYN, HOOK_BS), AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(_ctx(DYN, HOOK_BS), AMT, type(uint256).max, false);
         assertEq(out, 0, "a dynamic-fee key with a beforeSwap hook was priced from slot0's lpFee");
         assertEq(depth, 0, "a fail-closed V4 key must not keep a depth vote");
 
@@ -377,7 +377,7 @@ contract V4DynamicFeeBeforeSwapHookQuoteTest is Test {
     /// the pool stays quotable. Red under a gate keyed on every swap bit (0xCC).
     function test_H12_DynamicFeeKeyWithAfterSwapOnlyHook_StillQuoted() public {
         assertTrue(BPC.hookRunsInSwap(HOOK_AS), "setup: the hook runs in the swap (afterSwap)");
-        (uint256 out, uint256 depth) = BPC.universalQuote(_ctx(DYN, HOOK_AS), AMT);
+        (uint256 out, uint256 depth, , ) = BPC.universalQuoteRank(_ctx(DYN, HOOK_AS), AMT, type(uint256).max, false);
         assertGt(out, 0, "a dynamic-fee pool with no beforeSwap hook must stay quotable (INV-20)");
         assertGt(depth, 0, "and keep its depth");
     }
@@ -386,7 +386,7 @@ contract V4DynamicFeeBeforeSwapHookQuoteTest is Test {
     /// hook on it does not move the fee. Red under a gate that drops the
     /// dynamic-key condition.
     function test_H12_StaticFeeKeyWithBeforeSwapHook_StillQuoted() public {
-        (uint256 out, ) = BPC.universalQuote(_ctx(STATIC_FEE, HOOK_BS), AMT);
+        (uint256 out, , , ) = BPC.universalQuoteRank(_ctx(STATIC_FEE, HOOK_BS), AMT, type(uint256).max, false);
         assertGt(out, 0, "a static-fee key with a beforeSwap hook must stay quotable");
     }
 

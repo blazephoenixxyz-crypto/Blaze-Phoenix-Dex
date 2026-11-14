@@ -43,8 +43,12 @@ contract BlazePhoenixHubTest is Test {
         PoolInfo[] memory before = hub.getActivePools(tokenA, tokenB);
         assertEq(before.length, 1);
         uint32 swapCountBefore = BPC.decodeSwapCount(hub.getSlot(keyFromAddV4));
+        // fix-1102 A: was 1 because the registration ticked the new row; now 0 because a row is born with swapCount 0 and only an anchored tick moves the clock (BlazePhoenixHub.sol:2168, BlazePhoenixCore.sol:2898)
+        assertEq(swapCountBefore, 0, "the registration alone counts no trade");
 
-        hub.recordSwap(poolAddr, BPC.KIND_V4, fee, hooks, tokenA, tokenB, 1e18, 1e18, 123);
+        // fix-1102 A: was a dust tick in the registration's second; now an anchored one a second later, because a tick that is not anchored or lands in the stamped second leaves the count (BlazePhoenixCore.sol:2898)
+        vm.warp(block.timestamp + 1);
+        hub.recordSwap(poolAddr, BPC.KIND_V4, fee, hooks, tokenA, tokenB, 1e18, 1e18, 123 | BPC.TICK_ANCHORED);
 
         PoolInfo[] memory afterSwap = hub.getActivePools(tokenA, tokenB);
         assertEq(afterSwap.length, 1,
@@ -259,10 +263,14 @@ contract BlazePhoenixHubTest is Test {
         address pool = _pair();
         hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         bytes32 key = hub.keyOf(pool, tokenA, tokenB);
-        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1);
+        // fix-1102 A: was 1 because the registration ticked the new row; now 0 and stamped now because a row is born with swapCount 0 and lastUpdateTs = block.timestamp (BlazePhoenixHub.sol:2168)
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 0, "the registration alone counts no trade");
+        assertEq(BPC.decodeLastUpdateTs(hub.getSlot(key)), block.timestamp, "the row is born stamped now");
 
-        hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
-        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 2, "second call must tick the SAME slot");
+        // fix-1102 A: was 2 after a dust call in the same second; now 1 after an anchored call a second later, because only an anchored tick that closes a real interval counts (BlazePhoenixCore.sol:2898)
+        vm.warp(block.timestamp + 1);
+        hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18 | BPC.TICK_ANCHORED);
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1, "second call must tick the SAME slot");
         assertEq(hub.getActivePools(tokenA, tokenB).length, 1);
     }
 
@@ -326,12 +334,37 @@ contract BlazePhoenixHubTest is Test {
     /// margin (70). Without the margin it would be admitted.
     function test_RecordSwap_RejectsNewcomerAboveWeakestButInsideTheMargin() public {
         address[] memory pools = new address[](16);
+        uint256 born = vm.getBlockTimestamp();
         for (uint256 i; i < 16; ++i) {
             pools[i] = _pair();
+            hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
+        }
+        // fix-1102 A: the dust lands one second after the rows' stamp: in the stamp's own second tickSlot returns on
+        // currentTs <= lastTs whatever the anchor, and the assertion below could not see a pump (BlazePhoenixCore.sol:2898)
+        vm.warp(born + 1);
+        for (uint256 i; i < 16; ++i) {
+            uint256 psiBorn = BPC.psi(hub.getSlot(hub.keyOf(pools[i], tokenA, tokenB)), uint32(block.timestamp), false, false);
             for (uint256 k; k < 7; ++k) {
                 hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
             }
+            // fix-1102 A: seven dust swaps used to warm the row to psi 56; now an unanchored tick leaves the clock, so the psi is the one the row was born with (BlazePhoenixCore.sol:2898)
+            assertEq(BPC.psi(hub.getSlot(hub.keyOf(pools[i], tokenA, tokenB)), uint32(block.timestamp), false, false),
+                psiBorn, "dust does not pump psi");
         }
+        // fix-1102 A: the seven trades are now anchored and 6144 s apart: the first interval sets tau to 24576 / 4 = 6144
+        // and a cadence dt == tau leaves it there (step (0 + 7) >> 3 = 0), so h = 4 * 6144 = 24576 and the chord removes
+        // c * 6144 / 49152 = 0 while c <= 7: count 7, v = 7 * 24576 / 24576 = 7, psi 7 * 8 = 56 (BlazePhoenixCore.sol:2898-2908, :2642, :2598)
+        // fix-1102 A: was block.timestamp, which this via_ir build re-reads after a warp (the trades then landed 6144 * k s after the previous one: count 3, tau 19303); now vm.getBlockTimestamp(), which it cannot re-read, so the seven trades are 6144 s apart (test/DimensionsTime.t.sol:11-14)
+        uint256 t0 = born; // the rows' stamp: the dust above moved no clock, so the first interval is 6144 s
+        for (uint256 k = 1; k <= 7; ++k) {
+            vm.warp(t0 + k * 6144);
+            for (uint256 i; i < 16; ++i) {
+                hub.recordSwap(pools[i], BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18 | BPC.TICK_ANCHORED);
+            }
+        }
+        uint256 s0 = hub.getSlot(hub.keyOf(pools[0], tokenA, tokenB));
+        assertEq(BPC.decodeSwapCount(s0), 7, "seven anchored trades count seven");
+        assertEq(BPC.psi(s0, uint32(block.timestamp), false, false), 56, "an incumbent sits at psi 56");
         assertEq(hub.getActivePools(tokenA, tokenB).length, 16);
         address newcomer = _pair();
         hub.recordSwap(newcomer, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e21);

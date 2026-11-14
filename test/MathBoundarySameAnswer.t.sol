@@ -11,7 +11,16 @@ pragma solidity 0.8.36;
 // budget would each change an answer without any other test having a reason to look.
 //
 // So the answer is compared whole. `SolverRefPoda1027` is the Solver of 8938b6a (59ecf3f plus
-// poda's dust rule), literally (the code before the move); both Solvers read the same Hub and the same state, and each call must
+// poda's dust rule), literally (the code before the move), over the Core of cb1d7d9 frozen as
+// `CoreRefCb1d7d9`, so an answer the live Core changes turns a row red, with ONE read excepted: the band's vote. Since MAT-02
+// (2026-11-10) a book votes with the tokenOut it declares (the Core's `mass`), a unit the frozen
+// Core does not have, so the reference takes the vote's mass and rank from the live Core's
+// `universalProbe` (its header says how). The reason is what a differential test is for: it
+// fixes everything but the unit under test, and the unit here is the Solver, not the Core. A
+// reference voting the short side against a Solver voting the tokenOut side would compare two
+// changes at once, and a red row could not say which one moved; the Core's unit is held by
+// test/Mat01FunnelMassIsHeld.t.sol, test/Mat02BandVoteIsOneUnit.t.sol and the `massa` mutants.
+// Both Solvers read the same Hub and the same state, and each call must
 // come back with the same success and the same returndata bytes. The fixed rows are the shapes
 // the moved code decides on (an outlier against the band, a funnel cut over more candidates
 // than legs, concentrated books voting with what they hold, bridge stages whose second pass
@@ -21,6 +30,52 @@ pragma solidity 0.8.36;
 //
 // The rows also log the cold gas of both Solvers on the same state: the boundary's overhead is
 // measured here, not estimated.
+//
+// MED (2026-10-28) changes the band by design: it judges prices against the fees that bound
+// them (BlazePhoenixMath, THE BAND), where the Solver of 8938b6a judged rates against ±5% of
+// their median (MEDIAN_FILTER_BPS), so the two Solvers part wherever the two bands keep
+// different books. Every row here is drawn where they cannot: each book either at the market
+// or 20% from it, the rows of a pair within about 0.3% of each other or far apart. A V2 book
+// at 1.00, the wide V4 book at tick 0 and the narrow one within 20 ticks of it (0.2%) sit
+// inside both bands with any of them as the base (the tightest edge, a 0.3% book under a
+// 0.01% base, is 0.31% before the error bounds widen it, and a probe of at most 9e17 moves no
+// V2 book of 1e21 or more by 0.1%, nor leaves the narrow range, which holds about L * 2e-4
+// with L >= 1e22); the books at 1.20 and 0.80 sit outside both from any other. A probe whose
+// own impact pushes a shallow book's rate 5% under the median's left the old band and stays
+// in the new one (the error bound covers it), so the fixed rows keep their orders where the
+// probes move every book by less than that. Rate order and price order agree across those
+// groups, so the base falls in the same group and the kept set is the same; nothing else the
+// hop computes reads the band.
+//
+// THE SIZE THE BAND DECIDES (ROUTEQ, 2026-11-13) widens the band with the order by design: a
+// row's error bound takes its impact term at the hop's amountIn, not at the probe
+// (Core.universalProbe, `orderIn`), so an order that is a large share of a book's short side
+// widens the band past the books at 1.20 and 0.80 of the market (and 2x from it), which the band of
+// 8938b6a, ±5% at every size, leaves out. The reference has nothing to carry: its band reads no
+// error bound, and the vote's mass and rank it takes from the live Core do not depend on the
+// order. So the two Solvers part wherever the order's bound reaches a far book, and the rows
+// that keep books out are drawn where it cannot: e_b + e_i, about orderIn over each of the two
+// short sides, stays under the gap (0.155 for a book at 1.20, about 0.45 for one at 2x or 0.5x),
+// every such order at most a tenth of the shallowest book's short side. The funnel at sizes near
+// a shallow book's depth is compared on books that all sit at the market, which both bands keep
+// at any size. Where the bands part, test/RouteQualityOrderSizeError.t.sol holds the new one.
+//
+// EVERY LEG PAYS FOR ITS PLACE (Solver, 2026-10-28) changes the split by design: in a split of
+// three or more legs, the leg whose probe paid least is tried when another leg pays at least
+// that rate on average, and it leaves unless the split with it pays MIN_SPLIT_IMPROVEMENT_PPM
+// more than the split without it, where the Solver of 8938b6a kept every leg its weight gave a
+// share. The two Solvers part wherever a leg leaves, so every row is drawn where none does. A
+// book at the market of depth d pays phi * d / (d + phi * a) a unit on an input a (phi = 1 - its
+// fee), so leg i's average reaches book j's probe rate iff s_i / d_i <= p / d_j, s_i the share
+// of leg i and p = amountIn / 100 the probe; the weights give each leg about amountIn * d_i / D,
+// so where the legs pay one fee a trial needs d_j <= D / 100. The books at the market share
+// one fee (0.3%: the V2 books and the wide V4 book) and depths within a factor of 10 (1e22 to
+// 1e23), so the shallowest of a hop's at most four legs (MAX_LEGS_PER_STAGE) holds at least
+// D / 31. The narrow book, behind 0.01%, pays more on average than any 0.3% probe, so it is
+// drawn beside one direct book and no wide one: a split of two, which the rule never tries. In
+// the fixed row with a 0.05% book beside two 0.3% books the trial runs, and the leg it tries
+// pays for its place: the V2 book holds as much as the wide 0.3% book (a thousandth of it until
+// this rule), and the split without either puts near half the order on the other.
 
 import {Test} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";
@@ -29,6 +84,8 @@ import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixMath} from "../src/BlazePhoenixMath.sol";
 import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
 import {SolverRefPoda1027} from "./ref/SolverRefPoda1027.sol";
+import {Frame4007} from "./ref/Frame4007.sol";
+import {CoreRefCb1d7d9} from "./ref/CoreRefCb1d7d9.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV4TickManager} from "./mocks/MockV4TickManager.sol";
@@ -68,6 +125,7 @@ contract MathBoundarySameAnswerTest is Test {
         touched.push(address(mgr));
         touched.push(address(BlazePhoenixMath));
         touched.push(address(BPC));
+        touched.push(address(CoreRefCb1d7d9));
     }
 
     // ─── fixtures ────────────────────────────────────────────────────────────
@@ -164,6 +222,9 @@ contract MathBoundarySameAnswerTest is Test {
         (bool okR, bytes memory rR) = address(ref).staticcall{gas: g}(q);
         gasRef = g0 - gasleft();
         assertEq(okN, okR, "D10: one Solver answered and the other refused");
+        // 4007: the floor is attested on the net output since 2026-11-11; the reference's is read
+        // in that frame (test/ref/Frame4007.sol), every other field to the byte.
+        if (okN) rR = Frame4007.carry(hub, rN, rR);
         assertEq(rN, rR, "D10: the Solver with the library and the inline Solver of 8938b6a disagree");
         ok = okN;
         for (uint256 i; i < recs.length; ++i) {
@@ -193,53 +254,79 @@ contract MathBoundarySameAnswerTest is Test {
 
     /// Three honest books and one deep book far from their rate, below it, above it, short of
     /// half the mass and past it (test/BandBaseBreakdownPoint.t.sol's shapes).
+    /// History: until 2026-11-10 the fourth book was (1.15M, 2.3M), short of half the mass by
+    /// its short side. A book's mass is the tokenB it holds (MAT-02): the books above the rate
+    /// hold 600k + 850k = 1.45M against 1.5M, the 49.2% the row was drawn at.
+    /// The order was 300k until ROUTEQ (header): at 300k the bound of a 400k book reads ~0.74 and
+    /// the band keeps the books at 2x; at 30k it reads ~0.075, ~0.1 for the shallowest outlier.
     function test_D10_SameAnswer_BandAgainstAnOutlier() public {
         for (uint256 i; i < 3; ++i) _v2Found(tA, tB, 400_000e18, 400_000e18);
-        _row("3 honest books", tA, tB, 300_000e18);
+        _row("3 honest books", tA, tB, 30_000e18);
         _v2Found(tA, tB, 600_000e18, 300_000e18);
-        _row("an outlier below the rate", tA, tB, 300_000e18);
+        _row("an outlier below the rate", tA, tB, 30_000e18);
         _v2Found(tA, tB, 300_000e18, 600_000e18);
-        _row("and one above", tA, tB, 300_000e18);
-        _v2Found(tA, tB, 1_150_000e18, 2_300_000e18);
-        _row("and one short of half the mass", tA, tB, 300_000e18);
+        _row("and one above", tA, tB, 30_000e18);
+        _v2Found(tA, tB, 425_000e18, 850_000e18);
+        _row("and one short of half the mass", tA, tB, 30_000e18);
         _v2Found(tA, tB, 5_000_000e18, 2_500_000e18);
-        _row("and one past half the mass", tA, tB, 300_000e18);
-        _row("the other way", tB, tA, 300_000e18);
+        _row("and one past half the mass", tA, tB, 30_000e18);
+        _row("the other way", tB, tA, 30_000e18);
     }
 
-    /// Nine curated books, some in the band and some out, against a budget of four legs:
-    /// the funnel cut and the seat of the remainder decide, at sizes from dust to the depth.
+    /// Nine curated books, some in the band and some out, against the per-hop budget of
+    /// MAX_LEGS_PER_HOP legs (src/BlazePhoenixCore.sol; five since 2026-11-06, four before):
+    /// the funnel cut and the seat of the remainder decide, at sizes from dust to near a
+    /// shallow book's depth. Until MED (2026-10-28) the books in the band sat 1-3% apart
+    /// and the largest order was 1M: the band of no arbitrage drops the first, and at 1M
+    /// the probe's own impact took the 50k and 100k books out of the old band (header).
+    /// Until ROUTEQ (header) this row also ran 100k and 200k: there the bound of the 50k book
+    /// reaches the books at 1.20 and 0.80. Those sizes run on books at the market below.
     function test_D10_SameAnswer_FunnelCutAndSeat() public {
-        uint16[9] memory pct = [uint16(100), 100, 101, 99, 103, 97, 108, 90, 100];
+        uint16[9] memory pct = [uint16(100), 100, 100, 100, 100, 100, 120, 80, 100];
         for (uint256 i; i < 9; ++i) {
             uint256 d = (i + 1) * 50_000e18;
             _v2(tA, tB, d, d * pct[i] / 100);
         }
         _row("9 books, dust", tA, tB, 1e18);
         _row("9 books, 1k", tA, tB, 1_000e18);
-        _row("9 books, 100k", tA, tB, 100_000e18);
-        _row("9 books, 1M", tA, tB, 1_000_000e18);
-        _row("9 books, 1M, the other way", tB, tA, 1_000_000e18);
+        _row("9 books, 2k", tA, tB, 2_000e18);
+        _row("9 books, 5k", tA, tB, 5_000e18);
+        _row("9 books, 5k, the other way", tB, tA, 5_000e18);
+    }
+
+    /// The funnel cut and the seat of the remainder at sizes near a shallow book's depth
+    /// (ROUTEQ, header): nine curated books at the market (50k to 450k), against MAX_LEGS_PER_HOP
+    /// legs. At 100k and 200k the order's bound of the shallow books reaches 1 (no width), and
+    /// both bands keep all nine: the funnel decides.
+    function test_D10_SameAnswer_FunnelCutAndSeatAtSize() public {
+        for (uint256 i; i < 9; ++i) {
+            uint256 d = (i + 1) * 50_000e18;
+            _v2(tA, tB, d, d);
+        }
+        _row("9 books at the market, 1k", tA, tB, 1_000e18);
+        _row("9 books at the market, 100k", tA, tB, 100_000e18);
+        _row("9 books at the market, 200k", tA, tB, 200_000e18);
+        _row("9 books at the market, 200k, the other way", tB, tA, 200_000e18);
     }
 
     /// Discovered rows beside curated ones: the band's vote reads which rows are vouched.
     function test_D10_SameAnswer_CuratedBesideDiscovered() public {
         _v2(tA, tB, 400_000e18, 400_000e18);
-        _v2(tA, tB, 300_000e18, 303_000e18);
+        _v2(tA, tB, 300_000e18, 300_900e18);       // 1.003 (1.01 until MED, header)
         _v2Found(tA, tB, 2_000_000e18, 1_000_000e18);
-        _v2Found(tA, tB, 500_000e18, 495_000e18);
+        _v2Found(tA, tB, 500_000e18, 498_500e18);  // 0.997 (0.99 until MED)
         _row("2 curated, 2 discovered", tA, tB, 100_000e18);
         _row("the other way", tB, tA, 100_000e18);
     }
 
     /// Concentrated books vote with what they hold (test/V4MedianMassIsHeld.t.sol's shapes),
-    /// beside a V2 book.
+    /// beside a V2 book. The V2 book held 1_000e18 until EVERY LEG PAYS FOR ITS PLACE (header).
     function test_D10_SameAnswer_V4BooksVoteWithWhatTheyHold() public {
         _v4(3000, 60, 0, -887220, 887220, 1e24);
         _v4(100, 1, 584, 580, 588, 3e24);
         _row("a wide book and a narrow range", tA, tB, 1e21);
         _v4(500, 10, 0, -887220, 887220, 2e23);
-        _v2(tA, tB, 1_000e18, 1_000e18);
+        _v2(tA, tB, 1_000_000e18, 1_000_000e18);
         _row("and a second wide book and a V2 book", tA, tB, 1e21);
         _row("the other way", tB, tA, 1e21);
         _v4(10_000, 200, 584, -200, 1200, 2e28);
@@ -257,7 +344,7 @@ contract MathBoundarySameAnswerTest is Test {
         for (uint256 i; i < 2; ++i) {
             _v2(tA, x, 300_000e18 * (i + 1), 300_000e18 * (i + 1));
             _v2(x, tB, 300_000e18 * (i + 1), 301_000e18 * (i + 1));
-            _v2(tA, y, 100_000e18, 100_000e18 + i * 1_000e18);
+            _v2(tA, y, 100_000e18, 100_000e18 + i * 300e18);   // 1.003 (1.01 until MED, header)
             _v2(x, y, 200_000e18, 200_000e18);
             _v2(y, tB, 100_000e18, 100_000e18);
         }
@@ -316,12 +403,13 @@ contract MathBoundarySameAnswerTest is Test {
 
     // ─── fuzz ────────────────────────────────────────────────────────────────
 
-    /// A V2 book of depth 1e21..1e24 at one of ten rates around 1 (some inside the band, some
-    /// outside), curated or discovered.
+    /// A V2 book of depth 1e22..1e23 at the market or 20% from it, curated or discovered
+    /// (header: until MED it drew ten rates, 1-6% from 1 among them, which the two bands now
+    /// judge apart; until EVERY LEG PAYS FOR ITS PLACE its depth ran 1e21..1e24).
     function _v2Rand(address a, address b, uint256 w) internal {
-        uint16[10] memory pct = [uint16(100), 100, 101, 99, 103, 97, 106, 94, 120, 80];
-        uint256 d = 1e21 * (1 + w % 1000);
-        uint256 rb = d * pct[(w >> 16) % 10] / 100;
+        uint16[4] memory pct = [uint16(100), 100, 120, 80];
+        uint256 d = 1e22 + (w % 1000) * 9e19;
+        uint256 rb = d * pct[(w >> 16) % 4] / 100;
         if ((w >> 32) % 4 == 0) _v2Found(a, b, d, rb);
         else _v2(a, b, d, rb);
     }
@@ -333,7 +421,8 @@ contract MathBoundarySameAnswerTest is Test {
     /// Pools, rates, depths, bridges, concentrated books and amounts drawn from one seed: both
     /// Solvers give the same bytes, both ways, with all the gas and at the door's budget.
     function testFuzz_D10_SameAnswer(uint256 seed) public {
-        uint256 nDirect = 1 + seed % 9;
+        bool narrow = (seed >> 13) & 1 == 1;   // beside one direct book and no wide one (header)
+        uint256 nDirect = narrow ? 1 : 1 + seed % 9;
         for (uint256 i; i < nDirect; ++i) _v2Rand(tA, tB, _w(seed, i));
         if ((seed >> 8) & 1 == 1) {
             address x = _token();
@@ -344,12 +433,12 @@ contract MathBoundarySameAnswerTest is Test {
                 _v2Rand(x, tB, _w(seed, 200 + i));
             }
         }
-        if ((seed >> 12) & 1 == 1) _v4(3000, 60, 0, -887220, 887220, uint128(1e22 * (1 + _w(seed, 300) % 1000)));
-        if ((seed >> 13) & 1 == 1) {
-            int24 t = int24(int256(_w(seed, 301) % 1201)) - 600;
+        if (!narrow && (seed >> 12) & 1 == 1) _v4(3000, 60, 0, -887220, 887220, uint128(1e22 + (_w(seed, 300) % 1000) * 9e19));
+        if (narrow) {
+            int24 t = int24(int256(_w(seed, 301) % 41)) - 20;   // 600 ticks until MED (header)
             _v4(100, 1, t, t - 4, t + 4, uint128(1e22 * (1 + _w(seed, 302) % 10_000)));
         }
-        uint256 amt = (1 + (seed >> 16) % 9) * 10 ** (15 + (seed >> 24) % 10);
+        uint256 amt = (1 + (seed >> 16) % 9) * 10 ** (15 + (seed >> 24) % 5);   // to 9e24 until MED (header)
         (bool ok, uint256 selects, , ) = _same(tA, tB, amt, gasleft());
         if (ok && nDirect > 1) assertGt(selects, 0, "precondition: a pair with several books reaches the library");
         _same(tA, tB, amt, SOLVE_GAS);

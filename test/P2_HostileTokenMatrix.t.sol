@@ -241,8 +241,15 @@ contract P2_HostileTokenMatrixTest is Test {
         assertEq(got, delta, string.concat(tag, ": delivered == recipient delta"));
         assertGe(got, 1, string.concat(tag, ": delivered >= userMinOut"));
 
-        // the Router never spends what it held before the swap (in shares: a rebase cannot hide it)
-        assertGe(tIn.sharesOf(address(router)), foreignShIn, string.concat(tag, ": the Router's foreign tokenIn was spent"));
+        // the Router never spends what it held before the swap (in shares: a rebase cannot hide it).
+        // FOT_REB_UP crosses a tax with a restatement inside ONE transfer: the Router measures one
+        // delta and shares the surplus in the proportion of the two balances it grew from (3948),
+        // so the taxed part of the pull is attributed to the payer in the proportion of the balance
+        // held before it, tax * P / (amt + P) shares, and the Router keeps the rest. A token that
+        // only restates (REB_UP) or only taxes (FOT1) is attributed exactly.
+        uint256 taxed = r == Row.FOT_REB_UP
+            ? BPC.mulDivUp(amt * _inFotBps(r) / BPC.BPS, foreignShIn, amt + foreignShIn) + 1 : 0;
+        assertGe(tIn.sharesOf(address(router)) + taxed, foreignShIn, string.concat(tag, ": the Router's foreign tokenIn was spent"));
         assertEq(tOut.balanceOf(address(router)), foreignOut, string.concat(tag, ": tokenOut residue on the Router"));
         if (!_rebases(r)) {
             assertEq(tIn.sharesOf(address(router)), foreignShIn, string.concat(tag, ": tokenIn residue on the Router"));

@@ -38,9 +38,13 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
 - **A fee-on-transfer or rebasing token's own cut is the token's.** Every amount that matters is a
   measured balance delta, and the caller's minimum is checked against what the recipient actually
   received, so a transfer tax cannot take a swap below it. A taxing token that delivers less than
-  the quote but at least the signed minimum is not a finding. Documented in
-  `docs/assurance/threats.json` (`SOK-FOT`), `docs/WHITEPAPER.md` §5 (Fee-on-transfer) and the
-  `ExecutionProof` NatSpec in `src/BlazePhoenixRouter.sol`.
+  the quote but at least the signed minimum is not a finding. A rebasing bridge token whose
+  restatement fires inside the swap, over a balance the Router already held, cuts that balance in
+  the swapper's delivery: to the Router it is a short delivery, bounded by the same minimum, and
+  the Router keeps the balance it held in the units it measures. Documented in
+  `docs/assurance/threats.json` (`SOK-FOT`, `BRIDGE-DELTA-NEGATIVE-RESTATEMENT`),
+  `docs/WHITEPAPER.md` §5 (Fee-on-transfer) and the `ExecutionProof` NatSpec in
+  `src/BlazePhoenixRouter.sol`.
 - **Token metadata is data, not instructions.** The MCP server strips invisible, control,
   bidirectional and tag characters from every string it returns, caps token names and symbols, and
   tells the agent the text is data to show. Plain-language text that survives that cleaning cannot

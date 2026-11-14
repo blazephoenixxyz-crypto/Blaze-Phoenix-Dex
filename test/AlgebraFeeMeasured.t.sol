@@ -84,7 +84,7 @@ contract AlgebraFeeMeasuredTest is Test {
 
     function _quoteAtFee(uint16 liveFee) internal returns (uint256 out) {
         MockAlgebraPool p = new MockAlgebraPool(SQRT_1_1, liveFee, LIQ, tokenA, tokenB);
-        (out,) = BPC.universalQuote(_ctx(address(p)), AMOUNT_IN);
+        (out,, , ) = BPC.universalQuoteRank(_ctx(address(p)), AMOUNT_IN, type(uint256).max, false);
     }
 
     /// THE DEFECT, as an equation: two pools that differ ONLY in their live
@@ -130,7 +130,7 @@ contract AlgebraFeeMeasuredTest is Test {
     /// Solver's cross-family anchor comparison is unchanged.
     function test_DepthUnchangedByFeeFix() public {
         MockAlgebraPool p = new MockAlgebraPool(SQRT_1_1, 3000, LIQ, tokenA, tokenB);
-        (, uint256 depth) = BPC.universalQuote(_ctx(address(p)), AMOUNT_IN);
+        (, uint256 depth, , ) = BPC.universalQuoteRank(_ctx(address(p)), AMOUNT_IN, type(uint256).max, false);
         assertGt(depth, 0, "depth stays token-denominated and non-zero");
     }
 }

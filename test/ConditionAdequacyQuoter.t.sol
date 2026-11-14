@@ -167,10 +167,12 @@ contract ConditionAdequacyQuoterTest is Test {
     /// (PLANNED = 4 * CALL_AMT). The cap must NOT fire — carry stays at the
     /// caller's amount and every leg is rescaled DOWN by carry/plannedIn.
     /// Neutralised (`if (h == 0) carry = plannedIn`), carry is inflated to
-    /// PLANNED before the legs loop, and all three readings move:
+    /// PLANNED before the legs loop, and the walk's readings move:
     ///   hops[0].amountIn   1e18 -> 4e18   (written from carry after the loop)
     ///   legs[0].amountIn   1e18 -> 4e18   (mulDiv(PLANNED, carry, PLANNED))
-    ///   exactOut           outV3(1e18) -> outV3(4e18), strictly larger.
+    ///   totalOut           outV3(1e18) -> outV3(4e18), strictly larger.
+    /// The scalar is pinned too, but since 6c02eee it is the funded pass on this
+    /// input-charged hop, which caps hop 0 on its own and does not follow that mutant.
     /// The exactOut oracle is computed at CALL_AMT — a literal of this test,
     /// not derived from the code path under mutation — so it cannot follow the
     /// inflation. The dry run is the genuine revert-extraction round trip
@@ -180,6 +182,9 @@ contract ConditionAdequacyQuoterTest is Test {
     function test_ExactPass_UnderOrderIsNeverInflatedToPlan() public {
         MockV3Pool pool = new MockV3Pool(address(tokA), address(tokB), POOL_FEE);
         pool.setState(SQRT_P_1, LIQ);
+        // The pool holds the output it pays: like UniswapV3Pool, MockV3Pool pays the output
+        // before it calls back (since 2957178), so an empty pool reverts in the dry run.
+        tokB.mint(address(pool), 1_000e18);
         bool zfo = pool.token0() == address(tokA);
 
         Leg memory l = _leg(BPC.KIND_V3, address(pool), PLANNED, DECOY_OUT);
@@ -200,16 +205,19 @@ contract ConditionAdequacyQuoterTest is Test {
             "the leg must be rescaled down to the caller's order");
         assertEq(back.totalOut, atCallAmt,
             "the dry run must price the caller's amount, not the plan's");
-        assertEq(exactOut, _netOfFee(atCallAmt),
-            "and the scalar is that figure less the protocol fee (FEE-02)");
+        // No bridge: the calendar charges this single hop on its INPUT (BPC.feeCalendar), so the
+        // scalar is the pool's math on the caller's order less the fee, rounded up (6c02eee).
+        assertEq(exactOut, BPC.outV3(_netIn(CALL_AMT), SQRT_P_1, LIQ, POOL_FEE, zfo, 0),
+            "and the scalar is the pool's math on the order less the protocol fee (FEE-02)");
     }
 
     /// Since 2026-09-03 (register escape FEE-02) `previewPlanExact` returns the
-    /// NET output: the dry-run total less the protocol fee, deducted once and
-    /// rounded up exactly as `_pack` and the Router do. The route keeps the
-    /// pool-math attestation in `totalOut`. Written from the constants so the
-    /// expectation never comes from the code under test.
-    function _netOfFee(uint256 gross) internal pure returns (uint256) {
-        return gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    /// NET output; the route keeps the pool-math attestation in `totalOut`. Since
+    /// 6c02eee the net follows the fee calendar (`BPC.feeCalendar`): a single hop
+    /// with no bridge pays the fee on its INPUT, rounded up, and the venue prices
+    /// what is left. Written from the constants so the expectation never comes
+    /// from the code under test.
+    function _netIn(uint256 amountIn) internal pure returns (uint256) {
+        return amountIn - BPC.mulDivUp(amountIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
     }
 }

@@ -117,7 +117,7 @@ contract PhantomLegRegistryCreditTest is Test {
 
     // ─── route builders ──────────────────────────────────────────────────────
 
-    function _leg(address pool, uint256 amountIn) internal view returns (Leg memory) {
+    function _leg(address pool, uint256 amountIn, uint256 expectedOut) internal view returns (Leg memory) {
         return Leg({
             pool: pool,
             hooks: address(0),
@@ -127,9 +127,15 @@ contract PhantomLegRegistryCreditTest is Test {
             zeroForOne: zfo,
             stable: false,
             amountIn: amountIn,
-            expectedOut: 0,
+            expectedOut: expectedOut,
             auxId: bytes32(0)
         });
+    }
+
+    /// @dev The quote a leg carries, as the Solver writes it (BlazePhoenixSolver.sol:781; a leg
+    ///      quoting 0 is dropped, :727): the mock's own price for `amountIn` (MockV3Pool.swap).
+    function _quote(uint256 amountIn) internal view returns (uint256) {
+        return BPC.outV3(amountIn, SQRT_P_1, LIQ, POOL_FEE, zfo, 0);
     }
 
     /// @dev One hop A->B with two homogeneous legs: pool0 (BIG_IN) and
@@ -138,8 +144,12 @@ contract PhantomLegRegistryCreditTest is Test {
     ///      which cannot lift a zero back above zero.
     function _twoLegRoute() internal view returns (Route memory r) {
         Leg[] memory legs = new Leg[](2);
-        legs[0] = _leg(address(pool0), BIG_IN);
-        legs[1] = _leg(address(poolPhantom), PHANTOM_DECLARED);
+        // fix-1102 A: was expectedOut 0 on both legs; now the executing leg carries its quote, because
+        // the Router prices a trade's output side by it and a trade with none never anchors the
+        // clock, so it is never counted (BlazePhoenixRouter.sol:2288, BlazePhoenixCore.sol:2853-2854).
+        // The phantom keeps 0: the attacker writes its calldata, and it scales to zero anyway.
+        legs[0] = _leg(address(pool0), BIG_IN, _quote(BIG_IN));
+        legs[1] = _leg(address(poolPhantom), PHANTOM_DECLARED, 0);
         Hop[] memory hops = new Hop[](1);
         hops[0] = Hop({
             tokenIn: address(tokenA),
@@ -154,7 +164,9 @@ contract PhantomLegRegistryCreditTest is Test {
     /// @dev A single real leg on poolPhantom — it MUST be credited.
     function _singleRealRoute() internal view returns (Route memory r) {
         Leg[] memory legs = new Leg[](1);
-        legs[0] = _leg(address(poolPhantom), BIG_IN);
+        // fix-1102 A: was expectedOut 0; now its quote, because a leg with no output side never
+        // anchors the clock (BlazePhoenixRouter.sol:2288, BlazePhoenixCore.sol:2853-2854).
+        legs[0] = _leg(address(poolPhantom), BIG_IN, _quote(BIG_IN));
         Hop[] memory hops = new Hop[](1);
         hops[0] = Hop({
             tokenIn: address(tokenA),
@@ -206,12 +218,26 @@ contract PhantomLegRegistryCreditTest is Test {
     // ─── NEGATIVE (RED): a non-executing leg must not be credited ─────────────
 
     function test_PhantomLeg_NotCreditedToRegistry() public {
+        // fix-1102 A: was the swap counter alone; now the whole slot too, because a one-wei credit is
+        // dust against this pool (1 < depth >> 16, BlazePhoenixCore.sol:2854) and no longer moves the
+        // count, while any tick still rewrites the bucket (BlazePhoenixCore.sol:2896). The phantom
+        // pool's depth moves after its registration, so a credit would show in its slot.
+        poolPhantom.setState(SQRT_P_1, LIQ / 1e6);
+        uint256 phantomSlot = hub.getSlot(keyPhantom);
+        assertTrue(
+            BPC.depthBucket(BPC.registryDepth18(address(poolPhantom), BPC.KIND_V3,
+                poolPhantom.token0(), poolPhantom.token1(), address(0), bytes32(0)))
+                != BPC.decodeBucket(phantomSlot),
+            "non-vacuity: a tick on the phantom pool would rewrite its bucket");
         uint32 before = _phantomSwapCount();
         uint32 pool0Before = BPC.decodeSwapCount(hub.getSlot(key0));
+        // fix-1102 A: was the registration's second; now one later, because a tick inside the
+        // stamped second is not counted (BlazePhoenixCore.sol:2898).
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.prank(user);
         uint256 got = router.swapExactIn(
-            _twoLegRoute(), BIG_IN, 1, user, block.timestamp + 1);
+            _twoLegRoute(), BIG_IN, 1, user, vm.getBlockTimestamp() + 1);
 
         assertGt(got, 0, "the executing leg delivered, so this is a real swap");
 
@@ -226,16 +252,21 @@ contract PhantomLegRegistryCreditTest is Test {
         // raw calldata amount.
         assertEq(_phantomSwapCount(), before,
             "a leg that never executed changed the phantom pool's swap counter");
+        assertEq(hub.getSlot(keyPhantom), phantomSlot,
+            "a leg that never executed moved the phantom pool's registry slot");
     }
 
     // ─── POSITIVE (GREEN): a leg that DOES execute must be credited ───────────
 
     function test_ExecutedLeg_IsCreditedToRegistry() public {
         uint32 before = _phantomSwapCount();
+        // fix-1102 A: was the registration's second; now one later, because a tick inside the
+        // stamped second is not counted (BlazePhoenixCore.sol:2898).
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.prank(user);
         uint256 got = router.swapExactIn(
-            _singleRealRoute(), BIG_IN, 1, user, block.timestamp + 1);
+            _singleRealRoute(), BIG_IN, 1, user, vm.getBlockTimestamp() + 1);
 
         assertGt(got, 0, "the single real leg delivered");
         assertEq(_phantomSwapCount(), before + 1,

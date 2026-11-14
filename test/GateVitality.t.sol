@@ -19,8 +19,9 @@ pragma solidity 0.8.36;
 //  Oracle: the tokens' balances, the venue's own pay rule, and thresholds and
 //  buckets computed here by hand; never the code under test.
 //
-//  Cheatcodes: vm.warp (time passing is the route: the adapter timelock and the
-//  decay), vm.prank (the user is the route through the Router's door).
+//  Cheatcodes: vm.warp (time passing is the route: the adapter timelock, the
+//  second between two uses, and the decay), vm.prank (the user is the route
+//  through the Router's door).
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -52,6 +53,16 @@ contract GateDeclaringAdapter is MockGateAdapter {
         external view override returns (uint256, uint256)
     {
         return (MockGateVenue(vp).quoteSell(amtIn), word);
+    }
+}
+
+/// Declares, as its depth, the gas it was handed: the depth read's cap made an answer.
+contract GateGasEchoAdapter is MockGateAdapter {
+    constructor(BlazePhoenixGate g, MockGateRegistry r) MockGateAdapter(g, r) {}
+    function quote(address vp, bytes32, bytes32, bool, uint256 amtIn)
+        external view override returns (uint256, uint256)
+    {
+        return (MockGateVenue(vp).quoteSell(amtIn), gasleft());
     }
 }
 
@@ -87,6 +98,8 @@ contract GateVitalityTest is Test {
     uint24 constant KEY2 = uint24(uint256(FAM) << 16 | 2);
     uint8 constant HFAM = 2;
     uint24 constant HKEY = uint24(uint256(HFAM) << 16 | 1);
+    uint8 constant EFAM = 3;
+    uint24 constant EKEY = uint24(uint256(EFAM) << 16 | 1);
     uint256 constant HELD = 1_000_000e18;
     /// HELD >> 16, by hand: 1e24 = 2^24 * 5^24, so the shift is exact (2^8 * 5^24).
     uint256 constant THR = 15_258_789_062_500_000_000;
@@ -156,12 +169,16 @@ contract GateVitalityTest is Test {
 
     // ─── 3. use: only a material swap ticks (W5-C1) ───
 
-    /// Quantity: the wrapper's use count. Two material swaps through the wrapper read 2.
+    /// Quantity: the wrapper's use count. Two material swaps through the wrapper, a second
+    /// apart, read 2: count 2 on a step of m * tau, tau = 6 144 - (6 143 + 7) / 8 = 5 376 after
+    /// the first interval, v = 2 * 24 576 / (4 * 5 376) = 2, floored.
     function test_GateVital_MaterialSwapTicks() public {
         BlazePhoenixGateWrapper w = _wrapper();
         assertEq(_v(address(w)), 0, "born with no use");
         _swap(w, 100e18);
         assertEq(_v(address(w)), 1, "one material swap");
+        // fix-1102 A: was the second swap in the same second, read 2 because every tick counted; now a second later, because a tick inside the stamped second leaves the clock as it was (BlazePhoenixCore.sol:2898)
+        vm.warp(block.timestamp + 1);
         _swap(w, 100e18);
         assertEq(_v(address(w)), 2, "two material swaps");
     }
@@ -358,5 +375,24 @@ contract GateVitalityTest is Test {
         assertEq(v, 0, "the Quoter reads only an admitted Gate");
         (v, , ) = IQuoterVital(address(quoter)).gateVitalOf(address(w), address(t1), address(t0), KEY);
         assertEq(v, 1, "the admitted Gate's wrapper");
+    }
+
+    // ─── the cap as a value, not a gas figure (INV-S6) ───
+
+    /// Quantity: the gas the depth read is handed, declared back as the depth by an adapter
+    /// that answers gasleft(). Through the cap the word stays under GATE_QUOTE_GAS whatever the
+    /// caller holds; uncapped it is 63/64 of the caller's budget (10M here). The venue holds
+    /// HELD (1e24) of both tokens, so the shorter-side cap never cuts the word. Kills [morf-1e]
+    /// (the [632]/[900] mutation) by the answer, where test_GateVital_DepthReadIsGasCapped
+    /// kills it by the gas spent.
+    function test_GateVital_TheDepthReadIsHandedOnlyItsCap() public {
+        GateGasEchoAdapter echo = new GateGasEchoAdapter(gate, reg);
+        _accept(gate, EFAM, address(echo));
+        address w = gate.create(address(t0), address(t1), EKEY, abi.encode(address(venue)));
+        (, uint256 d, ) = IGateVital(address(gate)).vitalOf{gas: 10_000_000}(w);
+        assertGt(d, 0, "the neighbour: the echo declared a depth");
+        // 500_000 is written by hand: read from the Core under test, the bound would move with
+        // the constant it is there to hold (mutant [morf-1l] survived that reading).
+        assertLt(d, 500_000, "the depth read is handed at most GATE_QUOTE_GAS");
     }
 }

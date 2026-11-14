@@ -1,0 +1,3350 @@
+// SPDX-License-Identifier: BUSL-1.1
+// FROZEN REFERENCE for test/G52SameAnswer.t.sol and test/MathBoundarySameAnswer.t.sol:
+// src/BlazePhoenixCore.sol of cb1d7d9, literally, except the library name (CoreRefCb1d7d9)
+// and the interface name (IBridgeAskCRefCb1d7d9). The three frozen Solver/Math references
+// import it instead of the live Core, so the same-answer comparisons see every change the
+// live Core makes to an answer; before this they compiled the same Core on both sides.
+// =============================================================================
+//  BlazePhoenix Protocol — BlazePhoenixCore
+//  Version    : 2.0.0
+//  Copyright  : (c) July 2026 – July 2030 BlazePhoenix Protocol
+//  License    : Business Source License 1.1 (BUSL-1.1)
+//               Change Date    : 2030-06-01
+//               Change License : GPL-2.0-or-later
+//  Fingerprint : 0x0cdf3cc72daa3ca37778f5f6974830edc0020f42cb5c3dc875fe510ea0e3202c
+//  Build ref   : 0x5a4c8fb3318679ccd8afce8752c8d272b447abeff6f412a8fc800087b3f9eead
+//  Rights      : Original work. Copyright subsists automatically upon creation
+//                (Berne Convention, 1886); this code is licensed under BUSL-1.1
+//                above, and reproduction outside that grant is infringement.
+//                Authorship is provable — the keccak256 preimage of the
+//                Fingerprint is a private phrase held by the authors, and
+//                revealing it proves origin.
+//
+//  SINGLE RESPONSIBILITY
+//      Arithmetic and shape. The Core knows HOW a price is computed, HOW an
+//      address is derived and HOW a state is packed — and nothing more. It has
+//      no storage, no owner, no pause, and it never holds a single wei.
+//
+//  WHAT THIS CONTRACT GUARANTEES
+//      C1  Pure by default. All the math is `pure`; whatever reads chain is
+//          `view` and says `view` in its name or signature. No third category.
+//      C2  One primitive, one producer. Every quantity has exactly ONE function
+//          that produces it (`depthFromL` for depth, `ironFloorBps` for the
+//          floor, `universalQuote` for a quote). A second producer is a sibling
+//          waiting to diverge, and divergence is this codebase's defect
+//          signature — confirmed more than ten times.
+//      C3  Fail-closed with no default branch. An unknown kind returns theta
+//          field 0x0: reads no reserves, not concentrated, not verifiable.
+//          There is no `else` for anyone to forget to keep in sync.
+//
+//  WHAT THIS CONTRACT DELIBERATELY DOES NOT DO
+//      It does not decide routes (that is the Solver), does not execute swaps
+//      (the Router), does not store pools (the Hub) and holds no opinion about
+//      its caller. The value-moving functions are allowance-free transfer
+//      primitives — the Router NEVER grants an allowance to anyone, and a
+//      static guard in CI keeps that true.
+//
+//  Shared library for the BlazePhoenix protocol. Provides the arithmetic
+//  primitives, AMM quote math, pool-address derivation, packed pool-state
+//  encoding and the output floor used by Hub, Solver, Router and Quoter:
+//
+//    1.  universalQuote(ctx, amountIn) -> (amountOut, depth)
+//        AMM quote dispatcher across the live pool kinds (V2, V3, V4,
+//        V4-native, Solidly, Algebra).
+//
+//    2.  deriveAddress(...) -> pool
+//        Deterministic pool-address resolution via factory lookup or CREATE2,
+//        selected by mode.
+//
+//    3.  ironFloorBps(impact, legs, sigma) -> floorBps
+//        Minimum-output floor in BPS. Tightens with impact and sigma, relaxes
+//        with leg count up to the 25% hard loss ceiling. Pure: no storage or
+//        oracle reads.
+//
+//    4.  psi(slot, ...) -> score
+//        Pool fitness score derived from the packed state slot, depth bucket,
+//        bridge bit and concentration flag.
+//
+//  Math primitives are defined here only; other contracts import this library
+//  as BPC.
+// =============================================================================
+pragma solidity 0.8.36;
+
+// ─── Shared structs (used by Solver, Router, Quoter) ────────────────────────
+
+struct PoolInfo {
+    bool    active;
+    bool    stable;
+    uint8   kind;
+    uint24  fee;
+    int24   tickSpacing;
+    address token0;
+    address token1;
+    address pool;
+    address hooks;
+}
+
+struct Leg {
+    address pool;
+    address hooks;
+    uint8   kind;
+    uint24  fee;
+    int24   tickSpacing;
+    bool    zeroForOne;
+    bool    stable;
+    uint256 amountIn;
+    uint256 expectedOut;
+    bytes32 auxId;
+}
+
+struct Hop {
+    address tokenIn;
+    address tokenOut;
+    uint256 amountIn;
+    uint256 expectedOut;
+    Leg[]   legs;
+}
+
+struct Route {
+    Hop[]   hops;
+    uint256 totalOut;
+    uint256 singleOut;
+    uint256 singleOutFloor;
+    uint256 expectedImpactBps;
+    uint256 confidenceWad;
+    uint256 estGas;
+    bool    hasSurplus;
+    bool    isV4Bundle;
+}
+
+struct RoutePlan {
+    Route best;
+    Route fallbackRoute;
+    bool  hasFallback;
+}
+
+// ─── Universal quote context ────────────────────────────────────────────────
+
+struct QuoteCtx {
+    uint8   kind;
+    address pool;
+    bool    zeroForOne;
+    uint24  fee;
+    int24   tickSpacing;
+    bool    stable;
+    address tokenIn;
+    address tokenOther;
+    address hooks;
+    address v4Manager;   // V4 PoolManager (for extsload state reads); 0 if N/A
+    /// @dev The Hub whose admitted Gates a kind-9 pool must belong to (`gateQuote`); 0 if N/A,
+    ///      and a kind-9 pool then prices 0 (no Gate is admitted by the zero address).
+    address hub;
+    /// @dev Decimals of both tokens, ENCODED AS `decimals + 1`.
+    ///      0 = "not filled in" -> `universalQuote` reads them itself.
+    ///
+    ///      WHY +1 AND NOT THE RAW VALUE: default memory is zero, and there
+    ///      are tokens with GENUINELY 0 decimals. A `0 = not filled in`
+    ///      sentinel would treat those as unfilled and, worse, a caller that
+    ///      forgot the fields would silently inherit "0 decimals" — depth
+    ///      inflated by 1e18. With +1 the two cases are distinguishable and
+    ///      correctness NEVER depends on the caller.
+    ///
+    ///      It exists for HOISTING: the candidates of a pair share the same
+    ///      two tokens, and reading `decimals()` per candidate costs 2,339 gas
+    ///      (measured; EIP-2929 does not make it free because USDC is a proxy
+    ///      with a delegatecall inside). Reading once per PAIR drops the cost
+    ///      from +2.2% to +0.7% of the on-chain solve.
+    uint8   decIn1;
+    uint8   decOther1;
+}
+
+// Most wrappers one Gate holds for a pair (the Gate's `create` refuses one more, and
+// `wrappersOf` answers exactly this many words). The best door reads every one on every
+// solve of the pair (Core.gatedOf: one identity check each) and every one enters the
+// Solver's funnel next to the native venues (a wrapper's mass is not measured, so it is
+// never dropped as dust).
+// File-level so it can size an array in the Gate and in Core alike.
+uint256 constant GATE_MAX_WRAPPERS = 4;
+
+/// @notice The Hub's bridge registry, as `feeCalendar` asks it (the mapping, never the array).
+interface IBridgeAskCRefCb1d7d9 {
+    function isBridgeToken(address t) external view returns (bool);
+}
+
+library CoreRefCb1d7d9 {
+
+    string  internal constant VERSION    = "2.0.0";
+
+    // ─── Universal numerical constants ─────────────────────────────────
+
+    uint256 internal constant WAD        = 1e18;
+    uint256 internal constant BPS        = 10_000;
+    /// @dev A fee, in pips, that no read here can see (a Gate wrapper's; `_quoteArms`): above
+    ///      1e6, which no venue charges. The band reads any fee of 1e6 or more as not known
+    ///      (`BlazePhoenixMath._inBand`). 24 bits, the width the Solver packs it in.
+    uint256 internal constant FEE_UNKNOWN = 0xFFFFFF;
+    /// @dev The replicated Solidly curve's ask, in BPS of the curve's own figure: 200 bps
+    ///      under, for the pair's K rounding that cannot be observed there (`_solidlyAsk`).
+    uint256 internal constant SOLIDLY_CURVE_ASK_BPS = 9_800;
+    uint256 internal constant Q96        = 0x1000000000000000000000000;
+    uint256 internal constant GAS_CAP    = 100_000;
+    /// @notice The gas a frame must hold for a one-word ask of a pool to hand it the whole
+    ///         GAS_CAP: the callee gets min(GAS_CAP, A - A/64) of the A left at the call
+    ///         (EIP-150), so A >= GAS_CAP * 64 / 63 = 101_587; + 3_000 = the cold account access
+    ///         (2_600) and the opcodes up to the call. On less the ask reverts empty, the house's
+    ///         out-of-gas signature: a pool that reverts EARLY when starved (the 2026 Aerodrome
+    ///         pairs check gasleft() before their fee module) is never read as one that has no
+    ///         answer. Literal for assembly; test/SolidlyPairWithoutStableGetter.t.sol re-derives it.
+    uint256 internal constant ASK_GAS_FLOOR = 104_587;
+
+    /// @notice The CL fee read's own budget (getV3Fee), MEASURED, not the shared GAS_CAP.
+    /// @dev    The 2026 Aerodrome CL pools answer fee() through pool -> implementation ->
+    ///         library -> hook, and the hook recomputes the dynamic part from a TWAP: a binary
+    ///         search over the pool's oracle ring, which any caller can grow to 2^16 - 1 slots.
+    ///         The hook wraps that observe in try/catch, so a starved observe answers the BASE
+    ///         fee instead of failing.
+    ///         CL_FEE_COST: the most one read costs at the structural maximum, the account access
+    ///         (cold) and all the callee consumes: ring of 65 535 one short of full, every
+    ///         reachable leaf of the search swept, both discount-registry entries flagged per
+    ///         pool, the MEV-tax branch taken. Base fork, block 53 127 000
+    ///         (test/fork/AeroNovaFork.t.sol, G3all: the reader's spent net of its own window).
+    ///         CL_FEE_WINDOW: a bound on the window, the static gas of the ops the compiler puts
+    ///         between the two GAS reads around the call below. `spent` counts it, and it is the
+    ///         compiler's, not the source's (11 in the Hub and the Solver as compiled; checked on
+    ///         every build by test/ClFeeReadHasItsOwnBudget.t.sol).
+    ///         CL_FEE_SPENT = CL_FEE_COST + CL_FEE_WINDOW: the most an honest read measures here.
+    ///         CL_FEE_GAS = ceil((CL_FEE_SPENT + 1) * 64^5 / 63^5): a failure swallowed at
+    ///         forwarding depth <= 5 (pool -> impl -> library -> hook -> pool -> impl, each
+    ///         forward all but 1/64, EIP-150) has consumed at least CL_FEE_GAS * (63/64)^5.
+    ///         CL_FEE_TRUST = floor(CL_FEE_GAS * 63^5 / 64^5) > CL_FEE_SPENT: a read that spends
+    ///         this much or more may carry a swallowed failure, and its answer is not taken.
+    ///         CL_FEE_FLOOR = CL_FEE_GAS * 64 / 63 + 3_000: the gas a frame must hold for the
+    ///         whole budget to reach fee() (EIP-150 keeps 1/64; 3_000 = the cold account access,
+    ///         2_600, and the opcodes up to the call).
+    ///         test/ClFeeReadHasItsOwnBudget.t.sol re-derives them all.
+    uint256 internal constant CL_FEE_COST   = 177_662;
+    uint256 internal constant CL_FEE_WINDOW = 64;
+    uint256 internal constant CL_FEE_SPENT  = 177_726;
+    uint256 internal constant CL_FEE_GAS    = 192_288;
+    uint256 internal constant CL_FEE_TRUST  = 177_727;
+    uint256 internal constant CL_FEE_FLOOR  = 198_340;
+
+    /// @notice Impact charged to a leg the impact model does not cover
+    ///         (stable curves, V4 paths), in bps.
+    /// @dev    SINGLE PRODUCER of a literal that was hand-written SIX times
+    ///         (Router x4, Solver x2). Same defect signature effV2Fee's doc
+    ///         already names for the V2 `30`: the sites feed avgImpact ->
+    ///         ironFloorBps -> protocolFloorOut, so raising one copy and not
+    ///         the others makes the Solver's floor and the Router's disagree
+    ///         about the same route. A library constant inlines at compile
+    ///         time — zero bytes, zero gas, one knob.
+    uint256 internal constant DEFAULT_IMPACT_BPS = 50;
+
+    // Protocol domain separator.
+    bytes32 internal constant DOMAIN     = 0x5a4c8fb3318679ccd8afce8752c8d272b447abeff6f412a8fc800087b3f9eead;
+
+    // ─── Pool kinds (universal taxonomy) ───────────────────────────────
+
+    uint8   internal constant KIND_V2          = 0;
+    uint8   internal constant KIND_V3          = 1;
+    uint8   internal constant KIND_V4          = 4;
+    uint8   internal constant KIND_SOLIDLY     = 5;
+    uint8   internal constant KIND_ALGEBRA     = 6;
+
+    // TOMBSTONES — 2, 3 and 7. No constant names them: there is no kind 2, 3 or 7 in this system.
+    //
+    // The NUMBERS stay burned forever, and that is not ceremony: `decodeKind` reads the kind from
+    // the Monoslot bits, so assigning 2 to a new venue would make EVERY pool already recorded
+    // under 2 be reinterpreted as that venue. A tombstone without an epitaph protects nothing —
+    // the only reason the historical record is written down is to prevent reuse: they were Curve
+    // stable (2), Balancer V2 (3) and Curve crypto (7), removed by the owner's call on 2026-08-20.
+    //
+    // They fail closed in four independent places, all by CONSTRUCTION and none by branch: theta
+    // field 0x0 (no attribute, no query answers), outside KINDS_ROUTABLE (the Hub's `addFactory`
+    // and `recordSwap` refuse them), and the Router's execution dispatch falls into the `else`
+    // and reverts RouterE(8) before touching the pool.
+    /// @notice A V4 pool one of whose currencies is NATIVE (address(0)).
+    /// @dev    A separate kind rather than a runtime `currency == address(0)`
+    ///         test, and the distinction is the whole point: native settlement
+    ///         is the ONE place where the router's "every asset is an ERC-20
+    ///         with balanceOf" invariant does not hold. Encoding that as a kind
+    ///         makes the exception a TYPE — visible in the pool record, carried
+    ///         in the route plan, greppable by an auditor — instead of a
+    ///         condition rediscovered at each call site. Every other kind keeps
+    ///         the invariant unconditionally.
+    ///
+    ///         The quote math needs no branch: it sorts the two currencies and
+    ///         derives the pool id, and address(0) sorts first by construction.
+    ///
+    ///         Measured 2026-08-13 across the chains served: 62.9% of the
+    ///         ETH-denominated liquidity inside V4 sits in native pools
+    ///         (Arbitrum 99.6%, Optimism 95.0%, Base 48.9%). Wrapping at the
+    ///         edge made all of it unreachable.
+    ///
+    ///         address(0) is also the only token identifier that is genuinely
+    ///         chain-agnostic — it is the same on every EVM chain, so a native
+    ///         route depends on no per-chain configuration at all.
+    uint8   internal constant KIND_V4_NATIVE   = 8;
+    /// @notice A venue reached through a BlazePhoenixGate wrapper: a V3-shaped facade
+    ///         (`swap` + `uniswapV3SwapCallback`) in front of a curated, code-pinned adapter.
+    /// @dev    theta field 0x0 ON PURPOSE: the Core has no reader for its state (no reserves,
+    ///         no slot0), so every attribute question answers "no" and every reader fails
+    ///         closed. The Router executes it by IDENTITY (`_execV3Amt`), the Hub admits it
+    ///         only as a MODE_CREATE2_V3 factory row (the Gate), and it is outside
+    ///         KINDS_EXECUTABLE until the Core carries a depth and quote producer for it.
+    uint8   internal constant KIND_EXTERNAL    = 9;
+
+    // ─── θ — the taxonomy as DATA ──────────────────────────────────────
+    //
+    // HOW TO READ THIS, if it is the first time. Each kind occupies a fixed bit field inside ONE
+    // constant. Asking "does this kind have attribute X?" becomes a shift and an AND, instead of
+    // a chain of `if (k == A || k == B || ...)` repeated in every contract.
+    //
+    // WHY THIS EXISTS. This codebase's defect signature, confirmed more than ten times, is "a fix
+    // applied to ONE of two symmetric channels". Every place that enumerates kinds by hand is one
+    // of those channels: when a new kind arrives (KIND_V4_NATIVE brought not ONE LINE of new
+    // pricing math and still forced changes in all five contracts), whoever forgets one of the
+    // places creates the divergence. A set expressed as bits has no sibling to diverge from:
+    // diversity becomes a COORDINATE, not a BRANCH.
+    //
+    // WHAT DOES NOT COLLAPSE, and why. Only MEMBERSHIP tests belong here ("does this kind read
+    // reserves?", "does this kind expose token0/token1?"). IDENTITY tests
+    // (`k == KIND_V4_NATIVE`, when the question really is about THAT kind and not about a class)
+    // stay as they are — forcing them into the table would trade clarity for nothing. And the
+    // SETTLEMENT engines do not collapse either: `CALLBACK`, `EXCHANGE` and `UNLOCK` are ABIs of
+    // the outside world, shapes that are not ours. The criterion, for each remaining branch: can
+    // you name the external reality that forces it? If yes, it is honest and it stays.
+    //
+    // TWO WORDS, NOT ONE. The single-word version (16 bits per kind, 144 useful) had the right
+    // arithmetic but spent bits where EIP-170 hurts: half the attributes were read by no
+    // production line, and those were the ones pushing the field to 16 bits — an 18-byte literal,
+    // PUSH18, 19 B emitted at EVERY site, including in contracts that never read the gas ladder.
+    // Split apart, Router/Hub/Quoter carry 6 B and the ladder lives in one place only.
+    //
+    // FAIL-CLOSED FOR FREE. A kind with no bits (tombstones 2, 3 and 7) has field 0x0: it reads
+    // no reserves, is not concentrated, is not pair-verifiable. No default branch for anyone to
+    // forget. See the tombstone note above for why the numbers never come back.
+
+    /// @dev Attributes per kind, 4 bits each. Kind `k` occupies [4k+3 : 4k].
+    ///      bit 0  A_RESERVES  — depth and impact come from getReserves(); min(r0,r1) is the depth
+    ///      bit 1  A_CONC_POOL — sqrtPriceX96 and L read AT THE POOL ADDRESS
+    ///      bit 2  A_CONC_SING — state via extsload on the singleton; `pool` is not a pair; tokenOut travels in auxId
+    ///      bit 3  A_PAIR_VER  — token0()/token1() exist, so the Hub's authenticity proof applies
+    uint256 internal constant THETA_ATTR = 0x040A9400A9;
+
+    uint8 internal constant A_RESERVES  = 0x1;
+    uint8 internal constant A_CONC_POOL = 0x2;
+    uint8 internal constant A_CONC_SING = 0x4;
+    uint8 internal constant A_PAIR_VER  = 0x8;
+
+    /// @dev Gas ladder per kind, 8 bits each, in units of 5,000. Read ONLY by the Solver, which
+    ///      has wide headroom — hence it lives apart from THETA_ATTR, which everyone carries.
+    ///      A zero field returns the historical default of 90,000, preserving today's exact
+    ///      behaviour for an unknown kind.
+    uint256 internal constant THETA_GAS = 0x2B0016122400001612;
+
+    /// @notice The 4 attribute bits of a kind. A kind above 8 returns 0 — fail-closed.
+    function thetaOf(uint8 kind) internal pure returns (uint8) {
+        return uint8((THETA_ATTR >> (uint256(kind) << 2)) & 0xF);
+    }
+
+    /// @notice Does `kind` have ALL the attributes in `mask`? Replaces the `k == A || k == B` chains.
+    function kindHas(uint8 kind, uint8 mask) internal pure returns (bool) {
+        return (thetaOf(kind) & mask) == mask;
+    }
+
+    /// @notice Does `kind` have ANY of the attributes in `mask`? For questions like "is it concentrated?",
+    ///         written today as `k == V3 || k == ALGEBRA || k == V4 || k == V4_NATIVE`.
+    function kindHasAny(uint8 kind, uint8 mask) internal pure returns (bool) {
+        return (thetaOf(kind) & mask) != 0;
+    }
+
+    /// @notice Base gas estimate per leg, per kind. Zero => the historical default of 90,000.
+    function kindGasBase(uint8 kind) internal pure returns (uint256) {
+        uint256 g8 = (THETA_GAS >> (uint256(kind) << 3)) & 0xFF;
+        return g8 == 0 ? 90_000 : g8 * 5_000;
+    }
+
+    // ─── Output-floor constants ────────────────────────────────────────
+    // The floor starts tight (96%) for clean, low-impact, single-leg swaps and
+    // loosens toward the 80% hard cap as impact, leg count and volatility rise.
+    // Base and hard cap are separate so the floor is impact-adaptive while
+    // never permitting a result worse than 80% of the quote. Raised from the
+    // original 75% floor per the sealed 2026-08-03 design decision (see the
+    // internal notes on invariants, the 4% median and stochastic patterns).
+    uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_000; // 20% absolute hard cap (floor ≥ 80%)
+    uint16  internal constant FLOOR_BASE_BPS          = 9_600; // start at 96% floor for clean swaps
+    uint16  internal constant FLOOR_PER_LEG_BPS       = 200;   // each extra leg loosens 2%
+    uint16  internal constant FLOOR_IMPACT_FACTOR     = 1;     // 1 BPS floor drop per BPS impact
+    // The PER-LEG floor lived alone in the Router while its three siblings lived here. It moves
+    // next to them: a local per-pool cap, the same number the aggregate composition uses.
+    uint16  internal constant LEG_FLOOR_BPS           = 8_000; // each leg delivers >= 80% of the bound
+
+    // ─── Protocol fee — SINGLE PRODUCER ────────────────────────────────────────────────────
+    // It was declared TWICE, once in the Router and once in the Quoter, with the same value. The
+    // comment that accompanied it in the Router explained — correctly — why a second constant is
+    // dangerous ("would silently drift into a lie the moment this one changed") and refused to
+    // create TREASURY2_SHARE for that very reason. The rule was written in the exact place where
+    // it was being violated: the very constant the comment clung to had a twin. And that twin
+    // had already cost this protocol a Quoter that lied about the fee for two whole
+    // generations.
+    //
+    // It lives here for a MECHANICAL reason, not an aesthetic one: a CONTRACT's `internal
+    // constant` is not readable from outside, which is why four tests — including a security one
+    // about fee coverage — re-declared it as the literal 28. That left the suite red-first
+    // against CODE changes and BLIND to CONSTANT changes: moving the fee to 30 left four tests
+    // asserting 28 against a copy, and the formal proof proving the old floor. In a LIBRARY the
+    // constant is readable by whoever imports it, and the measuring apparatus ends up bolted to
+    // the object it measures — corollary (c) of the I-measure, applied to the suite.
+    uint16  internal constant PROTOCOL_FEE_BPS        = 28;    // 0.28%
+
+    /// @notice THE FEE CALENDAR, the one producer of "on which hop is the protocol fee charged?".
+    ///         Until 2026-10-27 the scan below was written four times (Router._execute, and the
+    ///         Quoter's _pack, _exact and _fundedOut), each copy answering the same question.
+    ///         ANCHORED: `feeHop` is the first hop whose INPUT is a registered bridge, asked of the
+    ///         Hub's mapping in hop order, and that hop alone pays. EXHAUSTION: no hop's input is a
+    ///         bridge, `feeHop` stays at `type(uint256).max` and every hop pays on its own input -
+    ///         immunity by exhaustion, no index left to put a dust prefix in front of
+    ///         (`test_JUIZ_PrefixoSemValorEscapaAFee`). OUTPUT: a direct route into a bridge
+    ///         (`feeOnOut`) pays on its output and on no input. The Router inlines this; the
+    ///         Quoter, whose routes are memory, reaches it through its own external door
+    ///         (`BlazePhoenixQuoter.feeCalendarOf`), where the route is calldata too.
+    function feeCalendar(address hub, Hop[] calldata hops, address tokenOut)
+        internal view returns (uint256 feeHop, bool feeOnOut)
+    {
+        feeHop = type(uint256).max;
+        for (uint256 fi; fi < hops.length; ) {
+            if (IBridgeAskCRefCb1d7d9(hub).isBridgeToken(hops[fi].tokenIn)) { feeHop = fi; break; }
+            unchecked { ++fi; }
+        }
+        feeOnOut = hops.length == 1 && IBridgeAskCRefCb1d7d9(hub).isBridgeToken(tokenOut);
+    }
+
+    /// @notice Whether hop `h` pays the fee on its INPUT under `feeCalendar`'s answer.
+    function paysOnInput(uint256 h, uint256 feeHop, bool feeOnOut) internal pure returns (bool) {
+        return !feeOnOut && (feeHop == type(uint256).max || h == feeHop);
+    }
+
+    // ─── V3 sqrt-price bounds ──────────────────────────────────────────
+
+    uint160 internal constant MIN_SQRT_PRICE_PLUS_ONE = 4_295_128_740;
+    uint160 internal constant MAX_SQRT_PRICE_MINUS_ONE
+        = 1461446703485210103287273052203988822378723970341;
+
+    // ─── Per-chain canonical addresses ─────────────────────────────────
+
+    address internal constant PERMIT2_DEFAULT
+        = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    // =========================================================================
+    //  §1  PURE ARITHMETIC PRIMITIVES
+    // =========================================================================
+
+    /// @notice Full-precision a × b ÷ d with no overflow on the multiplication.
+    function mulDiv(uint256 a, uint256 b, uint256 d) internal pure returns (uint256 r) {
+        unchecked {
+            uint256 prod0;
+            uint256 prod1;
+            assembly {
+                let mm := mulmod(a, b, not(0))
+                prod0 := mul(a, b)
+                prod1 := sub(sub(mm, prod0), lt(mm, prod0))
+            }
+            if (prod1 == 0) return prod0 / d;
+            require(d > prod1, "BPC:mulDiv");
+            uint256 remainder;
+            assembly {
+                remainder := mulmod(a, b, d)
+                prod1 := sub(prod1, gt(remainder, prod0))
+                prod0 := sub(prod0, remainder)
+            }
+            uint256 twos = d & (~d + 1);
+            assembly {
+                d     := div(d, twos)
+                prod0 := div(prod0, twos)
+                twos  := add(div(sub(0, twos), twos), 1)
+            }
+            prod0 |= prod1 * twos;
+            // XOR intended, not exponentiation: (3*d)^2 is the Newton-Raphson
+            // seed with d*inv = 1 mod 2^4; the six doublings below lift it to
+            // 2^256 (canonical 512-bit mulDiv construction).
+            // slither-disable-next-line incorrect-exp
+            uint256 inv = (3 * d) ^ 2;
+            inv *= 2 - d * inv;
+            inv *= 2 - d * inv;
+            inv *= 2 - d * inv;
+            inv *= 2 - d * inv;
+            inv *= 2 - d * inv;
+            inv *= 2 - d * inv;
+            r = prod0 * inv;
+        }
+    }
+
+    /// @notice Round-up variant of mulDiv. Used for conservative impact bounds.
+    function mulDivUp(uint256 a, uint256 b, uint256 d) internal pure returns (uint256 r) {
+        r = mulDiv(a, b, d);
+        if (mulmod(a, b, d) != 0) {
+            require(r < type(uint256).max, "BPC:mulDivUp");
+            unchecked { r += 1; }
+        }
+    }
+
+    /// @notice Integer log10 (5 comparisons max for inputs up to 1e77).
+    function ilog10(uint256 x) internal pure returns (uint256 n) {
+        unchecked {
+            if (x >= 1e64) { x /= 1e64; n += 64; }
+            if (x >= 1e32) { x /= 1e32; n += 32; }
+            if (x >= 1e16) { x /= 1e16; n += 16; }
+            if (x >= 1e8)  { x /= 1e8;  n += 8;  }
+            if (x >= 1e4)  { x /= 1e4;  n += 4;  }
+            if (x >= 1e2)  { x /= 1e2;  n += 2;  }
+            if (x >= 1e1)  {            n += 1;  }
+        }
+    }
+
+    // =========================================================================
+    //  §2  POOL-ADDRESS DERIVATION (factory lookup + CREATE2)
+    // =========================================================================
+
+    /// @notice Universal CREATE2 derivation. The salt polynomial is selected
+    ///         from (t0, t1, fee, stable, tickSpacing) by `mode`:
+    ///           mode 0 → V2:        salt = keccak(t0, t1)
+    ///           mode 1 → V3:        salt = keccak(t0, t1, fee)
+    ///           mode 2 → Solidly:   salt = keccak(t0, t1, stable)
+    ///           mode 3 → V3-CL:     salt = keccak(t0, t1, tickSpacing)
+    /// @notice Resolve a pool address. The `mode` parameter selects the
+    ///         strategy for resolving the address from (factory, t0, t1,
+    ///         params). Two families are supported:
+    ///
+    ///             FACTORY-CALL family (1 staticcall, always works):
+    ///               mode 0 → V2:        factory.getPair(t0, t1)
+    ///               mode 1 → V3:        factory.getPool(t0, t1, fee)
+    ///               mode 2 → Solidly:   factory.getPool(t0, t1, stable)
+    ///               mode 3 → V3-CL:     factory.getPool(t0, t1, tickSpacing)
+    ///
+    ///             CREATE2 family (0 calls, requires correct initCodeHash):
+    ///               mode 4 → V2 CREATE2:        keccak(t0, t1)            packed
+    ///               mode 5 → V3 CREATE2:        keccak(t0, t1, fee)       abi.encode
+    ///               mode 6 → Solidly CREATE2:   keccak(t0, t1, stable)    packed
+    ///               mode 7 → V3-CL CREATE2:     keccak(t0, t1, spacing)   abi.encode
+    ///
+    ///         The `hasCode` guard applied by the Hub after derivation
+    ///         discards any derivation that resolves to an address with no
+    ///         bytecode.
+    ///
+    ///         Public, so the Hub - its only caller, on the discovery probe - reaches it by
+    ///         DELEGATECALL into the deployed Core instead of carrying a copy: the Hub is the
+    ///         tightest contract against the size gate, and the probe is not on a swap's path.
+    function deriveAddress(
+        address factory, address tA, address tB,
+        uint24  fee, bool stable, int24 tickSpacing,
+        uint8   mode, bytes32 initCodeHash
+    ) public view returns (address pool) {
+        (address t0, address t1) = tA < tB ? (tA, tB) : (tB, tA);
+        if (mode < 4) {
+            return _factoryLookup(factory, t0, t1, fee, stable, tickSpacing, mode);
+        }
+        // CREATE2 family — sub-mode = mode - 4
+        bytes32 salt;
+        uint8 sub = mode - 4;
+        // Algebra (Camelot V3) is detected as the V3-salt slot with a zero
+        // fee (dynamic-fee sentinel). Its salt is keccak(encode(t0,t1)) with
+        // NO fee component — fees are dynamic, so they never enter the salt.
+        // A normal Uniswap-V3 pool in this slot (non-zero fee) keeps the
+        // fee in its salt.
+        bool isAlgebra = (sub == 1 && fee == 0);
+        if      (sub == 0) salt = keccak256(abi.encodePacked(t0, t1));
+        else if (sub == 1) salt = isAlgebra
+                                    ? algebraSalt(t0, t1)
+                                    : v3Salt(t0, t1, fee);
+        else if (sub == 2) salt = keccak256(abi.encodePacked(t0, t1, stable));
+        else               salt = keccak256(abi.encode(t0, t1, tickSpacing));
+
+        // CREATE2 origin resolution. For most families the factory itself is
+        // the CREATE2 deployer. Algebra-based DEXes (e.g. Camelot V3) deploy
+        // pools from a SEPARATE PoolDeployer contract, which the factory
+        // exposes via poolDeployer(). For an Algebra pool we staticcall
+        // poolDeployer() and use the returned address as the CREATE2 origin.
+        // If the call fails (a plain V3 factory has no such selector) we fall
+        // back to the factory itself — so a non-Algebra V3 in this slot still
+        // derives correctly, and a wrong slot is later discarded by the Hub's
+        // hasCode guard.
+        // T19: this live ask is the one derive input a factory could still
+        // steer after admission (an EIP-1967 proxy changes its answer with
+        // its codehash intact). The Hub therefore never reaches this branch
+        // for Algebra rows: it attests the answer once at addFactory and
+        // derives through `create2Address(attested, algebraSalt(..), ih)`.
+        // This entry stays for callers that hold no attestation.
+        address origin = factory;
+        if (isAlgebra) {
+            address dep = resolvePoolDeployer(factory);
+            if (dep != address(0)) origin = dep;
+        }
+        pool = create2Address(origin, salt, initCodeHash);
+    }
+
+    /// @dev THE producer of the CREATE2 address formula in this codebase —
+    ///      `deriveAddress` above and the Hub's attested Algebra derive (T19)
+    ///      both call it, so the preimage is spelled out exactly once.
+    ///      Consensus layout, 0x55 bytes: ff ++ origin ++ salt ++ initCodeHash.
+    ///      Assembly rather than abi.encodePacked: via-ir instantiates an
+    ///      encoder per tuple shape, and this is linked into two contracts.
+    ///      memory-safe: memory at and beyond the free pointer, used only
+    ///      within the block (the same idiom as resolvePoolDeployer). Write
+    ///      order matters: origin's word zero-pads [m+0x15..m+0x21), so the
+    ///      salt is written after it. `shl(96, ..)` cleans the deployer's high
+    ///      bits; the two hashes are full words. (Named `deployer`, not
+    ///      `origin`: `origin` is a Yul builtin and cannot be read in assembly.)
+    function create2Address(address deployer, bytes32 salt, bytes32 initCodeHash)
+        internal pure returns (address p)
+    {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(add(m, 0x01), shl(96, deployer))
+            mstore(add(m, 0x15), salt)
+            mstore(add(m, 0x35), initCodeHash)
+            mstore8(m, 0xff)
+            p := and(keccak256(m, 0x55), 0xffffffffffffffffffffffffffffffffffffffff)
+        }
+    }
+
+    /// @dev The Algebra (Camelot V3) salt: keccak(abi.encode(t0, t1)) — two
+    ///      left-padded words, NO fee component (fees are dynamic). Single
+    ///      producer, shared with the Hub's attested derive. Requires t0 < t1.
+    ///      Scratch space only. Addresses are masked before the store: inline
+    ///      assembly makes no promise about the bits above a narrow type.
+    /// @dev The Uniswap-V3 salt: keccak(abi.encode(t0, t1, fee)). Single producer, shared by
+    ///      deriveAddress (sub-mode 1, non-zero fee) and the Gate, which deploys its wrappers
+    ///      under it so the Hub's derive finds them by the same formula. Requires t0 < t1.
+    function v3Salt(address t0, address t1, uint24 fee) internal pure returns (bytes32) {
+        return keccak256(abi.encode(t0, t1, fee));
+    }
+
+    function algebraSalt(address t0, address t1) internal pure returns (bytes32 s) {
+        assembly ("memory-safe") {
+            mstore(0x00, and(t0, 0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(0x20, and(t1, 0xffffffffffffffffffffffffffffffffffffffff))
+            s := keccak256(0x00, 0x40)
+        }
+    }
+
+    /// @dev Staticcall factory.poolDeployer() (selector 0x3119049a). Returns
+    ///      the deployer address on success, or address(0) if the selector is
+    ///      absent / reverts, signalling the caller to fall back to `factory`.
+    ///      Internal (T19): the Hub attests this answer at addFactory time
+    ///      with the SAME instrument the derive used to consult live, so the
+    ///      pin and the resolution cannot drift apart.
+    function resolvePoolDeployer(address factory) internal view returns (address dep) {
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            mstore(p, 0x3119049a00000000000000000000000000000000000000000000000000000000)
+            let ok := staticcall(GAS_CAP, factory, p, 0x04, 0x00, 0x20)
+            // `>= 32`, this file's stated returndata policy (see getReserves):
+            // a factory whose poolDeployer() answers with extra words is still
+            // an answer, and `== 32` pinned it to zero at admission — the
+            // attested origin fell back to the factory and every Algebra pool
+            // of that factory went dark (review 2026-09-02, Law III sibling).
+            if and(ok, iszero(lt(returndatasize(), 32))) {
+                dep := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
+            }
+        }
+    }
+
+    /// @notice Is the pool a Solidly-class pair? The pair-shaped family's SHAPE probe, the
+    ///         sibling of `v3StateAndDynFee` for the concentrated family: it lets the Hub derive
+    ///         V2-vs-Solidly from the pool instead of persisting the calldata's word (review
+    ///         2026-09-02). Either answer makes a pair Solidly: `stable()` answered with an ABI
+    ///         bool (Solidly / Velodrome / the first Aerodrome), or the total-fee ask
+    ///         getAmountOutWithTotalFee(0, address(0)) (0x0ea099c1) answered with 0 - the 2026
+    ///         Aerodrome V2 factories fix the curve per factory and their pairs have no stable().
+    ///         The output of nothing is nothing, so a catch-all fallback's nonzero word is no
+    ///         answer. A Uniswap-V2 pair answers neither. A hostile pool can answer either way;
+    ///         both misclassifications fall to the conservative path (the Solidly quote asks the
+    ///         pool, and only a pair that answers stable() has a curve to fall back to; the V2
+    ///         quote is bounded by the pool's own K). Both asks hold the floor (ASK_GAS_FLOOR).
+    function isSolidlyShaped(address pool) internal view returns (bool) {
+        if (answersStable(pool)) return true;
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x0ea099c1, uint256(0), address(0)));
+        return ok && w == 0;
+    }
+
+    /// @dev Does the pool answer `stable()` (0x22be3de1) with an ABI bool (a word above 1 is no
+    ///      answer)? Only such a pair has a curve the Core can replicate: the replicated-curve
+    ///      fallback (`solidlyAskOut`, `legQuoteImpact`) is closed to every other one.
+    function answersStable(address pool) internal view returns (bool ok) {
+        uint256 w;
+        (ok, w) = _askWord(pool, abi.encodeWithSelector(0x22be3de1));
+        ok = ok && w < 2;
+    }
+
+    /// @dev The pool's own `stable()` answer — read ONCE, at registration, and
+    ///      persisted in the Monoslot (bit 5) so that every registry reader gets
+    ///      the pool's word instead of a constant (SLOT-01: `_readPoolInfo`
+    ///      answered `false` unconditionally because the slot had no field).
+    ///      A pair that does not answer — a V2 shape, or a hostile pool — reads
+    ///      as volatile, which is the conservative curve: every Solidly quote
+    ///      channel asks the pool's `getAmountOut` first and only the
+    ///      replicated-curve fallback consults this flag. Same ask as `answersStable`
+    ///      (the floor included); only the word 1 is "stable" (bounty #42).
+    function solidlyStable(address pool) internal view returns (bool) {
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x22be3de1));
+        return ok && w == 1;
+    }
+
+    /// @dev Factory staticcall dispatcher. Each AMM family exposes its lookup
+    ///      under a different selector; we cover the four canonical shapes.
+    function _factoryLookup(
+        address factory, address t0, address t1,
+        uint24 fee, bool stable, int24 tickSpacing, uint8 mode
+    ) private view returns (address pool) {
+        bytes memory cd;
+        if (mode == 0) {
+            // V2.getPair(address,address) -> 0xe6a43905
+            cd = abi.encodeWithSelector(0xe6a43905, t0, t1);
+        } else if (mode == 1) {
+            // V3.getPool(address,address,uint24) -> 0x1698ee82
+            cd = abi.encodeWithSelector(0x1698ee82, t0, t1, fee);
+        } else if (mode == 2) {
+            // Solidly.getPool(address,address,bool) -> 0x79bc57d5
+            cd = abi.encodeWithSelector(0x79bc57d5, t0, t1, stable);
+        } else {
+            // Aerodrome Slipstream.getPool(address,address,int24) -> 0x28af8d0b
+            cd = abi.encodeWithSelector(0x28af8d0b, t0, t1, tickSpacing);
+        }
+        pool = _askPool(factory, cd);
+        // Dialect fallbacks — same try-then-fallback discipline for both
+        // call families, and factories that answer the canonical selector
+        // never pay them:
+        //   mode 1, Algebra (Camelot V3): dynamic-fee factories expose
+        //   poolByPair(address,address), not getPool(.,.,fee).
+        if (pool == address(0) && mode == 1) {
+            pool = _askPool(factory, abi.encodeWithSelector(0xd9a641e1, t0, t1));
+        }
+        //   mode 2, classic Solidly (Velodrome V1): getPair(address,address,
+        //   bool), not the V2/Aerodrome getPool. The identity gate accepted
+        //   such a factory (allPairsLength answers) while discovery never
+        //   reached a single pair — 0 candidates in 62 pair-hops in the
+        //   census (MEASURED on OP 2026-08-24: getPair(WETH,USDC,false)
+        //   answers the live pair; getPool reverts).
+        if (pool == address(0) && mode == 2) {
+            pool = _askPool(factory, abi.encodeWithSelector(0x6801cc30, t0, t1, stable));
+        }
+    }
+
+    /// @dev THE ONLY staticcall body for "ask a factory for its pool" — the
+    ///      canonical ask and both dialect fallbacks route through it. Was
+    ///      three inline assembly copies of the same shape; on the tightest
+    ///      contract of the protocol (the Hub inlines this library), three
+    ///      copies were also three times the bytes.
+    function _askPool(address factory, bytes memory cd) private view returns (address pool) {
+        assembly ("memory-safe") {
+            let ok := staticcall(GAS_CAP, factory, add(cd, 32), mload(cd), 0x00, 0x20)
+            if and(ok, eq(returndatasize(), 32)) {
+                pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
+            }
+        }
+    }
+
+    /// @notice IDENTITY DERIVED for a kind-9 leg (a Gate wrapper). The ONE producer: the
+    ///         Router's explicit doors and the Quoter both ask it, and neither trusts the
+    ///         calldata's word that `pool` is a wrapper. The pool is asked only which gate
+    ///         made it; that answer is then checked against sources the pool does not
+    ///         control:
+    ///           1. the Hub must have admitted `g` as a factory, and `g` must still run the
+    ///              code it was admitted with (the Hub's codehash pin);
+    ///           2. `pool` must equal create2(g, v3Salt(t0, t1, fee), g.WRAPPER_INIT_HASH())
+    ///              - the formula the Hub discovers kind-9 rows by - with the hop's own
+    ///              tokens and the leg's own fee (the venue key). Only `g` can deploy at that
+    ///              address, and only the wrapper's code hashes to that init hash; a pool
+    ///              lying about its gate misses the address, and an admitted factory that is
+    ///              not a Gate has no WRAPPER_INIT_HASH (reads 0). The address fixes the
+    ///              wrapper's runtime and its slot (t0, t1, key); venuePool/aux0/aux1 are
+    ///              immutables the Gate wrote at create from its adapter's resolve, so they
+    ///              are bound transitively;
+    ///           3. the family (key >> 16) must have a live adapter in the Gate NOW: a
+    ///              cleared or drifted adapter refuses the leg here, not in the callback.
+    ///         Every external read is GAS_CAP-bounded and reads 0 on failure: fail closed.
+    function gateWrapperLive(address hub, address pool, address tA, address tB, uint24 fee)
+        public view returns (bool)
+    {
+        // `_askWord` leaves the word 0 on a failed or short answer, so `ok` adds nothing here.
+        (, uint256 w) = _askWord(pool, abi.encodeWithSignature("gate()"));
+        address g = address(uint160(w));
+        (, w) = _askWord(hub, abi.encodeWithSignature("factoryCodehashOf(address)", g));
+        // No `w == 0` arm: an unadmitted gate with code misses here; one with no account
+        // (codehash 0) has no init hash and misses the address below.
+        if (bytes32(w) != g.codehash) return false;
+        (, w) = _askWord(g, abi.encodeWithSignature("WRAPPER_INIT_HASH()"));
+        (address t0, address t1) = sortTokens(tA, tB);
+        // A missing init hash reads 0; create2 over it is an address no deployment can match.
+        if (create2Address(g, v3Salt(t0, t1, fee), bytes32(w)) != pool) return false;
+        (, w) = _askWord(g, abi.encodeWithSignature("liveAdapter(uint8)", uint8(fee >> 16)));
+        return w != 0;
+    }
+
+    /// @notice Canonical V4 pool id from a PoolKey.
+    function computeV4PoolId(
+        address currency0, address currency1, uint24 fee,
+        int24 tickSpacing, address hooks
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(currency0, currency1, fee, tickSpacing, hooks));
+    }
+
+    /// @notice True if `a` has runtime bytecode.
+    function hasCode(address a) internal view returns (bool ok) {
+        uint256 sz;
+        assembly ("memory-safe") { sz := extcodesize(a) }
+        ok = sz > 0;
+    }
+
+    // =========================================================================
+    //  §3  Token sorting + safe transfers
+    // =========================================================================
+
+    function sortTokens(address a, address b) internal pure returns (address, address) {
+        return a < b ? (a, b) : (b, a);
+    }
+
+    /// @notice A pool's registry key: the pool and its pair, sorted, so the order the pair is
+    ///         named in does not matter. The one producer (2026-10-27): `Hub.keyOf` returns it for
+    ///         the registry's own reads and writes, and a reader that only reads a slot computes it
+    ///         in its own frame instead of asking the Hub for a pure function of its arguments
+    ///         (`BlazePhoenixMath._mutedVotes`, T16; `Solver._registryFresh`).
+    ///         `test/PairKeyIsTheHubsKeyOf.t.sol` ties the Hub's door to it (SHARED_QUANTITIES, row `keyOf`).
+    function pairKey(address pool, address tA, address tB) internal pure returns (bytes32) {
+        (address s0, address s1) = sortTokens(tA, tB);
+        return keccak256(abi.encodePacked(pool, s0, s1));
+    }
+
+    /// @notice Selector-driven safe transfer that tolerates non-standard ERC20s.
+    function safeTransfer(address token, address to, uint256 amt) internal {
+        require(tryTransfer(token, to, amt, gasleft()), "BPC:transfer");
+    }
+
+    /// @notice THE success predicate of an ERC20 transfer, with the gas the call may burn
+    ///         capped at `g` (a cap above what is left is clamped by EIP-150, so `gasleft()`
+    ///         is the uncapped transfer). `safeTransfer` is this plus a revert, so a transfer
+    ///         that may fail (the Router's fee push, seal 2026-10-21) and one that must not are
+    ///         judged by one rule: success, and either no return data from a contract or a
+    ///         non-zero word.
+    function tryTransfer(address token, address to, uint256 amt, uint256 g) internal returns (bool ok) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0xa9059cbb00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4),  and(to,  0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(m, 36), amt)
+            ok := call(g, token, 0, m, 68, 0, 32)
+            if ok {
+                switch returndatasize()
+                case 0 { ok := iszero(iszero(extcodesize(token))) }
+                case 32 { ok := and(ok, gt(mload(0), 0)) }
+                default { ok := 0 }
+            }
+        }
+    }
+
+    function safeTransferFrom(address token, address from, address to, uint256 amt) internal {
+        bool ok;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x23b872dd00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4),  and(from, 0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(m, 36), and(to,   0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(m, 68), amt)
+            ok := call(gas(), token, 0, m, 100, 0, 32)
+            if ok {
+                switch returndatasize()
+                case 0 { ok := iszero(iszero(extcodesize(token))) }
+                case 32 { ok := and(ok, gt(mload(0), 0)) }
+                default { ok := 0 }
+            }
+        }
+        require(ok, "BPC:transferFrom");
+    }
+
+    /// @dev ORPHANED SINCE 2026-08-20, AND THEY STAY. They served the Router's
+    ///      `_execCurveAmt`; with Curve and Balancer excised there is not a
+    ///      single call site left in `src/`.
+    ///
+    ///      MEASURED 2026-08-21, which is why they are not deleted: they are
+    ///      `internal` in a LIBRARY, so the compiler only emits them if called.
+    ///      Core build WITH them: 6,519 bytes. WITHOUT them: 6,519 bytes.
+    ///      **Zero delta** — they are already out of the deployed bytecode.
+    ///
+    ///      Deleting would cost two test files and a harness to save NOTHING,
+    ///      and would lose tested USDT-safe approval logic, for the day a venue
+    ///      of that family returns. "Dead code" in an internal library is not
+    ///      BYTECODE debt, it is READING debt — and this note pays it.
+    function safeApprove(address token, address spender, uint256 amt) internal {
+        bool ok;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x095ea7b300000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4),  and(spender, 0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(m, 36), amt)
+            ok := call(gas(), token, 0, m, 68, 0, 32)
+        }
+        require(ok, "BPC:approve");
+    }
+
+    /// @notice USDT-safe approval. A leg that leaves a non-zero residual
+    ///         allowance (a partial/fee-on-transfer pull) would make the NEXT
+    ///         approval revert on USDT-family tokens, whose approve() reverts
+    ///         when going non-zero -> non-zero. So: try approve(amt) directly
+    ///         (the common, zero-residual case — cheap, one call); only if that
+    ///         fails or the token signals false, reset to 0 and set again. The
+    ///         reset path is off the hot path for well-behaved tokens.
+    function forceApprove(address token, address spender, uint256 amt) internal {
+        bool ok;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x095ea7b300000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4),  and(spender, 0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(m, 36), amt)
+            ok := call(gas(), token, 0, m, 68, 0, 32)
+            // A token that returns an explicit `false` (rather than reverting)
+            // counts as failure too.
+            if and(ok, eq(returndatasize(), 32)) { ok := iszero(iszero(mload(0))) }
+        }
+        if (!ok) {
+            safeApprove(token, spender, 0);
+            safeApprove(token, spender, amt);
+        }
+    }
+
+    /// @dev Guards on returndatasize()==32 before reading the result — a
+    ///      staticcall to a CODELESS address (EOA, an unset/garbage token
+    ///      address) still returns success trivially with zero returndata,
+    ///      and the EVM leaves the destination memory untouched rather than
+    ///      zeroing it, so an unguarded read would return the leftover
+    ///      selector/argument bytes written just above instead of 0. Matches
+    ///      the same defensive pattern already used by safeTransfer /
+    ///      safeTransferFrom in this file.
+    function balanceOf(address token, address who) internal view returns (uint256 b) {
+        // A FAILED READ IS NOT A MEASUREMENT. This used to leave `b` at 0 when
+        // the staticcall failed, and returned a bare uint256, so no caller could
+        // tell "the balance is zero" from "the read did not happen". Every
+        // measured delta in the Router is `after - before` on top of this, and
+        // the two directions are not symmetric: a failed AFTER read underflows
+        // and reverts, but a failed BEFORE read turns the delta into an
+        // ABSOLUTE BALANCE. The worst consumer is the user's own slippage
+        // guard, where `delivered` would become the recipient's whole holding
+        // and satisfy userMinOut with coins they already owned — and userMinOut
+        // is the backstop that bounds several other findings.
+        //
+        // Any token whose balanceOf can revert reaches this: paused,
+        // mid-upgrade, hostile, or simply non-`view` (a balanceOf that writes
+        // state fails EVERY staticcall, so every delta would read zero).
+        bool ok;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x70a0823100000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4), and(who, 0xffffffffffffffffffffffffffffffffffffffff))
+            // `ok` tracks whether the CALL HAPPENED, not whether it answered. A
+            // staticcall to a codeless address SUCCEEDS with empty returndata,
+            // and reading that as a zero balance is deliberate and already
+            // tested. What must not be silent is a token that actively
+            // REFUSES: that is a failed read, not a zero balance.
+            ok := staticcall(gas(), token, m, 36, m, 32)
+            if ok {
+                // `>= 32`, NOT `== 32` — aligned with this file's own stated
+                // returndata policy (see getReserves): a non-conformant ERC-20
+                // that returns MORE than one word still has a balance in word
+                // 0, and this reader feeds the measured floor. `eq` silently
+                // read such tokens as balance 0. (`gas()` vs GAS_CAP here is a
+                // separate, still-open question: this call sits on the
+                // EXECUTION path, and capping it changes swap behavior for
+                // gas-hungry tokens — that change needs its own red test.)
+                if iszero(lt(returndatasize(), 32)) { b := mload(m) }
+            }
+        }
+        require(ok, "BPC:balanceOf");
+    }
+
+    // =========================================================================
+    //  §4  AMM PRIMITIVES (V2, V3, Stable, Solidly, V4)
+    // =========================================================================
+
+    /// @notice Read V2-style reserves.
+    function getReserves(address pool) internal view returns (uint256 r0, uint256 r1) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x0902f1ac00000000000000000000000000000000000000000000000000000000)
+            // Guard returndatasize >= 64 (two words): a codeless address makes
+            // staticcall succeed with empty returndata, so an unguarded mload
+            // would read stale memory as reserves. >= (not ==) because a real
+            // getReserves() returns 96 bytes (uint112,uint112,uint32).
+            if staticcall(GAS_CAP, pool, m, 4, m, 64) {
+                // A word wider than the uint112 the interface promises is not a
+                // reserve: masking it read 2^112 + x as x. Unreadable = no reserves.
+                if iszero(lt(returndatasize(), 64)) {
+                    r0 := mload(m)
+                    r1 := mload(add(m, 32))
+                    if shr(112, or(r0, r1)) { r0 := 0 r1 := 0 }
+                }
+            }
+        }
+    }
+
+    /// @notice Read an ERC-20's decimals(), defaulting to 18 if absent.
+    ///         Used by the stable solver to normalise reserves to 1e18.
+    /// @notice A token's decimals, with 18 as the safe default. INTERNAL because
+    ///         the REGISTRATION path (Router and Hub) needs it too: the bucket
+    ///         that goes into the Monoslot is born there, and a decimals-blind
+    ///         bucket collapses the depth signal of 6/8-decimal pairs — see
+    ///         `shortSide18` and test/DepthBucketDecimals.t.sol.
+    function decimalsOf(address token) internal view returns (uint8) { return _decimalsOf(token); }
+
+    /// @dev Decimals from the ctx, with a fallback read. Correctness does not
+    ///      depend on the caller having filled them in: if not, we read them.
+    function _decIn(QuoteCtx memory c) private view returns (uint8) {
+        return c.decIn1 != 0 ? c.decIn1 - 1 : _decimalsOf(c.tokenIn);
+    }
+    function _decOther(QuoteCtx memory c) private view returns (uint8) {
+        return c.decOther1 != 0 ? c.decOther1 - 1 : _decimalsOf(c.tokenOther);
+    }
+
+    function _decimalsOf(address token) private view returns (uint8 d) {
+        d = 18;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x313ce56700000000000000000000000000000000000000000000000000000000)
+            if staticcall(GAS_CAP, token, m, 4, m, 32) {
+                if eq(returndatasize(), 32) {
+                    let v := mload(m)
+                    // SEVENTY-EIGHT, not 256. `to18` does `10 ** (dec - 18)`
+                    // in CHECKED arithmetic: with `dec >= 96` that overflows
+                    // uint256 and gives Panic 0x11 — which violates the
+                    // contract written in this file ("SATURATES instead of
+                    // reverting") and opens a real griefing vector: a token
+                    // with `decimals() = 200` makes the swap EXECUTE every leg
+                    // and only then revert in the Router's `_recordHits`, which
+                    // runs OUTSIDE the try/catch. The user's gas burns in full.
+                    // It also kills the Solver's `decimalsOf(tIn) + 1`, which
+                    // overflows the uint8 with `decimals() == 255`.
+                    // 10^77 is the largest value that fits in uint256, so 77 is
+                    // the largest usable exponent; above that we fall back to
+                    // the default of 18 (fail-open, coherent with the rest).
+                    if lt(v, 78) { d := v }
+                }
+            }
+        }
+    }
+
+    /// @notice Read concentrated-liquidity active liquidity.
+    function getLiquidity(address pool) internal view returns (uint128 liq) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x1a68650200000000000000000000000000000000000000000000000000000000)
+            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
+                if iszero(lt(returndatasize(), 32)) { liq := mload(m) }
+            }
+        }
+    }
+
+    /// @notice Uniswap-V3 pool fee via the immutable fee() getter (0xddca3f43).
+    /// @dev    Returns 0 when unreadable — Algebra's fee is dynamic and lives in
+    ///         globalState(), not fee(), so an Algebra pool reads 0 here and the
+    ///         caller must fail closed (never trust caller-supplied leg.fee for
+    ///         the protocol-fee base: execution charges the pool's own fee).
+    ///         The read runs on CL_FEE_GAS, not GAS_CAP (aero-nova 2026-10-26: the new
+    ///         Aerodrome CL fee() spends 78-178k cold, so at GAS_CAP every one of them quoted
+    ///         0xFFFFFF). Three outcomes, never a fourth:
+    ///         - the frame cannot forward the whole budget -> empty revert (the house OOG
+    ///           signature): a starved read never answers, so the gas a sender attaches cannot
+    ///           change which pools a plan sees;
+    ///         - fee() fails, answers short, or spends CL_FEE_TRUST or more -> 0, which
+    ///           quoteV3Fee turns into 0xFFFFFF: that pool is skipped, the route is not reverted;
+    ///         - otherwise the pool's answer.
+    function getV3Fee(address pool) internal view returns (uint24 f) {
+        assembly ("memory-safe") {
+            // Guard: the whole budget reaches fee() or nothing is read.
+            if lt(gas(), CL_FEE_FLOOR) { revert(0, 0) }
+            mstore(0x00, 0xddca3f4300000000000000000000000000000000000000000000000000000000)
+            let g0 := gas()
+            let ok := staticcall(CL_FEE_GAS, pool, 0x00, 0x04, 0x00, 0x20)
+            let spent := sub(g0, gas())
+            // Meta-guard: the read's own cost. A failure swallowed inside fee() consumed at
+            // least CL_FEE_TRUST of the budget; an honest read at the measured maximum stays
+            // below it. Spent this much or more: the answer is not taken.
+            if and(and(ok, iszero(lt(returndatasize(), 32))), lt(spent, CL_FEE_TRUST)) {
+                f := and(mload(0x00), 0xffffff)
+            }
+        }
+    }
+
+    /// @notice V3 slot0 → sqrtPriceX96.
+    /// @dev L -> TOKEN-DENOMINATED depth. THE ONLY copy.
+    ///      `depthWad` has to be comparable across venue families: V2 reports min(r0,r1),
+    ///      linear token units. L is on a SQRT scale, so handing it over raw makes a
+    ///      concentrated pool out-anchor an equally deep V2 by ~sqrt(price) — a systematic
+    ///      bias in any pair whose price is far from 1, not an edge case.
+    ///      Convert L into the virtual reserves it represents at the current price, short side:
+    ///          x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
+    ///      mulDiv carries the 512-bit intermediate (L*sp overflows uint256).
+    ///
+    ///      WHY A PRIMITIVE AND NOT THREE COPIES: this conversion existed inline in THREE
+    ///      places (universalQuote V3, universalQuote V4, Hub.claimV4) and was missing entirely
+    ///      in a FOURTH (Router._recordHits), which runs on every executed swap. Sibling copies
+    ///      that diverge are this codebase's defect signature — the 512-bit mulDiv and the live
+    ///      Algebra fee were the same thing. A copy cannot diverge from itself.
+    ///      `sp == 0` (failed read) returns raw L, preserving the previous behaviour.
+    /// @dev NO PRICE, NO DEPTH. This function used to return raw `liq` when the price was not
+    ///      readable — that is, it returned a number IN OTHER UNITS, which is exactly the bug it
+    ///      exists to eliminate. L is on a SQRT scale; delivered raw it makes a concentrated pool
+    ///      out-anchor an equally deep pair pool by a factor of sqrt-of-price.
+    ///      Rule: the ABSENCE of a measurement is not a value. The correct return is zero.
+    ///      Consumers handle it safely: the Solver's `_weights` normalises against the family
+    ///      maximum and gives a zero the minimum weight (`if (w == 0) w = 1`), with no division
+    ///      by zero. It fails SOFT — the pool loses priority, it does not poison the comparison.
+    /// @notice Normalise a token-denominated quantity to 18 decimals.
+    /// @dev SATURATES instead of reverting: an absurd depth must degrade to
+    ///      "very deep", never make the whole quote fail.
+    function to18(uint256 v, uint8 dec) internal pure returns (uint256) {
+        if (v == 0 || dec == 18) return v;
+        if (dec > 18) return v / (10 ** (uint256(dec) - 18));
+        uint256 f = 10 ** (18 - uint256(dec));
+        unchecked {
+            uint256 r = v * f;
+            return r / f == v ? r : type(uint256).max;
+        }
+    }
+
+    /// @notice The SHORT side of a pair, already in 18 decimals — comparable depth.
+    ///
+    /// @dev WHY THIS EXISTS, instead of the raw `min` it used to be.
+    ///
+    ///      The previous version did `min(a0, a1)` over RAW units. That has two
+    ///      defects, and the second one is the serious one:
+    ///
+    ///      1. The MINIMUM is decided by the DECIMALS, not by the depth. In a
+    ///         USDC(6)/WETH(18) pair the USDC side has 1e12 times fewer units
+    ///         for the same value, so it wins the `min` almost always — even
+    ///         when it is economically the DEEP side.
+    ///
+    ///      2. `depthBucket` cuts at 1e15 raw units. Translated:
+    ///           18 decimals (WETH): leaves bucket 0 at ~3 dollars
+    ///            6 decimals (USDC): only leaves bucket 0 at ONE BILLION dollars
+    ///            8 decimals (WBTC): only leaves bucket 0 at 650 BILLION
+    ///         So EVERY pool of any 6- or 8-decimal pair fell into bucket 0,
+    ///         and `bucketWeight(0) = 1` for all of them. The 1.4-billion pool
+    ///         and the 100-dollar pool carried the SAME weight.
+    ///
+    ///      The damage is not inverted rankings across pairs — `_canInsert` only
+    ///      compares candidates of the SAME pair, and there the bias cancels. The
+    ///      damage is that the depth signal COLLAPSES into a single bucket inside
+    ///      those pairs, and `psi = vitality x bucketWeight x bonus` degenerates
+    ///      into `vitality x 1`. And the depth defence is exactly what the
+    ///      `Hub:_canInsert` comment says it was added to prevent: "an attacker
+    ///      can no longer keep a deep pool out merely by sending dust through 16
+    ///      shallow slots to hold their vitality at 1". With everything in bucket
+    ///      0 that defence was INERT.
+    ///
+    ///      Measured on a Base fork, block 49,800,000: the ~1.43-billion-dollar
+    ///      USDC/WETH pool came out with bucket 0 and psi 1; WETH/LINK, 3,481
+    ///      times shallower, came out with bucket 5 and psi 42. Red-first in
+    ///      test/DepthBucketDecimals.t.sol.
+    function shortSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1)
+        internal pure returns (uint256)
+    {
+        uint256 n0 = to18(a0, d0);
+        uint256 n1 = to18(a1, d1);
+        return n0 < n1 ? n0 : n1;
+    }
+
+    /// @notice The LONG side of a pair, already in 18 decimals: the twin of `shortSide18`, and the
+    ///         formula of `heldMass18`, the cap on the registry's concentrated arm. Not a depth:
+    ///         every depth of a pair, the Gate adapters' included (ExtAdapterBase._depth18 since
+    ///         2026-10-23), is its short side.
+    function maxSide18(uint256 a0, uint8 d0, uint256 a1, uint8 d1) internal pure returns (uint256) {
+        uint256 n0 = to18(a0, d0);
+        uint256 n1 = to18(a1, d1);
+        return n1 < n0 ? n0 : n1;
+    }
+
+    /// @notice `depthFromL` with decimal normalisation — the version to use.
+    /// @param d0 decimals of the pool's token0, d1 those of token1.
+    function depthFromL18(uint128 liq, uint160 sp, uint8 d0, uint8 d1)
+        internal pure returns (uint256)
+    {
+        if (sp == 0) return 0;
+        return shortSide18(mulDiv(uint256(liq), Q96, sp), d0,
+                           mulDiv(uint256(liq), sp, Q96), d1);
+    }
+
+    function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {
+        if (sp == 0) return 0;
+        uint256 x0 = mulDiv(uint256(liq), Q96, sp);
+        uint256 x1 = mulDiv(uint256(liq), sp, Q96);
+        return x0 < x1 ? x0 : x1;
+    }
+
+    // getSqrtPriceX96 lived here — the degraded twin of v3StateAndDynFee (same
+    // slot0 + globalState reads, DIFFERENT returndata guards, so the register
+    // and the quote could disagree about the same pool). Guards were split in
+    // the survivor and the last caller (Router._recordHits) migrated; a copy
+    // cannot diverge from itself.
+
+    /// @notice Concentrated-liquidity state read that also MEASURES a dynamic
+    ///         fee — the Algebra counterpart of INV-20's effV4Fee.
+    /// @dev    Uniswap V3 answers slot0() and carries its fee in the immutable
+    ///         fee() getter, so `dyn` stays false and the caller keeps the
+    ///         configured fee. Algebra (Camelot) has no slot0(): its price AND
+    ///         its live dynamic fee both live in globalState() — word 0 and
+    ///         word 2 of the same return payload. Reading them together costs
+    ///         one call, the same call the price already required, so measuring
+    ///         the fee adds no call shape this library did not already make.
+    ///
+    ///         This exists because the V3/ALGEBRA quote branch used to pass the
+    ///         Hub's 0 sentinel (Hub:361-366 forces every declared Algebra fee
+    ///         to 0) straight into outV3, pricing every Algebra pool as if it
+    ///         charged NO fee while execution paid the real one — a systematic
+    ///         over-quote in the direction that harms the user. getV3Fee's own
+    ///         doc already said the caller "must fail closed" here; nothing did.
+    /// @return sp   sqrtPriceX96, or 0 when unreadable
+    /// @return f    the measured dynamic fee (only meaningful when `dyn`)
+    /// @return dyn  true when the pool answered globalState() (Algebra-shaped)
+    function v3StateAndDynFee(address pool)
+        internal view returns (uint160 sp, uint24 f, bool dyn)
+    {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            // Uniswap V3 slot0() (0x3850c7bd): sqrtPriceX96 is word 0.
+            mstore(m, 0x3850c7bd00000000000000000000000000000000000000000000000000000000)
+            let ok := staticcall(GAS_CAP, pool, m, 4, m, 64)
+            if ok {
+                if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
+            }
+            // Algebra fallback globalState() (0xe76c01e4):
+            //   word 0 = price, word 1 = tick, word 2 = fee (uint16 on both
+            //   Algebra V1 and Integral; the wider mask is harmless).
+            //
+            // SPLIT GUARDS, and the reason is a measured divergence: the
+            // sibling reader (getSqrtPriceX96) accepts the price at >= 32
+            // bytes while this one demanded the full 96 — so a pool whose
+            // globalState returns 32-64 bytes PRICED in one reader and read
+            // as dead in the other, and the quote and the depth register
+            // disagreed about the same pool. Price needs word 0 only; the
+            // fee claim needs word 2, so `dyn` is only asserted with the
+            // full payload — a partial answer falls through to the
+            // fail-closed fee path exactly as before.
+            if iszero(sp) {
+                mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000)
+                let ok2 := staticcall(GAS_CAP, pool, m, 4, m, 96)
+                if ok2 {
+                    if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
+                    if iszero(lt(returndatasize(), 96)) {
+                        f   := and(mload(add(m, 0x40)), 0xffffff)
+                        dyn := 1
+                    }
+                }
+            }
+        }
+    }
+
+    /// @notice Effective fee for a V3/Algebra-family pool — measure, don't take
+    ///         the nominal. The exact sibling of effV4Fee (INV-20).
+    /// @dev    A static V3 key is truth: a non-zero configured fee wins and no
+    ///         extra read happens. A 0 configured fee is the Hub's dynamic-fee
+    ///         sentinel for Algebra (Hub:361-366), so the live fee measured from
+    ///         globalState() is used instead. When the pool is dynamic-shaped
+    ///         but its fee could not be measured, this FAILS CLOSED with a
+    ///         sentinel >= 1e6 — outV3's own guard then quotes 0 — rather than
+    ///         quoting a fee-free number that execution will not honour. Same
+    ///         fail-closed shape effV4Fee uses for a non-zero protocolFee.
+    /// @notice The fee a V2 pool charges when the pair does not declare it.
+    /// @dev    SINGLE PRODUCER of a number that was hand-written in THREE places: the Router's
+    ///         QUOTE path, the Router's EXECUTION path, and `universalQuote` here. The first two
+    ///         are the pair that MUST agree — if they diverge, the quote lies about what the
+    ///         execution will do, which is the exact shape of the fee leaks already closed in
+    ///         this codebase. Three copies of a literal are this codebase's defect signature
+    ///         waiting to happen, not a style.
+    ///
+    ///         30 bps is the historical default of Uniswap V2 and of the forks that do not expose
+    ///         the fee. It is not a conservative guess: a fee ASSUMED BELOW the real one makes
+    ///         the quote promise more than the pool delivers, and execution finds the difference.
+    ///
+    ///         AND A CEILING, because a V2 pair has no `fee()` to read (unlike V3's quoteV3Fee):
+    ///         the number can only come from calldata, and calldata is the adversary's. An
+    ///         over-declared fee (measured: 9_900 = 99%) deflated the in-frame quote to ~1% and,
+    ///         through `protocolFloorOut = mulDiv(finalHopQuote, floorBps, BPS)`, collapsed the
+    ///         protocol floor with it — the SAME T1/INV-20 class the concentrated arm closed by
+    ///         refusing to take the fee from calldata. There the fix is "read the pool"; here no
+    ///         pool answers, so the fix is a ceiling: anything above a plausible V2 fee (100 bps
+    ///         = 1%, well past every real deployment) falls back to the house default. Both sides
+    ///         of "the pair that MUST agree" call this, so clamping HERE keeps quote and
+    ///         execution byte-identical — a ceiling in only one would make them disagree and
+    ///         trip the floor on honest routes. Units are BPS (outV2 does BPS - fee), not ppm.
+    ///
+    ///         `internal` on purpose: inlined, zero traversal cost, and the gain here is one of
+    ///         CORRECTNESS and not of gas — three places that cannot diverge now cannot.
+    uint24 internal constant V2_FEE_CEILING_BPS = 100;
+    function effV2Fee(uint24 declared) internal pure returns (uint24) {
+        return (declared == 0 || declared > V2_FEE_CEILING_BPS) ? 30 : declared;
+    }
+
+    // effV3Fee (pure) lived here; quoteV3Fee below absorbed it. The Router's
+    // hand-built ternary over it was proved identical branch-by-branch and
+    // migrated — one producer remains for "the effective concentrated fee".
+
+    /// @notice Effective V3-family fee for the QUOTE/IMPACT path — the
+    ///         measured sibling of effV4Fee (INV-20), and the fix for a
+    ///         family-wide zero.
+    /// @dev    THE CL FAMILY QUOTED 0 BY CONSTRUCTION. CL rows (Aerodrome
+    ///         Slipstream, Velodrome CL) register with an EMPTY fee list —
+    ///         their fee is keyed by tickSpacing — so discovery stamps the
+    ///         same `fee = 0` that Hub rule R2 reserves as the ALGEBRA
+    ///         dynamic-fee sentinel. A CL pool answers slot0() (dyn = false),
+    ///         so effV3Fee fail-closed at 0xFFFFFF and outV3 quoted 0: the
+    ///         2nd-deepest factory on Base (1,479 WETH in USDC/WETH sp=100 at
+    ///         measurement, 2026-08-24) never won a single pair-hop in a
+    ///         122-pair census. The EXECUTION path always knew the remedy —
+    ///         Router:774 reads the pool's own fee() — this is the same
+    ///         remedy applied to the quote side. MEASURED: that pool's fee()
+    ///         is 334, DYNAMIC (not even the nominal 500 of its tier), so a
+    ///         static fee table would mis-price; reading the pool is the only
+    ///         correct source. A pool where fee() also fails still fail-closes
+    ///         exactly as before — this can only widen coverage, never weaken
+    ///         the INV-20 guarantee.
+    ///         THE POOL BEFORE THE KEY (DEX-17, revisao-total K5, 2026-10-27).
+    ///         A registered CL row carries the fee() of the block it was
+    ///         written in (`provenShape`), and that key won here: the quote
+    ///         priced the registration block's fee while the swap pays the
+    ///         pool's fee now, and the Router's floor asks the pool (cfgFee 0).
+    ///         A dynamic-fee CL pool moves it per block - measured on Base,
+    ///         Slipstream WETH/USDC sp=100: 549 then 564 in consecutive
+    ///         blocks, 150..937 across 35 samples - so the preview promised
+    ///         the old fee and a userMinOut taken from it was refused. A pool
+    ///         that is not Algebra-shaped is asked first, one staticcall per
+    ///         CL quote; the key answers only for a pool whose fee() does not.
+    ///         Algebra keeps its order: its measured fee comes with the price.
+    function quoteV3Fee(address pool, uint24 cfgFee, uint24 dynFee, bool dyn)
+        internal view returns (uint24)
+    {
+        uint24 f = dyn ? 0 : getV3Fee(pool); // CL: the fee lives on the pool, asked now
+        if (f != 0) return f;
+        if (cfgFee != 0) return cfgFee;   // a pool whose fee() does not answer: the key
+        if (dyn) return dynFee;           // Algebra: measured live fee
+        return 0xFFFFFF;                  // still unmeasurable -> fail closed
+    }
+
+    function token0Of(address pool) internal view returns (address t) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x0dfe168100000000000000000000000000000000000000000000000000000000)
+            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
+                if iszero(lt(returndatasize(), 32)) { t := mload(m) }
+            }
+        }
+    }
+
+    function token1Of(address pool) internal view returns (address t) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0xd21220a700000000000000000000000000000000000000000000000000000000)
+            if staticcall(GAS_CAP, pool, m, 4, m, 32) {
+                if iszero(lt(returndatasize(), 32)) { t := mload(m) }
+            }
+        }
+    }
+
+    /// @notice V2 constant-product output.
+    function outV2(uint256 ain, uint256 rIn, uint256 rOut, uint256 fee)
+        internal pure returns (uint256)
+    {
+        if (ain == 0 || rIn == 0 || rOut == 0) return 0;
+        if (fee >= BPS) return 0;   // guard: fee ≥ 100% → pool unquotable
+        uint256 amtFee = ain * (BPS - fee);
+        return (amtFee * rOut) / (rIn * BPS + amtFee);
+    }
+
+    /// @notice V3 single-pool exact-in via sqrtPrice (Q96-arithmetic).
+    /// @notice Single-pool V3 exact-input quote in Q96 sqrt-price space.
+    /// @dev    Two branches mirror the canonical Uniswap V3 SwapMath:
+    ///
+    ///         zeroForOne = true   (token0 in → token1 out):
+    ///             sqrtNew = (L · sqrtP · Q96) / (L · Q96 + amtIn · sqrtP)
+    ///             amtOut1 = L · (sqrtP − sqrtNew) / Q96
+    ///
+    ///         zeroForOne = false  (token1 in → token0 out):
+    ///             sqrtNew = sqrtP + amtIn · Q96 / L
+    ///             amtOut0 = L · Q96 · (sqrtNew − sqrtP) / (sqrtP · sqrtNew)
+    ///
+    ///         Fee is applied to the input as the canonical (1 − fee/1e6) ratio.
+    /// @param sqrtLimit Price boundary where the swap is TRUNCATED, or 0 for no
+    ///        truncation. Between initialized ticks `L` does
+    ///        not change, so truncating at the current range's boundary gives
+    ///        EXACT for what fits inside it and STRICTLY BELOW for the rest —
+    ///        never above, whatever the liquidity distribution ahead. That is
+    ///        the only acceptable direction of error: over-estimating promises
+    ///        what is not delivered, and the iron floor does not protect because
+    ///        it is derived from this very quote.
+    function outV3(
+        uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee, bool zeroForOne,
+        uint160 sqrtLimit
+    ) internal pure returns (uint256 outAmt) {
+        if (ain == 0 || liq == 0 || sqrtP == 0) return 0;
+        if (fee >= 1_000_000) return 0;   // guard: fee ≥ 100% → unquotable
+        uint256 amtAfterFee = (ain * (1_000_000 - fee)) / 1_000_000;
+        uint256 L = uint256(liq);
+        uint256 P = uint256(sqrtP);
+        if (zeroForOne) {
+            // Canonical Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount0:
+            //     sqrtNew = (L · sqrtP) / (L + amtIn · sqrtP / Q96)
+            //
+            // To avoid the L·P overflow path (L ≤ 2¹²⁸, P ≤ 2¹⁶⁰ → 2²⁸⁸),
+            // we factor through mulDiv so every intermediate fits in 256 bits.
+            uint256 product = mulDiv(amtAfterFee, P, Q96);
+            uint256 sqrtNew = mulDiv(L, P, L + product);
+            if (sqrtNew >= P || sqrtNew == 0) return 0;
+            // zeroForOne: the price FALLS. Truncating means not letting it drop
+            // below the boundary.
+            if (sqrtLimit != 0 && sqrtNew < sqrtLimit) sqrtNew = sqrtLimit;
+            outAmt = mulDiv(L, P - sqrtNew, Q96);
+        } else {
+            // Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount1:
+            //     sqrtNew = sqrtP + amtIn · Q96 / L
+            //     amtOut0 = L · Q96 · (sqrtNew − sqrtP) / (sqrtP · sqrtNew)
+            //
+            // sqrtP · sqrtNew may exceed 2²⁵⁶, so we split the division into
+            // two stages: first scale by sqrtNew, then by sqrtP.
+            uint256 dSqrt = mulDiv(amtAfterFee, Q96, L);
+            uint256 sqrtNew = P + dSqrt;
+            if (sqrtNew <= P) return 0;
+            // oneForZero: the price RISES. The boundary is a ceiling.
+            if (sqrtLimit != 0 && sqrtNew > sqrtLimit) sqrtNew = sqrtLimit;
+            uint256 a = mulDiv(L, sqrtNew - P, sqrtNew);
+            outAmt = mulDiv(a, Q96, P);
+        }
+    }
+
+
+    /// @notice Ask a Solidly-class pair for its own exact output. Same doctrine
+    ///         as an ask-the-pool adapter (quote fn == exec fn => cannot diverge):
+    ///         the pair's quote is computed by its own bytecode — live fee,
+    ///         stable curve and rounding included — so a swap requesting
+    ///         exactly this figure satisfies the K invariant by construction
+    ///         and no safety haircut is needed. Two selectors, asked in order:
+    ///         getAmountOutWithTotalFee(amountIn, tokenIn) (0x0ea099c1) and,
+    ///         only when that ask fails, getAmountOut(amountIn, tokenIn)
+    ///         (0xf140a35a). Returns 0 when the pool exposes neither (caller
+    ///         falls back to the replicated curve with a conservative haircut).
+    function solidlyGetAmountOut(address pool, uint256 amountIn, address tokenIn)
+        public view returns (uint256 out)
+    {
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x0ea099c1, amountIn, tokenIn));
+        if (!ok) (ok, w) = _askWord(pool, abi.encodeWithSelector(0xf140a35a, amountIn, tokenIn));
+        if (ok) out = w;
+    }
+
+    /// @dev A one-word ask, bounded the way every read the quote path makes of a pool is bounded:
+    ///      GAS_CAP of gas, and a fixed-size copy - one word here, never the whole returndata. The
+    ///      planner quotes every candidate of a pair in one call, so no answer may cost it more.
+    ///      The Solidly pair's two quote asks, its factory() and that factory's getFee ask through
+    ///      here; the fixed-selector getters keep their inline form of the same bound. `ok` only
+    ///      for an answer of at least one word; the word is the answer's first. Never asked on
+    ///      less than ASK_GAS_FLOOR: a starved ask reverts empty instead of answering "no".
+    function _askWord(address target, bytes memory cd) private view returns (bool ok, uint256 word) {
+        assembly ("memory-safe") {
+            if lt(gas(), ASK_GAS_FLOOR) { revert(0, 0) }
+            // Two statements, not one: Yul evaluates arguments right to left, so a size check
+            // written as the call's sibling would read the returndata of the call before it.
+            ok := staticcall(GAS_CAP, target, add(cd, 32), mload(cd), 0x00, 0x20)
+            ok := and(ok, iszero(lt(returndatasize(), 32)))
+            if ok { word := mload(0x00) }
+        }
+    }
+
+    /// @notice What a Solidly pair is ASKED to pay for `amountIn` - the single producer the
+    ///         executor settles on and the quote channel promises. Its own `getAmountOut` less
+    ///         one wei, the rounding margin that keeps the pair's K check satisfied; on forks
+    ///         without the selector (an answer <= 1), the replicated curve at the live fee less
+    ///         200 bps (SOLIDLY_CURVE_ASK_BPS), because the pool's K rounding cannot be observed
+    ///         there. Only a pair that answers stable() has a curve to replicate: for any other
+    ///         the `stable` flag is nobody's word (the volatile curve on a stable pool under-asks
+    ///         a balanced pool and over-asks a skewed one), so its ask is 0 (aero-nova, 2026-10-26).
+    function solidlyAskOut(
+        address pool, uint256 amountIn, address tokenIn, bool zeroForOne, bool stable, uint256 cfgFee
+    ) public view returns (uint256 out) {
+        (out, ) = _solidlyAsk(pool, amountIn, tokenIn, zeroForOne, stable, cfgFee, false);
+    }
+
+    /// @dev `solidlyAskOut`, and with `wantFee` the fee that ask charged, in pips: the band
+    ///      prices a venue from it (MED, `universalProbe`). The pair's own figure charges the
+    ///      factory's fee (`readDynamicFee`, the fee the pair reads itself); the replicated
+    ///      curve's haircut is a charge as well, so there the fee is 1 - (1 - f)(9800 / BPS).
+    ///      A fee read of BPS (no address behind factory()) gives 1e6: not known, to the band.
+    function _solidlyAsk(
+        address pool, uint256 amountIn, address tokenIn, bool zeroForOne, bool stable, uint256 cfgFee,
+        bool wantFee
+    ) private view returns (uint256 out, uint256 fee) {
+        out = solidlyGetAmountOut(pool, amountIn, tokenIn);
+        if (out > 1) {
+            unchecked { --out; }
+            if (wantFee) fee = readDynamicFee(pool, stable, cfgFee) * 100;
+            return (out, fee);
+        }
+        if (!answersStable(pool)) return (0, 0);
+        (uint256 r0, uint256 r1) = getReserves(pool);
+        (uint256 rIn, uint256 rOut) = zeroForOne ? (r0, r1) : (r1, r0);
+        out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * SOLIDLY_CURVE_ASK_BPS) / BPS;
+        if (wantFee) fee = 1_000_000 - (BPS - readDynamicFee(pool, stable, cfgFee)) * SOLIDLY_CURVE_ASK_BPS / 100;
+    }
+
+    function outSolidly(
+        uint256 ain, uint256 rIn, uint256 rOut, uint256 fee, bool stable
+    ) public pure returns (uint256) {
+        if (ain == 0 || rIn == 0 || rOut == 0) return 0;
+        if (!stable) return outV2(ain, rIn, rOut, fee);
+        if (fee >= BPS) return 0;
+        // Stable path with EQUAL decimals (the common case: USDC/USDbC, etc.).
+        // The k = x³y+xy³ invariant is homogeneous of degree 4, so when both
+        // reserves share a scale the result is scale-invariant and no decimal
+        // normalisation is needed. For pairs with DIFFERENT decimals the caller
+        // must use outSolidlyStable(...,dIn,dOut) instead, which normalises.
+        // 18, not 0: this caller's reserves are already comparable, and `10 ** (18 - 18)`
+        // is 1. Passing zero here used to select a special case; it now selects the
+        // scaling that a 0-decimal token actually needs, which is not what this path
+        // means. Saying 18 says the intent in the value domain instead of beside it.
+        return _solidlyStable(ain, rIn, rOut, fee, 18, 18);
+    }
+
+    /// @notice The WETH -> address(0) substitution of a native V4 key. SINGLE producer.
+    ///
+    /// @dev    WHY IT EXISTS. The same derivation lived hand-written in TWO places of the Router
+    ///         — the quote arm and the execution arm — and the comment on one of them SWORE it
+    ///         "cannot diverge" with no mechanism whatsoever guaranteeing it. It is exactly the
+    ///         situation that gave rise to `depthFromL`, whose comment says the same in other
+    ///         words: a copy cannot diverge from itself, but two copies can diverge from each
+    ///         other. And here the divergence would be silent and severe: the two sides would
+    ///         derive DIFFERENT poolIds, and "quote and execute read the same pool" would fall.
+    ///
+    ///         WHY IT DOES NOT RETURN AN `ok`. The obvious version returns `(a, b, bool ok)` and
+    ///         leaves the verdict to the caller. But in Solidity `(a, b, ) = f(...)` compiles with
+    ///         NO WARNING — so a future site can ignore the `ok`, and if the failure value is
+    ///         usable, it proceeds with `tokenIn == WETH` and builds the ERC20 pool key instead
+    ///         of the native one: it reads a DIFFERENT pool and returns a perfectly valid number
+    ///         from the wrong place, with no symptom. Corollary (c) of the Meta-Supreme Axiom.
+    ///
+    ///         THE ALTERNATIVE IS BETTER THAN THE `ok`: the failure value is `(0, 0)`, which is
+    ///         SELF-IDENTIFYING (on success exactly ONE of the two is zero, never both) and
+    ///         IMPOSSIBLE as a V4 key — V4 requires `currency0 < currency1`, so a (0,0) pool does
+    ///         not exist and cannot come to exist. Whoever forgets the check gets a key that does
+    ///         not resolve: `sp == 0` on the quote side (zero quote) and an `unlock` that reverts
+    ///         on the execution side. There is no `ok` to forget, because there is no `ok`.
+    ///         Fail-closed by CONSTRUCTION, and not by the caller's discipline.
+    function nativeMapVerified(address tokenIn, address tokenOther, address weth)
+        internal pure returns (address, address)
+    {
+        if (weth == address(0))  return (address(0), address(0));
+        if (tokenIn == weth)     return (address(0), tokenOther);
+        if (tokenOther == weth)  return (tokenIn, address(0));
+        return (address(0), address(0));
+    }
+
+    /// @notice A V4 leg's currencies, by its orientation: the ONE derivation of the native side
+    ///         for every reader that holds a direction and no WETH (the Solver, on registry
+    ///         rows). The Quoter left it on 2026-10-21 (#52 seal): it judges CALLER legs, and
+    ///         on a leg naming no WETH side this producer still names a pool while the Router
+    ///         refuses the leg with RouterE(8); the Quoter now asks `nativeMapVerified` on the
+    ///         Router's WETH (Hub.weth), as the Router does.
+    ///
+    /// @dev    WHY IT EXISTS. "Which side of a native V4 leg is the chain's coin?" was answered
+    ///         by hand five times: twice in the Quoter (`_hookRefusedIn`, `_simV4`, the #52
+    ///         preview and the dry-run) and three times in the Solver (`_dropDust`,
+    ///         `_heldShare`, `_quoteWithDepth`). Five copies of one line agree until one of
+    ///         them is edited; the poolId the plan prices and the one the preview names would
+    ///         then differ with no symptom. Now the copies are calls.
+    ///
+    ///         THE ORIENTATION CONTRACT. A native pool's currency0 is ALWAYS address(0) (it
+    ///         sorts first), and `zeroForOne` means "the input is currency0", so the input is
+    ///         the native side exactly when `zeroForOne` holds. A registry row (`PoolInfo`) is
+    ///         this call with `zeroForOne = true`: its token0 is the wrapped-native side
+    ///         (`Hub._readPoolInfo`). Every other kind returns its tokens untouched.
+    ///
+    ///         WHY NOT `nativeMapVerified`. That producer recognises the native side by the
+    ///         canonical WETH, which the Router holds and must hold: its callback unwraps and
+    ///         wraps, so it may only ever touch the real WETH. These readers hold no WETH and
+    ///         settle nothing, so a malformed leg costs them a 0-quote, never a transfer. On
+    ///         every leg the Router admits (one side the WETH, the direction its tokens' own)
+    ///         the two derive the same key: test/Fusion1020V4LegCurrencies.t.sol.
+    function v4LegCurrencies(uint8 kind, address tIn, address tOther, bool zeroForOne)
+        internal pure returns (address, address)
+    {
+        if (kind != KIND_V4_NATIVE) return (tIn, tOther);
+        if (zeroForOne) return (address(0), tOther);
+        return (tIn, address(0));
+    }
+
+    /// @notice The Solidly CURVE with the right decimals — the ONLY producer of this quantity.
+    ///
+    ///         WHY IT EXISTS. The same question ("how much does this pool return?") was answered
+    ///         in THREE places with THREE policies: here (decimals YES), in the Router's quoter
+    ///         (decimals NO) and in the Router's executor (decimals NO). On the primary path all
+    ///         three make the same call to the same pool and agree by construction; the
+    ///         divergence lived entirely in the fallback. This codebase's defect signature, N=3.
+    ///
+    ///         WHY THE DECIMALS. The stable invariant k = x3y + xy3 is homogeneous of degree 4,
+    ///         so with reserves at the SAME scale the result is scale-invariant — which is why
+    ///         the equal-decimals path passes (0,0) and normalises nothing. With 18/6 the raw
+    ///         reserves are 12 orders of magnitude apart and the curve returns garbage. The real
+    ///         pair normalises internally because it KNOWS its decimals; whoever asks it has to
+    ///         know them too.
+    ///
+    ///         IT DERIVES THE PAIR FROM THE POOL, NOT FROM THE CALLER. The other token is read
+    ///         from the pool itself rather than passed in — deliberately. A single-producer
+    ///         primitive that accepts its caller's coordinate goes back to the shape that allows
+    ///         divergence: one of the three places passing the wrong token would suffice. It only
+    ///         runs in the fallback, so the two staticcalls are paid on the rare path.
+    ///
+    ///         WHAT THIS PRIMITIVE DOES NOT DO: the haircut. See `universalQuote` and
+    ///         `_execSolidlyAmt` — that is the margin of a REQUEST, not a property of the curve,
+    ///         and it does not travel into the quote channels. A single policy means a single
+    ///         CURVE, not a single set of adjustments.
+    function solidlyCurveOut(
+        address pool, uint256 ain, uint256 rIn, uint256 rOut,
+        bool stable, uint256 cfgFee, address tokenIn
+    ) public view returns (uint256) {
+        uint256 liveFee = readDynamicFee(pool, stable, cfgFee);
+        if (!stable) return outV2(ain, rIn, rOut, liveFee);
+        address t0 = token0Of(pool);
+        address other = t0 == tokenIn ? token1Of(pool) : t0;
+        return outSolidlyStable(ain, rIn, rOut, liveFee, _decimalsOf(tokenIn), _decimalsOf(other));
+    }
+
+    /// @notice Solidly stable quote with explicit token decimals. Normalises
+    ///         both reserves and the input to 1e18 before solving the
+    ///         invariant, then de-normalises the output — required when the two
+    ///         tokens have different decimals (e.g. DOLA 18 / USDC 6). This is
+    ///         the validated DexStableFix algorithm (matches live getAmountOut
+    ///         within 0.5% across balanced and skewed pools).
+    function outSolidlyStable(
+        uint256 ain, uint256 rIn, uint256 rOut, uint256 fee,
+        uint8 dIn, uint8 dOut
+    ) internal pure returns (uint256) {
+        if (ain == 0 || rIn == 0 || rOut == 0) return 0;
+        if (fee >= BPS) return 0;
+        return _solidlyStable(ain, rIn, rOut, fee, dIn, dOut);
+    }
+
+    /// @dev Core stable solver. When dIn==dOut==0 the reserves are used as-is
+    ///      (equal-decimal fast path); otherwise each side is scaled to 1e18.
+    function _solidlyStable(
+        uint256 ain, uint256 rIn, uint256 rOut, uint256 fee,
+        uint8 dIn, uint8 dOut
+    ) private pure returns (uint256) {
+        // Fail-closed on tokens with >18 decimals: 10**(18-d) would underflow
+        // and revert on the hot path. Return 0 so the per-leg / aggregate floors
+        // absorb the pool instead of bricking the whole route (keeps the eval total).
+        if (dIn > 18 || dOut > 18) return 0;
+        // NO SENTINEL. This pair of lines used to read `(d == 0) ? 1 : 10 ** (18 - d)`, where
+        // zero meant "already normalised, do not scale". Zero is also a REAL decimals value, and
+        // it arrives here from `_decimalsOf`, which returns whatever the token answers - so a
+        // 0-decimal token in a stable pool had its reserve left unscaled where the correct
+        // normalisation is 10**18, and the curve was evaluated on a pair that does not represent
+        // the pool. Third instance of one shape in this codebase: a value domain asked to carry a
+        // fact it has no room for. The cure is the same as the others - the discriminator comes
+        // from outside the value - except that here it is cheaper still, because 10**(18-18) is
+        // already 1. A caller with pre-normalised reserves says 18, and the special case is not
+        // replaced but DELETED. The >18 guard above still fails closed, so the exponent is safe.
+        uint256 sIn  = 10 ** (18 - dIn);
+        uint256 sOut = 10 ** (18 - dOut);
+        uint256 X = rIn  * sIn;
+        uint256 Y = rOut * sOut;
+        // GUARD THE TERM THAT ACTUALLY OVERFLOWS, not the reserves.
+        //
+        // 3.4e38 was calibrated for the RAW products: x*y, x*x and y*y leave
+        // uint256 around x ~ 1.5e28, and M1 fixed that by routing them through
+        // 512-bit mulDiv. That closed the intermediates and left the RESULT,
+        // which must still fit in a uint256:
+        //
+        //     _solK(x,y) = x*y*(x^2 + y^2) / 1e54
+        //
+        // Balanced (x = y = Z) that is 2*Z^4/1e54, which exceeds uint256 above
+        // Z ~ 4.9e32 — roughly SIX ORDERS OF MAGNITUDE below the sentinel. So
+        // every pool in (4.9e32, 3.4e38] was ADMITTED here and then reverted
+        // inside mulDiv's own require: the checked-arithmetic quote DoS this
+        // guard exists to prevent, and which its own comment claimed fixed.
+        // The revert is caught by nothing on the way out — solidlyCurveOut,
+        // universalQuote and the Solver's scan all propagate it — so one such
+        // pair takes its whole pair's quoting with it.
+        //
+        // The sentinel watched the RESERVES; what fails is the RESULT of the
+        // computation over them. Same wrong-referent shape as the rest of this
+        // series, inside the guard written to prevent it.
+        //
+        // The bound below is the real one, checked in the term's own units
+        // rather than approximated by a reserve cap: refuse when the cubic
+        // cannot be represented. Doctrine is unchanged — an unusable pool
+        // returns 0 so the floors absorb it, and never reverts.
+        if (X > 3.4e38 || Y > 3.4e38) return 0;
+        uint256 A = (ain * sIn * (BPS - fee)) / BPS;
+        if (X + A > 3.4e38) return 0;
+        if (!_solKFits(X + A, Y)) return 0;
+        uint256 K = _solK(X, Y);
+        uint256 y = _solY(X + A, K, Y);   // seed at opposite reserve
+        if (y >= Y) return 0;
+        return (Y - y) / sOut;
+    }
+
+    /// @notice Read the dynamic fee for a Solidly-class pool (Aerodrome family).
+    ///         Falls back to the configured fee if the factory does not expose
+    ///         getFee(pool, stable). Used by both the quote path (off-chain
+    ///         preview) and the execution path (Router) to ensure they always
+    ///         agree on the fee the pool will actually charge at swap time —
+    ///         eliminating the K() over-quote race that would otherwise revert.
+    function readDynamicFee(address pool, bool stable, uint256 cfgFee)
+        public view returns (uint256 fee)
+    {
+        // CEILING ON THE DECLARED FALLBACK — the sibling of `effV2Fee`.
+        // `cfgFee` is `leg.fee`, i.e. CALLDATA, at all three call sites of
+        // `solidlyCurveOut` (Router quote, Router execution, Core.universalQuote).
+        // A Solidly-shaped pair that exposes neither `getAmountOut` nor a working
+        // `factory()`/`getFee` leaves this declaration as the ONLY fee source, and
+        // an over-declared value (9_900 = 99%) collapses the leg's on-chain quote
+        // to ~1% of the truth. When that leg is the final hop it drags
+        // `finalHopQuote` — and therefore `protocolFloorOut`, the figure this
+        // protocol advertises as unforgeable by calldata — down with it.
+        // The V2 arm closed exactly this in `effV2Fee` (V2_FEE_CEILING_BPS); the
+        // Solidly arm reached the same primitive through here and was missed.
+        // House rule B8: a defect found once is a pattern to hunt everywhere.
+        fee = (cfgFee == 0 || cfgFee > V2_FEE_CEILING_BPS) ? 30 : cfgFee;
+        (bool ok, uint256 word) = _askWord(pool, abi.encodeWithSignature("factory()"));
+        if (!ok) return fee;
+        // AN ANSWER THAT IS NOT AN ADDRESS IS A LIE ABOUT THE POOL'S ORIGIN. Decoded as an
+        // address, a word with its upper bits set reverted in the ABI decoder, inside the
+        // planner's per-candidate quote, and took the whole pair's planning down with it
+        // (ninth wave, mohaseenbasha #15). It is read as a word (`_askWord`), and a word that
+        // is not an address makes the pool unquotable: a fee of 100% prices it at zero, and
+        // the pair's other venues are planned as before.
+        if (word >> 160 != 0) return BPS;
+        address fac = address(uint160(word));
+        if (fac == address(0)) return fee;
+        (ok, word) = _askWord(fac, abi.encodeWithSignature("getFee(address,bool)", pool, stable));
+        if (ok && word > 0 && word < BPS) fee = word;
+    }
+
+    /// @dev Can `_solK(x, y)` be represented at all? The solver evaluates the
+    ///      invariant at the POST-TRADE input reserve, so the caller passes
+    ///      `X + A`, the largest x the cubic will ever see for this quote.
+    ///
+    ///      Checked in the same shape `_solK` computes, so the test cannot
+    ///      drift from the thing it guards: a = xy/WAD and b = (x^2+y^2)/WAD
+    ///      each already fit (mulDiv carries 512-bit intermediates); what can
+    ///      fail is the final a*b/WAD. It fits exactly when a <= uintmax*WAD/b,
+    ///      which is checked without ever forming a*b.
+    /// @dev Does a·b / WAD fit a word? `mulDiv` reverts exactly when the high word of a·b is
+    ///      at least the divisor, so the test IS that comparison — two multiplications and no
+    ///      division, which is what lets it be asked on dust (b below one WAD) without the check
+    ///      itself overflowing. The previous form, `a <= max·WAD/b`, reverted there: found by the
+    ///      N-version lane, 2026-09-05.
+    function _mulFitsWad(uint256 a, uint256 b) private pure returns (bool) {
+        uint256 mm; uint256 p0;
+        assembly { mm := mulmod(a, b, not(0)) p0 := mul(a, b) }
+        unchecked { return mm - p0 - (mm < p0 ? 1 : 0) < WAD; }
+    }
+
+    /// @dev k = x·y·(x² + y²)/WAD³ must fit a word before Newton starts; the seed is the largest
+    ///      (x, y) the iteration sees (y only descends from it), so one check covers the loop.
+    function _solKFits(uint256 x, uint256 y) private pure returns (bool) {
+        if (x == 0 || y == 0) return true;      // _solK is 0; nothing to overflow
+        uint256 a = mulDiv(x, y, WAD);
+        uint256 yy = mulDiv(y, y, WAD);
+        uint256 b = mulDiv(x, x, WAD) + yy;
+        // the derivative fp = x·(x² + 3y²)/WAD² has its own product; a whale input reserve
+        // against a dust output reserve passes the k check and overflows this one
+        return _mulFitsWad(a, b) && _mulFitsWad(x, b + 2 * yy);
+    }
+
+    function _solK(uint256 x, uint256 y) private pure returns (uint256) {
+        // 512-bit intermediates (mulDiv) so the Solidly cubic invariant does not
+        // revert on large stable reserves: the raw products x*y, x*x, y*y and
+        // a*b overflow around x ~ 1.5e28, turning a quote into a checked-
+        // arithmetic revert (a quote DoS on deep stable pools). See the corpus, M1.
+        uint256 a = mulDiv(x, y, WAD);
+        uint256 b = mulDiv(x, x, WAD) + mulDiv(y, y, WAD);
+        return mulDiv(a, b, WAD);
+    }
+
+    /// @notice Solve the Solidly stable invariant k = x³y + xy³ for y, given
+    ///         x and target k, using Newton's method seeded at y0 (the opposite
+    ///         reserve). This is the validated DexStableFix algorithm: seeding
+    ///         at the opposite reserve and stepping bidirectionally (up when
+    ///         k(x,y) < K, down when k(x,y) > K) converges for both balanced
+    ///         and heavily-skewed pools, matching Aerodrome's live getAmountOut
+    ///         within 0.5%. Inputs are expected pre-normalised to 1e18 by the
+    ///         caller (outSolidlyStable), so x and y share the same scale.
+    /// @param  x  post-trade input-side balance (normalised)
+    /// @param  K  target invariant computed from the pre-trade reserves
+    /// @param  y0 initial guess — the pre-trade output reserve (normalised)
+    function _solY(uint256 x, uint256 K, uint256 y0)
+        private pure returns (uint256 y)
+    {
+        if (x == 0 || K == 0) return y0;
+        y = y0;
+        for (uint256 i; i < 64; ) {
+            uint256 ky = _solK(x, y);
+            // f'(y) = x·(x² + 3y²)/WAD² — the invariant's derivative in y.
+            // 512-bit intermediates (mulDiv) so a deep stable pool cannot make
+            // this overflow into a checked-arithmetic revert (a quote DoS).
+            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 3 * mulDiv(y, y, WAD), WAD);
+            if (fp == 0) return y0;  // derivative vanished -> caller maps to out = 0
+            uint256 yPrev = y;
+            if (ky < K) {
+                uint256 dy = mulDiv(K - ky, WAD, fp);
+                y += (dy == 0 ? 1 : dy);
+            } else {
+                uint256 dy = mulDiv(ky - K, WAD, fp);
+                if (dy == 0) dy = 1;
+                if (dy >= y) dy = y / 2;   // never step past zero
+                y -= dy;
+            }
+            uint256 d = y > yPrev ? y - yPrev : yPrev - y;
+            if (d <= 1) {
+                // INV-11/INV-10: land the converged exit on the residual-safe
+                // side (K_post >= K_pre => rounding against the taker). _solK is
+                // increasing in y for x > 0, so bumping y by one whenever the
+                // residual is K-deficient guarantees the safe side; O(1) gas.
+                if (_solK(x, y) < K) y += 1;
+                return y;   // converged
+            }
+            unchecked { ++i; }
+        }
+        // Iteration cap reached without convergence: fail closed. Return y0 —
+        // the seed, equal to the output reserve Y — so the caller's `y >= Y`
+        // guard maps this to out = 0 (pool treated as unpriceable), matching
+        // some forks (raise) / Aerodrome (revert "!y"). Returning 0 here would make
+        // the caller compute out = Y - 0 = Y, a catastrophic over-quote.
+        return y0;
+    }
+
+    // =========================================================================
+    //  §5  AMM QUOTE DISPATCHER
+    // =========================================================================
+
+    /// @notice AMM quote for a pool of any supported kind.
+    /// @return out          amount out for `amountIn` tokens of `ctx.tokenIn`
+    /// @return depthWad     pool depth in WAD-equivalent units
+    /// @dev    The quote dispatcher for the Solver and the Quoter.
+    ///
+    ///         IT IS NOT THE ONLY ONE. This line used to say "kind branching lives here only" and
+    ///         it was FALSE: the Router has its own quote dispatcher (`_hopScaleImpactAndQuote`)
+    ///         and the Quoter another (`previewPlanExact`). Both are DELIBERATE — the Router's
+    ///         exists for gas and stack depth, the Quoter's because the exact-pass is a different
+    ///         question — and both are recorded in the Seam Register. What was wrong was the
+    ///         prose, not the design. Criterion 7: a wrong fact written down is worse than none,
+    ///         because it biases the reader against going to look for the siblings.
+    function universalQuote(QuoteCtx memory c, uint256 amountIn)
+        public view returns (uint256 out, uint256 depthWad)
+    {
+        (out, depthWad, , , ) = _quoteArms(c, amountIn, type(uint256).max, false);
+    }
+
+    /// @dev The arms of `universalQuote`, `universalQuoteRank` and `universalProbe`: one body,
+    ///      so the three answer from the same reads. `rank` and `hi` are `out` except on a V4
+    ///      key (`_v4Quote`). `fee` is the fee the arm charged, in pips; FEE_UNKNOWN on a Gate
+    ///      wrapper, whose fee no read here can see. A Solidly arm reads its fee only when
+    ///      `wantFee` (its ask does not need it, `_solidlyAsk`); every other arm has it in hand.
+    function _quoteArms(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee)
+        private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi, uint256 fee)
+    {
+        if (amountIn == 0) return (0, 0, 0, 0, 0);
+        // KIND_EXTERNAL: the Gate wrapper's one producer, identity first (`gateQuote`). Its
+        // depth is the Gate's `vitalOf`, the registry fitness depth of the wrapper.
+        if (c.kind == KIND_EXTERNAL) {
+            (, out, depthWad) = gateQuote(
+                c.hub, c.pool, c.tokenIn, c.tokenOther, c.fee, c.zeroForOne, amountIn, true);
+            return (out, depthWad, out, out, FEE_UNKNOWN);
+        }
+        uint8 k = c.kind;
+        // Tombstone 3 left this branch (an EIP-170 dead-code pass): the venue
+        // that lived there did not expose getReserves(), so this branch always
+        // read (0,0) and quoted 0 — the kind never produced a routable quote.
+        // Falling through to the default (0,0) return is byte-for-byte the
+        // same observable result.
+        if (k == KIND_V2) {
+            (uint256 r0, uint256 r1) = getReserves(c.pool);
+            (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
+            // A PAIR THAT DECLARES MORE THAN IT HOLDS IS NOT QUOTED (bounty #85, Remember Me).
+            // `reservesHeld` was asked only at registration; a synthetic pair registered
+            // honest, then forged `getReserves`, and the Solver's mass vote collapsed to a
+            // recoverable donation of tokenOut that captured the band. Asked here, every
+            // consumer of this dispatcher (probe, split, single leg, Quoter) sees the lie as a
+            // dead pool. Inert on an honest pair: reserves never exceed balances.
+            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0, 0, 0, 0);
+            // UniV2/Sushi charge 0.30%. fee==0 (no fee list) -> 30 bps default,
+            // so the quote matches the pool's x*y=k (else "K" revert on exec).
+            uint24 v2fee = effV2Fee(c.fee);
+            out      = outV2(amountIn, rI, rO, v2fee);
+            depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
+            return (out, depthWad, out, out, uint256(v2fee) * 100);
+        }
+        if (kindHas(k, A_CONC_POOL)) {
+            // One read yields the price AND, for a dynamic-fee (Algebra) pool,
+            // the live fee — measured, never the Hub's 0 sentinel. See
+            // v3StateAndDynFee / quoteV3Fee: the INV-20 "measure, don't take the
+            // nominal" rule, applied to the OTHER dynamic-fee family in this
+            // same dispatcher. Static V3 keys are untouched (cfgFee wins, no
+            // extra read, byte-identical quote and gas).
+            (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
+            uint128 liq = getLiquidity(c.pool);
+            // NO boundary clamp, for now: `v3StateAndDynFee` does not yet return
+            // the tick, and the per-crossing cost in V3 is ~2x that of V4 (the
+            // `ticks()` getter drags 4 slots the quote does not use, against one
+            // batchable `extsload`). V4 goes first because that is where the
+            // error was measured; extending to V3 is the same change, one read up.
+            fee      = quoteV3Fee(c.pool, c.fee, dynFee, isDyn);
+            out      = outV3(amountIn, sp, liq, uint24(fee), c.zeroForOne, 0);
+            // depthWad must be TOKEN-DENOMINATED to be comparable across venue
+            // families: the Solver's band anchor picks max(depths[]) across V2
+            // (min(r0,r1), linear token units) and V3 candidates alike. Raw L is
+            // on a sqrt scale, so returning it made a V3 pool out-anchor an
+            // equally-deep V2 pool by a factor of ~sqrt(price) — a systematic
+            // bias at any price away from 1, not an edge case. Convert L to the
+            // virtual reserves it represents at the current price and take the
+            // short side, the same quantity V2 reports:
+            //     x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
+            // mulDiv carries the 512-bit intermediate (L*sp overflows uint256).
+            // This tightens NO tolerance and adds NO revert path — it only fixes
+            // the unit of an existing comparison. Within a family the price
+            // cancels in _weights' depth[i]/maxByFam ratio, so allocation is
+            // unchanged; only the cross-family anchor choice is corrected.
+            uint8 dIn3 = _decIn(c);
+            uint8 dOt3 = _decOther(c);
+            (uint8 b0, uint8 b1) = c.zeroForOne ? (dIn3, dOt3) : (dOt3, dIn3);
+            depthWad = depthFromL18(liq, sp, b0, b1);
+            return (out, depthWad, out, out, fee);
+        }
+        if (k == KIND_SOLIDLY) {
+            (uint256 r0, uint256 r1) = getReserves(c.pool);
+            (uint256 rI, uint256 rO) = c.zeroForOne ? (r0, r1) : (r1, r0);
+            // Same door as the V2 arm (bounty #85): a pair holding less than it declares is dead.
+            if (!heldBy(c.pool, c.tokenIn, rI, c.tokenOther, rO)) return (0, 0, 0, 0, 0);
+            // THE EXECUTOR'S ASK, from the executor's own producer. The pair is
+            // never asked for its whole `getAmountOut`: `_execPairAmt` asks one
+            // wei less, the rounding margin its K check needs, and on forks
+            // without the selector the replicated curve less 200 bps. This arm
+            // used to promise the pair's figure itself - one wei above every
+            // Solidly delivery - so a one-leg preview had no buffer to absorb it
+            // and published a netOut the Router refused as userMinOut (dex-13,
+            // ninth wave). One function now answers both questions.
+            (out, fee) = _solidlyAsk(c.pool, amountIn, c.tokenIn, c.zeroForOne, c.stable, c.fee, wantFee);
+            depthWad = shortSide18(rI, _decIn(c), rO, _decOther(c));
+            return (out, depthWad, out, out, fee);
+        }
+        if (kindHasAny(k, A_CONC_SING)) {
+            // Both V4 kinds quote identically and deliberately share this branch:
+            // the pool id is derived from the two sorted currencies, and a native
+            // currency is just address(0), which sorts first. Nothing in the
+            // pricing depends on whether a currency is native — only settlement
+            // does, and settlement lives in the Router.
+            //
+            // V4 quote: the pool's own book walked through extsload, tick crossings
+            // included (hooks are not modelled).
+            // Hook seam (INV-20): a dynamic-fee pool's hook can override the
+            // fee per-swap in beforeSwap (needs only BEFORE_SWAP_FLAG — the
+            // delta-flag reject does NOT gate it) or move it mid-block via
+            // updateDynamicLPFee, so slot0's lpFee is the stored fee, not
+            // necessarily the executed one. The beforeSwap override is refused
+            // in `_v4Quote` (H12: such a key quotes 0, so the Solver and the
+            // Quoter never promise it); a fee moved by updateDynamicLPFee is in
+            // slot0 when this reads it. A caller-built leg on the explicit door
+            // stays bounded by the Router's iron floor re-derived from realised
+            // output and by userMinOut.
+            return _v4Quote(c, amountIn, bar);
+        }
+    }
+
+    /// @notice `universalQuote` for RANKING (S2, Seavia Resources): the same `(out, depthWad)`,
+    ///         plus `rank` and `hi` from `v4WalkRank`. `out` stays the promise - the figure a
+    ///         leg is attested with and the Router re-measures; `rank` is the figure a comparison
+    ///         between venues may read, and only differs from `out` on a V4 quote whose sixteen
+    ///         stretches left input unspent and whose rest could still carry it above `bar`.
+    ///         Every other kind returns `rank == hi == out`.
+    function universalQuoteRank(QuoteCtx memory c, uint256 amountIn, uint256 bar)
+        public view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi)
+    {
+        (out, depthWad, rank, hi, ) = _quoteArms(c, amountIn, bar, false);
+    }
+
+    /// @notice WHAT THE BAND READS OFF A PROBE (MED, 2026-10-28): `universalQuoteRank` at bar 0 -
+    ///         the vote's `depthWad` and the ranking figure `rank` - and the two numbers that let
+    ///         the Solver's band judge a venue's PRICE instead of its rate after fee
+    ///         (`BlazePhoenixMath._inBand`): `fee`, what that figure charged, in pips (FEE_UNKNOWN
+    ///         or more: not known), and `err`, in WAD, a bound on how far the fee-free price
+    ///         rank * 1e6 / (1e6 - fee) / amountIn can sit from the venue's spot, either side
+    ///         (WAD: no bound).
+    /// @dev    THE BOUND. On one constant-product curve (a V2 or volatile Solidly pair, the one
+    ///         range `outV3` quotes, a V4 walk that stays in its range) the fee-free price sits
+    ///         under the spot by i = a(1-f)/(x + a(1-f)) exactly, and i = o/y, at most a/x: the
+    ///         output over the out-side reserve, the input over the in-side one. `depthWad` is the
+    ///         short side min(x, y) in 18 decimals, so min(a, o) / depthWad >= i. Then rounding,
+    ///         with n = floor(a * (1e6 - f) / 1e6) the input the curve is handed. Output side: its
+    ///         floor, the -1 of a Solidly ask, the sqrt price `outV3` floors (zeroForOne), which
+    ///         lifts o by up to L / 2^96 wei, and a unit each of the 1e18 rate the Solver forms
+    ///         and the price `_select` forms: 3 * WAD / o + 2 * a / o. Input side (V3, V4): n sits
+    ///         under a(1 - f) by less than a wei, 1/n of the price; `outV3`'s floors on
+    ///         n * sqrtP / 2^96 (zeroForOne) and on L * dSqrt / sqrtNew (the other way) each cost
+    ///         under 1 / sqrt(n * o) <= (1/n + 1/o) / 2, and its floor on dSqrt = n * 2^96 / L
+    ///         under L / (2^96 * n). While L <= 2^96 the two ways total, to first order, under
+    ///         1.5/n + 1.5/(o - 1) and 2.5/n + 1.5/o: 3 * WAD / n and 3 * WAD / o cover them
+    ///         (2026-10-28: without the first a 62-wei probe behind a 54.66% fee read 0.42% under
+    ///         its spot with e = 1.25e-6, test/MedianProbeErrorBound.t.sol). NOT BOUNDED here,
+    ///         and written down as limits: a V4 walk that crosses into thinner ticks, a Solidly
+    ///         stable curve away from both of its asymptotes, a V3 range whose L is above 2^96
+    ///         (its sqrt price floors then move the output by L / 2^96 wei), and a Gate wrapper's
+    ///         impact (no reserve to read; its rounding is counted, and impact only lowers a rate,
+    ///         which a row of unknown fee is never judged on).
+    function universalProbe(QuoteCtx memory c, uint256 amountIn)
+        public view returns (uint256 depthWad, uint256 rank, uint256 fee, uint256 err)
+    {
+        (, depthWad, rank, , fee) = _quoteArms(c, amountIn, 0, true);
+        if (rank == 0) return (depthWad, 0, fee, WAD);
+        err = (3 * WAD + 2 * amountIn) / rank + 1;
+        if (c.kind != KIND_EXTERNAL) {
+            uint256 n = fee < 1_000_000 ? mulDiv(amountIn, 1_000_000 - fee, 1_000_000) : amountIn;
+            uint256 a18 = to18(amountIn, _decIn(c));
+            uint256 o18 = to18(rank, _decOther(c));
+            uint256 m = a18 < o18 ? a18 : o18;
+            err = n == 0 || m >= depthWad ? WAD : err + 3 * WAD / n + mulDivUp(m, WAD, depthWad);
+        }
+        if (err > WAD) err = WAD;
+    }
+
+    /// @dev The V4 arm of `universalQuote`, the one producer for both entry points.
+    function _v4Quote(QuoteCtx memory c, uint256 amountIn, uint256 bar)
+        private view returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi, uint256 fee)
+    {
+        // H12 (2026-10-19). On a dynamic-fee key the hook with BEFORE_SWAP_FLAG (1 << 7)
+        // sets the swap's LP fee by what it RETURNS (v4-core Pool.swap: the override wins
+        // over slot0's lpFee), and nothing read here can see it: unquotable, the shape of a
+        // dead pool. Without bit 7 the fee moves only by updateDynamicLPFee outside the
+        // pool's own swap, so slot0 is the fee charged. The Router's in-frame promise
+        // (`v4LegOut`) is untouched: a caller-built leg keeps its floors and userMinOut.
+        if (c.fee == 0x800000) {
+            if (uint160(c.hooks) & 0x80 != 0) return (0, 0, 0, 0, 0);
+        }
+        {
+            (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
+            bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
+            (uint160 sp, uint128 liq, uint24 lpF, uint24 pF, ) =
+                v4SqrtAndLiq(c.v4Manager, pid);
+            // sp == 0 needs no branch of its own: the walk re-reads this slot0 word and
+            // answers zeros, and depthFromL18 is 0 at sp == 0.
+            if (liq == 0) return (0, 0, 0, 0, 0);
+            // THE WALK, for ranking and for the promise alike. The single-tick form assumed
+            // the current liquidity went on for ever: it ranked a pool holding one tick of
+            // range as deep and let it take the whole route (dex-19, ninth wave), while its
+            // range-clamped twin, the promise, could not see the liquidity beyond a narrow
+            // range - on ENA/USDC at 1,000 USDC the real output was 14.5% above the model.
+            // `v4WalkOut` walks the pool's own initialized ticks, so both questions get the
+            // pool's own answer: a range with nothing beyond it is ranked for what it holds,
+            // and liquidity beyond the current range is counted where it is. V2 has no ticks
+            // to walk and needs none: its curve is its whole book.
+            fee = effV4Fee(c.fee, lpF, pF, c.zeroForOne);
+            (out, rank, hi) = _v4Walk(c.v4Manager, pid, amountIn, uint24(fee), c.tickSpacing, c.zeroForOne, bar);
+            // Same token-denomination as the V3 branch above: the band anchor
+            // compares depths[] ACROSS families, so a V4 pool reporting raw L
+            // (sqrt scale) would out-anchor an equally-deep V2 pool by
+            // ~sqrt(price). At sp == 0 the walk above has answered zeros and
+            // depthFromL18 answers 0 too.
+            uint8 dIn4 = _decIn(c);
+            uint8 dOt4 = _decOther(c);
+            (uint8 a0, uint8 a1) = c.zeroForOne ? (dIn4, dOt4) : (dOt4, dIn4);
+            depthWad = depthFromL18(liq, sp, a0, a1);
+        }
+    }
+
+    /// @notice Read a V4 pool's sqrtPriceX96 and liquidity via extsload on the
+    ///         singleton PoolManager. Slot layout verified against the canonical
+    ///         StateView on a mainnet fork: base = keccak256(abi.encode(poolId,
+    ///         6)); slot0 (offset 0) packs sqrtPriceX96 in its low 160 bits;
+    ///         liquidity is at offset +3 (low 128 bits).
+    /// @dev The returned `tick` comes for free: it lives in the same slot0 word
+    ///      already read for `sqrtPriceX96`, bits [160,184).
+    function v4SqrtAndLiq(address manager, bytes32 poolId)
+        public view
+        returns (uint160 sqrtP, uint128 liq, uint24 lpFee, uint24 protoFee, int24 tick)
+    {
+        if (manager == address(0)) return (0, 0, 0, 0, 0);
+        bytes32 base = keccak256(abi.encode(poolId, uint256(6)));
+        bytes32 word0;
+        bytes32 word3;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x1e2eaeaf00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4), base)
+            // Codeless-address guard (same doctrine as balanceOf/getReserves):
+            // staticcall to an empty account succeeds with no returndata, and
+            // an unguarded mload would read the selector/arg bytes as state.
+            if staticcall(GAS_CAP, manager, m, 36, m, 32) {
+                if eq(returndatasize(), 32) { word0 := mload(m) }
+            }
+            mstore(m, 0x1e2eaeaf00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4), add(base, 3))
+            if staticcall(GAS_CAP, manager, m, 36, m, 32) {
+                if eq(returndatasize(), 32) { word3 := mload(m) }
+            }
+        }
+        sqrtP    = uint160(uint256(word0));
+        liq      = uint128(uint256(word3));
+        // slot0 packing (verified vs StateView): [0,160) sqrtPriceX96 |
+        // [160,184) tick | [184,208) protocolFee | [208,232) lpFee.
+        protoFee = uint24(uint256(word0) >> 184);
+        lpFee    = uint24(uint256(word0) >> 208);
+        tick     = int24(uint24(uint256(word0) >> 160));
+    }
+
+    /// @notice INV-20 (V4-FEE-MEASURED): the effective swap fee for a V4 leg,
+    ///         in the swap's direction.
+    ///         A static-fee key carries the LP fee in the key; the PoolManager
+    ///         may add a protocol fee on top, per direction, and charges
+    ///         `calculateSwapFee(protocolFee, lpFee) = p + lp − p·lp/1e6` when
+    ///         `protocolFee != 0` (v4-core ProtocolFeeLibrary; each direction
+    ///         is a 12-bit field, zeroForOne in the low bits). The static arm
+    ///         composes exactly that, so a quote on a static key never
+    ///         overstates the delivered output once a fee controller enables
+    ///         the protocol fee (measured 0 on every chain served today).
+    ///         A dynamic-fee key uses the sentinel 0x800000 — its true fee
+    ///         lives only in slot0's lpFee (measure-not-nominal); with a
+    ///         non-zero protocolFee it still fails closed (0xFFFFFF → outV3
+    ///         returns 0), because the LP fee a hook may override in
+    ///         beforeSwap is not anchored the way the key fee is.
+    function effV4Fee(uint24 keyFee, uint24 lpFee, uint24 protoFee, bool zeroForOne)
+        internal pure returns (uint24)
+    {
+        if (keyFee != 0x800000) {                    // static: the key is the LP fee
+            uint256 pf = zeroForOne ? uint256(protoFee & 0xFFF) : uint256(protoFee >> 12);
+            if (pf == 0) return keyFee;
+            // p + lp − p·lp/1e6, all in pips; p ≤ 0xFFF and lp ≤ 1e6 keep it in uint24
+            return uint24(pf + uint256(keyFee) - (pf * uint256(keyFee)) / 1_000_000);
+        }
+        if (protoFee != 0)      return 0xFFFFFF;     // dynamic + protoFee: fail-closed (≥1e6 → outV3 returns 0)
+        return lpFee;                                 // dynamic: the measured slot0 fee
+    }
+
+    /// @notice The in-frame PROMISE for a V4 leg: the fee resolved in the swap's direction,
+    ///         then the pool's own swap walked over its initialized ticks (`v4WalkOut`). It was
+    ///         the single-tick closed form truncated at the current range's edge - a lower bound
+    ///         that could not see the liquidity beyond the edge, beside a ranking figure that
+    ///         could not see its absence: a pool holding one tick of range and a large `L` then
+    ///         out-ranked an honest pool, took the whole order, filled 5% of it, and published a
+    ///         netOut twenty times its delivery (ninth wave, mohaseenbasha, dex-19). The walk
+    ///         answers both questions with the pool's own arithmetic. Public so the Router
+    ///         reaches it through the linked library instead of carrying the mathematics.
+    function v4LegOut(
+        address manager, bytes32 poolId, uint256 amountIn,
+        uint24 keyFee, int24 tickSpacing, bool zeroForOne
+    ) public view returns (uint256) {
+        // sp == 0 needs no branch of its own: v4WalkOut re-reads this slot0 word and answers 0.
+        (, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);
+        if (lq == 0) return 0;
+        return v4WalkOut(manager, poolId, amountIn, effV4Fee(keyFee, lpF, pF, zeroForOne), tickSpacing, zeroForOne);
+    }
+
+    // =========================================================================
+    //  THE V4 WALK - the PoolManager's swap loop, read-only, over extsload
+    // =========================================================================
+    //  Pool.State in the singleton (v4-core Pool.sol / StateLibrary): at
+    //  base = keccak256(poolId, 6): slot0 (+0), liquidity (+3), the ticks
+    //  mapping (+4: word 0 of a TickInfo packs liquidityGross low | liquidityNet
+    //  high) and the tick bitmap (+5: one word per 256 compressed ticks).
+    //  Every function below is the pool's own arithmetic with its own rounding -
+    //  input rounded up, output rounded down - so the walk can only understate a
+    //  delivery, and only where it stops early.
+
+    int24   internal constant V4_MIN_TICK = -887_272;
+    int24   internal constant V4_MAX_TICK =  887_272;
+    /// @dev Steps of the walk: each is one stretch between initialized ticks (or one
+    ///      bitmap word). An order still unspent after the last one is quoted for what
+    ///      the walk reached - an understatement, the safe side of a promise.
+    uint256 internal constant V4_WALK_MAX_STEPS = 16;
+    /// @dev Steps of the DEEP walk, for RANKING only (S2, Seavia Resources). Sixteen stretches
+    ///      are a safe PROMISE and an unsafe RANKING: anyone may mint one-wei positions on the
+    ///      ticks beneath an honest pool's price (`modifyLiquidity` has no access control), and
+    ///      twenty of them made the sixteen-stretch walk quote a deep pool at a tenth of what it
+    ///      pays, so a worse venue took the order. The attacker cannot raise a figure, only
+    ///      lower a rival's, and only with ticks INSIDE the order's own price path - a quote
+    ///      walks no further than its input carries it. 256 stretches cover an order that moves
+    ///      the price 256 tick spacings even when every one is initialized (1.0001^256 - 1, about
+    ///      2.6%, at spacing 1), so up to there the deep walk is the pool's exact answer; beyond it the figure is a lower bound, and is treated as one.
+    uint256 internal constant V4_WALK_DEEP_STEPS = 256;
+
+    /// @dev One guarded extsload: a codeless or reverting manager reads as zero.
+    function _v4Load(address manager, bytes32 slot) private view returns (uint256 w) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0x1e2eaeaf00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4), slot)
+            if staticcall(GAS_CAP, manager, m, 36, m, 32) {
+                if eq(returndatasize(), 32) { w := mload(m) }
+            }
+        }
+    }
+
+    /// @notice sqrt(1.0001^tick) * 2^96, rounded up - the TickMath table: each constant is
+    ///         2^128 / sqrt(1.0001)^(2^i), and the result is exact to the pool's own value.
+    function sqrtPriceAtTick(int24 tick) internal pure returns (uint160) {
+        uint256 a = tick < 0 ? uint256(-int256(tick)) : uint256(int256(tick));
+        require(a <= uint256(int256(V4_MAX_TICK)), "BPC:tick");
+        uint256 r = a & 0x1 != 0 ? 0xfffcb933bd6fad37aa2d162d1a594001 : 0x100000000000000000000000000000000;
+        if (a & 0x2 != 0) r = (r * 0xfff97272373d413259a46990580e213a) >> 128;
+        if (a & 0x4 != 0) r = (r * 0xfff2e50f5f656932ef12357cf3c7fdcc) >> 128;
+        if (a & 0x8 != 0) r = (r * 0xffe5caca7e10e4e61c3624eaa0941cd0) >> 128;
+        if (a & 0x10 != 0) r = (r * 0xffcb9843d60f6159c9db58835c926644) >> 128;
+        if (a & 0x20 != 0) r = (r * 0xff973b41fa98c081472e6896dfb254c0) >> 128;
+        if (a & 0x40 != 0) r = (r * 0xff2ea16466c96a3843ec78b326b52861) >> 128;
+        if (a & 0x80 != 0) r = (r * 0xfe5dee046a99a2a811c461f1969c3053) >> 128;
+        if (a & 0x100 != 0) r = (r * 0xfcbe86c7900a88aedcffc83b479aa3a4) >> 128;
+        if (a & 0x200 != 0) r = (r * 0xf987a7253ac413176f2b074cf7815e54) >> 128;
+        if (a & 0x400 != 0) r = (r * 0xf3392b0822b70005940c7a398e4b70f3) >> 128;
+        if (a & 0x800 != 0) r = (r * 0xe7159475a2c29b7443b29c7fa6e889d9) >> 128;
+        if (a & 0x1000 != 0) r = (r * 0xd097f3bdfd2022b8845ad8f792aa5825) >> 128;
+        if (a & 0x2000 != 0) r = (r * 0xa9f746462d870fdf8a65dc1f90e061e5) >> 128;
+        if (a & 0x4000 != 0) r = (r * 0x70d869a156d2a1b890bb3df62baf32f7) >> 128;
+        if (a & 0x8000 != 0) r = (r * 0x31be135f97d08fd981231505542fcfa6) >> 128;
+        if (a & 0x10000 != 0) r = (r * 0x9aa508b5b7a84e1c677de54f3e99bc9) >> 128;
+        if (a & 0x20000 != 0) r = (r * 0x5d6af8dedb81196699c329225ee604) >> 128;
+        if (a & 0x40000 != 0) r = (r * 0x2216e584f5fa1ea926041bedfe98) >> 128;
+        if (a & 0x80000 != 0) r = (r * 0x48a170391f7dc42444e8fa2) >> 128;
+        if (tick > 0) r = type(uint256).max / r;
+        return uint160((r >> 32) + (r % (1 << 32) == 0 ? 0 : 1));
+    }
+
+    /// @dev Index of the most significant set bit (x > 0).
+    function _msb(uint256 x) private pure returns (uint256 r) {
+        if (x >= 1 << 128) { x >>= 128; r += 128; }
+        if (x >= 1 << 64) { x >>= 64; r += 64; }
+        if (x >= 1 << 32) { x >>= 32; r += 32; }
+        if (x >= 1 << 16) { x >>= 16; r += 16; }
+        if (x >= 1 << 8) { x >>= 8; r += 8; }
+        if (x >= 1 << 4) { x >>= 4; r += 4; }
+        if (x >= 1 << 2) { x >>= 2; r += 2; }
+        if (x >= 1 << 1) r += 1;
+    }
+
+    /// @dev Word `w` of a V3-shaped pool's answer to getter `sel(arg)`; zero when the pool does
+    ///      not answer it (codeless, reverting, or too short an answer). The walk's reads of a
+    ///      V3 book: slot0(), liquidity(), tickBitmap(int16), ticks(int24).
+    function _v3Get(address pool, uint256 sel, int256 arg, uint256 w) private view returns (uint256 r) {
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, shl(224, sel))
+            mstore(add(m, 4), arg)
+            if staticcall(GAS_CAP, pool, m, 36, m, 64) {
+                if gt(returndatasize(), add(shl(5, w), 31)) { r := mload(add(m, shl(5, w))) }
+            }
+        }
+    }
+
+    /// @dev One read of the book the walk follows: through extsload from the singleton (`base`
+    ///      = the V4 pool's state slot), or from a V3-shaped pool's own getters when `base` is
+    ///      zero. `k`: 0 the price word, 1 the tick, 2 the liquidity, 3 bitmap word `arg`, 4 the
+    ///      liquidityNet of tick `arg` (in the low 128 bits).
+    function _book(address src, uint256 base, uint256 k, int256 arg) private view returns (uint256) {
+        if (base == 0) return _v3Get(
+            src, k < 2 ? 0x3850c7bd : k == 2 ? 0x1a686502 : k == 3 ? 0x5339c296 : 0xf30dba93, arg, k == 1 || k == 4 ? 1 : 0
+        );
+        uint256 w = _v4Load(src, k < 3 ? bytes32(base + (k == 2 ? 3 : 0)) : keccak256(abi.encode(arg, bytes32(base + (k == 3 ? 5 : 4)))));
+        return k == 1 ? w >> 160 : k == 4 ? w >> 128 : w;
+    }
+
+    /// @dev TickBitmap.nextInitializedTickWithinOneWord: the next initialized tick at or below
+    ///      `tick` (price falling) or strictly above it (price rising), or the edge of the
+    ///      current bitmap word when none is set in it. The word is read through extsload from
+    ///      the singleton (`base` = the V4 pool's state slot), or from a V3-shaped pool's own
+    ///      `tickBitmap(int16)` when `base` is zero.
+    function _v4NextTick(address src, uint256 base, int24 tick, int24 ts, bool lte)
+        private view returns (int24 next, bool initialized)
+    {
+        int24 c = tick / ts;
+        if (tick < 0 && tick % ts != 0) c--;              // floor, as `compress` does
+        if (!lte) c++;
+        int16 wordPos = int16(c >> 8);
+        uint256 bitPos = uint256(uint24(c)) & 0xff;
+        uint256 word = _book(src, base, 3, wordPos);
+        int256 n;
+        if (lte) {
+            uint256 masked = word & (type(uint256).max >> (255 - bitPos));
+            initialized = masked != 0;
+            n = (int256(c) - int256(initialized ? bitPos - _msb(masked) : bitPos)) * int256(ts);
+        } else {
+            uint256 masked = word & ~((uint256(1) << bitPos) - 1);
+            initialized = masked != 0;
+            n = (int256(c) + int256(initialized ? _msb(masked & (~masked + 1)) - bitPos : 255 - bitPos)) * int256(ts);
+        }
+        // In int256 and clamped here: near the extremes a wide spacing takes the product out
+        // of int24's range, and the pool's own loop clamps the result to the tick bounds too.
+        if (n < V4_MIN_TICK) n = V4_MIN_TICK;
+        if (n > V4_MAX_TICK) n = V4_MAX_TICK;
+        next = int24(n);
+    }
+
+    /// @dev SqrtPriceMath.getAmount0Delta for sqrtA < sqrtB.
+    function _amount0Delta(uint160 sqrtA, uint160 sqrtB, uint128 liq, bool roundUp) private pure returns (uint256) {
+        uint256 num1 = uint256(liq) << 96;
+        uint256 num2 = uint256(sqrtB) - uint256(sqrtA);
+        if (!roundUp) return mulDiv(num1, num2, sqrtB) / sqrtA;
+        uint256 q = mulDivUp(num1, num2, sqrtB);
+        return q / sqrtA + (q % sqrtA == 0 ? 0 : 1);
+    }
+
+    /// @dev SqrtPriceMath.getAmount1Delta for sqrtA < sqrtB.
+    function _amount1Delta(uint160 sqrtA, uint160 sqrtB, uint128 liq, bool roundUp) private pure returns (uint256) {
+        return roundUp
+            ? mulDivUp(liq, uint256(sqrtB) - uint256(sqrtA), Q96)
+            : mulDiv(liq, uint256(sqrtB) - uint256(sqrtA), Q96);
+    }
+
+    /// @dev SqrtPriceMath.getNextSqrtPriceFromInput: token0 in rounds the price up (it falls
+    ///      less), token1 in rounds it down (it rises less) - the pool's side either way.
+    function _nextSqrtFromInput(uint160 sp, uint128 liq, uint256 amt, bool zeroForOne) private pure returns (uint160) {
+        if (amt == 0) return sp;
+        if (zeroForOne) {
+            uint256 num1 = uint256(liq) << 96;
+            unchecked {
+                uint256 product = amt * sp;
+                if (product / amt == sp) {
+                    uint256 den = num1 + product;
+                    if (den >= num1) return uint160(mulDivUp(num1, sp, den));
+                }
+            }
+            uint256 d = num1 / sp + amt;
+            return uint160(num1 / d + (num1 % d == 0 ? 0 : 1));
+        }
+        uint256 q = amt <= type(uint160).max ? (amt << 96) / liq : mulDiv(amt, Q96, liq);
+        uint256 n = uint256(sp) + q;
+        return n > type(uint160).max ? type(uint160).max : uint160(n);
+    }
+
+    /// @dev SwapMath.computeSwapStep, exact input: from `sp` toward `target` with `liq`,
+    ///      spending at most `rem` (fee included). Returns the price reached, the input
+    ///      spent (fee included) and the output.
+    function _v4Step(uint160 sp, uint160 target, uint128 liq, uint256 rem, uint24 fee, bool zeroForOne)
+        private pure returns (uint160 next, uint256 used, uint256 out)
+    {
+        uint256 remLessFee = mulDiv(rem, 1_000_000 - fee, 1_000_000);
+        uint256 toTarget = zeroForOne ? _amount0Delta(target, sp, liq, true) : _amount1Delta(sp, target, liq, true);
+        if (remLessFee >= toTarget) {
+            next = target;
+            used = toTarget + mulDivUp(toTarget, fee, 1_000_000 - fee);
+        } else {
+            next = _nextSqrtFromInput(sp, liq, remLessFee, zeroForOne);
+            used = rem;
+        }
+        out = zeroForOne ? _amount1Delta(next, sp, liq, false) : _amount0Delta(sp, next, liq, false);
+    }
+
+    /// @notice What the pool pays for `amountIn`, walked over its initialized ticks the way
+    ///         the PoolManager's swap loop walks them, for at most V4_WALK_MAX_STEPS stretches.
+    ///         A range with nothing beyond it pays what it holds and no more; liquidity beyond
+    ///         the current range is counted where it is. With a zero `poolId`, `manager` is a
+    ///         V3-shaped pool and the same walk reads its own book (slot0, liquidity,
+    ///         tickBitmap, ticks) at the fee and spacing the pool itself reports; a pool that
+    ///         does not answer those reads walks to zero.
+    function v4WalkOut(
+        address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne
+    ) public view returns (uint256 out) {
+        if (poolId == bytes32(0)) (fee, tickSpacing) = (getV3Fee(manager), int24(int256(_v3Get(manager, 0xd0c93a7c, 0, 0))));
+        (out, , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, type(uint256).max);
+    }
+
+    /// @dev The reads a concentrated leg's promise may spend on its own pool's book (DEX-01): the
+    ///      Solver's whole route shares them, the frame spends them on each leg. Five come before
+    ///      the first stretch (fee, tickSpacing, the price, the tick, the liquidity), then one
+    ///      bitmap word per stretch and one tick per crossing.
+    uint256 internal constant V3_PAY_READS = 12;
+
+    /// @notice DEX-01: what a V3-shaped pool pays for `amountIn`, against `f`, the single-range
+    ///         figure. The book is walked as `v4WalkOut` walks it with a zero poolId, for at most
+    ///         `reads` reads of the pool: a walk that finishes inside them and inside
+    ///         V4_WALK_MAX_STEPS stretches answers min(walk, f); one that does not, or a book that
+    ///         does not answer, answers `f`, the band. `left` is what the walk did not spend. Each
+    ///         read holds ASK_GAS_FLOOR first, so it gets its whole GAS_CAP: a starved read
+    ///         reverts empty, and the answer is the state's, never the caller's gas (R1). ONE
+    ///         producer for the Solver's promise and the Router's in-frame quote.
+    function v3PaysOnBudget(address pool, uint256 amountIn, bool zeroForOne, uint256 f, uint256 reads)
+        public view returns (uint256, uint256 left)
+    {
+        left = reads;
+        if (left < 6 || amountIn == 0) return (f, left);
+        left -= 2;
+        uint24 fee = getV3Fee(pool);
+        int24 ts = int24(int256(_fedRead(pool, 5, 0)));
+        if (fee == 0 || fee >= 1_000_000 || ts <= 0) return (f, left);
+        --left;
+        uint160 sp = uint160(_fedRead(pool, 0, 0));
+        if (sp == 0) return (f, left);
+        left -= 2;
+        int24 tick = int24(uint24(_fedRead(pool, 1, 0)));
+        uint128 liq = uint128(_fedRead(pool, 2, 0));
+        // A tick past the price bounds belongs to no price: the band. This walk runs outside the
+        // rebuild's self-call, so it must answer, never revert (`_v4NextTick` overflows on the
+        // last int24 tick rising).
+        if (tick < V4_MIN_TICK || tick > V4_MAX_TICK) return (f, left);
+        uint256 rem = amountIn;
+        uint256 out;
+        for (uint256 i; ; ++i) {
+            // The next read is a bitmap word: a walk that cannot pay for it, or whose sixteenth
+            // stretch closed with input unspent, keeps the band.
+            if (left == 0 || i == V4_WALK_MAX_STEPS) return (f, left);
+            --left;
+            _fedRead(pool, 6, 0);
+            (int24 nt, bool init) = _v4NextTick(pool, 0, tick, ts, zeroForOne);
+            uint160 target = sqrtPriceAtTick(nt);
+            // A book whose tick disagrees with its price is not read: the band (a step the wrong
+            // way underflows in `_v4Step`).
+            if (zeroForOne ? sp < target : sp > target) return (f, left);
+            (, uint256 used, uint256 paid) = _v4Step(sp, target, liq, rem, fee, zeroForOne);
+            out += paid;
+            rem -= used;
+            if (rem == 0) break;
+            if (init) {
+                if (left == 0) return (f, 0);
+                --left;
+                // liquidityNet, negated crossing downward, saturating, as `_v4Walk` applies it.
+                int256 net = (zeroForOne ? -1 : int256(1)) * int256(int128(int256(_fedRead(pool, 4, nt))));
+                uint256 l = uint256(liq);
+                liq = uint128(net < 0 ? (l > uint256(-net) ? l - uint256(-net) : 0)
+                    : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));
+            }
+            // At the price bound the book has ended: what the walk reached is what the pool pays.
+            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;
+            tick = zeroForOne ? nt - 1 : nt;
+            sp = target;
+        }
+        // The input spent (or the book ended) inside the reads: the promise is what the book pays.
+        return (out < f ? out : f, left);
+    }
+
+    /// @dev One read of `v3PaysOnBudget`, ASK_GAS_FLOOR held first: `k` as `_book` takes it on a
+    ///      V3-shaped pool, 5 its tickSpacing(); 6 reads nothing (the guard before a bitmap word,
+    ///      which `_v4NextTick` reads itself).
+    function _fedRead(address pool, uint256 k, int256 arg) private view returns (uint256) {
+        assembly ("memory-safe") { if lt(gas(), ASK_GAS_FLOOR) { revert(0, 0) } }
+        if (k == 5) return _v3Get(pool, 0xd0c93a7c, 0, 0);
+        return k == 6 ? 0 : _book(pool, 0, k, arg);
+    }
+
+    /// @notice The same walk, for RANKING. `lo` is `v4WalkOut` - the sixteen-stretch figure, the
+    ///         promise. When those sixteen stretches leave input unspent, the walk asks whether
+    ///         the rest could still carry the quote above `bar`; only if it could does it go on,
+    ///         up to V4_WALK_DEEP_STEPS, and `rank` is where it ends. `hi` is a sound CEILING on
+    ///         what the whole input pays: `rank` itself when the walk finished, otherwise
+    ///         `rank` plus the most the unspent rest can pay (`_v4Ceil`). So `rank <= truth <= hi`
+    ///         always, and a quote is settled against a rival `r` once `hi <= r` or `rank > r`.
+    ///         When the walk stopped at sixteen because the rest could not carry it above
+    ///         `bar`, `hi <= bar` and `rank == lo`. With `bar = type(uint256).max` a quote cut at
+    ///         sixteen returns `hi` = max(rank, 2^128 - 1) (not asked); one that finished inside
+    ///         them returns `hi == rank == lo`. On every return `lo <= rank <= hi`: the Solver
+    ///         subtracts `lo` from `hi` unchecked by design, so a ceiling under the walk's own
+    ///         figure would revert the whole plan (B1).
+    /// @dev    `bar = type(uint256).max` is the promise alone (`v4WalkOut`); `bar = 0` resolves
+    ///         every truncated quote. The continuation is the same loop, not a second walk: a
+    ///         quote that finishes inside sixteen stretches reads the same slots, in the same
+    ///         order, and returns `rank == lo`.
+    function v4WalkRank(
+        address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
+        uint256 bar
+    ) public view returns (uint256 lo, uint256 rank, uint256 hi) {
+        return _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, bar);
+    }
+
+    /// @notice A singleton book's vote in the Solver's depth-weighted median (`Solver._heldShare`
+    ///         carries the full rationale): the depth `d` scaled by held/vOut, where `held` is the
+    ///         output the book holds over the stretches the walk reads and `vOut` the virtual
+    ///         output side at the current price, both raw units of tokenOut. Only ever lowers `d`,
+    ///         never to zero. `bar` is the walk's ranking gate (`v4WalkRank`): the maximum reads
+    ///         the sixteen-stretch held, `0` the deep one (S2).
+    /// @dev    Internal: it compiles into its one caller, `BlazePhoenixMath._heldShare`, so the
+    ///         Math links no Core and the walk it needs ships in the Math (size: Core -2,900 B).
+    function v4HeldShare(
+        address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 d, uint256 bar
+    ) internal view returns (uint256) {
+        (uint160 sp, uint128 liq, , , ) = v4SqrtAndLiq(manager, poolId);
+        uint256 vOut = mulDiv(liq, zeroForOne ? sp : Q96, zeroForOne ? Q96 : sp);
+        (, uint256 held, ) = _v4Walk(manager, poolId, type(uint256).max, 0, tickSpacing, zeroForOne, bar);
+        if (held >= vOut) return d;
+        d = mulDiv(d, held, vOut);
+        return d == 0 ? 1 : d;
+    }
+
+    /// @dev The most a quote of `out`, with `rem` still unspent at `sp`, can pay. The ceiling
+    ///      on what the rest pays is `rem·(1−fee)·P_stop` going down (token1 per token0) and
+    ///      `rem·(1−fee)/P_stop` going up. Derivation: in a V3/V4 swap the price moves one way
+    ///      only and is continuous across tick crossings (liquidity sets the SPEED of the move,
+    ///      not the price), and the marginal output per unit of net input is the price itself
+    ///      (`P`, or `1/P` the other way), so it never rises during the swap; what the rest pays
+    ///      is therefore at most the remaining net input times the price where the walk
+    ///      stopped. Rounded up, against the pool's own rounding down. Hooks are not modelled,
+    ///      as everywhere in this walk.
+    ///      No overflow: with x <= 2^128 and MIN_SQRT_PRICE <= sp < 2^160 every intermediate is
+    ///      below 2^256. The ceiling saturates at max(out, 2^128 - 1), still sound: a V4 swap
+    ///      settles its deltas in int128, so no swap pays more than 2^128 - 1. It never
+    ///      saturates UNDER `out` (B1): the walk's own figure is uncapped (a book holding more
+    ///      than ~3.4e38 raw units of tokenOut can show one above 2^128 - 1), and a ceiling under
+    ///      it broke `rank <= hi` and underflowed the Solver's `hi - lo`. `out` is a sum of at
+    ///      most V4_WALK_DEEP_STEPS step outputs, each below 2^192, so `c + out` cannot overflow.
+    function _v4Ceil(uint256 out, uint256 rem, uint24 fee, uint160 sp, bool zeroForOne)
+        private pure returns (uint256)
+    {
+        uint256 m = type(uint128).max;
+        if (out > m) m = out;
+        uint256 x = mulDivUp(rem, 1_000_000 - fee, 1_000_000);
+        if (x > type(uint128).max) return m;
+        uint256 c = zeroForOne
+            ? mulDivUp(mulDivUp(x, sp, Q96), sp, Q96)
+            : mulDivUp(mulDivUp(x, Q96, sp), Q96, sp);
+        if (c >= type(uint128).max) return m;
+        c += out;
+        return c > m ? m : c;
+    }
+
+    function _v4Walk(
+        address src, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
+        uint256 bar
+    ) private view returns (uint256 lo, uint256 out, uint256 hi) {
+        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || src == address(0)) return (0, 0, 0);
+        // `src` is the V4 singleton (state read through extsload), or, with a zero poolId, a
+        // V3-shaped pool walked through its own getters (slot0, liquidity, tickBitmap, ticks).
+        uint256 base = poolId == bytes32(0) ? 0 : uint256(keccak256(abi.encode(poolId, uint256(6))));
+        uint160 sp = uint160(_book(src, base, 0, 0));
+        if (sp == 0) return (0, 0, 0);
+        int24 tick = int24(uint24(_book(src, base, 1, 0)));
+        uint128 liq = uint128(_book(src, base, 2, 0));
+        uint256 rem = amountIn;
+        uint256 i;
+        for (; i < V4_WALK_DEEP_STEPS; ) {
+            (int24 nt, bool init) = _v4NextTick(src, base, tick, tickSpacing, zeroForOne);
+            uint160 target = sqrtPriceAtTick(nt);
+            // A book whose tick disagrees with its price would step the wrong way: stop, the
+            // figure so far only understates.
+            if (zeroForOne ? target > sp : target < sp) break;
+            (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, fee, zeroForOne);
+            out += o;
+            rem -= used;
+            // A step that stops short of its target spends everything left, so an empty
+            // remainder is the only exit: the price reached the target whenever input remains.
+            if (rem == 0) break;
+            if (init) {
+                // liquidityNet, the high half of TickInfo's first word; crossing downward
+                // applies it negated. Saturating: an inconsistent state quotes zero past the
+                // crossing instead of reverting the whole plan.
+                int256 net = int256(int128(int256(_book(src, base, 4, nt))));
+                if (zeroForOne) net = -net;
+                uint256 l = uint256(liq);
+                if (net < 0) l = l > uint256(-net) ? l - uint256(-net) : 0;
+                else { l += uint256(net); if (l > type(uint128).max) l = type(uint128).max; }
+                liq = uint128(l);
+            }
+            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;
+            // The promise ends here. The ranking goes on only if the input still unspent could
+            // carry the quote above `bar` (see `_v4Ceil`).
+            if (i == V4_WALK_MAX_STEPS - 1) {
+                lo = out;
+                if (bar == type(uint256).max) return (lo, out, out > type(uint128).max ? out : type(uint128).max);
+                hi = _v4Ceil(out, rem, fee, target, zeroForOne);
+                if (hi <= bar) return (lo, out, hi);
+            }
+            tick = zeroForOne ? nt - 1 : nt;
+            sp = target;
+            unchecked { ++i; }
+        }
+        // Out of the loop before the sixteenth stretch closed: the quote finished (or the book
+        // ended), so the promise and the ranking are one number. Out of it at the deep limit:
+        // input is still unspent, and the ranking figure is only a lower bound under `hi`.
+        if (i < V4_WALK_MAX_STEPS) lo = out;
+        hi = i == V4_WALK_DEEP_STEPS ? _v4Ceil(out, rem, fee, sp, zeroForOne) : out;
+    }
+
+    /// @notice Batch slot0 read for many V4 poolIds in ONE staticcall via the
+    ///         PoolManager's `extsload(bytes32[])` (selector 0xdbd035ff). Used
+    ///         by the Hub's derive-scan to filter candidate tiers: a candidate
+    ///         earns the full `v4SqrtAndLiq` verification only if its slot0
+    ///         word is non-zero, which roughly halves the cost of a miss (one
+    ///         batched SLOAD instead of two single-slot calls). Same guarded
+    ///         doctrine as `v4SqrtAndLiq`: a codeless or non-conforming
+    ///         manager yields all-zero words (fail-closed), never a revert.
+    /// @return word0s Raw slot0 word per poolId (zero => uninitialized pool).
+    function v4Slot0Batch(address manager, bytes32[] memory poolIds)
+        internal view returns (bytes32[] memory word0s)
+    {
+        uint256 n = poolIds.length;
+        word0s = new bytes32[](n);
+        if (manager == address(0) || n == 0) return word0s;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, 0xdbd035ff00000000000000000000000000000000000000000000000000000000)
+            mstore(add(m, 4), 0x20)  // abi offset of the slots array
+            mstore(add(m, 36), n)    // array length
+            // Per poolId the argument is the pool's base storage slot,
+            // keccak256(abi.encode(poolId, POOLS_SLOT = 6)); slot0 sits at
+            // offset 0, so the base IS the slot0 key. The hash preimage uses
+            // scratch space (0x00..0x3f), as memory-safe rules allow.
+            let src := add(poolIds, 32)
+            for { let i := 0 } lt(i, n) { i := add(i, 1) } {
+                mstore(0x00, mload(add(src, shl(5, i))))
+                mstore(0x20, 6)
+                mstore(add(add(m, 68), shl(5, i)), keccak256(0x00, 0x40))
+            }
+            let cdLen := add(68, shl(5, n))
+            // Expected return: abi-encoded bytes32[] = offset ++ length ++ words.
+            let retLen := add(64, shl(5, n))
+            let rp := add(m, cdLen)
+            // Gas cap scales with the batch (~2100 per cold SLOAD plus call/abi
+            // overhead): generous but bounded, so a hostile or bloated manager
+            // can never consume the whole scan's gas.
+            if staticcall(add(30000, mul(n, 3000)), manager, m, cdLen, rp, retLen) {
+                if and(
+                    eq(returndatasize(), retLen),
+                    and(eq(mload(rp), 0x20), eq(mload(add(rp, 32)), n))
+                ) {
+                    let dst := add(word0s, 32)
+                    let sw := add(rp, 64)
+                    for { let i := 0 } lt(i, n) { i := add(i, 1) } {
+                        mstore(add(dst, shl(5, i)), mload(add(sw, shl(5, i))))
+                    }
+                }
+            }
+        }
+    }
+
+
+    // =========================================================================
+    //  §6  POOL FITNESS SCORE (psi)
+    // =========================================================================
+    //
+    //  score(pool) = vitality × bucketWeight(depth) × (1 + bridgeBonus)
+    //                         × (1 + concentrationBonus)
+    //
+    //  All factors live in a single packed uint256 slot, so reading the score
+    //  costs one SLOAD. Slot layout:
+    //
+    //      bits  [  0:0  ] = active flag
+    //      bits  [  7:1  ] = reserved — bit 5 = stable curve (Hub, from the pool's own
+    //                        stable() at registration), bit 6 = native side swapped (Hub).
+    //                        Bit 7 carried a bridge flag frozen at registration until
+    //                        2026-09-02; the bridge answer is now read live (BRIDGE-01).
+    //      bits  [ 31:8  ] = fee tier (uint24)
+    //      bits  [ 39:32 ] = pool kind (uint8)
+    //      bits  [ 47:40 ] = risk tier (uint8)
+    //      bits  [ 59:48 ] = concentration bonus BPS (uint12, max 4095)
+    //      bits  [ 63:60 ] = depth bucket (uint4) — no overlap with conc bits
+    //      bits  [ 95:64 ] = lastUpdateTs (uint32)
+    //      bits  [127:96 ] = emaIn (uint32)
+    //      bits  [159:128] = emaOut (uint32)
+    //      bits  [191:160] = swapCount (uint32)
+    //      bits  [223:192] = regBlk (uint32)
+    //      bits  [255:224] = tau (uint32): the pool's OWN clock, seconds between its anchored
+    //                        ticks (EMA, see tickSlot); 0 = not yet measured. Carried the
+    //                        last-touch block until 2026-10-27, written on every tick and read
+    //                        by nothing: a block means a different time on every chain.
+
+    function encodeSlot(
+        bool   active,
+        uint24 fee,
+        uint8  kind,
+        uint8  tier,
+        uint16 conc,
+        uint32 ts,
+        uint32 emaIn,
+        uint32 emaOut,
+        uint32 swapCount,
+        uint32 regBlk,
+        uint32 tau
+    ) internal pure returns (uint256 s) {
+        unchecked {
+            s = active ? uint256(1) : uint256(0);
+            s |= uint256(fee)        << 8;
+            s |= uint256(kind)       << 32;
+            s |= uint256(tier)       << 40;
+            // conc confined to bits [59:48] (12 bits) so it can never touch the
+            // depth bucket at [63:60]: mask before shifting.
+            s |= (uint256(conc) & 0xFFF) << 48;
+            s |= uint256(ts)         << 64;
+            s |= uint256(emaIn)      << 96;
+            s |= uint256(emaOut)     << 128;
+            s |= uint256(swapCount)  << 160;
+            s |= uint256(regBlk)     << 192;
+            s |= uint256(tau)        << 224;
+        }
+    }
+
+    function isActive(uint256 s)        internal pure returns (bool)    { return (s & 1) == 1; }
+    function decodeKind(uint256 s)      internal pure returns (uint8)   { return uint8(s >> 32); }
+    function decodeFee(uint256 s)       internal pure returns (uint24)  { return uint24(s >> 8); }
+    function decodeSwapCount(uint256 s) internal pure returns (uint32)  { return uint32(s >> 160); }
+    function decodeTau(uint256 s)       internal pure returns (uint32)  { return uint32(s >> 224); }
+    function decodeLastUpdateTs(uint256 s) internal pure returns (uint32) { return uint32(s >> 64); }
+    /// @dev Risk tier, bits [47:40]: 0 = CURATED (seedPool by an operator),
+    ///      2 = permissionless (recordSwap, claimV4). Written once by
+    ///      Hub._register (`trusted ? 0 : 2`); read by the Solver's
+    ///      discovery-freshness gate, which only lets curated rows vouch,
+    ///      and by its band vote (`_mutedVotes`, bounty #85): a tier-2
+    ///      pair or concentrated row no factory vouches for does not vote.
+    function decodeTier(uint256 s)      internal pure returns (uint8)   { return uint8(s >> 40); }
+    function decodeBucket(uint256 s)    internal pure returns (uint8)   { return uint8((s >> 60) & 0xF); }
+
+    function setBucket(uint256 s, uint8 b) internal pure returns (uint256) {
+        unchecked {
+            // Clear bits [63:60] then set new bucket
+            return (s & ~(uint256(0xF) << 60)) | (uint256(b & 0xF) << 60);
+        }
+    }
+
+    /// @notice depth → bucket via log10. Bucket b = min(15, floor(log10(d/1e15)))
+    function depthBucket(uint256 depthWad) internal pure returns (uint8) {
+        if (depthWad < 1e15) return 0;
+        uint256 b = ilog10(depthWad / 1e15);
+        return b > 15 ? 15 : uint8(b);
+    }
+
+    function bucketWeight(uint8 b) internal pure returns (uint256) {
+        return uint256(1) << b;
+    }
+
+    /// @notice The unit of time of the vitality RATE, and the decay step of a pool whose own
+    ///         clock is not yet measured (tau == 0). A scale, never a deadline for a measured pool:
+    ///         no decision compares a measured pool's age against it. It keeps the score
+    ///         continuous with the count it replaced: a pool read at h == this step scores its
+    ///         decayed count to the wei (test/PoolClockDifferential.t.sol). Origin: the design's
+    ///         65 536 blocks @ 12 s ≈ 9 days, taken to wall-clock time so it meant the same on every
+    ///         chain; the implementation before that shifted every 16 blocks instead of 2 048.
+    uint256 internal constant VITALITY_DECAY_STEP_SECONDS = 24_576;
+
+    /// @notice THE POOL'S OWN CLOCK (2026-10-27). A fixed step decayed a pool that trades every
+    ///         minute and one that trades every week at the same pace: the busy pool kept a
+    ///         stale row for 9 days, the weekly pool died between two honest trades. Each row now
+    ///         carries tau, its mean time between anchored ticks, and decays one step per
+    ///         `VITALITY_STEPS_PER_TAU` taus. Both constants are pure numbers; every time in the
+    ///         decay is the pool's own. `TAU_EMA_SHIFT` weighs a new interval by 2^-k, and m
+    ///         steps per tau put a pool that falls silent to death after 32 * m of its own
+    ///         intervals. Fixed on 11 761 real swap intervals (2026-10-27: a fast and a medium
+    ///         pool on Base and on Arbitrum, a long-tail one on Arbitrum, every swap replayed
+    ///         through this clock): at k = 3, m = 4 no live pool died between two of its own
+    ///         swaps (0 / 11 761; m = 2 lost 3, m = 3 one), and a stopped one died after 83 to
+    ///         249 of its mean intervals, minutes for the fast pools, weeks for the long tail.
+    ///         m divides 24 576, so tau = 24 576 / m reads the fixed step to the wei.
+    uint256 internal constant TAU_EMA_SHIFT = 3;
+    uint256 internal constant VITALITY_STEPS_PER_TAU = 4;
+
+    /// @notice A tick ANCHORS the clock only when it moved at least 2^-16 (~0.15 bps) of the
+    ///         pool's mass. The rule the Gate's wrappers already apply to their own ticks
+    ///         (W5-C1), now ONE constant for both producers of a tick: dust pays gas and moves
+    ///         no clock.
+    uint8 internal constant MATERIAL_SHIFT = 16;
+
+    /// @notice The bit of the Router's depth word that says "this trade anchors the clock".
+    ///         `Hub.recordSwap` reads it and clears it before the depth is used (`tickDepth18`).
+    uint256 internal constant TICK_ANCHORED = 1 << 255;
+
+    /// @notice Vitality score from slot: the pool's estimated trade RATE, in trades per
+    ///         `VITALITY_DECAY_STEP_SECONDS`, decayed on the pool's own clock.
+    /// @dev    With a step of m * tau the decayed count of a pool trading at its own pace settles
+    ///         near 2m whatever that pace [derived: m intervals per step, weights sum_j 2^-j = 2],
+    ///         so the count alone no longer tells a busy pool from a quiet one. Divided by the
+    ///         step it does: v = count * 2^-shift / h, comparable across pools and chains.
+    function vitality(uint256 slot, uint32 currentTs) internal pure returns (uint256 v) {
+        // Single source of truth for the decay arithmetic (see _decay) — vitality() adds only
+        // its ranking policy on top, never a second copy of the maths. R5: a figure computed in
+        // two places will diverge.
+        (uint256 c, uint256 h) = _decay(slot, currentTs);
+        // h == 0 is DEAD — empty, never ticked, or past the 32-step full-decay horizon — which
+        // scores a true 0 and drops the pool from ranking. A LIVE slot whose rate merely
+        // rounded away is floored to 1 so a real pool never vanishes.
+        if (h == 0) return 0;
+        v = c * VITALITY_DECAY_STEP_SECONDS / h;
+        if (v == 0) v = 1;
+    }
+
+    /// @notice Composite fitness of a pool given its slot, bridge bit and
+    ///         concentration flag, in BPS form.
+    function psi(
+        uint256 slot, uint32 currentTs,
+        bool isBridge, bool isConcentrated
+    ) internal pure returns (uint256 f) {
+        // v == 0 scores 0 through the product below: no early return needed.
+        uint256 v = vitality(slot, currentTs);
+        // bucketWeight is 1 << b with b <= 15 (a 4-bit field): never 0.
+        uint256 w = bucketWeight(decodeBucket(slot));
+        f = v * w;
+        if (isBridge)        f += (f * 2_500) / BPS;
+        if (isConcentrated)  f += (f * 500)   / BPS;
+    }
+
+    /// @dev THE DECAY, the one place its arithmetic lives: the swapCount that survives at
+    ///      currentTs and the step h it decayed by; h == 0 means dead (empty slot, never ticked,
+    ///      or more than 31 steps since lastUpdateTs). The step is m * tau, or
+    ///      `VITALITY_DECAY_STEP_SECONDS` while tau is unmeasured. No scoring floor here (unlike
+    ///      vitality(), which floors a decayed-to-zero live slot to 1): tickSlot counts a
+    ///      reactivation from what actually remains, never from the pre-decay historical total
+    ///      (R3 of docs/INVARIANTS_AND_TIME.md in the Staking repository,
+    ///      https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-Staking: "price by what
+    ///      remains, never a historical scalar" — swapCount was once a raw cumulative counter
+    ///      that never reset in storage, so a single dust swap after a full decay instantly
+    ///      restored the pool's entire historical vitality).
+    function _decay(uint256 slot, uint32 currentTs) internal pure returns (uint256 c, uint256 h) {
+        // An empty slot decodes lastTs == 0: dead.
+        uint32 lastTs = decodeLastUpdateTs(slot);
+        if (lastTs == 0) return (0, 0);
+        uint256 tau = decodeTau(slot);
+        // tau < 2^32 and m is a small constant: no overflow, and h != 0 on both arms.
+        h = tau == 0 ? VITALITY_DECAY_STEP_SECONDS : tau * VITALITY_STEPS_PER_TAU;
+        uint256 shift = (currentTs > lastTs ? currentTs - lastTs : 0) / h;
+        if (shift > 31) return (0, 0);
+        c = uint256(decodeSwapCount(slot)) >> shift;
+    }
+
+    /// @dev The decayed swapCount alone, for tickSlot's base.
+    function _decayedSwapCount(uint256 slot, uint32 currentTs) internal pure returns (uint32) {
+        (uint256 c, ) = _decay(slot, currentTs);
+        return uint32(c);
+    }
+
+    // =========================================================================
+    //  REGISTRY PRODUCERS - what a registration door may write, measured once
+    // =========================================================================
+
+    /// @notice THE SHAPE DECIDES, THE CALLER PROPOSES. The one refutation every registration
+    ///         door applies to a declared family: the swap door since REG-01/REG-02, the
+    ///         operator's door since the ninth wave (dex-16). `ok` is false when the declaration
+    ///         contradicts the shape; `k` is the family the shape answers. V4 kinds are
+    ///         authenticated by their pool id, not by a shape, and never reach this function.
+    ///         The shape names no fee (aero-nova 2026-10-26): what a pool's fee() answers is a
+    ///         snapshot, and the 2026 Aerodrome CL fee moves every block, so a row keyed on the
+    ///         snapshot priced every later quote at a fee the pool no longer charged. The row
+    ///         fee is the Hub's (`_concRowFee`): the fee the pool's derivation is keyed by, or 0.
+    function provenShape(address pool, uint8 kind) public view returns (bool ok, uint8 k) {
+        // A kind with no shape this Core can read (tombstones, KIND_EXTERNAL) is refused, not
+        // re-labelled: below, a pool without slot0 is re-written to V2 or Solidly, so a declared
+        // kind 9 left this function as a pair the Solver would price on reserves it never had.
+        if (!kindHasAny(kind, A_RESERVES | A_CONC_POOL)) return (false, kind);
+        (uint160 sp, , bool dynShape) = v3StateAndDynFee(pool);
+        bool declaredConc = kindHas(kind, A_CONC_POOL);
+        bool isConc = sp != 0;
+        // A declaration that contradicts the shape is refused outright rather than corrected:
+        // a V2 pair cannot answer slot0, and a concentrated pool has no reserves to read.
+        // Registering either on the caller's word would point the Solver at the wrong reader.
+        // Fail closed on the REGISTRY, which is the Hub's stated doctrine.
+        if (declaredConc != isConc) return (false, kind);
+        k = kind;
+        // Within the concentrated families the shape decides, not calldata: Algebra prices with
+        // a dynamic fee it reports itself, V3 with a static tier, so persisting the wrong one
+        // poisons every later quote for this pool.
+        if (isConc) k = dynShape ? KIND_ALGEBRA : KIND_V3;
+        // The pair-shaped family gets the same treatment (review 2026-09-02): a Solidly pair
+        // answers stable(), a Uniswap-V2 pair does not. Declared V2 on a Solidly pool priced it
+        // with V2 math at 30 bps - a volatile pool with a higher fee then reverted every honest
+        // swap in its own K check while the Solver kept ranking it first; a stable pool was
+        // priced on the wrong curve; declared Solidly on a V2 pair paid the fallback haircut
+        // forever. Written as its own statement, not an `else`, so the concentrated line above
+        // keeps its mutant.
+        if (!isConc) k = isSolidlyShaped(pool) ? KIND_SOLIDLY : KIND_V2;
+        ok = true;
+    }
+
+    /// @notice Does a reserve-shaped pool hold the reserves it reports? An honest pair never
+    ///         reports more than it holds: sync copies balances into reserves, and a donation
+    ///         only raises the balance (PROV-01). A pair whose reserves exceed its holdings on
+    ///         either side reports liquidity nobody deposited (duxun D1). The swap door asks
+    ///         this after the swap and skips the registration when the answer is no. Other
+    ///         kinds answer true: their mass is capped where their depth is read. `t0`/`t1`
+    ///         are the pool's own token0/token1, already proven by the caller.
+    function reservesHeld(address pool, uint8 kind, address t0, address t1) public view returns (bool) {
+        if (!kindHas(kind, A_RESERVES)) return true;
+        (uint256 r0, uint256 r1) = getReserves(pool);
+        return heldBy(pool, t0, r0, t1, r1);
+    }
+
+    /// @dev THE COMPARISON behind `reservesHeld`, one producer for every door that reads a
+    ///      pair's declared reserves (bounty #85, Remember Me): the registration door above,
+    ///      the quote dispatcher (`universalQuote`) and the registry depth (`registryDepth18`).
+    ///      The registration door alone was not enough: a pair proves itself once, at its
+    ///      first swap, and its `getReserves` is its own code's answer every read after that.
+    ///      `ra`/`rb` are reserves already read, oriented like `ta`/`tb`.
+    function heldBy(address pool, address ta, uint256 ra, address tb, uint256 rb) internal view returns (bool) {
+        return ra <= balanceOf(ta, pool) && rb <= balanceOf(tb, pool);
+    }
+
+    /// @notice The Router's IN-FRAME quote and raw impact (bps) of a pair-shaped or concentrated
+    ///         leg, for `legAmt` of `tokenIn` (K2, 2026-10-21). These were the two inline arms of
+    ///         `_hopScaleImpactAndQuote`; they moved here WHOLE, behind one delegatecall, so their
+    ///         helpers stop being compiled into the Router. Same reads, same order, same numbers.
+    ///         `held == false` is the dead-leg answer, which the Router turns into RouterE(8) (the
+    ///         library raises no Router error). `q == 0` where the arm quotes nothing; `imp` is
+    ///         the leg's raw impact, weighted by the Router.
+    function legQuoteImpact(Leg calldata leg, address tokenIn, address tokenOut, uint256 legAmt)
+        public view returns (uint256 q, uint256 imp, bool held)
+    {
+        held = true;
+        imp = DEFAULT_IMPACT_BPS;
+        if (kindHas(leg.kind, A_RESERVES)) {
+            (uint256 ir0, uint256 ir1) = getReserves(leg.pool);
+            uint256 rIn  = leg.zeroForOne ? ir0 : ir1;
+            uint256 rOut = leg.zeroForOne ? ir1 : ir0;
+            // THE FRAME'S COPY OF THE QUOTE DOOR (bounty #85, Remember Me). The dispatcher quotes
+            // a pair that declares more than it holds as dead; this copy priced the same lie, and
+            // the floor it anchors then matched what the liar paid. Fail closed. Inert on an
+            // honest pair, whose reserves never exceed its balances before the push.
+            if (!heldBy(leg.pool, tokenIn, rIn, tokenOut, rOut)) return (0, 0, false);
+            if (rIn != 0) {
+                imp = impactV2Bps(legAmt, rIn);
+                if (leg.kind == KIND_V2) {
+                    q = outV2(legAmt, rIn, rOut, effV2Fee(leg.fee));
+                } else {
+                    // Solidly: the pool's own getAmountOut - decimal-agnostic and what the
+                    // executor settles. Trigger aligned with the executor (`<= 1` is "no answer").
+                    // NO HAIRCUT here: the executor's 200 bps are slack for the pool's K, and
+                    // this number is a FLOOR (coverage gate, fee base, hopAttested). The curve
+                    // only for a pair that answers stable(), as in `solidlyAskOut`; else 0.
+                    q = solidlyGetAmountOut(leg.pool, legAmt, tokenIn);
+                    if (q <= 1) q = answersStable(leg.pool) ? solidlyCurveOut(leg.pool, legAmt, rIn, rOut, leg.stable, leg.fee, tokenIn) : 0;
+                }
+            }
+        } else if (kindHas(leg.kind, A_CONC_POOL)) {
+            // Price AND live fee in ONE read (slot0, or Algebra's globalState). The fee base is
+            // the pool's own fee, never calldata's `leg.fee` (A1/C1b/T1 + INV-20), through the
+            // ONE live-fee producer `quoteV3Fee`, whose `dyn` is a read-success flag (a measured
+            // 0% is legal). The curve runs ONCE: the impact is derived from the quote. An
+            // unquotable leg charges DEFAULT_IMPACT_BPS, like its sibling arms: the floor
+            // SUBTRACTS impact, so BPS here would be the permissive direction (review 2026-09-02).
+            (uint160 sp, uint24 dynFee, bool dyn) = v3StateAndDynFee(leg.pool);
+            uint128 lq = getLiquidity(leg.pool);
+            if (legAmt != 0 && sp != 0 && lq != 0) {
+                q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, dynFee, dyn), leg.zeroForOne, 0);
+                imp = q == 0 ? DEFAULT_IMPACT_BPS : impactV3FromOut(q, legAmt, sp, leg.zeroForOne);
+                // DEX-01: the quote is what the promise is (`v3PaysOnBudget`, on a leg's whole
+                // V3_PAY_READS); the impact stays the single-range one the Solver's floor reads.
+                (q, ) = v3PaysOnBudget(leg.pool, legAmt, leg.zeroForOne, q, V3_PAY_READS);
+            }
+        }
+    }
+
+    /// @notice The depth the registry records for a pool, in 18-decimal units: measured, never
+    ///         declared, and by ONE producer for every door that seals a row - the Router after
+    ///         a swap and the operator's door at seeding (dex-17). Pair shapes: reserves capped
+    ///         by the balances held (PROV-01). Single-tick (V4): the singleton's liquidity at its
+    ///         price, which `pid` names. Concentrated pools: liquidity at the price, capped by
+    ///         the mass the pool holds (ninth wave, Binod Bk).
+    function registryDepth18(
+        address pool, uint8 kind, address t0, address t1, address v4mgr, bytes32 pid
+    ) public view returns (uint256) {
+        return registryDepth18Dec(pool, kind, t0, decimalsOf(t0), t1, decimalsOf(t1), v4mgr, pid);
+    }
+
+    /// @notice `registryDepth18` with the two tokens' decimals already read. The Solver's funnel
+    ///         measures every row of one pair, whose two tokens are the same in each row, and
+    ///         reads their decimals once for the whole hop (test/DecimalsReadOncePerHop.t.sol).
+    function registryDepth18Dec(
+        address pool, uint8 kind, address t0, uint8 dc0, address t1, uint8 dc1, address v4mgr, bytes32 pid
+    ) public view returns (uint256 depth) {
+        if (kindHas(kind, A_RESERVES)) {
+            // NORMALISE BEFORE THE `min`. This was the EIGHTH site of the same defect class: the
+            // raw `min(r0, r1)` picks the side with fewer UNITS, not the SHALLOWER side. A
+            // USDC(6)/WETH(18) pair holding 700M USDC gives 7e14 < 1e15 and falls into bucket 0 -
+            // and since `tickSlot` rewrites the bucket unconditionally, the first routed swap
+            // undid the correct bucket the registry already held (cured 2026-08-21).
+            (uint256 r0, uint256 r1) = getReserves(pool);
+            // MASS THAT COSTS NOTHING IS NOT MASS (PROV-01): the registry's depth bucket orders
+            // the funnel and decides evictions, and this was the pool's own word. A pair
+            // whose declared reserves exceed what it holds on either side is not capped but
+            // zeroed: an honest pair never reports more than it holds (sync copies balances into
+            // reserves; a donation only raises the balance), so the excess is a lie, and a liar's
+            // word carries no mass at all (bounty #85, Remember Me: the cap alone left the
+            // reserve standing on the side a recoverable donation had filled).
+            if (!heldBy(pool, t0, r0, t1, r1)) return 0;
+            return shortSide18(r0, dc0, r1, dc1);
+        }
+        if (kindHas(kind, A_CONC_SING)) {
+            // UNITS: token-denominated and NORMALISED by decimals, like every producer of a
+            // depth. Read from the Hub's canonical PoolManager under the poolId the swap used -
+            // never from a caller-named contract, so no mass cap applies.
+            (uint160 sp4, uint128 liq, , , ) = v4SqrtAndLiq(v4mgr, pid);
+            return depthFromL18(liq, sp4, dc0, dc1);
+        }
+        // Only a pool-read concentrated kind reaches the L reader below. Any other kind (the
+        // tombstones, KIND_EXTERNAL) measures 0 instead of being read as V3: a wrapper that
+        // answers slot0/liquidity would otherwise seal a depth no Core reader produced.
+        if (!kindHas(kind, A_CONC_POOL)) return 0;
+        // V3/Algebra: raw L is in root-scale and is not comparable with the reserves a pair
+        // reports; converted at the price the ONE slot0 reader returns.
+        (uint160 spReg, , ) = v3StateAndDynFee(pool);
+        depth = depthFromL18(getLiquidity(pool), spReg, dc0, dc1);
+        // PROV-01 ON THE CONCENTRATED ARM: `liquidity()` is the pool's own word about itself, so
+        // the depth is capped by the tokens the pool physically holds: the larger of its two
+        // holdings, normalised. A range with all of its liquidity on one side of the current tick
+        // legitimately holds ~zero of the other, so with one side empty the cap is the other
+        // side's mass; and a donation must never lower the cap. Any cap that rises in both
+        // holdings with f(a, 0) = a and f(0, b) = b has f(a, b) >= f(a, 0) = a and
+        // f(a, b) >= f(0, b) = b, so f(a, b) >= max(a, b): the short side, which one wei donated
+        // to the empty side collapsed to one wei, is not such a cap, and max is the least one.
+        // Holding NEITHER, the mass is zero. An empty side used to switch the cap off, and a
+        // V3-shaped contract that paid out everything it held was stamped at the depth it
+        // declared (ninth wave, Binod Bk).
+        uint256 held = heldMass18(pool, t0, dc0, t1, dc1);
+        if (held < depth) depth = held;
+    }
+
+    /// @notice `registryDepth18` for a pool that has just traded, with the trade's CLOCK ANCHOR
+    ///         in the top bit (`TICK_ANCHORED`): the Router's one call per executed leg. Same
+    ///         producer, same two decimals reads. The anchor is the Gate's materiality rule
+    ///         (`MATERIAL_SHIFT`) against the depth: the trade's shorter side, normalised, is at
+    ///         least 2^-16 of the pool's short side. ONE TOKEN ON BOTH SIDES OF THE COMPARISON
+    ///         [derived]: at the pool's price the two legs of a trade carry equal value, as do the
+    ///         two sides of the depth (virtual reserves for the concentrated arms), so the side
+    ///         with fewer normalised units is the same token in both. The Hub alone could not
+    ///         ask this: it is handed the pair in the pool's order and no decimals.
+    function tickDepth18(
+        address pool, uint8 kind, address t0, address t1, address v4mgr, bytes32 pid,
+        uint256 amtIn, uint256 amtOut, bool zeroForOne
+    ) public view returns (uint256 depth) {
+        uint8 dc0 = decimalsOf(t0);
+        uint8 dc1 = decimalsOf(t1);
+        depth = registryDepth18Dec(pool, kind, t0, dc0, t1, dc1, v4mgr, pid);
+        // A saturated depth (to18 saturates) must not read as the flag: clamp below the bit.
+        // Its bucket is 15 either way.
+        if (depth >= TICK_ANCHORED) depth = TICK_ANCHORED - 1;
+        uint256 a = to18(amtIn, zeroForOne ? dc0 : dc1);
+        uint256 b = to18(amtOut, zeroForOne ? dc1 : dc0);
+        if (b < a) a = b;
+        if (a != 0 && depth != 0 && a >= depth >> MATERIAL_SHIFT) depth |= TICK_ANCHORED;
+    }
+
+    /// @notice THE ONE PRODUCER of "the mass a pool physically holds", normalised: the larger of
+    ///         its two holdings in 18 decimals (the least cap with f(a, 0) = a and f(0, b) = b; see
+    ///         the concentrated arm of `registryDepth18`). Read by the registry's concentrated arm,
+    ///         whose depth comes from `liquidity()` and may stand on one side of a range. The
+    ///         Gate's `vitalOf` caps by the short side of the same holdings instead: its adapters
+    ///         declare the short side of balances, never a depth from L (2026-10-23).
+    function heldMass18(address pool, address t0, uint8 dc0, address t1, uint8 dc1)
+        internal view returns (uint256)
+    {
+        return maxSide18(balanceOf(t0, pool), dc0, balanceOf(t1, pool), dc1);
+    }
+
+    /// @notice Stamp lastUpdateTs (bits [95:64]) with `ts`: the field `vitality` decays from.
+    ///         The Gate's wrappers stamp through here; the Hub's `_stampTs` is the same formula
+    ///         over block.timestamp (folding it here is a follow-up, kept out of the Hub's bytes).
+    function stampTs(uint256 s, uint32 ts) internal pure returns (uint256) {
+        return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(ts) << 64);
+    }
+
+    /// @notice Gas cap on one adapter answer read through a Gate wrapper: the Quoter's legs and
+    ///         the Gate's `vitalOf` depth read, so one hostile adapter cannot drain either.
+    uint256 internal constant GATE_QUOTE_GAS = 500_000;
+
+    /// @notice Update the slot after a swap. Increments swap count (from its currently-decayed
+    ///         base, not the raw historical total), moves the pool's clock when the tick is
+    ///         `anchored`, and (optionally) re-buckets depth. Every caller stamps lastUpdateTs
+    ///         AFTER this returns, so the lastTs read here is still the previous tick's.
+    /// @dev    THE CLOCK. dt = currentTs - lastTs, the interval this tick closes. The first
+    ///         anchored interval after registration IS tau; every later one moves tau by 2^-k of
+    ///         the difference, an exponential mean in shifts. A tick that is not anchored (dust,
+    ///         a registration, a claim) and a slot never stamped (lastTs == 0: no interval to
+    ///         close) leave tau where it was. Bounded by its samples, so it fits its 32 bits.
+    function tickSlot(
+        uint256 slot, bool anchored, uint256 newDepthWad, uint32 currentTs
+    ) internal pure returns (uint256) {
+        // The count decays on the clock that ran over the interval: the OLD tau.
+        uint32 sc = _decayedSwapCount(slot, currentTs);
+        unchecked { sc = sc == type(uint32).max ? sc : sc + 1; }
+        uint32 tau = decodeTau(slot);
+        uint32 lastTs = decodeLastUpdateTs(slot);
+        if (anchored && lastTs != 0) {
+            uint32 dt = currentTs > lastTs ? currentTs - lastTs : 0;
+            unchecked {
+                if (tau == 0) tau = dt;
+                else if (dt >= tau) tau += (dt - tau) >> TAU_EMA_SHIFT;
+                else tau -= (tau - dt) >> TAU_EMA_SHIFT;
+            }
+        }
+        // clear swapCount + tau + bucket
+        uint256 s = slot
+            & ~((uint256(0xFFFFFFFF) << 160) | (uint256(0xFFFFFFFF) << 224) | (uint256(0xF) << 60));
+        s |= uint256(sc) << 160;
+        s |= uint256(tau) << 224;
+        s |= uint256(depthBucket(newDepthWad)) << 60;
+        return s;
+    }
+
+    // =========================================================================
+    //  §7  OUTPUT FLOOR
+    // =========================================================================
+    //
+    //  floorBps is computed as:
+    //
+    //     base   = FLOOR_BASE_BPS                          (9 600)
+    //     legShv = FLOOR_PER_LEG_BPS × max(0, legs - 1)    (200 per extra leg)
+    //     impShv = FLOOR_IMPACT_FACTOR × impactBps         (1:1 BPS)
+    //     sigShv = sigmaLn / 1e14                          (clamped)
+    //     floor  = max(base − legShv − impShv − sigShv, BPS − FLOOR_HARD_MAX_LOSS_BPS)
+    //
+    //  i.e. starts at 96% for clean single-leg swaps, loosens with impact and
+    //  leg count, and is clamped so it never drops below the 80% hard cap
+    //  (BPS − 2 000 = 8 000) regardless of inputs.
+
+    /// @notice The leg shave, from CONCENTRATION rather than from a count.
+    /// @dev `FLOOR_PER_LEG_BPS` per extra leg exists to pay for the composition risk of a real
+    ///      split. A count of legs is the caller's declaration; the risk lives in how the trade is
+    ///      actually divided. `(Σa)² / Σa²` is the effective number of legs - exactly N for N equal
+    ///      shares, exactly 1 for one dominant leg, and a leg carrying a vanishing share of the hop
+    ///      contributes a vanishing amount, whether it declares zero or one wei. So the shave is
+    ///      `FLOOR_PER_LEG_BPS × (effN − 1)`, computed as `((Σa)² − Σa²) / Σa²` to keep the
+    ///      fraction. By Cauchy–Schwarz `(Σa)² ≥ Σa²`, so the numerator never underflows.
+    ///      The square is checked arithmetic on purpose: a declared amount past 2¹²⁸ reverts the
+    ///      caller's own swap, which is the correct answer to an absurd route.
+    ///      Called by the Solver on the amounts it plans and by the Router on the amounts it is
+    ///      handed, and for a Solver-built route those are the same numbers - so the attested floor
+    ///      and the enforced floor agree by construction, not by test.
+    function legShaveBps(uint256 sumA, uint256 sumA2) internal pure returns (uint256) {
+        if (sumA2 == 0) return 0;
+        uint256 sq = sumA * sumA;
+        return mulDiv(sq - sumA2, FLOOR_PER_LEG_BPS, sumA2);
+    }
+
+    /// @notice The floor from an impact figure and a leg shave already expressed in bps.
+    function ironFloorBpsShv(
+        uint256 impactBps, uint256 legShv, uint256 sigmaLn
+    ) internal pure returns (uint256 floorBps) {
+        unchecked {
+            uint256 base = FLOOR_BASE_BPS;
+            uint256 impShv = impactBps > BPS ? BPS : impactBps;
+            uint256 sigShv = sigmaLn / 1e14;
+            uint256 hardFloor = BPS - FLOOR_HARD_MAX_LOSS_BPS;
+            uint256 total = legShv + impShv + sigShv;
+            floorBps = total >= base ? hardFloor : base - total;
+            if (floorBps < hardFloor) floorBps = hardFloor;
+        }
+    }
+
+    /// @notice The count-based form, kept for callers that reason in whole legs. Equivalent to
+    ///         `ironFloorBpsShv` with `(legCount − 1) × FLOOR_PER_LEG_BPS`; the shipped producers
+    ///         use the concentration form above.
+    function ironFloorBps(
+        uint256 impactBps, uint256 legCount, uint256 sigmaLn
+    ) internal pure returns (uint256 floorBps) {
+        unchecked {
+            return ironFloorBpsShv(
+                impactBps, legCount > 1 ? (legCount - 1) * FLOOR_PER_LEG_BPS : 0, sigmaLn);
+        }
+    }
+
+    /// @notice V2-style impact in BPS (round-up).
+    function impactV2Bps(uint256 amountIn, uint256 reserveIn)
+        internal pure returns (uint256)
+    {
+        if (reserveIn == 0) return BPS;
+        uint256 i = mulDivUp(amountIn, BPS, reserveIn + amountIn);
+        return i > BPS ? BPS : i;
+    }
+
+    /// @notice Dimensionally-correct V3 price impact in BPS (monotonic).
+    /// @dev    Impact = 1 - effectivePrice/spotPrice via outV3 + sqrtPriceX96.
+    ///         Quote-time estimate; execution protection is the Omega floor.
+    /// @notice V4 hook policy read from the hook ADDRESS bits (CREATE2-style).
+    /// @dev    V4 encodes permissions in the lowest 14 bits of the hook address
+    ///         (immutable). A single AND tells us if the hook can return swap
+    ///         deltas (BEFORE/AFTER_SWAP_RETURNS_DELTA = 1<<3 | 1<<2), which can
+    ///         alter accounting / create free-swap risk. No call to the hook.
+    function hookAltersDeltas(address hook) internal pure returns (bool) {
+        uint256 bits = uint160(hook) & 0x3FFF;
+        uint256 deltaFlags = (1 << 3) | (1 << 2);
+        return (bits & deltaFlags) != 0;
+    }
+
+    /// @notice Does the manager enter this hook during a SWAP at all? True when any
+    ///         of BEFORE_SWAP (1<<7), AFTER_SWAP (1<<6) or the two swap-delta flags is
+    ///         set. A hook with none of them is never entered by its own pool's swap
+    ///         (the manager dispatches on these bits, and they are immutable), so the
+    ///         Router admits its pools by the bits alone: quote equals execution for
+    ///         it exactly as for a hookless pool, and nothing an operator could judge
+    ///         about its code can change a swap. Hooks that DO run in the swap keep
+    ///         the allow-list and the codehash pin. These bits do not say whether a
+    ///         hook can be REACHED inside a swap: a hook that runs in it can call the
+    ///         manager on any pool and enter that pool's hooks. That is bounded by the
+    ///         manager's flash accounting and by admitting the hook that makes the
+    ///         call, never by the bits of the one it reaches.
+    function hookRunsInSwap(address hook) internal pure returns (bool) {
+        return (uint160(hook) & 0xCC) != 0;
+    }
+
+    /// @notice Impact in BPS from an ALREADY COMPUTED output — the primitive.
+    /// @dev    THE PATTERN THIS KILLS: "impact re-derives the quote". An impact function that
+    ///         embeds the curve forces its caller to pay the curve TWICE, because whoever wants
+    ///         impact already has the quote in hand. That was the case in the Router: one line
+    ///         called `impactV3Bps(legAmt, sp, lq, live, zfo)` — which runs `outV3` inside — and
+    ///         the NEXT line called `outV3` with BYTE-IDENTICAL arguments. A whole extra run of
+    ///         the curve and one extra delegatecall, on EVERY concentrated leg, across all FOUR
+    ///         swap entry points.
+    ///
+    ///         The cure is not to duplicate the ratio maths: it is to extract it here and make
+    ///         `impactV3Bps` build on top of it. There is still ONE producer of the ratio; what
+    ///         stops existing is the obligation to recompute the curve to reach it.
+    ///
+    ///         It stays `public` (delegatecall) and not `internal` on purpose: `internal` would
+    ///         be inlined into every caller and the ratio arithmetic (4 mulDiv) would be paid in
+    ///         BYTES in the Router, the contract with the least headroom after the Hub. The gain
+    ///         here is not running the CURVE twice — it is not about saving the traversal.
+    ///
+    ///         `out == 0` returns BPS (the maximum, conservative), exactly as before: a pool that
+    ///         does not quote is treated as total impact, never as zero impact.
+    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)
+        public pure returns (uint256)
+    {
+        if (out == 0 || amountIn == 0 || sqrtP == 0) return BPS;
+        uint256 P = uint256(sqrtP);
+        uint256 ratioBps;
+        if (zeroForOne) {
+            uint256 t1 = mulDiv(out, Q96, amountIn);
+            uint256 t2 = mulDiv(t1, Q96, P);
+            ratioBps   = mulDiv(t2, BPS, P);
+        } else {
+            uint256 t1 = mulDiv(out, P, amountIn);
+            uint256 t2 = mulDiv(t1, P, Q96);
+            ratioBps   = mulDiv(t2, BPS, Q96);
+        }
+        if (ratioBps >= BPS) return 0;
+        return BPS - ratioBps;
+    }
+
+    /// @notice Impact in BPS from the INPUTS — for callers that do not have the output yet.
+    /// @dev    Delegates to `impactV3FromOut` so a single implementation of the ratio exists.
+    ///         Whoever ALREADY has `out` should call the primitive directly, not this one.
+    function impactV3Bps(
+        uint256 amountIn, uint160 sqrtP, uint128 liq, uint24 feePpm, bool zeroForOne
+    ) public pure returns (uint256) {
+        // A zero input, price or liquidity makes outV3 answer 0, which impactV3FromOut maps to BPS.
+        return impactV3FromOut(outV3(amountIn, sqrtP, liq, feePpm, zeroForOne, 0), amountIn, sqrtP, zeroForOne);
+    }
+
+    // ─── the Gate's wrappers as planner rows (gated-auto, 2026-10-22) ───
+
+    /// @notice THE ONE PRODUCER of a Gate wrapper's price for a leg: the Quoter's kind-9 arm and
+    ///         `universalQuote` (the Solver's) read it, so the price a plan is built on and the
+    ///         price the quote channel reports are the same. `live` is `gateWrapperLive` (the
+    ///         identity the Router demands at execution); a pool that is not live prices 0.
+    ///         `out` is the wrapper's view `quote` (its adapter's answer), run under
+    ///         GATE_QUOTE_GAS so one adapter cannot spend the caller's gas; a failure is 0.
+    ///         With `withDepth`, `depth18` is the Gate's own fitness depth (`vitalOf`: the
+    ///         adapter's declared depth capped by the mass the venue pool holds), so the depth
+    ///         a kind-9 candidate votes the band with has one producer too.
+    function gateQuote(
+        address hub, address pool, address tIn, address tOut, uint24 fee,
+        bool zeroForOne, uint256 amountIn, bool withDepth
+    ) public view returns (bool live, uint256 out, uint256 depth18) {
+        live = gateWrapperLive(hub, pool, tIn, tOut, fee);
+        if (!live || amountIn == 0) return (live, 0, 0);
+        bytes memory cd = abi.encodeWithSignature("quote(bool,uint256)", zeroForOne, amountIn);
+        assembly ("memory-safe") {
+            let ok := staticcall(GATE_QUOTE_GAS, pool, add(cd, 32), mload(cd), 0x00, 0x20)
+            ok := and(ok, iszero(lt(returndatasize(), 0x20)))
+            if ok { out := mload(0x00) }
+        }
+        if (!withDepth || out == 0) return (live, out, 0);
+        // `live` proved pool.gate() is an admitted Gate; the depth is that Gate's answer.
+        (, uint256 g) = _askWord(pool, abi.encodeWithSignature("gate()"));
+        (depth18, ) = _gateVital(address(uint160(g)), pool);
+    }
+
+    /// @notice The Gate's psi for `w` (its `vitalOf`): 0 for a pool that Gate did not create
+    ///         or whose family has no live adapter. The Solver's ranking reads it for its
+    ///         kind-9 rows, which have no Hub row (psi 0 there) (P2). psi is vitality times
+    ///         the bucket's weight, so a wrapper of vitality 0 (never swapped, or past the
+    ///         32-step horizon) is psi 0 at every depth bucket: answered here by the same
+    ///         `vitality` the Gate runs at the same timestamp, without the depth read the Gate
+    ///         pays first (its adapter's quote, the venue's balances and decimals). A slot that
+    ///         cannot be read asks the Gate.
+    function gatePsi(address gate, address w) public view returns (uint256 p) {
+        (bool ok, uint256 s) = _askWord(w, abi.encodeWithSignature("vitalSlot()"));
+        if (ok && vitality(s, uint32(block.timestamp)) == 0) return 0;
+        (, p) = _gateVital(gate, w);
+    }
+
+    /// @dev `vitalOf(w)` of `g`: (depth18, psi), zeros on any failure or short answer. It runs
+    ///      one adapter read under its own GATE_QUOTE_GAS; twice that bounds the whole answer.
+    ///      The one reader of that answer copies only words 1-2, into scratch: the whole answer
+    ///      at 0x00 put psi on the free memory pointer (F1, 2026-10-22; Scratch memory guard).
+    function _gateVital(address g, address w) internal view returns (uint256 depth18, uint256 p) {
+        bytes memory cd = abi.encodeWithSignature("vitalOf(address)", w);
+        assembly ("memory-safe") {
+            let ok := staticcall(mul(GATE_QUOTE_GAS, 2), g, add(cd, 32), mload(cd), 0, 0)
+            if and(ok, iszero(lt(returndatasize(), 0x60))) {
+                returndatacopy(0x00, 0x20, 0x40)
+                depth18 := mload(0x00)
+                p := mload(0x20)
+            }
+        }
+    }
+
+    /// @notice The Gate's live wrappers of (tA, tB) as planner rows (P3b). `gate` is the one
+    ///         Gate the caller trusts (the Solver's immutable); its list is filtered by
+    ///         `gateWrapperLive`, so a row is returned only if the Hub admits the Gate's code
+    ///         NOW, the address derives from (t0, t1, key) and the family has a live adapter.
+    ///         `active` is true: an admitted factory vouches for the row (the Solver's band
+    ///         vote reads that bit). A gate with no code, or no full answer, gives no row.
+    function gatedOf(address gate, address hub, address tA, address tB)
+        internal view returns (PoolInfo[] memory out)
+    {
+        (address t0, address t1) = sortTokens(tA, tB);
+        bytes memory cd = abi.encodeWithSignature("wrappersOf(address,address)", t0, t1);
+        uint256[GATE_MAX_WRAPPERS] memory ws;
+        bool ok;
+        assembly ("memory-safe") {
+            ok := staticcall(GAS_CAP, gate, add(cd, 32), mload(cd), ws, 0x80)
+            ok := and(ok, iszero(lt(returndatasize(), 0x80)))
+        }
+        if (!ok) return out;
+        out = new PoolInfo[](GATE_MAX_WRAPPERS);
+        uint256 n;
+        for (uint256 i; i < GATE_MAX_WRAPPERS; ++i) {
+            if (ws[i] == 0) break;   // the list is in creation order, 0 past the last
+            address w = address(uint160(ws[i]));
+            uint24 key = uint24(ws[i] >> 160);
+            if (!gateWrapperLive(hub, w, t0, t1, key)) continue;
+            out[n++] = PoolInfo({
+                active: true, stable: false, kind: KIND_EXTERNAL, fee: key, tickSpacing: 0,
+                token0: t0, token1: t1, pool: w, hooks: address(0)
+            });
+        }
+        assembly ("memory-safe") { mstore(out, n) }
+    }
+
+    /// @notice The discovery list the Solver merges (P3b): the Hub's derived sweep when `sweep`
+    ///         (the registry is not fresh), less its kind-9 rows, then `gatedOf` - the trusted
+    ///         Gate's live wrappers - ALWAYS. A wrapper has no Hub row, so a fresh registry would
+    ///         otherwise hide it for good; it is seated by the Gate's list or not at all, never
+    ///         twice. The caller decides `sweep` before this, from its registry rows only, so a
+    ///         wrapper never votes freshness. A failing sweep reverts, as the Hub's call does.
+    function discoverWithGate(address hub, address gate, address tA, address tB, bool sweep)
+        public view returns (PoolInfo[] memory out)
+    {
+        PoolInfo[] memory g = gatedOf(gate, hub, tA, tB);
+        uint256 rows;
+        uint256 dn;
+        if (sweep) {
+            (bool ok, bytes memory r) = hub.staticcall(
+                abi.encodeWithSignature("discoverFor(address,address)", tA, tB));
+            if (!ok) assembly ("memory-safe") { revert(add(r, 32), mload(r)) }
+            // The Hub's answer is abi.encode(PoolInfo[]) and PoolInfo is all value types:
+            // [0x20][len][len rows of 9 words]. A row's nine words ARE a memory PoolInfo, so
+            // each row is read in place (no decoder, no copy); the return encoder below cleans
+            // every field. A shape that is not exactly that reverts.
+            assembly ("memory-safe") {
+                dn := mload(add(r, 0x40))
+                rows := add(r, 0x60)
+                if or(iszero(eq(mload(add(r, 0x20)), 0x20)),
+                      iszero(eq(mload(r), add(0x40, mul(dn, 0x120))))) { revert(0, 0) }
+            }
+        }
+        out = new PoolInfo[](dn + g.length);
+        uint256 n;
+        for (uint256 i; i < dn; ++i) {
+            PoolInfo memory p;
+            assembly ("memory-safe") { p := add(rows, mul(i, 0x120)) }
+            if (p.kind != KIND_EXTERNAL) out[n++] = p;
+        }
+        for (uint256 i; i < g.length; ++i) out[n++] = g[i];
+        assembly ("memory-safe") { mstore(out, n) }
+    }
+}
+

@@ -133,7 +133,7 @@ abstract contract ChainProbeBase is Test {
         c.tokenOther  = tokenOther;
         c.hooks       = address(0);
         c.v4Manager   = v4Manager;
-        (out, depth) = BPC.universalQuote(c, amountIn);
+        (out, depth, , ) = BPC.universalQuoteRank(c, amountIn, type(uint256).max, false);
     }
 
     /// @dev The V4 live invariant that can never be flaky: an initialized pool

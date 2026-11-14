@@ -126,11 +126,11 @@ contract MockAlgebraPool {
         amount0 = zeroForOne ? int256(amtIn) : -int256(amtOut);
         amount1 = zeroForOne ? -int256(amtOut) : int256(amtIn);
 
+        // The output is paid BEFORE the callback, as AlgebraPool.swap pays it (see MockV3Pool).
+        IERC20Alg(tokenOut).transfer(recipient, amtOut);
         uint256 balBefore = IERC20Alg(tokenIn).balanceOf(address(this));
         IAlgebraSwapCallback(msg.sender).algebraSwapCallback(amount0, amount1, data);
         uint256 received = IERC20Alg(tokenIn).balanceOf(address(this)) - balBefore;
         require(received >= amtIn, "MockAlgebraPool: insufficient input");
-
-        IERC20Alg(tokenOut).transfer(recipient, amtOut);
     }
 }

@@ -497,7 +497,13 @@ fuzzes the walk against it across tick spacing (1, 10, 60, 200), fee tier (0.01 
 on a tick's lower edge or inside it, one to four overlapping positions, orders from 10⁹ to 10²⁴ and
 both directions: the walk never exceeds the specification by more than 64 wei. The TickMath table
 the walk prices ticks with is checked exactly at the canonical endpoints and against an independent
-fixed point on every tick. The same walk reads a V3-shaped pool's own book when it is given no
+fixed point on fuzzed ticks, and certified on every tick: its twenty constants are derived from their
+definition (the integer nearest to 2^128 / sqrt(1.0001)^(2^i)) and `test/tools/tickmath_certificate.py`
+brackets each of the 1,774,545 outputs with exact interval arithmetic
+(`docs/assurance/tickmath-certificate.tsv`): strictly increasing, the true value rounded up at every
+tick ≤ 0, within one Q96 unit through tick 132,821 and below 2⁻⁶³ relative above it.
+`test/TickMathCertificate.t.sol` chains the compiled outputs against the certificate. The same walk
+reads a V3-shaped pool's own book when it is given no
 poolId (`slot0`, `liquidity`, `tickBitmap`, `ticks`, at the fee and spacing the pool reports); it
 prices the promise of a concentrated leg the capacity bound holds (`Solver._capacity`), and
 `test/CapacityPromiseWalksTheBook.t.sol` pins it against the single-tick figure on a flat book,
@@ -603,14 +609,21 @@ the mechanism, not the sample:
   states it between the arms: two ulps, one per arm, plus the two output floors.
 - **MR-R1 / MR-R3.** With one pool priced 10¹⁰ away from the other, the plan paid 35 % less than
   the outlier alone, and a deep mispriced pool displaced a shallow honest one. That is the Solver's
-  median filter (`MEDIAN_FILTER_BPS`, ±5 %) refusing to believe an outlier — the relations hold over
-  pools it admits, so the domain keeps the two prices within ±4 %. Since 2026-10-27 a pool under
+  band (`MEDIAN_FILTER_BPS`, ±5 % around the median rate, until 2026-10-28; since MED the band of no
+  arbitrage, the two fees widened by the two rows' error bounds, whose impact term is taken at the
+  order's size since ROUTEQ, 2026-11-13, and at the probe's before) refusing to believe an outlier —
+  the relations hold over pools it admits. MR-R1 and MR-R3 compare the plan with a pool the band
+  may drop, so since MED their domain keeps the two prices within ±0.5 %, inside the band whichever
+  pool sets the median; over the ±4 % kept until then the new band met a plan 1.9 % under the pool
+  it dropped (MR-R1) and a pool whose arrival lowered the plan 2.7 % (MR-R3). The other relations
+  keep ±4 %. Since 2026-10-27 a pool under
   `MIN_SPLIT_IMPROVEMENT_PPM` (25 ppm) of the rest of its pair is dropped before it is quoted
   (`Solver._dropDust`), so the domain also keeps the two depths within 1:10⁴. Measured on the CI
   seed before it was written: a pool at 7.7 ppm of the other, priced 3.97 % better, would have paid
   309 bps more on an order of 0.85 % of its reserve (MR-R1), and a deep pool added beside a 5 ppm
   one replaced it at 311 bps less (MR-R3); both plans were the deep pool alone, to the wei. MR-R1d
-  pins that cost: the dust pool is not quoted, and the best single pool pays at most the band more.
+  pins that cost: the dust pool is not quoted, and the best single pool pays at most the price gap
+  more.
 - **MR-R4.** Replayed leg by leg: a pool whose depth weight floors to the minimum (1 of 10,000
   against the deepest) is **kept** as a dust leg when it was registered first and **cut** when
   registered second. Both plans are sound; they differ by what one weight unit of the amount earns
@@ -625,13 +638,16 @@ same source, and the compiler is a component: a miscompile, or source that only 
 to mean under one setting, is invisible to a suite that runs under that setting alone.
 
 `test/nversion/` compiles the Core's quote maths (`CoreProbe.sol`, an external surface over the
-internal library) under two more profiles — `nver1` at `optimizer_runs = 1`, `nver2` at
-`20000`, everything else identical to `release` — and `NVersionCore.t.sol` deploys the three
-binaries side by side and asserts equality on fuzzed inputs: `outV2`, `outV3`, `outSolidly`,
-`outSolidlyStable`, `mulDiv`, `mulDivUp`, 3,000 runs each, over the whole input domain. The lane
-first asserts the alternate bytecode **differs** from the shipped one, so it cannot pass by comparing
-a program with itself; and `NVERSION_LANE=1` turns a missing artefact from a skip into a failure,
-so it cannot pass by never having built anything.
+internal library) and the Math's band selection (`MathProbe.sol`, `select`) under three more
+profiles — `nver1` at `optimizer_runs = 1`, `nver2` at `20000`, `nver3` at the release's runs
+under a Yul step sequence with no FunctionSpecializer, everything else identical to `release` —
+and `NVersionCore.t.sol` deploys the four binaries side by side and asserts equality on fuzzed
+inputs: `outV2`, `outV3`, `outSolidly`, `outSolidlyStable`, `mulDiv`, `mulDivUp`, 3,000 runs
+each, over the whole input domain, and the whole answer of `select`, return or revert, byte for
+byte. The lane first asserts each alternate artefact **differs** from the suite's own, compared
+unlinked (deployed code embeds the library's address, so two deployments of one program always
+differ), so it cannot pass by comparing a program with itself; and `NVERSION_LANE=1` turns a
+missing artefact from a skip into a failure, so it cannot pass by never having built anything.
 
 **The three binaries agree.** The compiler was not the finding. The lane's first full-domain run
 made the *reference* revert: `outSolidlyStable` on a pool holding under one unit of each token
@@ -695,8 +711,8 @@ The tests were written to **catch**, not to fit. `test/FeeSeals.t.sol` reads non
 numbers: the fee token comes from the rule and the bridge list, the base from the pools' balance
 deltas (what left the Router into the fee hop, or what the previous hop's pools paid out) or the
 recipient's, the fee from the treasuries' deltas, the count from the `Fee` events — over every
-shape the Router accepts (one to three hops; bridge in no, first, middle or last position; one or
-two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
+shape the Router accepts (one or two hops, `MAX_HOPS`; bridge in no, first, middle or last position;
+one or two legs per hop) on fuzzed amounts, in both regimes. The Router invariant campaign counts `Fee`
 events per settlement (`invariant_SettledSwapEmitsExactlyOneFee`).
 
 **How often each test notices each defect** was measured rather than assumed: every fee mutant
@@ -732,6 +748,18 @@ predicate in front of them leaves no path that settles without paying, or pays t
 anchored route. They are kept — they are the contract refusing at run time what the tests refuse
 at review time, on paths that do not exist yet — listed as belts here, counted as covered nowhere,
 and absent from the mutation guard, which admits only mutants a named test kills.
+
+**The exact door follows the calendar (2026-11-13).** The Base fork row `test_Matriz_DaiEPortaExata`
+(USDC->DAI 10k at block 49800000) found the exact door 25.5 bps UNDER the delivery: a single hop
+was deducted on its output whatever the calendar said, and on an input-charged hop a concave venue
+priced on the net input pays more than the gross less the fee, by the curve's bend over the fee.
+`Quoter._exact` now applies the output deduction only where `_fundedOut` read the calendar as
+output-charged and takes the funded figure, the Router's own, elsewhere; the min of the two is the
+pin (SHARED_QUANTITIES, "the net output the exact door promises"). The offline twin
+`test/ExactDoorFollowsTheFeeCalendar.t.sol` asserts equality (delivered == exactOut) over decimals
+6/8/18/24, thin and deep books, dust and the fee's rounding seam, V3 and V2, both regimes and two
+hops; mutants [door-fee-1..3] and the tripwire [door-fee-meta], which refuses a widened fork
+tolerance since the fork row cannot run in the guard.
 
 ## 4p. How a quote ages — the promise measured against time and drift
 

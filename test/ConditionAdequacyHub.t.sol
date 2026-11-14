@@ -539,8 +539,11 @@ contract ConditionAdequacyHubTest is Test {
         hub.claimV4(tokenA, bridgeHi, 500, 10);
         assertEq(hub.v4CodeOf(bridgeHi), 0,
             "a bridge must never learn a pattern code (per-bridge codes thrash)");
-        assertEq(hub.v4CodeOf(tokenA), _code(500, 10),
+        // fix-1102 A: was the bare fee << 24 | ts; now the low 48 bits are that code and bits 48+ the teacher's bucket,
+        // 3 = ilog10(1e18 / 1e15): L 1e18 at sqrtP Q96 with 18/18 decimals has a 1e18 short side (BlazePhoenixHub.sol:1460, BlazePhoenixCore.sol:2539)
+        assertEq(hub.v4CodeOf(tokenA) & ((uint256(1) << 48) - 1), _code(500, 10),
             "control: the non-bridge side does learn - the writer ran");
+        assertEq(hub.v4CodeOf(tokenA) >> 48, 3, "control: the code carries its teacher's depth bucket");
     }
 
     // =========================================================================
@@ -811,16 +814,19 @@ contract ConditionAdequacyHubTest is Test {
     }
 
     /// `amtIn == 0` neutralised: a zero-amount call at a REGISTERED real pool
-    /// ticks vitality — swapCount moves from 1 to 2 and the equality fails.
+    /// ticks vitality — swapCount moves from 0 to 1 and the equality fails.
     function test_L1437_ZeroAmountIn_DoesNotTickVitality() public {
         address pool = address(new MockV2Pair(tokenA, tokenB));
         Origin.wire(hub, pool, tokenA, tokenB, BPC.KIND_V2, 30);   // rizki-3107: derived
         hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 1e18, 1e18, 1e18);
         bytes32 key = hub.keyOf(pool, tokenA, tokenB);
-        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1, "state pin: registered with one tick");
+        // fix-1102 A: was 1 because the registration ticked the new row; now 0 because a row is born with swapCount 0 (BlazePhoenixHub.sol:2168)
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 0, "state pin: registered with no tick");
 
-        hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 0, 1e18, 1e18);
-        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 1,
+        // fix-1102 A: was a dust call in the registration's second; now anchored and a second later, the one call that would tick without the guard (BlazePhoenixCore.sol:2898)
+        vm.warp(block.timestamp + 1);
+        hub.recordSwap(pool, BPC.KIND_V2, 30, address(0), tokenA, tokenB, 0, 1e18, 1e18 | BPC.TICK_ANCHORED);
+        assertEq(BPC.decodeSwapCount(hub.getSlot(key)), 0,
             "a zero-amount swap must not tick vitality at a registered pool");
     }
 

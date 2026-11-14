@@ -14,12 +14,16 @@ pragma solidity 0.8.36;
 //   Q2i  the split gate: a quote still truncated after the deep walk keeps the split instead
 //        of collapsing onto a rival (the `hMax` ceiling check).
 //   Q2j  the probe: dust inside the probe's reach must not price the honest pool out of the band.
+//   Q2j2 ...and at an order small beside a deep rival, where the band's lower edge is narrow
+//        enough that a cut probe rate falls under it: the V4 book keeps its leg.
 //   Q2k  `_considera` on a bridge route's FIRST hop: dust there must not cost the route the order
 //        (stage B is re-quoted on stage A's rank for the judgement). Red on f87364e.
 //   Q2l  ...and that re-quote replaces the promise in the judgement, never adds to it: a better
 //        direct route keeps the order. Green on f87364e too: it guards the fix.
-//   Q2m/Q2n  the same on a two-bridge route, dust on its first stage and on its middle one (the
-//        rank is carried stage by stage). Red on f87364e.
+//   Q2m/Q2n  the same with dust on both stages and on the last one alone (the rank is carried
+//        stage by stage, and the last stage's own deep walk reaches the judgement). Until
+//        2026-11-06 these were three-hop tests on a two-bridge route (red on f87364e); the
+//        two-bridge book is now refused, and its one-bridge analogue fills (Q2k).
 //   ceiling  `v4WalkRank` stops at sixteen only when the rest cannot carry the quote past the
 //        bar, and never below the truth.
 //   B1   the ceiling never saturates under the walk's own figure: on a book whose output
@@ -30,7 +34,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
@@ -241,9 +245,16 @@ contract V4FragmentationRankingTest is Test {
         assertEq(got, 9746738941922775479386, "the clean bridge route's fill moved");
     }
 
-    /// Q2k regression, two bridges: t0 -> b1 on an honest V4 book, b1 -> b2 and b2 -> t1 on V2
-    /// pairs, no shorter route. Pinned values read on f87364e.
-    function test_Q2k_CleanTwoBridgeRouteUnchanged() public {
+    /// Q2k on the two-bridge book: t0 -> b1 on an honest V4 book, b1 -> b2 and b2 -> t1 on V2
+    /// pairs, and no shorter route. Its only route is three hops, past MAX_HOPS: the Solver plans
+    /// none (SolverE(5)), the automatic door passes that refusal through unchanged, and the
+    /// three-hop route assembled by hand from the three one-hop plans is refused at the Router's
+    /// ceiling (RouterE(3)). One pair more, b1 -> t1, gives the two-hop analogue: it is planned
+    /// through b1 with the V4 book on its first stage, and it fills near par.
+    /// History: until 2026-11-06 this was test_Q2k_CleanTwoBridgeRouteUnchanged, which pinned the
+    /// three-hop route's promise (9650478184622023178868) and fill (9623977733739036085623), read
+    /// on f87364e. The Solver builds one bridge per route since then.
+    function test_Q2k_TwoBridgeChainIsRefused_OneBridgeAnalogueFills() public {
         address b1 = address(new MockERC20("B1", "B1"));
         address b2 = address(new MockERC20("B2", "B2"));
         MockERC20(b1).mint(address(mgr), 1e30);
@@ -252,47 +263,97 @@ contract V4FragmentationRankingTest is Test {
         _honestV4Between(t0, b1);
         _v2(b1, b2, 1e24, 1e24);
         _v2(b2, t1, 1e24, 1e24);
-        uint256 promised = solver.findBestRoutePlan(t0, t1, ORDER).best.totalOut;
+        bytes memory noRoute = abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, 5);
+        vm.expectRevert(noRoute);
+        solver.findBestRoutePlan(t0, t1, ORDER);
+        vm.expectRevert(noRoute);
+        vm.prank(user);
+        router.swapBestExactIn(t0, t1, ORDER, 1, user, block.timestamp + 1);
+
+        // The three-hop route, each stage as the Solver plans it alone, on the stage before's promise.
+        RoutePlan memory s0 = solver.findBestRoutePlan(t0, b1, ORDER);
+        RoutePlan memory s1 = solver.findBestRoutePlan(b1, b2, s0.best.totalOut);
+        RoutePlan memory s2 = solver.findBestRoutePlan(b2, t1, s1.best.totalOut);
+        // The hop array is filled before it is attached: `chain` aliases s2.best, so attaching it
+        // first would make s2.best.hops[0] read the new array's own hop 0.
+        Hop[] memory three = new Hop[](MAX_HOPS + 1);
+        three[0] = s0.best.hops[0];
+        three[1] = s1.best.hops[0];
+        three[2] = s2.best.hops[0];
+        Route memory chain = s2.best;
+        chain.hops = three;
+        // The chain holds together, so its hop count is the only thing past a limit.
+        assertEq(chain.hops[0].tokenIn, t0, "the chain starts in t0");
+        assertEq(chain.hops[0].tokenOut, b1, "hop 0 ends in b1");
+        assertEq(chain.hops[1].tokenIn, b1, "hop 1 starts where hop 0 ends");
+        assertEq(chain.hops[1].tokenOut, b2, "hop 1 ends in b2");
+        assertEq(chain.hops[2].tokenIn, b2, "hop 2 starts where hop 1 ends");
+        assertEq(chain.hops[2].tokenOut, t1, "the chain ends in t1");
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, 3));
+        vm.prank(user);
+        router.swapExactIn(chain, ORDER, 1, user, block.timestamp + 1);
+
+        _v2(b1, t1, 1e24, 1e24);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, ORDER);
+        assertEq(plan.best.hops.length, MAX_HOPS, "the analogue is one bridge, two hops");
+        assertEq(plan.best.hops[0].tokenOut, b1, "the analogue runs through b1");
+        assertEq(plan.best.hops[1].tokenOut, t1, "the analogue ends in t1");
         uint256 got = _swap();
-        assertEq(promised, 9650478184622023178868, "the clean two-bridge route's promise moved");
-        assertEq(got, 9623977733739036085623, "the clean two-bridge route's fill moved");
+        emit log_named_uint("analogue promise     ", plan.best.totalOut);
+        emit log_named_uint("analogue fill        ", got);
+        assertGt(got, 9.5e21, "the one-bridge analogue fills near par");
     }
 
-    /// The Q2m/Q2n book: t0 -> b1 -> b2 -> t1, with the V4 book on stage `v4Stage` (0 or 1) and
-    /// deep V2 pairs on the other two, beside a shallower V2 pair on t0 -> t1 (~8.3e21).
-    function _twoBridgeBook(address b1, address b2, uint256 v4Stage) internal returns (bytes32 pid) {
-        if (v4Stage == 0) { pid = _honestV4Between(t0, b1); _v2(b1, b2, 1e24, 1e24); }
-        else              { _v2(t0, b1, 1e24, 1e24); pid = _honestV4Between(b1, b2); }
-        _v2(b2, t1, 1e24, 1e24);
+    /// The Q2m/Q2n book: t0 -> bridge -> t1 with an honest V4 book on each stage `v4Stages` names
+    /// (bit 0 the first, bit 1 the last) and a deep V2 pair on the other, beside a shallower V2
+    /// pair on t0 -> t1 (~8.3e21). Returns the V4 pool ids (zero on a V2 stage).
+    function _bridgeStages(address bridge, uint256 v4Stages) internal returns (bytes32 pidA, bytes32 pidB) {
+        if (v4Stages & 1 != 0) pidA = _honestV4Between(t0, bridge);
+        else                   _v2(t0, bridge, 1e24, 1e24);
+        if (v4Stages & 2 != 0) pidB = _honestV4Between(bridge, t1);
+        else                   _v2(bridge, t1, 1e24, 1e24);
         _v2(t0, t1, 5e22, 5e22);
     }
 
-    function _twoBridgeAttack(uint256 v4Stage) internal {
-        address b1 = address(new MockERC20("B1", "B1"));
-        address b2 = address(new MockERC20("B2", "B2"));
-        MockERC20(b1).mint(address(mgr), 1e30);
-        MockERC20(b2).mint(address(mgr), 1e30);
-        hub.addBridge(b1);
-        hub.addBridge(b2);
+    /// Dust on every V4 stage of the bridge route; the precondition reads each stage's walk on an
+    /// order of the route's size, so a stage the dust does not truncate fails the test.
+    function _bridgeStageAttack(uint256 v4Stages) internal {
+        address bridge = address(new MockERC20("BR", "BR"));
+        MockERC20(bridge).mint(address(mgr), 1e30);
+        hub.addBridge(bridge);
         uint256 snap = vm.snapshotState();
-        _twoBridgeBook(b1, b2, v4Stage);
+        _bridgeStages(bridge, v4Stages);
         uint256 clean = _swap();
         vm.revertToState(snap);
-        bytes32 pid = _twoBridgeBook(b1, b2, v4Stage);
-        (address a, address b) = v4Stage == 0 ? (t0, b1) : (b1, b2);
-        _fragmentPath(pid, a, b);
+        (bytes32 pidA, bytes32 pidB) = _bridgeStages(bridge, v4Stages);
+        if (v4Stages & 1 != 0) { _fragmentPath(pidA, t0, bridge); _assertCut(pidA, t0 < bridge); }
+        if (v4Stages & 2 != 0) { _fragmentPath(pidB, bridge, t1); _assertCut(pidB, bridge < t1); }
         uint256 dirty = _swap();
         _report(clean, dirty);
-        assertGt(clean, 9.5e21, "control: the two-bridge route fills near par");
-        assertLe(clean > dirty ? clean - dirty : 0, 1e18, "fragmentation moved the order off the two-bridge route");
+        assertGt(clean, 9.5e21, "control: the bridge route fills near par");
+        assertLe(clean > dirty ? clean - dirty : 0, 1e18, "fragmentation moved the order off the bridge route");
     }
 
-    /// Q2m. Q2k on a two-bridge route: dust on its FIRST stage (t0 -> b1).
-    function test_Q2m_FragmentedTwoBridgeFirstStageKeepsTheRoute() public { _twoBridgeAttack(0); }
+    function _assertCut(bytes32 pid, bool zeroForOne) internal view {
+        (uint256 lo, uint256 rank, ) = BPC.v4WalkRank(address(mgr), pid, ORDER, FEE, TS, zeroForOne, 0);
+        assertLt(lo * 10, ORDER, "precondition: the stage's promise is cut more than tenfold");
+        assertGt(rank, ORDER * 98 / 100, "precondition: the deep walk reads the book");
+    }
 
-    /// Q2n. Q2k on a two-bridge route: dust on its MIDDLE stage (b1 -> b2), so the rank has to
-    /// be carried into the last stage from a stage that was itself quoted on a promise.
-    function test_Q2n_FragmentedTwoBridgeMiddleStageKeepsTheRoute() public { _twoBridgeAttack(1); }
+    /// Q2m. Q2k with dust on BOTH stages: the last stage is quoted again on the first stage's
+    /// rank, and that quote is itself truncated, so its own deep walk is what carries the rank
+    /// into the judgement.
+    /// History: until 2026-11-06 this was test_Q2m_FragmentedTwoBridgeFirstStageKeepsTheRoute,
+    /// three hops t0 -> b1 -> b2 -> t1 with dust on the first stage (red on f87364e). With
+    /// MAX_HOPS = 2, dust on the first stage alone is Q2k.
+    function test_Q2m_FragmentedBridgeBothStagesKeepTheRoute() public { _bridgeStageAttack(3); }
+
+    /// Q2n. Q2k with dust on the LAST stage (bridge -> t1): the stage before is exact, so no
+    /// second pass runs, and the rank has to come out of the last stage's own deep walk.
+    /// History: until 2026-11-06 this was test_Q2n_FragmentedTwoBridgeMiddleStageKeepsTheRoute,
+    /// three hops with dust on the middle stage, whose rank was carried into a third (red on
+    /// f87364e). With MAX_HOPS = 2 the stage after the bridge is the last one.
+    function test_Q2n_FragmentedBridgeLastStageKeepsTheRoute() public { _bridgeStageAttack(2); }
 
     /// Q2h. The held vote: a thin V2 pair priced ~5.6% above the honest pool at the probe. Clean,
     /// the honest pool's depth sets the band and the thin pair falls out of it. Fragmented, the
@@ -360,6 +421,137 @@ contract V4FragmentationRankingTest is Test {
         emit log_named_uint("delivered, attacked  ", dirty);
         assertLt(lo * 100, (ORDER / 100) * 90, "precondition: the probe's promise is cut more than 10%");
         assertGt(dirty, rivalOnly + rivalOnly / 10, "the probe dropped the honest pool on a cut rate");
+    }
+
+    /// Q2j2. The probe again, at an order small beside the base. In Q2j the rival holds 2e22 a
+    /// side and the order is half of it, so the base's error at the order's size (errOrder ~0.5)
+    /// opens the band's lower edge wide enough to keep a probe rate cut by a quarter: Q2j stays
+    /// green when the probe reads the sixteen-stretch cut. Here the rival is a hundred times
+    /// deeper (2e24 a side): the same order is 0.5% of it, the lower edge sits about 1.3% under
+    /// the base, and a probe rate cut by more than 10% (the precondition) falls under it, while
+    /// the deep walk's rate (rank at bar 0) does not. The oracle is membership, and its size is
+    /// derived, no threshold: inside the band the order is allocated by depth (the Solver's
+    /// "filter on QUALITY (rate), then allocate by CAPACITY (depth)"), so the book's leg is
+    /// ORDER * L / (L + 2e24) with L = 1e23 its in-range liquidity (the dust sits below the
+    /// current tick and adds none there). The control (no dust) shows that leg; the attacked plan
+    /// must keep it, and at one price a 1 bp book beside a 30 bp rival pays more than the rival
+    /// alone. Red when the probe asks at the top bar (morf-12 f): no leg, the rival's output.
+    function test_Q2j2_FragmentedProbeIsRankedOnTheDeepWalk_SmallOrder() public {
+        bytes32 pid = _pid(FEE);
+        uint256 snap = vm.snapshotState();
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 rivalOnly = _swap();
+        vm.revertToState(snap);
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
+        mgr.addPosition(pid, -20_000, 20_000, TS, 1e23);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 built = vm.snapshotState();
+        uint256 depthShare = ORDER * 1e23 / (1e23 + 2e24);
+        assertEq(_v4LegIn(pid), depthShare, "control: without the dust the V4 book takes its depth's share");
+        uint256 clean = _swap();
+        vm.revertToState(built);
+        _fragment(pid, -300, 0);
+        (uint256 lo, , ) = BPC.v4WalkRank(address(mgr), pid, ORDER / 100, FEE, TS, true, 0);
+        assertLt(lo * 100, (ORDER / 100) * 90, "precondition: the probe's promise is cut more than 10%");
+        uint256 legIn = _v4LegIn(pid);
+        uint256 dirty = _swap();
+        emit log_named_uint("rival alone          ", rivalOnly);
+        emit log_named_uint("delivered, clean     ", clean);
+        emit log_named_uint("delivered, attacked  ", dirty);
+        emit log_named_uint("V4 leg in, attacked  ", legIn);
+        assertGt(clean, rivalOnly, "control: the V4 leg pays more than the rival alone");
+        assertGt(legIn, 0, "the probe priced the honest pool out of the band on its cut");
+        assertEq(legIn, depthShare, "the attacked V4 book's leg is not its depth's share");
+        assertGt(dirty, rivalOnly, "the attacked plan pays no more than the rival alone");
+    }
+
+
+    /// Q2o. The promise votes (S2, mutant [398]). A narrow V4 book about 5% under a deep pair:
+    /// L = 1e26 on the twenty ticks around its current tick (-513, a rate near 0.95), beside a
+    /// V2 pair holding 2e24 a side at par. The book's virtual output side, L*sqrtP, is far
+    /// above the pair's depth, while what it holds on that side within the sixteen-stretch walk
+    /// (`v4HeldShare`, L*(sqrtP - sqrtPa)) is far under it - both stated as preconditions. Read
+    /// at its virtual depth the book outweighs the pair, the median sits on the book's rate and
+    /// the band built there leaves the pair out; read at what it holds (`_heldShare`, the vote
+    /// `_depthWeightedMedian` takes), the base is the pair and the book falls under the band's
+    /// lower edge. The oracle is the pair alone through the same door: with the book listed
+    /// the order still fills at the pair's rate. Red when the vote reads the uncut depth
+    /// (`d = h` deleted): the base moves onto the book and the order fills near its rate.
+    function test_Q2o_ThePromiseVotes_ANarrowBookUnderTheRateDoesNotTakeTheBase() public {
+        uint256 snap = vm.snapshotState();
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 pairAlone = _swap();
+        vm.revertToState(snap);
+        int24 tk = -513;
+        uint128 narrowL = 1e26;
+        mgr.initialize(_pid(FEE), BPC.sqrtPriceAtTick(tk), tk, FEE);
+        mgr.addPosition(_pid(FEE), tk - 10, tk + 10, TS, narrowL);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 vOut = BPC.mulDiv(narrowL, BPC.sqrtPriceAtTick(tk), uint256(1) << 96);
+        uint256 held = BPC.v4HeldShare(address(mgr), _pid(FEE), TS, true, vOut, type(uint256).max);
+        uint256 withBook = _swap();
+        emit log_named_uint("pair alone           ", pairAlone);
+        emit log_named_uint("with the narrow book ", withBook);
+        emit log_named_uint("book virtual side    ", vOut);
+        emit log_named_uint("book held vote       ", held);
+        assertGt(vOut, 2 * 2e24, "precondition: at its virtual depth the book holds most of the vote mass");
+        assertLt(2 * held, 2e24, "precondition: at what it holds the book is under half the pair's vote");
+        assertLt(BPC.mulDiv(ORDER, 96, 100), pairAlone, "precondition: the pair pays above the book's rate");
+        assertEq(withBook, pairAlone, "the book's virtual depth took the base: the order left the pair");
+    }
+
+
+    /// Q2p. The deep re-read moves the band (S2, mutants [396] [397]). Q2h's pair is thin: it
+    /// holds 1e22 a side against a 1e22 order, so its error at the order's size opens the band
+    /// wide under either base, both bases keep the same pools, and the re-read never changes the
+    /// outcome there. Here the pair is deep (2e24 a side, the order 0.5% of it) and still priced
+    /// ~5.6% above an honest book fifty times deeper (L = 1e26 at par). Clean, the book's depth
+    /// sets the base and the pair falls out of the band. With one-wei dust on the twenty ticks
+    /// under the current tick, the book's sixteen-stretch held vote drops under the pair's depth
+    /// while its deep walk (bar 0) does not (both preconditions), so the first median sits on the
+    /// pair, whose band leaves the book out, and only the deep re-read puts the base back on the
+    /// book. The oracle is the clean plan: the dust may not move it. Red when the cut is never
+    /// recorded ([396]) or the median keeps the first votes when the bands differ ([397]): the
+    /// order leaves the book for the pair.
+    function test_Q2p_TheDeepReReadPutsTheBaseBackOnTheHonestBook() public {
+        bytes32 pid = _pid(FEE);
+        uint128 deepL = 1e26;
+        uint256 snap = vm.snapshotState();
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
+        mgr.addPosition(pid, -20_000, 20_000, TS, deepL);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        _v2(t0, t1, 2e24, 2.112e24);
+        uint256 clean = _swap();
+        vm.revertToState(snap);
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
+        mgr.addPosition(pid, -20_000, 20_000, TS, deepL);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        _v2(t0, t1, 2e24, 2.112e24);
+        _fragment(pid, -20, 0);
+        uint256 vOut = BPC.mulDiv(deepL, BPC.sqrtPriceAtTick(0), uint256(1) << 96);
+        uint256 held16 = BPC.v4HeldShare(address(mgr), pid, TS, true, vOut, type(uint256).max);
+        uint256 heldDeep = BPC.v4HeldShare(address(mgr), pid, TS, true, vOut, 0);
+        uint256 dirty = _swap();
+        emit log_named_uint("delivered, clean     ", clean);
+        emit log_named_uint("delivered, attacked  ", dirty);
+        emit log_named_uint("book held, 16 stretch", held16);
+        emit log_named_uint("book held, deep      ", heldDeep);
+        assertLt(held16, 2e24, "precondition: the sixteen-stretch vote is under the pair's depth");
+        assertGt(heldDeep, 2 * 2.112e24, "precondition: the deep vote outweighs the pair");
+        assertLt(clean, ORDER, "control: clean, the band keeps the book at par and leaves the pair out");
+        assertLe(clean > dirty ? clean - dirty : dirty - clean, 1e18, "the dust moved the plan: the first median kept the pair's band");
+    }
+
+    /// The amount the plan's first hop sends to the V4 book `pid` (0 when it has no leg there).
+    function _v4LegIn(bytes32 pid) internal view returns (uint256 amt) {
+        RoutePlan memory p = solver.findBestRoutePlan(t0, t1, ORDER);
+        assertGt(p.best.hops.length, 0, "pre-condition: there must be a route");
+        Leg[] memory legs = p.best.hops[0].legs;
+        for (uint256 i; i < legs.length; ++i) {
+            if (legs[i].pool == address(uint160(uint256(pid)))) amt += legs[i].amountIn;
+        }
     }
 
     /// The ceiling. Fee 5% so the fee term is far wider than the rest's own slippage (~0.9%):

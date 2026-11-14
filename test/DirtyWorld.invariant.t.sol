@@ -46,7 +46,7 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter, IPermit2} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, RoutePlan, MAX_HOPS} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockV2Factory} from "./mocks/MockV2Factory.sol";
@@ -182,6 +182,8 @@ contract DirtyWorldHandler is Test {
     // ghosts
     mapping(uint256 => uint256) public settledKind;
     mapping(uint256 => uint256) public revertedKind;
+    /// The RouterE code of the last refusal per kind (0xffff when the revert was not a RouterE).
+    mapping(uint256 => uint16) public refusedCode;
     mapping(uint256 => uint256) public settledDoor;
     uint256 public a2Breaches;
     bytes public lastA2;
@@ -315,13 +317,15 @@ contract DirtyWorldHandler is Test {
             hs[1] = _hop(X, A, x0, 0, _v2(w.pAX2, X, A, x0));
             r = _wrap(hs, 0, 0, false);
         } else if (kind == 6) {
-            // self-hop A -> X -> X -> C through the alias, alias leg attested (H3 lever)
+            // self-hop A -> X -> X through the alias, alias leg attested (H3 lever). Two hops:
+            // over MAX_HOPS = 2 the hop ceiling refuses with the same RouterE(3) first, and the
+            // self-hop guard went unread (mutant "dw-1020 = H3", PR #123 run).
             uint256 b = _q3(w.qAX, A, amt);
-            uint256 fair = _q3(w.qXC, X, _netOfFee(b));
-            Hop[] memory hs = new Hop[](3);
+            uint256 fair = b;
+            Hop[] memory hs = new Hop[](2);
             hs[0] = _hop(A, X, amt, 0, _v3(address(w.qAX), w.qAX.token0() == A, amt, 0));
             hs[1] = _hop(X, X, b, 0, _v3(address(w.aliasX), true, b, b));
-            hs[2] = _hop(X, C, b, 0, _v3(address(w.qXC), w.qXC.token0() == X, b, 0));
+            assertLe(hs.length, MAX_HOPS, "premise: under the hop ceiling, so RouterE(3) can only be the self-hop guard");
             r = _wrap(hs, fair, 1, false);
             attest = fair;
         } else if (kind == 7) {
@@ -398,6 +402,15 @@ contract DirtyWorldHandler is Test {
         return keccak256(e) == keccak256(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(18)));
     }
 
+    /// The code carried by a RouterE(uint16) revert payload; 0xffff for any other payload.
+    function _routerCode(bytes memory e) internal pure returns (uint16) {
+        if (e.length != 36) return type(uint16).max;
+        bytes32 w0; bytes32 w1;
+        assembly { w0 := mload(add(e, 32)) w1 := mload(add(e, 36)) }
+        if (bytes4(w0) != BlazePhoenixRouter.RouterE.selector) return type(uint16).max;
+        return uint16(uint256(w1));
+    }
+
     // ------------------------------------------------------------------ handlers
 
     /// Explicit doors at the Router: every route kind, classic / permit2 / native.
@@ -414,8 +427,8 @@ contract DirtyWorldHandler is Test {
         uint256[9] memory vb = _venueBals(tOut);
         uint256 rb = MockERC20(tOut).balanceOf(RECIP);
         address payer = _payer();
-        (bool ok, uint256 got,) = _call(door, address(w.router), r, amt, minOut, payer);
-        if (!ok) { revertedKind[kind]++; return; }
+        (bool ok, uint256 got, bytes memory err) = _call(door, address(w.router), r, amt, minOut, payer);
+        if (!ok) { revertedKind[kind]++; refusedCode[kind] = _routerCode(err); return; }
         settledKind[kind]++;
         settledDoor[door]++;
         uint256 gain = MockERC20(tOut).balanceOf(RECIP) - rb;
@@ -844,6 +857,7 @@ contract DirtyWorldInvariantTest is Test {
             assertGt(handler.settledKind(mustSettle[i]), 0, string.concat("live: route kind did not settle ", vm.toString(mustSettle[i])));
         }
         assertEq(handler.settledKind(6), 0, "live: the self-hop settled");
+        assertEq(handler.refusedCode(6), 3, "live: the self-hop must be refused by the H3 route-shape guard (RouterE(3)), not by a guard further down the execution");
         assertGt(handler.a3Checked(), 0, "live: A3 never checked a settled cyclic route");
         assertGt(handler.revertedKind(4), 0, "live: the paused afterSwap leg was not refused");
         assertGt(handler.settledDoor(1), 0, "live: permit2 door");
