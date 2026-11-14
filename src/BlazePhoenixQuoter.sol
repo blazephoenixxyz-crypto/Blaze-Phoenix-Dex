@@ -26,39 +26,50 @@
 //  WHAT THIS CONTRACT GUARANTEES
 //      Q1  Never overestimates on purpose. Where an exact measurement exists,
 //          it is used; where only an approximation exists, it rounds DOWN.
-//      Q2  `view` only. It does not write, does not spend, does not approve.
+//      Q2  Keeps nothing. The plan and route previews are `view`. The exact and encode
+//          doors are not, by necessity: they dry-run the venues, every dry-run reverts,
+//          and they are called by eth_call. No storage, no approval; the one transfer in
+//          the file (the input probe's) sits inside a dry-run that reverts.
 //      Q3  A route containing a pool flagged for hook misuse, or a denylisted
 //          hook, is unquotable — it returns zero rather than a pretty number.
 //
 //  The Quoter is the read-only mirror of the Router. For a route it returns:
 //
-//      netOut = grossOut · (1 − fee) · (1 − safety(n))   [one single fee since 2026-08-22]
+//      netOut = grossOut · (1 − fee)^c · (1 − safety(n))
 //
 //  Where:
 //
 //    grossOut   — Solver's output (already net of pool fees).
-//    fee        — Protocol fee, 28 BPS. THE EXPONENT H IS WHAT CHANGED ON 2026-08-21: the fee
-//                 stopped being charged once on the quoted output and is now charged on EVERY
-//                 HOP, on that hop's INPUT and in that hop's TOKEN. An H-hop route pays H times,
-//                 compounded — hence the exponent.
+//    fee        — Protocol fee, 28 BPS, deducted c times, each deduction rounded up. c is how
+//                 many times the Router charges, by its calendar (`BPC.feeCalendar`):
+//                   c = 1  a single hop (charged on its output when that is a registered
+//                          bridge, on its input otherwise), or a longer route with a hop whose
+//                          input is a registered bridge — ANCHORED: charged once, on the input
+//                          of the first such hop (since 2026-08-22);
+//                   c = H  two hops or more and no hop's input is a bridge — EXHAUSTION: every
+//                          hop pays on its own INPUT, in its own TOKEN, compounded.
+//                 The every-hop rule was the whole calendar from 2026-08-21 until the anchor
+//                 of 2026-08-22; it is kept for the routes that have nothing to anchor on.
 //                 The reason is written in the Router (`_chargeHopFee`): a route is a path with
 //                 two ends, and both are coordinates written by the caller, so any fee anchored
 //                 to one END is evaded by extending the route past that end with a worthless
 //                 token. It was MEASURED in both directions: anchored on the output, 996 tokens
 //                 moved with ZERO fee; anchored on the input, the attacker prefixed a token they
 //                 had minted themselves and received MORE than an honest user.
-//    safety(n)  — Dynamic buffer: 0 BPS at ≤2 legs, +1 BPS per extra leg,
-//                 capped at 10 BPS. Accounts for inter-leg drift.
+//    safety(n)  — Dynamic buffer: 0 BPS at ≤2 legs, +1 BPS per extra leg (inter-leg drift),
+//                 +5 BPS (ASSUMED_FEE_SAFETY) per KIND_V2 leg priced on an assumed fee
+//                 (`effV2Fee(fee) != fee`); one shared cap of 10 BPS.
 //    A route is unquotable (returns zero) if it contains a pool flagged for
 //    hook misuse or a denylisted hook.
 //
 //  WHAT `protocolFee` MEANS NOW, and the change matters to whoever reads the preview: the real
-//  fee is charged in SEVERAL tokens (one per hop), so there is no single number in tokenOut that
-//  is "the fee". The field reports the EFFECT of the fee on the output — how much less the user
-//  receives because of it, expressed in tokenOut. That is the useful quantity for whoever is
-//  about to swap, and it is honest as long as you know what it is. The treasuries receive
-//  something else (each hop's input tokens), and it is the Router's `Fee` event that says what
-//  was charged and in which token.
+//  fee is charged in the token the calendar charges — one bridge token on an anchored route,
+//  every hop's input token when no hop's input is a bridge, tokenOut only on a single hop into
+//  a bridge — so in general no number in tokenOut is "the fee". The field reports the EFFECT
+//  of the fee on the output — how much less the user receives because of it, expressed in
+//  tokenOut. That is the useful quantity for whoever is about to swap, and it is honest as long
+//  as you know what it is. The treasuries receive something else (the token or tokens charged,
+//  as above), and it is the Router's `Fee` event that says what was charged and in which token.
 //
 //  AND THE SURPLUS EXEMPTION DIED with the change: it was an output-side promise ("everything
 //  above the quote is yours, fee-free") and it has no input-side analogue. Owner's decision,
@@ -195,7 +206,7 @@ contract BlazePhoenixQuoter {
         uint256 grossOut;          // U(route)
         uint256 protocolFee;       // o EFEITO da fee sobre a saida, em tokenOut (ver cabecalho)
         uint256 safetyBuffer;      // safety(n) × afterFee
-        uint256 netOut;            // grossOut · (1 − fee) · (1 − safety)
+        uint256 netOut;            // grossOut · (1 − fee)^c · (1 − safety), c as in the header
         uint256 ironFloor;         // output floor supplied by the Solver
         uint256 userMinOut;        // user-supplied tighter floor (optional)
         uint256 effectiveMinOut;   // max(userMinOut, ironFloor)
@@ -390,7 +401,9 @@ contract BlazePhoenixQuoter {
             unchecked { ++c; }
         }
         // The EFFECT of the fee on the output, in tokenOut. It is not what the
-        // treasuries receive — they receive ONE BRIDGE token (WETH/USDC). See the
+        // treasuries receive — they receive the token(s) the Router's calendar
+        // charges: one bridge token when anchored, every hop's input token when no
+        // hop's input is a bridge, tokenOut on a single hop into a bridge. See the
         // file header.
         pv.protocolFee = route.totalOut > afterFee ? route.totalOut - afterFee : 0;
 
@@ -685,7 +698,8 @@ contract BlazePhoenixQuoter {
     }
 
     /// @dev True when a concentrated leg the Router will fund is paid in a token its pool
-    ///      receives short of (`_inputTaxed`). Asked of the route as `_exact` scaled it.
+    ///      receives short of (`_inputTaxed`). Asked of the route its caller carries: the one
+    ///      `_exact` scaled, or the plan's own route that the encode doors put in the bytes.
     function _inputTaxedIn(Route memory route) private returns (bool) {
         for (uint256 h; h < route.hops.length; ++h) {
             Hop memory hop = route.hops[h];
@@ -779,7 +793,11 @@ contract BlazePhoenixQuoter {
     ///         Router takes it (anchor-hop input on a multi-hop route, the
     ///         output on a single hop) and rounded up as the Router does, so it is
     ///         the floor the Router honours in this block — derive userMinOut
-    ///         from it. The returned `route` keeps the pool-math attestation
+    ///         from it. That holds where every leg's venue answered the
+    ///         dry-run: a concentrated leg it could not ask (the pool refused;
+    ///         no V4 manager, a fail-closed hook, an oversize amount) is priced
+    ///         on the plan's own point, capped at it (Q1), not measured.
+    ///         The returned `route` keeps the pool-math attestation
     ///         (totalOut/singleOut gross) that the Router compares against;
     ///         the floor ratio chosen by the Solver is preserved and applied
     ///         to the exact total. Additive & opt-in:
@@ -820,6 +838,8 @@ contract BlazePhoenixQuoter {
     /// @notice The same execution-grade re-pricing as `previewPlanExact`, for a route built
     ///         off-chain instead of by the Solver: the only way to quote Gate legs (kind 9),
     ///         which the Solver never plans and the best door refuses. Call via eth_call.
+    ///         A concentrated leg the dry-run cannot ask is priced on the route's own
+    ///         `expectedOut`, capped at it: here that is the caller's number, not the Solver's.
     function previewRouteExact(Route memory route, uint256 amountIn)
         external returns (Route memory, uint256)
     {
