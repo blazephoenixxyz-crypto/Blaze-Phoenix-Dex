@@ -2276,7 +2276,11 @@ M = [
       # MED (2026-10-28): re-pointed; the probe moved into Core.universalProbe, which reads `rank`.
       old='        (, depthWad, rank, , fee, mass) = _quoteArms(c, amountIn, bar, wantFee);',
       new='        (rank, depthWad, , , fee, mass) = _quoteArms(c, amountIn, bar, wantFee); // MUTANT',
-      teste='test_Q2j_FragmentedProbeKeepsTheHonestPoolInTheBand'),
+      # 2026-11-14: re-pointed to Q2j2. Not equivalent: the V4 arm returns `_v4Quote` (Core), whose
+      # `out` is the sixteen-stretch promise and whose `rank` is the walk to `bar` (0 on the Solver's
+      # probe), so `rank := out` makes the probe vote on the cut, the effect morf-12 [f] has. Q2j keeps
+      # the cut rate inside its wide lower edge (see morf-12 [f]); Q2j2 puts the book beside a deep rival.
+      teste='test_Q2j2_FragmentedProbeIsRankedOnTheDeepWalk_SmallOrder'),
  dict(nome='S2 B1: the ceiling saturates at 2^128 - 1 even under the rank (the plan reverts on hi - lo)',
       f='src/BlazePhoenixCore.sol',
       old='        if (out > m) m = out;',
