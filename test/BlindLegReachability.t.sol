@@ -15,8 +15,8 @@ pragma solidity 0.8.36;
 //  for BOTH `got` and `attested`. The hop loop adds both, which means the leg
 //  leaves no trace on either side of the aggregate comparison at Router:1299:
 //
-//      slack = mulDiv(hopAttested / hopQuoted, BPS - LEG_FLOOR_BPS, BPS);
-//      if (hopGot + slack < hopAttested) revert RouterE(5);
+//      slack = mulDiv(hopBound / hopQuoted, BPS - LEG_FLOOR_BPS, BPS);
+//      if (hopGot + slack < hopBound) revert RouterE(5);
 //
 //  Whether that matters depends on a question this file asks rather than assumes:
 //  can a leg execute at all while being unquotable? Two of the three families say

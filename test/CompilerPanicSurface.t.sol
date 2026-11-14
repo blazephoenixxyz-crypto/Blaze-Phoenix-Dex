@@ -20,10 +20,10 @@ import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 ///
 ///         0x12 and 0x41 are settled elsewhere, deliberately, because neither can be asserted
 ///         here without writing a test that cannot fail. 0x12 has one site a caller's route can
-///         reach - `Router:_execute` divides `hopAttested / hopQuoted` under `if (hopAttested
+///         reach - `Router:_execute` divides `hopBound / hopQuoted` under `if (hopBound
 ///         != 0)` - and it is unreachable by a one-line argument: the three hop accumulators are
-///         declared INSIDE the hop loop body, and `hopAttested` is the sum of exactly the
-///         `legAtt` values whose non-zero-ness increments `hopQuoted`, so a non-zero sum needs a
+///         declared INSIDE the hop loop body, and `hopBound` is the sum of exactly the
+///         `legBound` values whose non-zero-ness increments `hopQuoted`, so a non-zero sum needs a
 ///         non-zero term and `hopQuoted >= 1`. An argument is not evidence, so the evidence is a
 ///         mutant in `mutants.py` that moves the guard onto `hopGot`, an accumulator the
 ///         divisor is NOT built from. It dies: `test_G7_OneWeiOutput_BoundaryPasses` and

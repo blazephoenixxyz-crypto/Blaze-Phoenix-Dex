@@ -798,7 +798,8 @@ contract BlazePhoenixQuoter {
     ///         no V4 manager, a fail-closed hook, an oversize amount) is priced
     ///         on the plan's own point, capped at it (Q1), not measured.
     ///         The returned `route` keeps the pool-math attestation
-    ///         (totalOut/singleOut gross) that the Router compares against;
+    ///         (totalOut/singleOut; on 2+ hops in the net-of-input-fee frame)
+    ///         that the Router compares against;
     ///         the floor ratio chosen by the Solver is preserved and applied
     ///         to the exact total. Additive & opt-in:
     ///         no existing path is modified. Call via eth_call (non-view by
@@ -874,17 +875,17 @@ contract BlazePhoenixQuoter {
         // THE FEE WALK (`_walk`, 124-L5 B6): the same walk as `_fundedOut`, here with the fee only
         // where the Router takes it on two hops or more (a single hop takes its deduction below),
         // and writing each hop's and leg's figures into the returned route.
-        uint256 gross = _walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true);
+        uint256 walkOut = _walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true);
         // The route keeps the POOL-MATH attestation: totalOut/singleOut are
         // what the Router compares realised leg output against, and the fee is
         // the Router's own deduction on the way out — exactly as `_pack` reads
         // `route.totalOut` gross and derives `netOut` from it.
         uint256 floorExact = planOut == 0
-            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut);
-        route.totalOut       = gross;
-        route.singleOut      = gross;
+            ? 0 : BPC.mulDiv(route.singleOutFloor, walkOut, planOut);
+        route.totalOut       = walkOut;
+        route.singleOut      = walkOut;
         route.singleOutFloor = floorExact;
-        route.hasSurplus     = gross > floorExact;
+        route.hasSurplus     = walkOut > floorExact;
         // FEE-02 (register row PROTOCOL_FEE_BPS; PoC in the eighth disclosure
         // round, closed 2026-09-03). The scalar an integrator turns into
         // `userMinOut` must be NET: the Router charges PROTOCOL_FEE_BPS on
@@ -921,8 +922,8 @@ contract BlazePhoenixQuoter {
         // figure is the same walk.
         uint256 funded = _fundedOut(route, amountIn);
         exactOut = funded != type(uint256).max
-            ? gross // input-charged: the fee came off in `_walk`, or `funded` bounds below
-            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            ? walkOut // input-charged: the fee came off in `_walk`, or `funded` bounds below
+            : walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         if (funded < exactOut) exactOut = funded;
         // Q3 AT THE EXACT DOORS (W3-F2, Luis_MZ, bounty). A leg the Router refuses (RouterE(9)
         // hook, RouterE(11) key, RouterE(8) native side) falls back to the plan's claim in

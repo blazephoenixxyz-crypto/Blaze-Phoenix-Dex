@@ -9,7 +9,7 @@ pragma solidity 0.8.36;
 //
 //     1. o PORTAO POR PERNA em _execScaled  — compara `got` (LIQUIDO, delta de balanceOf) com
 //        `bound` (BRUTO, quote calculada sobre o que se TENCIONOU enviar);
-//     2. a CAMADA 1 por hop                 — soma `hopAttested` (BRUTO) contra `hopGot` (LIQUIDO).
+//     2. a CAMADA 1 por hop                 — soma `hopBound` (BRUTO) contra `hopGot` (LIQUIDO).
 //
 // Com um imposto de ENTRADA de t, a pool so recebe (1-t) do que lhe mandamos, logo entrega
 // aproximadamente (1-t) do que a quote bruta previa. Os dois pisos leem isso como uma pool a

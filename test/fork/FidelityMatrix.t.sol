@@ -403,7 +403,7 @@ contract FidelityMatrixArbitrumTest is ArbitrumFixture, MatrixOps {
 contract FidelityMatrixOptimismTest is OptimismFixture, MatrixOps {
     // O override _tolBps()=25 que aqui viveu (achado do funil frio: top-K por
     // ordem de descoberta cortava a CL barata antes de a cotar) foi APAGADO a
-    // 2026-08-24 no proprio dia: o desempate por fee no _topKPools fechou-o.
+    // 2026-08-24 no proprio dia: o desempate por fee no _rankedPools fechou-o.
     // Tolerancia de volta aos 10 bps globais — se isto voltar a ficar
     // vermelho, o funil regrediu.
     function test_Matriz() public {

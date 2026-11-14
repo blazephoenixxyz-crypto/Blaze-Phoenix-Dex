@@ -6,7 +6,7 @@ pragma solidity 0.8.36;
 //
 //  The report (seavia) seats the attacker's rival venue with `hub.seedPool`,
 //  which is `onlyOperator`, and names the permissionless door it did not run:
-//  discovery (`Hub.discoverFor`, called by `Solver._topKPools` whenever the
+//  discovery (`Hub.discoverFor`, called by `Solver._rankedPools` whenever the
 //  pair's registry is not fresh). This file runs that door.
 //
 //  What is configuration and what is the attacker:

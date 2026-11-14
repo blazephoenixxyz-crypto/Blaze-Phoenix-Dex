@@ -379,7 +379,7 @@
           "@type": "DefinedTerm",
           "termCode": "INV-11",
           "name": "A V4 hook whose address declares delta-altering permissions is rejected before any token moves, without calling it.",
-          "description": "Enforced by E18; `RouterE(9)`; Solver `_topKPools`"
+          "description": "Enforced by E18; `RouterE(9)`; Solver `_rankedPools`"
         },
         {
           "@type": "DefinedTerm",

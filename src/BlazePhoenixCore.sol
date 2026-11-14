@@ -3053,7 +3053,7 @@ library BlazePhoenixCore {
                     // Solidly: the pool's own getAmountOut - decimal-agnostic and what the
                     // executor settles. Trigger aligned with the executor (`<= 1` is "no answer").
                     // NO HAIRCUT here: the executor's 200 bps are slack for the pool's K, and
-                    // this number is a FLOOR (coverage gate, fee base, hopAttested). The curve
+                    // this number is a FLOOR (coverage gate, fee base, hopBound). The curve
                     // only for a pair that answers stable(), as in `solidlyAskOut`; else 0.
                     q = solidlyGetAmountOut(leg.pool, legAmt, tokenIn);
                     if (q <= 1) q = answersStable(leg.pool) ? solidlyCurveOut(leg.pool, legAmt, rIn, rOut, leg.stable, leg.fee, tokenIn) : 0;

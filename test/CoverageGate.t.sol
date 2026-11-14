@@ -8,7 +8,7 @@ pragma solidity 0.8.36;
 //     bool guard = legOut != address(0) && leg.expectedOut != 0 && leg.amountIn != 0 && amt != 0;
 //
 // Quem submete a rota desligava o SEU PROPRIO piso escrevendo zero. E nao desligava so um: o
-// `attested` que a guarda produz e o mesmo que alimenta o `hopAttested` da Camada 1, logo
+// `bound` que a guarda produz e o mesmo que alimenta o `hopBound` da Camada 1, logo
 // `expectedOut == 0` apagava as DUAS protecoes de uma vez, a local e a agregada. Uma atestacao
 // meramente DEFLACIONADA (1 wei) fazia o mesmo por outra via: a guarda corria, mas contra um piso
 // de ~zero.

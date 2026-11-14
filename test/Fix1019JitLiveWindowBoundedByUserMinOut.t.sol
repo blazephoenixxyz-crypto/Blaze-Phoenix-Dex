@@ -167,7 +167,7 @@ abstract contract F19H15Base is Test {
     //  no slot0() (so `provenShape` reads it as a pair, not concentrated), and
     //  physically holds the reserves it declares. It then takes a seat at the
     //  depth its OWN reserves measure (never a declared depth), and that bucket
-    //  is what the Solver's `_topKPools` ranks for a later user.
+    //  is what the Solver's `_rankedPools` ranks for a later user.
 
     // ── (4) H15 negative — a pool that cannot be traded never enters, and the ─
     //        existing rank state does not move. ────────────────────────────────

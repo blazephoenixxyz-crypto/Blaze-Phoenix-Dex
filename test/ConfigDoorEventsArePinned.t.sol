@@ -5,7 +5,8 @@ pragma solidity 0.8.36;
 //
 //  A mutable instrument without an event measures the wrong place: an indexer, a monitor or
 //  the API learns of a treasury move, a pause, a rescue or a renounce only from the log. Until
-//  this file no door of the Router (Cfg 0-4, PausedSet, RescueQueued, Rescued), of the Gate
+//  this file no door of the Router (Cfg 0-4, PausedSet, ControlRenounced, RescueQueued,
+//  RescueCancelled, Rescued), of the Gate
 //  (AdminSet, ControlRenounced, Adapter*, WrapperCreated) or the Hub's Evicted had its log
 //  pinned: deleting any of those emits left the suite green.
 //
@@ -15,7 +16,8 @@ pragma solidity 0.8.36;
 //
 //  Mutants that turn this file red (.github/scripts/mutants.py, [morf-P3-*]): every door above
 //  without its emit; Cfg(1,t1) -> Cfg(2,t1); RescueQueued eta -> 0; Rescued amt -> 0;
-//  Gate:113 forgetting `controlRenounced`. Pins of behaviour that exists at cb1d7d9: green
+//  Gate:113 forgetting `controlRenounced`; the Router's renounce and cancel back on the
+//  seat-shaped logs they had before NOMES-124 (Cfg(0, 0), RescueQueued(token, to, 0)). Pins of behaviour that exists at cb1d7d9: green
 //  there, so the evidence is the mutants.
 // =============================================================================
 import {Test, Vm} from "forge-std/Test.sol";
@@ -203,14 +205,14 @@ contract ConfigDoorEventsArePinnedTest is Test {
 
     // ─── Router: renounce and refusals ───
 
-    function test_RouterRenounce_EmitsCfg0Zero_ThenEveryControlDoorRefuses() public {
+    function test_RouterRenounce_EmitsControlRenounced_ThenEveryControlDoorRefuses() public {
         router.setPaused(true);
         _refused(address(router), address(this), abi.encodeCall(router.renounceControl, ()), _rE(2));
         assertFalse(router.controlRenounced());
         router.setPaused(false);
 
         vm.expectEmit(true, true, true, true, address(router));
-        emit BlazePhoenixRouter.Cfg(0, address(0));
+        emit BlazePhoenixRouter.ControlRenounced();
         router.renounceControl();
         assertTrue(router.controlRenounced());
         assertEq(router.admin(), address(this), "renounce kills control, it does not rewrite the seat");
@@ -219,6 +221,45 @@ contract ConfigDoorEventsArePinnedTest is Test {
 
     function test_RouterControlDoors_RefuseAStranger() public {
         _routerControlRefuses(STRANGER);
+    }
+
+    // ─── Router: a renounce and a cancel log no seat they did not write (NOMES-124 L2-07, L2-08) ───
+
+    /// @notice An indexer that follows `Cfg(0, x)` as the admin seat must not read a renounce as
+    ///         `admin = address(0)`: renouncing leaves the seat as it was. The renounce's ONLY log
+    ///         is `ControlRenounced()`, and no `Cfg` is among the logs at all.
+    ///         Red at c7beefb (the renounce emitted `Cfg(0, address(0))`).
+    function test_RouterRenounce_LogsNoAdminSeat() public {
+        vm.recordLogs();
+        router.renounceControl();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1, "a renounce writes one log");
+        assertEq(logs[0].emitter, address(router));
+        assertEq(logs[0].topics.length, 1, "ControlRenounced() carries no field");
+        assertEq(logs[0].topics[0], BlazePhoenixRouter.ControlRenounced.selector, "the renounce's own event");
+        assertTrue(logs[0].topics[0] != BlazePhoenixRouter.Cfg.selector, "no Cfg: the admin seat was not written");
+        assertEq(router.admin(), address(this), "the seat an indexer would read is still the admin");
+    }
+
+    /// @notice An indexer that counts `RescueQueued` as a pending rescue must not count a cancel:
+    ///         the cancel's ONLY log is `RescueCancelled(token, to)`, both fields indexed, and no
+    ///         `RescueQueued` is among the logs. Red at c7beefb (the cancel emitted
+    ///         `RescueQueued(token, to, 0)`).
+    function test_RouterCancelRescue_LogsNoQueuedRescue() public {
+        PathologicalERC20 tok = new PathologicalERC20("S", "S", 18);
+        router.queueRescue(address(tok), TO);
+        vm.recordLogs();
+        router.cancelRescue(address(tok), TO);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1, "a cancel writes one log");
+        assertEq(logs[0].emitter, address(router));
+        assertEq(logs[0].topics.length, 3, "token and to, indexed");
+        assertEq(logs[0].topics[0], BlazePhoenixRouter.RescueCancelled.selector, "the cancel's own event");
+        assertTrue(logs[0].topics[0] != BlazePhoenixRouter.RescueQueued.selector, "no RescueQueued: nothing is queued");
+        assertEq(logs[0].topics[1], bytes32(uint256(uint160(address(tok)))));
+        assertEq(logs[0].topics[2], bytes32(uint256(uint160(TO))));
+        assertEq(logs[0].data.length, 0, "no eta field");
+        assertEq(router.rescueEta(_rescueKey(address(tok), TO)), 0);
     }
 
     // ─── Router: rescue ───
@@ -239,9 +280,9 @@ contract ConfigDoorEventsArePinnedTest is Test {
         assertEq(router.rescueEta(k), eta, "the logged eta is the stored eta");
 
         vm.expectEmit(true, true, true, true, address(router));
-        emit BlazePhoenixRouter.RescueQueued(address(tok), TO, 0);
+        emit BlazePhoenixRouter.RescueCancelled(address(tok), TO);
         router.cancelRescue(address(tok), TO);
-        assertEq(router.rescueEta(k), 0, "a cancel logs the zero it stored");
+        assertEq(router.rescueEta(k), 0, "a cancel deletes the eta it logs as cancelled");
         _refused(address(router), address(this), abi.encodeCall(router.executeRescue, (address(tok), TO)), _rE(14));
 
         vm.warp(T0 + 1 days);

@@ -25,7 +25,7 @@ pragma solidity 0.8.36;
 //   2. O hop 1 aponta a uma pool que reporta estado ZERO (logo legQuote = 0) e a perna traz
 //      expectedOut = 0. Isso desliga TODOS os pisos de uma vez, e cada um por uma razao propria:
 //        · o portao por perna nao corre (guard exige uma das duas atestacoes);
-//        · a Camada 1 nao corre (hopAttested == 0);
+//        · a Camada 1 nao corre (hopBound == 0);
 //        · o piso da rota e mulDiv(finalHopQuote=0, ...) = 0.
 //      Nenhum deles esta partido. Todos sao RELATIVOS A QUOTE, e uma quote zero torna-os inertes.
 //   3. A pool pede 1 wei de B e entrega po de C.

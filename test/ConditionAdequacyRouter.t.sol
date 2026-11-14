@@ -755,7 +755,7 @@ contract ConditionAdequacyRouterTest is Test {
     /// kills: pins RouterE(5) from Layer 1 (1202). Real: each live leg
     /// delivers q against a bound of ~1.1966q — over its own 80% floor
     /// (0.957q), so no per-leg revert — and the hop aggregate fails:
-    /// hopGot(2q) + slack(0.2·1.1966q) < hopAttested(2.393q). The stunt leg's
+    /// hopGot(2q) + slack(0.2·1.1966q) < hopBound(2.393q). The stunt leg's
     /// q-sized delivery is NOT counted because its guard is false. Force
     /// `expectedOut != 0` true: the stunt guard becomes amt != 0 (its 1462
     /// ternary still yields bound 0, so no floor and attested 0), its

@@ -301,6 +301,9 @@ contract BlazePhoenixRouter {
     );
     event Fee(address indexed token, uint256 amount, uint256 toT1, uint256 toT2);
     event Cfg(uint8 id, address who);
+    /// @notice Control was renounced. Its own event, as the Gate's and the Hub's: a `Cfg(0, x)`
+    ///         names the admin seat, and renouncing does not write that seat.
+    event ControlRenounced();
     /// @notice The emergency switch changed. Its own event, and not a `Cfg` carrying an address
     ///         fabricated from a bool: a flag is not an address, and stuffing it into an address
     ///         field to save bytes would force every indexer to know about the lie.
@@ -399,7 +402,7 @@ contract BlazePhoenixRouter {
         // capability the pause was bought to use.
         if (paused) revert RouterE(2);
         controlRenounced = true;
-        emit Cfg(0, address(0));
+        emit ControlRenounced();
     }
 
     // ─── Rescue (48h timelock) ────────────────────────────────────────
@@ -414,6 +417,9 @@ contract BlazePhoenixRouter {
     mapping(bytes32 => uint256) public rescueEta;
 
     event RescueQueued(address indexed token, address indexed to, uint256 eta);
+    /// @notice A queued rescue was cancelled (its eta deleted). Its own event: a `RescueQueued`
+    ///         is a rescue that will be executable, and a cancel is not one.
+    event RescueCancelled(address indexed token, address indexed to);
     event Rescued(address indexed token, address indexed to, uint256 amount);
 
     function queueRescue(address token, address to) external onlyControl {
@@ -425,7 +431,7 @@ contract BlazePhoenixRouter {
 
     function cancelRescue(address token, address to) external onlyControl {
         delete rescueEta[keccak256(abi.encodePacked(token, to))];
-        emit RescueQueued(token, to, 0);
+        emit RescueCancelled(token, to);
     }
 
     function executeRescue(address token, address to) external onlyControl {
@@ -1277,7 +1283,7 @@ contract BlazePhoenixRouter {
             impactAcc += hopImpact;
 
             uint256 hopGot;
-            uint256 hopAttested;
+            uint256 hopBound;
             uint256 hopQuoted;
             // NM-002's RESIDUAL. The fallback at the end of this loop fires only
             // when the WHOLE hop went unquoted. A hop where ONE leg spends input
@@ -1369,14 +1375,14 @@ contract BlazePhoenixRouter {
                 // not calldata. The index runs across the whole route and both
                 // loops walk the same calldata in the same order.
                 if (scaledAmt != 0) executedMask |= (uint256(1) << legIdx);
-                (uint256 legGot, uint256 legAtt, uint256 legDecl, uint256 took) = _execScaled(
+                (uint256 legGot, uint256 legBound, uint256 legDecl, uint256 took) = _execScaled(
                     leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
                 );
                 legOut[legIdx] = legGot;
                 legTook[legIdx] = took;
                 unchecked { ++legIdx; }
                 hopGot += legGot;
-                hopAttested += legAtt;
+                hopBound += legBound;
                 // 3310: a leg that makes tokenOut adds what its venue declares it paid; a leg that
                 // hands tokenOut to its venue takes what it handed off the cap (under MAX_HOPS = 2
                 // only hop 0 of a cyclic route: no later hop takes tokenOut in). Floored at zero:
@@ -1384,11 +1390,11 @@ contract BlazePhoenixRouter {
                 // spends nothing (a no-op tail) leaves the output as made.
                 if (legOutRaw == tokenOut) outCap += legDecl;
                 else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;
-                if (legAtt != 0) { unchecked { ++hopQuoted; } }
+                if (legBound != 0) { unchecked { ++hopQuoted; } }
                 // THE FLOOR'S BASE SPEAKS FOR EVERY LEG: a leg the frame could not price enters
                 // `hopQuote` with its attested figure (a Gate leg, a native leg with no in-frame
                 // quote), so a priced leg beside it never shrinks the base to its own share.
-                if (legQuotes[l] == 0) hopQuote += legAtt;
+                if (legQuotes[l] == 0) hopQuote += legBound;
                 // A leg that spent input and came back with no attestation was not
                 // measured at all.
                 //
@@ -1419,12 +1425,13 @@ contract BlazePhoenixRouter {
             // degrades to 0.8^H (41% at 4 hops). This exists WITHOUT hooks.
             // The legs of a hop are homogeneous (same pair), so the attested quotes
             // add up DIRECTLY, with no oracle.
-            // Only legs WITH an attested quote enter — on BOTH sides of the sum, so
-            // a leg without a quote cannot mask another's shortfall.
+            // Only legs WITH a bound enter (a floor basis: the caller's attestation or the
+            // in-frame quote) — on BOTH sides of the sum, so a leg without one cannot mask
+            // another's shortfall.
             // It does not tighten the per-leg floor: a thin pool can still fail 20%
             // on its own. It bounds what the WHOLE hop may bleed.
             // Reuses measurements already taken in _execScaled — zero new reads.
-            if (hopAttested != 0) {
+            if (hopBound != 0) {
                 // Slack = what ONE AVERAGE leg could legitimately lose.
                 // AVERAGE (Σ/n), not MAXIMUM: with the maximum, an attacker inflated
                 // their OWN leg to inflate the shared budget and drained the others —
@@ -1432,8 +1439,8 @@ contract BlazePhoenixRouter {
                 // inverting the incentive (under the old rule holding the big leg was
                 // bad for them). The average is not manipulable by them: increasing n
                 // SHRINKS the slack, and they do not write the victim's route.
-                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);
-                if (hopGot + slack < hopAttested) revert RouterE(5);
+                uint256 slack = BPC.mulDiv(hopBound / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);
+                if (hopGot + slack < hopBound) revert RouterE(5);
             }
             // ─── NM-002 (external report, BoyD; review 2026-09-02) ───
             // When the LAST hop could not be quoted in-frame (finalHopQuote == 0:
@@ -1471,7 +1478,7 @@ contract BlazePhoenixRouter {
             //
             // A MIXED HOP, CLOSED (2026-10-23). `hopQuote` already carries every unpriced leg's
             // attested figure (the leg loop above), so a hop with no priced leg anchors on
-            // `hopAttested` as before, and a priced leg beside an attested one no longer drops
+            // `hopBound` as before, and a priced leg beside an attested one no longer drops
             // the attested leg out of the base: it used to anchor on the priced share alone, and
             // a Gate leg delivering 82 % of its attestation settled beside a V2 leg while the
             // same leg alone was refused (test/GateBaseCoherence.t.sol). The base only rises.
@@ -1750,7 +1757,7 @@ contract BlazePhoenixRouter {
     ///         amt == leg.amountIn exactly (mulDiv with equal num/den).
     function _execScaled(
         Leg calldata leg, address tokenIn, address legOutRaw, uint256 amt, uint256 legQuote, uint256 legAmt
-    ) private returns (uint256 got, uint256 attested, uint256 declared, uint256 took) {
+    ) private returns (uint256 got, uint256 bound, uint256 declared, uint256 took) {
         // A zero-input leg is a no-op: skip it entirely. A leg scaled to zero
         // input (for example the last leg when the Router holds no remaining
         // input) must never reach pool.swap(): the budget cap in _v3Callback
@@ -1773,7 +1780,7 @@ contract BlazePhoenixRouter {
         // The guard runs if there is ANY floor basis: the caller's attestation OR the quote
         // measured in-frame. It used to require `leg.expectedOut != 0`, and that made it a
         // CALLDATA OPT-OUT — whoever submitted the route switched off their own floor by writing
-        // zero, and with it switched off Layer 1 too (which sums these `attested`).
+        // zero, and with it switched off Layer 1 too (which sums these `bound`s).
         bool guard = legOut != address(0) && amt != 0
             && ((leg.expectedOut != 0 && leg.amountIn != 0) || (legQuote != 0 && legAmt != 0));
         uint256 balBefore;
@@ -1821,7 +1828,7 @@ contract BlazePhoenixRouter {
             if (got > declared) revert RouterE(20);
 
             // Base attested by the caller, pro-rata to the amount ACTUALLY spent.
-            uint256 bound = (leg.expectedOut != 0 && leg.amountIn != 0)
+            bound = (leg.expectedOut != 0 && leg.amountIn != 0)
                 ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)
                 : 0;
 
@@ -1886,7 +1893,7 @@ contract BlazePhoenixRouter {
             // `protocolFloorOut`) already documents the same defect and already fixed it with this
             // same ratio, threshold included. It was a fix applied to ONE of THREE symmetric
             // channels — and the third, Layer 1, is cured here for free because it sums this
-            // `attested`. Worse, the two reasoned about each other inconsistently: the aggregate
+            // `bound`. Worse, the two reasoned about each other inconsistently: the aggregate
             // floor invokes "the per-leg BPC.LEG_FLOOR_BPS guard at every pool seam" as one of the
             // barriers that cover it, and that guard did not know FoT existed.
             //
@@ -1920,7 +1927,6 @@ contract BlazePhoenixRouter {
                 }
             }
 
-            attested = bound;
             // R-C: a protective threshold never rounds DOWN. floor(1 * 0.8) is 0,
             // and `got < 0` cannot fire, so a one-wei bound demanded zero delivery.
             // The executor's own zero-output refusal dominates that window today,
@@ -2330,7 +2336,7 @@ contract BlazePhoenixRouter {
                 // `regPool` starts as the leg's field and is replaced by the derivation on that
                 // family. The depth handed with it is measured from that same poolId, so the
                 // registry receives a measurement under the identity it was measured on -
-                // which is what `_topKPools` ranks by and `_canInsert` evicts by.
+                // which is what `_rankedPools` ranks by and `_canInsert` evicts by.
                 address regPool = leg.pool;
                 bytes32 pid;
                 if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {

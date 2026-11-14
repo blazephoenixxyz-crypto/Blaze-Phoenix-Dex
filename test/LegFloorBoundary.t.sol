@@ -5,7 +5,7 @@ pragma solidity 0.8.36;
 //  LEG_FLOOR_BPS - the per-leg floor, isolated from the hop guard.
 //
 //    per leg (Router, `_execScaled`):  got < mulDivUp(bound, LEG_FLOOR_BPS, BPS) -> RouterE(5)
-//    per hop (Router, Layer 1):        hopGot + mulDiv(hopAttested / hopQuoted, BPS - LEG_FLOOR_BPS, BPS) < hopAttested
+//    per hop (Router, Layer 1):        hopGot + mulDiv(hopBound / hopQuoted, BPS - LEG_FLOOR_BPS, BPS) < hopBound
 //
 //  For ONE hop of ONE leg the two are mathematically the same condition
 //  (ceil(0.8b) == b - floor(0.2b)), so a `mulDivUp -> mulDiv` mutant on the leg guard is
