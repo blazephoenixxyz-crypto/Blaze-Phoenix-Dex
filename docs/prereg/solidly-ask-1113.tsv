@@ -12,6 +12,6 @@ note	the oracle is the pair's own curve (MockSolidlyPair.getAmountOut asked dire
 note	sample i: s = seed_i; word k = keccak256(abi.encode(s, k)); rIn, rOut = logIn(word 0, word 1, R_LO, R_HI); a = logIn(word 2, 1, rIn / 10); f = F_LO + word 3 mod (F_HI - F_LO + 1); zeroForOne = word 4 odd; logIn(w, lo, hi) = lo + ((w >> 8) mod 2^(w mod 100)) mod (hi - lo + 1)
 note	F_HI = 100 is derived: the pair has no factory, so the declared fee is the fee, and Core.readDynamicFee caps a declaration at V2_FEE_CEILING_BPS = 100 (above it reads 30)
 note	N_SAMPLES = 1024: with zero failures the 95% upper bound of the failure rate is 3/1024 (rule of three); it is the registered count, not a tolerance
-owner	F_ZERO	a declared fee of 0 reads as 30 in Core.readDynamicFee (the fallback), so f = 0 is a different law (fee from the fallback, not the declaration) and is left out of F_LO = 1; the owner decides whether it enters as its own case
-owner	R_RANGE	R_LO and R_HI are the registrant's extremes (1e15 to 1e30 raw units on 18-decimal tokens); the owner may replace them before the first result
-lock	47310c72bad08a9947836369ec741469f25fb3ae0dbf9039773a346ac340b0ae
+note	F_ZERO, decided by the owner (2026-11-14): f = 0 stays out of F_LO = 1. A declared fee of 0 reads as 30 in Core.readDynamicFee (the fallback), another law with its own case, test_ZeroDeclaredFeeIsAskedAtTheFallback
+note	R_RANGE, decided by the owner (2026-11-14): R_LO = 1e15 and R_HI = 1e30 stay (raw units on 18-decimal tokens)
+lock	c74ab0f7beb0d266597f93a6fc45078281c8ebf2ac89583c141f1f5c30438474

@@ -20,7 +20,8 @@ pragma solidity 0.8.36;
 //
 //  Guards, green at bb4cdbb: their reds are the mutants labelled `124-L2 Core:1545`,
 //  `124-L2 Core:1546` and `124-L2 Core:1537` in .github/scripts/mutants.py; the stable and the
-//  factory cases are `124-L2 Core:1545-stable` and `124-L2 Core:1546-factory`.
+//  factory cases are `124-L2 Core:1545-stable` and `124-L2 Core:1546-factory`; a declared
+//  fee of 0 (outside the registered F_LO = 1: another law) is `124-L2 Core:1766-zero`.
 //
 //  forge test --match-path test/SolidlyCurvePriceIsInvariantToTheAsk.t.sol -vv
 // =============================================================================
@@ -63,7 +64,7 @@ contract FactorySilentPair is SilentSolidlyPair {
 
 contract SolidlyCurveAskTest is Test {
     string internal constant PREREG_TAG = "solidly-ask-1113";
-    bytes32 internal constant PREREG_LOCK = 0x47310c72bad08a9947836369ec741469f25fb3ae0dbf9039773a346ac340b0ae;
+    bytes32 internal constant PREREG_LOCK = 0xc74ab0f7beb0d266597f93a6fc45078281c8ebf2ac89583c141f1f5c30438474;
     uint256 internal constant N_SAMPLES = 1024;
     uint256 internal constant R_LO = 1e15;
     uint256 internal constant R_HI = 1e30;
@@ -122,6 +123,14 @@ contract SolidlyCurveAskTest is Test {
         QuoteCtx memory c = _book(1e24, 1e24, g, false);
         c.fee = 30; // declared, and not what the pair charges
         _assertAsk(c, 1e20, g);
+    }
+
+    /// A declared fee of 0 is no declaration: with no factory it reads the fallback, 30 bps,
+    /// and the ask charges 1 - (1 - 0.003)(ASK / BPS), never a free curve.
+    function test_ZeroDeclaredFeeIsAskedAtTheFallback() public {
+        QuoteCtx memory c = _book(1e24, 2e24, 30, true);
+        c.fee = 0; // declared: the sentinel, not a fee
+        _assertAsk(c, 1e20, 30);
     }
 
     /// The pair's own curve asked 9,800 bps, and a kept share of (1 - f) times the ask.

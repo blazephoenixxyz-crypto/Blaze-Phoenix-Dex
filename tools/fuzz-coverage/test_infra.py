@@ -21,6 +21,7 @@ import prereg  # noqa: E402
 
 MC = os.path.join(ROOT, "docs", "prereg", "mc-1113.tsv")
 WF = os.path.join(ROOT, "docs", "prereg", "wf-1113.tsv")
+ASK = os.path.join(ROOT, "docs", "prereg", "solidly-ask-1113.tsv")
 
 
 class Matrix(unittest.TestCase):
@@ -48,11 +49,17 @@ class Prereg(unittest.TestCase):
     def test_prereg_wf_lock_matches_body(self):
         self.assertEqual(prereg.check_lock(WF), [])
 
+    def test_prereg_ask_lock_matches_body(self):
+        self.assertEqual(prereg.check_lock(ASK), [])
+
     def test_prereg_mc_binds_the_test(self):
         self.assertEqual(prereg.check_sol(MC, ROOT), [])
 
     def test_prereg_wf_binds_the_test(self):
         self.assertEqual(prereg.check_sol(WF, ROOT), [])
+
+    def test_prereg_ask_binds_the_test(self):
+        self.assertEqual(prereg.check_sol(ASK, ROOT), [])
 
     def test_prereg_results_must_carry_the_registered_lock(self):
         lock = prereg.read(MC)["lock"]

@@ -7631,6 +7631,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (outAmt == 0) revert RouterE(8);",
       new="        if (outAmt == 0 && !isV2) revert RouterE(8); // MUTANT",
       teste="test_ZeroBoundLegIsRefusedByTheExecutorNotTheFloor"),
+ dict(nome="124-L2 Core:1766-zero: a declared fee of 0 is charged as 0, not the 30 bps fallback: the ask prices a free curve",
+      f="src/BlazePhoenixCore.sol",
+      old="        fee = (cfgFee == 0 || cfgFee > V2_FEE_CEILING_BPS) ? 30 : cfgFee;",
+      new="        fee = cfgFee > V2_FEE_CEILING_BPS ? 30 : cfgFee; // MUTANT",
+      teste="test_ZeroDeclaredFeeIsAskedAtTheFallback"),
  # 124-L2 Core:1853 `if (dy >= y) dy = y / 2;` -> `dy = y` has NO entry: EQUIVALENT. The guard
  # FIRES (9118 times over 53517 sampled cases, X, Y, A log-uniform in 1..3.4e38; driven by
  # test_InputThatSwampsThePoolHalvesTheStep), but in 0/3475 sampled cases where it fires does
