@@ -261,3 +261,58 @@ Top three DEXes per chain by legs:
 those legs whose basis is `unknown` (legs named only by their `seed` kind are not in it). `# dex available` lists each venue of the universe with its pools, the
 routable ones and the ok legs that used it. The G8 report (`g8/report-bb4cdbb.tsv`) carries the same
 two sections, because g8.py prints g7's report first; this document cites none of its lines.
+
+## 8. Detailed breakdown
+
+Source: `docs/case-studies/data/gas-1114/g7/report-detail-bb4cdbb.tsv`, regenerated from the same
+`results-bb4cdbb.tsv` with the g7.py of the commit that adds it (command and sha256 in
+`provenance.tsv`). Its lines 1-4986 are byte-identical to `report-bb4cdbb.tsv`; lines 4987-5891 are
+the new sections. Below, `D:<n>` means line `n` of that file; the index of the sections and their
+data lines is D:5867-5891. Each table has one row per chain and value plus an `all` row, the
+outcome classes, and the `g_exec` percentiles with the results row of the maximum (`row:<n>`).
+`ci95_lo`/`ci95_hi` (Wilson) are filled only when the denominator is below 100 rows.
+
+| section | lines | what it splits |
+|---|---|---|
+| 8.1a-8.1d | D:4987-5198 | legs by kind and by DEX (leg frame gas), top 10 pools and top 10 pairs per chain |
+| 8.2a-8.2d | D:5199-5325 | legs, hops, topology (hops x single/split), direct vs via an intermediate token |
+| 8.3a-8.3b | D:5327-5367 | token class (measured), decimals of tin/tout |
+| 8.4a-8.4c | D:5370-5479 | USD size bucket, its basis, gas per leg by bucket |
+| 8.5a-8.5b | D:5481-5668 | stratum kind x USD bucket x outcome, decoded cause of every row not ok |
+| 8.6a-8.6c | D:5669-5864 | gas by segment, quote estimate vs execution, leg kind x USD bucket |
+
+**Topology** (D:5299-5303, all chains). `(absent)` is a row with no executed route: 1167 rows,
+which are the 707 `SolverE(5)` noquotes plus the 460 `mf_unforced` rows whose stamp was not found.
+
+| topology | rows | ok | g_exec p50 | p90 | source |
+|---|---|---|---|---|---|
+| 1h-single | 1956 | 1840 | 503455 | 908906 | D:5300 |
+| 1h-split | 646 | 610 | 1086392 | 2650011 | D:5301 |
+| 2h-single | 759 | 711 | 1137652 | 1742063 | D:5302 |
+| 2h-split | 272 | 264 | 1917830 | 4054655 | D:5303 |
+
+Robinhood has no `2h-split` row (D:5296-5298). 2-hop routes via an intermediate token: 1031 rows,
+975 ok (D:5325); which token bridged them is not recorded (8.2e).
+
+**Causes of every row not ok** (D:5662-5668, all chains): `SolverE(5)` 707, `stamp not found` 460,
+`discoverFor frame present` 74, `UniswapV2: TRANSFER_FAILED` 46, `RouterE` with its code not
+recorded 36, `BPC:transferFrom` 30, `canExecute=0` 22. The runner now records the selector and the
+code word of an execution revert, so a `RouterE` of a later campaign carries its code.
+
+**Token class** (D:5346-5348). `short_out` (delivered < `net_out`) is 432 of the 3425 ok rows;
+`normal` 2993. The class is measured on the delivered amount, not read from a token list.
+Decimals come from `site_tokens.json` (D:5349-5367): bsc is `unknown` on all 800 rows, because bsc
+is absent from that file (not measured, not zero).
+
+**USD size** (D:5370-5413). Only a side that is a listed stable is priced, at peg 1 (not measured);
+3112 rows (64.8 %) are `unpriced`, and bsc is unpriced on every row. The `>=1M` bucket has 88 rows,
+67 ok, g_exec p50 4692506 (D:5411). Gas per leg by bucket is D:5438-5479.
+
+**Quote estimate vs execution** (D:5734-5740). On all 3425 ok rows the executed gas is above the
+quote's `est_gas`: est p50 140000, exec p50 769420, delta p50 568614 (D:5740).
+
+**No data, not zero.** Six sections print `no data` because the column is missing from
+`results-bb4cdbb.tsv`: 8.2e `route_mid_token` (D:5326), 8.3c `tok_flags` (D:5368), 8.3d
+`tin_native` (D:5369), 8.4d `leg_amt` (D:5480), 8.7a `fb_used` (D:5865) and 8.7b `route_age_s`
+(D:5866). Rebase or exotic tokens, native input, the fallback to the runner-up and an aged route
+were not drawn or not recorded in this run; they need a new campaign.

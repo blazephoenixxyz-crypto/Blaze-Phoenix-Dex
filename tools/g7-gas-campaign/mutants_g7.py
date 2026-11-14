@@ -87,6 +87,19 @@ M = [  # (test id, old, new)
  ("DexUsage.test_legs_gas_draws_modes_over_ok_rows", "c[2].add(draw_key(r))", "c[2].add(id(r))"),
  ("DexUsage.test_legs_gas_draws_modes_over_ok_rows", 'if r.get("outcome") != "ok":\n            continue', "pass"),
  ("DexUsage.test_addr_basis_needs_the_same_kind_on_another_chain", "and k == kind and", "and"),
+ ("ExecRevert.test_exec_revert_keeps_the_selector_and_the_code_word", 'revert_detail("exec:", ret, 72)', 'revert_detail("exec:", ret)'),
+ ("Detail.test_keccak_matches_cast_at_the_padding_edges_and_the_src_selectors", "if (len(data) + 1) % 136 else", "if True else"),
+ ("Detail.test_wilson_interval_and_share_only_below_100", "c, h = (p + z * z / (2 * n)) / d", "c, h = (p + z * z / n) / d"),
+ ("Detail.test_wilson_interval_and_share_only_below_100", "if n < 100 else", "if True else"),
+ ("Detail.test_8_1_legs_by_kind_and_top_pools_over_ok_rows", 'legs = [(r, *x) for r in rows if r["outcome"] == "ok" for x in', 'legs = [(r, *x) for r in rows for x in'),
+ ("Detail.test_8_1_block_range_skips_absent_b", 'return [min(bs), max(bs)] if bs else ["", ""]', 'return [min(bs), max(bs)] if bs else [0, 0]'),
+ ("Detail.test_8_2_topology_hops_legs", "int(l) == int(h)", "int(l) != int(h)"),
+ ("Detail.test_8_3_token_class_and_decimals", '< int(r["net_out"])', '<= int(r["net_out"])'),
+ ("Detail.test_8_4_usd_bucket_edges_and_basis", "if usd < hi)", "if usd <= hi)"),
+ ("Detail.test_8_5_causes_decoded_with_their_code", "ERR_BY_SEL = {keccak256(s.encode())[:4]", "ERR_BY_SEL = {keccak256(s.encode())[:3]"),
+ ("Detail.test_8_6_gas_by_segment_and_estimate_delta", "mx = max(vals)", "mx = min(vals)"),
+ ("Detail.test_8_7_absent_columns_say_no_data", 'out += nodata("8.7a fallback to the runner-up (f82bc67)", "fb_used") if "fb_used" not in cols else []', "out += []"),
+ ("Detail.test_index_names_every_section_whole_with_its_line_count", '"8.3a token class (measured, delivered < net_out or leg_amt < amount_in)"', '"8.3a token class (measured: delivered < net_out, or leg_amt < amount_in)"'),
 ]
 # Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
 # must turn its named test red.
