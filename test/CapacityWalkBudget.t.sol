@@ -30,7 +30,8 @@ pragma solidity 0.8.36;
 //     ranked at its cap; the bridge that leads keeps the lead and its walk.
 //   - One hop: a held single beside an unheld rival or an unheld split, held
 //     legs of a split, a held book the band leaves alone, and a held book the
-//     funnel leaves out of a split the gate collapses are each settled by the walk.
+//     funnel leaves out of a split the gate collapses, onto a book or onto a V2
+//     pair whose promise no walk lowers, are each settled by the walk.
 //
 //  forge test --match-path test/CapacityWalkBudget.t.sol -vv
 // =============================================================================
@@ -43,6 +44,7 @@ import {BlazePhoenixCore as BPC, RoutePlan, Route, Leg} from "../src/BlazePhoeni
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV3BookPool} from "./mocks/MockV3BookPool.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 /// A V3-shaped book whose ticks() reads four storage words per tick, as UniswapV3Pool's does.
 contract HeavyBookPool is MockV3Pool {
@@ -731,6 +733,38 @@ contract CapacityWalkBudgetTest is Test {
         _log(plan);
         _i2(plan.best);
         assertGt(hPays, uPays, "precondition: the held book pays more than the collapsed single");
+        assertEq(plan.best.hops[0].legs.length, 1, "the hop is one leg");
+        assertEq(plan.best.hops[0].legs[0].pool, address(h), "on the held book");
+        assertEq(plan.best.totalOut, hPays, "promised what its book pays");
+        assertGe(_settles(amt, plan), _net(hPays), "and delivers it, net of the protocol fee");
+    }
+
+    /// The same collapse onto a V2 pair (reserves 50,000e18, 0.3%) in place of the 0.05%
+    /// book. No walk lowers a pair's promise, so the build goes back to the walk only on the
+    /// mark the collapse leaves. The pair pays ~119.35e18 for the order and leads at the
+    /// held book's cap (45e18); the held book pays ~119.97e18, and the walk settles it.
+    function test_3073_OneHop_CollapseOntoAV2Pair_PromiseIsTheHeldBook() public {
+        _book(t0, t1, 10_000, 1_000_000e18, 4_000e18);
+        _book(t0, t1, 10_000, 1_000_000e18, 4_001e18);
+        _book(t0, t1, 10_000, 1_000_000e18, 4_002e18);
+        uint112 r = 50_000e18;
+        MockV2Pair u = new MockV2Pair(t0, t1);
+        MockERC20(t0).mint(address(u), r);
+        MockERC20(t1).mint(address(u), r);
+        u.setReserves(r, r);
+        hub.seedPool(address(u), BPC.KIND_V2, 30, address(0), t0, t1);
+        MockV3BookPool h = _book(t0, t1, 100, 1_000_000e18, 150e18);
+        uint256 amt = 120e18;
+        uint256 hPays = BPC.v4WalkOut(address(h), bytes32(0), amt, 0, 0, h.token0() == t0);
+        // Uniswap V2's getAmountOut at 0.3%, written out: the oracle is not the code under test.
+        uint256 uPays = amt * 997 * r / (uint256(r) * 1000 + amt * 997);
+        emit log_named_uint("hPays", hPays);
+        emit log_named_uint("uPays", uPays);
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, amt);
+        _log(plan);
+        _i2(plan.best);
+        assertGt(hPays, uPays, "precondition: the held book pays more than the pair");
+        assertGt(uPays, BPC.mulDiv(150e18, 3_000, BPC.BPS), "precondition: the pair pays past the held book's cap");
         assertEq(plan.best.hops[0].legs.length, 1, "the hop is one leg");
         assertEq(plan.best.hops[0].legs[0].pool, address(h), "on the held book");
         assertEq(plan.best.totalOut, hPays, "promised what its book pays");
