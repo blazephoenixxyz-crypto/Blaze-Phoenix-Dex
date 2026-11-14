@@ -1,10 +1,6 @@
 {
  "ages": {
-  "M0": 0,
-  "M1h": 3600,
-  "M24h": 86400,
-  "M6h": 21600,
-  "M72h": 259200
+  "M0": 0
  },
  "chains": {
   "arbitrum": {
@@ -1582,7 +1578,7 @@
   },
   "base": {
    "block_time_hint": 0.7912,
-   "label": "fix123@2e4fdaa (selar), not main",
+   "label": "fallback-126@3f6f091 src, state tree 19bc178",
    "max_hops": 2,
    "native_wrap": "0x4200000000000000000000000000000000000006",
    "strata": [
@@ -1607,7 +1603,7 @@
      "gate_pool": "0x5332584890d6e415a6dc910254d6430b8aab7e69",
      "id": "gate-2-1",
      "kind": "gates",
-     "n": 5,
+     "n": 1,
      "seed_pools": [],
      "tA": "0x54330d28ca3357f294334bdc454a032e7f353416",
      "tB": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
@@ -1634,7 +1630,7 @@
      "gate_pool": "0x7b4c560f33a71a9f7a500af3c4c65b46fbbafdb7",
      "id": "gate-3-1",
      "kind": "gates",
-     "n": 5,
+     "n": 0,
      "seed_pools": [],
      "tA": "0x04c0599ae5a44757c0af6f9ec3b93da8976c150a",
      "tB": "0x4200000000000000000000000000000000000006",
@@ -1661,7 +1657,7 @@
      "gate_pool": "0x7ab124ec4029316c2a42f713828ddf2a192b36db",
      "id": "gate-3-2",
      "kind": "gates",
-     "n": 5,
+     "n": 0,
      "seed_pools": [],
      "tA": "0x88b1cd4b430d95b406e382c3cdbae54697a0286e",
      "tB": "0xc768c589647798a6ee01a91fde98ef2ed046dbd6",
@@ -1688,7 +1684,7 @@
      "gate_pool": "0x3df1658e3e76d14ef3c4d410829ea7575bb83b9b",
      "id": "gate-1-1",
      "kind": "gates",
-     "n": 5,
+     "n": 0,
      "seed_pools": [],
      "tA": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
      "tB": "0x417ac0e078398c154edfadd9ef675d30be60af93",
@@ -1715,7 +1711,7 @@
      "gate_pool": "0x63eb7846642630456707c3efbb50a03c79b89d81",
      "id": "gate-1-2",
      "kind": "gates",
-     "n": 4,
+     "n": 0,
      "seed_pools": [],
      "tA": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
      "tB": "0x59d9356e565ab3a36dd77763fc0d87feaf85508c",
@@ -1745,7 +1741,7 @@
       "pool": "0x6c561b446416e1a00e8e93e221854d6ea4171372",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 3000,
@@ -1793,7 +1789,7 @@
       "pool": "0x7aea2e8a3843516afa07293a10ac8e49906dabd1",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 500,
@@ -1841,7 +1837,7 @@
       "pool": "0xfbb6eed8e7aa03b138556eedaf5d271a5e1e43ef",
       "token0": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 500,
@@ -1889,7 +1885,7 @@
       "pool": "0xa41bc0affba7fd420d186b84899d7ab2ac57fcd1",
       "token0": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 100,
@@ -1937,7 +1933,7 @@
       "pool": "0xa6385c73961dd9c58db2ef0c4eb98ce4b60651e8",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 0,
@@ -1985,7 +1981,7 @@
       "pool": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
       "token0": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
      },
-     "n": 4,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 0,
@@ -2033,7 +2029,7 @@
       "pool": "0x3d5d143381916280ff91407febeb52f2b60f33cf",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 3000,
@@ -2081,7 +2077,7 @@
       "pool": "0xba3f945812a83471d709bce9c3ca699a19fb46f7",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 10000,
@@ -2129,7 +2125,7 @@
       "pool": "0x529d2863a1521d0b57db028168fde2e97120017c",
       "token0": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 3000,
@@ -2177,7 +2173,7 @@
       "pool": "0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 3000,
@@ -2225,7 +2221,7 @@
       "pool": "0x21594b992f68495dd28d605834b58889d0a727c7",
       "token0": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 0,
@@ -2273,7 +2269,7 @@
       "pool": "0xce1d8c90a5f0ef28fe0f457e5ad615215899319a",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 3000,
@@ -2316,7 +2312,7 @@
      },
      "id": "fee_low-2",
      "kind": "fee_low",
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 3000,
@@ -2359,7 +2355,7 @@
      },
      "id": "family_rep-1",
      "kind": "family_rep",
-     "n": 4,
+     "n": 1,
      "seed_pools": [],
      "tA": "0x54330d28ca3357f294334bdc454a032e7f353416",
      "tB": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
@@ -2383,7 +2379,7 @@
      },
      "id": "family_rep-2",
      "kind": "family_rep",
-     "n": 4,
+     "n": 0,
      "seed_pools": [],
      "tA": "0x04c0599ae5a44757c0af6f9ec3b93da8976c150a",
      "tB": "0x4200000000000000000000000000000000000006"
@@ -2407,7 +2403,7 @@
      },
      "id": "family_rep-3",
      "kind": "family_rep",
-     "n": 4,
+     "n": 0,
      "seed_pools": [],
      "tA": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
      "tB": "0x417ac0e078398c154edfadd9ef675d30be60af93"
@@ -2436,7 +2432,7 @@
       "pool": "0x2545aa19a1321ae5f52787333f6360baf4790931",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 10000,
@@ -2472,7 +2468,7 @@
       "pool": "0xd463e443a1f9eb579980c1af4c9f96638e61bc3b",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 10000,
@@ -2508,7 +2504,7 @@
       "pool": "0xdcc76e872350993ee49526d7bbe31512f295bcc0",
       "token0": "0x416eed25e8ed15d7dea46f0e958a216479be7e31"
      },
-     "n": 4,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 10000,
@@ -4135,7 +4131,7 @@
   },
   "optimism": {
    "block_time_hint": 2.0,
-   "label": "fix123@2e4fdaa (selar), not main",
+   "label": "fallback-126@3f6f091 src, state tree 19bc178",
    "max_hops": 2,
    "native_wrap": "0x4200000000000000000000000000000000000006",
    "strata": [
@@ -4163,7 +4159,7 @@
       "pool": "0xc1738d90e2e26c35784a0d3e3d8a9f795074bca4",
       "token0": "0x0b2c639c533813f4aa9d7837caf62653d097ff85"
      },
-     "n": 6,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 3000,
@@ -4211,7 +4207,7 @@
       "pool": "0xadab76dd2dca7ae080a796f0ce86170e482afb4a",
       "token0": "0x0b2c639c533813f4aa9d7837caf62653d097ff85"
      },
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 3000,
@@ -4259,7 +4255,7 @@
       "pool": "0x319c0dd36284ac24a6b2bee73929f699b9f48c38",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 0,
@@ -4307,7 +4303,7 @@
       "pool": "0x962e23cd3f58f887a5238082a75d223f71890629",
       "token0": "0x0b2c639c533813f4aa9d7837caf62653d097ff85"
      },
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 100,
@@ -4355,7 +4351,7 @@
       "pool": "0x6da98bde0068d10ddd11b468b197ea97d96f96bc",
       "token0": "0x1f32b1c2345538c0c6f582fcb022739c4a194ebb"
      },
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 0,
@@ -4403,7 +4399,7 @@
       "pool": "0xb533c12fb4e7b53b5524eab9b47d93ff6c7a456f",
       "token0": "0x0b2c639c533813f4aa9d7837caf62653d097ff85"
      },
-     "n": 6,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 3000,
@@ -4451,7 +4447,7 @@
       "pool": "0xa0a215de234276cac1b844fd58901351a50fec8a",
       "token0": "0x0b2c639c533813f4aa9d7837caf62653d097ff85"
      },
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 0,
@@ -4499,7 +4495,7 @@
       "pool": "0x58e6433a6903886e440ddf519ecc573c4046a6b2",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 0,
@@ -4547,7 +4543,7 @@
       "pool": "0xd25711edfbf747efce181442cc1d8f5f8fc8a0d3",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 0,
@@ -4590,7 +4586,7 @@
      },
      "id": "fee_high-1",
      "kind": "fee_high",
-     "n": 6,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 162706,
@@ -4621,7 +4617,7 @@
      },
      "id": "fee_high-2",
      "kind": "fee_high",
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 15000,
@@ -4652,7 +4648,7 @@
      },
      "id": "fee_low-1",
      "kind": "fee_low",
-     "n": 6,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 500,
@@ -4694,7 +4690,7 @@
      },
      "id": "fee_low-2",
      "kind": "fee_low",
-     "n": 6,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 100,
@@ -4725,7 +4721,7 @@
      },
      "id": "family_rep-1",
      "kind": "family_rep",
-     "n": 6,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 3000,
@@ -4767,7 +4763,7 @@
       "pool": "0x1bf31a0932a0035c532a7b1dcb94ffe0b35aed14",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 6,
+     "n": 1,
      "seed_pools": [
       {
        "fee": 0,
@@ -4815,7 +4811,7 @@
       "pool": "0x3ec701519898cebc3780c63aac1222432620e593",
       "token0": "0x4200000000000000000000000000000000000006"
      },
-     "n": 5,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 3000,
@@ -4849,7 +4845,7 @@
       "pool": "0xb712efccfed316762a65d5cb84e1c805bdc3c916",
       "token0": "0x0b2c639c533813f4aa9d7837caf62653d097ff85"
      },
-     "n": 5,
+     "n": 0,
      "seed_pools": [
       {
        "fee": 10000,
@@ -5345,15 +5341,18 @@
  },
  "criteria": "* gates stratum: the rows marked gate_top3 by inventory.finalize() (top 3 per chain x gate\n    family by measured liquidity); one stratum per row; venueKey = family<<16 | slot, slot =\n    liquidity rank inside (chain, adapter family) (Gate.sol: key 0 refused, family = key>>16).\n  * other strata: distinct pairs per chain, by class (major, midtail, fee_high, fee_low,\n    family_rep: deepest liq_usd first; shallow: shallowest liq_usd > 0 first). A row without\n    liq_usd is not ranked (absent is not zero).\n  * --universe: for the chains it lists, the pair strata are the site's token list instead of the\n    classes (site_weth: every token vs tokens[0] = WETH; site_stable: every token vs the stable;\n    site_major: pairs among featured tokens + SITE_MAJORS when listed), deduped by address pair;\n    a pair with no pool or balance in the inventory goes to not_covered (absent is not zero).\n    Chains outside the universe keep the classes; the gates strata never change.\n  * amounts: measured balance of the input token in the pair's deepest pool x 1e-7 .. 1e-1.\n  * seed_pools: <= 3 deepest seedable (non-gate) pools of the pair; mid_pool: deepest v2/v3/algebra.",
  "deadline_s": 600,
- "mf_ages": [
-  "M24h",
-  "M72h"
- ],
+ "mf_ages": [],
  "retries": {
   "attempts": 3,
   "backoff_s": 2,
   "timeout_s": 90
  },
+ "route_ages": [
+  7,
+  10,
+  20,
+  25
+ ],
  "state_fork": {
   "arbitrum": 510496864,
   "avalanche": 96488900,
@@ -5364,6 +5363,7 @@
   "robinhood": 76928651
  },
  "swaps_per_chain": 100,
+ "warm_after_m0": true,
  "window": {
   "t0": 1793491200,
   "t1": 1794441600
