@@ -400,6 +400,9 @@ library BlazePhoenixCore {
     // The PER-LEG floor lived alone in the Router while its three siblings lived here. It moves
     // next to them: a local per-pool cap, the same number the aggregate composition uses.
     uint16  internal constant LEG_FLOOR_BPS           = 8_000; // each leg delivers >= 80% of the bound
+    // The share of the in-frame quote a leg's bound never rests under (the Router's coverage
+    // gate). Here beside the floor it feeds: the Router refuses on it and the encode doors ask it.
+    uint16  internal constant MIN_QUOTE_COVERAGE_BPS  = 5_000;
 
     // ─── Protocol fee — SINGLE PRODUCER ────────────────────────────────────────────────────
     // It was declared TWICE, once in the Router and once in the Quoter, with the same value. The
