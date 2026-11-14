@@ -294,7 +294,9 @@ is now plain and checked: the impossible case reverts instead of reading 0 (SHAR
 `sumPsi`). `test/SplitRemainderIsTheLastLeg.t.sol` asserts that a split hop's legs spend exactly the
 caller's input and that `hop.amountIn` equals it (three V2 rows of unequal depth, a single-pool
 control, a fuzz over the order from 1e6 wei to 600k e18 and over the depths); the mutant
-[Solver:1032] shorts the remainder by one wei.
+[Solver:1032] shorts the remainder by one wei. `test/SplitSharesAreFloors.t.sol` pins the rounding
+direction that sum cannot see: on three rows of equal depth no leg gets less than floor(A / n), and
+the mutant [Solver:1034] (the shares rounded up) turns it red.
 
 **The loose shape's baseline, removed because no hop could take it (2026-11-14).** `Router._execute`
 set `bridgeBase[h - 1] = toutStart` when a hop past the first took the route's output in. With
