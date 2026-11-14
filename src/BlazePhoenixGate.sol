@@ -184,7 +184,8 @@ contract BlazePhoenixGate {
     }
 
     /// Instant: the curator's brake when a venue or an adapter misbehaves. Every wrapper of
-    /// the family reverts from the next block on; the other kinds are untouched.
+    /// the family reverts from the next call on, same block included (each swap reads
+    /// `liveAdapter`); the other kinds are untouched.
     function clearAdapter(uint8 f) external onlyControl {
         // The pin is left as it was: with adapterOf zero, liveAdapter answers zero whatever
         // the pin holds, and a later accept overwrites it.
@@ -227,7 +228,9 @@ contract BlazePhoenixGate {
         emit WrapperCreated(w, t0, t1, venueKey, vp);
     }
 
-    /// Read by the wrapper's constructor, inside `create`. Zero outside it.
+    /// Read by the wrapper's constructor, inside `create`. Zero before the first `create` of a
+    /// transaction; afterwards it holds that create's parameters until the transaction ends
+    /// (transient storage, never reset).
     function params()
         external view returns (address, address, uint24, address, bytes32, bytes32)
     {
@@ -240,7 +243,9 @@ contract BlazePhoenixGate {
     ///  - vitality: the wrapper's use rate (`vitalSlot`, material swaps only), decayed by Core
     ///    on the wrapper's own clock;
     ///  - depth18: the adapter's declared depth, read under BPC.GATE_QUOTE_GAS, capped by the
-    ///    shorter of the venue pool's two normalised holdings (BPC.shortSide18, the formula of
+    ///    shorter of the two normalised holdings at the venue's `venuePool` address: the pool
+    ///    itself, or the shared Vault for the Balancer adapters, where the cap is looser and
+    ///    the material bar stricter (BPC.shortSide18, the formula of
     ///    every pair depth the registry produces and of the adapters' own word): an adapter
     ///    declares the shorter side of what its venue reports, and an honest venue reports no
     ///    more than it holds, so an honest word is never cut and one mass reads one depth on
@@ -288,8 +293,9 @@ contract BlazePhoenixGate {
 contract BlazePhoenixGateWrapper {
     error GateE(uint8 code);
 
-    /// A swap counts as use only when it moves at least 2^-16 (~0.15 bps) of the venue pool's
-    /// holding on BOTH sides: the input against the venue's balance of the input token, the
+    /// A swap counts as use only when it moves at least 2^-16 (~0.15 bps) of the holding at
+    /// the venue's `venuePool` address (the pool itself, or the shared Vault for the Balancer
+    /// adapters) on BOTH sides: the input against the venue's balance of the input token, the
     /// output against its balance of the output token, each in its own token (no cross-token
     /// comparison). Dust pays gas and buys no vitality (W5-C1). The Core's constant: the same
     /// rule anchors a Hub row's clock (Core.tickDepth18), and a material tick here anchors this
