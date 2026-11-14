@@ -247,6 +247,10 @@ jobs:
 
   certora:
     name: Certora Prover (INV-20 effV4Fee fail-closed)
+    # Only by hand or on a push to main, not on every PR (owner's order, 2026-11-14): the
+    # prover's free tier is 2,000 minutes a month. It is not a required check, so a PR where
+    # it is skipped is not blocked.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
