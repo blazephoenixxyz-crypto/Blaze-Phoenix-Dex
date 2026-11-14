@@ -34,7 +34,8 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixMath, IHubMath} from "../src/BlazePhoenixMath.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
@@ -146,5 +147,59 @@ contract BoundaryEqualityTest is Test {
         vm.prank(user);
         uint256 got = router.swapExactIn(r, amountIn, 1, user, block.timestamp + 1);
         assertEq(got, G, "at the exact floor the swap MUST deliver");
+    }
+}
+
+// THE BAND's vote at a fee of exactly 1e6 pips (BlazePhoenixMath._mutedVotes, `>= PIPS`).
+//
+// A Solidly pair whose factory() answers a word that is not an address reads a fee of BPS
+// (`BPC.readDynamicFee`), and its probe states BPS * 100 = 1e6 pips (`BPC._solidlyAsk`): that
+// venue's "fee nobody knows" lands ON the boundary, where a Gate's (0xFFFFFF) lands past it. A
+// fee of 1e6 is unknown, so while a stated row votes, that row's mass does not choose the base.
+// Read at the library (`BlazePhoenixMath.select`) on rows built by hand, every row vouched
+// (`active`: no Hub read); the band's own edges are test/MedianBandMath.t.sol.
+//
+// RED at 1c33f29 with mutant "L1-124 Math:492" applied (`>= PIPS` -> `> PIPS`: the 1e6 row
+// votes, takes the base, and a base whose fee is the whole keeps every live row); GREEN at HEAD.
+contract BoundaryEqualityBandVoteTest is Test {
+    uint256 constant PIPS = 1_000_000;
+
+    /// The rows `select` keeps (bit i = row i): two pairs at 0.997 behind 0.3 %, one at half
+    /// that price, and a Solidly row of fee `fee3` paying 0.95e-6 per unit with most of the mass.
+    function _keptBeside(uint256 fee3) internal view returns (uint256 set) {
+        uint256[4] memory rate = [uint256(997e15), 997e15, 4985e14, 95e10];
+        uint256[4] memory fee = [uint256(3000), 3000, 3000, fee3];
+        uint256[4] memory mass = [uint256(1e18), 1e18, 1e17, 3e18];
+        uint256[] memory rates = new uint256[](4);
+        uint256[] memory depths = new uint256[](4);
+        uint256[] memory bals = new uint256[](4);
+        uint256[] memory fe = new uint256[](4);
+        PoolInfo[] memory c = new PoolInfo[](4);
+        for (uint256 i; i < 4; ++i) {
+            rates[i] = rate[i];
+            depths[i] = mass[i];
+            bals[i] = mass[i];
+            fe[i] = fee[i];   // error bounds 0
+            c[i] = PoolInfo({
+                active: true, stable: false, kind: i == 3 ? BPC.KIND_SOLIDLY : BPC.KIND_V2,
+                fee: 0, tickSpacing: 0, token0: address(0xA), token1: address(0xB),
+                pool: address(uint160(0x1000 + i)), hooks: address(0)
+            });
+        }
+        (uint256 nBand, , , uint256[] memory map, ) =
+            BlazePhoenixMath.select(rates, depths, bals, fe, c, address(0xA), IHubMath(address(0)), 8);
+        for (uint256 j; j < nBand; ++j) set |= 1 << map[j];
+    }
+
+    function test_AFeeOfExactlyOneMillionPipsDoesNotVote() public view {
+        // one pip under the whole: stated, so it votes; its price is 0.95e-6 / 1e-6 = 0.95, it
+        // holds 3 of the 5.1 units of mass and takes the base, and a base nearly all fee keeps
+        // every live row, the one at 0.5 too
+        assertEq(_keptBeside(PIPS - 1), 1 | 2 | 4 | 8, "a fee one pip under the whole is stated and votes");
+        // exactly the whole: unknown, it does not vote; the base is a pair at 0.997 behind 0.3 %,
+        // the row at 0.5 falls out, and the 1e6 row is judged from above only and stays
+        assertEq(_keptBeside(PIPS), 1 | 2 | 8, "a fee of exactly 1e6 pips voted as if it were stated");
+        // past the whole, a Gate's mark: unknown as well
+        assertEq(_keptBeside(0xFFFFFF), 1 | 2 | 8, "a fee past the whole voted");
     }
 }

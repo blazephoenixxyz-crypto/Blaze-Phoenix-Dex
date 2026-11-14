@@ -7563,6 +7563,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT) - 1) >> TAU_EMA_SHIFT;",
       new="                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT)) >> TAU_EMA_SHIFT; // MUTANTE",
       teste="test_TauFallsWhenTheIntervalShrinks"),
+ # 124-L1 D2: the vote's boundary at a fee of exactly 1e6 pips, what a Solidly pair whose factory()
+ # is not an address states (test/BoundaryEquality.t.sol, BoundaryEqualityBandVoteTest).
+ dict(nome="L1-124 Math:492: a fee of exactly 1e6 pips reads as stated, so a Solidly row nobody prices votes",
+      f="src/BlazePhoenixMath.sol",
+      old="                if ((fe[i] & FEE_MASK) >= PIPS) blind |= 1 << i;",
+      new="                if ((fe[i] & FEE_MASK) > PIPS) blind |= 1 << i; // MUTANTE",
+      teste="test_AFeeOfExactlyOneMillionPipsDoesNotVote"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
