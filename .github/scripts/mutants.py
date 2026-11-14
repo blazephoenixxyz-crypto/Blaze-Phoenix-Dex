@@ -7570,6 +7570,24 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                if ((fe[i] & FEE_MASK) >= PIPS) blind |= 1 << i;",
       new="                if ((fe[i] & FEE_MASK) > PIPS) blind |= 1 << i; // MUTANTE",
       teste="test_AFeeOfExactlyOneMillionPipsDoesNotVote"),
+ # THE BAND at the edge of a row's stated fee: 1e6 pips is unknown, judged from above only with
+ # its own fee read as 0; 1e6 - 1 is stated, judged from both sides. And the all-dead exit of
+ # `_select` (test/SelectBandEdges.t.sol).
+ dict(nome="L1-124 Math:537: a row fee of exactly 1e6 pips is kept as stated, so the row keeps nothing and passes the upper edge",
+      f="src/BlazePhoenixMath.sol",
+      old="                    uint256 ki = _keep(f < PIPS ? f : 0, (fe[i] >> 24) & ERR_MASK);   // (1-f_i)(1-e_i)",
+      new="                    uint256 ki = _keep(f <= PIPS ? f : 0, (fe[i] >> 24) & ERR_MASK);   // (1-f_i)(1-e_i) MUTANTE",
+      teste="test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnly"),
+ dict(nome="L1-124 Math:539: a row fee of exactly 1e6 pips is asked the lower edge it cannot answer",
+      f="src/BlazePhoenixMath.sol",
+      old="                        && (f >= PIPS || p >= BPC.mulDiv(pb, ki * kbLo / BPC.WAD, BPC.WAD))) set |= 1 << i;",
+      new="                        && (f > PIPS || p >= BPC.mulDiv(pb, ki * kbLo / BPC.WAD, BPC.WAD))) set |= 1 << i; // MUTANTE",
+      teste="test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnly"),
+ dict(nome="L1-124 Math:166: the all-dead exit of _select dropped, so a hop with no live row is based and weighed",
+      f="src/BlazePhoenixMath.sol",
+      old="            if (m == 0) return (0, 0, 0, psis);   // all dead: nothing quotable",
+      new="            if (m == 0 && false) return (0, 0, 0, psis);   // MUTANTE",
+      teste="test_AHopWhoseRowsAllReadZeroSelectsNothing"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
