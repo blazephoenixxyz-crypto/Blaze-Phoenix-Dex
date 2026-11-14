@@ -4,6 +4,10 @@ pragma solidity 0.8.36;
 import {AdapterHarness} from "./AdapterHarness.sol";
 import {BlazePhoenixGateWrapper, IExtAdapter} from "../../src/BlazePhoenixGate.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
+import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
+import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
+import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, QuoteCtx} from "../../src/BlazePhoenixCore.sol";
 
 /// Holds the real tokens of a wrapper the Gate did not create.
 contract ImpostorWrapper {
@@ -181,6 +185,117 @@ abstract contract AdapterConformance is AdapterHarness {
         (cold[0], cold[1], cold[2]) = (adapter_, venue_, w_);
         _armUnderCap(w_, true, 1e18, cold);
         _armUnderCap(w_, false, 1e18, cold);
+    }
+
+    // ─── A12 (B4): one leg, one price, four producers ───
+    // The wrapper's own view `quote` is the price; the Core's `gateQuote` (the Router's identity
+    // first), the Solver's kind-9 arm (`universalQuoteRank`), the Quoter's committed pass and
+    // the Router's fill must all read that price, and all read 0 for a wrapper that is not live.
+
+    address internal constant USER = address(0xA11CE);
+
+    /// The Hub, Router and Quoter around this Gate; `admit` registers the Gate as a kind-9
+    /// factory for this wrapper's key, so the wrapper is live (`BPC.gateWrapperLive`).
+    function _stack(bool admit) internal returns (BlazePhoenixHub hub, BlazePhoenixRouter router, BlazePhoenixQuoter quoter) {
+        hub = new BlazePhoenixHub(address(this));
+        hub.initialize(address(this), address(0xBEEF));
+        hub.setRoles(address(this), address(this), address(this));
+        if (admit) {
+            uint24[] memory fees = new uint24[](1);
+            fees[0] = key_;
+            hub.addFactory(address(gate), BPC.KIND_EXTERNAL, 5, gate.WRAPPER_INIT_HASH(), fees, new int24[](0));
+        }
+        router = new BlazePhoenixRouter(address(hub), address(0xD0D0), address(this), address(0xFEE1), address(0xFEE2));
+        quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
+    }
+
+    function _route1(bool z, uint256 amt) internal view returns (Route memory r) {
+        (address tIn, address tOut) = z ? (address(t0), address(t1)) : (address(t1), address(t0));
+        Leg[] memory l = new Leg[](1);
+        l[0] = Leg({pool: w_, hooks: address(0), kind: BPC.KIND_EXTERNAL, fee: key_, tickSpacing: 0,
+            zeroForOne: z, stable: false, amountIn: amt, expectedOut: 0, auxId: bytes32(0)});
+        Hop[] memory hs = new Hop[](1);
+        hs[0] = Hop({tokenIn: tIn, tokenOut: tOut, amountIn: amt, expectedOut: 0, legs: l});
+        r = Route({hops: hs, totalOut: 0, singleOut: 0, singleOutFloor: 0, expectedImpactBps: 0,
+            confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+    }
+
+    function _ctx(address hub, bool z) internal view returns (QuoteCtx memory c) {
+        (address tIn, address tOut) = z ? (address(t0), address(t1)) : (address(t1), address(t0));
+        c = QuoteCtx({kind: BPC.KIND_EXTERNAL, pool: w_, zeroForOne: z, fee: key_, tickSpacing: 0, stable: false,
+            tokenIn: tIn, tokenOther: tOut, hooks: address(0), v4Manager: address(0), hub: hub, decIn1: 0, decOther1: 0});
+    }
+
+    /// The Quoter as an integrator runs it (eth_call: tx.origin 0, state thrown away).
+    function _preview(BlazePhoenixQuoter quoter, bool z, uint256 amt) internal returns (Route memory q, uint256 exactOut) {
+        uint256 s = vm.snapshotState();
+        vm.prank(address(this), address(0));
+        (q, exactOut) = quoter.previewRouteExact(_route1(z, amt), amt);
+        vm.revertToState(s);
+    }
+
+    /// @notice A12: over a fixed grid (both directions; dust, 1 % and 10 % of the holdings) the
+    ///         four producers read the wrapper's own price. A view price q != 0: `gateQuote` and
+    ///         the Solver's arm return q, the Quoter commits q on the leg. A view price of 0 (a
+    ///         venue that prices only by running the swap): the Solver does not rank the row and
+    ///         the Quoter commits `quoteCall`. The Router then fills at least the Quoter's floor.
+    ///         Every cell must be priced by the Quoter, so a grid that prices nothing is red.
+    function test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice() public {
+        (BlazePhoenixHub hub, BlazePhoenixRouter router, BlazePhoenixQuoter quoter) = _stack(true);
+        uint256[3] memory amts = [uint256(1e6), HOLD / 100, HOLD / 10];
+        uint256 cells;
+        for (uint256 k; k < 6; ++k) {
+            (bool z, uint256 amt) = (k % 2 == 0, amts[k / 2]);
+            (uint256 q, ) = BlazePhoenixGateWrapper(w_).quote(z, amt);
+            uint256 priced = _price(z, amt);
+            assertGt(priced, 0, "A12 premise: the cell is priced");
+            (address tIn, address tOut) = z ? (address(t0), address(t1)) : (address(t1), address(t0));
+            (bool live, uint256 g, ) = BPC.gateQuote(address(hub), w_, tIn, tOut, key_, z, amt, false);
+            assertTrue(live, "A12 premise: the admitted wrapper is live");
+            assertEq(g, q, "A12 (i) gateQuote reads the wrapper's view price");
+            (uint256 u, , uint256 rank, ) = BPC.universalQuoteRank(_ctx(address(hub), z), amt, 0, false);
+            assertEq(u, q, "A12 (ii) the Solver's kind-9 arm reads the same price");
+            if (q == 0) assertEq(rank, 0, "A12 (ii') a row the view does not price is not ranked");
+            (Route memory r, uint256 exactOut) = _preview(quoter, z, amt);
+            assertEq(r.hops[0].legs[0].expectedOut, priced, "A12 (iii) the Quoter commits the same price");
+            assertGt(exactOut, 0, "A12 (iii) the Quoter's floor is priced");
+            (MockERC20 mIn, MockERC20 mOut) = z ? (t0, t1) : (t1, t0);
+            mIn.mint(USER, amt);
+            vm.startPrank(USER);
+            mIn.approve(address(router), amt);
+            uint256 b = mOut.balanceOf(USER);
+            uint256 got = router.swapExactIn(r, amt, 1, USER, block.timestamp + 1);
+            vm.stopPrank();
+            assertEq(mOut.balanceOf(USER) - b, got, "A12 (iv) the Router reports what it delivered");
+            assertGe(got, exactOut, "A12 (iv) the Router fills the Quoter's floor");
+            ++cells;
+        }
+        assertEq(cells, 6, "A12 the grid ran every cell");
+    }
+
+    /// @notice A12, `gateWrapperLive == false`: the Gate is not admitted by this Hub, so the
+    ///         wrapper is not live although its adapter still prices it. All four producers read
+    ///         0 and the Router refuses the leg by its own code (RouterE(19)).
+    function test_Conf_A12_GateLegPriceCommutes_NotLiveIsZeroInAllFour() public {
+        (BlazePhoenixHub hub, BlazePhoenixRouter router, BlazePhoenixQuoter quoter) = _stack(false);
+        uint256 amt = HOLD / 100;
+        assertGt(_price(true, amt), 0, "A12 premise: the adapter prices the leg");
+        assertFalse(BPC.gateWrapperLive(address(hub), w_, address(t0), address(t1), key_), "A12 premise: not live");
+        (bool live, uint256 g, uint256 d) = BPC.gateQuote(address(hub), w_, address(t0), address(t1), key_, true, amt, true);
+        assertFalse(live, "A12 (i) not live");
+        assertEq(g, 0, "A12 (i) gateQuote prices a wrapper that is not live 0");
+        assertEq(d, 0, "A12 (i) and gives it no depth");
+        (uint256 u, uint256 dw, uint256 rank, ) = BPC.universalQuoteRank(_ctx(address(hub), true), amt, 0, false);
+        assertEq(u + dw + rank, 0, "A12 (ii) the Solver's arm reads 0 and does not rank the row");
+        (Route memory r, uint256 exactOut) = _preview(quoter, true, amt);
+        assertEq(r.hops[0].legs[0].expectedOut, 0, "A12 (iii) the Quoter commits 0");
+        assertEq(exactOut, 0, "A12 (iii) and promises 0");
+        t0.mint(USER, amt);
+        vm.startPrank(USER);
+        t0.approve(address(router), amt);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(19)));
+        router.swapExactIn(_route1(true, amt), amt, 1, USER, block.timestamp + 1);
+        vm.stopPrank();
     }
 }
 
