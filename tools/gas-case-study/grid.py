@@ -3,13 +3,14 @@
 No RPC. Deterministic: same inputs -> same bytes."""
 import hashlib
 import math
+import os
 import sys
 
-sys.path.insert(0, "/home/blaze/bp-dex-wt-pr124-L6/tools/gas-case-study")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import universe as U  # noqa: E402  (select() and COLS only)
 
-WT = "/home/blaze/bp-dex-wt-pr124-L6"
-SC = "/tmp/claude-1001/-home-blaze-cofre/7ec5bc6d-a2bc-5b80-962c-426232415b7e/scratchpad/uni"
+WT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+SC = os.environ["GCS_TOKENS_DIR"]  # per-chain <chain>.tsv.tokens from the price fetch
 CHAINS = ["base", "ethereum", "optimism", "arbitrum", "robinhood", "avalanche", "bsc"]
 WRAP = dict(arbitrum="0x82af49447d8a07e3bd95bd0d56f35241523fbab1", avalanche="0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7",
             base="0x4200000000000000000000000000000000000006", bsc="0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
