@@ -154,12 +154,25 @@ def _is_run_by_ci(path, workflows=None):
     return False
 
 
+def profile(bodies):
+    """(n, distinct count per axis) over the bodies of evidence that run.
+
+    A spec no gating command runs is classified ("unrun", "none") and confirms nothing, so it
+    is left out on every axis: counted, it would add a tool and an environment to any property
+    it names and lift a profile it does not support."""
+    live = [a for a in bodies if a[2] != "unrun"]
+    if not live:
+        return 0, [0] * 5
+    return len(live), [len(set(c)) for c in zip(*live)]
+
+
 def _self_test():
     """Each way a job can name a spec without enforcing it, and the one way it does.
 
     Mutant that must turn this red: drop the `_MASKED` filter (or the continue-on-error skip) in
     _gating_commands, or the comment strip in _commands - a masked or commented spec then
-    reports as run by CI."""
+    reports as run by CI; or drop the "unrun" filter in profile - an unrun spec then counts
+    as a second tool and environment."""
     import tempfile
     sol = tempfile.NamedTemporaryFile("w", suffix=".t.sol", delete=False)
     sol.write("contract FooFormalSpec {}\n")
@@ -200,6 +213,18 @@ def _self_test():
         bad += not ok
         print(("ok   " if ok else "FAIL ") + f"{name}: run by CI = {got}, expected {want}")
     os.unlink(sol.name)
+    # An unrun spec beside two unit tests adds no tool, environment or confirmation.
+    unit = ("production-lib", "literal", "forge", "unit", "example")
+    unrun = ("hand-stated", "self", "unrun", "none", "example")
+    for name, bodies, want in [
+        ("unrun spec beside unit tests", [unit, unit, unrun], (2, [1, 1, 1, 1, 1])),
+        ("only an unrun spec", [unrun], (0, [0] * 5)),
+    ]:
+        got = profile(bodies)
+        ok = got == want
+        bad += not ok
+        cases.append(name)
+        print(("ok   " if ok else "FAIL ") + f"{name}: profile = {got}, expected {want}")
     if bad:
         sys.exit("evidence_independence self-test: %d case(s) wrong" % bad)
     print("evidence_independence self-test: %d cases, each way to name a spec without "
@@ -275,11 +300,8 @@ for g in guards:
         for p, t in files.items():
             if re.search(r"\bfunction\s+%s\s*\(" % re.escape(tn), t) and (p, t) not in ev:
                 ev.append((p, t))
-    if not ev:
-        rows.append({"guard": g, "n": 0, "profile": [0] * 5, "min": 0}); continue
-    cols = list(zip(*[axes_of(p, t) for p, t in ev]))
-    prof = [len(set(c)) for c in cols]
-    rows.append({"guard": g, "n": len(ev), "profile": prof, "min": min(prof)})
+    n, prof = profile([axes_of(p, t) for p, t in ev])
+    rows.append({"guard": g, "n": n, "profile": prof, "min": min(prof)})
 
 w = max(len(r["guard"]) for r in rows)
 print(f"{'GUARD':{w}}  {'bodies':>6}  src orc tool env meth   min")
