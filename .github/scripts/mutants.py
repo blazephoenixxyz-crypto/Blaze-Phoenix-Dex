@@ -7543,6 +7543,15 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                share = amountIn - allocated;",
       new="                share = amountIn - allocated - 1; // MUTANTE",
       teste="test_TheSplitLegsSpendExactlyTheInput"),
+# 124-L3 (2026-11-14): the KKT gap certificate (docs/assurance/kkt-gap.tsv) and the V4 narrow-position
+# share (docs/assurance/v4-narrow.tsv). Not registered, both survive: B9-M2 (`_onTrial` `>=` -> `>`), the
+# bench has no leg whose rate ties a trial rate to the wei; B13-M2 (`_v4Ceil` without its cap), it bites
+# only when out + c exceeds 2^128 - 1.
+ dict(nome="124-L3 B9-M1 Math:655: every depth weighs the same in psi, so the split's gap leaves the certificate",
+      f="src/BlazePhoenixMath.sol",
+      old="            uint256 w = mx == 0 ? 1 : BPC.mulDiv(depth[i], 10_000, mx);",
+      new="            uint256 w = 1; // MUTANTE",
+      teste="test_GapIsWithinTheCertificate"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
