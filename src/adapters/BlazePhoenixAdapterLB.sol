@@ -39,6 +39,14 @@ interface ILBPair {
 ///         hooks of now (the factory's hooks manager changes them at any time).
 ///         aux0 = X0 (token0 is tokenX) | HOOKED (the pair answered getLBHooksParameters).
 ///         aux1 = the BEFORE_SWAP hook pinned at create (0 when none).
+///         ROUTING FLAG, IGNORED BY DESIGN: the factory record's fourth field,
+///         ignoredForRouting, is never read, at `resolve` or after. It is a discovery hint for
+///         LFJ's own quoter (its path search skips flagged pairs; its router and the pair never
+///         read it), not a safety property, and the factory's owner flips it at any time. What
+///         holds without it: the pair's identity is the factory's record (`resolve`); its hooks
+///         are read live on every exec, quote and quoteCall (`_hooksOk`); the wrapper measures
+///         the output at the recipient, never this adapter's word; the floors are the Router's;
+///         and the Gate's curator decides at `create` which pairs get a wrapper.
 contract BlazePhoenixAdapterLB is ExtAdapterBase, IExtAdapter {
     uint256 internal constant X0 = 1;
     uint256 internal constant HOOKED = 2;
@@ -53,6 +61,9 @@ contract BlazePhoenixAdapterLB is ExtAdapterBase, IExtAdapter {
         FACTORY = ILBFactory(factory);
     }
 
+    /// Asked once, by the Gate's `create`; the wrapper keeps the answer as immutables. Takes the
+    /// pair from the factory's record and drops its ignoredForRouting flag on purpose (see the
+    /// contract notice): a flagged pair resolves like any other, and the curator decides.
     function resolve(address t0, address t1, uint24, bytes calldata hint)
         external view returns (address pair, bytes32 aux0, bytes32 aux1)
     {
