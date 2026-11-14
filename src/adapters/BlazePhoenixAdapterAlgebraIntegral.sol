@@ -61,7 +61,9 @@ contract BlazePhoenixAdapterAlgebraIntegral is ExtAdapterBase, IExtAdapter {
     address transient _tIn;
     uint256 transient _amt;
 
-    constructor(address gate, address factory, address poolDeployer, bytes32 initHash) ExtAdapterBase(gate) {
+    constructor(address gate, address factory, address poolDeployer, bytes32 initHash)
+        ExtAdapterBase(gate, [bytes32(0), bytes32(0), bytes32(0)])
+    {
         if (factory == address(0) || poolDeployer == address(0) || initHash == bytes32(0)) revert AdapterE(0);
         (FACTORY, POOL_DEPLOYER, POOL_INIT_CODE_HASH) = (IAlgebraCustomFactory(factory), poolDeployer, initHash);
     }
