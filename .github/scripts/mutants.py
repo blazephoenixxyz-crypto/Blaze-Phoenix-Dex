@@ -7586,6 +7586,24 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        out = solidlyGetAmountOut(pool, amountIn, tokenIn);\n        if (out > 1) {",
       new="        out = solidlyGetAmountOut(pool, amountIn, tokenIn);\n        if (out > 0) { // MUTANTE",
       teste="test_AskAtTheSeamMatchesTheGetAmountOutPath"),
+ dict(nome="124-L2 Core:1840: the Solidly stable Newton is capped at 8 steps: a skewed pool reads as unpriceable",
+      f="src/BlazePhoenixCore.sol",
+      old="        for (uint256 i; i < 64; ) {",
+      new="        for (uint256 i; i < 8; ) { // MUTANTE",
+      teste="test_SkewedPoolConverges"),
+ dict(nome="124-L2 Core:1863: the converged Newton exit is not bumped to the safe side (K_post < K_pre)",
+      f="src/BlazePhoenixCore.sol",
+      old="                if (_solK(x, y) < K) y += 1;",
+      new="                // MUTANTE",
+      teste="testFuzz_ExitIsOnTheSafeSide"),
+ dict(nome="124-L2 Core:1844: the Newton derivative undercounts the y^2 term (2 instead of 3): the step overshoots and never settles",
+      f="src/BlazePhoenixCore.sol",
+      old="            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 3 * mulDiv(y, y, WAD), WAD);",
+      new="            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 2 * mulDiv(y, y, WAD), WAD); // MUTANTE",
+      teste="test_ShallowTradeOnADeepSideConverges"),
+ # 124-L2 Core:1853 `if (dy >= y) dy = y / 2;` -> `dy = y` has NO entry: EQUIVALENT. Seeded at the
+ # output reserve, Newton descends a convex k(x, .) from above, and a tangent from above never
+ # crosses zero, so dy < y on every reachable step (no input changed by the swap, sampled 2026-11-14).
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
