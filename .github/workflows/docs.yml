@@ -42,8 +42,13 @@ jobs:
         with:
           submodules: recursive
 
+      # Pinned to v1.7.1, the last release whose `forge doc` builds an mdbook
+      # (`--build`, output in docs-api/book). From v1.8.0 `forge doc` emits a
+      # vocs scaffold instead and `--build` is gone, which broke this job.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
 
       - name: Generate the reference from natspec
         run: forge doc --build --out docs-api

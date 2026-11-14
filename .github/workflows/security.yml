@@ -69,22 +69,23 @@ jobs:
       # Upstream retired every binary channel: releases now carry only the
       # .sha256 files, so `releases/latest/download/...tar.xz` returns 404.
       # The source of the last release stays published, so the analyzer is
-      # built from that tag, pinned by commit, and cached by that commit.
+      # built from that tag, pinned by the commit the tag points to (`^{}`, not
+      # the tag object), and cached by that commit.
       - name: Cache Aderyn build
         id: aderyn-cache
         uses: actions/cache@v4
         with:
           path: ./aderyn-bin
-          key: aderyn-6db35c89ebc29b727e9719d2e9f645060c8c2cf7
+          key: aderyn-a288420403cb1ae5f38ce606c3a6d4e605b9c81d
       - name: Build Aderyn v0.6.8 from source (pinned commit)
         if: steps.aderyn-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           git init -q ./.aderyn-src
           git -C ./.aderyn-src fetch -q --depth 1 https://github.com/Cyfrin/aderyn \
-            6db35c89ebc29b727e9719d2e9f645060c8c2cf7
+            a288420403cb1ae5f38ce606c3a6d4e605b9c81d
           git -C ./.aderyn-src checkout -q FETCH_HEAD
-          test "$(git -C ./.aderyn-src rev-parse HEAD)" = 6db35c89ebc29b727e9719d2e9f645060c8c2cf7
+          test "$(git -C ./.aderyn-src rev-parse HEAD)" = a288420403cb1ae5f38ce606c3a6d4e605b9c81d
           cargo build --release --locked -p aderyn --manifest-path ./.aderyn-src/Cargo.toml
           cp ./.aderyn-src/target/release/aderyn ./aderyn-bin
           chmod +x ./aderyn-bin
