@@ -47,41 +47,41 @@ contract CompositionFormalSpec is Test {
     }
 
     // ─── INVARIANTE B: orçamento por hop (Camada 1) ───
-    // Σgot + folga >= Σatestado, com folga = (BPS-LEG_FLOOR)*(Σatestado/n)/BPS.
+    // Σgot + folga >= hopBound (= ΣlegBound), com folga = (BPS-LEG_FLOOR)*(hopBound/n)/BPS.
     // A propriedade CRÍTICA (a que o Gemini demoliu na v1): para n == 1 a regra
     // do hop tem de colapsar EXATAMENTE no piso por perna — nem mais apertada
     // (rigidez nova) nem mais larga (proteção perdida).
-    function _hopPasses(uint256 got, uint256 attested, uint256 n) internal pure returns (bool) {
-        if (attested == 0 || n == 0) return true;
-        uint256 slack = BPC.mulDiv(attested / n, BPS - LEG_FLOOR_BPS, BPS);
-        return got + slack >= attested;
+    function _hopPasses(uint256 got, uint256 hopBound, uint256 n) internal pure returns (bool) {
+        if (hopBound == 0 || n == 0) return true;
+        uint256 slack = BPC.mulDiv(hopBound / n, BPS - LEG_FLOOR_BPS, BPS);
+        return got + slack >= hopBound;
     }
 
     /// n == 1: a regra do hop é EQUIVALENTE ao piso por perna. Zero rigidez nova,
     /// provado sobre todos os inputs — não em três casos de teste.
-    function check_hopCollapsesToLegFloorAtN1(uint128 got, uint128 attested) public pure {
-        vm.assume(attested != 0);
-        bool hop = _hopPasses(uint256(got), uint256(attested), 1);
-        bool leg = uint256(got) >= BPC.mulDivUp(uint256(attested), LEG_FLOOR_BPS, BPS);
+    function check_hopCollapsesToLegFloorAtN1(uint128 got, uint128 hopBound) public pure {
+        vm.assume(hopBound != 0);
+        bool hop = _hopPasses(uint256(got), uint256(hopBound), 1);
+        bool leg = uint256(got) >= BPC.mulDivUp(uint256(hopBound), LEG_FLOOR_BPS, BPS);
         assertTrue(hop == leg);
     }
 
     /// A folga NUNCA excede o que UMA perna média poderia legitimamente perder.
     /// Impede que a regra se torne mais permissiva do que o piso que a origina.
-    function check_slackNeverExceedsOneAverageLeg(uint128 attested, uint8 n) public pure {
+    function check_slackNeverExceedsOneAverageLeg(uint128 hopBound, uint8 n) public pure {
         vm.assume(n != 0);
-        vm.assume(attested != 0);
-        uint256 slack = BPC.mulDiv(uint256(attested) / n, BPS - LEG_FLOOR_BPS, BPS);
-        assertLe(slack, BPC.mulDiv(uint256(attested), BPS - LEG_FLOOR_BPS, BPS));
+        vm.assume(hopBound != 0);
+        uint256 slack = BPC.mulDiv(uint256(hopBound) / n, BPS - LEG_FLOOR_BPS, BPS);
+        assertLe(slack, BPC.mulDiv(uint256(hopBound), BPS - LEG_FLOOR_BPS, BPS));
     }
 
     /// Aumentar n só pode APERTAR a folga (nunca alargá-la) — é o que torna o
     /// orçamento não-manipulável por quem acrescenta pernas.
-    function check_moreLegsNeverLoosensBudget(uint128 attested, uint8 n) public pure {
+    function check_moreLegsNeverLoosensBudget(uint128 hopBound, uint8 n) public pure {
         vm.assume(n != 0 && n < 255);
-        vm.assume(attested != 0);
-        uint256 s1 = BPC.mulDiv(uint256(attested) / n, BPS - LEG_FLOOR_BPS, BPS);
-        uint256 s2 = BPC.mulDiv(uint256(attested) / (uint256(n) + 1), BPS - LEG_FLOOR_BPS, BPS);
+        vm.assume(hopBound != 0);
+        uint256 s1 = BPC.mulDiv(uint256(hopBound) / n, BPS - LEG_FLOOR_BPS, BPS);
+        uint256 s2 = BPC.mulDiv(uint256(hopBound) / (uint256(n) + 1), BPS - LEG_FLOOR_BPS, BPS);
         assertLe(s2, s1);
     }
 }

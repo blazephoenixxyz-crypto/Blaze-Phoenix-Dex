@@ -7,8 +7,8 @@ pragma solidity 0.8.36;
 //  The protective floor of a route is produced three times:
 //    - the Solver attests it (`singleOutFloor = mulDivUp(base, floorBps, BPS)`,
 //      BlazePhoenixSolver.sol:1812);
-//    - the Quoter re-walks the route and rescales it onto its own gross
-//      (`floorExact = mulDiv(singleOutFloor, gross, planOut)`, BlazePhoenixQuoter.sol:902-903);
+//    - the Quoter re-walks the route and rescales it onto its own walk output
+//      (`floorExact = mulDiv(singleOutFloor, walkOut, planOut)`, BlazePhoenixQuoter.sol:902-903);
 //    - the Router enforces its OWN floor from the in-frame quote of the final hop
 //      (`protocolFloorOut = mulDivUp(finalHopQuote, floorBps, BPS)`, BlazePhoenixRouter.sol:1588)
 //      and emits it in `ExecutionProof`.

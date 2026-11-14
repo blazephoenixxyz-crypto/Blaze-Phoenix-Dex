@@ -79,10 +79,10 @@ contract RouteQualityProbeMocksTest is Test, RouteQualityRecorder {
         _v4("V4b", 100, 1, 79196073533347128081182, -276333, 1167826278346632);
     }
 
-    function _v3(string memory label, uint160 sqrtP, uint128 liq, uint256 held) internal {
+    function _v3(string memory label, uint160 sqrtP, uint128 liq, uint256 holdings) internal {
         MockV3Pool p = new MockV3Pool(dai, usdc, 100);
         p.setState(sqrtP, liq);
-        RqToken(dai).mint(address(p), held);
+        RqToken(dai).mint(address(p), holdings);
         hub.seedPool(address(p), BPC.KIND_V3, 100, address(0), dai, usdc);
         console2.log(string.concat("RQ mock ", label), address(p));
     }

@@ -7,7 +7,7 @@ pragma solidity 0.8.36;
 //  Red at e70ab1f (fin2-router, 4007: the Solver attests `singleOutFloor` on the output net of
 //  the input fees): `Quoter._exact` on a route of two hops or more takes the fee out of `carry`
 //  at the hop the Router charges (#44), so its exact output is in the net frame too, and then
-//  rescaled the attested floor by `gross / route.totalOut`, the GROSS plan figure. Net over
+//  rescaled the attested floor by `walkOut / route.totalOut`, the GROSS plan figure. Net over
 //  gross, twice: the floor a `previewRouteExact` or `previewPlanExact` route carried into the
 //  Router sat 28 bps below the rate the Solver attests and the Router enforces. Before 4007 the
 //  one deduction was on the Solver's side and the rescale was exact.

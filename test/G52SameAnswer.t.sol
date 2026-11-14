@@ -155,31 +155,31 @@ contract G52SameAnswerTest is Test {
     }
 
     /// A V3 book the cap binds (test/CapacityWalkBudget.t.sol's), twenty ticks on each side.
-    function _heavy(address a, address b, uint24 fee, uint128 liq, uint256 held) internal {
+    function _heavy(address a, address b, uint24 fee, uint128 liq, uint256 holdings) internal {
         HeavyBookPool p = new HeavyBookPool(a, b, fee, TS);
         p.setState(SP, liq);
         for (int24 i = 1; i <= 20; ++i) {
             p.setTick(-i * TS, int128(liq / 1000));
             p.setTick(i * TS, -int128(liq / 1000));
         }
-        MockERC20(a).mint(address(p), held);
-        MockERC20(b).mint(address(p), held);
+        MockERC20(a).mint(address(p), holdings);
+        MockERC20(b).mint(address(p), holdings);
         hub.seedPool(address(p), BPC.KIND_V3, fee, address(0), a, b);
         touched.push(address(p));
     }
 
     /// test/CapacityWalkBudget.t.sol's grid: every pair of tA, tB and `nBridges` bridges gets
-    /// `perPair` heavy books holding `held`, the direct books declaring `dLiq`.
-    function _grid(uint256 nBridges, uint256 perPair, uint256 held, uint128 dLiq) internal {
+    /// `perPair` heavy books holding `holdings`, the direct books declaring `dLiq`.
+    function _grid(uint256 nBridges, uint256 perPair, uint256 holdings, uint128 dLiq) internal {
         uint24[6] memory fees = [uint24(3_000), 500, 10_000, 100, 2_500, 400];
         address[] memory b = new address[](nBridges);
         for (uint256 i; i < nBridges; ++i) { b[i] = _token(); hub.addBridge(b[i]); }
         for (uint256 k; k < perPair; ++k) {
-            _heavy(tA, tB, fees[k], dLiq, held);
+            _heavy(tA, tB, fees[k], dLiq, holdings);
             for (uint256 i; i < nBridges; ++i) {
-                _heavy(tA, b[i], fees[k], L, held);
-                _heavy(b[i], tB, fees[k], L, held);
-                for (uint256 j; j < i; ++j) _heavy(b[j], b[i], fees[k], L, held);
+                _heavy(tA, b[i], fees[k], L, holdings);
+                _heavy(b[i], tB, fees[k], L, holdings);
+                for (uint256 j; j < i; ++j) _heavy(b[j], b[i], fees[k], L, holdings);
             }
         }
     }
