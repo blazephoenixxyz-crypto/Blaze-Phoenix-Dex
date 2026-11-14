@@ -552,11 +552,15 @@ when a held candidate of that build could pay more than what it chose, so a solv
 per route and not once per ranked candidate: `test/CapacityWalkBudget.t.sol` holds grids of V3 books the cap
 binds on every pair (sixteen stretches each, four storage words per tick) to the margins
 `test/EntryBSolveBudget.t.sol` sets inside the search's 12M, and pins that no concentrated leg is
-promised more than its pool holds on any hop. That one walk runs in a static self-call on its own
-fixed budget (`WALK_GAS`), so what a book makes its reads cost never spends the search's budget,
-and the plan stays a function of the state: SOLVE_GAS is the search's 12M plus that budget, held
+promised more than its pool holds on any hop. That one walk runs in a static self-call on what
+SOLVE_GAS leaves after the search, at most `WALK_CAP` = 8,000,000 (C1, 2026-11-14: a fixed 2.5M `WALK_GAS` before, too little for
+a live mainnet V4 row's 4.66M rebuild), the same at both doors, so what a book makes its reads
+cost never stops the search and the plan stays a function of the state; a walk that does not
+finish leaves the plan at the cap. Held
 grids of three bridges and six books and four books whose every read burns its cap settle at the
-automatic door as quoted, and a capped solve returns the quote or nothing.
+automatic door as quoted, and a capped solve returns the quote or nothing. After a search past
+~6.55M the derived budget falls under `WALK_CAP`; at the longest search after which a held book's
+walk still finishes, the plan is the same at the door's gas and at 30M (C1, mutant [n1-5]).
 
 ## 4l. Mutants aimed at the invariants
 

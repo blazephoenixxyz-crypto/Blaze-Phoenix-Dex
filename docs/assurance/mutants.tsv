@@ -415,8 +415,8 @@ src/BlazePhoenixSolver.sol	test_FactoryBornRowVotesAndAParkedPairDoesNot	bounty 
 src/BlazePhoenixSolver.sol	test_FactoryBornRowVotesAndAParkedPairDoesNot	bounty #85 (b): discovery finding the same pool does not vouch for its row
 src/BlazePhoenixMath.sol	test_limit_NoVouchedMassAndAParkedHeldPairStillCaptures	bounty #85 (b): a set where nobody may vote is left with no vote at all
 src/BlazePhoenixMath.sol	test_ParkedHeldPairDoesNotCaptureTheBand	bounty #85 (b): a curated row is muted like a permissionless one
-src/BlazePhoenixRouter.sol	test_EntryB_OverBudgetRevertsCleanUnderTheTxCap	R1: the in-transaction search budget raised past the per-transaction cap (the over-budget door spends the whole transaction)
-src/BlazePhoenixRouter.sol	test_EntryB_HonestPlansFitWithMargin_TwoCleanBridges	R1: the in-transaction search budget lowered under an honest two-bridge plan
+src/BlazePhoenixCore.sol	test_EntryB_OverBudgetRevertsCleanUnderTheTxCap	R1: the in-transaction search budget raised past the per-transaction cap (the over-budget door spends the whole transaction)
+src/BlazePhoenixCore.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	R1: the in-transaction search budget lowered under an honest two-bridge plan
 src/BlazePhoenixRouter.sol	test_EntryB_OverBudgetRevertsCleanUnderTheTxCap	R1: an exhausted search is swallowed into an empty plan (the stop loses its own code)
 src/BlazePhoenixRouter.sol	test_EntryB_SolverRevertPassesThroughIntact	R1: the Solver's own revert is rewritten into the budget stop
 src/BlazePhoenixRouter.sol	test_V3Leg_ExecutesAndPaysOutMatchingPoolMath	V3 swap: the price limits are swapped (every swap aims the wrong way)
@@ -734,13 +734,17 @@ src/BlazePhoenixSolver.sol	test_3073_OneHop_HeldSingleOverAnUnheldRival	3073-3 [
 src/BlazePhoenixSolver.sol	test_3073_FirstHopHeld_LaterUnheldStageKeepsTheMark	3073-4 [735]: an unheld later stage clears the held mark of an earlier one
 src/BlazePhoenixSolver.sol	test_3073_SplitHeldFirstLeg_UnheldLastLegKeepsTheMark	3073-4 [736]: an unheld later leg clears the held mark of an earlier leg
 src/BlazePhoenixSolver.sol	test_3073_CollapseOffAHeldSplit_KeepsTheMark	3073-4 [737]: a collapse drops the held mark of the split it replaces
-src/BlazePhoenixRouter.sol	test_3073_WalkBudget_HeldThreeBridgesSixBooks_SettlesAsQuoted	3073-5 [738]: the automatic door keeps the search budget alone, a held grid it quotes no longer settles
+src/BlazePhoenixCore.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	3073-5 [738]: the automatic door keeps the search budget alone, a held grid it quotes no longer settles
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQuoted	3073-5 [739]: the rebuild runs in the solve's own frame, on whatever gas the search left
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQuoted	3073-5 [740]: the rebuild runs on the gas the caller brought, not on its own budget
-src/BlazePhoenixSolver.sol	test_3073_WalkBudget_HeldBridgeLeadsSixBooks_SettlesAsQuoted	3073-5 [740r]: a walk that fails on its own budget stops the solve, the plan built at the cap is not handed back
+src/BlazePhoenixSolver.sol	test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQuoted	3073-5 [740r]: a walk that fails on its own budget stops the solve, the plan built at the cap is not handed back
 src/BlazePhoenixSolver.sol	test_3073_HeldWalk_CappedSolveIsTheQuoteOrNothing	3073-5 [741]: a solve short of the walk's budget calls it anyway, and a short walk hands back the plan at the cap
 src/BlazePhoenixSolver.sol	test_3073_Solver_SingleLeg_UnreadableBook_PromiseIsTheCap	3073-5 [742]: a rebuild that ranks no higher than the cap is spliced in anyway
 src/BlazePhoenixSolver.sol	test_3073_HeldSplit_RebuildPastOnePointFiveMillion_IsPromisedItsBooks	3073-5 [743]: the walk's own budget shrunk under a live book's rebuild (DAI->USDC 10k on the fork)
+src/BlazePhoenixSolver.sol	test_withV4Row_quoteTracksWhatTheEncodedRouteDelivers	C1 [c1-m2]: the walk back on a fixed 2.5M, and a live V4 row's rebuild runs out and lowers the quote (G7Err, mainnet fork)
+src/BlazePhoenixSolver.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	C1 [c1-m5]: the dispatch's gas before g0 forgotten, and the automatic door no longer hands the walk its budget
+src/BlazePhoenixSolver.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	C1 [c1-m6]: the walk derived from more than the automatic door hands, and every solve that walks stops there
+src/BlazePhoenixSolver.sol	test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQuoted	C1 [c1-m7]: the walk handed all that SOLVE_GAS leaves after the search, with no WALK_CAP, and four books that burn their GAS_CAP eat the automatic door's execution
 src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_BalV3_Depth18_ZeroWhileTheVaultIsUnlocked	adapters [750]: Balancer V3 reads depth18 while the Vault is unlocked (balances written before settlement)
 src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_BalV3_Depth18_ZeroWhileTheVaultIsUnlocked	adapters [751]: Balancer V3 declares depth18 only while the Vault is unlocked
 src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_BalV2_Depth18_ZeroInsideAVaultOperation	adapters [752]: Balancer V2 reads depth18 inside a Vault operation (read-only reentrancy)
@@ -1012,7 +1016,7 @@ src/BlazePhoenixSolver.sol	test_AVenueThatPaysMoreThanTheWalkedLegIsNotPassedOve
 src/BlazePhoenixSolver.sol	test_AHeldLegIsRankedOnWhatItPaysNotOnItsCap	N1 [n1-2]: a rebuild is ranked on the band, and the held book walked to less than the pair leads again
 src/BlazePhoenixSolver.sol	test_AVenueThatPaysMoreThanTheWalkedLegIsNotPassedOver	N1 [n1-3]: the books that fell sit nothing out, and the rebuild picks the same book again
 src/BlazePhoenixSolver.sol	test_TheRebuildsOwnReturnPromisesWhatTheBookPays	N1 [n1-4]: the build without the books that fell replaces the walked build even when it pays less
-src/BlazePhoenixSolver.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	N1 [n1-5]: the check before the rebuild forgets the 1/64 EIP-150 keeps, and a solve short of it walks on less than WALK_GAS
+src/BlazePhoenixSolver.sol	test_C1_LongSearch_TheDerivedWalkBudgetIsTheSameAtEveryGas	N1 [n1-5]: the check before the rebuild forgets the 1/64 EIP-150 keeps, and a solve short of it walks on less than WALK_GAS
 src/BlazePhoenixSolver.sol	test_AVenueThatPaysMoreThanTheWalkedLegIsNotPassedOver	N1 [n1-6]: the rebuild must beat the leader's rank at the cap, not what its books pay, and the pair it passed over stays passed over
 src/BlazePhoenixSolver.sol	test_ARebuildThatPaysLessThanTheWalkedLeaderLeavesItInPlace	N1 [n1-7]: the rebuild has no bar, and a build that pays less than the walked leader takes its place
 src/BlazePhoenixMath.sol	test_G52_SameAnswer_MedianPicksTheBand	G52 M11 [933]: the weighted median walks the votes in row order, not in the order of the rates
@@ -1180,7 +1184,7 @@ src/BlazePhoenixCore.sol	test_G52_SameAnswer_ThreeBridgesEveryPair	INV-S6 [morf-
 src/BlazePhoenixGate.sol	test_GateVital_TheDepthReadIsHandedOnlyItsCap	Gate.vitalOf asks the depth with all the gas instead of GATE_QUOTE_GAS - counted as the depth an echo adapter declares [morf-1e]
 src/BlazePhoenixCore.sol	test_GatePsi_AnUnusedWrapperNeverCallsTheGate	gatePsi pays the Gate's depth read before reading the slot - counted in calls to the Gate [morf-1f]
 src/BlazePhoenixCore.sol	test_GatePsi_AnUnusedWrapperNeverCallsTheGate	gatePsi reads the wrapper's gate() word instead of vitalSlot() - counted in calls to the Gate [morf-1g]
-src/BlazePhoenixRouter.sol	test_EntryB_TheSearchIsHandedSolveGasWhateverTheCallerAttaches	the in-transaction search is handed SOLVE_GAS whatever the caller attaches - declared back by the Solver it is handed to [morf-1i]
+src/BlazePhoenixCore.sol	test_EntryB_TheSearchIsHandedSolveGasWhateverTheCallerAttaches	the in-transaction search is handed SOLVE_GAS whatever the caller attaches - declared back by the Solver it is handed to [morf-1i]
 src/BlazePhoenixHub.sol	test_BridgeTerm_HubSeatsTheNewcomerTwoOverTheBar	MT6-1: the newcomer's bridge term is a hundredth of a basis point light, and a newcomer two points over the bar is refused
 src/BlazePhoenixHub.sol	test_BridgeTerm_HubRefusesTheNewcomerExactlyAtTheBar	MT6-2: the newcomer's bridge term is a hundredth of a basis point heavy, and a newcomer exactly at the bar is seated
 src/BlazePhoenixCore.sol	test_BridgeTerm_IncumbentScoreIsFiveQuarters	MT6-3: the incumbents' bridge term drifts from the newcomer's
@@ -1475,5 +1479,6 @@ test/adapters/AdapterConformance.sol	test_Conf_A13_KindNineColumn_FeeOnTheCalend
 src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsHopZero_LeavesNoUnfundedFigureInTheRoute	Quoter: the exact walk leaves the plan's figures in the hops a fee left unfunded
 src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue	Quoter: the exact door re-walks a route that funded nothing
 test/WitnessCellTenLegsTwoHops.t.sol	test_ThePlanIsTwoHopsOfFiveLegsTenInAll	C11 witness cell: the cell asserts nine legs (LEGS_HOP1 5 -> 4)
+src/BlazePhoenixCore.sol	test_FactoryLookup_OnlyAnExactWordIsAPool_AllModesAndFallbacks	_askPool: a wide factory answer is read from its first word (== 32 becomes >= 32)
 src/BlazePhoenixRouter.sol	test_ADeadLegBesideOneLiveLegLeavesTheLegFloorExact	126-B12 Router: a leg with no bound is counted in the hop slack divisor, so a dead leg beside a live one tightens the floor
 src/BlazePhoenixRouter.sol	test_ALegGivenLessInputIsHeldToTheProRataOfItsAttestation	126-B12 Router: the attested bound is not rescaled to the input the leg actually spent, so an under-fed honest leg is held to its whole plan

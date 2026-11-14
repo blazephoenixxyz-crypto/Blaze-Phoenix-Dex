@@ -215,6 +215,7 @@ contract BlazePhoenixSolver {
     function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
         external view returns (RoutePlan memory plan)
     {
+        uint256 g0 = gasleft();
         if (tIn == address(0) || tOut == address(0) || tIn == tOut || amountIn == 0)
             revert SolverE(4);
 
@@ -270,12 +271,13 @@ contract BlazePhoenixSolver {
         // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
         // capacity-held candidates are ranked and promised what their own books pay. A walk
         // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
-        // (GAS_CAP per read), so the rebuild runs in a static self-call on exactly WALK_GAS:
-        // the plan depends on the state, never on the gas the caller brought. A rebuild that
-        // completes and ranks above what the build at the cap pays leads; otherwise the plan
-        // built at the cap stands. The fallback stays the runner-up read above. A solve that cannot
-        // hand the walk its whole budget stops with empty revert data (out of gas, RouterE(17)
-        // at the automatic door) - never a different plan. The walk's assembly return is this
+        // (GAS_CAP per read), so the rebuild runs in a static self-call on what SOLVE_GAS leaves
+        // after the search (`_walkOnItsOwnBudget`): a function of the state, never of the gas
+        // the caller brought, and the same at both doors. A rebuild that completes and ranks
+        // above what the build at the cap pays leads; otherwise the plan built at the cap stands.
+        // The fallback stays the runner-up read above. A solve that cannot hand the walk its
+        // whole budget stops with empty revert data (RouterE(17) at the automatic door) - never
+        // a different plan. The walk's assembly return is this
         // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`.
         //
         // N1: THE LEADER ANSWERS FOR WHAT ITS BOOKS PAY. The plan built at the cap is promised what
@@ -289,15 +291,15 @@ contract BlazePhoenixSolver {
         uint256 fl;
         (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
         uint256 d = m.bestR.totalOut - plan.best.totalOut;
-        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);
+        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);
     }
 
-    /// @dev The gas the rebuild of `findBestRoutePlan` runs on. Fixed: the walk's outcome is a
-    ///      function of the state alone (test/EntryBSolveBudget.t.sol R1). Sized so a
-    ///      rebuild over every held book a build seats fits, on the grids of
-    ///      test/CapacityWalkBudget.t.sol and on a live book
-    ///      (test/fork/CapacityPromiseAsksTheVenue.t.sol).
-    uint256 private constant WALK_GAS = 2_500_000;
+    /// @dev The gas the dispatch spends before `findBestRoutePlan` reads `g0`, measured in the
+    ///      default and release builds and rounded up (test/CapacityWalkBudget.t.sol, the
+    ///      threshold test). SOLVE_B is what the automatic door leaves at `g0`: the solve's whole
+    ///      budget, from which the walk's is derived.
+    uint256 private constant ENTRY = 1_200;
+    uint256 private constant SOLVE_B = BPC.SOLVE_GAS - ENTRY;
 
     /// @dev The rebuild, as a static self-call of `findBestRoutePlan` carrying `bk` and the rank
     ///      `u` to beat past the three arguments, then one [tokenIn, tokenOut, pool] for each book
@@ -305,9 +307,17 @@ contract BlazePhoenixSolver {
     ///      Its answer is spliced in as `plan.best` without decoding: the returned encoding is
     ///      [0x20][0x60][off fallback][0][best], and only the fallback blob and its flag are
     ///      ours. On any failure of the self-call the plan built at the cap is returned.
-    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u, uint256 fl) private view {
+    ///      The budget is what SOLVE_B leaves after the search, s = g0 - gas():
+    ///      W = min((SOLVE_B - s - 20,000) * 63 / 64, WALK_CAP), the 20,000 kept for the splice;
+    ///      WALK_CAP keeps what a hostile walk can burn off the door's execution. A solve entered
+    ///      on less than SOLVE_B, or whose search left less than 20,000 of it, stops: the walk is
+    ///      handed the same W at both doors (the automatic door enters on SOLVE_B, a quote on
+    ///      more) and the plan stays a function of the state (R1).
+    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u, uint256 fl, uint256 g0) private view {
         bytes memory f = abi.encode(plan.fallbackRoute);
         bool hf = plan.hasFallback;
+        uint256 b = SOLVE_B;
+        uint256 c = BPC.WALK_CAP;
         assembly ("memory-safe") {
             let p := mload(0x40)
             calldatacopy(p, 0, 0x64)                    // this solve's own call: the one entry, its three words
@@ -315,9 +325,13 @@ contract BlazePhoenixSolver {
             mstore(add(p, 0x84), u)
             let q := add(p, 0xa4)
             for {} fl { fl := mload(fl) } { mcopy(q, add(fl, 0x20), 0x60) q := add(q, 0x60) }
-            // The whole WALK_GAS reaches the self-call or the solve stops (EIP-150 keeps 1/64).
-            if lt(gas(), add(div(mul(WALK_GAS, 64), 63), 20000)) { revert(0, 0) }
-            if staticcall(WALK_GAS, address(), p, sub(q, p), 0, 0) {
+            // gas() >= SOLVE_B - s is g0 >= SOLVE_B: then W * 64 / 63 + 20,000 is left here and
+            // EIP-150 hands the self-call the whole W.
+            let s := sub(g0, gas())
+            if or(lt(g0, b), iszero(lt(add(s, 20000), b))) { revert(0, 0) }
+            let w := div(mul(sub(sub(b, s), 20000), 63), 64)
+            if gt(w, c) { w := c }
+            if staticcall(w, address(), p, sub(q, p), 0, 0) {
                 returndatacopy(p, 0x40, 0x20)
                 let n := add(mload(p), 0x20)            // the bytes up to the end of `best`
                 returndatacopy(p, 0, n)

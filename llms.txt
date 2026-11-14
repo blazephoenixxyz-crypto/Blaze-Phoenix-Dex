@@ -164,10 +164,10 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- mutation-guard:begin -->
 | Mutated file | Mutants | Distinct tests that must kill them | Target is exactly one line |
 |---|---:|---:|---:|
-| `src/BlazePhoenixRouter.sol` | 364 | 306 | 364 |
-| `src/BlazePhoenixCore.sol` | 359 | 289 | 359 |
+| `src/BlazePhoenixCore.sol` | 364 | 293 | 364 |
+| `src/BlazePhoenixRouter.sol` | 360 | 303 | 360 |
+| `src/BlazePhoenixSolver.sol` | 211 | 153 | 211 |
 | `src/BlazePhoenixHub.sol` | 207 | 184 | 207 |
-| `src/BlazePhoenixSolver.sol` | 207 | 152 | 207 |
 | `src/BlazePhoenixQuoter.sol` | 114 | 102 | 114 |
 | `src/BlazePhoenixGate.sol` | 71 | 60 | 71 |
 | `src/BlazePhoenixMath.sol` | 46 | 36 | 46 |
@@ -183,7 +183,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/ref/Frame4007.sol` | 2 | 2 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,477 | 1,166 | 1,477 |
+| **all** | 1,482 | 1,166 | 1,482 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -237,12 +237,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,128 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 476 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 36 | `test/fork/*.t.sol` |
+| Test declarations | 3,134 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 477 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 37 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,477 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,482 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 12 | `.sizes-snapshot` |

@@ -14,13 +14,13 @@ pragma solidity 0.8.36;
 //     that declares far more than it holds is held at the cap there too.
 //   - SOLVE_GAS: a walk reads up to sixteen stretches cold (four storage words
 //     per tick, as UniswapV3Pool.ticks reads them), so it runs on one topology
-//     per solve, in a static self-call on its own fixed budget (Solver.WALK_GAS).
+//     per solve, in a static self-call on what SOLVE_GAS leaves after the search.
 //     Honest V3 grids whose cap binds on every pair keep the margins
 //     test/EntryBSolveBudget.t.sol sets for V4 books (a tenth of the search's
 //     12M for one or two bridges, a fifth for three), and the automatic door
 //     settles them, up to three bridges with six books on every pair.
 //   - Liveness and R1 with held legs: where the search fits its 12M, the solve
-//     fits SOLVE_GAS with the walk's budget on top, and the solve the door runs
+//     fits SOLVE_GAS with the walk's budget derived from it, and the solve the door runs
 //     returns the plan quoted without a cap - on a held grid of three bridges
 //     and six books, on one a bridge leads, on four books whose every read
 //     burns its GAS_CAP, and on every budget across the threshold of a walk
@@ -79,6 +79,24 @@ contract BurnBookPool is MockV3Pool {
     }
 }
 
+/// A V3-shaped pool whose price and liquidity reads each burn `burn` gas first: the search's
+/// cost, set by the test (C1, the derived walk budget under WALK_CAP).
+contract SearchBurnPool {
+    address public token0;
+    address public token1;
+    uint24 public fee;
+    uint160 internal sqrtPriceX96 = uint160(1 << 96);
+    uint256 public burn;
+    constructor(address a, address b, uint24 f) { (token0, token1) = a < b ? (a, b) : (b, a); fee = f; }
+    function setBurn(uint256 b) external { burn = b; }
+    function _burnSome() internal view { uint256 g = gasleft(); uint256 x; while (g - gasleft() < burn) { x = uint256(keccak256(abi.encode(x))); } }
+    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
+        _burnSome();
+        return (sqrtPriceX96, 0, 0, 0, 0, 0, true);
+    }
+    function liquidity() external view returns (uint128) { _burnSome(); return 1e9; }
+}
+
 contract CapacityWalkBudgetTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
@@ -88,8 +106,12 @@ contract CapacityWalkBudgetTest is Test {
     address t1;
     address[] touched;
 
-    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`: the search's 12M plus the walk's own budget.
+    /// Mirrors `BlazePhoenixCore.SOLVE_GAS`: the search's budget at the automatic door, and the
+    /// solve's whole budget the walk's is derived from.
     uint256 constant SOLVE_GAS = 14_700_000;
+    /// Mirrors `BlazePhoenixSolver.ENTRY`: the dispatch's gas before the solve reads `g0`,
+    /// rounded up; a solve that enters on less than SOLVE_GAS - ENTRY and walks stops.
+    uint256 constant ENTRY = 1_200;
     /// The search's share, on which the rows below were sized: SOLVE_GAS grew by the walk's
     /// budget only, so a row's bound does not grow with it.
     uint256 constant SEARCH_GAS = 12_000_000;
@@ -332,6 +354,98 @@ contract CapacityWalkBudgetTest is Test {
         for (uint256 i; i < legs.length; ++i) assertEq(legs[i].expectedOut, cap, "the walk's own budget, not the caller's gas, keeps the cap");
     }
 
+    /// C1 (c1-126), with the walk's budget derived from SOLVE_GAS: one to four held books whose
+    /// every read burns its whole GAS_CAP. Whether their rebuild finishes is the state's
+    /// business, never the caller's: the plan is the same at the automatic door's gas, at twice
+    /// it, at 30M and uncapped, and the solve never stops for it - a walk that does not finish
+    /// leaves the plan at the cap (mutants [739] [740] [740r]).
+    function test_C1_HostileHeldBooks_ThePlanIsTheSameAtEveryGas() public {
+        uint256 cap = BPC.mulDiv(60e18, 3_000, BPC.BPS);
+        uint256[3] memory gs = [SOLVE_GAS * 2, 30_000_000, SOLVE_GAS];
+        for (uint256 k; k < 4; ++k) {
+            BurnBookPool p = new BurnBookPool(t0, t1, uint24(500 + k * 1000));
+            p.setState(SP, L);
+            MockERC20(t0).mint(address(p), 60e18);
+            MockERC20(t1).mint(address(p), 60e18);
+            hub.seedPool(address(p), BPC.KIND_V3, uint24(500 + k * 1000), address(0), t0, t1);
+            touched.push(address(p));
+            _cool();
+            RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
+            assertEq(plan.best.hops[0].legs.length, k + 1, "precondition: every hostile book is a leg");
+            for (uint256 j; j < gs.length; ++j) {
+                _cool();
+                RoutePlan memory at = solver.findBestRoutePlan{gas: gs[j]}(t0, t1, IN);
+                assertEq(keccak256(abi.encode(at)), keccak256(abi.encode(plan)), "the caller's gas chose another plan");
+            }
+            emit log_named_uint("hostile books", k + 1);
+            emit log_named_uint("  first leg promised", plan.best.hops[0].legs[0].expectedOut);
+        }
+        Leg[] memory legs = solver.findBestRoutePlan(t0, t1, IN).best.hops[0].legs;
+        for (uint256 i; i < legs.length; ++i) assertEq(legs[i].expectedOut, cap, "four books: the walk does not finish and the cap stands");
+    }
+
+    /// C1 (c1-126) where the search is long: the walk's budget, (SOLVE_GAS - ENTRY - s - 20,000)
+    /// * 63 / 64 for a search that spent s, falls under WALK_CAP once s passes ~6.55M. One held
+    /// book whose every book read burns its GAS_CAP leads direct; bridge pools whose price and
+    /// liquidity reads burn `burn` gas each lengthen the search, never the rebuild of the direct
+    /// topology. A bisection on `burn` finds the longest search after which the walk still
+    /// finishes - so there the derived budget, under WALK_CAP, decides the plan - and on both
+    /// sides of it the plan is the same at the automatic door's gas and at 30M: the budget is
+    /// handed whole, its 1/64 off, whatever the caller brought (mutant [n1-5]).
+    function test_C1_LongSearch_TheDerivedWalkBudgetIsTheSameAtEveryGas() public {
+        uint256 cap = BPC.mulDiv(HELD, 3_000, BPC.BPS);
+        BurnBookPool d = new BurnBookPool(t0, t1, 500);
+        d.setState(SP, 10 * L);   // a short walk: a few stretches
+        MockERC20(t0).mint(address(d), HELD);
+        MockERC20(t1).mint(address(d), HELD);
+        hub.seedPool(address(d), BPC.KIND_V3, 500, address(0), t0, t1);
+        SearchBurnPool[] memory ps = new SearchBurnPool[](48);
+        uint256 n;
+        for (uint256 i; i < 3; ++i) {
+            address b = _token();
+            hub.addBridge(b);
+            for (uint256 k; k < 8; ++k) {
+                for (uint256 e; e < 2; ++e) {
+                    SearchBurnPool q = new SearchBurnPool(e == 0 ? t0 : b, e == 0 ? b : t1, uint24(100 + k));
+                    hub.seedPool(address(q), BPC.KIND_V3, uint24(100 + k), address(0), q.token0(), q.token1());
+                    ps[n++] = q;
+                }
+            }
+        }
+        uint256 lo;          // the walk finishes after this search
+        uint256 hi = 90_000; // and not after this one
+        assertTrue(_walks(ps, lo, cap), "premise: on a short search the walk finishes");
+        assertFalse(_walks(ps, hi, cap), "premise: on the longest search the walk does not finish");
+        while (hi - lo > 1) {
+            uint256 m = (lo + hi) / 2;
+            if (_walks(ps, m, cap)) lo = m; else hi = m;
+        }
+        emit log_named_uint("burn per read, the last walk that finishes", lo);
+        for (uint256 j; j < 2; ++j) {
+            _setBurn(ps, j == 0 ? lo : hi);
+            uint256 g0 = gasleft();
+            RoutePlan memory atThirty = solver.findBestRoutePlan{gas: 30_000_000}(t0, t1, IN);
+            emit log_named_uint("  solve gas at 30M", g0 - gasleft());
+            RoutePlan memory atTheDoor = solver.findBestRoutePlan{gas: SOLVE_GAS}(t0, t1, IN);
+            assertEq(atThirty.best.hops.length, 1, "premise: the direct book leads");
+            assertEq(keccak256(abi.encode(atTheDoor)), keccak256(abi.encode(atThirty)), "the caller's gas chose another plan");
+            emit log_named_uint("  first leg promised", atThirty.best.hops[0].legs[0].expectedOut);
+        }
+    }
+
+    function _setBurn(SearchBurnPool[] memory ps, uint256 b) internal {
+        for (uint256 i; i < ps.length; ++i) ps[i].setBurn(b);
+    }
+
+    /// Whether, with every bridge pool's read burning `b`, the walk finishes at 30M: the
+    /// plan at the cap stands when it does not, and a solve that stops does not walk.
+    function _walks(SearchBurnPool[] memory ps, uint256 b, uint256 cap) internal returns (bool) {
+        _setBurn(ps, b);
+        try solver.findBestRoutePlan{gas: 30_000_000}(t0, t1, IN) returns (RoutePlan memory p) {
+            return p.best.hops[0].legs[0].expectedOut > cap;
+        } catch { return false; }
+    }
+
     function _burnBook(uint256 k) internal {
         BurnBookPool p = new BurnBookPool(t0, t1, uint24(500 + k * 1000));
         p.setState(SP, L);
@@ -370,9 +484,10 @@ contract CapacityWalkBudgetTest is Test {
     }
 
     /// T3 on a walk that changes the plan (four books holding 100e18 each: a cap of 30e18 per
-    /// leg, and each book pays more): across the threshold, a capped solve returns the uncapped
-    /// plan or stops with empty revert data, never the plan at the cap - also where the gas
-    /// left would finish a walk this short but not hand it its whole budget.
+    /// leg, and each book pays more): on every budget from the uncapped cost up past SOLVE_GAS,
+    /// a capped solve returns the uncapped plan or stops with empty revert data, never the plan
+    /// at the cap - also where the gas left would finish a walk this short but the solve
+    /// entered on less than SOLVE_GAS less ENTRY.
     function test_3073_HeldWalk_CappedSolveIsTheQuoteOrNothing() public {
         _grid(0, 4, 100e18, L);
         RoutePlan memory ref = solver.findBestRoutePlan(t0, t1, IN);   // warm: the capped calls' cost
@@ -383,9 +498,9 @@ contract CapacityWalkBudgetTest is Test {
         bytes32 h = keccak256(abi.encode(ref));
         uint256 done;
         uint256 stopped;
-        // The walk spends a fraction of its budget here: the threshold sits up to WALK_GAS
-        // (Solver, 2.5M) past `cost`.
-        for (uint256 g = cost; g <= cost + 2_700_000; g += 50_000) {
+        // The threshold sits at SOLVE_GAS less ENTRY plus the dispatch, far past `cost`.
+        uint256 step = (SOLVE_GAS + 100_000 - cost) / 60;
+        for (uint256 g = cost; g <= SOLVE_GAS + 100_000; g += step) {
             try solver.findBestRoutePlan{gas: g}(t0, t1, IN) returns (RoutePlan memory p) {
                 assertEq(keccak256(abi.encode(p)), h, "a capped solve returned another plan");
                 ++done;
@@ -399,12 +514,13 @@ contract CapacityWalkBudgetTest is Test {
         assertGt(stopped, 0, "every budget in the range completes");
     }
 
-    /// N2 (reports/plano-1026/onda5/X6), at the threshold itself: the rebuild is called only on
-    /// gas enough for EIP-150 to hand it all of WALK_GAS (WALK_GAS * 64 / 63 + 20,000 left in
-    /// `_walkOnItsOwnBudget`). Completion is monotone in the gas - below the least that completes,
-    /// every stop is out of gas or that check - so a bisection finds the least; there the rebuild
-    /// is handed its whole budget and the uncapped plan returns, and one gas less, or the 1/63 of
-    /// WALK_GAS the check keeps above it less, the solve stops with empty revert data.
+    /// N2 (reports/plano-1026/onda5/X6) and C1 (F2), at the threshold itself: a solve that walks
+    /// derives the walk's budget from SOLVE_GAS less ENTRY, and stops when it entered on less.
+    /// Completion is monotone in the gas - below the least that completes, every stop is out of
+    /// gas or that check - so a bisection finds the least. It sits at or under SOLVE_GAS (the
+    /// automatic door hands exactly that: ENTRY at least the dispatch's gas) and within ENTRY of
+    /// it (ENTRY no larger than the dispatch needs, rounded); there the uncapped plan returns,
+    /// and one gas less the solve stops with empty revert data.
     function test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing() public {
         _grid(0, 4, 100e18, L);
         RoutePlan memory ref = solver.findBestRoutePlan(t0, t1, IN);   // warm, as every call below
@@ -413,7 +529,7 @@ contract CapacityWalkBudgetTest is Test {
         uint256 g0 = gasleft();
         solver.findBestRoutePlan(t0, t1, IN);
         uint256 lo = g0 - gasleft() - 1;   // less than the solve spends: it cannot complete
-        uint256 hi = lo + 2_700_000;
+        uint256 hi = SOLVE_GAS + 100_000;
         solver.findBestRoutePlan{gas: hi}(t0, t1, IN);
         while (hi - lo > 1) {
             uint256 g = (lo + hi) / 2;
@@ -423,21 +539,17 @@ contract CapacityWalkBudgetTest is Test {
                 lo = g;
             }
         }
-        for (uint256 i; i < 2; ++i) {
-            // 39_683 = WALK_GAS * 64 / 63 - WALK_GAS, rounded up.
-            uint256 g = i == 0 ? hi - 1 : hi - 39_683;
-            try solver.findBestRoutePlan{gas: g}(t0, t1, IN) returns (RoutePlan memory) {
-                revert("a solve short of the walk's whole budget returned a plan");
-            } catch (bytes memory e) {
-                assertEq(e.length, 0, "a solve short of the walk's whole budget failed with data");
-            }
+        emit log_named_uint("least gas that completes, warm", hi);
+        emit log_named_int("its distance to SOLVE_GAS", int256(hi) - int256(SOLVE_GAS));
+        assertLe(hi, SOLVE_GAS, "the automatic door's budget does not reach the walk (ENTRY too small)");
+        assertGt(hi + ENTRY, SOLVE_GAS + ENTRY / 2, "the threshold sits far under SOLVE_GAS (ENTRY too large)");
+        try solver.findBestRoutePlan{gas: hi - 1}(t0, t1, IN) returns (RoutePlan memory) {
+            revert("a solve short of the walk's whole budget returned a plan");
+        } catch (bytes memory e) {
+            assertEq(e.length, 0, "a solve short of the walk's whole budget failed with data");
         }
-        // 2_500_000 = the Solver's WALK_GAS. From here two calls carry the solve's three words:
-        // the one below and the rebuild's self-call. Each must have had the walk's whole budget.
-        vm.expectCallMinGas(address(solver), 0, 2_500_000, abi.encodeCall(solver.findBestRoutePlan, (t0, t1, IN)), 2);
         RoutePlan memory p = solver.findBestRoutePlan{gas: hi}(t0, t1, IN);
         assertEq(keccak256(abi.encode(p)), h, "the least gas that completes returned another plan");
-        emit log_named_uint("least gas that completes, warm", hi);
     }
 
     // ─── I2 on a later hop ─────────────────────────────────────────────

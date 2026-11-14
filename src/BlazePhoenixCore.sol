@@ -2490,6 +2490,36 @@ library BlazePhoenixCore {
         (out, , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, type(uint256).max);
     }
 
+    /// @dev The gas `swapBestExactIn` (Router) hands the Solver for the in-transaction
+    ///      search (review 2026-10-12). The search's cost is set by third
+    ///      parties: one-wei V4 positions are permissionless, every fragmented
+    ///      pool on the plan's reach costs at least one deep walk, and how many
+    ///      are fragmented is the attacker's choice. No estimate made before
+    ///      the search bounds that; a fixed budget that fails closed does.
+    ///      Past it the door reverts RouterE(17): no funds move, and
+    ///      `swapExactIn` with a plan quoted off-chain is unaffected. The
+    ///      budget is not meant to choose the plan: no gas the caller brings
+    ///      decides it. The Solver's capacity walk runs on what this budget
+    ///      leaves after the search (Solver._walkOnItsOwnBudget), and a quote
+    ///      starved inside an exhausted search leaves its frame at most 1/64
+    ///      of the gas, so finishing on a thinner plan would need the
+    ///      rest of the search to fit in what the parent frames kept; the fuzz
+    ///      at and below the threshold (EntryBSolveBudget) finds no such budget.
+    ///      Read by the Router (the gas it hands the search) and by the Solver
+    ///      (what is left to the walk, the same figure at both doors). 2^24
+    ///      (EIP-7825) less ~2.08M for the pull, the execution and the self-call.
+    uint256 internal constant SOLVE_GAS = 14_700_000;
+
+    /// @dev The most the Solver's capacity walk is handed (Solver._walkOnItsOwnBudget): its budget
+    ///      is min(what SOLVE_GAS leaves after the search, WALK_CAP). A walk's cost is the venue's
+    ///      choice (GAS_CAP per read), so without a ceiling a pair's held books could burn all of
+    ///      SOLVE_GAS and leave the automatic door too little to settle. Between the least a live
+    ///      mainnet V4 row's rebuild must be handed (4,850,000; 4,800,000 is not enough, the rebuild
+    ///      itself draws 4,656,852; test/fork/G7ErrEthV4LineLowersQuote.t.sol) and the most
+    ///      with which four books that burn their whole GAS_CAP still settle at the door (11,510,000;
+    ///      11,560,000 does not, test/CapacityWalkBudget.t.sol), near the middle of both (C1, c1-126).
+    uint256 internal constant WALK_CAP = 8_000_000;
+
     /// @dev The reads a concentrated leg's promise may spend on its own pool's book (DEX-01): the
     ///      Solver's whole route shares them, the frame spends them on each leg. Five come before
     ///      the first stretch (fee, tickSpacing, the price, the tick, the liquidity), then one

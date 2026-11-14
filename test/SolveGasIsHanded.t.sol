@@ -36,7 +36,7 @@ contract SolveGasEchoSolver {
 }
 
 contract SolveGasIsHandedTest is Test {
-    /// Router.SOLVE_GAS.
+    /// Core.SOLVE_GAS (read by the Router).
     uint256 constant SOLVE_GAS = 14_700_000;
     /// What the echo's own dispatch may spend before it reads gasleft(): far below any budget.
     uint256 constant DISPATCH = 5_000;

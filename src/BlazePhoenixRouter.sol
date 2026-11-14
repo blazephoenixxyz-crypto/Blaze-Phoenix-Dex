@@ -149,26 +149,8 @@ contract BlazePhoenixRouter {
     uint16  internal constant TREASURY1_SHARE   = 3_000;
     // The hop ceiling, MAX_HOPS, and the leg ceiling, MAX_LEGS_PER_HOP, are Core's
     // (file-level): this contract, the Quoter and the Solver read the one number.
-    /// @dev The gas `swapBestExactIn` hands the Solver for the in-transaction
-    ///      search (review 2026-10-12). The search's cost is set by third
-    ///      parties: one-wei V4 positions are permissionless, every fragmented
-    ///      pool on the plan's reach costs at least one deep walk, and how many
-    ///      are fragmented is the attacker's choice. No estimate made before
-    ///      the search bounds that; a fixed budget that fails closed does.
-    ///      Past it the door reverts RouterE(17): no funds move, and
-    ///      `swapExactIn` with a plan quoted off-chain is unaffected. The
-    ///      budget is not meant to choose the plan: no gas the caller brings
-    ///      decides it. The Solver's capacity walk runs on its own fixed budget
-    ///      (Solver.WALK_GAS) and a solve that cannot hand it that budget stops,
-    ///      and a quote starved inside an exhausted search leaves its frame at
-    ///      most 1/64 of the gas, so finishing on a thinner plan would need the
-    ///      rest of the search to fit in what the parent frames kept; the fuzz
-    ///      at and below the threshold (EntryBSolveBudget) finds no such budget.
-    ///      12M for the search, as before the walk, plus WALK_GAS and the 1/64
-    ///      the self-call keeps: what the search settled before, it settles
-    ///      with the walk (test/CapacityWalkBudget.t.sol). 2^24 (EIP-7825) less
-    ///      ~2.08M for the pull, the execution and the self-call.
-    uint256 internal constant SOLVE_GAS         = 14_700_000;
+    // The search budget of `swapBestExactIn`, SOLVE_GAS, is Core's: the Solver derives the
+    // capacity walk's budget from the same number (SHARED_QUANTITIES).
 
     /// @notice Per-leg output floor, in BPS of the leg's pro-rata attested
     ///         quote. Bounds the damage any single manipulated / sandwiched
@@ -610,7 +592,7 @@ contract BlazePhoenixRouter {
     function _solve(address tokenIn, address tokenOut, uint256 amountIn)
         private view returns (RoutePlan memory plan)
     {
-        try ISolverR(solver).findBestRoutePlan{gas: SOLVE_GAS}(tokenIn, tokenOut, amountIn) returns (RoutePlan memory p) {
+        try ISolverR(solver).findBestRoutePlan{gas: BPC.SOLVE_GAS}(tokenIn, tokenOut, amountIn) returns (RoutePlan memory p) {
             plan = p;
         } catch (bytes memory e) {
             if (e.length == 0) revert RouterE(17);

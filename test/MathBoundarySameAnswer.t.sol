@@ -101,7 +101,7 @@ contract MathBoundarySameAnswerTest is Test {
     address tB;
     address[] touched;
 
-    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`, the budget the automatic door hands a solve.
+    /// Mirrors `BlazePhoenixCore.SOLVE_GAS`, the budget the automatic door hands a solve.
     uint256 constant SOLVE_GAS = 14_700_000;
     uint160 constant SP = uint160(1 << 96);   // price 1, tick 0
     uint128 constant L = 1_000e18;
