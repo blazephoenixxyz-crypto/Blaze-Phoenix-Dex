@@ -709,7 +709,7 @@ jobs:
       # work. Different implementations mean agreement is evidence and
       # disagreement is a question worth answering.
       #
-      # Considered and rejected: Kontrol treats every revert as a test failure,
+      # Considered and deferred: Kontrol treats every revert as a test failure,
       # and in a codebase where failing closed IS the design that manufactures
       # false positives faster than it finds defects.
 
