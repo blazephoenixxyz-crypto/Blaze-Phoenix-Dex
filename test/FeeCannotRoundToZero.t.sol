@@ -12,7 +12,7 @@ pragma solidity 0.8.36;
 //      Quoter.sol:389   afterFee -= mulDiv(afterFee, PROTOCOL_FEE_BPS, BPS)
 //
 //  With PROTOCOL_FEE_BPS = 28 and BPS = 10_000, mulDiv(b, 28, 10_000) == 0 for
-//  every b <= 357. Router:787 then reads `if (feeH == 0) return amountIn;` and
+//  every b <= 357. Router:802 then reads `if (feeH == 0) return (amountIn, outCap);` and
 //  the swap PROCEEDS — delivered, recorded, fee-free. That is a fail-open in
 //  the fee dimension: the guard detects the zero and waves it through.
 //
@@ -160,7 +160,7 @@ contract FeeCannotRoundToZeroTest is Test {
         assertGt(got, 0, "the swap delivered, so it is a real swap");
 
         // THE CLAIM: a swap that executes must pay the protocol. Before the
-        // fix this is 0 — the fee rounded through zero and Router:787 returned
+        // fix this is 0 — the fee rounded through zero and Router:802 returned
         // early instead of charging.
         assertGt(_treasuries() - before, 0,
             "an executed swap paid ZERO protocol fee: the fee rounded through zero");
