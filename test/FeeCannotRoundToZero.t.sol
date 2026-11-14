@@ -4,15 +4,15 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  I-FEE / dust clause — the protocol fee must never round through zero.
 //
-//  The fee is anchored on the INPUT and derived with a FLOOR division at three
-//  independent sites:
+//  The fee is anchored on the INPUT and was derived with a FLOOR division at three
+//  independent sites (shown as they read before the fix; each now calls mulDivUp):
 //
-//      Router.sol:600   feeH = mulDiv(baseH,     PROTOCOL_FEE_BPS, BPS)
-//      Router.sol:1270  fOut = mulDiv(amountOut, PROTOCOL_FEE_BPS, BPS)
-//      Quoter.sol:250   afterFee -= mulDiv(afterFee, PROTOCOL_FEE_BPS, BPS)
+//      Router.sol:786   feeH = mulDiv(baseH,     PROTOCOL_FEE_BPS, BPS)
+//      Router.sol:1646  fOut = mulDiv(amountOut, PROTOCOL_FEE_BPS, BPS)
+//      Quoter.sol:389   afterFee -= mulDiv(afterFee, PROTOCOL_FEE_BPS, BPS)
 //
 //  With PROTOCOL_FEE_BPS = 28 and BPS = 10_000, mulDiv(b, 28, 10_000) == 0 for
-//  every b <= 357. Router:601 then reads `if (feeH == 0) return amountIn;` and
+//  every b <= 357. Router:787 then reads `if (feeH == 0) return amountIn;` and
 //  the swap PROCEEDS — delivered, recorded, fee-free. That is a fail-open in
 //  the fee dimension: the guard detects the zero and waves it through.
 //
@@ -25,8 +25,8 @@ pragma solidity 0.8.36;
 //  The chosen fix is NOT a revert (which would block those legitimate small
 //  trades) but a round-UP: mulDivUp makes fee == 0 unreachable for any base
 //  >= 1 wei, so nothing legitimate is refused and the zero simply cannot be
-//  reached. BPC.mulDivUp already exists (Core:381) and is already used
-//  (Core:1852).
+//  reached. BPC.mulDivUp already exists (Core:525) and is already used
+//  (Core:461).
 //
 //  RED BEFORE THE FIX: test_DustSwap_PaysAProtocolFee fails with treasuries
 //  at exactly 0. The control test pins the normal path so the rounding change
@@ -160,7 +160,7 @@ contract FeeCannotRoundToZeroTest is Test {
         assertGt(got, 0, "the swap delivered, so it is a real swap");
 
         // THE CLAIM: a swap that executes must pay the protocol. Before the
-        // fix this is 0 — the fee rounded through zero and Router:601 returned
+        // fix this is 0 — the fee rounded through zero and Router:787 returned
         // early instead of charging.
         assertGt(_treasuries() - before, 0,
             "an executed swap paid ZERO protocol fee: the fee rounded through zero");
@@ -223,5 +223,57 @@ contract FeeCannotRoundToZeroTest is Test {
         // (10_000e18 * 28 divides exactly). The normal path must not drift.
         assertGe(paid, floorFee, "the ordinary fee must never fall below nominal");
         assertLe(paid, floorFee + 1, "the ordinary fee must not exceed nominal by more than the rounding");
+    }
+
+    // ─── the direction of the rounding, pinned to the wei ────────────────────
+    //
+    // test_DustSwap_PaysAProtocolFee proves only fee > 0, and the control above
+    // accepts anything in [floor, floor + 1]. Neither fixes WHICH of the two a
+    // hop pays once the base clears 357 wei, where the floor is no longer zero:
+    // a fee floored back to mulDiv would pass both and under-charge every trade
+    // whose base is not a multiple of 2_500 by one wei. Here the ceiling is
+    // required exactly, on the treasuries (T1 + T2, the 30/70 split summed) and
+    // on what the pool received (the base less that ceiling).
+    //
+    // The oracle is plain integer arithmetic, not BPC: ceil(b * 28 / 10_000).
+    //
+    // RED with the mutant "fee: rounding goes DOWN again" (Router:786
+    // mulDivUp -> mulDiv, .github/scripts/mutants.py): both tests below fail by
+    // one wei; the multiple-of-the-divisor control stays green under it.
+
+    /// 358 and 359 are the two smallest bases whose floor is non-zero and
+    /// differs from the ceiling: floor 1, ceiling 2.
+    function test_AHopFeeIsTheCeilingNotTheFloor() public {
+        _assertTheHopPaysTheCeiling(358);
+        _assertTheHopPaysTheCeiling(359);
+    }
+
+    function testFuzz_AHopFeeIsTheCeilingNotTheFloor(uint256 b) public {
+        b = bound(b, 358, 1e22);
+        // b * 28 is a multiple of 10_000 exactly when b is a multiple of 2_500:
+        // there floor == ceiling and the rounding direction is not observable.
+        vm.assume(b * PROTOCOL_FEE_BPS % BPS != 0);
+        _assertTheHopPaysTheCeiling(b);
+    }
+
+    /// Control: 2_500 * 28 = 70_000 = 7 * 10_000, so floor and ceiling agree
+    /// and this passes with and without the mutant. It pins that the oracle is
+    /// not simply "one more than the floor".
+    function test_Control_AMultipleOfTheDivisorHasNoRounding() public {
+        assertEq((2_500 * PROTOCOL_FEE_BPS) % BPS, 0, "2_500 is a multiple of the divisor");
+        _assertTheHopPaysTheCeiling(2_500);
+        assertEq(_treasuries(), 7, "7 wei: floor and ceiling are the same fee");
+    }
+
+    function _assertTheHopPaysTheCeiling(uint256 b) internal {
+        uint256 ceilFee = (b * PROTOCOL_FEE_BPS + BPS - 1) / BPS;
+        uint256 t0 = _treasuries();
+        uint256 p0 = tokenA.balanceOf(address(pool));
+
+        vm.prank(user);
+        router.swapExactIn(_route(b), b, 1, user, block.timestamp + 1);
+
+        assertEq(_treasuries() - t0, ceilFee, "the hop fee is the ceiling of b * 28 / 10_000, to the wei");
+        assertEq(tokenA.balanceOf(address(pool)) - p0, b - ceilFee, "the pool received the base less that ceiling");
     }
 }

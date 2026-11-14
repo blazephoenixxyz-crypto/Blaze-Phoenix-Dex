@@ -267,7 +267,7 @@ M = [
       f="src/BlazePhoenixRouter.sol",
       old="        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
       new="        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
-      teste="test_DustSwap_PaysAProtocolFee"),
+      teste="test_AHopFeeIsTheCeilingNotTheFloor"),
  dict(nome="solidly: the sentinel watches the reserves again instead of the result",
       f="src/BlazePhoenixCore.sol",
       old="        if (!_solKFits(X + A, Y)) return 0;",
@@ -8077,6 +8077,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        uint256 funded = gross == 0 ? 0 : _fundedOut(route, amountIn);",
       new="        uint256 funded = _fundedOut(route, amountIn); // MUTANT",
       teste="test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue"),
+# C11 (2026-11-14): the witness cell at the route ceiling, 2 hops x 5 legs = 10 legs
+# (test/WitnessCellTenLegsTwoHops.t.sol); a 9-leg cell must not pass for it.
+ dict(nome="C11 witness cell: the cell asserts nine legs (LEGS_HOP1 5 -> 4)",
+      f="test/WitnessCellTenLegsTwoHops.t.sol",
+      old="    uint256 constant LEGS_HOP1 = 5;",
+      new="    uint256 constant LEGS_HOP1 = 4; // MUTANT",
+      teste="test_ThePlanIsTwoHopsOfFiveLegsTenInAll"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
