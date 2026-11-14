@@ -24,6 +24,7 @@ jobs:
           python3 -I tools/fuzz-coverage/matrix_check.py
           python3 -I tools/fuzz-coverage/prereg.py check docs/prereg/mc-1113.tsv
           python3 -I tools/fuzz-coverage/prereg.py check docs/prereg/wf-1113.tsv
+          python3 -I tools/fuzz-coverage/prereg.py check docs/prereg/solidly-ask-1113.tsv
       - name: Meta-mutants (each must be killed by its named test)
         run: |
           python3 tools/fuzz-coverage/meta_mutants.py --check

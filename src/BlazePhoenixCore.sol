@@ -1858,9 +1858,15 @@ library BlazePhoenixCore {
             if (d <= 1) {
                 // INV-11/INV-10: land the converged exit on the residual-safe
                 // side (K_post >= K_pre => rounding against the taker). _solK is
-                // increasing in y for x > 0, so bumping y by one whenever the
-                // residual is K-deficient guarantees the safe side; O(1) gas.
-                if (_solK(x, y) < K) y += 1;
+                // non-decreasing in y, not increasing: its floor(x*y/WAD) factor
+                // moves in steps of WAD/x wei, so below one normalised unit of x
+                // a single bump can stay on the K-deficient step. Climb one wei
+                // while K-deficient (two climbs covered every sampled exit) and
+                // fail closed past that: y0 maps to out = 0. O(1) gas.
+                for (uint256 j; _solK(x, y) < K; ++j) {
+                    if (j == 2) return y0;
+                    ++y;
+                }
                 return y;   // converged
             }
             unchecked { ++i; }

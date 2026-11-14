@@ -62,7 +62,7 @@ contract CompositionFormalSpec is Test {
     function check_hopCollapsesToLegFloorAtN1(uint128 got, uint128 attested) public pure {
         vm.assume(attested != 0);
         bool hop = _hopPasses(uint256(got), uint256(attested), 1);
-        bool leg = uint256(got) >= BPC.mulDiv(uint256(attested), LEG_FLOOR_BPS, BPS);
+        bool leg = uint256(got) >= BPC.mulDivUp(uint256(attested), LEG_FLOOR_BPS, BPS);
         assertTrue(hop == leg);
     }
 

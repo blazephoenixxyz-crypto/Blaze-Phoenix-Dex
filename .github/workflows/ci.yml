@@ -684,6 +684,32 @@ jobs:
       # and in a codebase where failing closed IS the design that manufactures
       # false positives faster than it finds defects.
 
+  formal-composition:
+    name: formal composition spec (Halmos, report-only)
+    # Report-only until measured: test/formal/CompositionFormalSpec.t.sol has never been run by
+    # Halmos (not on a runner, not locally). It becomes a hard gate in the formal job above only
+    # after a run here measures every check discharging cleanly, the same path CoreFormalGateSpec
+    # took. Its own job, so a timeout here cannot eat the formal job's 30-minute budget, and
+    # continue-on-error so a red result reports without failing the workflow. Not a required check.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Halmos
+        run: pip install halmos
+
+      - name: Symbolic checks (report-only)
+        # Bounded at the process, not with timeout-minutes: a cancelled step propagates to the job
+        # even under continue-on-error (see formal-explore.yml).
+        run: timeout 1500 halmos --contract CompositionFormalSpec -v
+
   gas-metrics:
     name: gas metrics (offline ledger)
     runs-on: ubuntu-latest
