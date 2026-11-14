@@ -4,15 +4,15 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  I-FEE / dust clause — the protocol fee must never round through zero.
 //
-//  The fee is anchored on the INPUT and derived with a FLOOR division at three
-//  independent sites:
+//  The fee is anchored on the INPUT and was derived with a FLOOR division at three
+//  independent sites (shown as they read before the fix; each now calls mulDivUp):
 //
-//      Router.sol:600   feeH = mulDiv(baseH,     PROTOCOL_FEE_BPS, BPS)
-//      Router.sol:1270  fOut = mulDiv(amountOut, PROTOCOL_FEE_BPS, BPS)
-//      Quoter.sol:250   afterFee -= mulDiv(afterFee, PROTOCOL_FEE_BPS, BPS)
+//      Router.sol:786   feeH = mulDiv(baseH,     PROTOCOL_FEE_BPS, BPS)
+//      Router.sol:1646  fOut = mulDiv(amountOut, PROTOCOL_FEE_BPS, BPS)
+//      Quoter.sol:389   afterFee -= mulDiv(afterFee, PROTOCOL_FEE_BPS, BPS)
 //
 //  With PROTOCOL_FEE_BPS = 28 and BPS = 10_000, mulDiv(b, 28, 10_000) == 0 for
-//  every b <= 357. Router:601 then reads `if (feeH == 0) return amountIn;` and
+//  every b <= 357. Router:787 then reads `if (feeH == 0) return amountIn;` and
 //  the swap PROCEEDS — delivered, recorded, fee-free. That is a fail-open in
 //  the fee dimension: the guard detects the zero and waves it through.
 //
@@ -25,8 +25,8 @@ pragma solidity 0.8.36;
 //  The chosen fix is NOT a revert (which would block those legitimate small
 //  trades) but a round-UP: mulDivUp makes fee == 0 unreachable for any base
 //  >= 1 wei, so nothing legitimate is refused and the zero simply cannot be
-//  reached. BPC.mulDivUp already exists (Core:381) and is already used
-//  (Core:1852).
+//  reached. BPC.mulDivUp already exists (Core:525) and is already used
+//  (Core:461).
 //
 //  RED BEFORE THE FIX: test_DustSwap_PaysAProtocolFee fails with treasuries
 //  at exactly 0. The control test pins the normal path so the rounding change
@@ -160,7 +160,7 @@ contract FeeCannotRoundToZeroTest is Test {
         assertGt(got, 0, "the swap delivered, so it is a real swap");
 
         // THE CLAIM: a swap that executes must pay the protocol. Before the
-        // fix this is 0 — the fee rounded through zero and Router:601 returned
+        // fix this is 0 — the fee rounded through zero and Router:787 returned
         // early instead of charging.
         assertGt(_treasuries() - before, 0,
             "an executed swap paid ZERO protocol fee: the fee rounded through zero");
