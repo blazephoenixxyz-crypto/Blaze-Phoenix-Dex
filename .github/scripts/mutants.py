@@ -4077,10 +4077,13 @@ M = [
       old='                if (hF > sR) held = true;\n                return (single, sR - single.expectedOut, held);\n',
       new='                return (single, sR - single.expectedOut, hF > sR); // MUTANT [737]\n',
       teste='test_3073_CollapseOffAHeldSplit_KeepsTheMark'),
- dict(nome='3073-5 [738]: the automatic door keeps the search budget alone, a held grid it quotes no longer settles',
+ dict(nome='3073-5 [738]: the automatic door keeps less than a held grid\'s search and walk, the grid it quotes no longer settles (re-numbered 11-14: on f7e4d55 the search budget alone, 12M, holds this grid)',
       f='src/BlazePhoenixRouter.sol',
+      # 2026-11-14: on f7e4d55 (TOPOLOGIES = 4) this grid's cold solve returns its plan from
+      # 7,142,089 gas (the least, release; 6,209,400 used uncapped), so 12M holds the search and
+      # the walk. The door is cut 1.1M under that: its solve stops and the plan quoted does not settle.
       old='    uint256 internal constant SOLVE_GAS         = 14_700_000;',
-      new='    uint256 internal constant SOLVE_GAS         = 12_000_000; // MUTANT [738]',
+      new='    uint256 internal constant SOLVE_GAS         = 6_000_000; // MUTANT [738]',
       teste='test_3073_WalkBudget_HeldThreeBridgesSixBooks_SettlesAsQuoted'),
  dict(nome='3073-5 [739]: the rebuild runs in the solve\'s own frame, on whatever gas the search left',
       f='src/BlazePhoenixSolver.sol',
