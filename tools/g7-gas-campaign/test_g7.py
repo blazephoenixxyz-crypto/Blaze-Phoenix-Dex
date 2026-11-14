@@ -180,6 +180,109 @@ class Segments(unittest.TestCase):
         self.assertEqual(g7.exec_segments(self.exec_trace(), ROUTER)["g_exec"], 500)
 
 
+TOKEN2 = "0x" + "d2" * 20
+POOL3 = "0x" + "b3" * 20
+PM = "0x" + "f4" * 20
+
+
+def tok(token, sel, *words, gas=5, value=0):
+    """A token call frame with ABI words (addresses as hex, amounts as int)."""
+    d = sel + "".join(wd(w) if isinstance(w, int) else "0" * 24 + w[2:] for w in words)
+    return {"to": token, "input": "0x" + d, "gasUsed": hex(gas), "value": hex(value), "calls": []}
+
+
+class LegAmt(unittest.TestCase):
+    def trace(self):
+        v3_leg = fr(POOL1, g7.SEL["v3swap"], 200, [
+            tok(TOKEN, g7.SEL["transfer"], ROUTER, 650),  # the pool pays out: not an input
+            fr(ROUTER, "fa461e33", 60, [tok(TOKEN2, g7.SEL["transferFrom"], A1, POOL1, 500)]),  # callback payment
+        ])
+        pm_leg = fr(PM, g7.SEL["unlock"], 150)
+        pm_leg["value"] = hex(300)
+        router = fr(ROUTER, "c0ffee00", 900, [
+            tok(TOKEN, g7.SEL["transfer"], POOL2, 700),  # v2 pays the pair before swap()
+            fr(POOL2, g7.SEL["v2swap"], 100),
+            v3_leg,
+            pm_leg,
+            fr(POOL3, g7.SEL["v2swap"], 80),  # paid by no transfer in its window
+        ])
+        # a transfer to the first leg's pool outside the Router (probe setup): not a leg input
+        return fr("0xprobe", g7.SEL["run"], 1000, [tok(TOKEN, g7.SEL["transfer"], POOL2, 9999), router])
+
+    # Mutants: `if dst == to:` -> `if dst:` (the pool's payout to the Router counted as POOL1 input);
+    # `if id(n) not in under: continue` removed (the probe's transfer counted as POOL2 input).
+    def test_input_per_leg_from_transfers_into_the_target_under_the_router(self):
+        e = g7.exec_segments(self.trace(), ROUTER)
+        self.assertEqual(e["legs_detail"], f"{POOL2}:100;{POOL1}:200;{PM}:150;{POOL3}:80")
+        self.assertEqual(e["leg_amt"], f"{POOL2}:{TOKEN}=700;{POOL1}:{TOKEN2}=500;{PM}:eth=300;{POOL3}:")
+
+    def test_leg_amt_is_the_last_column(self):
+        self.assertEqual(g7.COLS[-1], "leg_amt")
+
+
+UNIV3_BASE = "0x33128a8fc17869897dce68ed026d694621f6fdfd"
+V4_BASE = "0x498581ff718922c3f8e6a244956af099b2652b2b"
+UNIV3_OP = "0x1f98431c8ad98523631ae4a59f267346ea31f984"
+SUSHI_C35D = "0xc35dadb65012ec5796536bd9864ed8773abc74c4"
+
+
+def dexrow(chain, legs, mode="D", outcome="ok", stratum="s1", idx=1, b=100, gate_used=0):
+    return {"chain": chain, "stratum": stratum, "idx": idx, "b": b, "mode": mode, "outcome": outcome,
+            "gate_used": gate_used, "legs_detail": ";".join(f"{t}:{g}" for t, g in legs)}
+
+
+class DexUsage(unittest.TestCase):
+    POOLS = {("base", POOL1): (UNIV3_BASE, "v3"), ("ethereum", POOL2): (UNIV3_OP, "v3"),
+             ("arbitrum", POOL3): (SUSHI_C35D, "v2")}
+    VENUES = {("base", UNIV3_BASE): "v3", ("base", V4_BASE): "v4", ("base", SUSHI_C35D): "v3",
+              ("optimism", UNIV3_OP): "v3", ("ethereum", UNIV3_OP): "v3", ("arbitrum", SUSHI_C35D): "v2"}
+    STRATA = {("base", "gate-1"): {"id": "gate-1", "gate_family": "curve_ng"},
+              ("base", "s1"): {"id": "s1", "seed_pools": [{"pool": TOKEN, "kind": 5}]}}
+
+    def usage(self):
+        rows = [dexrow("base", [(POOL1, 100), (V4_BASE, 50)]),  # 2 legs: universe pool + the V4 PoolManager
+                dexrow("base", [(POOL1, 110)], mode="M0"),  # same draw, another mode
+                dexrow("base", [(WRAP, 70)], stratum="gate-1", gate_used=1),  # Gate wrapper
+                dexrow("base", [(TOKEN, 30)]),  # seed pool of the stratum (Hub kind 5)
+                dexrow("base", [(POOL1, 999)], outcome="revert"),  # not a settled route
+                dexrow("optimism", [(A1, 40)]),  # no source
+                dexrow("ethereum", [(POOL2, 60)]),  # 1f98 v3: no constant on ethereum
+                dexrow("arbitrum", [(POOL3, 20)])]  # c35d v2: base names c35d only as a v3 factory
+        return g7.dex_usage(rows, self.POOLS, self.VENUES, self.STRATA)
+
+    # Mutants: `c[0] += 1` -> `+= 2`; a draw counted per row (`c[2].add(id(r))`); the outcome==ok
+    # filter removed (the revert leg adds 1 leg and 999 gas).
+    def test_legs_gas_draws_modes_over_ok_rows(self):
+        b = self.usage()["base"]
+        self.assertEqual(b[("Uniswap V3", "v3", "factory")], [2, 210, {("base", "s1", 1, 100)}, {"D", "M0"}])
+        self.assertEqual(b[("Uniswap V4", "v4", "factory")][:2], [1, 50])
+        self.assertEqual(b[("Curve NG", "curve_ng", "gate")][:2], [1, 70])
+        self.assertEqual(b[("unknown", "solidly", "seed")][:2], [1, 30])
+        self.assertEqual(sum(v[0] for v in b.values()), 5)
+
+    # Mutant: `and k == kind and` -> `and` (arbitrum c35d v2 named SushiSwap V3 from base's v3 factory).
+    def test_addr_basis_needs_the_same_kind_on_another_chain(self):
+        u = self.usage()
+        self.assertEqual(list(u["ethereum"]), [("Uniswap V3", "v3", "addr")])
+        self.assertEqual(list(u["arbitrum"]), [("unknown", "v2", "unknown")])
+        self.assertEqual(list(u["optimism"]), [("unknown", "", "unknown")])
+
+    def test_report_sections_pct_of_the_chain(self):
+        d = tempfile.mkdtemp()
+        uni = os.path.join(d, "u.tsv")
+        with open(uni, "w") as f:
+            f.write("chain\tvenue\tkind\tpool\tadapter\n")
+            f.write(f"base\t{UNIV3_BASE}\tv3\t{POOL1}\troutable:x\nbase\t{V4_BASE}\tv4\t{POOL2}\tnone\n")
+        rows = [dexrow("base", [(POOL1, 150), (V4_BASE, 50)]), dexrow("base", [(POOL1, 100)], idx=2)]
+        ls = g7.dex_lines({"chains": {}}, rows, uni)
+        used = section(ls, [x for x in ls if x.startswith("# dex used")][0])
+        self.assertEqual(used, ["base\tUniswap V3\tv3\tfactory\t2\t66.7\t250\t83.3\t2\tD",
+                                "base\tUniswap V4\tv4\tfactory\t1\t33.3\t50\t16.7\t1\tD"])
+        avail = section(ls, [x for x in ls if x.startswith("# dex available")][0])
+        self.assertEqual(avail, [f"base\tUniswap V3\tv3\t{UNIV3_BASE}\t1\t1\t2",
+                                 f"base\tUniswap V4\tv4\t{V4_BASE}\t1\t0\t1"])
+
+
 class Stamp(unittest.TestCase):
     # Mutant: `rep` replaced by `pat` (no rewrite), or `i = b.find(pat, i + width)` replaced by -1.
     def test_rewrites_every_packed_occurrence(self):

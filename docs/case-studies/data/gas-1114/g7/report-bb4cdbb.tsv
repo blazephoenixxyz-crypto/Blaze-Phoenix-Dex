@@ -4892,3 +4892,95 @@ robinhood	1	1	22	206159	206790	31	12771	206159
 robinhood	1	2	17	314524		17	21578	
 robinhood	1	3	3	448235		3	448235	
 robinhood	2	2	16	357129		16	357129	
+# dex used (outcome==ok rows only; pct of the chain's ok legs and of their leg gas; universe gas-1114-universe.tsv): chain	dex	kind	basis	legs	pct_legs	gas	pct_gas	draws	modes
+arbitrum	Uniswap V3	v3	factory	551	51.4	70700303	25.8	61	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+arbitrum	PancakeSwap V3	v3	factory	250	23.3	174986350	63.8	34	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+arbitrum	unknown		unknown	102	9.5	10520910	3.8	8	D,M0,M1h,M24h,M6h,M72h
+arbitrum	SushiSwap V3	v3	factory	62	5.8	5806526	2.1	10	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+arbitrum	Uniswap V2	v2	factory	42	3.9	1806890	0.7	6	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+arbitrum	Algebra	algebra	kind	35	3.3	8663599	3.2	5	M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+arbitrum	Camelot V2	v2	factory	20	1.9	645816	0.2	4	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+arbitrum	Uniswap V4	v4	factory	11	1.0	953490	0.3	2	M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+base	Uniswap V3	v3	factory	350	34.4	39977756	18.7	39	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+base	PancakeSwap V3	v3	factory	188	18.5	111074046	51.8	25	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+base	Aerodrome CL	cl	factory	160	15.7	21656692	10.1	25	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+base	Uniswap V4	v4	factory	108	10.6	14069844	6.6	17	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+base	unknown		unknown	108	10.6	14470980	6.8	18	D,M0,M1h,M24h,M6h,M72h
+base	Aerodrome	solidly	factory	36	3.5	3758248	1.8	5	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+base	Curve NG	curve_ng	gate	30	3.0	6893682	3.2	5	D,M0,M1h,M24h,M6h,M72h
+base	SushiSwap V3	v3	factory	28	2.8	2182880	1.0	4	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+base	Uniswap V2	v2	factory	8	0.8	273608	0.1	1	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+bsc	PancakeSwap V3	v3	factory	504	58.2	305525872	87.6	54	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+bsc	Uniswap V3	v3	factory	210	24.2	23434934	6.7	28	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+bsc	unknown		unknown	80	9.2	8497986	2.4	9	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+bsc	unknown	v3	seed	72	8.3	11403968	3.3	7	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+ethereum	Uniswap V3	v3	addr	712	56.9	201922966	80.0	63	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+ethereum	unknown	v2	unknown	170	13.6	7560290	3.0	15	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+ethereum	PancakeSwap V3	v3	addr	130	10.4	24507622	9.7	17	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+ethereum	unknown	v2	seed	72	5.8	3453152	1.4	6	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+ethereum	unknown		unknown	68	5.4	3987044	1.6	7	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+ethereum	unknown	v3	unknown	60	4.8	5528920	2.2	11	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+ethereum	unknown	v3	seed	36	2.9	4980906	2.0	6	D,M0,M1h,M24h,M6h,M72h
+ethereum	Uniswap V4	v4	factory	4	0.3	345236	0.1	1	M0,M1h,MF24h,MF72h
+optimism	Uniswap V3	v3	factory	523	52.0	53624885	46.4	69	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+optimism	unknown	cl	unknown	189	18.8	26233878	22.7	29	M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+optimism	Velodrome	solidly	factory	119	11.8	18010046	15.6	20	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+optimism	SushiSwap V3	v3	factory	95	9.4	7740003	6.7	21	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+optimism	unknown		unknown	36	3.6	5739678	5.0	6	D,M0,M1h,M24h,M6h,M72h
+optimism	unknown	v3	seed	36	3.6	3867654	3.3	6	D,M0,M1h,M24h,M6h,M72h
+optimism	Uniswap V2	v2	factory	8	0.8	457276	0.4	2	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+robinhood	Uniswap V3	v3	factory	528	76.2	120590808	42.1	53	D,M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+robinhood	Uniswap V4	v4	factory	63	9.1	159371261	55.6	9	M0,M1h,M24h,M6h,M72h,MF24h,MF72h
+robinhood	Uniswap V2	v2	factory	54	7.8	3106728	1.1	7	D,M0,M1h,M24h,M6h,M72h
+robinhood	unknown		unknown	48	6.9	3687240	1.3	8	D,M0,M1h,M24h,M6h,M72h
+# dex available (universe; routable = adapter column starts with routable; used_legs over outcome==ok rows): chain	dex	kind	venue	pools	routable	used_legs
+arbitrum	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	68	68	250
+arbitrum	Algebra	algebra	0x1a3c9b1d2f0529d97f2afc5136cc23e58f1fd35b	33	33	35
+arbitrum	SushiSwap V3	v3	0x1af415a1eba07a4986a52b6f2e7de7003d82231e	70	70	62
+arbitrum	Uniswap V3	v3	0x1f98431c8ad98523631ae4a59f267346ea31f984	156	156	551
+arbitrum	Uniswap V4	v4	0x360e68faccca8ca495c1b759fd9eee466db9fb32	66	35	11
+arbitrum	Camelot V2	v2	0x6eccab422d763ac031210895c81787e87b43a652	24	24	20
+arbitrum	unknown	v2	0xc35dadb65012ec5796536bd9864ed8773abc74c4	29	29	0
+arbitrum	Uniswap V2	v2	0xf1d7cc64fb4452f05c498126312ebe29f30fbcf9	29	29	42
+avalanche	Blackhole (Algebra Integral)	algebra_integral	0x512eb749541b7cf294be882d636218c84a5e9e5f	1	1	0
+avalanche	Uniswap V3	v3	0x740b1c1de25031c31ff4fc9a62f554a55cdc1bad	47	47	0
+avalanche	Trader Joe LB 2.1	lb	0x8e42f2f4101563bf679975178e880fd87d3efd4e	42	0	0
+avalanche	Pharaoh	pharaoh	0xae6e5c62328ade73ceefd42228528b70c8157d0d	24	24	0
+avalanche	Trader Joe LB 2.2	lb	0xb43120c4745967fa9b93e79c149e66b0f2d6fe0c	54	0	0
+avalanche	Balancer V2	balancer-v2	0xba12222222228d8ba445958a75a0704d566bf2c8	63	0	0
+avalanche	LB (DLMM_FACTORY)	lb	0xeb480050b016f6c6d45203d2346b68bddda23d4d	6	0	0
+base	PancakeSwap V2	v2	0x02a84c1b3bbd7401a5f7fa98a384ebc70bb5749e	21	21	0
+base	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	98	98	188
+base	Uniswap V3	v3	0x33128a8fc17869897dce68ed026d694621f6fdfd	127	127	350
+base	Aerodrome	solidly	0x420dd381b31aef6683db6b902084cb0ffece40da	63	63	36
+base	Uniswap V4	v4	0x498581ff718922c3f8e6a244956af099b2652b2b	75	35	108
+base	Aerodrome CL	cl	0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a	46	46	160
+base	SushiSwap V2	v2	0x71524b4f93c58fcbf659783284e38825f0622859	15	15	0
+base	Uniswap V2	v2	0x8909dc15e40173ff4699343b6eb8132c65e18ec6	32	32	8
+base	SushiSwap V3	v3	0xc35dadb65012ec5796536bd9864ed8773abc74c4	66	66	28
+base	BaseSwap	v2	0xfda619b6d20975be80a10332cd39b9a4b0faa8bb	24	24	0
+bsc	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	47	47	504
+bsc	Uniswap V4	v4	0x28e2ea090877bf75740558f6bfb36a5ffee9e9df	15	7	0
+bsc	PancakeSwap V2	v2	0xca143ce32fe78f1f7019d7d551a6402fc5350c73	13	13	0
+bsc	Uniswap V3	v3	0xdb1d10011ad0ff90774d0c6bb92e5c5c8b4461f7	38	38	210
+ethereum	Uniswap V4	v4	0x000000000004444c5dc75cb358380d2e3de08a90	69	35	4
+ethereum	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	22	22	130
+ethereum	unknown	v2	0x1097053fd2ea711dad45caccc45eff7548fcb362	10	10	0
+ethereum	unknown	v2	0x115934131916c8b277dd010ee02de363c09d037c	19	19	48
+ethereum	Uniswap V3	v3	0x1f98431c8ad98523631ae4a59f267346ea31f984	155	155	712
+ethereum	unknown	v2	0x43ec799eadd63848443e2347c49f5f52e8fe0f6f	3	3	0
+ethereum	unknown	v2	0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f	46	46	98
+ethereum	Curve NG	curve-ng	0x6a8cbed756804b16e05e741edabd5cb544ae21bf	22	0	0
+ethereum	Balancer V2	balancer-v2	0xba12222222228d8ba445958a75a0704d566bf2c8	269	0	0
+ethereum	unknown	v3	0xbaceb8ec6b9355dfc0269c18bac9d6e2bdc29c4f	32	32	60
+ethereum	unknown	v2	0xc0aee478e3658e2610c5f7a4a2e1777ce9e4f2ac	30	30	24
+optimism	Uniswap V2	v2	0x0c3c1c532f1e39edf36be9fe0be1410313e074bf	20	20	8
+optimism	Uniswap V3	v3	0x1f98431c8ad98523631ae4a59f267346ea31f984	131	131	523
+optimism	Uniswap V4	v4	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3	57	27	0
+optimism	SushiSwap V3	v3	0x9c6522117e2ed1fe5bdb72bb0ed5e3f2bde7dbe0	46	46	95
+optimism	unknown	cl	0xcc0bddb707055e04e497ab22a59c2af4391cd12f	24	24	189
+optimism	Velodrome	solidly	0xf1046053aa5682b4f9a81b5481394da16be5ff5a	43	43	119
+optimism	unknown	v2	0xfbc12984689e5f15626bad03ad60160fe98b303c	8	8	0
+robinhood	Uniswap V3	v3	0x1f7d7550b1b028f7571e69a784071f0205fd2efa	30	30	528
+robinhood	Uniswap V4	v4	0x8366a39cc670b4001a1121b8f6a443a643e40951	14	6	63
+robinhood	Uniswap V2	v2	0x8bceaa40b9acdfaedf85adf4ff01f5ad6517937f	8	8	54

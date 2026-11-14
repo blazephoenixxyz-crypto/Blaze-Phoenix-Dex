@@ -81,6 +81,12 @@ M = [  # (test id, old, new)
  ("SwapCoverage.test_draw_with_swap_ok_and_mf_unforced_counts_8_of_8", 'elif r["outcome"] == "mf_unforced" and oc.get(', 'elif False and oc.get('),
  ("SwapCoverage.test_report_counts_mf_unforced_as_its_twin_over_every_row", '"M" + r["mode"][2:])) == "ok":', '"M" + r["mode"][2:])) != "x":'),
  ("SwapCoverage.test_report_counts_mf_unforced_as_its_twin_over_every_row", '"M" + r["mode"][2:])) == "ok":', '"D")) == "ok":'),
+ ("LegAmt.test_input_per_leg_from_transfers_into_the_target_under_the_router", "if dst == to:", "if dst:"),
+ ("LegAmt.test_input_per_leg_from_transfers_into_the_target_under_the_router", "            if id(n) not in under:\n                continue\n", ""),
+ ("DexUsage.test_legs_gas_draws_modes_over_ok_rows", "            c[0] += 1\n            c[1] += int(g)", "            c[0] += 2\n            c[1] += int(g)"),
+ ("DexUsage.test_legs_gas_draws_modes_over_ok_rows", "c[2].add(draw_key(r))", "c[2].add(id(r))"),
+ ("DexUsage.test_legs_gas_draws_modes_over_ok_rows", 'if r.get("outcome") != "ok":\n            continue', "pass"),
+ ("DexUsage.test_addr_basis_needs_the_same_kind_on_another_chain", "and k == kind and", "and"),
 ]
 # Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
 # must turn its named test red.

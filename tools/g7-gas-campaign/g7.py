@@ -26,7 +26,7 @@ the denominator of the report. Swap coverage counts an mf_unforced row as its tw
   g7.py draws   <spec.json> <seedhex> [chain]
   g7.py measure <spec.json> <statedir> <out.tsv> <seedhex> [-j 2] [--chains a,b] [--max N]
   g7.py smoke   <spec.json> <statedir> <out.tsv>
-  g7.py report  <spec.json> <out.tsv>
+  g7.py report  <spec.json> <out.tsv> [universe.tsv]   (default docs/prereg/gas-1114-universe.tsv; DEX tables)
 
 The RPC key is read from $DRPC_KEY_FILE (default ~/.drpc-key) and never printed or written.
 """
@@ -43,7 +43,7 @@ SEL = {
     "preview": "30439d8c", "run": "3f1dde7a", "bal": "70a08231", "solve": "8e9d0a6c",
     "seed": "4c779596", "vital": "a35f8b8a", "wrappers": "ab0a1b3f", "discover": "4d400985",
     "active": "bf827fdb", "batch": "b9d096b2", "v2swap": "022c0d9f", "v3swap": "128acb08",
-    "unlock": "48c89491", "transfer": "a9059cbb", "reserves": "0902f1ac", "slot0": "3850c7bd",
+    "unlock": "48c89491", "transfer": "a9059cbb", "transferFrom": "23b872dd", "reserves": "0902f1ac", "slot0": "3850c7bd",
     "gstate": "e76c01e4", "record": "abc75427", "fee": "ddca3f43", "liquidity": "1a686502",
 }
 PROTOCOL_FEE_BPS = 28  # src/BlazePhoenixCore.sol:420
@@ -65,7 +65,7 @@ COLS = ["chain", "label", "max_hops_code", "stratum", "kind", "idx", "b", "ts_b"
         "g_legs_sum", "legs_detail", "g_sweep", "g_record", "cd_bytes", "cd_zero", "cd_intrinsic", "cd_floor7623",
         "g_cold", "g_warm", "g_coldpart", "al_src", "delivered", "out_vs_D_bps", "mid", "out_vs_mid_bps",
         "pool_fee_bps", "vs_mid_net_bps", "liq_usd", "nq_class", "g_quote_cap", "ms_case",
-        "gate_used", "vital_v", "vital_depth18", "vital_psi"]
+        "gate_used", "vital_v", "vital_depth18", "vital_psi", "leg_amt"]
 TTL = 3600  # Solver DISCOVERY_TTL_SECONDS (src/BlazePhoenixSolver.sol:133)
 
 
@@ -331,14 +331,46 @@ def exec_segments(trace, router, hub=None):
         if inside and hub and to == hub and sel_of(n) == SEL["record"]:
             record += fgas(n)
         if inside and to != router and sel_of(n) in LEG_SELS and i > leg_end:
-            legs.append((n, to))
+            legs.append((n, to, i + subtree_size(n) - 1))
             leg_end = i + subtree_size(n) - 1
     sweep = 0
     for i, (n, p) in enumerate(order):
         if i > leg_end and p is not None and (p.get("to") or "").lower() == router and sel_of(n) == SEL["transfer"]:
             sweep += fgas(n)
-    return {"g_exec": router_gas, "g_legs_sum": sum(fgas(n) for n, _ in legs),
-            "legs_detail": ";".join(f"{to}:{fgas(n)}" for n, to in legs), "g_sweep": sweep, "g_record": record}
+    return {"g_exec": router_gas, "g_legs_sum": sum(fgas(n) for n, _, _ in legs),
+            "legs_detail": ";".join(f"{to}:{fgas(n)}" for n, to, _ in legs),
+            "leg_amt": leg_amounts(order, legs, under), "g_sweep": sweep, "g_record": record}
+
+
+def leg_amounts(order, legs, under):
+    """The input paid to each leg, measured as token movements into the leg's target, not decoded
+    from the swap call's claimed amounts. A leg's window runs from the end of the previous leg's
+    subtree to the end of its own: v2 pays the pair before swap(), v3 pays in the callback, V4
+    settles inside unlock(). Counted under the Router only: transfer(to, amt) and
+    transferFrom(from, to, amt) to the target, keyed by the token called; native value sent to the
+    target keyed "eth". Same order as legs_detail; `<target>:<token>=<amt>[+...]`, and `<target>:`
+    when nothing moved in the window (absent is not zero: the leg was paid some other way)."""
+    out, lo = [], -1
+    for _, to, end in legs:
+        paid = {}
+        for i in range(lo + 1, end + 1):
+            n, _ = order[i]
+            if id(n) not in under:
+                continue
+            d, dst = strip0x(n.get("input") or ""), None
+            if d[:8] == SEL["transfer"] and len(d) >= 8 + 128:
+                dst, amt = "0x" + d[32:72].lower(), int(d[72:136], 16)
+            elif d[:8] == SEL["transferFrom"] and len(d) >= 8 + 192:
+                dst, amt = "0x" + d[96:136].lower(), int(d[136:200], 16)
+            if dst == to:
+                k = (n.get("to") or "").lower()
+                paid[k] = paid.get(k, 0) + amt
+            v = int(n.get("value") or "0x0", 16)
+            if v and (n.get("to") or "").lower() == to:
+                paid["eth"] = paid.get("eth", 0) + v
+        out.append(f"{to}:" + "+".join(f"{k}={a}" for k, a in sorted(paid.items())))
+        lo = end
+    return ";".join(out)
 
 
 # ── memory (moonslot) storage ──
@@ -896,7 +928,157 @@ def swap_coverage(rows):
     return {k: tuple(v) for k, v in out.items()}
 
 
-def cmd_report(spec_path, out_path):
+# DEX names: a factory (or V4 PoolManager / vault) is named only by a repo constant at that address
+# on the SAME chain; (chain, venue) -> (dex, source). A venue with no constant here is named from
+# the same address with the same kind on another chain (basis addr), else by a kind that names one
+# protocol (basis kind), else "unknown". Nothing else is inferred.
+DEX_NAME = {
+    ("base", "0x8909dc15e40173ff4699343b6eb8132c65e18ec6"): ("Uniswap V2", "test/fork/BaseTestDeploy.sol:38 BASE_UNIV2"),
+    ("base", "0x33128a8fc17869897dce68ed026d694621f6fdfd"): ("Uniswap V3", "test/fork/BaseTestDeploy.sol:39 BASE_UNIV3"),
+    ("base", "0x420dd381b31aef6683db6b902084cb0ffece40da"): ("Aerodrome", "test/fork/BaseTestDeploy.sol:40 BASE_AERO"),
+    ("base", "0x498581ff718922c3f8e6a244956af099b2652b2b"): ("Uniswap V4", "test/fork/BaseTestDeploy.sol:41 BASE_V4_MGR"),
+    ("base", "0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865"): ("PancakeSwap V3", "test/fork/BaseTestDeploy.sol:42 BASE_PCK3"),
+    ("base", "0xc35dadb65012ec5796536bd9864ed8773abc74c4"): ("SushiSwap V3", "test/fork/BaseTestDeploy.sol:43 BASE_SUSHI3"),
+    ("base", "0xfda619b6d20975be80a10332cd39b9a4b0faa8bb"): ("BaseSwap", "test/fork/BaseTestDeploy.sol:44 BASE_BSWAP"),
+    ("base", "0x71524b4f93c58fcbf659783284e38825f0622859"): ("SushiSwap V2", "test/fork/BaseTestDeploy.sol:45 BASE_SUSHI2"),
+    ("base", "0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a"): ("Aerodrome CL", "test/fork/BaseTestDeploy.sol:46 BASE_AEROCL"),
+    ("base", "0x02a84c1b3bbd7401a5f7fa98a384ebc70bb5749e"): ("PancakeSwap V2", "test/fork/BaseTestDeploy.sol:47 BASE_PCK2"),
+    ("optimism", "0x1f98431c8ad98523631ae4a59f267346ea31f984"): ("Uniswap V3", "test/fork/MultichainProbe.t.sol:229 OP_UNIV3"),
+    ("optimism", "0x0c3c1c532f1e39edf36be9fe0be1410313e074bf"): ("Uniswap V2", "test/fork/MultichainProbe.t.sol:230 OP_UNIV2"),
+    ("optimism", "0x9a13f98cb987694c9f086b1f5eb990eea8264ec3"): ("Uniswap V4", "test/fork/MultichainProbe.t.sol:231 OP_V4_MGR"),
+    ("optimism", "0xf1046053aa5682b4f9a81b5481394da16be5ff5a"): ("Velodrome", "test/fork/MultichainProbe.t.sol:233 OP_VELO"),
+    ("optimism", "0x9c6522117e2ed1fe5bdb72bb0ed5e3f2bde7dbe0"): ("SushiSwap V3", "test/fork/MultichainProbe.t.sol:234 OP_SUSHI3"),
+    ("arbitrum", "0x1f98431c8ad98523631ae4a59f267346ea31f984"): ("Uniswap V3", "test/fork/MultichainProbe.t.sol:306 ARB_UNIV3"),
+    ("arbitrum", "0xf1d7cc64fb4452f05c498126312ebe29f30fbcf9"): ("Uniswap V2", "test/fork/MultichainProbe.t.sol:307 ARB_UNIV2"),
+    ("arbitrum", "0x360e68faccca8ca495c1b759fd9eee466db9fb32"): ("Uniswap V4", "test/fork/MultichainProbe.t.sol:308 ARB_V4_MGR"),
+    ("arbitrum", "0x1af415a1eba07a4986a52b6f2e7de7003d82231e"): ("SushiSwap V3", "test/fork/MultichainProbe.t.sol:309 ARB_SUSHI3"),
+    ("arbitrum", "0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865"): ("PancakeSwap V3", "test/fork/MultichainProbe.t.sol:313 ARB_PCK3"),
+    ("arbitrum", "0x6eccab422d763ac031210895c81787e87b43a652"): ("Camelot V2", "test/fork/MultichainProbe.t.sol:316 ARB_CAMELOT2"),
+    ("robinhood", "0x1f7d7550b1b028f7571e69a784071f0205fd2efa"): ("Uniswap V3", "test/fork/MultichainProbe.t.sol:385 RH_UNIV3"),
+    ("robinhood", "0x8bceaa40b9acdfaedf85adf4ff01f5ad6517937f"): ("Uniswap V2", "test/fork/MultichainProbe.t.sol:386 RH_UNIV2"),
+    ("robinhood", "0x8366a39cc670b4001a1121b8f6a443a643e40951"): ("Uniswap V4", "test/fork/MultichainProbe.t.sol:387 RH_V4_MGR"),
+    ("ethereum", "0x000000000004444c5dc75cb358380d2e3de08a90"): ("Uniswap V4", "test/fork/G7ErrEthC6UnwalkedLastHop.t.sol:58 V4_MGR"),
+    ("avalanche", "0x740b1c1de25031c31ff4fc9a62f554a55cdc1bad"): ("Uniswap V3", "branch avax-adapters-1106 test/fork/AvaxForkBase.sol:31 UNIV3_FACTORY"),
+    ("avalanche", "0xae6e5c62328ade73ceefd42228528b70c8157d0d"): ("Pharaoh", "branch avax-adapters-1106 test/fork/AvaxForkBase.sol:37 PHARAOH_V3_FACTORY"),
+    ("avalanche", "0x512eb749541b7cf294be882d636218c84a5e9e5f"): ("Blackhole (Algebra Integral)", "branch avax-adapters-1106 test/fork/AvaxAlgebraIntegral.t.sol:95 BH_FACTORY"),
+    ("avalanche", "0x8e42f2f4101563bf679975178e880fd87d3efd4e"): ("Trader Joe LB 2.1", "branch avax-adapters-1106 test/fork/AvaxLB.t.sol:82 LB21"),
+    ("avalanche", "0xb43120c4745967fa9b93e79c149e66b0f2d6fe0c"): ("Trader Joe LB 2.2", "branch avax-adapters-1106 test/fork/AvaxLB.t.sol:83 LB22"),
+    ("avalanche", "0xeb480050b016f6c6d45203d2346b68bddda23d4d"): ("LB (DLMM_FACTORY)", "branch avax-adapters-1106 test/fork/AvaxLB.t.sol:84 DLMM_FACTORY"),
+    ("bsc", "0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865"): ("PancakeSwap V3", "branch bsc-infinity-1106 test/fork/BscForkBase.sol PANCAKE_V3"),
+    ("bsc", "0xdb1d10011ad0ff90774d0c6bb92e5c5c8b4461f7"): ("Uniswap V3", "branch bsc-infinity-1106 test/fork/BscForkBase.sol UNI_V3"),
+    ("bsc", "0xca143ce32fe78f1f7019d7d551a6402fc5350c73"): ("PancakeSwap V2", "branch bsc-infinity-1106 test/fork/BscForkBase.sol PANCAKE_V2"),
+    ("bsc", "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df"): ("Uniswap V4", "branch bsc-infinity-1106 test/fork/BscForkBase.sol UNI_V4_PM"),
+}
+# A kind that is one protocol names it (universe kind, gate_family, G8 _family); v2, v3, v4, cl,
+# solidly are shared by several DEXes and name none.
+KIND_DEX = {"curve-ng": "Curve NG", "curve_ng": "Curve NG", "curve_crypto_ng": "Curve Crypto NG",
+            "balancer-v2": "Balancer V2", "balancer_v2": "Balancer V2", "balancer_v3": "Balancer V3",
+            "algebra": "Algebra", "algebra_integral": "Algebra Integral", "pharaoh": "Pharaoh", "lb": "LB",
+            "inf_cl": "PancakeSwap Infinity CL", "inf_bin": "PancakeSwap Infinity Bin"}
+HUB_KIND = {0: "v2", 1: "v3", 4: "v4", 5: "solidly", 6: "algebra"}  # G7Deploy.s.sol:31-35
+DEX_BASES = ("factory", "addr", "kind", "gate", "seed", "unknown")
+UNIVERSE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "prereg", "gas-1114-universe.tsv")
+
+
+def load_universe(path):
+    """The pool universe rows (chain, venue, kind, pool, adapter, ...), lower-case addresses; [] if absent."""
+    if not path or not os.path.exists(path):
+        return []
+    return [{k: (v.lower() if k in ("venue", "pool") else v) for k, v in r.items()} for r in load_rows(path)]
+
+
+def venue_name(chain, venue, kind, venues):
+    """(dex, basis) of a venue: the constant on this chain, else the same address and kind on
+    another chain of `venues` {(chain, venue): kind} with one name, else a kind that names one
+    protocol, else unknown."""
+    if (chain, venue) in DEX_NAME:
+        return DEX_NAME[(chain, venue)][0], "factory"
+    other = {DEX_NAME[cv][0] for cv, k in venues.items() if cv[1] == venue and k == kind and cv in DEX_NAME}
+    if len(other) == 1:
+        return other.pop(), "addr"
+    if kind in KIND_DEX:
+        return KIND_DEX[kind], "kind"
+    return "unknown", "unknown"
+
+
+def strata_index(spec):
+    """{(chain, stratum id): stratum} of a G7 or G8 spec."""
+    return {(cn, st["id"]): st for cn, c in spec["chains"].items() for st in c["strata"]}
+
+
+def leg_dex(chain, target, row, pools, venues, strata):
+    """(dex, kind, venue, basis) of one leg target. pools: {(chain, pool): (venue, kind)};
+    venues: {(chain, venue): kind} (a V4 leg's target is the PoolManager itself)."""
+    v = pools[(chain, target)][0] if (chain, target) in pools else target
+    if (chain, v) in venues:
+        dex, basis = venue_name(chain, v, venues[(chain, v)], venues)
+        return dex, venues[(chain, v)], v, basis
+    st = strata.get((chain, row.get("stratum")), {})
+    for sp in st.get("seed_pools") or []:
+        if sp["pool"].lower() == target:
+            k = HUB_KIND.get(sp["kind"], str(sp["kind"]))
+            return KIND_DEX.get(k, "unknown"), k, "", "seed"
+    if (st.get("_pool") or "").lower() == target:
+        k = st.get("_family", "")
+        return KIND_DEX.get(k, "unknown"), k, "", "seed"
+    if str(row.get("gate_used")) == "1" and st.get("gate_family"):
+        k = st["gate_family"]
+        return KIND_DEX.get(k, "unknown"), k, "", "gate"
+    return "unknown", "", "", "unknown"
+
+
+def dex_usage(rows, pools, venues, strata):
+    """{chain: {(dex, kind, basis): [legs, gas, draws, modes]}} over the legs of outcome==ok rows
+    only (routes that settled); draws and modes are sets. A leg's gas is its frame's gasUsed."""
+    out = {}
+    for r in rows:
+        if r.get("outcome") != "ok":
+            continue
+        for x in (r.get("legs_detail") or "").split(";"):
+            if not x:
+                continue
+            t, g = x.rsplit(":", 1)
+            dex, kind, _, basis = leg_dex(r["chain"], t.lower(), r, pools, venues, strata)
+            c = out.setdefault(r["chain"], {}).setdefault((dex, kind, basis), [0, 0, set(), set()])
+            c[0] += 1
+            c[1] += int(g)
+            c[2].add(draw_key(r))
+            c[3].add(r["mode"])
+    return out
+
+
+def dex_lines(spec, rows, universe):
+    """The two DEX sections of the report: what the settled routes used, and what the universe offered."""
+    uni = load_universe(universe)
+    pools = {(u["chain"], u["pool"]): (u["venue"], u["kind"]) for u in uni}
+    venues = {(u["chain"], u["venue"]): u["kind"] for u in uni}
+    strata = strata_index(spec)
+    use = dex_usage(rows, pools, venues, strata)
+    out = [f"# dex used (outcome==ok rows only; pct of the chain's ok legs and of their leg gas; universe "
+           f"{os.path.basename(universe) if uni else 'absent'}): chain\tdex\tkind\tbasis\tlegs\tpct_legs\tgas\tpct_gas\tdraws\tmodes"]
+    for cn in sorted(use):
+        tl = sum(v[0] for v in use[cn].values())
+        tg = sum(v[1] for v in use[cn].values())
+        for (dex, kind, basis), (n, g, dr, md) in sorted(use[cn].items(), key=lambda kv: (-kv[1][0], kv[0])):
+            out.append(f"{cn}\t{dex}\t{kind}\t{basis}\t{n}\t{100 * n / tl:.1f}\t{g}\t{100 * g / tg:.1f}\t{len(dr)}\t"
+                       + ",".join(sorted(md)))
+    out.append("# dex available (universe; routable = adapter column starts with routable; used_legs over "
+               "outcome==ok rows): chain\tdex\tkind\tvenue\tpools\troutable\tused_legs")
+    used = {}
+    for r in rows:
+        if r.get("outcome") == "ok":
+            for x in (r.get("legs_detail") or "").split(";"):
+                if x:
+                    v = leg_dex(r["chain"], x.rsplit(":", 1)[0].lower(), r, pools, venues, strata)[2]
+                    used[(r["chain"], v)] = used.get((r["chain"], v), 0) + 1
+    for (cn, v), k in sorted(venues.items()):
+        ps = [u for u in uni if u["chain"] == cn and u["venue"] == v]
+        out.append(f"{cn}\t{venue_name(cn, v, k, venues)[0]}\t{k}\t{v}\t{len(ps)}\t"
+                   f"{sum(u['adapter'].startswith('routable') for u in ps)}\t{used.get((cn, v), 0)}")
+    return out
+
+
+def cmd_report(spec_path, out_path, universe=UNIVERSE):
     spec = json.load(open(spec_path))
     rows = classify_rows(load_rows(out_path))
     print("# outcomes: chain\tkind\tmode\tn\t" + "\t".join(OUTCOMES))
@@ -987,6 +1169,8 @@ def cmd_report(spec_path, out_path):
             g = [int(r["g_record"]) for r in rec if shape(r) == k and r["mode"] == m]
             cells += [len(g), pct(g, 50) if g else "", pct(g, 95) if len(g) >= PAIRED_MIN_N else ""]
         print("\t".join(k) + "\t" + "\t".join(str(c) for c in cells))
+    for ln in dex_lines(spec, rows, universe):
+        print(ln)
 
 
 def main(a):
@@ -1012,7 +1196,7 @@ def main(a):
         else:
             cmd_measure(a[1], a[2], a[3], "smoke", j, only, None, smoke=True)
     elif a[0] == "report":
-        cmd_report(a[1], a[2])
+        cmd_report(*a[1:4])
     else:
         sys.exit(__doc__)
 
