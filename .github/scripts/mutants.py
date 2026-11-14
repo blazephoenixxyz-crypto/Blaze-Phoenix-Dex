@@ -7607,6 +7607,14 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (amt == 0) return (0, 0, 0, 0);",
       new="        if (amt == 1) return (0, 0, 0, 0); // MUTANTE",
       teste="test_Control_AZeroInputLegIsNotBlindness"),
+ # The V3 walk steps past a crossed tick in the direction it trades: going down, from
+ # nt - 1, the inclusive search does not find the tick just crossed
+ # (test/V3WalkTickStepIsDirectional.t.sol).
+ dict(nome="L1-124 Core:2551: the V3 walk going down restarts at the tick it crossed and applies its net twice",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = zeroForOne ? nt - 1 : nt;",
+      new="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = nt; // MUTANTE",
+      teste="test_ZeroForOneCrossesBelowTheTick"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
