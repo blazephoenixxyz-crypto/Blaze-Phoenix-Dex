@@ -305,6 +305,14 @@ class TestRunSource(unittest.TestCase):
         M.run_source("paraswap", "base", ds, CTX, t, Blocks(), 0.0, rows.append, sleep=lambda s: None, clock=Clock())
         self.assertEqual(len(t.calls), 6)
 
+    # mutant C3: run_source without the per-row guard -> red (a crash lost 60 lifi rows on ethereum, 11-14)
+    def test_unexpected_exception_keeps_the_row(self):
+        t, rows = FakeTransport([ValueError("IncompleteRead-like"), (200, OK["lifi"])]), []
+        ds = [draw(cell="c%d" % k) for k in range(3)]
+        M.run_source("lifi", "base", ds, CTX, t, Blocks(), 0.0, rows.append, sleep=lambda s: None, clock=Clock())
+        self.assertEqual([r["status"] for r in rows], ["http_err", "ok", "ok"])
+        self.assertEqual(rows[0].get("amount_out", ""), "")
+
     # mutant C2: rate wait removed -> red
     def test_rate_spacing(self):
         t, rows, sleeps = FakeTransport([(200, OK["cow"])]), [], []

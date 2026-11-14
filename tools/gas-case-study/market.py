@@ -38,6 +38,7 @@ Stdlib only.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import socket
@@ -287,6 +288,8 @@ def http_transport(method, url, headers, body, timeout):
         raise OSError("url error: %s" % type(e.reason).__name__)
     except socket.timeout as e:
         raise TimeoutError(str(e))
+    except http.client.HTTPException as e:  # e.g. IncompleteRead: a broken answer, retried like a reset
+        raise OSError("http error: %s" % type(e).__name__)
 
 
 def make_rpc(chain, transport=http_transport):
@@ -411,7 +414,13 @@ def run_source(source, chain, draws, ctx, transport, blocks, rate, emit, sleep=t
         if wait > 0:
             sleep(wait)
         last_t = clock()
-        row, sent = quote(source, chain, d, ctx, transport, blocks, sleep, clock)
+        try:
+            row, sent = quote(source, chain, d, ctx, transport, blocks, sleep, clock)
+        except Exception as e:  # one broken quote never loses the row nor the rest of the source
+            row = {"chain": chain, "cell_id": d["cell_id"], "i": str(d["i"]), "token_in": d["token_in"],
+                   "token_out": d["token_out"], "amount_in": d["amount_in"], "source": source,
+                   "status": "http_err", "quote_unix": str(int(last_t)),
+                   "detail": "unexpected %s" % type(e).__name__}
         fails = fails + 1 if row["status"] == "http_err" else 0
         emit(row)
 
