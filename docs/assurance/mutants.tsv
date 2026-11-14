@@ -1483,6 +1483,9 @@ src/BlazePhoenixCore.sol	testFuzz_QuoteArmsZeroInput	Core _quoteArms: a zero-inp
 src/BlazePhoenixCore.sol	testFuzz_TheWalkPaysWhatTheSpecSwapPays	Core v3PaysOnBudget: the budget walk prices its steps without the pool's fee
 src/BlazePhoenixCore.sol	testFuzz_TheV4QuoteIsTheWalkAtTheCallersBar	Core native V4 quote: the caller's bar is read as the maximum bar
 src/BlazePhoenixCore.sol	test_aStackedNarrowPositionInBandPaysWhatItPromises	Core _v4Walk: the stretches are priced fee-free, so a leg on the stacked book promises more than it pays
+src/BlazePhoenixRouter.sol	test_DustSwap_PaysAProtocolFee	fee: rounding goes DOWN again, on the dust swap (delivered, and the protocol paid nothing)
+src/BlazePhoenixCore.sol	test_3073_WalkBudget_HeldThreeBridgesSixBooks_SettlesAsQuoted	3073-5 held grid: the search budget raised to 16M, the 16M door enters the solve short of it and the held grid it quotes no longer settles
+src/BlazePhoenixCore.sol	test_3073_WalkBudget_HeldBridgeLeadsSixBooks_SettlesAsQuoted	3073-5 held bridge grid: the search budget is the whole transaction cap (2^24), the door enters the solve short of it and the leading bridge no longer settles
 src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve crypto NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Balancer V2: a hint of another length is decoded, not refused

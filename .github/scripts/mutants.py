@@ -8126,6 +8126,30 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, fee, zeroForOne);',
       new='            (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, 0, zeroForOne); // MUTANTE',
       teste='test_aStackedNarrowPositionInBandPaysWhatItPromises'),
+# 2026-11-14 (F5 of the PR #126 review, batch 5): four main tests left with no mutant when theirs
+# was re-paired (508b284 the fee ceiling; 8a4d6e1 C1 [738] and R1-lowered to the threshold test).
+# The renounce test of main was renamed, not orphaned: [morf-P3-9] names its new name.
+ dict(nome="fee: rounding goes DOWN again, on the dust swap (delivered, and the protocol paid nothing)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
+      new="        uint256 feeH = BPC.mulDiv(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
+      teste="test_DustSwap_PaysAProtocolFee"),
+ # Exception: test_EntryB_HonestPlansFitWithMargin_TwoCleanBridges has no mutant of its own. SOLVE_GAS
+ # 500_000 leaves it green (measured 11-14): the share it pins is of its own mirror SEARCH_GAS (12M),
+ # no Core number; the lowered budget is answered by the threshold test (R1-lowered, 8a4d6e1).
+ # Under C1 the walk's budget is a function of SOLVE_B and the search alone, so the held grids
+ # quote the same plan at both doors whatever SOLVE_GAS is under the transaction: what they still
+ # answer is that the door's budget fits the 16M call that settles it (entered short, the walk stops).
+ dict(nome='3073-5 held grid: the search budget raised to 16M, the 16M door enters the solve short of it and the held grid it quotes no longer settles',
+      f='src/BlazePhoenixCore.sol',
+      old='    uint256 internal constant SOLVE_GAS = 14_700_000;',
+      new='    uint256 internal constant SOLVE_GAS = 16_000_000; // MUTANT',
+      teste='test_3073_WalkBudget_HeldThreeBridgesSixBooks_SettlesAsQuoted'),
+ dict(nome='3073-5 held bridge grid: the search budget is the whole transaction cap (2^24), the door enters the solve short of it and the leading bridge no longer settles',
+      f='src/BlazePhoenixCore.sol',
+      old='    uint256 internal constant SOLVE_GAS = 14_700_000;',
+      new='    uint256 internal constant SOLVE_GAS = 16_777_216; // MUTANT',
+      teste='test_3073_WalkBudget_HeldBridgeLeadsSixBooks_SettlesAsQuoted'),
 # The shared obligations of test/adapters/AdapterConformance.sol (A1-A6, A8), each run
 # against the four adapters by test/adapters/conformance/*; one mutant per obligation and venue.
  dict(nome="Curve NG: a hint of another length is decoded, not refused",
@@ -10402,6 +10426,22 @@ M_FORK = [
       old='return (out < f ? out : f, left);',
       new='return (f, left); // MUTANT',
       testes=['test_V3ReadsBudget_LossIsMeasuredOnThe3331Pool']),
+ # Midtail-3 draw (base, block 53,653,191): before the G7 fix `_settles` read the walk without
+ # asking the venues, and the draw's bytes met RouterE(5) at the Router [inferred: f1.log, pre-basefix].
+ # Its range twin (AMT/10, AMT/100) has no measured refusal at those sizes: no direct mutant
+ # without a fork measurement, so it stays the draw's sibling with no pair of its own.
+ dict(nome='G7 midtail-3 draw (fork): _settles walks without asking the venues, so the door encodes bytes the Router refuses',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        uint256 w = _walk(route, amountIn, feeHop, feeOnOut, false, true);',
+      new='        uint256 w = _walk(route, amountIn, feeHop, feeOnOut, false, false); // MUTANT',
+      testes=['test_draw_executableBytesSettleAtTheFloor']),
+ # The row-less G7 state's rebuild uses 1,703,038 gas (test header): a walk fixed under it stops
+ # the solve (F1), and the oracle state loses the quote G7 measured.
+ dict(nome='C1 [c1-m2o]: the walk fixed at 1.5M, under the 1,703,038 the row-less G7 rebuild uses, and the oracle state loses its quote (G7Err, mainnet fork)',
+      f='src/BlazePhoenixSolver.sol',
+      old='            if staticcall(w, address(), p, sub(q, p), 0, 0) {',
+      new='            if staticcall(1500000, address(), p, sub(q, p), 0, 0) { // MUTANT [c1-m2o]',
+      testes=['test_oracle_withoutV4Row_quotesEncodesAndSettlesAboveTheFloor']),
 ]
 
 def run(t):

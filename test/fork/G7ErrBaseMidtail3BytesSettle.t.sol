@@ -10,6 +10,8 @@ pragma solidity 0.8.36;
 //  Pinned here, end to end on the tree under test:
 //    door : whenever `Quoter.previewAndEncode` returns bytes for the draw, the Router settles
 //           them and the user receives at least effectiveMinOut. A door that refuses is green.
+//  Mutants (M_FORK): the draw is paired with `_settles` walking without asking the venues;
+//    the range has no direct mutant of its own (no measured refusal at AMT/10, AMT/100).
 //  Run with DRPC_KEY set, this file only (match-path).
 // =============================================================================
 
