@@ -16,7 +16,7 @@ pragma solidity 0.8.36;
 // The fuzz finds the same gap across small amounts. GREEN once `previewPlanExact` returns
 // the lower of the output deduction and the Router's own input-charged funding of the route.
 // CONTROL: with the output token registered as a bridge (fee off the output) the scalar is
-// the plain deduction, unchanged, and delivery equals it.
+// the plain deduction, unchanged, and delivery equals it; the pool receives the whole input.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
@@ -83,5 +83,9 @@ contract QuoterExactFloorHoldsWhenTheFeeIsChargedOnTheInputTest is Test {
         tokenA.approve(address(router), 12748);
         uint256 out = router.swapExactIn(route, 12748, exactOut, recipient, block.timestamp + 1);
         assertEq(out, exactOut, "fee off the output: delivered == deduction");
+        // The Router, the Solver and the Quoter all ask `BPC.paysOnInput`, so a route charged on
+        // its input AND its output still delivers what was quoted. The venue is the witness that
+        // does not ask: with the fee off the output it is paid the whole input.
+        assertEq(tokenA.balanceOf(address(pool)), 12748, "fee off the output: the venue is paid the whole input");
     }
 }
