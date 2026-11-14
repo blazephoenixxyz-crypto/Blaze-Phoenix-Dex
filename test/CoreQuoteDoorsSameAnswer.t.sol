@@ -17,7 +17,8 @@
 //  call answers what the old door answered: same success flag, same returndata
 //  byte for byte (so the same rounding and the same revert). The oracle is not
 //  the code under test: it is src/BlazePhoenixCore.sol of cb1d7d9, frozen in
-//  test/morf/CoreRefCb1d7d9.sol with only the library name changed.
+//  test/morf/CoreRefCb1d7d9.sol with only the library name changed and one
+//  later change to the mathematics ported (outV3's step of e5ced25, its header).
 //
 //  THE WORLD. `HashWorld` stands in for the pool, both tokens, the V4 manager,
 //  the hooks and the Hub. It answers ANY call with words derived from
