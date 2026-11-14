@@ -7,7 +7,7 @@ pragma solidity 0.8.36;
 // single-range figure (`Core.outV3`, on the walk's own step `Core._nextSqrtFromInput`);
 // `Solver._paysWhatItWalks` walks its own book.
 //
-// With the figure a wei above the pool's swap (the price rounded down, before b83503f), the
+// With the figure a wei above the pool's swap (the price rounded down, before e5ced25), the
 // promise "fell" by that wei: the book was handed back on `fl`, `d = 1`, and the solve ran the
 // rebuild without it - a static self-call on WALK_GAS (2.5M), which a solve that cannot hand
 // over stops on (empty revert). The plan it returned was the same; the order paid a rebuild

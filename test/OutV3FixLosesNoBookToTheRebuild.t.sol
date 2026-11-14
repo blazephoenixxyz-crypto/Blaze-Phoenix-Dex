@@ -8,7 +8,7 @@ pragma solidity ^0.8.24;
 //
 // Two figures over the same orders: `outV3` as it stands (the pool's own step, `Core._nextSqrtFromInput`,
 // price rounded up)
-// and the figure before b83503f (price rounded down through a floored product), replicated here.
+// and the figure before e5ced25 (price rounded down through a floored product), replicated here.
 // The walk is the oracle: it is the pool's step arithmetic, a different producer from the
 // single-range figure. Orders sweep the price (ticks -300k..300k, off-tick prices), the
 // liquidity (1e6..1e30), the four common fees and the input from one wei to a quarter of the
@@ -61,7 +61,7 @@ contract OutV3FixLosesNoBookToTheRebuildTest is Test {
         book = new FlatBook();
     }
 
-    /// The figure before b83503f, token0 in (Core.outV3 at 33b5f94).
+    /// The figure before e5ced25, token0 in (Core.outV3 at 33b5f94).
     function _oldOutV3(uint256 ain, uint160 sqrtP, uint128 liq, uint24 fee) internal pure returns (uint256) {
         if (ain == 0 || liq == 0 || sqrtP == 0) return 0;
         uint256 a = (ain * (1_000_000 - fee)) / 1_000_000;

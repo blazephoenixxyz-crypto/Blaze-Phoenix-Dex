@@ -114,7 +114,7 @@ contract CoreMetamorphicRelationsTest is Test {
     /// MR2 (V3) on a fixed grid, so the relation does not wait for the fuzzer to find a
     /// small order on a deep pool: liquidity from 1e12 to 1e30 across the ulp edge 2^96,
     /// orders from 1 wei to 1e6. The first point is the counterexample that turned the
-    /// one-ulp bound red once the zeroForOne arm took the pool's own step (b578f24,
+    /// one-ulp bound red once the zeroForOne arm took the pool's own step (86d296e,
     /// args [291, 355, 9992] under the pinned seed: whole 643, parts 277 + 340, ulp 13).
     function test_MR2_OutV3_SplittingNeverGainsOnTheGrid() public pure {
         _mr2V3(291, 355, 1e30 - 1e12 + 9993);
@@ -187,11 +187,11 @@ contract CoreMetamorphicRelationsTest is Test {
         a = bound(a, 1, uint256(liq) / 2);
         uint256 z = BPC.outV3(a, SQRT_P_1, liq, 3000, true, 0);
         uint256 o = BPC.outV3(a, SQRT_P_1, liq, 3000, false, 0);
-        // each arm rounds ITS OWN price step once (before b83503f in opposite
+        // each arm rounds ITS OWN price step once (before e5ced25 in opposite
         // directions: the zeroForOne arm floored the new price, the other floors the
         // step), so the arms sit within one ulp on either side of the exact value:
         // two ulps, plus the two output floors. Measured 16 wei at L = 9.5e28 (ulp = 12)
-        // before b83503f; both arms now round against the trader.
+        // before e5ced25; both arms now round against the trader.
         assertApproxEqAbs(z, o, 2 * _ulp(liq) + 2, "MR6 (V3): the two directions disagree at parity by more than two ulps");
     }
 
