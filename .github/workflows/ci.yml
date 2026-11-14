@@ -710,6 +710,17 @@ jobs:
         # even under continue-on-error (see formal-explore.yml).
         run: timeout 1500 halmos --contract CompositionFormalSpec -v
 
+      - name: Symbolic - band, hop fee, dust probe, split (report-only)
+        # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
+        # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
+        # a bound that was hit proves nothing, so this step fails on that warning too. A
+        # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
+        run: |
+          set -o pipefail
+          timeout 1500 halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
+            --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
+          ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
+
   gas-metrics:
     name: gas metrics (offline ledger)
     runs-on: ubuntu-latest
