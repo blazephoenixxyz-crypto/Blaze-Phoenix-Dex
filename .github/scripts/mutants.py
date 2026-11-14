@@ -7849,7 +7849,8 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       new="        if (amt >= max) revert AdapterE(9); // MUTANTE",
       teste="test_Base_AmountAtMost_Extremes"),
 # 2026-11-14 (F5 of the PR #126 review): every test of AdapterBase.t.sol and the A1
-# obligation gets the mutant of the line it watches (A10: the cap cut to 20_000 survived). Several share a line with an entry above;
+# obligation gets the mutant of the line it watches (A10: the cap cut to 20_000 survived, the mock
+# venues cost less; the 2,300 stipend, no measured threshold, is the cap A10 answers). Several share a line with an entry above;
 # each `new` is the change that test alone answers.
  dict(nome="AdapterBase: a zero Gate is refused with another code",
       f="src/adapters/ExtAdapterBase.sol",
@@ -7921,6 +7922,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        aux1 = bytes32(0);",
       new="        aux1 = bytes32(gasleft()); // MUTANTE",
       teste="test_Conf_A1_Resolve_IsIdempotent_AndIsTheWrappersLeg"),
+ dict(nome="BPC: the gas cap of a kind-9 quote is the 2,300 stipend, under what a real leg costs",
+      f="src/BlazePhoenixCore.sol",
+      old="    uint256 internal constant GATE_QUOTE_GAS = 500_000;",
+      new="    uint256 internal constant GATE_QUOTE_GAS = 2_300; // MUTANTE",
+      teste="test_Conf_A10_QuoteFitsTheQuotersGasCap"),
 # 2026-11-14 (F5 of the PR #126 review, batch 2): the split, median, seat, band, Newton and ask
 # tests that had no mutant of their own; each `new` is the change that test alone answers.
  dict(nome='Solver split: the last leg takes its own floor share, not the remainder, so the shares no longer sum to the input',
@@ -8038,10 +8044,10 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='(amountIn, outCap) = _chargeHopFee(hop, h, amountIn, bridgeBase, tokenOut, outCap);',
       new='// MUTANTE',
       teste='test_TheCellSettlesWithTheFeeOnTheBridgeHop'),
- dict(nome='Quoter exact: a fee that eats the carry past the first hop promises a figure',
+ dict(nome='Quoter exact: the writing walk ignores a fee that eats the carry, so the funded pass prices a 0 commitment',
       f='src/BlazePhoenixQuoter.sol',
       old='if (fee >= carry) {',
-      new='if (fee >= carry && h == 0) { // MUTANTE',
+      new='if (fee >= carry && !write) { // MUTANTE',
       teste='test_TwoHops_AFeeThatEatsTheWholeInputPromisesZero'),
  dict(nome='Quoter exact route: an unfunded hop past the first keeps its figures',
       f='src/BlazePhoenixQuoter.sol',
@@ -8115,10 +8121,10 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            return _v4Quote(c, amountIn, bar);',
       new='            return _v4Quote(c, amountIn, type(uint256).max); // MUTANTE',
       teste='testFuzz_TheV4QuoteIsTheWalkAtTheCallersBar'),
- dict(nome='Core v4HeldShare: a book that holds its whole virtual side reads as dust',
+ dict(nome='Core _v4Walk: the stretches are priced fee-free, so a leg on the stacked book promises more than it pays',
       f='src/BlazePhoenixCore.sol',
-      old='        if (held >= vOut) return d;',
-      new='        if (held >= vOut) return 1; // MUTANTE',
+      old='            (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, fee, zeroForOne);',
+      new='            (, uint256 used, uint256 o) = _v4Step(sp, target, liq, rem, 0, zeroForOne); // MUTANTE',
       teste='test_aStackedNarrowPositionInBandPaysWhatItPromises'),
 # The shared obligations of test/adapters/AdapterConformance.sol (A1-A6, A8), each run
 # against the four adapters by test/adapters/conformance/*; one mutant per obligation and venue.
@@ -10360,7 +10366,8 @@ M_FORK = [
       old='        if (m.bestU == 0) revert SolverE(5);',
       new='        if (m.bestU == 0) revert(); // MUTANT [ATQ-fork-12]',
       testes=['test_AtqFork_BaseUniV3Thin_PoolLeftAtMinSqrtRatio_EveryPreviewRefusesTyped',
-              'test_AtqFork_BaseUniV3Thin_PoolLeftAtMaxSqrtRatio_EveryPreviewRefusesTyped']),
+              'test_AtqFork_BaseUniV3Thin_PoolLeftAtMaxSqrtRatio_EveryPreviewRefusesTyped',
+              'test_G7Rh_WithoutV4Wire_ColdDiscoveryFindsNoRoute']),
  dict(nome='[ATQ-fork-13]: the V4 swap fee forgets the protocol fee',
       f='src/BlazePhoenixCore.sol',
       old='            return uint24(pf + uint256(keyFee) - (pf * uint256(keyFee)) / 1_000_000);',
@@ -10383,6 +10390,18 @@ M_FORK = [
       old='            if staticcall(w, address(), p, sub(q, p), 0, 0) {',
       new='            if staticcall(2500000, address(), p, sub(q, p), 0, 0) { // MUTANT [c1-m2]',
       testes=['test_withV4Row_quoteTracksWhatTheEncodedRouteDelivers']),
+ # 2026-11-14 (F5 of the PR #126 review): the test/fork files the review found without a mutant.
+ dict(nome='G7 rh fork [H4-1]: the Robinhood G7 deploy writes no V4 derive row, so cold discovery finds no route (fork)',
+      f='tools/g7-gas-campaign/G7Deploy.s.sol',
+      old='        hub.addFactory(mgr, KIND_V4, MODE_V4_DERIVE, bytes32(0), _n24(), _nSp());\n',
+      new='        // MUTANT H4-1 (fork): no V4 derive row\n',
+      testes=['test_G7Rh_DeployWiring_QuotesTheDrawAtTheSeededTwin',
+              'test_G7Rh_DeployWiring_LargerInputNeverBuysMorePerUnit']),
+ dict(nome='V3 reads budget (fork): the promise stays the single-range figure even when the walk finished',
+      f='src/BlazePhoenixCore.sol',
+      old='return (out < f ? out : f, left);',
+      new='return (f, left); // MUTANT',
+      testes=['test_V3ReadsBudget_LossIsMeasuredOnThe3331Pool']),
 ]
 
 def run(t):

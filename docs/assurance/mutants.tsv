@@ -1444,6 +1444,7 @@ src/adapters/ExtAdapterBase.sol	test_Base_TokensForACallerTheGateDidNotCreate_Re
 src/adapters/ExtAdapterBase.sol	test_Base_PairNotInTheList_Refused	AdapterBase: a pair with one token outside the list is matched
 src/adapters/ExtAdapterBase.sol	test_Base_AllowanceSurvivingTheCall_Refused_AndAFailedReadIsNotZero	AdapterBase: one wei of allowance left standing passes
 src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_IsIdempotent_AndIsTheWrappersLeg	Curve NG: resolve answers a different aux1 on every call, so the leg it reads is not the wrapper's
+src/BlazePhoenixCore.sol	test_Conf_A10_QuoteFitsTheQuotersGasCap	BPC: the gas cap of a kind-9 quote is the 2,300 stipend, under what a real leg costs
 src/BlazePhoenixSolver.sol	testFuzz_TheSharesSumToTheInput	Solver split: the last leg takes its own floor share, not the remainder, so the shares no longer sum to the input
 src/BlazePhoenixSolver.sol	testFuzz_EqualVenuesFloorShare	Solver split: a leg's share is shaved 1% below its floor share
 src/BlazePhoenixMath.sol	testFuzz_TheBaseIsTheWeightedMedian	Math median: every row votes one, so the base is the unweighted median
@@ -1466,7 +1467,7 @@ src/BlazePhoenixCore.sol	testFuzz_TheOrdersBoundCoversTheRealOutputAtTheOrder	Co
 src/BlazePhoenixCore.sol	testFuzz_AGateWrapperIsBoundByItsRoundingAlone	Core probe bound: a gate wrapper's order error is one wei above its rounding
 src/BlazePhoenixQuoter.sol	test_ThePreviewCountsTheSameCell	Quoter preview: one leg per hop is left out of the cell count
 src/BlazePhoenixRouter.sol	test_TheCellSettlesWithTheFeeOnTheBridgeHop	Router bridge hop: the hop fee is not charged on the bridge hop
-src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsTheWholeInputPromisesZero	Quoter exact: a fee that eats the carry past the first hop promises a figure
+src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsTheWholeInputPromisesZero	Quoter exact: the writing walk ignores a fee that eats the carry, so the funded pass prices a 0 commitment
 src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsHopOne_LeavesNoUnfundedFigureInTheRoute	Quoter exact route: an unfunded hop past the first keeps its figures
 src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsTheAnchorHop_LeavesNoUnfundedFigureInTheRoute	Quoter exact route: the unfunding starts one hop after the one the fee ate
 src/BlazePhoenixQuoter.sol	testFuzz_AnOutputPastInt256MaxIsNotProbed	Quoter probe size: an output past int256 max is probed
@@ -1481,7 +1482,7 @@ src/BlazePhoenixRouter.sol	testFuzz_TheFeeIsChargedOnceAtTheCalendarHop	Router f
 src/BlazePhoenixCore.sol	testFuzz_QuoteArmsZeroInput	Core _quoteArms: a zero-input probe that asks for the fee reads the venue
 src/BlazePhoenixCore.sol	testFuzz_TheWalkPaysWhatTheSpecSwapPays	Core v3PaysOnBudget: the budget walk prices its steps without the pool's fee
 src/BlazePhoenixCore.sol	testFuzz_TheV4QuoteIsTheWalkAtTheCallersBar	Core native V4 quote: the caller's bar is read as the maximum bar
-src/BlazePhoenixCore.sol	test_aStackedNarrowPositionInBandPaysWhatItPromises	Core v4HeldShare: a book that holds its whole virtual side reads as dust
+src/BlazePhoenixCore.sol	test_aStackedNarrowPositionInBandPaysWhatItPromises	Core _v4Walk: the stretches are priced fee-free, so a leg on the stacked book promises more than it pays
 src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve crypto NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Balancer V2: a hint of another length is decoded, not refused
