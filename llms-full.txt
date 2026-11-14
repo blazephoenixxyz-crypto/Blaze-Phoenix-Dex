@@ -163,14 +163,14 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- entry-gas:begin -->
 | Router entry | Gas | Snapshot (the test's own fixture) |
 |---|---:|---|
-| `swapExactIn`, plan quoted off-chain, 1 hop | 366,928 | `snapshots/test_Gas_SwapExactIn_Quoted_OneHop.json` (`swapExactIn_tx`) |
-| `swapExactIn`, plan quoted off-chain, 2 hops | 569,359 | `snapshots/test_Gas_SwapExactIn_Quoted_TwoHops.json` (`swapExactIn_tx`) |
-| `swapBestExactIn`, plan solved on-chain, 1 hop | 442,567 | `snapshots/test_Gas_SwapBestExactIn_Solve_OneHop.json` (`swapBestExactIn_tx`) |
-| `swapBestExactIn`, plan solved on-chain, 2 hops | 721,161 | `snapshots/test_Gas_SwapBestExactIn_Solve_TwoHops.json` (`swapBestExactIn_tx`) |
-| `swapExactInNative`, ETH in, 1 hop | 252,982 | `snapshots/test_Gas_SwapExactInNative_EthIn_OneHop.json` (`swapExactInNative_tx`) |
-| `swapExactInNative`, ETH in, 2 hops | 345,914 | `snapshots/test_Gas_SwapExactInNative_EthIn_TwoHops.json` (`swapExactInNative_tx`) |
-| `swapExactInWithPermit2`, 1 hop | 252,611 | `snapshots/test_Gas_SwapExactInWithPermit2_OneHop.json` (`swapExactInWithPermit2_tx`) |
-| `swapExactInWithPermit2`, 2 hops | 345,544 | `snapshots/test_Gas_SwapExactInWithPermit2_TwoHops.json` (`swapExactInWithPermit2_tx`) |
+| `swapExactIn`, plan quoted off-chain, 1 hop | 366,918 | `snapshots/test_Gas_SwapExactIn_Quoted_OneHop.json` (`swapExactIn_tx`) |
+| `swapExactIn`, plan quoted off-chain, 2 hops | 569,339 | `snapshots/test_Gas_SwapExactIn_Quoted_TwoHops.json` (`swapExactIn_tx`) |
+| `swapBestExactIn`, plan solved on-chain, 1 hop | 442,543 | `snapshots/test_Gas_SwapBestExactIn_Solve_OneHop.json` (`swapBestExactIn_tx`) |
+| `swapBestExactIn`, plan solved on-chain, 2 hops | 721,127 | `snapshots/test_Gas_SwapBestExactIn_Solve_TwoHops.json` (`swapBestExactIn_tx`) |
+| `swapExactInNative`, ETH in, 1 hop | 252,972 | `snapshots/test_Gas_SwapExactInNative_EthIn_OneHop.json` (`swapExactInNative_tx`) |
+| `swapExactInNative`, ETH in, 2 hops | 345,894 | `snapshots/test_Gas_SwapExactInNative_EthIn_TwoHops.json` (`swapExactInNative_tx`) |
+| `swapExactInWithPermit2`, 1 hop | 252,601 | `snapshots/test_Gas_SwapExactInWithPermit2_OneHop.json` (`swapExactInWithPermit2_tx`) |
+| `swapExactInWithPermit2`, 2 hops | 345,524 | `snapshots/test_Gas_SwapExactInWithPermit2_TwoHops.json` (`swapExactInWithPermit2_tx`) |
 <!-- entry-gas:end -->
 
 - **Mutation guard, by file** (generated from `.github/scripts/mutants.py`; the full
