@@ -5,6 +5,8 @@ name: g7-gas-campaign
 # The dRPC key comes only from secrets.DRPC_KEY: it is masked, written to a 0600 file in
 # RUNNER_TEMP and never echoed, logged or uploaded (g7.py never prints the URL).
 
+# Manual only since 2026-11-14 (owner's order): a push no longer starts it, to spare the RPC
+# quota. Campaigns run by order.
 on:
   workflow_dispatch:
     inputs:
@@ -24,9 +26,6 @@ on:
         default: prereg
         type: choice
         options: [prereg, site]
-  push:
-    branches: [selar-G7]
-    paths: ["tools/g7-gas-campaign/**", ".github/workflows/g7-gas-campaign.yml"]
 
 permissions:
   contents: read

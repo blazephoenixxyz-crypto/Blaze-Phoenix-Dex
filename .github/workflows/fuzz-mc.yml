@@ -5,10 +5,10 @@ name: fuzz-mc
 # the infrastructure itself. Every forge log goes through prereg.check_results: a result that
 # does not carry the registered PREREG_LOCK line is not a result.
 
+# Manual only since 2026-11-14 (owner's order): a push no longer starts it, to spare the RPC
+# quota. Campaigns run by order.
 on:
   workflow_dispatch:
-  push:
-    branches: ['ci-draft/**']
 
 permissions:
   contents: read
