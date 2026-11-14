@@ -7663,6 +7663,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (m == 0 || massa == 0) return NONE;",
       new="        if (m == 0) return NONE; // MUTANTE",
       teste="test_AHopWhereNoRowVotesIsBasedOnItsMedianRow"),
+ # A fee of exactly 1e6 pips is unknown: put back as a price it divides by PIPS - f = 0
+ # (test/BoundaryEquality.t.sol, BoundaryEqualityBandVoteTest).
+ dict(nome="L1-124 Math:565: a fee of exactly 1e6 pips is put back as a price, dividing by zero",
+      f="src/BlazePhoenixMath.sol",
+      old="            p[i] = f >= PIPS ? r : r > type(uint256).max / PIPS ? type(uint256).max : r * PIPS / (PIPS - f);",
+      new="            p[i] = f > PIPS ? r : r > type(uint256).max / PIPS ? type(uint256).max : r * PIPS / (PIPS - f); // MUTANTE",
+      teste="test_AFeeOfExactlyOneMillionPipsDoesNotVote"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
