@@ -68,6 +68,11 @@ jobs:
         # The generated rows must be the rows the generator produces for the declared factors.
         run: python3 .github/scripts/assurance/covering_array.py --check
 
+      - name: Formal evidence counts only what CI enforces (evidence independence self-test)
+        # A spec named by a continue-on-error job, behind `|| true` or in a comment cannot turn a
+        # run red, so it is not formal evidence. The self-test proves each of those is refused.
+        run: python3 .github/scripts/assurance/evidence_independence.py --self-test
+
       - name: TickMath table is its definition, certified on every tick
         # Each of the twenty constants of Core.sqrtPriceAtTick is recomputed from its definition, the
         # integer nearest to 2^128 / sqrt(1.0001)^(2^i). The certificate is regenerated on all
@@ -631,6 +636,13 @@ jobs:
     name: formal verification (Halmos symbolic)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Halmos 0.3.3 reports a path cut by the loop bound as a WARNING and the check still
+      # PASSES: a bound that was hit proves nothing. Both PROOF steps below already look for
+      # that warning and annotate it. Set this to "1" (the warning then fails the step) only
+      # after one CI run on this pin has measured both specs with no such annotation; until
+      # then the switch reports and gates nothing, so a proof is not turned red unmeasured.
+      LOOP_BOUND_GATE: "0"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -640,7 +652,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Install Halmos
-        run: pip install halmos
+        run: pip install halmos==0.3.3   # pinned: a proof is measured on one prover; bump by PR
 
       - name: Symbolic PROOF — Core math hard gate (iron floor / impact / V3 fail-closed)
         # test/formal/CoreFormalGateSpec.t.sol. Checks land in this contract
@@ -648,7 +660,13 @@ jobs:
         # (0.04–0.19s each, run 31532581231): iron-floor bounds unconditional
         # (INV-1's arithmetic heart), impactV2Bps <= BPS, outV3 fail-closed on
         # degenerate inputs. REAL gate — no `|| true`.
-        run: halmos --contract CoreFormalGateSpec -v
+        run: |
+          set -o pipefail
+          halmos --contract CoreFormalGateSpec -v 2>&1 | tee halmos-core-gate.log
+          if grep -q 'not been fully explored due to the loop unrolling bound' halmos-core-gate.log; then
+            echo "::warning::CoreFormalGateSpec: a path was cut by the loop bound, so that check is not a proof"
+            [ "$LOOP_BOUND_GATE" != 1 ]
+          fi
 
       - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
         # test/formal/EffV4FeeFormalSpec.t.sol. Pure comparison logic, no 512-bit
@@ -663,7 +681,13 @@ jobs:
         # guards against a non-zero exit, not against exhausting the clock — so
         # this proof was never reaching the runner at all. We believed we had two
         # hard gates and were running one.
-        run: halmos --contract EffV4FeeFormalSpec -v
+        run: |
+          set -o pipefail
+          halmos --contract EffV4FeeFormalSpec -v 2>&1 | tee halmos-effv4fee.log
+          if grep -q 'not been fully explored due to the loop unrolling bound' halmos-effv4fee.log; then
+            echo "::warning::EffV4FeeFormalSpec: a path was cut by the loop bound, so that check is not a proof"
+            [ "$LOOP_BOUND_GATE" != 1 ]
+          fi
 
       # A SECOND SYMBOLIC ENGINE BELONGS HERE, AND IS NOT WIRED YET.
       # hevm was added beside Halmos on these same specs and removed in the same
@@ -703,12 +727,23 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Install Halmos
-        run: pip install halmos
+        run: pip install halmos==0.3.3   # pinned: a proof is measured on one prover; bump by PR
 
       - name: Symbolic checks (report-only)
         # Bounded at the process, not with timeout-minutes: a cancelled step propagates to the job
         # even under continue-on-error (see formal-explore.yml).
         run: timeout 1500 halmos --contract CompositionFormalSpec -v
+
+      - name: Symbolic - band, hop fee, dust probe, split (report-only)
+        # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
+        # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
+        # a bound that was hit proves nothing, so this step fails on that warning too. A
+        # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
+        run: |
+          set -o pipefail
+          timeout 1500 halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
+            --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
+          ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
 
   gas-metrics:
     name: gas metrics (offline ledger)

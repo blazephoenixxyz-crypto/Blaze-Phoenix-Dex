@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Slither
-        run: pip install slither-analyzer
+        run: pip install slither-analyzer==0.11.6   # pinned: one analyzer per measured run
       - name: Slither — full detectors, SARIF + markdown summary
         run: |
           slither . \
