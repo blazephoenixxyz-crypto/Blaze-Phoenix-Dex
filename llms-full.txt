@@ -1757,7 +1757,8 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
 - **`canExecute` does not detect tokens that refuse contract recipients.** Some tokens revert any
   transfer whose recipient is a contract (for example a custom `ERC20InvalidReceiver` check), and
   the Router is a contract. The Quoter's preview checks the deadline, the funded output against
-  the effective minimum and input taxes; it does not simulate the token's transfer to the Router,
+  the effective minimum and input taxes, and the encode doors also ask each leg's floor and its
+  hop's budget as the Router sets them; it does not simulate the token's transfer to the Router,
   so such a route can preview `canExecute = true`. The swap then reverts as a whole and the caller
   keeps the input: no funds are lost. Detecting every hostile transfer rule at quote time would
   cost gas on every quote and could never be complete, so it is a documented limit.
