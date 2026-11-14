@@ -7561,6 +7561,16 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);",
       new="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.LEG_FLOOR_BPS, BPC.BPS); // MUTANTE",
       teste="testFuzz_HopFloorSlackIsOneAverageLeg"),
+ dict(nome="124-L2 Core:2547: an upward liquidityNet that passes 2^128 is cast down (wraps) instead of held at the ceiling",
+      f="src/BlazePhoenixCore.sol",
+      old="                    : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));",
+      new="                    : uint128(l + uint256(net))); // MUTANTE",
+      teste="test_LiquidityNetSaturatesAtUint128"),
+ dict(nome="124-L2 Core:2547: a liquidityNet that would pass 2^128 is dropped (the liquidity stays where it was)",
+      f="src/BlazePhoenixCore.sol",
+      old="                    : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));",
+      new="                    : (l + uint256(net) > type(uint128).max ? l : l + uint256(net))); // MUTANTE",
+      teste="testFuzz_LiquidityNetSaturatesAtUint128"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
