@@ -168,15 +168,15 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `src/BlazePhoenixCore.sol` | 394 | 316 | 394 |
 | `src/BlazePhoenixSolver.sol` | 237 | 169 | 237 |
 | `src/BlazePhoenixHub.sol` | 218 | 190 | 218 |
-| `src/BlazePhoenixQuoter.sol` | 126 | 113 | 126 |
+| `src/BlazePhoenixQuoter.sol` | 139 | 118 | 139 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
-| `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 55 | 41 | 55 |
+| `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 51 | 39 | 51 |
 | `src/BlazePhoenixMath.sol` | 50 | 37 | 50 |
-| `src/adapters/BlazePhoenixAdapterInfinityCL.sol` | 45 | 38 | 45 |
-| `src/adapters/BlazePhoenixAdapterLB.sol` | 43 | 31 | 43 |
+| `src/adapters/BlazePhoenixAdapterLB.sol` | 44 | 32 | 44 |
+| `src/adapters/BlazePhoenixAdapterInfinityCL.sol` | 41 | 36 | 41 |
 | `src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol` | 40 | 40 | 40 |
+| `src/adapters/ExtAdapterBase.sol` | 29 | 24 | 29 |
 | `src/adapters/BlazePhoenixAdapterBalancerV3.sol` | 21 | 19 | 21 |
-| `src/adapters/ExtAdapterBase.sol` | 21 | 18 | 21 |
 | `src/adapters/BlazePhoenixAdapterCurveNG.sol` | 18 | 17 | 18 |
 | `src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol` | 15 | 15 | 15 |
 | `src/adapters/BlazePhoenixAdapterBalancerV2.sol` | 13 | 11 | 13 |
@@ -188,7 +188,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `tools/g7-gas-campaign/G7Deploy.s.sol` | 2 | 1 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,826 | 1,431 | 1,826 |
+| **all** | 1,840 | 1,437 | 1,840 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -242,12 +242,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,523 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 511 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 39 | `test/fork/*.t.sol` |
+| Test declarations | 3,532 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 515 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,826 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,840 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |

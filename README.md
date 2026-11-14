@@ -267,12 +267,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,523 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 511 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 39 | `test/fork/*.t.sol` |
+| Test declarations | 3,532 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 515 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,826 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,840 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |

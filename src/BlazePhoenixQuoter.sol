@@ -292,11 +292,14 @@ contract BlazePhoenixQuoter {
     ///      delivery fell a step under an estimate that cleared the caller's floor, and the
     ///      bytes were refused (3336, Ash). So the floor is asked of the venues as the Router
     ///      funds them, the question the exact door asks; the preview's figures are unchanged.
+    ///      Asked by `_settles` on every fee calendar, the fee off the output included, with
+    ///      two of the Router's other measured refusals of the same delivery: each leg's floor and
+    ///      the hop budget (G7 base midtail-3:4, 2026-11-14).
     function _encode(Preview memory pv, uint256 amountIn, address recipient, uint256 deadline)
         private returns (bytes memory call)
     {
         if (block.timestamp > deadline) pv.canExecute = false;
-        if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;
+        if (pv.canExecute && !_settles(pv.route, amountIn, pv.effectiveMinOut)) pv.canExecute = false;
         // A TAXED INPUT INTO A CONCENTRATED LEG (bounty uid 3984, 2026-11-11): the question
         // `_exact` asks after its scalar, asked here after the floor, on the route the bytes
         // carry. The Router refuses the leg (RouterE(13)) whatever the floor; a dry-run that
@@ -875,7 +878,7 @@ contract BlazePhoenixQuoter {
         // THE FEE WALK (`_walk`): the same walk as `_fundedOut`, here with the fee only
         // where the Router takes it on two hops or more (a single hop takes its deduction below),
         // and writing each hop's and leg's figures into the returned route.
-        uint256 walkOut = _walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true);
+        uint256 walkOut = _walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true, false);
         // The route keeps the POOL-MATH attestation: totalOut/singleOut are
         // what the Router compares realised leg output against, and the fee is
         // the Router's own deduction on the way out — exactly as `_pack` reads
@@ -973,11 +976,26 @@ contract BlazePhoenixQuoter {
         (uint256 feeHop, bool feeOnOut) =
             this.feeCalendarOf(route.hops, n == 0 ? address(0) : route.hops[n - 1].tokenOut);
         if (feeOnOut) return type(uint256).max;
-        return _walk(route, amountIn, feeHop, false, false);
+        return _walk(route, amountIn, feeHop, false, false, false);
     }
 
-    /// @dev THE FEE WALK, the one producer of the exact door's funded figure: the route
-    ///      funded from `amountIn` as `Router._execute` funds it. At every hop the divisor is the
+    /// @dev Whether the Router settles `route` at `minOut` in this state (G7 base midtail-3:4):
+    ///      each of its measured-output refusals, the delivery under the floor the bytes carry
+    ///      (net of the fee, on the output too), the per-leg floor and the hop budget, asked of
+    ///      the venues' dry-run on every fee calendar. `_fundedOut`'s `type(uint256).max` answers
+    ///      `_exact` ("the walk you ran is the funded one"); here no walk had run, and the
+    ///      sentinel read as "settles" asked no venue on a direct route into a bridge.
+    function _settles(Route memory route, uint256 amountIn, uint256 minOut) private returns (bool) {
+        uint256 n = route.hops.length;
+        (uint256 feeHop, bool feeOnOut) =
+            this.feeCalendarOf(route.hops, n == 0 ? address(0) : route.hops[n - 1].tokenOut);
+        uint256 w = _walk(route, amountIn, feeHop, feeOnOut, false, true);
+        if (feeOnOut) w -= BPC.mulDivUp(w, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        return w >= minOut;
+    }
+
+    /// @dev THE FEE WALK, the one producer of the exact door's funded figure and of `_settles`'s:
+    ///      the route funded from `amountIn` as `Router._execute` funds it. At every hop the divisor is the
     ///      hop commitment, the legs' own sum, as in the Router (`_hopScaleImpactAndQuote` reads
     ///      `_legSum(hop)`, never `hop.amountIn`): Q773 (hop 1 on) and T04 (hop 0). A hop the
     ///      calendar charges on its input (`BPC.paysOnInput`) pays before its cap, rounded up, on
@@ -986,10 +1004,15 @@ contract BlazePhoenixQuoter {
     ///      Solver's capacity clamp cut is never priced at its pre-clamp size). A fee that takes
     ///      all that entered the hop leaves nothing to sell: 0, never a venue's answer for an input
     ///      of 0. `write` records each leg's and hop's funded input and output in the route,
-    ///      0 in the hops such a fee left unfunded (`_unfund`).
-    function _walk(Route memory route, uint256 amountIn, uint256 feeHop, bool feeOnOut, bool write)
-        private returns (uint256 carry)
-    {
+    ///      0 in the hops such a fee left unfunded (`_unfund`). `ask` asks each leg and hop two of
+    ///      the Router's measured refusals against the legs' bounds, `Router._execScaled`'s per-leg
+    ///      floor and `_execute`'s hop budget, same constants, same referent: 0 at the first it
+    ///      would refuse, as a walk the Router stops delivers nothing. The bound is the bytes'
+    ///      attestation, read before `write` replaces it, lifted as `_execScaled` lifts it to the
+    ///      covered share of the frame's quote (`_frameQuote`).
+    function _walk(
+        Route memory route, uint256 amountIn, uint256 feeHop, bool feeOnOut, bool write, bool ask
+    ) private returns (uint256 carry) {
         carry = amountIn;
         for (uint256 h; h < route.hops.length; h++) {
             Hop memory hop = route.hops[h];
@@ -1005,13 +1028,29 @@ contract BlazePhoenixQuoter {
             }
             if (h == 0 && carry > legSum) carry = legSum;
             uint256 hopOut;
+            uint256 hopBound;
+            uint256 bounded;
             for (uint256 l; l < hop.legs.length; l++) {
                 Leg memory leg = hop.legs[l];
                 uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
                 uint256 legOut = _priceLeg(leg, hop.tokenIn, hop.tokenOut, legIn);
+                if (ask) {
+                    uint256 bound = (leg.expectedOut != 0 && leg.amountIn != 0)
+                        ? BPC.mulDiv(leg.expectedOut, legIn, leg.amountIn) : 0;
+                    uint256 covered = BPC.mulDiv(
+                        _frameQuote(leg, hop.tokenIn, hop.tokenOut, legIn), BPC.MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
+                    if (bound < covered) bound = covered;
+                    if (bound != 0) {
+                        if (legOut < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) return 0;
+                        hopBound += bound;
+                        ++bounded;
+                    }
+                }
                 if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);
                 hopOut += legOut;
             }
+            if (hopBound != 0
+                && hopOut + BPC.mulDiv(hopBound / bounded, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS) < hopBound) return 0;
             if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);
             carry = hopOut;
         }
@@ -1025,6 +1064,19 @@ contract BlazePhoenixQuoter {
             Hop memory hop = hops[h];
             (hop.amountIn, hop.expectedOut) = (0, 0);
             for (uint256 l; l < hop.legs.length; l++) (hop.legs[l].amountIn, hop.legs[l].expectedOut) = (0, 0);
+        }
+    }
+
+    /// @dev The quote the Router measures in-frame for a leg at `legIn`, from the Router's own
+    ///      producers, kind by kind as `Router._hopScaleImpactAndQuote` asks them:
+    ///      `BPC.legQuoteImpact` for the pair-shaped and concentrated kinds, nothing for a kind
+    ///      the frame does not price here. `Router._execScaled` never lets a leg's bound rest
+    ///      under MIN_QUOTE_COVERAGE_BPS of it, whatever the bytes attest.
+    function _frameQuote(Leg memory leg, address tIn, address tOut, uint256 legIn)
+        private view returns (uint256 q)
+    {
+        if (BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {
+            (q, , ) = BPC.legQuoteImpact(leg, tIn, tOut, legIn);
         }
     }
 

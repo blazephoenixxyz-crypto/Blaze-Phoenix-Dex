@@ -873,6 +873,19 @@ src/BlazePhoenixQuoter.sol	test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery	
 src/BlazePhoenixCore.sol	test_AFeeThatRoseIsPromisedAsThePoolChargesIt	DEX-17 [884]: the quote prices a CL pool at its row key, not at the fee the pool charges now
 src/BlazePhoenixQuoter.sol	test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands	C-f2 3330 [885]: the Gate quoteCall is asked outside the reverting frame, so the venue keeps what its simulation wrote
 src/BlazePhoenixQuoter.sol	test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded	C-f2 3336 [886]: the encode doors do not ask the floor of the venues as the Router funds the route
+src/BlazePhoenixQuoter.sol	test_ADirectRouteIntoABridge_UnderItsFloor_IsNotEncoded	G7 base midtail-3:4 M1: a direct route into a bridge asks no venue at the encode door
+src/BlazePhoenixQuoter.sol	test_ADirectRouteIntoABridge_UnderItsFloor_IsNotEncoded	G7 base midtail-3:4 M2: the encode door compares the gross walk with a net floor on a fee-on-output route
+src/BlazePhoenixQuoter.sol	test_OneLegUnderItsOwnFloor_IsRefusedAtTheDoor_AsTheRouterRefusesIt	G7 base midtail-3:4 M3: the encode door asks no leg its own floor
+src/BlazePhoenixQuoter.sol	test_OneLegUnderItsOwnFloor_IsRefusedAtTheDoor_AsTheRouterRefusesIt	G7 base midtail-3:4 M4: the door rounds the per-leg floor down, the Router rounds it up
+src/BlazePhoenixQuoter.sol	test_OneLegUnderItsOwnFloor_IsRefusedAtTheDoor_AsTheRouterRefusesIt	G7 base midtail-3:4 M5: the door refuses a leg paid exactly its floor, which the Router settles
+src/BlazePhoenixQuoter.sol	test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt	G7 base midtail-3:4 M6: the encode door asks no hop budget
+src/BlazePhoenixQuoter.sol	test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt	G7 base midtail-3:4 M7: the hop budget slack is the whole attestation, not one average leg
+src/BlazePhoenixQuoter.sol	test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt	G7 base midtail-3:4 M8: the hop budget counts the legs that carry no bound (a leg that spends nothing)
+src/BlazePhoenixQuoter.sol	test_UnderTheLiftedFloor_TheDoorsBytesSettleOrAreNotEncoded	G7 base midtail-3:4 M10: the encode door does not lift a leg's bound to the covered share of the frame's quote
+src/BlazePhoenixQuoter.sol	test_Control_OverTheLiftedFloor_TheBytesSettle	G7 base midtail-3:4 M11: the door lifts to the leg floor's share, not the coverage share
+src/BlazePhoenixQuoter.sol	test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt	G7 base midtail-3:4 M12: the covered share rounds up, the Router rounds it down
+src/BlazePhoenixQuoter.sol	test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt	G7 base midtail-3:4 M13: the door reads no frame quote of a pair-shaped leg
+src/BlazePhoenixQuoter.sol	test_UnderTheLiftedFloor_TheDoorsBytesSettleOrAreNotEncoded	G7 base midtail-3:4 M14: the door reads no frame quote of a concentrated leg
 src/BlazePhoenixRouter.sol	test_ARestatementBeforeTheLastHopStaysWithTheStrandedBalance	3310 cap [887]: the output delta is not capped, a restatement fired by the hop-0 input is paid out
 src/BlazePhoenixRouter.sol	test_ABlindLegIsPaidNoMoreThanItsVenueDeclared	3310 cap [888]: the output delta is not capped, a blind leg is paid a restatement its venue never declared
 src/BlazePhoenixRouter.sol	test_ARestatementBeforeTheLastHopStaysWithTheStrandedBalance	3310 cap [889]: the output delta is not capped, the loose shape pays a restatement inside an earlier hop
@@ -985,7 +998,7 @@ src/BlazePhoenixRouter.sol	test_Gas_ClaimFee_AfterOneSwap	gas-1106 G1-9: claimFe
 src/BlazePhoenixCore.sol	test_FixedClock_Cases	suites-1028 [964]: _decay has no lastTs == 0 arm, so a never-stamped slot with a long tau is alive on its count
 src/BlazePhoenixSolver.sol	test_Gas_PreviewPlan_OneHop_EmptyVsSeeded	gas-1106 G3-1: a registry needs a fourth fresh curated row to skip the sweep, so the seeded one-hop quote sweeps
 src/BlazePhoenixSolver.sol	test_Gas_PreviewPlan_TwoHops_EmptyVsSeeded	gas-1106 G3-2: _registryFresh reads a registry thinner than MIN_FRESH_VENUES row by row instead of answering at once
-src/BlazePhoenixQuoter.sol	test_Gas_PreviewAndEncode_OneAndTwoHops	gas-1106 G3-3: _fundedOut asks the fee calendar twice
+src/BlazePhoenixQuoter.sol	test_Gas_PreviewAndEncode_OneAndTwoHops	gas-1106 G3-3: _settles asks the fee calendar twice (re-pointed 2026-11-14: `_encode` asks `_settles`, no longer `_fundedOut`)
 src/BlazePhoenixQuoter.sol	test_Gas_PreviewPlanWithMinOut_OneHop	gas-1106 G3-4: _pack walks the route for a hook refusal before it reads the floor, so a refused floor pays for the walk
 src/BlazePhoenixQuoter.sol	test_Gas_PreviewAndEncodeWithMinOut_OneHop	gas-1106 G3-5: _encode dry-runs the funding of a preview that already cannot execute
 src/BlazePhoenixQuoter.sol	test_Gas_PreviewRoute_OneHop	gas-1106 G3-6: _pack asks the fee calendar of a single hop (asked only at two hops or more)
@@ -1673,6 +1686,7 @@ src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Resolve_RecordsTheFactorysPairAnd
 src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Resolve_PinsTheBeforeSwapHook	adapters [LB-45]: LB resolve pins the whole hooks word (flags included) instead of the hook's address
 src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Hooks_RemovedAfterCreatePass	adapters [LB-46]: LB a pair whose pinned hook was removed is refused, though no hook runs in its swap any more
 src/adapters/ExtAdapterBase.sol	test_LB_Constructor_ZeroAddress_Refused	adapters [LB-47]: adapters base: the constructor takes a zero Gate address (the LB adapter watched)
+src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Resolve_IgnoredForRoutingIsNotRead	adapters [LB-48]: LB resolve refuses a pair the factory's owner flagged ignoredForRouting
 src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol	test_AI_Swap_BothWays_MultiTick_AgainstTheModel	adapters [AI-01]: AI exec swaps zeroForOne with a price limit at tick -60, so a multi-tick swap stops short of the model
 src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol	test_AI_ExecReturnsTheOutputSideOfTheVenue	adapters [AI-02]: AI exec reads amount1 as the output both ways, so oneForZero returns 0 (interface only: the wrapper's swap, exec's one caller, discards the advisory return, so this is equivalent on every wrapper path)
 src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol	testFuzz_AI_CustodyEmptyAfterEveryExec	adapters [AI-03]: AI exec has the venue pay the adapter instead of the recipient, so the output stays in custody
@@ -1733,16 +1747,16 @@ src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_UnknownPoolId_
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_PairNotInPool_Refused	adapters-bsc [IC15]: Infinity CL stops matching the pool's currencies to the pair
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_MalformedHint_Refused	adapters-bsc [IC16]: Infinity CL admits a hint longer than one word
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_Aux0IsThePoolId_VenueIsTheVault	adapters-bsc [IC17]: Infinity CL names the pool manager as the venue pool instead of the Vault that holds the tokens
-src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_UnpinnedHook_Refused	adapters-bsc [IC18]: Infinity CL admits any hooks contract with code (no pin)
+src/adapters/ExtAdapterBase.sol	test_InfCL_Resolve_UnpinnedHook_Refused	adapters-bsc [IC18]: Infinity CL admits any hooks contract with code (no pin)
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_UnpinnedHook_Refused	adapters-bsc [IC19]: Infinity CL's resolve stops checking the hooks pin
-src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_HookWithoutCode_Refused	adapters-bsc [IC20]: Infinity CL lets a hooks address without code match an empty pin slot
+src/adapters/ExtAdapterBase.sol	test_InfCL_Resolve_HookWithoutCode_Refused	adapters-bsc [IC20]: Infinity CL lets a hooks address without code match an empty pin slot
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_HookBitAfterSwap_Refused	adapters-bsc [IC21]: Infinity CL admits a pool whose hooks run afterSwap (bit 7)
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_BitBeforeSwapReturnsDelta_Refused	adapters-bsc [IC22]: Infinity CL admits a pool whose beforeSwap returns a delta (bit 10)
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_BitAfterSwapReturnsDelta_Refused	adapters-bsc [IC23]: Infinity CL admits a pool whose afterSwap returns a delta (bit 11)
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_DynamicFee_Refused	adapters-bsc [IC24]: Infinity CL admits a dynamic-fee pool
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_MainnetBitmaps69And85_Accepted	adapters-bsc [IC25]: Infinity CL reads afterSwap at bit 6 (beforeSwap) and refuses the mainnet bitmaps
-src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IC26]: Infinity CL never admits the second pinned codehash
-src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IC27]: Infinity CL never admits the third pinned codehash
+src/adapters/ExtAdapterBase.sol	test_InfCL_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IC26]: Infinity CL never admits the second pinned codehash
+src/adapters/ExtAdapterBase.sol	test_InfCL_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IC27]: Infinity CL never admits the third pinned codehash
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_PinnedHook_Runs_ThenCodeChanges_ExecRefused	adapters-bsc [IC28]: Infinity CL's exec stops re-checking the hooks pin
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_PinnedHook_Runs_ThenCodeChanges_ExecRefused	adapters-bsc [IC29]: Infinity CL's quoteCall stops re-checking the hooks pin
 src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_InfCL_QuoteCall_HookForgingTheOut_NotRead	adapters-bsc [IC30]: Infinity CL bubbles a hook's revert raw, so a forged QuoteOut is read as the price
@@ -1779,16 +1793,16 @@ src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_UnknownPoolI
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_EachSideOfThePair_RefusedAlone	adapters-bsc [IB15]: Infinity Bin stops matching the pool's currencies to the pair
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_MalformedHint_Refused	adapters-bsc [IB16]: Infinity Bin admits a hint longer than one word
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_Aux0IsThePoolId_VenueIsTheVault	adapters-bsc [IB17]: Infinity Bin names the pool manager as the venue pool instead of the Vault that holds the tokens
-src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_UnpinnedHook_Refused	adapters-bsc [IB18]: Infinity Bin admits any hooks contract with code (no pin)
+src/adapters/ExtAdapterBase.sol	test_InfBin_Resolve_UnpinnedHook_Refused	adapters-bsc [IB18]: Infinity Bin admits any hooks contract with code (no pin)
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_UnpinnedHook_Refused	adapters-bsc [IB19]: Infinity Bin's resolve stops checking the hooks pin
-src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_HookWithoutCode_Refused	adapters-bsc [IB20]: Infinity Bin lets a hooks address without code match an empty pin slot
+src/adapters/ExtAdapterBase.sol	test_InfBin_Resolve_HookWithoutCode_Refused	adapters-bsc [IB20]: Infinity Bin lets a hooks address without code match an empty pin slot
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_HookBitAfterSwap_Refused	adapters-bsc [IB21]: Infinity Bin admits a pool whose hooks run afterSwap (bit 7)
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_BitBeforeSwapReturnsDelta_Refused	adapters-bsc [IB22]: Infinity Bin admits a pool whose beforeSwap returns a delta (bit 10)
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_BitAfterSwapReturnsDelta_Refused	adapters-bsc [IB23]: Infinity Bin admits a pool whose afterSwap returns a delta (bit 11)
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_DynamicFee_Refused	adapters-bsc [IB24]: Infinity Bin admits a dynamic-fee pool
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_PinnedHookBitmaps69And85_Accepted	adapters-bsc [IB25]: Infinity Bin reads afterSwap at bit 6 (beforeSwap) and refuses the mainnet bitmaps
-src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IB26]: Infinity Bin never admits the second pinned codehash
-src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IB27]: Infinity Bin never admits the third pinned codehash
+src/adapters/ExtAdapterBase.sol	test_InfBin_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IB26]: Infinity Bin never admits the second pinned codehash
+src/adapters/ExtAdapterBase.sol	test_InfBin_Resolve_SecondAndThirdPinSlotsCount	adapters-bsc [IB27]: Infinity Bin never admits the third pinned codehash
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_PinnedHook_Runs_ThenCodeChanges_ExecRefused	adapters-bsc [IB28]: Infinity Bin's exec stops re-checking the hooks pin
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_PinnedHook_Runs_ThenCodeChanges_ExecRefused	adapters-bsc [IB29]: Infinity Bin's quoteCall stops re-checking the hooks pin
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_InfBin_QuoteCall_HookForgingTheOut_NotRead	adapters-bsc [IB30]: Infinity Bin bubbles a hook's revert raw, so a forged QuoteOut is read as the price

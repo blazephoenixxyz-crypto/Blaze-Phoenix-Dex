@@ -163,15 +163,6 @@ contract BlazePhoenixRouter {
     ///         manipulation a live threat, so the per-leg guard is tightened
     ///         rather than left looser than the aggregate.
 
-    /// @notice A1/MP-1: minimum fraction (BPS) of the MEASURED delivered output the
-    ///         in-frame on-chain quote must cover to be trusted as the fee base.
-    ///         Below this the quote is implausible (a forged V3 leg.fee near 1e6, or
-    ///         a dead V4 leg, drives the quote toward 0), so the fee is charged
-    ///         on the delivered amount instead — a low quote can never make the
-    ///         protocol fee ~0 while real output is delivered. Honest swaps quote
-    ///         ~= delivered (coverage ~100%).
-    uint16  internal constant MIN_QUOTE_COVERAGE_BPS = 5_000;
-
     /// @notice LAYER 1 — AGGREGATE floor per hop, over the sum of the attested
     ///         quotes of the legs that carry one. It exists because the per-leg
     ///         floor is local while composition is global: an attacker holding
@@ -1861,7 +1852,7 @@ contract BlazePhoenixRouter {
             // is not a precision drift, it is deliberate deflation. Zero new constants.
             if (legQuote != 0 && legAmt != 0) {
                 uint256 qs = BPC.mulDiv(legQuote, amt, legAmt);
-                uint256 covered = BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
+                uint256 covered = BPC.mulDiv(qs, BPC.MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
                 if (bound < covered) bound = covered;
             }
 
