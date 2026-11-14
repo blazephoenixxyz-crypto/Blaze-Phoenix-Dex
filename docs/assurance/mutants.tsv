@@ -1444,6 +1444,44 @@ src/adapters/ExtAdapterBase.sol	test_Base_TokensForACallerTheGateDidNotCreate_Re
 src/adapters/ExtAdapterBase.sol	test_Base_PairNotInTheList_Refused	AdapterBase: a pair with one token outside the list is matched
 src/adapters/ExtAdapterBase.sol	test_Base_AllowanceSurvivingTheCall_Refused_AndAFailedReadIsNotZero	AdapterBase: one wei of allowance left standing passes
 src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_IsIdempotent_AndIsTheWrappersLeg	Curve NG: resolve answers a different aux1 on every call, so the leg it reads is not the wrapper's
+src/BlazePhoenixSolver.sol	testFuzz_TheSharesSumToTheInput	Solver split: the last leg takes its own floor share, not the remainder, so the shares no longer sum to the input
+src/BlazePhoenixSolver.sol	testFuzz_EqualVenuesFloorShare	Solver split: a leg's share is shaved 1% below its floor share
+src/BlazePhoenixMath.sol	testFuzz_TheBaseIsTheWeightedMedian	Math median: every row votes one, so the base is the unweighted median
+src/BlazePhoenixMath.sol	test_MedianOfTwinsIsTheCheaperRow	Math median: a mass that meets half exactly does not stop the walk, so twins seat the dearer row
+src/BlazePhoenixMath.sol	test_DepthWeightedMedian_DustMajorityDoesNotOutvoteDeepPool	Math median: the half-mass is zero, so the first row is the base whatever its depth
+src/BlazePhoenixMath.sol	test_TheDeeperRowIsSeatedWhateverItsAddress	Math seat: the seat goes to the lowest address whatever the depth
+src/BlazePhoenixMath.sol	testFuzz_TheSeatOfATieIsTheLowestAddressInAnyOrder	Math seat: a weight tie goes to the last row to arrive, so the seat depends on the order
+src/BlazePhoenixMath.sol	testFuzz_AnUnknownFeeRowIsJudgedFromAboveOnly	Math band: an unknown fee row is judged only when its fee is exactly PIPS, so a row above PIPS meets the lower edge
+src/BlazePhoenixCore.sol	testFuzz_ExitIsWithinOneWei	Core Newton: the converged exit is bumped two wei past the root
+src/BlazePhoenixCore.sol	test_InputThatSwampsThePoolHalvesTheStep	Core Newton: the swamping-step clamp oversteps y by one wei, so the iterate underflows
+src/BlazePhoenixCore.sol	testFuzz_ThinInputSideExitsOnTheSafeSide	Core Newton: the safe-side walk stops after one step, so a thin input side exits short of K
+src/BlazePhoenixCore.sol	test_RegisteredSamplesPriceIgnoreTheAsk	Core Solidly ask: the ask is cut one bps below 9_800
+src/BlazePhoenixCore.sol	testFuzz_HopCollapsesToLegFloorAtN1	Core mulDivUp: the round-up fires on an exact quotient and skips a remainder, so a one-leg hop is not its leg floor
+src/BlazePhoenixRouter.sol	testFuzz_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote	Router zero attestation: the floor is one bps above the coverage of the quote
+src/BlazePhoenixRouter.sol	test_DeadLegsDoNotShrinkTheHopSlack_Grid	Router leg floor: a dead first leg counts as quoted, so the hop slack shrinks
+src/BlazePhoenixRouter.sol	testFuzz_DeadLegsDoNotShrinkTheHopSlack	Router leg floor: the hop slack is split over one leg more than were quoted
+src/BlazePhoenixRouter.sol	test_ARouteExecutedBelowItsPlanScalesTheFloorWithIt	Router leg floor: a route executed below its plan keeps the plan's floor
+src/BlazePhoenixCore.sol	testFuzz_OrderAtOrBelowTheProbeReadsTheProbesBound	Core probe bound: an order at or below the probe is not lifted to the probe
+src/BlazePhoenixCore.sol	testFuzz_TheOrdersBoundCoversTheRealOutputAtTheOrder	Core probe bound: the order's bound scales the rank at the probe, not at the order
+src/BlazePhoenixCore.sol	testFuzz_AGateWrapperIsBoundByItsRoundingAlone	Core probe bound: a gate wrapper's order error is one wei above its rounding
+src/BlazePhoenixQuoter.sol	test_ThePreviewCountsTheSameCell	Quoter preview: one leg per hop is left out of the cell count
+src/BlazePhoenixRouter.sol	test_TheCellSettlesWithTheFeeOnTheBridgeHop	Router bridge hop: the hop fee is not charged on the bridge hop
+src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsTheWholeInputPromisesZero	Quoter exact: a fee that eats the carry past the first hop promises a figure
+src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsHopOne_LeavesNoUnfundedFigureInTheRoute	Quoter exact route: an unfunded hop past the first keeps its figures
+src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsTheAnchorHop_LeavesNoUnfundedFigureInTheRoute	Quoter exact route: the unfunding starts one hop after the one the fee ate
+src/BlazePhoenixQuoter.sol	testFuzz_AnOutputPastInt256MaxIsNotProbed	Quoter probe size: an output past int256 max is probed
+src/BlazePhoenixRouter.sol	testFuzz_AHopFeeIsTheCeilingNotTheFloor	Router hop fee: the fee is the floor of one wei more, not the ceiling
+src/BlazePhoenixCore.sol	testFuzz_TauMovesTowardDtAndNeverPastIt	Core tau EMA: tau jumps to dt plus one instead of moving toward it
+src/BlazePhoenixCore.sol	testFuzz_FactoryLookup_OnlyAnExactWordIsAPool	Core factory lookup: a short return word is read as a pool
+src/BlazePhoenixSolver.sol	test_C1_HostileHeldBooks_ThePlanIsTheSameAtEveryGas	Solver walk: the walk's budget is the caller's gas, uncapped, so the caller's gas chooses the plan
+tools/g7-gas-campaign/G7Deploy.s.sol	test_G7Deploy_Base_WiresTheV4DeriveRow	G7 deploy [H4-3]: the Base G7 deploy skips _v4Wire
+tools/g7-gas-campaign/G7Deploy.s.sol	test_G7Deploy_Optimism_WiresTheV4DeriveRow	G7 deploy [H4-4]: the Optimism G7 deploy skips _v4Wire
+tools/g7-gas-campaign/G7Deploy.s.sol	test_G7Deploy_Arbitrum_WiresTheV4DeriveRow	G7 deploy [H4-5]: the Arbitrum G7 deploy skips _v4Wire
+src/BlazePhoenixRouter.sol	testFuzz_TheFeeIsChargedOnceAtTheCalendarHop	Router fee calendar: hop 0 pays as well as the calendar's hop, so the fee is charged twice
+src/BlazePhoenixCore.sol	testFuzz_QuoteArmsZeroInput	Core _quoteArms: a zero-input probe that asks for the fee reads the venue
+src/BlazePhoenixCore.sol	testFuzz_TheWalkPaysWhatTheSpecSwapPays	Core v3PaysOnBudget: the budget walk prices its steps without the pool's fee
+src/BlazePhoenixCore.sol	testFuzz_TheV4QuoteIsTheWalkAtTheCallersBar	Core native V4 quote: the caller's bar is read as the maximum bar
+src/BlazePhoenixCore.sol	test_aStackedNarrowPositionInBandPaysWhatItPromises	Core v4HeldShare: a book that holds its whole virtual side reads as dust
 src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve crypto NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Balancer V2: a hint of another length is decoded, not refused

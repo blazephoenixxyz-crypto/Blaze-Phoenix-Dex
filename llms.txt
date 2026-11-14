@@ -164,14 +164,14 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- mutation-guard:begin -->
 | Mutated file | Mutants | Distinct tests that must kill them | Target is exactly one line |
 |---|---:|---:|---:|
-| `src/BlazePhoenixRouter.sol` | 428 | 361 | 428 |
-| `src/BlazePhoenixCore.sol` | 394 | 316 | 394 |
-| `src/BlazePhoenixSolver.sol` | 236 | 168 | 236 |
+| `src/BlazePhoenixRouter.sol` | 435 | 368 | 435 |
+| `src/BlazePhoenixCore.sol` | 408 | 330 | 408 |
+| `src/BlazePhoenixSolver.sol` | 239 | 171 | 239 |
 | `src/BlazePhoenixHub.sol` | 218 | 190 | 218 |
-| `src/BlazePhoenixQuoter.sol` | 139 | 118 | 139 |
+| `src/BlazePhoenixQuoter.sol` | 144 | 123 | 144 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
+| `src/BlazePhoenixMath.sol` | 56 | 43 | 56 |
 | `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 51 | 39 | 51 |
-| `src/BlazePhoenixMath.sol` | 50 | 37 | 50 |
 | `src/adapters/BlazePhoenixAdapterLB.sol` | 44 | 32 | 44 |
 | `src/adapters/ExtAdapterBase.sol` | 42 | 37 | 42 |
 | `src/adapters/BlazePhoenixAdapterInfinityCL.sol` | 41 | 36 | 41 |
@@ -181,14 +181,14 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol` | 15 | 15 | 15 |
 | `src/adapters/BlazePhoenixAdapterBalancerV2.sol` | 13 | 11 | 13 |
 | `test/DirtyWorld.invariant.t.sol` | 12 | 2 | 12 |
+| `tools/g7-gas-campaign/G7Deploy.s.sol` | 5 | 4 | 5 |
 | `test/morf/SolverRefCb1d7d9.sol` | 4 | 4 | 4 |
 | `test/Fix1020DelegatedCallbacks.t.sol` | 3 | 1 | 3 |
 | `test/adapters/AdapterConformance.sol` | 2 | 2 | 2 |
 | `test/ref/Frame4007.sol` | 2 | 2 | 2 |
-| `tools/g7-gas-campaign/G7Deploy.s.sol` | 2 | 1 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,853 | 1,450 | 1,853 |
+| **all** | 1,891 | 1,488 | 1,891 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -247,7 +247,7 @@ declaration counts, not pass counts.
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,853 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,891 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
