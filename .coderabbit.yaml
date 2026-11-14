@@ -1,0 +1,8 @@
+# CodeRabbit reviews the contracts and their tests. Without a filter, PRs that touch
+# docs, generated files and CI exceed the 100-file review limit and nothing is reviewed.
+# Tests stay in while a PR's src/ + test/ files fit under that limit (82 on this one);
+# past it, drop "test/**" and keep the contracts.
+reviews:
+  path_filters:
+    - "src/**"
+    - "test/**"
