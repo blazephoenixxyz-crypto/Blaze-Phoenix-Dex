@@ -7520,6 +7520,20 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (!fell) return (r, fl);",
       new="        if (true) return (r, fl); // MUTANTE",
       teste="test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay"),
+# 124-L2 (2026-11-14): the protective floor has three producers (Solver attests it, Quoter rescales it
+# onto its own gross, Router recomputes it from the in-frame quote and emits it in ExecutionProof). At the
+# plan's amount the three agree to the wei; each mutant moves one producer by one wei
+# (test/ProducerFloorParityOneWei.t.sol, odd reserves so the product never divides by BPS).
+ dict(nome="124-L2 Router:1588: the Router's own floor rounds down, one wei under the Solver's whenever quote * floorBps does not divide",
+      f="src/BlazePhoenixRouter.sol",
+      old="        uint256 protocolFloorOut = BPC.mulDivUp(finalHopQuote, floorBps, BPC.BPS);",
+      new="        uint256 protocolFloorOut = BPC.mulDiv(finalHopQuote, floorBps, BPC.BPS); // MUTANTE",
+      teste="testFuzz_TheThreeFloorsAgreeToTheWei"),
+ dict(nome="124-L2 Quoter:903: the Quoter rescales the floor against the wrong denominator, so floorExact drifts one wei under the Solver's",
+      f="src/BlazePhoenixQuoter.sol",
+      old="            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut);",
+      new="            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut + 1); // MUTANTE",
+      teste="test_TheThreeFloorsAgreeToTheWei_SplitRoute"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
