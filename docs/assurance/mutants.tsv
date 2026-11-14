@@ -1430,6 +1430,20 @@ src/adapters/ExtAdapterBase.sol	test_Base_Callback_FromAnotherInsideExec_Refused
 src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_BalV3_Swap_RecipientPaidByVault_Settled_NothingLeft	Balancer V3: exec no longer opens its own window, so the Vault's callback is refused
 src/adapters/ExtAdapterBase.sol	test_Base_AmountAtMost_Extremes	AdapterBase: an amount past the ceiling reads as a malformed hint (code 8, not 9)
 src/adapters/ExtAdapterBase.sol	test_Base_AmountAtMost_Extremes	AdapterBase: the ceiling refuses the ceiling itself (off by one wei)
+src/adapters/ExtAdapterBase.sol	test_Base_ZeroGate_Refused	AdapterBase: a zero Gate is refused with another code
+src/adapters/ExtAdapterBase.sol	test_Base_Pin_NoHooksPasses_EvenWithNoSlotFilled	AdapterBase: no hooks is no longer a pass, so a hookless leg reads as an unpinned hook
+src/adapters/ExtAdapterBase.sol	test_Base_Pin_CodeChangedUnderTheSameAddress_Refused	AdapterBase: the pin stops comparing the code, so a hook whose code changed still passes
+src/adapters/ExtAdapterBase.sol	testFuzz_Base_Pin_ACodeOutsideThePinsIsRefused	AdapterBase: the third slot's test is inverted, so a code outside every pin passes
+src/adapters/ExtAdapterBase.sol	testFuzz_Base_Pin_EachSlotAdmitsItsCode	AdapterBase: the first pin slot is never read, so a hook pinned there is refused
+src/adapters/ExtAdapterBase.sol	test_Base_Callback_FromTheVenueInsideExec_Passes	AdapterBase: the callback guard refuses the venue itself
+src/adapters/ExtAdapterBase.sol	test_Base_Callback_FromTheVenueOutsideExec_Refused	AdapterBase: the callback guard stops asking for our exec window, so the venue calls in outside it
+src/adapters/ExtAdapterBase.sol	testFuzz_Base_Callback_OnlyTheVenueInsideExec	AdapterBase: the callback guard needs both faults to refuse (or read as and)
+src/adapters/ExtAdapterBase.sol	testFuzz_Base_AmountAtMost_UpToTheCeilingPasses	AdapterBase: the ceiling refuses the ceiling itself unless it is zero
+src/adapters/ExtAdapterBase.sol	testFuzz_Base_AmountAtMost_OnePastTheCeilingRefused	AdapterBase: the ceiling lets one wei past it through
+src/adapters/ExtAdapterBase.sol	test_Base_TokensForACallerTheGateDidNotCreate_Refused	AdapterBase: the wrapper's tokens are read for any caller
+src/adapters/ExtAdapterBase.sol	test_Base_PairNotInTheList_Refused	AdapterBase: a pair with one token outside the list is matched
+src/adapters/ExtAdapterBase.sol	test_Base_AllowanceSurvivingTheCall_Refused_AndAFailedReadIsNotZero	AdapterBase: one wei of allowance left standing passes
+src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_IsIdempotent_AndIsTheWrappersLeg	Curve NG: resolve answers a different aux1 on every call, so the leg it reads is not the wrapper's
 src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve crypto NG: a hint of another length is decoded, not refused
 src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Balancer V2: a hint of another length is decoded, not refused

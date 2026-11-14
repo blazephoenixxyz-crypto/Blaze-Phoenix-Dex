@@ -173,11 +173,11 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 51 | 39 | 51 |
 | `src/BlazePhoenixMath.sol` | 50 | 37 | 50 |
 | `src/adapters/BlazePhoenixAdapterLB.sol` | 44 | 32 | 44 |
+| `src/adapters/ExtAdapterBase.sol` | 42 | 37 | 42 |
 | `src/adapters/BlazePhoenixAdapterInfinityCL.sol` | 41 | 36 | 41 |
 | `src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol` | 40 | 40 | 40 |
-| `src/adapters/ExtAdapterBase.sol` | 29 | 24 | 29 |
 | `src/adapters/BlazePhoenixAdapterBalancerV3.sol` | 21 | 19 | 21 |
-| `src/adapters/BlazePhoenixAdapterCurveNG.sol` | 18 | 17 | 18 |
+| `src/adapters/BlazePhoenixAdapterCurveNG.sol` | 19 | 18 | 19 |
 | `src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol` | 15 | 15 | 15 |
 | `src/adapters/BlazePhoenixAdapterBalancerV2.sol` | 13 | 11 | 13 |
 | `test/DirtyWorld.invariant.t.sol` | 12 | 2 | 12 |
@@ -188,7 +188,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `tools/g7-gas-campaign/G7Deploy.s.sol` | 2 | 1 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,839 | 1,436 | 1,839 |
+| **all** | 1,853 | 1,450 | 1,853 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -247,7 +247,7 @@ declaration counts, not pass counts.
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,839 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,853 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
