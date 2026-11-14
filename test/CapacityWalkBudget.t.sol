@@ -277,6 +277,14 @@ contract CapacityWalkBudgetTest is Test {
         _onlyTheWinningTopologyIsRead(3, 0, 3);
     }
 
+    /// The grid of `ThreeBridgesSixBooks_Settles`, by count: five of the six direct books split
+    /// the order, the first leg is the book of 100. A count of reads, not a ceiling: on this grid
+    /// the search's budget passes with the winner rebuilt with WALK on every solve (mutant
+    /// [723]), and the count does not.
+    function test_3073_WalkBudget_ThreeBridgesSixBooks_OnlyTheWinningTopologyIsRead() public {
+        _onlyTheWinningTopologyIsRead(6, 3, 5);
+    }
+
     /// `_grid(3, perPair)`: the direct books lead and split the order, so the walk is the direct
     /// topology's alone. `_paysWhatItWalks` spends the route's reads on the first leg, three on
     /// its book (the direct book of the `lead`-th fee); the promise falls, and the rebuild (N1)

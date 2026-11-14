@@ -3964,11 +3964,12 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        if (d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl); // MUTANT [722h]\n',
       teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
- dict(nome='3073-3 [723]: the winner is rebuilt with WALK on every solve and three bridges with six books pass the search\'s budget',
+ dict(nome='3073-3 [723]: the winner is rebuilt with WALK on every solve and three bridges with six books pass the search\'s budget (re-pointed 11-14: on f7e4d55 TOPOLOGIES = 4 and the ceiling row passes mutated; a count on the same grid)',
       f='src/BlazePhoenixSolver.sol',
+      # A count, not a ceiling: the direct books of the winning topology are read 3 and 16 each.
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723]\n',
-      teste='test_3073_WalkBudget_ThreeBridgesSixBooks_Settles'),
+      teste='test_3073_WalkBudget_ThreeBridgesSixBooks_OnlyTheWinningTopologyIsRead'),
  dict(nome='3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass a tenth of the search',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [723], held by a second test. `bestHeld` is
