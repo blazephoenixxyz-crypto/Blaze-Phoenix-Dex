@@ -7616,6 +7616,21 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 3 * mulDiv(y, y, WAD), WAD);",
       new="            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 2 * mulDiv(y, y, WAD), WAD); // MUTANTE",
       teste="test_ShallowTradeOnADeepSideConverges"),
+ dict(nome="124-L2 Router:1855: the coverage of a zero attestation is the whole quote, not half of it: the leg paying its exact floor is refused",
+      f="src/BlazePhoenixRouter.sol",
+      old="                uint256 covered = BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS);",
+      new="                uint256 covered = BPC.mulDiv(qs, BPC.BPS, BPC.BPS); // MUTANT",
+      teste="test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote"),
+ dict(nome="124-L2 Router:1855-lo: the coverage sits one bps under half the quote: the leg paying one wei under its floor settles",
+      f="src/BlazePhoenixRouter.sol",
+      old="                uint256 covered = BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS, BPC.BPS);",
+      new="                uint256 covered = BPC.mulDiv(qs, MIN_QUOTE_COVERAGE_BPS - 1, BPC.BPS); // MUTANT",
+      teste="test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote"),
+ dict(nome="124-L2 Router:2005: a V2 leg whose pool math pays nothing reaches the pool: on hop 0 the blind-hop RouterE(5) answers instead of the executor's RouterE(8)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (outAmt == 0) revert RouterE(8);",
+      new="        if (outAmt == 0 && !isV2) revert RouterE(8); // MUTANT",
+      teste="test_ZeroBoundLegIsRefusedByTheExecutorNotTheFloor"),
  # 124-L2 Core:1853 `if (dy >= y) dy = y / 2;` -> `dy = y` has NO entry: EQUIVALENT. The guard
  # FIRES (9118 times over 53517 sampled cases, X, Y, A log-uniform in 1..3.4e38; driven by
  # test_InputThatSwampsThePoolHalvesTheStep), but in 0/3475 sampled cases where it fires does
