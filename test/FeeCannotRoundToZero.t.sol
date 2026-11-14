@@ -7,12 +7,12 @@ pragma solidity 0.8.36;
 //  The fee is anchored on the INPUT and was derived with a FLOOR division at three
 //  independent sites (shown as they read before the fix; each now calls mulDivUp):
 //
-//      Router.sol:786   feeH = mulDiv(baseH,     PROTOCOL_FEE_BPS, BPS)
-//      Router.sol:1646  fOut = mulDiv(amountOut, PROTOCOL_FEE_BPS, BPS)
-//      Quoter.sol:389   afterFee -= mulDiv(afterFee, PROTOCOL_FEE_BPS, BPS)
+//      Router.sol:783   feeH = mulDiv(baseH,     PROTOCOL_FEE_BPS, BPS)
+//      Router.sol:1652  fOut = mulDiv(amountOut, PROTOCOL_FEE_BPS, BPS)
+//      Quoter.sol:400   afterFee -= mulDiv(afterFee, PROTOCOL_FEE_BPS, BPS)
 //
 //  With PROTOCOL_FEE_BPS = 28 and BPS = 10_000, mulDiv(b, 28, 10_000) == 0 for
-//  every b <= 357. Router:802 then reads `if (feeH == 0) return (amountIn, outCap);` and
+//  every b <= 357. Router:784 then reads `if (feeH == 0) return (amountIn, outCap);` and
 //  the swap PROCEEDS — delivered, recorded, fee-free. That is a fail-open in
 //  the fee dimension: the guard detects the zero and waves it through.
 //
@@ -160,7 +160,7 @@ contract FeeCannotRoundToZeroTest is Test {
         assertGt(got, 0, "the swap delivered, so it is a real swap");
 
         // THE CLAIM: a swap that executes must pay the protocol. Before the
-        // fix this is 0 — the fee rounded through zero and Router:802 returned
+        // fix this is 0 — the fee rounded through zero and Router:784 returned
         // early instead of charging.
         assertGt(_treasuries() - before, 0,
             "an executed swap paid ZERO protocol fee: the fee rounded through zero");
@@ -237,7 +237,7 @@ contract FeeCannotRoundToZeroTest is Test {
     //
     // The oracle is plain integer arithmetic, not BPC: ceil(b * 28 / 10_000).
     //
-    // RED with the mutant "fee: rounding goes DOWN again" (Router:786
+    // RED with the mutant "fee: rounding goes DOWN again" (Router:783
     // mulDivUp -> mulDiv, .github/scripts/mutants.py): both tests below fail by
     // one wei; the multiple-of-the-divisor control stays green under it.
 

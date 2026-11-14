@@ -6,11 +6,11 @@ pragma solidity 0.8.36;
 //
 //  The protective floor of a route is produced three times:
 //    - the Solver attests it (`singleOutFloor = mulDivUp(base, floorBps, BPS)`,
-//      BlazePhoenixSolver.sol:1812);
+//      BlazePhoenixSolver.sol:1821);
 //    - the Quoter re-walks the route and rescales it onto its own walk output
-//      (`floorExact = mulDiv(singleOutFloor, walkOut, planOut)`, BlazePhoenixQuoter.sol:902-903);
+//      (`floorExact = mulDiv(singleOutFloor, walkOut, planOut)`, BlazePhoenixQuoter.sol:883-884);
 //    - the Router enforces its OWN floor from the in-frame quote of the final hop
-//      (`protocolFloorOut = mulDivUp(finalHopQuote, floorBps, BPS)`, BlazePhoenixRouter.sol:1588)
+//      (`protocolFloorOut = mulDivUp(finalHopQuote, floorBps, BPS)`, BlazePhoenixRouter.sol:1594)
 //      and emits it in `ExecutionProof`.
 //  FloorParitySolverRouter pins Solver == Router on round fixtures. This file asks the
 //  same question where the product does NOT divide by BPS (odd reserves, blind amounts),
