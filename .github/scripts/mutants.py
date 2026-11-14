@@ -7588,6 +7588,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (m == 0) return (0, 0, 0, psis);   // all dead: nothing quotable",
       new="            if (m == 0 && false) return (0, 0, 0, psis);   // MUTANTE",
       teste="test_AHopWhoseRowsAllReadZeroSelectsNothing"),
+ # A degenerate input quotes nothing: a probe of zero input reads no venue
+ # (test/DegenerateInputQuotesNothing.t.sol).
+ dict(nome="L1-124 Core:1909: a probe of zero input reads the venue, its mass and its fee",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (amountIn == 0) return (0, 0, 0, 0, 0, 0);",
+      new="        if (amountIn == 1) return (0, 0, 0, 0, 0, 0); // MUTANTE",
+      teste="test_QuoteArmsZeroInput"),
+ dict(nome="L1-124 Core:2150: a V4 book with no liquidity in range is walked and quoted",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (liq == 0) return (0, 0, 0, 0, 0, 0);",
+      new="            if (liq == 1) return (0, 0, 0, 0, 0, 0); // MUTANTE",
+      teste="test_ConcLiqZeroQuotesNothing"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
