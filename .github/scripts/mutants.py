@@ -7534,6 +7534,15 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        uint256 last = m - 1;   // m >= 1 past the NONE return above\n        for (uint256 i; i < last; ) {",
       new="        uint256 last = m - 1;   // m >= 1 past the NONE return above\n        for (uint256 i; i + 1 < last; ) { // MUTANTE",
       teste="test_MedianCrossesBeforeTheLastRow_Control"),
+# [L0-124 Solver:1032] (2026-11-14, owner's decision): `_split`'s last-leg guard
+# `allocated >= amountIn ? 0 : amountIn - allocated` could not fire (the floors over S, the sum of the
+# live psis, add up to at most amountIn), so no mutant on it could die. The subtraction is now plain
+# and checked; the mutant below shorts the remainder by one wei.
+ dict(nome="L0-124 Solver:1032: the last leg takes the remainder less one wei, so a split hop spends less than the caller's input",
+      f="src/BlazePhoenixSolver.sol",
+      old="                share = amountIn - allocated;",
+      new="                share = amountIn - allocated - 1; // MUTANTE",
+      teste="test_TheSplitLegsSpendExactlyTheInput"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

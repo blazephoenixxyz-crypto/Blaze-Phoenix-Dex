@@ -284,6 +284,18 @@ reads it through `select` (masses 1, 1, 3: the last row; control 1, 1, 2: the mi
 a fuzz over three masses and six arrival orders against `2 * cum >= total`); the mutants
 [L0-124 Math:609] return the cheapest row instead, or stop the walk one row early.
 
+**The split's remainder, unguarded because it cannot overshoot (2026-11-14).** `Solver._split`
+gave the last leg `allocated >= amountIn ? 0 : amountIn - allocated`. Every other leg takes
+floor(A * psi_i / S), and S is the sum of the live psis for the whole life of the split
+(`Math._weights` sums them, `_cutByWeight` re-sums the kept budget, `_seatTheSplit` subtracts the
+rows it zeroes, `Solver._placed` takes out the psi of the row it drops), so the floors add up to at
+most A, and the capacity clamp only lowers `allocated`. The guard could not fire. The subtraction
+is now plain and checked: the impossible case reverts instead of reading 0 (SHARED_QUANTITIES,
+`sumPsi`). `test/SplitRemainderIsTheLastLeg.t.sol` asserts that a split hop's legs spend exactly the
+caller's input and that `hop.amountIn` equals it (three V2 rows of unequal depth, a single-pool
+control, a fuzz over the order from 1e6 wei to 600k e18 and over the depths); the mutant
+[L0-124 Solver:1032] shorts the remainder by one wei.
+
 ## 4f. How far each refusal observes from what decides
 
 Every defect confirmed in this repository, internal or reported, has one shape: a check observes

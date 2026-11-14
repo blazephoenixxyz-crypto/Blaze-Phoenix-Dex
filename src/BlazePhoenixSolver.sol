@@ -1025,11 +1025,11 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < n; ) {
             uint256 share;
             if (i == n - 1) {
-                // Last leg takes the remainder. Guard against rounding
-                // overshoot in the preceding mulDiv allocations: if the
-                // accumulated total already meets or exceeds amountIn,
-                // this leg gets nothing rather than underflowing.
-                share = allocated >= amountIn ? 0 : amountIn - allocated;
+                // Last leg takes the remainder. There is no overshoot to guard: `sumPsi` is the
+                // sum of psis[0..n) (Math `_weights`, `_cutByWeight`, `_seatTheSplit`; `_placed`
+                // takes psis[j] out with its row), so the floors above sum to at most amountIn.
+                // The subtraction is checked: the impossible case reverts instead of reading 0.
+                share = amountIn - allocated;
             } else {
                 share = BPC.mulDiv(amountIn, psis[i], sumPsi);
             }
