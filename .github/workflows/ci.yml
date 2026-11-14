@@ -9,6 +9,12 @@ on:
 env:
   FOUNDRY_PROFILE: default
 
+# A newer push to the same ref cancels the run it supersedes (2026-11-14): runs no longer queue
+# behind their own stale predecessors for the account's ~20 concurrent jobs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: build + test (fast profile)
@@ -656,10 +662,17 @@ jobs:
           forge test --match-contract PcTraceProbe -vvv
           python3 .github/scripts/assurance/pc_trace.py --check
 
-  formal:
-    name: formal verification (Halmos symbolic)
+  formal-spec:
+    name: formal verification (Halmos ${{ matrix.spec }})
+    # One job per spec since 2026-11-14: in run 43593384783 the single job was shut down by the
+    # runner at ~19-24 min (exit 143) before both specs had run. Each spec now gets its own clock;
+    # the job below keeps the required check name and fails if any spec fails.
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        spec: [CoreFormalGateSpec, EffV4FeeFormalSpec]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -677,6 +690,7 @@ jobs:
         # (0.04–0.19s each, run 31532581231): iron-floor bounds unconditional
         # (INV-1's arithmetic heart), impactV2Bps <= BPS, outV3 fail-closed on
         # degenerate inputs. REAL gate — no `|| true`.
+        if: matrix.spec == 'CoreFormalGateSpec'
         run: halmos --contract CoreFormalGateSpec -v
 
       - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
@@ -692,6 +706,7 @@ jobs:
         # guards against a non-zero exit, not against exhausting the clock — so
         # this proof was never reaching the runner at all. We believed we had two
         # hard gates and were running one.
+        if: matrix.spec == 'EffV4FeeFormalSpec'
         run: halmos --contract EffV4FeeFormalSpec -v
 
       # A SECOND SYMBOLIC ENGINE BELONGS HERE, AND IS NOT WIRED YET.
@@ -712,6 +727,19 @@ jobs:
       # Considered and deferred: Kontrol treats every revert as a test failure,
       # and in a codebase where failing closed IS the design that manufactures
       # false positives faster than it finds defects.
+
+  formal:
+    # The required status check keeps this exact name; it is green only when every spec is.
+    name: formal verification (Halmos symbolic)
+    needs: formal-spec
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every Halmos spec discharged
+        run: |
+          echo "formal-spec matrix result: ${{ needs.formal-spec.result }}"
+          test "${{ needs.formal-spec.result }}" = "success"
 
   gas-metrics:
     name: gas metrics (offline ledger)
