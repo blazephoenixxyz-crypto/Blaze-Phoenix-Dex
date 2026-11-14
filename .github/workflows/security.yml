@@ -13,8 +13,46 @@ on:
 # blocking on style/informational noise.
 
 jobs:
+  changes:
+    # Path filter (owner's decision 2026-11-14). A pull request that touches none of the paths
+    # below (docs, notes, README) runs the cheap guards and skips the heavy jobs. A filter on
+    # `on.pull_request.paths` would skip the whole workflow, and a required check whose workflow
+    # never starts stays "Expected" forever and blocks the merge; a job skipped by its `if`
+    # reports success under its own name. The matrix shards and the gate job keep running and
+    # skip their steps instead: a skipped matrix job reports one check under the unexpanded
+    # name, never the per-shard names the branch rule requires. Push to main and manual runs
+    # always run everything. The filter fails open: if it cannot answer, or this job dies,
+    # nothing reads 'false' and every job runs (a job skipped because a job it needs failed
+    # would also report success, so the jobs below ask `!cancelled()`, not the default).
+    name: changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outcome != 'success' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'test/**'
+              - 'script/**'
+              - 'lib/**'
+              - '.github/**'
+              - 'foundry.toml'
+              - 'remappings.txt'
+              - 'snapshots/**'
+              - '.sizes-snapshot'
   slither:
     name: Slither (static detectors, fail on high)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
