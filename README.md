@@ -267,14 +267,14 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,142 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 478 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 38 | `test/fork/*.t.sol` |
+| Test declarations | 3,156 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 481 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,482 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,487 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
-| Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
+| Gas snapshots, each a measured figure CI re-measures | 70 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 12 | `.sizes-snapshot` |
 | CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |

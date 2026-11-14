@@ -137,7 +137,7 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertApproxEqAbs(lg.expectedOut, _pays(lg.amountIn), 4, "the leg attests other than what the pool pays");
     }
 
-    /// One producer: the attestation and the Router's in-frame quote, read back from its own
+    /// One producer, two questions: the attestation and the Router's in-frame quote, read back from its own
     /// ExecutionProof rather than recomputed here. The output is made a bridge so the Router
     /// takes its fee off the output and funds the leg with the whole input: the frame quotes
     /// the input the plan attested (with the fee off the input it quotes a smaller one, and
@@ -148,6 +148,7 @@ contract V3PromiseIsWhatThePoolPays is Test {
         assertEq(plan.best.hops.length, 1, "one hop");
         assertEq(plan.best.hops[0].legs.length, 1, "one leg, so the hop's quote is the leg's");
         uint256 attested = plan.best.hops[0].legs[0].expectedOut;
+        uint256 pays = _pays(plan.best.hops[0].legs[0].amountIn); // before the swap moves the book
 
         vm.recordLogs();
         vm.prank(user);
@@ -163,7 +164,10 @@ contract V3PromiseIsWhatThePoolPays is Test {
             (quoted, , , ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
         }
         assertTrue(found, "ExecutionProof missing");
-        assertEq(attested, quoted, "the plan's attestation and the Router's in-frame quote are two numbers");
+        // One walk, two questions: the frame answers what the walk read, the promise adds the
+        // rest it did not walk. Equal when the walk finishes; never the frame above.
+        assertGe(attested, quoted, "the Router's in-frame quote is above the plan's attestation");
+        assertLe(quoted, pays, "the Router's in-frame quote is above what the pool pays");
     }
 
     /// The door that solves in the transaction (`swapBestExactIn` -> `_solve`) settles on the

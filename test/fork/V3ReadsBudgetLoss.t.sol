@@ -93,7 +93,7 @@ contract V3ReadsBudgetLoss is Test {
         address t0 = p.token0();
         address t1 = p.token1();
         (uint160 sp, , , , , , ) = p.slot0();
-        console2.log("ledger\tpool\tblock\tdir\tsize_usd\tamount_in\tf\tpromise\tleft\twalk16\tpaid\terr_ppm\tquoterV2");
+        console2.log("ledger\tpool\tblock\tdir\tsize_usd\tamount_in\tf\tpromise\tleft\twalk16\tpaid\terr_ppm\tquoterV2\tframe12");
         uint256[4] memory usd = [uint256(1_000), 10_000, 100_000, 1_000_000];
         for (uint256 k; k < 4; ++k) {
             for (uint256 d; d < 2; ++d) {
@@ -112,7 +112,9 @@ contract V3ReadsBudgetLoss is Test {
     function _cell(IV3PoolL3 p, bool zfo, address tIn, address tOut, uint256 usd, uint256 amt) private {
         (uint160 sp, , , , , , ) = p.slot0();
         uint256 f = BPC.outV3(amt, sp, p.liquidity(), p.fee(), zfo, 0);
-        (uint256 promised, uint256 left) = BPC.v3PaysOnBudget(address(p), amt, zfo, f, READS);
+        (uint256 promised, uint256 left) = BPC.v3PaysOnBudget(address(p), amt, zfo, f, READS, true);
+        // The frame (`rest` false) on the same reads: what the stretches it read pay, no rest.
+        (uint256 frame12, ) = BPC.v3PaysOnBudget(address(p), amt, zfo, f, READS, false);
         uint256 walk16 = BPC.v4WalkOut(address(p), bytes32(0), amt, 0, 0, zfo);
         string memory q = _quoterV2(tIn, tOut, amt, p.fee());
 
@@ -126,12 +128,14 @@ contract V3ReadsBudgetLoss is Test {
             "ledger\t", vm.toString(address(p)), "\t", vm.toString(BLK), "\t", zfo ? "zfo" : "ofz", "\t",
             vm.toString(usd), "\t", vm.toString(amt), "\t", vm.toString(f), "\t", vm.toString(promised), "\t",
             vm.toString(left), "\t", vm.toString(walk16), "\t", vm.toString(paid), "\t",
-            vm.toString(errPpm), "\t", q
+            vm.toString(errPpm), "\t", q, "\t", vm.toString(frame12)
         ));
 
         assertGt(paid, 0, "the pool pays something for the cell");
         assertLe(promised, f, "the band is a ceiling on the promised");
         assertLe(walk16, paid, "the sixteen-stretch walk never prices a range it did not read");
+        assertLe(frame12, paid, "the frame never quotes above what the pool pays from the same state");
+        assertLe(frame12, promised, "the frame is the promise without the rest");
         if (left > 0) assertLe(promised, paid, "a walk that finished inside its reads promises what the book pays");
     }
 

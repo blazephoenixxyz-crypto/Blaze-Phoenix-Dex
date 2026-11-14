@@ -1342,6 +1342,11 @@ src/BlazePhoenixCore.sol	test_ASparseBookCutAtTheReadsIsPromisedWhatItPays	G3 [g
 src/BlazePhoenixCore.sol	test_ADenseBookCutAtACrossingIsPromisedWhatItPays	G3 [g3-2]: a walk cut at a crossing answers the band again
 src/BlazePhoenixCore.sol	test_ADenseBookCutAtACrossingIsPromisedWhatItPays	G3 [g3-4]: a walk cut at a crossing drops the rest
 src/BlazePhoenixCore.sol	test_ABookThatThickensPastTheCutIsPromisedNoMoreThanTheBand	G3 [g3-3]: a cut walk on a book that thickens promises its model, above the band
+src/BlazePhoenixCore.sol	test_TheRoutersInFrameQuoteOfACutLegIsAtMostWhatThePoolPays	WALK [wc-1]: the frame prices the rest again and quotes above what the pool pays
+src/BlazePhoenixSolver.sol	test_ThePromiseOfAUniformDenseBookCutByTheReadsStaysWhatItPays	WALK [wc-2]: the promise drops the rest and falls to the frame
+src/BlazePhoenixCore.sol	test_AFrameQuoteCutAtABitmapWordIsAtMostWhatThePoolPays	WALK [wc-3]: a walk cut at a bitmap word prices the rest for the frame too
+src/BlazePhoenixCore.sol	test_AFrameQuoteCutAtACrossingIsAtMostWhatThePoolPays	WALK [wc-4]: a walk cut at a crossing prices the rest for the frame too
+src/BlazePhoenixCore.sol	test_ThePromiseOfAUniformDenseBookCutByTheReadsStaysWhatItPays	WALK [wc-5]: no question has a rest, the promise falls to the frame
 src/BlazePhoenixCore.sol	test_ErrIsAskedAtTheOrdersSize_matrix	ROUTEQ: the error bound's impact term is taken at the probe again, not at the order
 src/BlazePhoenixSolver.sol	test_FarThinBaseNoLongerExcludesTheDeepRows	ROUTEQ meta-guard: the Core is right but its one caller asks the bound at the probe
 src/BlazePhoenixCore.sol	test_ErrOrderUnderTheProbeReadsAsTheProbe	ROUTEQ floor: an order under the probe shrinks the bound below the quote's own

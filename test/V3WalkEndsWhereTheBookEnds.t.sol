@@ -49,8 +49,8 @@ contract V3WalkEndsWhereTheBookEndsTest is Test {
         // ~1.03e36 reaches 60 and ~1.04e37 reaches 600 [derived: L (1.0001^30 - 1) / 0.997 and
         // L (1.0001^300 - 1)]: 3e36 crosses 60 and stops below 600, on every reading of the net.
         uint256 amt = 3e36;
-        (uint256 q, ) = BPC.v3PaysOnBudget(address(_deep(type(int128).max)), amt, false, type(uint256).max, BPC.V3_PAY_READS);
-        (uint256 q0, ) = BPC.v3PaysOnBudget(address(_deep(0)), amt, false, type(uint256).max, BPC.V3_PAY_READS);
+        (uint256 q, ) = BPC.v3PaysOnBudget(address(_deep(type(int128).max)), amt, false, type(uint256).max, BPC.V3_PAY_READS, true);
+        (uint256 q0, ) = BPC.v3PaysOnBudget(address(_deep(0)), amt, false, type(uint256).max, BPC.V3_PAY_READS, true);
         assertGt(q0, 0, "premise: the book pays");
         assertGe(q, q0, "liquidity added past a crossed tick paid less: the sum wrapped");
     }
@@ -64,8 +64,8 @@ contract V3WalkEndsWhereTheBookEndsTest is Test {
         pool.addPosition(-884736, 884736, H);
         pool.lieAboutTheNet(884736, 0);
         // The range from tick 0 to 887272 takes ~3.1e57 of token1 [derived: H (1.0001^443636 - 1) / 0.997].
-        (uint256 q1, ) = BPC.v3PaysOnBudget(address(pool), 1e58, false, type(uint256).max, BPC.V3_PAY_READS);
-        (uint256 q2, ) = BPC.v3PaysOnBudget(address(pool), 2e58, false, type(uint256).max, BPC.V3_PAY_READS);
+        (uint256 q1, ) = BPC.v3PaysOnBudget(address(pool), 1e58, false, type(uint256).max, BPC.V3_PAY_READS, true);
+        (uint256 q2, ) = BPC.v3PaysOnBudget(address(pool), 2e58, false, type(uint256).max, BPC.V3_PAY_READS, true);
         assertGt(q1, 0, "premise: the book pays");
         assertLe(q1, H, "the walk paid more token0 than the range holds");
         assertEq(q2, q1, "an order past the end of the book was paid past the bound");

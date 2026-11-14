@@ -50,8 +50,8 @@ contract SaturationIsAWordNotARevert is Test {
         exact.lieAboutTheNet(120, 0);
 
         uint256 amt = 4e36;
-        (uint256 qs, uint256 ls) = BPC.v3PaysOnBudget(address(sat), amt, false, type(uint256).max, BPC.V3_PAY_READS);
-        (uint256 qe, uint256 le) = BPC.v3PaysOnBudget(address(exact), amt, false, type(uint256).max, BPC.V3_PAY_READS);
+        (uint256 qs, uint256 ls) = BPC.v3PaysOnBudget(address(sat), amt, false, type(uint256).max, BPC.V3_PAY_READS, true);
+        (uint256 qe, uint256 le) = BPC.v3PaysOnBudget(address(exact), amt, false, type(uint256).max, BPC.V3_PAY_READS, true);
         assertGt(qs, 0, "the saturated book pays");
         assertEq(qs, qe, "saturation reads the ceiling, as the book that lands on it");
         assertEq(ls, le, "same reads spent");
@@ -74,8 +74,8 @@ contract SaturationIsAWordNotARevert is Test {
         exact.lieAboutTheNet(60, int128(int256(MAX128 - l)));
 
         uint256 amt = 3e36;
-        (uint256 qs, uint256 ls) = BPC.v3PaysOnBudget(address(sat), amt, false, type(uint256).max, BPC.V3_PAY_READS);
-        (uint256 qe, uint256 le) = BPC.v3PaysOnBudget(address(exact), amt, false, type(uint256).max, BPC.V3_PAY_READS);
+        (uint256 qs, uint256 ls) = BPC.v3PaysOnBudget(address(sat), amt, false, type(uint256).max, BPC.V3_PAY_READS, true);
+        (uint256 qe, uint256 le) = BPC.v3PaysOnBudget(address(exact), amt, false, type(uint256).max, BPC.V3_PAY_READS, true);
         assertGt(qs, 0, "the saturated book pays");
         assertEq(qs, qe, "saturation reads the ceiling");
         assertEq(ls, le, "same reads spent");

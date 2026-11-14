@@ -562,6 +562,14 @@
       "note": "G3, 2026-11-13 (PR #123 guard review). A cut walk answers min(walked + outV3(rest, price reached, last liquidity read), f): every crossed tick counts, the rest stays a model on the last range read, and it never answers above f, so a promise only falls (same producer for Solver._paysWhatItWalks and Core.legQuoteImpact). No new read, no new constant: V3_PAY_READS stays 12. Tests in test/V3WalkCutPricesTheRest.t.sol: sparse (cut at a bitmap word), dense (cut at a crossing), thickening (the cap holds); mutants [g3-1]-[g3-4]. Residual: past the last read the model is the last range's, so a book thinning further is still over-promised up to f."
     },
     {
+      "id": "V3-FRAME-CUT-WALK",
+      "class": "The Router's in-frame quote of a concentrated V3-shaped leg whose walk the reads cut priced the input it did not walk on the last range read: on a book that thins past the cut it quoted above what the pool pays from the same state, and the protocol's floor refused a fill the market honours (RouterE(5); 12 G7 rows on a BSC fork, 12839378017277891192820 quoted against 8057336833845326459693 paid)",
+      "status": "blocked",
+      "guard": "v3PaysOnBudget",
+      "test": "test_TheRoutersInFrameQuoteOfACutLegIsAtMostWhatThePoolPays",
+      "note": "WALK, 2026-11-14. One walk, two questions: Core.v3PaysOnBudget(..., rest). The frame (legQuoteImpact, rest false) answers min(walked, f), never above what the pool pays (induction on price, liquidity and input left: the walk takes the pool's own first stretches); the promise (Solver._paysWhatItWalks, rest true) is unchanged, min(walked + rest, f), and errs toward refusing. Tests in test/V3WalkFrameAnswersWhatItWalks.t.sol and test/fork/G7Err{Bsc,Base}V3PayReads*.t.sol; mutants [wc-1]-[wc-5]. Not covered: a leg the reads never walked keeps the band in the frame too (base :1936, C6), output tokens with a fee, Algebra (kind 6), two legs of one route on one pool."
+    },
+    {
       "id": "V3-RANK-ON-THE-BAND",
       "class": "A route ranked on a figure no venue pays: the leading build's concentrated leg ranked on its single-range band, or at the cap of a held book, over a venue that pays more, then promised what its book pays, so the plan settled what the walked book paid and the better venue was passed over",
       "status": "blocked",

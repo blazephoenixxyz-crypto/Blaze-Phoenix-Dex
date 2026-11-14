@@ -95,7 +95,7 @@ contract V3WalkCutPricesTheRest is Test {
     {
         (uint160 sp0, , , , , , ) = pool.slot0();
         f = BPC.outV3(amt, sp0, pool.liquidity(), FEE, true, 0);
-        (q, left) = BPC.v3PaysOnBudget(address(pool), amt, true, f, BPC.V3_PAY_READS);
+        (q, left) = BPC.v3PaysOnBudget(address(pool), amt, true, f, BPC.V3_PAY_READS, true);
         uint256 used;
         int24 tickEnd;
         (used, pays, , tickEnd, ) = pool.specSwap(amt, true, BPC.MIN_SQRT_PRICE_PLUS_ONE);

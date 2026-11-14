@@ -48,7 +48,7 @@ contract V3WalkTickStepIsDirectionalTest is Test {
         // Control: with no liquidityNet at -60 the walk keeps 1e21 past it and pays more.
         MockV3TickPool liar = _book();
         liar.lieAboutTheNet(-60, 0);
-        (uint256 q2, ) = BPC.v3PaysOnBudget(address(liar), amt, true, type(uint256).max, BPC.V3_PAY_READS);
+        (uint256 q2, ) = BPC.v3PaysOnBudget(address(liar), amt, true, type(uint256).max, BPC.V3_PAY_READS, true);
         assertGt(q2, q, "control: the net at -60 is what thins the range below it");
     }
 
@@ -63,7 +63,7 @@ contract V3WalkTickStepIsDirectionalTest is Test {
     function _walk(MockV3TickPool pool, uint256 amt, bool zfo)
         internal view returns (uint256 q, uint256 pays, int24 tickEnd)
     {
-        (q, ) = BPC.v3PaysOnBudget(address(pool), amt, zfo, type(uint256).max, BPC.V3_PAY_READS);
+        (q, ) = BPC.v3PaysOnBudget(address(pool), amt, zfo, type(uint256).max, BPC.V3_PAY_READS, true);
         uint256 used;
         (used, pays, , tickEnd, ) = pool.specSwap(
             amt, zfo, zfo ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE

@@ -330,7 +330,7 @@ contract BlazePhoenixSolver {
     }
 
     /// @dev DEX-01: the plan's concentrated legs, in route order, promised what their own books
-    ///      pay (`Core.v3PaysOnBudget`, the Router's own in-frame figure), on V3_PAY_READS reads
+    ///      pay (`Core.v3PaysOnBudget`'s promise, the Router's in-frame walk plus the rest), on V3_PAY_READS reads
     ///      for the whole route: on a dense book a walk this short does not finish, and the leg
     ///      is promised what it walked plus the rest on the last range it read, never more than
     ///      its promise. A promise only falls. What falls comes off its hop, the hops after
@@ -358,7 +358,7 @@ contract BlazePhoenixSolver {
                 if (num != den) (g.amountIn, g.expectedOut) = (BPC.mulDiv(g.amountIn, num, den), BPC.mulDiv(g.expectedOut, num, den));
                 if (reads > 5 && BPC.kindHas(g.kind, BPC.A_CONC_POOL)) {
                     uint256 p = g.expectedOut;
-                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads);
+                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads, true);
                     if (g.expectedOut < p) fl = _fell(fl, hop.tokenIn, hop.tokenOut, g.pool);
                 }
                 sum += g.expectedOut;

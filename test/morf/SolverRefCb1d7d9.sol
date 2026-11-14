@@ -403,7 +403,7 @@ contract SolverRefCb1d7d9 {
                 if (num != den) (g.amountIn, g.expectedOut) = (BPC.mulDiv(g.amountIn, num, den), BPC.mulDiv(g.expectedOut, num, den));
                 if (reads > 5 && BPC.kindHas(g.kind, BPC.A_CONC_POOL)) {
                     uint256 p = g.expectedOut;
-                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads);
+                    (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads, true);
                     if (g.expectedOut < p) fl = _fell(fl, hop.tokenIn, hop.tokenOut, g.pool);
                 }
                 sum += g.expectedOut;

@@ -76,6 +76,6 @@ contract V3WalkNeverAnswersAStarvedRead is Test {
 
     /// The walk on the whole read budget, against no band: its own figure.
     function walk() external view returns (uint256 q) {
-        (q, ) = BPC.v3PaysOnBudget(address(pool), AMT, true, type(uint256).max, BPC.V3_PAY_READS);
+        (q, ) = BPC.v3PaysOnBudget(address(pool), AMT, true, type(uint256).max, BPC.V3_PAY_READS, true);
     }
 }

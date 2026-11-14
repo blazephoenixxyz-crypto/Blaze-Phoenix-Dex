@@ -2273,9 +2273,10 @@ library BlazePhoenixCore {
     //  Every function below is the pool's own arithmetic with its own rounding -
     //  input rounded up, output rounded down - so the walk can only understate a
     //  delivery, and only where it stops early. One exception: the rest term of
-    //  `v3PaysOnBudget` is priced by `outV3`, whose zeroForOne floor on the next
-    //  sqrt price can lift that term by up to L / 2^96 wei (the answer stays
-    //  capped by `f`).
+    //  `v3PaysOnBudget`'s promise (`rest` true) is priced by `outV3`, whose
+    //  zeroForOne floor on the next sqrt price can lift that term by up to
+    //  L / 2^96 wei (the answer stays capped by `f`). The frame's answer has no
+    //  rest term.
 
     int24   internal constant V4_MIN_TICK = -887_272;
     int24   internal constant V4_MAX_TICK =  887_272;
@@ -2500,14 +2501,22 @@ library BlazePhoenixCore {
     ///         figure. The book is walked as `v4WalkOut` walks it with a zero poolId, for at most
     ///         `reads` reads of the pool: a walk that finishes inside them and inside
     ///         V4_WALK_MAX_STEPS stretches answers min(walk, f). One that does not finish answers
-    ///         min(walked + rest, f): what the stretches it read pay, plus the single-range figure
+    ///         one of TWO questions, chosen by `rest`. The PROMISE (`rest` true, the Solver):
+    ///         min(walked + rest, f), what the stretches it read pay plus the single-range figure
     ///         of the input left on the last range it read, from the price it reached (G3,
-    ///         2026-11-13: every tick it crossed counts, and it never answers above `f`). A book
+    ///         2026-11-13: every tick it crossed counts, and it never answers above `f`); a
+    ///         promise defends against a state that moves, so the input it did not walk is priced
+    ///         and errs toward refusing. The FRAME (`rest` false, `legQuoteImpact`): min(walked,
+    ///         f), what the stretches it read pay. The frame's figure is compared with a delivery
+    ///         from the SAME state in the same transaction, and the walk takes the pool's own
+    ///         first stretches, so it is never above what the pool pays; a rest priced on the
+    ///         last range can be (a book that thins past the cut) and refused fills the market
+    ///         honours. A book
     ///         that does not answer answers `f`, the band. `left` is what the walk did not spend. Each
     ///         read holds ASK_GAS_FLOOR first, so it gets its whole GAS_CAP: a starved read
     ///         reverts empty, and the answer is the state's, never the caller's gas (R1). ONE
     ///         producer for the Solver's promise and the Router's in-frame quote.
-    function v3PaysOnBudget(address pool, uint256 amountIn, bool zeroForOne, uint256 f, uint256 reads)
+    function v3PaysOnBudget(address pool, uint256 amountIn, bool zeroForOne, uint256 f, uint256 reads, bool rest)
         public view returns (uint256, uint256 left)
     {
         left = reads;
@@ -2530,8 +2539,9 @@ library BlazePhoenixCore {
         uint256 out;
         for (uint256 i; ; ++i) {
             // The next read is a bitmap word: a walk that cannot pay for it, or whose sixteenth
-            // stretch closed with input unspent, prices the rest on the range it reached.
-            if (left == 0 || i == V4_WALK_MAX_STEPS) { out += outV3(rem, sp, liq, fee, zeroForOne, 0); break; }
+            // stretch closed with input unspent, stops: the promise prices the rest on the range
+            // it reached, the frame answers what it walked.
+            if (left == 0 || i == V4_WALK_MAX_STEPS) { if (rest) out += outV3(rem, sp, liq, fee, zeroForOne, 0); break; }
             --left;
             _fedRead(pool, 6, 0);
             (int24 nt, bool init) = _v4NextTick(pool, 0, tick, ts, zeroForOne);
@@ -2544,8 +2554,9 @@ library BlazePhoenixCore {
             rem -= used;
             if (rem == 0) break;
             if (init) {
-                // No read left for the crossing: the rest is priced from it on the range just read.
-                if (left == 0) { out += outV3(rem, target, liq, fee, zeroForOne, 0); break; }
+                // No read left for the crossing: the promise prices the rest from it on the range
+                // just read, the frame answers what it walked.
+                if (left == 0) { if (rest) out += outV3(rem, target, liq, fee, zeroForOne, 0); break; }
                 --left;
                 // liquidityNet, negated crossing downward, saturating, as `_v4Walk` applies it.
                 int256 net = (zeroForOne ? -1 : int256(1)) * int256(int128(int256(_fedRead(pool, 4, nt))));
@@ -2559,7 +2570,8 @@ library BlazePhoenixCore {
             sp = target;
         }
         // The input spent (or the book ended) inside the reads: the promise is what the book pays;
-        // the reads spent first: what they paid and the rest on the last range. Never above `f`.
+        // the reads spent first: what they paid (and, for the promise, the rest on the last
+        // range). Never above `f`.
         return (out < f ? out : f, left);
     }
 
@@ -3071,9 +3083,11 @@ library BlazePhoenixCore {
             if (legAmt != 0 && sp != 0 && lq != 0) {
                 q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, dynFee, dyn), leg.zeroForOne, 0);
                 imp = q == 0 ? DEFAULT_IMPACT_BPS : impactV3FromOut(q, legAmt, sp, leg.zeroForOne);
-                // DEX-01: the quote is what the promise is (`v3PaysOnBudget`, on a leg's whole
-                // V3_PAY_READS); the impact stays the single-range one the Solver's floor reads.
-                (q, ) = v3PaysOnBudget(leg.pool, legAmt, leg.zeroForOne, q, V3_PAY_READS);
+                // DEX-01: the quote is the frame's walk (`v3PaysOnBudget` without the rest, on a
+                // leg's whole V3_PAY_READS): what the stretches it read pay, never above what the
+                // pool pays from this state. The impact stays the single-range one the Solver's
+                // floor reads.
+                (q, ) = v3PaysOnBudget(leg.pool, legAmt, leg.zeroForOne, q, V3_PAY_READS, false);
             }
         }
     }
