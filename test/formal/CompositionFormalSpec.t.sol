@@ -66,13 +66,13 @@ contract CompositionFormalSpec is Test {
         assertTrue(hop == leg);
     }
 
-    /// A folga NUNCA excede o que UMA perna média poderia legitimamente perder.
-    /// Impede que a regra se torne mais permissiva do que o piso que a origina.
+    /// n times the slack never exceeds one fifth of the hop: the slack is one AVERAGE leg's
+    /// allowance, not the hop's. A slack sized on the whole hop fails this for n >= 2.
     function check_slackNeverExceedsOneAverageLeg(uint128 hopBound, uint8 n) public pure {
         vm.assume(n != 0);
         vm.assume(hopBound != 0);
         uint256 slack = BPC.mulDiv(uint256(hopBound) / n, BPS - LEG_FLOOR_BPS, BPS);
-        assertLe(slack, BPC.mulDiv(uint256(hopBound), BPS - LEG_FLOOR_BPS, BPS));
+        assertLe(slack * uint256(n) * BPS, uint256(hopBound) * (BPS - LEG_FLOOR_BPS));
     }
 
     /// Aumentar n só pode APERTAR a folga (nunca alargá-la) — é o que torna o

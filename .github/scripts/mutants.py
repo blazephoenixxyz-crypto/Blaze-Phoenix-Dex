@@ -8101,6 +8101,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if and(ok, eq(returndatasize(), 32)) {\n                pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)",
       new="            if and(ok, iszero(lt(returndatasize(), 32))) { // MUTANT\n                pool := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)",
       teste="test_FactoryLookup_OnlyAnExactWordIsAPool_AllModesAndFallbacks"),
+# 126-B12 (2026-11-14): which legs share the hop budget, and what input the leg floor is
+# sized on (test/LegFloorFollowsTheSpentInput.t.sol). No defect; watchers for two questions.
+ dict(nome="126-B12 Router: a leg with no bound is counted in the hop slack divisor, so a dead leg beside a live one tightens the floor",
+      f="src/BlazePhoenixRouter.sol",
+      old="                if (legBound != 0) { unchecked { ++hopQuoted; } }",
+      new="                unchecked { ++hopQuoted; } // MUTANT",
+      teste="test_ADeadLegBesideOneLiveLegLeavesTheLegFloorExact"),
+ dict(nome="126-B12 Router: the attested bound is not rescaled to the input the leg actually spent, so an under-fed honest leg is held to its whole plan",
+      f="src/BlazePhoenixRouter.sol",
+      old="                ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)",
+      new="                ? leg.expectedOut // MUTANT",
+      teste="test_ALegGivenLessInputIsHeldToTheProRataOfItsAttestation"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
