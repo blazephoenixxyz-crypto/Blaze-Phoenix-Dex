@@ -77,7 +77,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   exists today, all public and reproducible on every push: a forge suite of unit, property,
   parity and stateful-invariant tests plus fork suites against live liquidity on every network
   the SDK names; **Certora Prover** (INV-20 fail-closed fee) and **Halmos** symbolic proofs;
-  **Slither** (fail on high), **Aderyn** and **Solhint** static gates; red-first static guards
+  **Slither** (fail on high) and **Solhint** static gates; red-first static guards
   (plain greps that fail the build if a known defect shape reappears); a **curated mutation
   guard of named mutants** (guard deletion, relational and boundary flips, logical-connector
   widening, error-code swaps, rounding-direction flips, modifier removal), each paired with the
@@ -619,7 +619,7 @@ file:
 | `Slither (static detectors, fail on high)` | static detectors, failing on high |
 | `gas metrics (offline ledger)` | the gas ledger |
 
-The Certora Prover, Aderyn, Solhint, the secret scan, the mutation guard and the fork suites run
+The Certora Prover, Solhint, the secret scan, the mutation guard and the fork suites run
 alongside them; they report rather than block, and a red run on any of them is treated as work to
 do. Three workflows run on dispatch rather than on every push: the gas campaigns G7 and G8
 ([docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md)) and `fuzz-mc`, the Monte Carlo and
@@ -829,7 +829,7 @@ what it pins.
 
 Every gate runs in CI and identically on a laptop. Toolchain: **Solidity 0.8.36**, pinned with
 `via_ir` across the Foundry profiles; **Foundry** (forge, cast, anvil); **Halmos**;
-**Certora Prover**; **Slither**; **Aderyn**; **Solhint**.
+**Certora Prover**; **Slither**; **Solhint**.
 
 ```bash
 # Build and full suite
@@ -848,7 +848,6 @@ halmos --contract EffV4FeeFormalSpec -v      # INV-20: effV4Fee fails closed
 
 # Static analysis (.github/workflows/security.yml)
 slither . --fail-high
-aderyn . -o aderyn-report.md
 solhint 'src/**/*.sol'
 
 # Registers and generated files must agree with the repository
@@ -1452,7 +1451,7 @@ stateful invariants); the run gave 2,074 passed, 0 failed and 49 skipped in
 proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
 suite are what branch protection on `main` requires; the Certora Prover (INV-20
-fail-closed), Aderyn, Solhint and the secret scan run alongside. Beyond the
+fail-closed), Solhint and the secret scan run alongside. Beyond the
 suite, a curated mutation guard of 625 named mutants, a shared-quantity
 register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it
@@ -2207,7 +2206,7 @@ registry (`test/FrozenAtWriteProbes.t.sol`), the V4 walk against a specification
 swap (`test/V4TickWalk.t.sol`), and a hostile-venue matrix
 (`test/regime/HostileVenueMatrix.t.sol`). Every merge is gated by the suite, the
 mutation guard, fork tests on an archive RPC, Halmos and Certora proofs, Slither,
-Aderyn, and an EIP-170 size guard with margin. The on-chain floor bounds any
+and an EIP-170 size guard with margin. The on-chain floor bounds any
 divergence between a search quote and the realised fill (§5).
 
 

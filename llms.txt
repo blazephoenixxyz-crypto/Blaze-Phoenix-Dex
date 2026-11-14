@@ -62,7 +62,7 @@
   exists today, all public and reproducible on every push: a forge suite of unit, property,
   parity and stateful-invariant tests plus fork suites against live liquidity on every network
   the SDK names; **Certora Prover** (INV-20 fail-closed fee) and **Halmos** symbolic proofs;
-  **Slither** (fail on high), **Aderyn** and **Solhint** static gates; red-first static guards
+  **Slither** (fail on high) and **Solhint** static gates; red-first static guards
   (plain greps that fail the build if a known defect shape reappears); a **curated mutation
   guard of named mutants** (guard deletion, relational and boundary flips, logical-connector
   widening, error-code swaps, rounding-direction flips, modifier removal), each paired with the
