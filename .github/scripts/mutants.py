@@ -7892,6 +7892,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);",
       new="            if (write) (hop.amountIn, hop.expectedOut) = (hop.amountIn, hopOut); // MUTANT",
       teste="test_Control_TwoHops_TheRouteCarriesTheFundedFigures"),
+# C11 (2026-11-14): the witness cell at the route ceiling, 2 hops x 5 legs = 10 legs
+# (test/WitnessCellTenLegsTwoHops.t.sol); a 9-leg cell must not pass for it.
+ dict(nome="C11 witness cell: the cell asserts nine legs (LEGS_HOP1 5 -> 4)",
+      f="test/WitnessCellTenLegsTwoHops.t.sol",
+      old="    uint256 constant LEGS_HOP1 = 5;",
+      new="    uint256 constant LEGS_HOP1 = 4; // MUTANT",
+      teste="test_ThePlanIsTwoHopsOfFiveLegsTenInAll"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
