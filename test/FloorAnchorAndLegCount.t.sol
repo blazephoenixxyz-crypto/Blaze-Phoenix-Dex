@@ -16,7 +16,7 @@ import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 ///
 ///         `Router._execute` writes, eleven lines above the floor it computes: "The caller's
 ///         singleOutFloor and userMinOut may TIGHTEN the floor ... but can never RELAX the
-///         protocol floor", and calls the anchor "unforgeable by calldata". Both sentences were
+///         protocol floor", and called the anchor "unforgeable by calldata". Both sentences were
 ///         false, and the shape is this repository's standing law: a DECLARED count decided the
 ///         floor while the MEASURED count sat unread three hundred lines above.
 ///
