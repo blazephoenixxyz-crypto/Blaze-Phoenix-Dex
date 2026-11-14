@@ -71,8 +71,9 @@ interface IBalancerV3PoolFactory {
 ///         IDENTITY: hint = pool; the Vault answers `isPoolRegistered` and `getPoolTokens`; one of
 ///         two factories fixed at construction answers `isPoolFromFactory`.
 ///         HOOKS: refused if `enableHookAdjustedAmounts` (the Router's own rule for V4 delta hooks)
-///         or if a hooks contract is set whose codehash is not one of the two pinned here. The
-///         pin is checked again on every `exec`, like the Router's `isHookLive`.
+///         or if a hooks contract is set whose codehash is not one of the two pinned at
+///         construction (ExtAdapterBase._requireHookPinned; the base's third slot stays empty).
+///         The pin is checked again on every `exec`, like the Router's `isHookLive`.
 ///         venuePool = the Vault; aux0 = pool; aux1 = hooks contract (0 if none).
 ///         QUOTE: V3 quotes only by eth_call (`Vault.quote`), so `quote` answers out = 0.
 ///         DEPTH: `quote` declares the pool's raw balances in the Vault (`getPoolTokenInfo`), the
@@ -82,18 +83,13 @@ contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
     IBalancerV3Vault public immutable VAULT;
     address public immutable FACTORY0;
     address public immutable FACTORY1;
-    bytes32 public immutable HOOK_CODEHASH0;
-    bytes32 public immutable HOOK_CODEHASH1;
-
-    bool transient private _inExec;
 
     constructor(address gate, address vault, address[2] memory factories, bytes32[2] memory hookCodehashes)
-        ExtAdapterBase(gate)
+        ExtAdapterBase(gate, [hookCodehashes[0], hookCodehashes[1], bytes32(0)])
     {
         if (vault == address(0) || factories[0] == address(0)) revert AdapterE(0);
         VAULT = IBalancerV3Vault(vault);
         (FACTORY0, FACTORY1) = (factories[0], factories[1]);
-        (HOOK_CODEHASH0, HOOK_CODEHASH1) = (hookCodehashes[0], hookCodehashes[1]);
     }
 
     function resolve(address t0, address t1, uint24, bytes calldata hint)
@@ -115,14 +111,6 @@ contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
             || (FACTORY1 != address(0) && IBalancerV3PoolFactory(FACTORY1).isPoolFromFactory(pool));
     }
 
-    /// The ONE producer of "may this pool's hooks run under us": none, or code that is one of
-    /// the two pinned codehashes.
-    function _requireHookPinned(address hooks) private view {
-        if (hooks == address(0)) return;
-        bytes32 h = hooks.codehash;
-        if (h == bytes32(0) || (h != HOOK_CODEHASH0 && h != HOOK_CODEHASH1)) revert AdapterE(7);
-    }
-
     function exec(address, bytes32 aux0, bytes32 aux1, bool zeroForOne, uint256 amtIn, address recipient)
         external returns (uint256)
     {
@@ -137,7 +125,7 @@ contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
     /// The Vault's callback. Only the Vault, and only inside this adapter's own `exec`: the
     /// transient credit of an unlock belongs to whoever runs inside it.
     function onUnlock(address pool, address tIn, address tOut, uint256 amtIn, address recipient) external {
-        if (msg.sender != address(VAULT) || !_inExec) revert AdapterE(6);
+        _requireVenueCallback(address(VAULT));
         (, , uint256 outRaw) = VAULT.swap(
             IBalancerV3Vault.VaultSwapParams(IBalancerV3Vault.SwapKind.EXACT_IN, pool, tIn, tOut, amtIn, 1, "")
         );

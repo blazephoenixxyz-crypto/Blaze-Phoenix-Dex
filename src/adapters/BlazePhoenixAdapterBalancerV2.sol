@@ -68,7 +68,9 @@ contract BlazePhoenixAdapterBalancerV2 is ExtAdapterBase, IExtAdapter {
     address public immutable FACTORY2;
     address public immutable FACTORY3;
 
-    constructor(address gate, address vault, address[4] memory factories) ExtAdapterBase(gate) {
+    constructor(address gate, address vault, address[4] memory factories)
+        ExtAdapterBase(gate, [bytes32(0), bytes32(0), bytes32(0)])
+    {
         if (vault == address(0) || factories[0] == address(0)) revert AdapterE(0);
         VAULT = IBalancerV2Vault(vault);
         (FACTORY0, FACTORY1, FACTORY2, FACTORY3) = (factories[0], factories[1], factories[2], factories[3]);
