@@ -20,7 +20,7 @@ Segments (callTracer frames): quote total, solve (Quoter -> Solver.findBestRoute
 floor; cold/warm (EIP-2929) as the Probe's gasUsed without and with an access list
 (eth_createAccessList, fallback: prestateTracer accounts and slots; source in column al_src).
 Outcomes: ok | noquote | revert | rpc_err | timeout | prereq | mf_unforced. All of them stay in
-the denominator of the report.
+the denominator of the report. Swap coverage counts an mf_unforced row as its twin M<age>.
 
   g7.py blockat <chain> <unix_ts>
   g7.py draws   <spec.json> <seedhex> [chain]
@@ -880,6 +880,22 @@ def smoke_draws(spec, cn, b0):
              "amount": int(st["amounts"]["A"][0]), "st": st}]
 
 
+def swap_coverage(rows):
+    """{chain: (n, ok, mf_unforced_twin_ok)} over every row. An mf_unforced row says the MF
+    counterfactual was not forced, not that the swap failed: it counts as swap-ok when its natural
+    twin M<age> (same chain, stratum, idx) is ok. Every other outcome but ok counts as a failure."""
+    out = {r["chain"]: [0, 0, 0] for r in rows}
+    oc = {(r["chain"], r["stratum"], str(r["idx"]), r["mode"]): r["outcome"] for r in rows}
+    for r in rows:
+        c = out[r["chain"]]
+        c[0] += 1
+        if r["outcome"] == "ok":
+            c[1] += 1
+        elif r["outcome"] == "mf_unforced" and oc.get((r["chain"], r["stratum"], str(r["idx"]), "M" + r["mode"][2:])) == "ok":
+            c[2] += 1
+    return {k: tuple(v) for k, v in out.items()}
+
+
 def cmd_report(spec_path, out_path):
     spec = json.load(open(spec_path))
     rows = classify_rows(load_rows(out_path))
@@ -888,6 +904,10 @@ def cmd_report(spec_path, out_path):
     for k in keys:
         rs = [r for r in rows if (r["chain"], r["kind"], r["mode"]) == k]
         print("\t".join(k) + f"\t{len(rs)}\t" + "\t".join(str(sum(r["outcome"] == o for r in rs)) for o in OUTCOMES))
+    print("# swap coverage (mf_unforced counts as its twin M<age>; denominator = every row): "
+          "chain\tn\tok\tmf_unforced_twin_ok\tswap_ok\tswap_ok_pct")
+    for cn, (n, ok, mf) in sorted(swap_coverage(rows).items()):
+        print(f"{cn}\t{n}\t{ok}\t{mf}\t{ok + mf}\t{100 * (ok + mf) / n:.1f}")
     print("# gas: chain\tkind\tmode\tsegment\tn_ok\tp50\tp95\tp99")
     for k in keys:
         rs = [r for r in rows if (r["chain"], r["kind"], r["mode"]) == k and r["outcome"] == "ok"]

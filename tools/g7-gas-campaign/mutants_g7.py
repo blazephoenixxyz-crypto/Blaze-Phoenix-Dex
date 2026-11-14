@@ -78,6 +78,9 @@ M = [  # (test id, old, new)
  ("GRecordShape.test_split_by_hops_and_legs_per_mode_over_ok_rows", 'if shape(r) == k and r["mode"] == m]', "if shape(r) == k]"),
  ("GRecordShape.test_split_by_hops_and_legs_per_mode_over_ok_rows", 'rec = [r for r in rows if r["outcome"] == "ok" and r["mode"] in gm and', 'rec = [r for r in rows if r["mode"] in gm and'),
  ("GRecordShape.test_p95_only_from_the_declared_minimum", "if len(g) >= PAIRED_MIN_N else", "if len(g) > PAIRED_MIN_N else"),
+ ("SwapCoverage.test_draw_with_swap_ok_and_mf_unforced_counts_8_of_8", 'elif r["outcome"] == "mf_unforced" and oc.get(', 'elif False and oc.get('),
+ ("SwapCoverage.test_report_counts_mf_unforced_as_its_twin_over_every_row", '"M" + r["mode"][2:])) == "ok":', '"M" + r["mode"][2:])) != "x":'),
+ ("SwapCoverage.test_report_counts_mf_unforced_as_its_twin_over_every_row", '"M" + r["mode"][2:])) == "ok":', '"D")) == "ok":'),
 ]
 # Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
 # must turn its named test red.
