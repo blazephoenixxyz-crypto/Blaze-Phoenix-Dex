@@ -7892,6 +7892,156 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);",
       new="            if (write) (hop.amountIn, hop.expectedOut) = (hop.amountIn, hopOut); // MUTANT",
       teste="test_Control_TwoHops_TheRouteCarriesTheFundedFigures"),
+ # 124-L1 (2026-11-14): universalProbe's two bounds, err at the probe and errOrder at the order
+ # (test/ProbeTwoBounds.t.sol). Kind 9 (`c.kind != KIND_EXTERNAL`) needs a real hub: follow-up.
+ dict(nome="L1-124 Core:2104: a probe with no output reads a zero bound instead of the whole one",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (rank == 0) return (mass, 0, fee, WAD, WAD);",
+      new="        if (rank == 0) return (mass, 0, fee, 0, 0); // MUTANTE",
+      teste="test_RankZeroIsTheWholeBound"),
+ dict(nome="L1-124 Core:2126: err is not clamped at WAD, so past WAD it spills into errOrder's bits",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (err > WAD) err = WAD;   // packed in 64 bits by the Solver: past WAD it would spill into errOrder's",
+      new="        // MUTANTE",
+      teste="test_TheProbesBoundStopsAtWADTheOrdersDoesNot"),
+ dict(nome="L1-124 Core:2122: the order's output rounds down, so the bound misses the real output at the order",
+      f="src/BlazePhoenixCore.sol",
+      old="                ? type(uint256).max : to18(mulDivUp(rank, orderIn, amountIn), _decOther(c));",
+      new="                ? type(uint256).max : to18(mulDiv(rank, orderIn, amountIn), _decOther(c)); // MUTANTE",
+      teste="test_TheOrdersBoundCoversTheRealOutputAtTheOrder"),
+ dict(nome="L1-124 Core:2124: an order whose input equals the depth does not read the whole bound",
+      f="src/BlazePhoenixCore.sol",
+      old="            errOrder = n == 0 || mOrder >= depthWad ? WAD : rnd + 3 * WAD / n + mulDivUp(mOrder, WAD, depthWad);",
+      new="            errOrder = n == 0 || mOrder > depthWad ? WAD : rnd + 3 * WAD / n + mulDivUp(mOrder, WAD, depthWad); // MUTANTE",
+      teste="test_OrderAtTheDepthReadsWAD"),
+ dict(nome="L1-124 Core:2124: the order's impact term rounds down, so errOrder falls below err",
+      f="src/BlazePhoenixCore.sol",
+      old="            errOrder = n == 0 || mOrder >= depthWad ? WAD : rnd + 3 * WAD / n + mulDivUp(mOrder, WAD, depthWad);",
+      new="            errOrder = n == 0 || mOrder >= depthWad ? WAD : rnd + 3 * WAD / n + mulDiv(mOrder, WAD, depthWad); // MUTANTE",
+      teste="testFuzz_ErrOrderIsNeverBelowErr"),
+ dict(nome="L1-124 Core:2118: an order one wei under the probe escapes the clamp and reads a smaller bound",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (orderIn < amountIn) orderIn = amountIn;",
+      new="            if (orderIn + 1 < amountIn) orderIn = amountIn; // MUTANTE",
+      teste="test_OrderOneWeiUnderTheProbeReadsTheProbesBound"),
+ dict(nome="L1-124 Core:2112: err's input side is read at the order, so the probe's bound moves with the order",
+      f="src/BlazePhoenixCore.sol",
+      old="                uint256 aProbe = to18(amountIn, _decIn(c));",
+      new="                uint256 aProbe = to18(orderIn, _decIn(c)); // MUTANTE",
+      teste="testFuzz_ErrAtTheProbeIgnoresTheOrder"),
+ # 124-L1 C6: tau's rising step, the twin of "L1-124 Core:3242" (test/DimensionsTime.t.sol).
+ dict(nome="L1-124 Core:3241: tau's rising step rounds a whole eighth up, so dt == tau moves the clock",
+      f="src/BlazePhoenixCore.sol",
+      old="                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT) - 1) >> TAU_EMA_SHIFT;",
+      new="                if (dt >= tau) tau += (dt - tau + (uint256(1) << TAU_EMA_SHIFT)) >> TAU_EMA_SHIFT; // MUTANTE",
+      teste="test_TauFallsWhenTheIntervalShrinks"),
+ # 124-L1 D2: the vote's boundary at a fee of exactly 1e6 pips, what a Solidly pair whose factory()
+ # is not an address states (test/BoundaryEquality.t.sol, BoundaryEqualityBandVoteTest).
+ dict(nome="L1-124 Math:492: a fee of exactly 1e6 pips reads as stated, so a Solidly row nobody prices votes",
+      f="src/BlazePhoenixMath.sol",
+      old="                if ((fe[i] & FEE_MASK) >= PIPS) blind |= 1 << i;",
+      new="                if ((fe[i] & FEE_MASK) > PIPS) blind |= 1 << i; // MUTANTE",
+      teste="test_AFeeOfExactlyOneMillionPipsDoesNotVote"),
+ # THE BAND at the edge of a row's stated fee: 1e6 pips is unknown, judged from above only with
+ # its own fee read as 0; 1e6 - 1 is stated, judged from both sides. And the all-dead exit of
+ # `_select` (test/SelectBandEdges.t.sol).
+ dict(nome="L1-124 Math:537: a row fee of exactly 1e6 pips is kept as stated, so the row keeps nothing and passes the upper edge",
+      f="src/BlazePhoenixMath.sol",
+      old="                    uint256 ki = _keep(f < PIPS ? f : 0, (fe[i] >> 24) & ERR_MASK);   // (1-f_i)(1-e_i)",
+      new="                    uint256 ki = _keep(f <= PIPS ? f : 0, (fe[i] >> 24) & ERR_MASK);   // (1-f_i)(1-e_i) MUTANTE",
+      teste="test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnly"),
+ dict(nome="L1-124 Math:539: a row fee of exactly 1e6 pips is asked the lower edge it cannot answer",
+      f="src/BlazePhoenixMath.sol",
+      old="                        && (f >= PIPS || p >= BPC.mulDiv(pb, ki * kbLo / BPC.WAD, BPC.WAD))) set |= 1 << i;",
+      new="                        && (f > PIPS || p >= BPC.mulDiv(pb, ki * kbLo / BPC.WAD, BPC.WAD))) set |= 1 << i; // MUTANTE",
+      teste="test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnly"),
+ dict(nome="L1-124 Math:166: the all-dead exit of _select dropped, so a hop with no live row is based and weighed",
+      f="src/BlazePhoenixMath.sol",
+      old="            if (m == 0) return (0, 0, 0, psis);   // all dead: nothing quotable",
+      new="            if (m == 0 && false) return (0, 0, 0, psis);   // MUTANTE",
+      teste="test_AHopWhoseRowsAllReadZeroSelectsNothing"),
+ # A degenerate input quotes nothing: a probe of zero input reads no venue
+ # (test/DegenerateInputQuotesNothing.t.sol).
+ dict(nome="L1-124 Core:1909: a probe of zero input reads the venue, its mass and its fee",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (amountIn == 0) return (0, 0, 0, 0, 0, 0);",
+      new="        if (amountIn == 1) return (0, 0, 0, 0, 0, 0); // MUTANTE",
+      teste="test_QuoteArmsZeroInput"),
+ dict(nome="L1-124 Core:2150: a V4 book with no liquidity in range is walked and quoted",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (liq == 0) return (0, 0, 0, 0, 0, 0);",
+      new="            if (liq == 1) return (0, 0, 0, 0, 0, 0); // MUTANTE",
+      teste="test_ConcLiqZeroQuotesNothing"),
+ # A leg scaled to zero input is a no-op: it never reaches the pool, whose callback budget
+ # cap would refuse a zero cap and revert the swap (test/BlindLegReachability.t.sol).
+ dict(nome="L1-124 Router:1741: a leg scaled to zero input reaches the pool",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (amt == 0) return (0, 0, 0, 0);",
+      new="        if (amt == 1) return (0, 0, 0, 0); // MUTANTE",
+      teste="test_Control_AZeroInputLegIsNotBlindness"),
+ # The V3 walk steps past a crossed tick in the direction it trades: going down, from
+ # nt - 1, the inclusive search does not find the tick just crossed
+ # (test/V3WalkTickStepIsDirectional.t.sol).
+ dict(nome="L1-124 Core:2551: the V3 walk going down restarts at the tick it crossed and applies its net twice",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = zeroForOne ? nt - 1 : nt;",
+      new="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = nt; // MUTANTE",
+      teste="test_ZeroForOneCrossesBelowTheTick"),
+ # The input probe reads a payment one wei short as taxed: the Router refuses one wei short
+ # (`< owed`, Router:2193), so the probe's edge is the same strict `<`
+ # (test/QuoterMeasuresTheV3InputTax.t.sol).
+ dict(nome="L1-124 Quoter:600: a payment one wei short of what the pool paid back is read as untaxed",
+      f="src/BlazePhoenixQuoter.sol",
+      old="            revert InputProbe(held != 0 && BPC.balanceOf(t, msg.sender) - before < held);",
+      new="            revert InputProbe(held != 0 && BPC.balanceOf(t, msg.sender) - before + 1 < held); // MUTANTE",
+      teste="test_OneWeiShort_IsMeasuredAndNotPromised"),
+ # Only a concentrated leg is probed: asking the reserve kinds instead leaves the V3 leg the
+ # Router refuses unasked (test/QuoterMeasuresTheV3InputTax.t.sol).
+ dict(nome="L1-124 Quoter:694: the probe asks the reserve legs, so a taxed concentrated leg is never measured",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_CONC_POOL)",
+      new="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_RESERVES) // MUTANTE",
+      teste="test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor"),
+ # A route the caller hands over can carry an output past int256.max into the input probe: asked
+ # of the pool it would read as a negative (exact-out) amount (test/QuoterProbeSizeBound.t.sol).
+ dict(nome="L1-124 Quoter:671: a size past int256.max is asked of the pool as a negative amount",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        if (sizeOut == 0 || sizeOut > uint256(type(int256).max)) return false;",
+      new="        if (sizeOut == 0) return false; // MUTANTE",
+      teste="test_AnOutputOneWeiPastInt256MaxIsNotProbed"),
+ # A Gate wrapper rounds and nothing else: read for an impact term it would carry a bound it does
+ # not have (test/ProbeTwoBounds.t.sol, ProbeTwoBoundsGateTest).
+ dict(nome="L1-124 Core:2109: a Gate wrapper is read for an impact term",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (c.kind != KIND_EXTERNAL) {",
+      new="        if (true) { // MUTANTE",
+      teste="test_AGateWrapperIsBoundByItsRoundingAlone"),
+ # The V3 walk saturates a crossed tick's net at uint128.max and stops at the price bound
+ # (test/V3WalkEndsWhereTheBookEnds.t.sol).
+ dict(nome="L1-124 Core:2547: liquidityNet past uint128.max wraps to its low bits instead of saturating",
+      f="src/BlazePhoenixCore.sol",
+      old="                    : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));",
+      new="                    : (l + uint256(net))); // MUTANTE",
+      teste="test_ACrossingPastUint128MaxSaturates"),
+ dict(nome="L1-124 Core:2550: the walk goes on past the price bound and prices the rest beyond the book",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;\n            tick = zeroForOne ? nt - 1 : nt;",
+      new="            tick = zeroForOne ? nt - 1 : nt; // MUTANTE",
+      teste="test_AnOrderPastTheLastTickIsPaidWhatTheBookHolds"),
+ # Where no live row carries a vote the base is the plain median's row, not the cheapest one
+ # (test/NoVoteBaseIsTheMedianRow.t.sol).
+ dict(nome="L1-124 Math:599: a hop where no row votes is based on its cheapest row, not its median one",
+      f="src/BlazePhoenixMath.sol",
+      old="        if (m == 0 || massa == 0) return NONE;",
+      new="        if (m == 0) return NONE; // MUTANTE",
+      teste="test_AHopWhereNoRowVotesIsBasedOnItsMedianRow"),
+ # A fee of exactly 1e6 pips is unknown: put back as a price it divides by PIPS - f = 0
+ # (test/BoundaryEquality.t.sol, BoundaryEqualityBandVoteTest).
+ dict(nome="L1-124 Math:565: a fee of exactly 1e6 pips is put back as a price, dividing by zero",
+      f="src/BlazePhoenixMath.sol",
+      old="            p[i] = f >= PIPS ? r : r > type(uint256).max / PIPS ? type(uint256).max : r * PIPS / (PIPS - f);",
+      new="            p[i] = f > PIPS ? r : r > type(uint256).max / PIPS ? type(uint256).max : r * PIPS / (PIPS - f); // MUTANTE",
+      teste="test_AFeeOfExactlyOneMillionPipsDoesNotVote"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
