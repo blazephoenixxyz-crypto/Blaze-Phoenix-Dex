@@ -36,6 +36,8 @@ abstract contract ExtAdapterBase {
     bytes32 internal immutable HOOK_CODEHASH2;
 
     /// True only while this adapter's own `exec` runs: what a venue callback is checked against.
+    /// Written by the inheriting adapters around their own venue call (Slither does not follow it).
+    // slither-disable-next-line uninitialized-state
     bool transient internal _inExec;
 
     constructor(address gate, bytes32[3] memory hookCodehashes) {
