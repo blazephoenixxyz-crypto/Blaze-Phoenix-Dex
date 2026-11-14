@@ -38,6 +38,7 @@ import random
 import sys
 import threading
 import time
+from collections import Counter
 
 SEL = {
     "preview": "30439d8c", "run": "3f1dde7a", "bal": "70a08231", "solve": "8e9d0a6c",
@@ -438,6 +439,29 @@ def merge_storage(base, diff_post):
     return out
 
 
+def warm_state(ov, diff, skip=()):
+    """The override of the state after a call: `ov` with the post-state of a prestateTracer diffMode
+    trace of that call on top. A slot in pre but not in post was cleared (geth omits zero slots from
+    post) and is written as zero. Accounts whose storage `ov` replaces ("state") get the new words in
+    that storage, the others in "stateDiff"; a changed balance is carried over. Accounts in `skip`
+    (the caller, the probe) keep their override: the next mode re-funds the probe on top."""
+    o = {k: {kk: dict(vv) if isinstance(vv, dict) else vv for kk, vv in v.items()} for k, v in ov.items()}
+    pre = {k.lower(): v for k, v in (diff.get("pre") or {}).items()}
+    skip = {x.lower() for x in skip}
+    for acct, post in (diff.get("post") or {}).items():
+        acct = acct.lower()
+        if acct in skip:
+            continue
+        words = {k.lower(): "0x" + "0" * 64 for k in (pre.get(acct, {}).get("storage") or {})}
+        words.update({k.lower(): v for k, v in (post.get("storage") or {}).items()})
+        a = o.setdefault(acct, {})
+        if words:
+            a.setdefault("state" if "state" in a else "stateDiff", {}).update(words)
+        if "balance" in post:
+            a["balance"] = post["balance"]
+    return o
+
+
 def rewrite_stamp(words, old_ts, new_ts):
     """Rewrite every byte-aligned big-endian occurrence of old_ts (as uint32, uint40 or uint64,
     whichever width holds it exactly) in the given storage words. Returns (new_words, hits)."""
@@ -528,8 +552,12 @@ class Chain:
         self.b0 = None  # window start, set by cmd_measure (mid_price code check)
         self.lock = threading.Lock()
 
-    def override(self, hub_state=None, fund=None, eth_wei=0, admin_code=False):
-        o = {k: dict(v) for k, v in self.base.items()}
+    def override(self, hub_state=None, fund=None, eth_wei=0, admin_code=False, base=None):
+        """The state override of a call: `base` (default the deployed stack) copied two levels deep,
+        then the Hub's storage, the probe's ETH, the admin's code and the funding slots on top. A
+        funding slot of an account whose storage is replaced ("state") goes into that storage, since
+        an account cannot carry both "state" and "stateDiff"."""
+        o = {k: {kk: dict(vv) if isinstance(vv, dict) else vv for kk, vv in v.items()} for k, v in (base or self.base).items()}
         if hub_state is not None:
             o[self.hub]["state"] = hub_state
         if eth_wei:
@@ -537,7 +565,8 @@ class Chain:
         if admin_code:
             o[self.admin] = {"code": self.base[self.probe]["code"]}
         for acct, (slot, val) in (fund or {}).items():
-            o.setdefault(acct.lower(), {}).setdefault("stateDiff", {})[slot] = "0x" + w(val)
+            a = o.setdefault(acct.lower(), {})
+            a.setdefault("state" if "state" in a else "stateDiff", {})[slot] = "0x" + w(val)
         return o
 
     def balance_slot(self, token, blk):
@@ -630,15 +659,17 @@ def pool_fee_bps(ch, d, legs_detail, hops, legs):
     return total
 
 
-def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None):
+def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None, base_ov=None):
     """Quote trace + preview + exec trace + cold/warm for one mode. Returns a row fragment.
     An aged-route mode (R<a>) quotes at block qb (timestamp ts_q, the deadline from it) and executes
-    that calldata at d["b"]; every other mode quotes and executes at d["b"]."""
+    that calldata at d["b"]; every other mode quotes and executes at d["b"]. `base_ov` replaces the
+    deployed stack as the base of both overrides (M0w: the state after the M0 exec). The exec call
+    and its override go back in the private fields _run and _ovx (not in COLS)."""
     r = {}
     qb, ts_q = (d["b"], ts_b) if qb is None else (qb, ts_q)
     q = "0x" + SEL["preview"] + addr(d["tin"]) + addr(d["tout"]) + w(d["amount"]) + addr(ch.probe) + w(ts_q + ch.spec["deadline_s"])
     tx = {"from": CALLER, "to": ch.quoter, "data": q, "gas": GAS}
-    ov = ch.override(hub_state=hub_state)
+    ov = ch.override(hub_state=hub_state, base=base_ov)
     tr, r["g_quote_cap"] = trace_call(ch, tx, qb, {"tracer": "callTracer", "stateOverrides": ov})
     seg = quote_segments(tr, ch.solver, ch.hub, ch.gate, ch.wrappers, (d["tin"], d["tout"]))
     r.update(seg)
@@ -665,7 +696,7 @@ def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None):
     else:
         holder, slot = ch.balance_slot(d["tin"], d["b"])
         fund = {holder: (slot, d["amount"])}
-    ovx = ch.override(hub_state=hub_state, fund=fund, eth_wei=(d["amount"] if wrap else 0) + 10 ** 18)
+    ovx = ch.override(hub_state=hub_state, fund=fund, eth_wei=(d["amount"] if wrap else 0) + 10 ** 18, base=base_ov)
     if not wrap:
         # the funding override is verified before the exec: a slot that does not hold the probe's
         # balance would make every exec a revert that is not the Router's (prereq, not revert)
@@ -674,6 +705,7 @@ def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None):
             r.update(outcome="prereq", detail=f"fund:{bal}")
             return r
     run = {"from": CALLER, "to": ch.probe, "data": encode_run(ch.router, d["tin"], d["tout"], d["amount"], wrap, pv["call"]), "gas": GAS}
+    r.update(_run=run, _ovx=ovx)
     xt = ch.rpc.call("debug_traceCall", [run, hex(d["b"]), {"tracer": "callTracer", "stateOverrides": ovx}])
     ok, ret, delivered, gas_used, _ = decode_run(xt["output"])
     r.update(exec_segments(xt, ch.router, ch.hub))
@@ -743,6 +775,8 @@ def modes(spec):
         out.append((m, age, False))
     for m in spec["mf_ages"]:
         out.append(("MF" + m[1:], spec["ages"][m], True))
+    if spec.get("warm_after_m0") and "M0" in spec["ages"]:  # a 2nd exec at b on the state the M0 exec left
+        out.append(("M0w", None, False))
     for a in spec.get("route_ages", []):  # aged route: quote a seconds before b, execute at b (no seeding)
         if int(a) >= 1:
             out.append((f"R{int(a)}", None, False))
@@ -786,7 +820,7 @@ def route_block(ch, b, ts_b, a):
 
 def measure_draw(ch, d, done):
     """All modes of one draw; rows already in `done` (chain, stratum, idx, mode) are skipped."""
-    rows, ref = [], None
+    rows, ref, m0 = [], None, None
     base = {"chain": ch.name, "label": ch.label, "max_hops_code": ch.max_hops, "stratum": d["stratum"], "kind": d["kind"], "idx": d["idx"],
             "b": d["b"], "tin": d["tin"], "tout": d["tout"], "amount_in": d["amount"], "liq_usd": ch.liq.get(d["stratum"], "")}
     try:
@@ -830,7 +864,15 @@ def measure_draw(ch, d, done):
                         row.update(outcome="mf_unforced", detail="stamp not found")
                         rows.append(row)
                         continue
-            if m.startswith("R"):
+            if m == "M0w":
+                if not m0 or m0.get("outcome") != "ok" or "_run" not in m0:
+                    row.update(outcome="prereq", detail="M0 not ok")
+                    rows.append(row)
+                    continue
+                diff = ch.rpc.call("debug_traceCall", [m0["_run"], hex(d["b"]), {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True},
+                                                                               "stateOverrides": m0["_ovx"]}])
+                row.update(measure_mode(ch, d, ts_b, m, None, base_ov=warm_state(m0["_ovx"], diff, (CALLER, ch.probe))))
+            elif m.startswith("R"):
                 q = route_block(ch, d["b"], ts_b, int(m[1:]))
                 if q is None:
                     row.update(outcome="prereq", detail="route_age:lo")
@@ -850,6 +892,8 @@ def measure_draw(ch, d, done):
             row.update(outcome="rpc_err", detail=str(x)[:60])
         if m == "D":
             ref = row.get("net_out") if row.get("outcome") == "ok" else None
+        if m == "M0":
+            m0 = row
         if row.get("outcome") == "ok":
             if ref:
                 row["out_vs_D_bps"] = bps(int(row["net_out"]), int(ref))
@@ -1417,6 +1461,41 @@ def nodata(title, col):
     return [f"# {title}: no data (column {col} missing)"]
 
 
+def mode_table(rows):
+    """8.8 per chain and `all`, one line per mode (age) in the order the rows first carry it: n, ok,
+    ok pct, fb_used = 1, out_vs_D_bps p50/p95/min and g_cold p50/p95 over the ok rows, and the
+    causes of the rows that are not ok (outcome:detail[:24], count, most frequent first)."""
+    out = ["# 8.8 by mode (age): chain\tmode\tn\tok\tok_pct\tfb_used1\tdout_n\tdout_p50\tdout_p95\tdout_min"
+           "\tg_cold_n\tg_cold_p50\tg_cold_p95\tcauses"]
+    order = list(dict.fromkeys(r["mode"] for r in rows))
+    for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+        for m in order:
+            g = [r for r in rows if r["mode"] == m and (cn == "all" or r["chain"] == cn)]
+            if not g:
+                continue
+            ok = [r for r in g if r["outcome"] == "ok"]
+            dv = [float(r["out_vs_D_bps"]) for r in ok if r.get("out_vs_D_bps") not in ("", None)]
+            gc = [int(r["g_cold"]) for r in ok if r.get("g_cold") not in ("", None)]
+            causes = Counter(f"{r['outcome']}:{(r.get('detail') or '')[:24]}" for r in g if r["outcome"] != "ok")
+            out.append("\t".join(str(x) for x in [cn, m, len(g), len(ok), f"{100 * len(ok) / len(g):.1f}",
+                                                   sum(str(r.get("fb_used", "")) == "1" for r in g), len(dv)]
+                                  + ([pct(dv, 50), pct(dv, 95), min(dv)] if dv else ["", "", ""])
+                                  + [len(gc)] + ([pct(gc, 50), pct(gc, 95)] if gc else ["", ""])
+                                  + [";".join(f"{k}={v}" for k, v in causes.most_common()) or "-"]))
+    return out
+
+
+def fb_negative(rows):
+    """8.9 every row whose fallback totalOut is below the best's (fb_dout_bps < 0): the measure, the
+    block and the pools the exec touched (legs_detail; blank when the mode did not execute)."""
+    out = ["# 8.9 rows with fb_dout_bps < 0: chain\tb\tmode\tstratum\tidx\toutcome\tfb_used\tfb_dout_bps\tlegs_detail\trow"]
+    for r in rows:
+        if r.get("fb_dout_bps") not in ("", None) and float(r["fb_dout_bps"]) < 0:
+            out.append("\t".join(str(r.get(k, "")) for k in ("chain", "b", "mode", "stratum", "idx", "outcome", "fb_used",
+                                                             "fb_dout_bps", "legs_detail")) + f"\trow:{r['_line']}")
+    return out
+
+
 def detail_lines(spec, rows, universe, tokens=SITE_TOKENS):
     """Report section 8: swaps by DEX and top pools, structure, token class, USD size, outcome x every
     dimension, gas, fallback and aged route. A dimension whose column is absent prints
@@ -1550,6 +1629,11 @@ def detail_lines(spec, rows, universe, tokens=SITE_TOKENS):
                          [r for r in rows if r["mode"].startswith("R")], lambda r: r["mode"])
     else:
         out += nodata("8.7b aged route executed at the current block (7, 10, 25 s)", "route_age_s")
+    out += mode_table(rows)
+    if "fb_dout_bps" in cols:
+        out += fb_negative(rows)
+    else:
+        out += nodata("8.9 rows with fb_dout_bps < 0", "fb_dout_bps")
     n, cur = [], None
     for ln in out:
         if ln.startswith("# "):

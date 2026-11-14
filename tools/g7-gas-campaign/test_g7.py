@@ -1443,5 +1443,130 @@ class DetailNew(unittest.TestCase):
         self.assertEqual([x.split("\t")[:3] for x in sec(L, "# 8.7b ")], [["base", "R7", "1"], ["all", "R7", "1"]])
 
 
+class WarmM0(unittest.TestCase):
+    """M0w: a 2nd exec at b on the state the M0 exec left (prestateTracer diffMode post on top)."""
+    POOL, CALLER_ = "0x" + "aa" * 20, g7.CALLER
+    K1, K2, S1, S2 = "0x" + "01" * 32, "0x" + "02" * 32, "0x" + "03" * 32, "0x" + "04" * 32
+    Z = "0x" + "0" * 64
+
+    def ov(self):
+        return {HUB: {"code": "0x60", "state": {self.S1: "0x01"}}, TOKEN: {"balance": "0x9"}}
+
+    def diff(self):
+        return {"pre": {self.POOL: {"storage": {self.K1: "0x0a", self.K2: "0x0b"}}, HUB: {"storage": {}},
+                        TOKEN: {"storage": {self.K1: "0x01"}}},
+                "post": {self.POOL: {"storage": {self.K1: "0x0c"}, "balance": "0x5"}, HUB: {"storage": {self.S2: "0x02"}},
+                         TOKEN: {"balance": "0x0", "storage": {}}, self.CALLER_: {"nonce": 9}}}
+
+    # Mutant "M0w undeclared": the M0w line of modes() replaced by pass.
+    def test_m0w_follows_m0_only_when_declared(self):
+        self.assertEqual([m for m, _, _ in g7.modes(dict(SPEC, warm_after_m0=True))][-1:], ["M0w"])
+        self.assertNotIn("M0w", [m for m, _, _ in g7.modes(SPEC)])
+        self.assertNotIn("M0w", [m for m, _, _ in g7.modes(dict(SPEC, warm_after_m0=True, ages={"M1h": 3600}, mf_ages=[]))])
+        self.assertEqual([x for x in g7.modes(dict(SPEC, warm_after_m0=True)) if x[0] == "M0w"], [("M0w", None, False)])
+
+    # Mutant "cleared slots kept": the zero words of pre-only slots dropped (geth omits zero slots from post).
+    def test_warm_state_carries_post_and_zeroes_cleared_slots(self):
+        ov = self.ov()
+        o = g7.warm_state(ov, self.diff(), (self.CALLER_, TOKEN))
+        self.assertEqual(o[self.POOL], {"stateDiff": {self.K1: "0x0c", self.K2: self.Z}, "balance": "0x5"})
+        self.assertEqual(o[TOKEN], {"balance": "0x9"})  # skipped: the probe keeps its override
+        self.assertNotIn(self.CALLER_, o)
+        self.assertEqual(ov, self.ov())  # the M0 override is not mutated
+
+    # Mutant "post into stateDiff": an account whose storage is replaced gets a stateDiff too (geth refuses both).
+    def test_warm_state_merges_into_a_replaced_storage(self):
+        o = g7.warm_state(self.ov(), self.diff(), (TOKEN,))
+        self.assertEqual(o[HUB], {"code": "0x60", "state": {self.S1: "0x01", self.S2: "0x02"}})
+
+    # Mutant "shallow copy": the override copies one level (a funding slot leaks into the base).
+    def test_override_on_a_base_copies_and_funds_into_state(self):
+        ch = mock.Mock(base={}, hub=HUB, probe=TOKEN, admin=GATE)
+        base = {A1: {"stateDiff": {self.K1: "0x01"}}, HUB: {"state": {self.S1: "0x01"}}}
+        o = g7.Chain.override(ch, fund={A1: (self.K2, 7), HUB: (self.S2, 3)}, base=base)
+        self.assertEqual(o[A1]["stateDiff"], {self.K1: "0x01", self.K2: "0x" + g7.w(7)})
+        self.assertEqual(o[HUB], {"state": {self.S1: "0x01", self.S2: "0x" + g7.w(3)}})
+        self.assertEqual(base, {A1: {"stateDiff": {self.K1: "0x01"}}, HUB: {"state": {self.S1: "0x01"}}})
+
+    # Mutant "M0w quote on the stack": the quote's override built without base_ov.
+    def test_measure_mode_quotes_on_the_base_override(self):
+        ch = mock.Mock()
+        ch.solver, ch.hub, ch.gate, ch.wrappers, ch.quoter, ch.probe, ch.spec = SOLVER, HUB, GATE, [WRAP], ROUTER, TOKEN, SPEC
+        ch.override.return_value = {}
+        tr = fr("0xq", g7.SEL["preview"], 1000)
+        tr["output"] = Abi("test_fits_2_10_boundaries").preview_blob("aabb", can=0)
+        ch.rpc.call.side_effect = by_method({"debug_traceCall": lambda p: tr})
+        B = {"x": {}}
+        g7.measure_mode(ch, draw(), 1000, "M0w", None, base_ov=B)
+        self.assertIs(ch.override.call_args_list[0].kwargs.get("base"), B)
+
+    def run_draw(self, m0_out):
+        spec = dict(SPEC, warm_after_m0=True, mf_ages=[], ages={"M0": 0})
+        ch = FakeChain(2000, 0)
+        ch.spec, ch.probe = spec, TOKEN
+        calls, traced = [], []
+        diff = self.diff()
+
+        def mm(ch_, d, ts_b, m, hub_state, qb=None, ts_q=None, base_ov=None):
+            calls.append((m, base_ov))
+            if m == "M0":
+                return {"outcome": m0_out, "net_out": 5, "delivered": 5, "swept": 0, "_run": {"run": 1}, "_ovx": self.ov()}
+            return {"outcome": "ok", "net_out": 4, "delivered": 4, "swept": 0}
+
+        def call(method, params):
+            traced.append((method, params))
+            return diff
+        ch.rpc.call = call
+        with mock.patch.object(g7, "measure_mode", mm), mock.patch.object(g7, "mid_price", lambda ch, d: ""), \
+                mock.patch.object(g7, "vital", lambda ch, d: {}), mock.patch.object(g7, "tok_info", lambda ch, d: {}), \
+                mock.patch.object(g7, "seed_memory", lambda *a: (0, 0, {}, [], [])):
+            rows = {r["mode"]: r for r in g7.measure_draw(ch, draw(), {})}
+        return rows, calls, traced
+
+    # Mutant "no M0 reference": `m0 = row` removed (M0w never runs).
+    def test_m0w_runs_on_the_post_state_of_the_m0_exec(self):
+        rows, calls, traced = self.run_draw("ok")
+        self.assertEqual(rows["M0w"]["outcome"], "ok")
+        self.assertEqual(traced, [("debug_traceCall", [{"run": 1}, hex(500), {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True},
+                                                                            "stateOverrides": self.ov()}])])
+        self.assertEqual(calls[-1], ("M0w", g7.warm_state(self.ov(), self.diff(), (g7.CALLER, TOKEN))))
+        self.assertNotIn("_run", "\t".join(g7.COLS))
+
+    # Mutant "M0w on a failed M0": the M0 ok check dropped.
+    def test_m0w_after_a_failed_m0_is_prereq(self):
+        rows, calls, traced = self.run_draw("revert")
+        self.assertEqual((rows["M0w"]["outcome"], rows["M0w"].get("detail")), ("prereq", "M0 not ok"))
+        self.assertEqual(traced, [])
+
+
+class DetailAge(unittest.TestCase):
+    """8.8 by mode (age) and 8.9 the rows with fb_dout_bps < 0."""
+    def rows(self):
+        R = [drow("base", 1, g_cold=300000, net_out=10, fb_dout_bps=0, fb_used=0),
+             drow("base", 1, mode="M0", g_cold=250000, out_vs_D_bps=-1.5, fb_dout_bps=-3.25, fb_used=0, legs_detail=f"{POOL1}:1"),
+             drow("base", 1, mode="M0w", g_cold=200000, out_vs_D_bps=-4.0, fb_dout_bps="", fb_used=1),
+             drow("base", 1, "noquote", mode="R7", detail="canExecute=0", fb_dout_bps=2),
+             drow("base", 2, "noquote", mode="R7", detail="canExecute=0"),
+             drow("optimism", 1, "revert", mode="R7", detail="exec:0xdeadbeef", fb_dout_bps=-0.5, fb_used=1)]
+        for i, r in enumerate(R):
+            r["_line"] = i + 2
+        return R
+
+    # Mutant "ok pct of all rows": `len(ok) / len(g)` -> `len(ok) / len(rows)`.
+    def test_8_8_mode_table_counts_ok_fallback_delta_gas_and_causes(self):
+        t = {(x.split("\t")[0], x.split("\t")[1]): x.split("\t")[2:] for x in g7.mode_table(self.rows())[1:]}
+        self.assertEqual(t[("base", "M0w")], ["1", "1", "100.0", "1", "1", "-4.0", "-4.0", "-4.0", "1", "200000", "200000", "-"])
+        self.assertEqual(t[("base", "R7")], ["2", "0", "0.0", "0", "0", "", "", "", "0", "", "", "noquote:canExecute=0=2"])
+        self.assertEqual(t[("all", "R7")][:3] + t[("all", "R7")][-1:], ["3", "0", "0.0", "noquote:canExecute=0=2;revert:exec:0xdeadbeef=1"])
+        self.assertEqual([k[1] for k in t if k[0] == "base"], ["D", "M0", "M0w", "R7"])
+
+    # Mutant "zero counted": `float(r["fb_dout_bps"]) < 0` -> `<= 0`.
+    def test_8_9_lists_every_negative_fallback_with_block_and_pools(self):
+        L = g7.fb_negative(self.rows())
+        self.assertEqual(L[1:], [f"base\t1001\tM0\ts1\t1\tok\t0\t-3.25\t{POOL1}:1\trow:3",
+                                 "optimism\t1001\tR7\ts1\t1\trevert\t1\t-0.5\t\trow:7"])
+        self.assertIn("# 8.9 ", "\n".join(Detail.lines(DetailNew().rows())))
+
+
 if __name__ == "__main__":
     unittest.main()

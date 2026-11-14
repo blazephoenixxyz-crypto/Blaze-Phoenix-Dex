@@ -111,6 +111,17 @@ M = [  # (test id, old, new)
  ("DetailNew.test_8_4d_input_share_per_dex_paid_in_tin", "{100 * a[2] / tot[cn]:.1f}", "{100 * a[2]:.1f}"),
  ("DetailNew.test_8_2e_bridge_token_by_symbol", '    if "route_mid_token" in cols:', "    if False:"),
  ("DetailNew.test_8_7_fallback_and_aged_route_tables", '[r for r in rows if r["mode"].startswith("R")]', "rows"),
+ ("WarmM0.test_m0w_follows_m0_only_when_declared", '        out.append(("M0w", None, False))', "        pass"),
+ ("WarmM0.test_warm_state_carries_post_and_zeroes_cleared_slots", 'words = {k.lower(): "0x" + "0" * 64 for k in (pre.get(acct, {}).get("storage") or {})}', "words = {}"),
+ ("WarmM0.test_warm_state_merges_into_a_replaced_storage", 'a.setdefault("state" if "state" in a else "stateDiff", {}).update(words)', 'a.setdefault("stateDiff", {}).update(words)'),
+ ("WarmM0.test_override_on_a_base_copies_and_funds_into_state", 'o = {k: {kk: dict(vv) if isinstance(vv, dict) else vv for kk, vv in v.items()} for k, v in (base or self.base).items()}', "o = {k: dict(v) for k, v in (base or self.base).items()}"),
+ ("WarmM0.test_override_on_a_base_copies_and_funds_into_state", 'a.setdefault("state" if "state" in a else "stateDiff", {})[slot]', 'a.setdefault("stateDiff", {})[slot]'),
+ ("WarmM0.test_measure_mode_quotes_on_the_base_override", "ov = ch.override(hub_state=hub_state, base=base_ov)", "ov = ch.override(hub_state=hub_state)"),
+ ("WarmM0.test_m0w_runs_on_the_post_state_of_the_m0_exec", '        if m == "M0":\n            m0 = row\n', ""),
+ ("WarmM0.test_m0w_runs_on_the_post_state_of_the_m0_exec", 'base_ov=warm_state(m0["_ovx"], diff, (CALLER, ch.probe))', 'base_ov=m0["_ovx"]'),
+ ("WarmM0.test_m0w_after_a_failed_m0_is_prereq", 'if not m0 or m0.get("outcome") != "ok" or "_run" not in m0:', 'if not m0 or "_run" not in m0:'),
+ ("DetailAge.test_8_8_mode_table_counts_ok_fallback_delta_gas_and_causes", "100 * len(ok) / len(g)", "100 * len(ok) / len(rows)"),
+ ("DetailAge.test_8_9_lists_every_negative_fallback_with_block_and_pools", 'float(r["fb_dout_bps"]) < 0', 'float(r["fb_dout_bps"]) <= 0'),
 ]
 # Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
 # must turn its named test red.
