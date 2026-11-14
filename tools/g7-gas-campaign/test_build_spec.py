@@ -551,6 +551,91 @@ class AliveProbe(unittest.TestCase):
         self.assertIn(inventory.k256hex(bytes.fromhex(AliveAtB0.V4P[2:] + "00" * 31 + "06"))[2:], src)
 
 
+class ActiveAtB0(unittest.TestCase):
+    """G7-ROBINHOOD 3c: liq_usd is a balance, not liquidity in range. robinhood fee_low-2 (V3,
+    liquidity() = 0, 47801 FOOD held) and fee_low-1 (V4, active liquidity 0) ranked on liq_usd
+    58165 / 58790 with no market to trade. An alive concentrated candidate ranks only with liquidity
+    in range at b0 > 0 (owner 2026-11-14: no bps floor)."""
+    V4P, V3P = AliveAtB0.V4P, a(0x1213)
+    rows = AliveAtB0.rows
+
+    def facts(self, inactive=(), missing=()):
+        """alive_b0 = 1 for every base candidate; active_b0 for the concentrated ones."""
+        out = AliveAtB0.facts(self, dead=set())
+        for r in self.rows():
+            if (r["chain"] == "base" and r["family"] in bs.ACTIVE_FAMS and r["pool"] not in missing
+                    and bs.classes(r) - {"gate_top3"}):
+                out.append({"chain": "base", "key": "active_b0", "subject": r["pool"].lower(),
+                            "value": "0" if r["pool"] in inactive else "1", "source": "t"})
+        return out
+
+    build = AliveAtB0.build
+
+    @staticmethod
+    def toks(strata):
+        return {s["tA"] for s in strata} | {s["tB"] for s in strata}
+
+    # Mutants: the active_b0 condition removed; the condition applied to every family (the v2
+    # shallow candidates carry no active_b0 fact and would drop).
+    def test_pool_without_liquidity_in_range_is_not_covered_not_a_stratum(self):
+        t = lambda n: a(0x1100 + n)
+        live, _ = self.build(self.facts())
+        self.assertTrue({t(13), t(40), t(23)} <= self.toks(live))  # v3, v4native, v2 rank when active
+        strata, nc = self.build(self.facts(inactive={self.V3P, self.V4P}))
+        self.assertNotIn(t(13), self.toks(strata))
+        self.assertNotIn(t(40), self.toks(strata))
+        self.assertIn(t(23), {s["tA"] for s in strata if s["kind"] == "shallow"})  # v2: no such fact, unchanged
+        why = {r for c, scope, r in nc if c == "base"}
+        for p in (self.V3P, self.V4P):
+            self.assertIn("no liquidity in range at b0 (a balance is not depth): %s" % p, why)
+
+    # Mutant: a concentrated candidate without an active_b0 fact treated as active.
+    def test_unmeasured_liquidity_in_range_is_not_ranked_when_the_pass_ran(self):
+        strata, nc = self.build(self.facts(missing={self.V3P}))
+        self.assertNotIn(a(0x1100 + 13), self.toks(strata))
+        self.assertIn("liquidity in range at b0 not measured (absent, not zero): %s" % self.V3P,
+                      {r for c, scope, r in nc if c == "base"})
+
+    # Mutant: the rule applied without active_b0 facts (every concentrated stratum dropped on an
+    # onchain.tsv that has only the liveness pass).
+    def test_chain_without_the_active_pass_keeps_the_classes(self):
+        strata, _ = self.build(AliveAtB0.facts(self, dead=set()))
+        self.assertTrue({a(0x1100 + 13), a(0x1100 + 40)} <= self.toks(strata))
+
+
+class ActiveProbe(unittest.TestCase):
+    """bs.active_at(rpc, row, block): v3-like liquidity() on the pool; V4 the manager's word
+    keccak(id, 6) + 3. Never a balance."""
+    PM = a(0x4444)
+
+    class Rpc:
+        def __init__(self, word):
+            self.word, self.seen = word, []
+
+        def call(self, method, params):
+            self.seen.append((method, params[0]["to"], params[0]["data"], params[1]))
+            assert method == "eth_call", method
+            return "0x" + format(self.word, "064x")
+
+    # Mutants: liquidity() swapped for balanceOf / the > 0 test widened to >= 0.
+    def test_v3_reads_liquidity_of_the_pool(self):
+        r = row("robinhood", "v3", a(0x117A), a(1), a(2), 58164.95, "fee_low")
+        rpc = self.Rpc(0)
+        self.assertEqual(bs.active_at(rpc, r, 100)[0], "0")
+        self.assertEqual(rpc.seen, [("eth_call", a(0x117A).lower(), inventory.selector("liquidity()"), hex(100))])
+        self.assertEqual(bs.active_at(self.Rpc(1), r, 100)[0], "1")
+
+    # Mutant: the liquidity offset dropped (slot0 read: non-zero for any initialised pool).
+    def test_v4_reads_the_liquidity_word_not_slot0(self):
+        r = row("robinhood", "v4native", AliveAtB0.V4P, bs.Z, a(0x13F8), 58790.2, "fee_low", factory=self.PM)
+        rpc = self.Rpc(0)
+        self.assertEqual(bs.active_at(rpc, r, 7)[0], "0")
+        want = inventory.v4_state_slot(AliveAtB0.V4P) + 3
+        self.assertEqual(rpc.seen, [("eth_call", self.PM.lower(),
+                                     inventory.SEL["extsload"] + format(want, "064x"), hex(7))])
+        self.assertEqual(bs.active_at(self.Rpc(2 * 10 ** 20), r, 7)[0], "1")
+
+
 @unittest.skipUnless(os.environ.get("G7_FORK") == "1", "fork test: set G7_FORK=1 (RPC from g7.Rpc, key never printed)")
 class ForkAliveAtB0(unittest.TestCase):
     """H1b on the chain: robinhood fee_low-1 ranked the v4native pool 0x78b6...018a (liq_usd 58790 at

@@ -27,6 +27,13 @@ fetch writes alive_b0 for every class candidate (eth_getCode(pool, b0) != 0x; V4
 the pool's state word at b0 != 0 and code at b0 for each non-native token), b0 = the first block
 with ts >= window t0. When a chain has alive_b0 facts, a class candidate ranks only with
 alive_b0 = 1; 0 or absent goes to not_covered. A chain without the facts keeps the classes.
+
+Active liquidity at b0 (G7-ROBINHOOD 3c; owner's decision 2026-11-14, no bps threshold): liq_usd is
+the pool's token balances, not the liquidity in range, so a concentrated pool can rank on a balance
+nobody can trade against. fetch writes active_b0 for every alive concentrated candidate (v3 / cl /
+algebra: liquidity() at b0 > 0; V4: the pool's liquidity word, keccak(id, 6) + 3, at b0 > 0). When a
+chain has active_b0 facts, such a candidate ranks only with active_b0 = 1; 0 or absent goes to
+not_covered. Other families and a chain without the facts are unchanged.
 """
 import json, os, sys
 
@@ -187,6 +194,25 @@ def alive_at(rpc, r, block):
     return ("1" if ok else "0"), "%s@%d on %s;eth_getCode(tokens)" % (src, block, pm)
 
 
+ACTIVE_FAMS = {"v3", "cl", "algebra"} | V4_FAMS  # concentrated: a balance is not liquidity in range
+
+
+def active_at(rpc, r, block):
+    """("1" | "0", source): is there liquidity in range at `block` (not a balance)? v3 / cl /
+    algebra: the pool's liquidity() > 0. V4: the manager's word keccak(id, 6) + 3 (v4-core
+    StateLibrary.LIQUIDITY_OFFSET; uint128 alone in its slot) > 0. An RPC error raises: no fact."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import inventory as inv
+    b, p = hex(block), r["pool"].lower()
+    if r["family"] in V4_FAMS:
+        to, slot = r["factory"].lower(), inv.w(hex(inv.v4_state_slot(p) + inv.V4_LIQ_OFFSET))
+        data, src = "0x" + inv.SEL["extsload"][2:] + slot, "extsload(%s)@%d on %s" % (slot, block, to)
+    else:
+        to, data, src = p, "0x" + inv.SEL["liquidity"][2:], "liquidity()@%d" % block
+    L = int(rpc.call("eth_call", [{"to": to, "data": data}, b])[2:66] or "0", 16)
+    return ("1" if L > 0 else "0"), src
+
+
 def mid_pool(rows):
     ok = sorted((r for r in rows if r["family"] in MID_FAM and liq(r)), key=lambda r: -liq(r))
     if not ok:
@@ -278,6 +304,7 @@ def build(g7dir, onchain_rows, outdir, universe=None, swaps=SWAPS_PER_CHAIN):
     for chain in CHAINS:
         rows = [r for r in inv if r["chain"] == chain]
         live_pass = any(o["chain"] == chain and o["key"] == "alive_b0" for o in onchain_rows)
+        active_pass = any(o["chain"] == chain and o["key"] == "active_b0" for o in onchain_rows)
         by_pair = {}
         for r in rows:
             by_pair.setdefault(pair(r), []).append(r)
@@ -355,6 +382,11 @@ def build(g7dir, onchain_rows, outdir, universe=None, swaps=SWAPS_PER_CHAIN):
                     notcov.append((chain, cls, ("pool not alive at b0 (created after the window start): %s" if alive == "0" else
                                                 "liveness at b0 not measured (absent, not zero): %s") % r["pool"].lower()))
                     continue
+                active = onchain.get(("active_b0", r["pool"].lower()))
+                if active_pass and r["family"] in ACTIVE_FAMS and active != "1":
+                    notcov.append((chain, cls, ("no liquidity in range at b0 (a balance is not depth): %s" if active == "0" else
+                                                "liquidity in range at b0 not measured (absent, not zero): %s") % r["pool"].lower()))
+                    continue
                 prs = by_pair[pk]
                 ta, tb = r["token0"].lower(), r["token1"].lower()
                 a, b = amounts(depth_of(prs, ta)), amounts(depth_of(prs, tb))
@@ -420,6 +452,9 @@ def fetch(g7dir, out):
             if r["chain"] == chain and classes(r) - {"gate_top3"} and liq(r) and liq(r) > 0:
                 v, src = alive_at(rpc, r, b0)
                 rows.append({"chain": chain, "key": "alive_b0", "subject": r["pool"].lower(), "value": v, "source": src})
+                if v == "1" and r["family"] in ACTIVE_FAMS:
+                    v, src = active_at(rpc, r, b0)
+                    rows.append({"chain": chain, "key": "active_b0", "subject": r["pool"].lower(), "value": v, "source": src})
         for r in inv:
             if r["chain"] != chain or "gate_top3" not in classes(r):
                 continue

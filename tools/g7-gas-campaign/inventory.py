@@ -444,6 +444,8 @@ def mid_from_balances(b0, b1, dec0, dec1):
     return (b1 / 10 ** dec1) / (b0 / 10 ** dec0)
 
 
+# liq_usd is the token balances, not liquidity in range: build_spec.py active_b0 filters
+# the concentrated-liquidity candidates (a balance is not depth).
 def liq_usd(row, prices, decs):
     """USD (numeraire) value of the sides whose token has a measured price; sides with an
     unpriced token add nothing (lower bound). Empty when no side is priced or a priced

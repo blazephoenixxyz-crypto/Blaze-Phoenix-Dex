@@ -8159,6 +8159,19 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        if (pv.effectiveMinOut == 0) pv.canExecute = false;\n',
       new='        // MUTANT QF-6: a zero floor is encoded\n',
       teste='test_ZeroFloor_NoRunnerUp_NoBytes'),
+ # G7 robinhood midtail-1 (H4): cold discovery saw no V4 pool because the G7 deploy wrote no
+ # MODE_V4_DERIVE row. The fork row (test/fork/G7RobinhoodV4Wire.t.sol) skips without DRPC_KEY, so
+ # both mutants are pinned to its offline twin test/G7DeployV4Wire.t.sol.
+ dict(nome='G7 rh midtail-1 [H4-1]: the G7 deploy writes no V4 derive row',
+      f='tools/g7-gas-campaign/G7Deploy.s.sol', inl='test/G7DeployV4Wire.t.sol',
+      old='        hub.addFactory(mgr, KIND_V4, MODE_V4_DERIVE, bytes32(0), _n24(), _nSp());\n',
+      new='        // MUTANT H4-1: no V4 derive row\n',
+      teste='test_G7Deploy_Robinhood_WiresTheV4DeriveRow'),
+ dict(nome='G7 rh midtail-1 [H4-2]: the Robinhood G7 deploy skips _v4Wire',
+      f='tools/g7-gas-campaign/G7Deploy.s.sol', inl='test/G7DeployV4Wire.t.sol',
+      old='        _v4Wire(PM, WETH, USDG);\n',
+      new='        // MUTANT H4-2: _v4Wire dropped\n',
+      teste='test_G7Deploy_Robinhood_WiresTheV4DeriveRow'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

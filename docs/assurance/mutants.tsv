@@ -1487,3 +1487,5 @@ src/BlazePhoenixQuoter.sol	test_LeaderRefusedByThePreviewGate_RunnerUpNotAsked	#
 src/BlazePhoenixQuoter.sol	test_BothOneWeiUnderTheirFloors_NoBytes_OneSolve_TheLeaderIsReported	#126 [QF-4]: the runner-up replaces the leader whether or not it settles
 src/BlazePhoenixQuoter.sol	test_RunnerUpUnderTheCallersFloor_NoBytes	#126 [QF-5]: the runner-up is packed without the caller's floor
 src/BlazePhoenixQuoter.sol	test_ZeroFloor_NoRunnerUp_NoBytes	G7 eth shallow-3 [QF-6]: the encode doors hand back a zero floor the Router refuses (RouterE(10))
+tools/g7-gas-campaign/G7Deploy.s.sol	test_G7Deploy_Robinhood_WiresTheV4DeriveRow	G7 rh midtail-1 [H4-1]: the G7 deploy writes no V4 derive row
+tools/g7-gas-campaign/G7Deploy.s.sol	test_G7Deploy_Robinhood_WiresTheV4DeriveRow	G7 rh midtail-1 [H4-2]: the Robinhood G7 deploy skips _v4Wire

@@ -179,7 +179,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- mutation-guard:begin -->
 | Mutated file | Mutants | Distinct tests that must kill them | Target is exactly one line |
 |---|---:|---:|---:|
-| `src/BlazePhoenixCore.sol` | 364 | 294 | 361 |
+| `src/BlazePhoenixCore.sol` | 364 | 294 | 364 |
 | `src/BlazePhoenixRouter.sol` | 362 | 304 | 362 |
 | `src/BlazePhoenixSolver.sol` | 208 | 153 | 208 |
 | `src/BlazePhoenixHub.sol` | 207 | 184 | 207 |
@@ -196,9 +196,10 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/Fix1020DelegatedCallbacks.t.sol` | 3 | 1 | 3 |
 | `test/adapters/AdapterConformance.sol` | 2 | 2 | 2 |
 | `test/ref/Frame4007.sol` | 2 | 2 | 2 |
+| `tools/g7-gas-campaign/G7Deploy.s.sol` | 2 | 1 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,487 | 1,175 | 1,484 |
+| **all** | 1,489 | 1,176 | 1,489 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -252,12 +253,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,156 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 481 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
+| Test declarations | 3,163 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 483 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 41 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,487 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,489 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 70 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 12 | `.sizes-snapshot` |
@@ -876,12 +877,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,156 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 481 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
+| Test declarations | 3,163 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 483 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 41 | `test/fork/*.t.sol` |
 | Stateful invariants | 50 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,487 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,489 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 70 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 12 | `.sizes-snapshot` |
@@ -2516,6 +2517,7 @@ hop count.
 | `single` (the min-split gate's reference) | "What would this order get from the best single pool?" | `Solver._buildHop` alone: every survivor of the band and the funnel is quoted at full size by `_singleLeg` | `PINNED` (fixed 2026-09-23) | `test/SplitGateSeesEverySurvivor.t.sol`, against the V2 closed form. The gate measured two representatives - the deepest survivor and the best marginal rate - and kept a split 1.48% below a third pool alone (Brian Wahyu, ninth wave) |
 | `decIn1` / `decOther1` (a hop's two token decimals, +1 encoded in `QuoteCtx`) | "How many decimals do this hop's tokens have?" | read once per pair per solve by `Solver._rankedPools` (`Core.decimalsOf` on each token, on a pair of two rows or more, whose dust rule weighs depth in each token's units; per hop build by `Solver._buildHop` until 2026-10-27), kept with the pair's list and handed in `mode` to the context each candidate is given once per build (`Solver._ctx`; one context per quote until 2026-11-09), which carries them to every quote of the build: the probes, the split's legs (`_quote`), the gate's full-size singles and a band of one (`_singleLeg`). `Core._decIn` / `_decOther` read a token themselves only where the field is 0, which is now a pair of one row. They feed only `depthWad`, which `_quote` drops | `PINNED` (2026-10-26) | `test/DecimalsReadOncePerHop.t.sol` - a split and a band of one each read `decimals()` of each token once per hop build (red before: 7 and 2 reads per token); a Base mainnet fork run on nineteen reference pairs returned the same plan, bit for bit, before and after |
 | `QuoteCtx` of a candidate (`xs`, a hop build's contexts) | "In which context does the Core quote this candidate?" | one producer, `Solver._ctx`, called once per candidate per build by `_buildHop` (a singleton kind asks the Hub for its manager in it); three consumers that ask the same question with the same inputs: the band's probe, the split's share and the gate's full-size single. Until 2026-11-09 each consumer built its own. The contexts sit seat-aligned to `cands` and follow `BlazePhoenixMath.select`'s `map` with them | `PINNED` (2026-11-09) | `test/SqSameAnswer.t.sol` - both Solvers (this one and the one of cb1d7d9, `test/morf/SolverRefCb1d7d9.sol`) return the same bytes or the same refusal on every kind, alone, in a band, in a split and over two hops (fuzz and invariant included); a singleton candidate's manager is asked for once per build, not three times (mutants [morf-SQ2-1], [morf-SQ2-3], [morf-SQ2-4], [morf-SQ2-11], [morf-SQ2-12]) |
+| the G7 harness Hub's V4 derive row (`G7Deploy._v4Wire`; G7 robinhood midtail-1, 2026-11-14) | "Does the campaign's Hub run the V4 derive scan on this chain?" | `G7Deploy._v4Wire(PM, WETH, stable)` is the one producer in the harness: `hub.v4PoolManager` and one `addFactory(PM, KIND_V4, MODE_V4_DERIVE, 0, ...)` row, on every chain with a PoolManager (Optimism, Arbitrum, Robinhood since 2026-11-14; Base already); each PoolManager checked on chain (24009-byte runtime, slot0 of the native-ETH/stable 500/10 pool non-zero). Consumer: `Hub` cold discovery (mode D). Without the row the seeded modes still reach a V4 pool through the memory while cold discovery sees none, so a V4-only pair (Robinhood USDG->USDe) reverted SolverE(5) and read as a protocol gap; the contracts were not changed | `PINNED` (2026-11-14) | `test/G7DeployV4Wire.t.sol` (offline: one derive row and the PoolManager on each of the four chains); `test/fork/G7RobinhoodV4Wire.t.sol` (control without `_v4Wire` reverts SolverE(5); with it the draw quotes, and a larger input never buys more per unit); mutants [H4-1], [H4-2] |
 
 ### Identity and keys
 
@@ -2573,6 +2575,12 @@ hop count.
 | `received` (what a door's pull delivered) | "How much `tokenIn` did this call's pull actually put on the Router?" | `Router._received`, one producer since 2026-10-28 (before, one copy per pulling door): the balance delta against the baseline the caller took before its pull, refused at zero (RouterE(8)), with the surplus above `amountIn` attributed to the pull in the proportion `amountIn / (amountIn + balBefore)`, rounded down (#45 and 3948, 2026-11-11: a restatement after the credit grows the pull and the prior balance by one factor, so the pull's part is the payer's growth, the prior balance keeps its own, and the input sweep returns what the route does not spend; no balance before the pull is a switch), noted in `TSLOT_FOT` when short (FOT-01). Reached by `swapExactInWithPermit2` and, through `Router._pull`, by `_swap` and `swapBestExactIn`. `swapExactInNative` measures its WETH wrap with its own two lines and no clamp | `PINNED` (one producer, 2026-10-28) | the Door prologue census (`door_prologue_guard.py`) walks each door's chain into `_received` and fails on a second copy of the clamp; `frame_custody_guard.py` pins each self-balance read (`_pull` 1, `_received` 1, the Permit2 door 1). The FOT-01 mutants of the Permit2 door (`test/PartialFotAtPrePulledDoors.t.sol`) and of the classic door (`test/ClassicDoorAsymmetricFotReprice.t.sol`) and the dw-1020 baseline mutant (the DirtyWorld walk) sit on the producer's lines, so each kill proves its door reads through it. `test/PullOnAnEmptyRouterIsThePayersWhole.t.sol`: what `received` is on an empty Router under a restatement of x2, x4, x5, x10 at the classic and the Permit2 door (the Router ends with no share, the payer keeps what the swap did not spend), and the #45 controls from one wei up; mutants fin1111-router-2 and -3 |
 | transient slot numbering | "Which slot holds what?" | `Router` — **10** constants (the tenth, `TSLOT_KEPT`, 2026-10-21, is a per-token base hashed with the token: `_keptSlot`); **9** were (counted 2026-09-22; the ninth is `TSLOT_ETHOK` at `Router:205`, which arrived with the native-V4 seam after this row was written), 17 materialisation sites | `OPEN` | the Core performs no `tstore`/`tload`, and by EIP-1153 the owning contract of transient storage under `DELEGATECALL` is the caller — a public library function compiles to exactly that call — so the Core reaches the Router's transient namespace by construction rather than by permission. Measured 2026-09-22: Core 0, Hub 0, Quoter 0, Solver 0, Router 28. The invariant holds today and does not wait on any proposal: `grep -c "tstore\|tload" src/BlazePhoenixCore.sol` must be `0`, and it is. If proposal **P-1** lands (literals `0..8` — nine slots, not eight, and the estimate of −527 B was taken over eight) the namespace stops being safe by unguessability and becomes safe only by discipline, so the grep would then have to be paired with "nothing the Router delegatecalls writes to `0..8`". There is no `delegatecall` in `src/` today, which is what makes that second clause writable now. The grep is run by hand: no CI step and no test holds it |
 | `realIn` (hop h ≥ 1: `_owned(bal − kept, bridgeBase[h−1], hopGot − fee)`) | "How much of the bridge may this hop spend?" | `Router._hopScaleImpactAndQuote` (the scale numerator, R3 / BP-15), `Router._chargeHopFee` (`baseH`, the fee base), the bridge residual sweep (`rb − bb`): three readers of one baseline, `bridgeBase[h−1]`, the Router's balance of the bridge before the swap moved it | `PINNED` (2026-11-11) | `test/Fix1112BridgeRestatementWindow.t.sol` (finding 4111): the spend is the measured delta and not one wei of the pre-swap balance, for a taxed bridge over F ∈ {1 wei, D/1000, 9 D}, an over-declared hop-1 input (L = 1e30) and a restatement fired by hop 0's delivery; mutants [bridge-1112 a] (raw balance) and [bridge-1112 b] (pro-rata share of the declared input) both die by name. What the row does NOT claim: the three readers are three copies of the subtraction, held together by the tests above, not by one producer; a negative restatement of the bridge fired by the delivery is indistinguishable from a short delivery in (F, bal, L), so its cut on F is the swapper's inside the signed floor (SOK-FOT) and refused past it; the fee push's rounding wei is booked as owed (4122) and held with F: `Fix1112BridgeRestatementWindow` pins routerB = F + owed, mutant [fin1111-router-1] by name |
+
+### Measurement harness (tools/g7-gas-campaign)
+
+| Quantity | The question | Producers / consumers | Status | Pin |
+|---|---|---|---|---|
+| `active_b0` (liquidity in range at the window start b0; G7 campaign, 2026-11-14) | "Can this concentrated pool fill a swap at b0?" (not "how much is in the pool?") | `build_spec.active_at` is the one producer: `liquidity()` of a V3-shaped pool (v3, cl, algebra), the liquidity word of the pool's state in the PoolManager through `extsload` for V4, `1` only on a value > 0. Consumer: `build_spec.build`, where a concentrated class candidate ranks only with `active_b0 = 1` (0: not covered, "no liquidity in range at b0"; absent: not covered, "not measured (absent, not zero)"); a chain without the pass keeps its classes. `inventory.liq_usd` answers the other question (token balances in USD) and stays the depth rank: a balance is not depth | `WEAK` (2026-11-14): pinned by `tools/g7-gas-campaign/test_build_spec.py` (`ActiveAtB0`, `ActiveProbe`) and 7 mutants in `mutants_build_spec.py`, a Python suite this check does not read; the `cl` and `algebra` reads share the V3 test | python unittest, not a `.t.sol` |
 
 ---
 

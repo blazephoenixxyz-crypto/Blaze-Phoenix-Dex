@@ -58,6 +58,13 @@ M = [  # (test id, old, new)
  ("AliveProbe.test_v4_with_slot0_zero_at_b0_is_dead", 'ok = int(s0[2:66] or "0", 16) != 0', "ok = True"),
  ("AliveProbe.test_v4_token_without_code_at_b0_is_dead", "if ok and t != Z:", "if False:"),
  ("AliveProbe.test_v4_reads_the_pools_slot_of_the_pool_manager", "w(V4_POOLS_SLOT)", "w(0)", "inventory.py"),
+ ("ActiveAtB0.test_pool_without_liquidity_in_range_is_not_covered_not_a_stratum", 'if active_pass and r["family"] in ACTIVE_FAMS and active != "1":', "if False:"),
+ ("ActiveAtB0.test_pool_without_liquidity_in_range_is_not_covered_not_a_stratum", 'if active_pass and r["family"] in ACTIVE_FAMS and active != "1":', 'if active_pass and active != "1":'),
+ ("ActiveAtB0.test_unmeasured_liquidity_in_range_is_not_ranked_when_the_pass_ran", 'if active_pass and r["family"] in ACTIVE_FAMS and active != "1":', 'if active_pass and r["family"] in ACTIVE_FAMS and active == "0":'),
+ ("ActiveAtB0.test_chain_without_the_active_pass_keeps_the_classes", 'if active_pass and r["family"] in ACTIVE_FAMS and active != "1":', 'if r["family"] in ACTIVE_FAMS and active != "1":'),
+ ("ActiveProbe.test_v3_reads_liquidity_of_the_pool", 'inv.SEL["liquidity"][2:]', 'inv.SEL["slot0"][2:]'),
+ ("ActiveProbe.test_v3_reads_liquidity_of_the_pool", 'return ("1" if L > 0 else "0"), src', 'return ("1" if L >= 0 else "0"), src'),
+ ("ActiveProbe.test_v4_reads_the_liquidity_word_not_slot0", "inv.v4_state_slot(p) + inv.V4_LIQ_OFFSET", "inv.v4_state_slot(p)"),
 ]
 fail = 0
 for tid, old, new, *tgt in M:
