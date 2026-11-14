@@ -265,8 +265,7 @@ contract BlazePhoenixQuoter {
         address tIn, address tOut, uint256 amountIn, address recipient, uint256 deadline
     ) external returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
-        pv = _pack(plan.best, 0);
-        call = _encode(pv, amountIn, recipient, deadline);
+        (pv, call) = _encodePlan(plan, amountIn, 0, recipient, deadline);
     }
 
     /// @notice The same, with a caller-tightened floor folded into the encoded bytes. Not `view`,
@@ -276,8 +275,31 @@ contract BlazePhoenixQuoter {
         address recipient, uint256 deadline
     ) external returns (Preview memory pv, bytes memory call) {
         RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, amountIn);
+        (pv, call) = _encodePlan(plan, amountIn, userMinOut, recipient, deadline);
+    }
+
+    /// @dev THE ONE FALLBACK (#126, G7 ethereum C6). The Solver ranks routes on what the venues
+    ///      promise and returns its runner-up beside its leader; the leader's promise can sit
+    ///      above what its venues pay as the Router funds them (a walk cut by the read budget),
+    ///      and the doors then returned no bytes while the runner-up settled. So when the leader
+    ///      cleared the preview's own gate (`_pack`) and `_encode` refused it, the runner-up the
+    ///      Solver already returned is asked the same question, once, on its own floor and the
+    ///      caller's. Never a third route, never a second solve, never a floor other than the
+    ///      route's own: the order is the Solver's, the acceptance is `_encode`'s, the one
+    ///      producer of "these bytes settle". A leader refused by `_pack` (hook, caller's floor
+    ///      above its estimate) is not a measured refusal and asks no runner-up.
+    function _encodePlan(RoutePlan memory plan, uint256 amountIn, uint256 userMinOut,
+                         address recipient, uint256 deadline)
+        private returns (Preview memory pv, bytes memory call)
+    {
         pv = _pack(plan.best, userMinOut);
+        bool packed = pv.canExecute;
         call = _encode(pv, amountIn, recipient, deadline);
+        if (packed && !pv.canExecute && plan.hasFallback) {
+            Preview memory fb = _pack(plan.fallbackRoute, userMinOut);
+            bytes memory fbCall = _encode(fb, amountIn, recipient, deadline);
+            if (fb.canExecute) { pv = fb; call = fbCall; }
+        }
     }
 
     /// @dev The encode doors' bytes, and two refusals of the Router the plan preview does not

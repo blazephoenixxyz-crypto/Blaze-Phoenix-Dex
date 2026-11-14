@@ -680,6 +680,14 @@
       "guard": "_solY",
       "test": "test_ThinInputSideExitsOnTheSafeSide",
       "note": "2026-11-14. Core._solY landed the converged exit on the safe side (K_post >= K_pre) with one +1 wei bump, which assumed _solK increasing in y; it is only non-decreasing: its floor(x*y/WAD) factor moves in steps of WAD/x wei, so with the input side below one normalised unit a single bump can stay on the K-deficient step (two climbs were needed in 1,167 of 26,251 sampled exits over the full domain, never three). Since 2026-11-14 the exit climbs one wei at a time while K-deficient, at most two, and fails closed past that (y0, out = 0). Held by test/SolidlyNewtonLandsOnTheSafeSide.t.sol (the thin-side unit case and its fuzz, the exact-arithmetic fuzz, the swamping input); mutants Core:1863 and Core:1863-fix in .github/scripts/mutants.py."
+    },
+    {
+      "id": "QUOTER-ENCODE-NO-BYTES-WHILE-THE-RUNNER-UP-SETTLES",
+      "class": "The encode doors return no bytes because the Solver's leader promises more than its venues pay as the Router funds them, while the runner-up the Solver already returned settles",
+      "status": "blocked",
+      "guard": "_encodePlan",
+      "test": "test_LeaderOneWeiUnderItsFloor_RunnerUpSettles_BytesCarryTheRunnerUp",
+      "note": "#126, G7 ethereum C6 (block 26,339,826), 2026-11-14. A last hop left unwalked by the read budget let the leader's promise sit above its delivery; _encode refused it and the doors returned nothing. Since 2026-11-14 _encodePlan asks the runner-up the same question once, on its own floor and the caller's, only when the leader cleared _pack and _encode refused it. Mutants [QF-1]-[QF-5]."
     }
   ]
 }
