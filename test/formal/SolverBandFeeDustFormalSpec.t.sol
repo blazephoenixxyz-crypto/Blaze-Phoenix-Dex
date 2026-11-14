@@ -95,8 +95,9 @@ contract SolverBandFeeDustFormalSpec is Test {
     // mirrors the floor at n = 3.
     // Mutant 124-HAL-H4: src/BlazePhoenixSolver.sol:1034
     //     `share = BPC.mulDiv(amountIn, psis[i], sumPsi);` -> `BPC.mulDivUp(...)`.
-    //     The lemma holds for floors only; the src mutant is killed by a forge test
-    //     reading Solver legs (sum of legs' amountIn <= order), not by this mirror.
+    //     The lemma holds for floors only; the src mutant is killed by a Solver test,
+    //     not by this mirror: test/SplitSharesAreFloors.t.sol (no leg under its floor
+    //     share on equal venues; the legs' sum alone cannot see the rounding).
     function check_splitFloorsNeverOvershoot(uint128 a, uint64 w0, uint64 w1, uint64 w2) public pure {
         uint256 s = uint256(w0) + w1 + w2;
         vm.assume(s > 0);

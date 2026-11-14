@@ -7543,6 +7543,15 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                share = amountIn - allocated;",
       new="                share = amountIn - allocated - 1; // MUTANTE",
       teste="test_TheSplitLegsSpendExactlyTheInput"),
+# 124-HAL-H4 (2026-11-14): the split's shares round UP. The legs still sum to the order (the last leg
+# takes what is left), so test_TheSplitLegsSpendExactlyTheInput stays green; on equal venues with
+# A mod 3 == 1 the last leg falls 1 wei under floor(A / 3). The dust underflow (A = 1) is unreachable:
+# a 1-wei order finds no route (SolverE(5)).
+ dict(nome="124-HAL-H4 Solver:1034: the split's shares round up, so the last leg pays for the ceilings of the others",
+      f="src/BlazePhoenixSolver.sol",
+      old="                share = BPC.mulDiv(amountIn, psis[i], sumPsi);",
+      new="                share = BPC.mulDivUp(amountIn, psis[i], sumPsi); // MUTANTE",
+      teste="test_EqualVenuesGiveNoLegLessThanItsFloorShare"),
 # 124-L3 (2026-11-14): the KKT gap certificate (docs/assurance/kkt-gap.tsv) and the V4 narrow-position
 # share (docs/assurance/v4-narrow.tsv). Not registered, both survive: B9-M2 (`_onTrial` `>=` -> `>`), the
 # bench has no leg whose rate ties a trial rate to the wei; B13-M2 (`_v4Ceil` without its cap), it bites
