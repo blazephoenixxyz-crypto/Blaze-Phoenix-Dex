@@ -484,6 +484,8 @@ library BlazePhoenixMath {
                 if ((fe[i] & FEE_MASK) >= PIPS) blind |= 1 << i;
                 else stated |= 1 << i;
                 PoolInfo memory p = cands[i];
+                // `active` here is the Solver's rewrite, not the Hub's flag: false = no registered
+                // factory's discovery sweep found this pool (BlazePhoenixSolver, WHO MAY VOTE).
                 if (!p.active && BPC.kindHasAny(p.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)
                     && BPC.decodeTier(hub.getSlot(BPC.pairKey(p.pool, p.token0, p.token1))) != 0) mute |= 1 << i;
                 else voters = 1;
