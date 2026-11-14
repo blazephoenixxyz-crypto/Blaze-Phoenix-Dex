@@ -688,6 +688,14 @@
       "guard": "_encodePlan",
       "test": "test_LeaderOneWeiUnderItsFloor_RunnerUpSettles_BytesCarryTheRunnerUp",
       "note": "#126, G7 ethereum C6 (block 26,339,826), 2026-11-14. A last hop left unwalked by the read budget let the leader's promise sit above its delivery; _encode refused it and the doors returned nothing. Since 2026-11-14 _encodePlan asks the runner-up the same question once, on its own floor and the caller's, only when the leader cleared _pack and _encode refused it. Mutants [QF-1]-[QF-5]."
+    },
+    {
+      "id": "QUOTER-ENCODE-ZERO-FLOOR",
+      "class": "The encode doors return canExecute and bytes with minOut 0, which the Router refuses with RouterE(10)",
+      "status": "blocked",
+      "guard": "_encode",
+      "test": "test_ZeroFloor_NoRunnerUp_NoBytes",
+      "note": "G7 ethereum shallow-3 (one unit), 2026-11-14. A one-unit input whose fee takes it whole has an iron floor of 0; _encode now withholds canExecute and the bytes on a zero effectiveMinOut. Mutant [QF-6]."
     }
   ]
 }

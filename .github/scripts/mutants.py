@@ -8127,6 +8127,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            Preview memory fb = _pack(plan.fallbackRoute, userMinOut);\n',
       new='            Preview memory fb = _pack(plan.fallbackRoute, 0); // MUTANT QF-5\n',
       teste='test_RunnerUpUnderTheCallersFloor_NoBytes'),
+ dict(nome='G7 eth shallow-3 [QF-6]: the encode doors hand back a zero floor the Router refuses (RouterE(10))',
+      f='src/BlazePhoenixQuoter.sol',
+      old='        if (pv.effectiveMinOut == 0) pv.canExecute = false;\n',
+      new='        // MUTANT QF-6: a zero floor is encoded\n',
+      teste='test_ZeroFloor_NoRunnerUp_NoBytes'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

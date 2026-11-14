@@ -253,6 +253,38 @@ contract QuoterEncodeFallsBackOnceTest is Test {
         assertGe(out, minOut, "settled under the floor they carry");
     }
 
+    // ---------------------------------------------------------------- a zero floor
+
+    /// A route whose floor is zero (a one-unit input the fee takes whole) is never encoded:
+    /// the Router refuses minOut 0 with a non-zero input (RouterE(10)).
+    function test_ZeroFloor_NoRunnerUp_NoBytes() public {
+        Route memory lead = _route(poolL, 1000, 0);
+        _plan(lead, _empty(), false);
+        (BlazePhoenixQuoter.Preview memory pv, bytes memory data) =
+            quoter.previewAndEncode(address(tA), address(tB), AMT, recipient, block.timestamp + 1);
+        assertEq(pv.effectiveMinOut, 0, "premise: the floor is zero");
+        assertFalse(pv.canExecute, "a zero floor is not executable");
+        assertEq(data.length, 0, "no bytes");
+        // Control: the Router refuses the same call with minOut 0.
+        tA.mint(address(this), AMT);
+        tA.approve(address(router), AMT);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(10)));
+        router.swapExactIn(lead, AMT, 0, recipient, block.timestamp + 1);
+    }
+
+    /// A zero-floor leader yields to a runner-up with a floor of its own that settles.
+    function test_ZeroFloorLeader_RunnerUpWithItsOwnFloorSettles() public {
+        _plan(_route(poolL, 1000, 0), _route(poolR, 1000, dR), true);
+        (BlazePhoenixQuoter.Preview memory pv, bytes memory data) =
+            quoter.previewAndEncode(address(tA), address(tB), AMT, recipient, block.timestamp + 1);
+        assertTrue(pv.canExecute, "the runner-up settles");
+        (Route memory r, , uint256 minOut) = this.decodeCall(data);
+        assertEq(_poolOf(r), address(poolR), "the bytes carry the runner-up");
+        assertEq(minOut, dR, "with a non-zero floor");
+        (bool ok, , ) = _submit(data);
+        assertTrue(ok, "the bytes settle");
+    }
+
     // ---------------------------------------------------------------- gas
 
     /// The fallback branch: the leader refused by `_encode`, the runner-up packed and measured.

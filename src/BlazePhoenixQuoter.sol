@@ -318,6 +318,10 @@ contract BlazePhoenixQuoter {
         private returns (bytes memory call)
     {
         if (block.timestamp > deadline) pv.canExecute = false;
+        // A ZERO FLOOR (G7 ethereum shallow-3, 2026-11-14): the Router refuses minOut 0 with a
+        // non-zero input (RouterE(10), BP-04); a one-unit input whose fee takes it whole has an
+        // iron floor of 0. The door does not return bytes it knows the Router refuses.
+        if (pv.effectiveMinOut == 0) pv.canExecute = false;
         if (pv.canExecute && _fundedOut(pv.route, amountIn) < pv.effectiveMinOut) pv.canExecute = false;
         // A TAXED INPUT INTO A CONCENTRATED LEG (bounty uid 3984, 2026-11-11): the question
         // `_exact` asks after its scalar, asked here after the floor, on the route the bytes

@@ -42,7 +42,7 @@ src/BlazePhoenixCore.sol	test_ConcentratedPool_MustNotPersistAsV2	kind: acceptin
 src/BlazePhoenixCore.sol	test_AlgebraShapedPool_MustNotPersistAsV3	kind: not deriving the concentrated family from the pool shape
 src/BlazePhoenixSolver.sol	test_ShallowPool_RouteIsRefused	impact: the Solver ceiling stops refusing (mean or maximum)
 src/BlazePhoenixCore.sol	test_AdmissionMargin_IsNotRedundantWithQuantisation	psi: bucketWeight stops doubling, and the hysteresis silently disappears
-src/BlazePhoenixRouter.sol	test_DustSwap_PaysAProtocolFee	fee: rounding goes DOWN again (the fee that vanishes in dust)
+src/BlazePhoenixRouter.sol	test_AHopFeeIsTheCeilingNotTheFloor	fee: rounding goes DOWN again (the fee that vanishes in dust)
 src/BlazePhoenixCore.sol	test_ReservesInsideTheWindow_MustNotRevert	solidly: the sentinel watches the reserves again instead of the result
 src/BlazePhoenixQuoter.sol	test_RED_SolidlyLeg_UpscaledQuoteExceedsPoolTruth	quoter: the Solidly leg rescales again instead of measuring on the pool
 src/BlazePhoenixQuoter.sol	test_RED_ConcFallback_NeverScalesAbovePlan	quoter: the concentrated fallback clamp extrapolates along the tangent again
@@ -1145,9 +1145,11 @@ src/BlazePhoenixRouter.sol	test_RouterCfg1Cfg2_MoveTreasuryEmitsTheMoversSeat	ev
 src/BlazePhoenixRouter.sol	test_RouterCfg3Cfg4_Permit2AndWethEmitTheAddress	events [morf-P3-6]: Router setPermit2 writes the seat and does not log it
 src/BlazePhoenixRouter.sol	test_RouterCfg3Cfg4_Permit2AndWethEmitTheAddress	events [morf-P3-7]: Router setWeth writes the seat and does not log it
 src/BlazePhoenixRouter.sol	test_RouterPausedSet_EmitsBothDirections	events [morf-P3-8]: Router setPaused pauses without a log
-src/BlazePhoenixRouter.sol	test_RouterRenounce_EmitsCfg0Zero_ThenEveryControlDoorRefuses	events [morf-P3-9]: Router renounceControl renounces without a log
-src/BlazePhoenixRouter.sol	test_RouterRescue_LogsTheStoredEtaAndTheMovedAmount	events [morf-P3-10]: Router queueRescue logs an eta of zero, the cancel line, for the eta it stored
+src/BlazePhoenixRouter.sol	test_RouterRenounce_EmitsControlRenounced_ThenEveryControlDoorRefuses	events [morf-P3-9]: Router renounceControl renounces without a log
+src/BlazePhoenixRouter.sol	test_RouterRescue_LogsTheStoredEtaAndTheMovedAmount	events [morf-P3-10]: Router queueRescue logs an eta of zero for the eta it stored
 src/BlazePhoenixRouter.sol	test_RouterRescue_LogsTheStoredEtaAndTheMovedAmount	events [morf-P3-11]: Router cancelRescue cancels without a log
+src/BlazePhoenixRouter.sol	test_RouterRenounce_LogsNoAdminSeat	events [nomes-L2-08]: Router renounceControl logs the admin seat as address(0) again
+src/BlazePhoenixRouter.sol	test_RouterCancelRescue_LogsNoQueuedRescue	events [nomes-L2-07]: Router cancelRescue logs a queued rescue with eta 0 again
 src/BlazePhoenixRouter.sol	test_RouterRescue_LogsTheStoredEtaAndTheMovedAmount	events [morf-P3-12]: Router executeRescue logs zero for the amount it moved
 src/BlazePhoenixGate.sol	test_GateAdminSetAndControlRenounced_ThenControlDoorsRefuse	events [morf-P3-13]: Gate setAdmin writes the seat and does not log it
 src/BlazePhoenixGate.sol	test_GateAdminSetAndControlRenounced_ThenControlDoorsRefuse	events [morf-P3-14]: Gate renounceControl renounces without a log
@@ -1368,78 +1370,115 @@ src/BlazePhoenixMath.sol	testFuzz_Keep_ReadsABoundPastWadAsWad	ROUTEQ clamp: _ke
 src/BlazePhoenixCore.sol	test_TheLowerEdgeHasNoStepAtTheShortSide_plusMinusOneWei	ROUTEQ step: an order the short side cannot hold reads only the rounding (the lower edge steps at m = depth)
 src/BlazePhoenixCore.sol	test_DonationPastTheDustShare_HonestRowKeepsItsSeat_plusMinusOneWei	ANCHOR: the funnel weighs a pair by its raw out-token balance, so a donation past the dust share unseats the honest row
 src/BlazePhoenixRouter.sol	test_TwoWeiOrder_TheFeeLeavesOneWei_WhichThePoolPaysNothingFor_RouterRefuses	ANCHOR R8: fee rounding goes DOWN again, so a 2 wei order is no longer refused as a 1 wei leg the pool pays nothing for
-src/BlazePhoenixCore.sol	test_HopMass_TheFunnelAndTheVoteReadOneFormula_18_18	L0-124 Core:3097: the hop mass reads a reserves pair as a singleton book, so the held-only V2 row loses its measured mass
-src/BlazePhoenixMath.sol	test_ATieAtTheSeatGoesToTheLowerAddressInEitherArrivalOrder	L0-124 Math:327: a weight tie at the funnel cut goes to the HIGHER address, so the kept set reads the input order
-src/BlazePhoenixSolver.sol	test_Gas_FindBestRoutePlan_PerCandidatePools_1_2_4_8	L0-124 Solver:1172: the dust filter scans for a held-book re-read on a hop with no singleton mass (gas only: with v == 0 the two bounds contradict)
-src/BlazePhoenixSolver.sol	test_TheGateMeasuresTheSurvivorThatIsNeitherFirstNorDeepest	L0-124 Solver:844: the split gate skips a two-leg split, so it is never compared with each survivor at full size
-src/BlazePhoenixHub.sol	test_L1485_ATickAtAFeeNoStepRecoversLearnsNoCode	L0-124 Hub:1485: a V4 tick whose tickSpacing was not recovered still writes a pattern code
-src/BlazePhoenixCore.sol	test_TheV4QuoteAtTheMaximumBarReadsThePromiseAlone	L0-124 Core:2024: the native V4 quote drops the caller's bar, so a truncated walk is read as complete
-src/BlazePhoenixCore.sol	test_TauFallsWhenTheIntervalShrinks	L1-124 Core:3242: tau's falling step adds instead of subtracting, so faster swaps lengthen the clock
-src/BlazePhoenixSolver.sol	test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay	L0-124 Solver:384: the route reader returns before the fall-through it found
-src/BlazePhoenixMath.sol	test_MedianCrossesAtTheLastRow	L0-124 Math:609: the weighted median falls back to the cheapest row when the mass crosses half only at the last row
-src/BlazePhoenixMath.sol	test_MedianCrossesBeforeTheLastRow_Control	L0-124 Math:609: the median walk stops one row early, so a crossing at the middle row is read as the last row
-src/BlazePhoenixSolver.sol	test_TheSplitLegsSpendExactlyTheInput	L0-124 Solver:1032: the last leg takes the remainder less one wei, so a split hop spends less than the caller's input
-src/BlazePhoenixMath.sol	test_GapIsWithinTheCertificate	124-L3 B9-M1 Math:655: every depth weighs the same in psi, so the split's gap leaves the certificate
-src/BlazePhoenixCore.sol	test_aStackedNarrowPositionDoesNotBuyTheBand	124-L3 B13-M1 Core:2607: a narrow V4 position keeps the whole band's figure, so stacked liquidity buys the band
-src/BlazePhoenixRouter.sol	testFuzz_TheThreeFloorsAgreeToTheWei	124-L2 Router:1588: the Router's own floor rounds down, one wei under the Solver's whenever quote * floorBps does not divide
-src/BlazePhoenixQuoter.sol	test_TheThreeFloorsAgreeToTheWei_SplitRoute	124-L2 Quoter:903: the Quoter rescales the floor against the wrong denominator, so floorExact drifts one wei under the Solver's
-src/BlazePhoenixRouter.sol	test_TheFeeIsChargedOnceAtTheCalendarHop	124-L2 Router:1238: the Router charges hop 0 instead of the calendar's bridge hop, so the fee is paid in the input token
-src/BlazePhoenixSolver.sol	test_TheFeeIsChargedOnceAtTheCalendarHop	124-L2 Solver:1807: the Solver anchors the fee on hop 0 instead of the first bridge hop, so the attested floor nets the wrong hop
-src/BlazePhoenixRouter.sol	test_LegFloorIsCeilOnTheProRataBound	124-L2 Router:1909: the per-leg floor turns non-strict, so a leg delivering exactly ceil(80% of its bound) is refused
-src/BlazePhoenixRouter.sol	test_HopFloorSlackIsOneAverageLeg_Grid	124-L2 Router:1422: the hop slack is sized on the whole hop instead of one average leg, so an over-promising multi-leg hop settles
-src/BlazePhoenixRouter.sol	testFuzz_HopFloorSlackIsOneAverageLeg	124-L2 Router:1422: the hop slack takes the kept share (80%) instead of the tolerated one (20%), four times too loose
-src/BlazePhoenixCore.sol	test_LiquidityNetSaturatesAtUint128	124-L2 Core:2547: an upward liquidityNet that passes 2^128 is cast down (wraps) instead of held at the ceiling
-src/BlazePhoenixCore.sol	testFuzz_LiquidityNetSaturatesAtUint128	124-L2 Core:2547: a liquidityNet that would pass 2^128 is dropped (the liquidity stays where it was)
-src/BlazePhoenixCore.sol	testFuzz_ProbePriceIgnoresTheAsk	124-L2 Core:1546: the Solidly ask's fee drops the ask (divides by 10,000, not 100): the price the band reads moves with the haircut
-src/BlazePhoenixCore.sol	testFuzz_ProbePriceIgnoresTheAsk	124-L2 Core:1545: the Solidly replicated curve is asked whole, without the 200 bps haircut its fee charges
-src/BlazePhoenixCore.sol	test_AskAtTheSeamMatchesTheGetAmountOutPath	124-L2 Core:1537: a Solidly pair answering 1 is taken at its word (0 after the margin) instead of priced on the curve
-src/BlazePhoenixCore.sol	test_StableCurveIsAskedLikeTheVolatile	124-L2 Core:1545-stable: the Solidly ask prices a stable pair on the volatile curve
-src/BlazePhoenixCore.sol	test_FactoryFeeIsTheFeeTheAskCharges	124-L2 Core:1546-factory: the Solidly ask's fee charges the declared fee, not the one the pair's factory reports
-src/BlazePhoenixCore.sol	test_SkewedPoolConverges	124-L2 Core:1840: the Solidly stable Newton is capped at 8 steps: a skewed pool reads as unpriceable
-src/BlazePhoenixCore.sol	testFuzz_ExitIsOnTheSafeSide	124-L2 Core:1863: the converged Newton exit is not bumped to the safe side (K_post < K_pre)
-src/BlazePhoenixCore.sol	test_ThinInputSideExitsOnTheSafeSide	124-L2 Core:1863-fix: the converged exit climbs one wei at most, as before the fix: a thin input side exits K-deficient
-src/BlazePhoenixCore.sol	test_ShallowTradeOnADeepSideConverges	124-L2 Core:1844: the Newton derivative undercounts the y^2 term (2 instead of 3): the step overshoots and never settles
-src/BlazePhoenixRouter.sol	test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote	124-L2 Router:1855: the coverage of a zero attestation is the whole quote, not half of it: the leg paying its exact floor is refused
-src/BlazePhoenixRouter.sol	test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote	124-L2 Router:1855-lo: the coverage sits one bps under half the quote: the leg paying one wei under its floor settles
-src/BlazePhoenixRouter.sol	test_ZeroBoundLegIsRefusedByTheExecutorNotTheFloor	124-L2 Router:2005: a V2 leg whose pool math pays nothing reaches the pool: on hop 0 the blind-hop RouterE(5) answers instead of the executor's RouterE(8)
-src/BlazePhoenixCore.sol	test_ZeroDeclaredFeeIsAskedAtTheFallback	124-L2 Core:1766-zero: a declared fee of 0 is charged as 0, not the 30 bps fallback: the ask prices a free curve
-src/adapters/ExtAdapterBase.sol	test_Base_Pin_AddressWithoutCode_Refused_EvenWithEmptySlots	124-L4 base: the hooks pin admits every hooks contract
-src/adapters/ExtAdapterBase.sol	test_Base_Pin_EachSlotAdmitsItsCode_AndOnlyIt	124-L4 base: the third pin slot is never read, so a hook pinned there is refused
-src/adapters/ExtAdapterBase.sol	test_Base_Callback_FromAnotherInsideExec_Refused	124-L4 base: the venue callback guard stops asking who calls, so anyone inside our exec window passes
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_BalV3_Swap_RecipientPaidByVault_Settled_NothingLeft	124-L4 Balancer V3: exec no longer opens its own window, so the Vault's callback is refused
-src/adapters/ExtAdapterBase.sol	test_Base_AmountAtMost_Extremes	124-L4 base: an amount past the ceiling reads as a malformed hint (code 8, not 9)
-src/adapters/ExtAdapterBase.sol	test_Base_AmountAtMost_Extremes	124-L4 base: the ceiling refuses the ceiling itself (off by one wei)
-src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	124-L4 B2 M-A1 Curve NG: a hint of another length is decoded, not refused
-src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	124-L4 B2 M-A1 Curve crypto NG: a hint of another length is decoded, not refused
-src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	124-L4 B2 M-A1 Balancer V2: a hint of another length is decoded, not refused
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	124-L4 B2 M-A1 Balancer V3: a hint of another length is decoded, not refused
-src/adapters/ExtAdapterBase.sol	test_Conf_A2_ExecByNonWrapper_Refused	124-L4 B2 M-A2 base: a PUSH exec runs for a caller the Gate did not create
-src/adapters/ExtAdapterBase.sol	test_Conf_A2_ExecByNonWrapper_Refused	124-L4 B2 M-A2 base: a PULL exec runs for a caller the Gate did not create
-src/adapters/BlazePhoenixAdapterCurveNG.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	124-L4 B2 M-A3a Curve NG: the pool pays the adapter, not the recipient
-src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	124-L4 B2 M-A3a Curve crypto NG: the pool pays the adapter, not the recipient
-src/adapters/BlazePhoenixAdapterBalancerV2.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	124-L4 B2 M-A3a Balancer V2: the Vault pays the adapter, not the recipient
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	124-L4 B2 M-A3a Balancer V3: the Vault sends the output to the adapter, not the recipient
-src/adapters/BlazePhoenixAdapterCurveNG.sol	testFuzz_Conf_A4_DepthIgnoresTheAmount_VitalIsCapped	124-L4 B2 M-A4 Curve NG: depth18 is declared only for amtIn 0
-src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	testFuzz_Conf_A4_DepthIgnoresTheAmount_VitalIsCapped	124-L4 B2 M-A4 Curve crypto NG: depth18 is declared only for amtIn 0
-src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	124-L4 B2 M-A5 Curve NG: the quote reverts while the pool is locked
-src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	124-L4 B2 M-A5 Curve NG: the quote is served while the pool is locked (second killer of [581])
-src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	124-L4 B2 M-A5 Curve crypto NG: the quote reverts while the pool is locked
-src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	124-L4 B2 M-A5 Balancer V2: depth18 is read inside a Vault operation (second killer of [752])
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	124-L4 B2 M-A5 Balancer V3: the quote reverts while the Vault is unlocked
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	124-L4 B2 M-A5 Balancer V3: depth18 is read while the Vault is unlocked (second killer of [750])
-src/adapters/BlazePhoenixAdapterCurveNG.sol	testFuzz_Conf_A6_QuoteCallMatchesQuote_VenueUnchanged	124-L4 B2 M-A6 Curve NG: quoteCall answers one wei more than quote
-src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	testFuzz_Conf_A6_QuoteCallMatchesQuote_VenueUnchanged	124-L4 B2 M-A6 Curve crypto NG: quoteCall answers one wei more than quote
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A8_HookChangedAfterCreate_ExecRefused	124-L4 B2 M-A8 Balancer V3: exec stops re-proving the hook pinned at create (second killer of [595])
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A8_HookChangedAfterCreate_QuoteDeclaresNoDepth	124-L4 V3-quote-pin: Balancer V3 quote stops re-proving the hook pinned at create, so a leg whose exec is refused declares depth
-src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A8_HookChangedAfterCreate_QuoteCallPricesZero	124-L4 V3-quote-pin: Balancer V3 quoteCall stops re-proving the hook pinned at create, so a leg whose exec is refused prices
-src/BlazePhoenixGate.sol	testFuzz_Conf_A4_VenueDeclaresMoreThanItHolds_VitalIsTheHoldings	124-L4 B2 M-A4b Gate: vitalOf lets a venue's declared depth stand over what it holds
-src/BlazePhoenixCore.sol	test_Conf_A12_GateLegPriceCommutes_NotLiveIsZeroInAllFour	124-L5 B4 Core: gateQuote prices a wrapper that is not live
-src/BlazePhoenixQuoter.sol	test_Conf_A12_GateLegPriceCommutes_NotLiveIsZeroInAllFour	124-L5 B4 Quoter: the kind-9 arm asks quoteCall of a wrapper that is not live
-src/BlazePhoenixRouter.sol	test_Conf_A12_GateLegPriceCommutes_NotLiveIsZeroInAllFour	124-L5 B4 Router: a kind-9 leg is filled without its identity (gateWrapperLive)
-src/BlazePhoenixCore.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	124-L5 B4 Core: the Solver's kind-9 arm prices the other direction
-src/BlazePhoenixQuoter.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	124-L5 B4 Quoter: the kind-9 arm never asks quoteCall (a view price of 0 is committed)
-src/BlazePhoenixQuoter.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	124-L5 B4 Quoter: the kind-9 arm prices another amount than the leg's
-test/adapters/AdapterConformance.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	124-L5 B4 meta: the A12 grid runs no cell
-src/BlazePhoenixQuoter.sol	test_OneHop_AFeeThatEatsTheWholeInputPromisesZero	124-L5 B6 Quoter: the walk asks a venue after the fee ate the carry
-src/BlazePhoenixQuoter.sol	test_OneHop_TheWalkLeavesTheFeeToTheFundedPass	124-L5 B6 Quoter: the exact walk charges a single hop on its input
+src/BlazePhoenixCore.sol	test_HopMass_TheFunnelAndTheVoteReadOneFormula_18_18	Core:3097: the hop mass reads a reserves pair as a singleton book, so the held-only V2 row loses its measured mass
+src/BlazePhoenixMath.sol	test_ATieAtTheSeatGoesToTheLowerAddressInEitherArrivalOrder	Math:327: a weight tie at the funnel cut goes to the HIGHER address, so the kept set reads the input order
+src/BlazePhoenixSolver.sol	test_Gas_FindBestRoutePlan_PerCandidatePools_1_2_4_8	Solver:1172: the dust filter scans for a held-book re-read on a hop with no singleton mass (gas only: with v == 0 the two bounds contradict)
+src/BlazePhoenixSolver.sol	test_TheGateMeasuresTheSurvivorThatIsNeitherFirstNorDeepest	Solver:844: the split gate skips a two-leg split, so it is never compared with each survivor at full size
+src/BlazePhoenixHub.sol	test_L1485_ATickAtAFeeNoStepRecoversLearnsNoCode	Hub:1485: a V4 tick whose tickSpacing was not recovered still writes a pattern code
+src/BlazePhoenixCore.sol	test_TheV4QuoteAtTheMaximumBarReadsThePromiseAlone	Core:2024: the native V4 quote drops the caller's bar, so a truncated walk is read as complete
+src/BlazePhoenixCore.sol	test_TauFallsWhenTheIntervalShrinks	Core:3242: tau's falling step adds instead of subtracting, so faster swaps lengthen the clock
+src/BlazePhoenixSolver.sol	test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay	Solver:384: the route reader returns before the fall-through it found
+src/BlazePhoenixMath.sol	test_MedianCrossesAtTheLastRow	Math:609: the weighted median falls back to the cheapest row when the mass crosses half only at the last row
+src/BlazePhoenixMath.sol	test_MedianCrossesBeforeTheLastRow_Control	Math:609: the median walk stops one row early, so a crossing at the middle row is read as the last row
+src/BlazePhoenixSolver.sol	test_TheSplitLegsSpendExactlyTheInput	Solver:1032: the last leg takes the remainder less one wei, so a split hop spends less than the caller's input
+src/BlazePhoenixSolver.sol	test_EqualVenuesGiveNoLegLessThanItsFloorShare	Solver:1034: the split's shares round up, so the last leg pays for the ceilings of the others
+src/BlazePhoenixMath.sol	test_GapIsWithinTheCertificate	Math:655: every depth weighs the same in psi, so the split's gap leaves the certificate
+src/BlazePhoenixCore.sol	test_aStackedNarrowPositionDoesNotBuyTheBand	Core:2607: a narrow V4 position keeps the whole band's figure, so stacked liquidity buys the band
+src/BlazePhoenixRouter.sol	testFuzz_TheThreeFloorsAgreeToTheWei	Router:1588: the Router's own floor rounds down, one wei under the Solver's whenever quote * floorBps does not divide
+src/BlazePhoenixQuoter.sol	test_TheThreeFloorsAgreeToTheWei_SplitRoute	Quoter:903: the Quoter rescales the floor against the wrong denominator, so floorExact drifts one wei under the Solver's
+src/BlazePhoenixRouter.sol	test_TheFeeIsChargedOnceAtTheCalendarHop	Router:1238: the Router charges hop 0 instead of the calendar's bridge hop, so the fee is paid in the input token
+src/BlazePhoenixSolver.sol	test_TheFeeIsChargedOnceAtTheCalendarHop	Solver:1807: the Solver anchors the fee on hop 0 instead of the first bridge hop, so the attested floor nets the wrong hop
+src/BlazePhoenixRouter.sol	test_LegFloorIsCeilOnTheProRataBound	Router:1909: the per-leg floor turns non-strict, so a leg delivering exactly ceil(80% of its bound) is refused
+src/BlazePhoenixRouter.sol	test_HopFloorSlackIsOneAverageLeg_Grid	Router:1422: the hop slack is sized on the whole hop instead of one average leg, so an over-promising multi-leg hop settles
+src/BlazePhoenixRouter.sol	testFuzz_HopFloorSlackIsOneAverageLeg	Router:1422: the hop slack takes the kept share (80%) instead of the tolerated one (20%), four times too loose
+src/BlazePhoenixCore.sol	test_LiquidityNetSaturatesAtUint128	Core:2547: an upward liquidityNet that passes 2^128 is cast down (wraps) instead of held at the ceiling
+src/BlazePhoenixCore.sol	testFuzz_LiquidityNetSaturatesAtUint128	Core:2547: a liquidityNet that would pass 2^128 is dropped (the liquidity stays where it was)
+src/BlazePhoenixCore.sol	testFuzz_ProbePriceIgnoresTheAsk	Core:1546: the Solidly ask's fee drops the ask (divides by 10,000, not 100): the price the band reads moves with the haircut
+src/BlazePhoenixCore.sol	testFuzz_ProbePriceIgnoresTheAsk	Core:1545: the Solidly replicated curve is asked whole, without the 200 bps haircut its fee charges
+src/BlazePhoenixCore.sol	test_AskAtTheSeamMatchesTheGetAmountOutPath	Core:1537: a Solidly pair answering 1 is taken at its word (0 after the margin) instead of priced on the curve
+src/BlazePhoenixCore.sol	test_StableCurveIsAskedLikeTheVolatile	Core:1545-stable: the Solidly ask prices a stable pair on the volatile curve
+src/BlazePhoenixCore.sol	test_FactoryFeeIsTheFeeTheAskCharges	Core:1546-factory: the Solidly ask's fee charges the declared fee, not the one the pair's factory reports
+src/BlazePhoenixCore.sol	test_SkewedPoolConverges	Core:1840: the Solidly stable Newton is capped at 8 steps: a skewed pool reads as unpriceable
+src/BlazePhoenixCore.sol	testFuzz_ExitIsOnTheSafeSide	Core:1863: the converged Newton exit is not bumped to the safe side (K_post < K_pre)
+src/BlazePhoenixCore.sol	test_ThinInputSideExitsOnTheSafeSide	Core:1863-fix: the converged exit climbs one wei at most, as before the fix: a thin input side exits K-deficient
+src/BlazePhoenixCore.sol	test_ShallowTradeOnADeepSideConverges	Core:1844: the Newton derivative undercounts the y^2 term (2 instead of 3): the step overshoots and never settles
+src/BlazePhoenixRouter.sol	test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote	Router:1855: the coverage of a zero attestation is the whole quote, not half of it: the leg paying its exact floor is refused
+src/BlazePhoenixRouter.sol	test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote	Router:1855-lo: the coverage sits one bps under half the quote: the leg paying one wei under its floor settles
+src/BlazePhoenixRouter.sol	test_ZeroBoundLegIsRefusedByTheExecutorNotTheFloor	Router:2005: a V2 leg whose pool math pays nothing reaches the pool: on hop 0 the blind-hop RouterE(5) answers instead of the executor's RouterE(8)
+src/BlazePhoenixCore.sol	test_ZeroDeclaredFeeIsAskedAtTheFallback	Core:1766-zero: a declared fee of 0 is charged as 0, not the 30 bps fallback: the ask prices a free curve
+src/adapters/ExtAdapterBase.sol	test_Base_Pin_AddressWithoutCode_Refused_EvenWithEmptySlots	AdapterBase: the hooks pin admits every hooks contract
+src/adapters/ExtAdapterBase.sol	test_Base_Pin_EachSlotAdmitsItsCode_AndOnlyIt	AdapterBase: the third pin slot is never read, so a hook pinned there is refused
+src/adapters/ExtAdapterBase.sol	test_Base_Callback_FromAnotherInsideExec_Refused	AdapterBase: the venue callback guard stops asking who calls, so anyone inside our exec window passes
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_BalV3_Swap_RecipientPaidByVault_Settled_NothingLeft	Balancer V3: exec no longer opens its own window, so the Vault's callback is refused
+src/adapters/ExtAdapterBase.sol	test_Base_AmountAtMost_Extremes	AdapterBase: an amount past the ceiling reads as a malformed hint (code 8, not 9)
+src/adapters/ExtAdapterBase.sol	test_Base_AmountAtMost_Extremes	AdapterBase: the ceiling refuses the ceiling itself (off by one wei)
+src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve NG: a hint of another length is decoded, not refused
+src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Curve crypto NG: a hint of another length is decoded, not refused
+src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Balancer V2: a hint of another length is decoded, not refused
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A1_Resolve_HintOfAnotherLength_Refused	Balancer V3: a hint of another length is decoded, not refused
+src/adapters/ExtAdapterBase.sol	test_Conf_A2_ExecByNonWrapper_Refused	base: a PUSH exec runs for a caller the Gate did not create
+src/adapters/ExtAdapterBase.sol	test_Conf_A2_ExecByNonWrapper_Refused	base: a PULL exec runs for a caller the Gate did not create
+src/adapters/BlazePhoenixAdapterCurveNG.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	Curve NG: the pool pays the adapter, not the recipient
+src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	Curve crypto NG: the pool pays the adapter, not the recipient
+src/adapters/BlazePhoenixAdapterBalancerV2.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	Balancer V2: the Vault pays the adapter, not the recipient
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	testFuzz_Conf_A3_A7_SwapLeavesNothing_DeliversAtLeastTheQuote	Balancer V3: the Vault sends the output to the adapter, not the recipient
+src/adapters/BlazePhoenixAdapterCurveNG.sol	testFuzz_Conf_A4_DepthIgnoresTheAmount_VitalIsCapped	Curve NG: depth18 is declared only for amtIn 0
+src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	testFuzz_Conf_A4_DepthIgnoresTheAmount_VitalIsCapped	Curve crypto NG: depth18 is declared only for amtIn 0
+src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	Curve NG: the quote reverts while the pool is locked
+src/adapters/BlazePhoenixAdapterCurveNG.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	Curve NG: the quote is served while the pool is locked (second killer of [581])
+src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	Curve crypto NG: the quote reverts while the pool is locked
+src/adapters/BlazePhoenixAdapterBalancerV2.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	Balancer V2: depth18 is read inside a Vault operation (second killer of [752])
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	Balancer V3: the quote reverts while the Vault is unlocked
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A5_MidOperation_QuoteIsZero_DoesNotRevert	Balancer V3: depth18 is read while the Vault is unlocked (second killer of [750])
+src/adapters/BlazePhoenixAdapterCurveNG.sol	testFuzz_Conf_A6_QuoteCallMatchesQuote_VenueUnchanged	Curve NG: quoteCall answers one wei more than quote
+src/adapters/BlazePhoenixAdapterCurveCryptoNG.sol	testFuzz_Conf_A6_QuoteCallMatchesQuote_VenueUnchanged	Curve crypto NG: quoteCall answers one wei more than quote
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A8_HookChangedAfterCreate_ExecRefused	Balancer V3: exec stops re-proving the hook pinned at create (second killer of [595])
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A8_HookChangedAfterCreate_QuoteDeclaresNoDepth	V3-quote-pin: Balancer V3 quote stops re-proving the hook pinned at create, so a leg whose exec is refused declares depth
+src/adapters/BlazePhoenixAdapterBalancerV3.sol	test_Conf_A8_HookChangedAfterCreate_QuoteCallPricesZero	V3-quote-pin: Balancer V3 quoteCall stops re-proving the hook pinned at create, so a leg whose exec is refused prices
+src/BlazePhoenixGate.sol	testFuzz_Conf_A4_VenueDeclaresMoreThanItHolds_VitalIsTheHoldings	Gate: vitalOf lets a venue's declared depth stand over what it holds
+src/BlazePhoenixCore.sol	test_Conf_A12_GateLegPriceCommutes_NotLiveIsZeroInAllFour	Core: gateQuote prices a wrapper that is not live
+src/BlazePhoenixQuoter.sol	test_Conf_A12_GateLegPriceCommutes_NotLiveIsZeroInAllFour	Quoter: the kind-9 arm asks quoteCall of a wrapper that is not live
+src/BlazePhoenixRouter.sol	test_Conf_A12_GateLegPriceCommutes_NotLiveIsZeroInAllFour	Router: a kind-9 leg is filled without its identity (gateWrapperLive)
+src/BlazePhoenixCore.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	Core: the Solver's kind-9 arm prices the other direction
+src/BlazePhoenixQuoter.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	Quoter: the kind-9 arm never asks quoteCall (a view price of 0 is committed)
+src/BlazePhoenixQuoter.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	Quoter: the kind-9 arm prices another amount than the leg's
+test/adapters/AdapterConformance.sol	test_Conf_A12_GateLegPriceCommutes_FourProducersReadOnePrice	meta: the A12 grid runs no cell
+src/BlazePhoenixQuoter.sol	test_OneHop_AFeeThatEatsTheWholeInputPromisesZero	Quoter: the walk asks a venue after the fee ate the carry
+src/BlazePhoenixQuoter.sol	test_OneHop_TheWalkLeavesTheFeeToTheFundedPass	Quoter: the exact walk charges a single hop on its input
 src/BlazePhoenixQuoter.sol	test_Control_TwoHops_TheRouteCarriesTheFundedFigures	Quoter: the exact walk leaves a hop's planned input in the returned route
+src/BlazePhoenixCore.sol	test_RankZeroIsTheWholeBound	Core:2104: a probe with no output reads a zero bound instead of the whole one
+src/BlazePhoenixCore.sol	test_TheProbesBoundStopsAtWADTheOrdersDoesNot	Core:2126: err is not clamped at WAD, so past WAD it spills into errOrder's bits
+src/BlazePhoenixCore.sol	test_TheOrdersBoundCoversTheRealOutputAtTheOrder	Core:2122: the order's output rounds down, so the bound misses the real output at the order
+src/BlazePhoenixCore.sol	test_OrderAtTheDepthReadsWAD	Core:2124: an order whose input equals the depth does not read the whole bound
+src/BlazePhoenixCore.sol	testFuzz_ErrOrderIsNeverBelowErr	Core:2124: the order's impact term rounds down, so errOrder falls below err
+src/BlazePhoenixCore.sol	test_OrderOneWeiUnderTheProbeReadsTheProbesBound	Core:2118: an order one wei under the probe escapes the clamp and reads a smaller bound
+src/BlazePhoenixCore.sol	testFuzz_ErrAtTheProbeIgnoresTheOrder	Core:2112: err's input side is read at the order, so the probe's bound moves with the order
+src/BlazePhoenixCore.sol	test_TauFallsWhenTheIntervalShrinks	Core:3241: tau's rising step rounds a whole eighth up, so dt == tau moves the clock
+src/BlazePhoenixMath.sol	test_AFeeOfExactlyOneMillionPipsDoesNotVote	Math:492: a fee of exactly 1e6 pips reads as stated, so a Solidly row nobody prices votes
+src/BlazePhoenixMath.sol	test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnly	Math:537: a row fee of exactly 1e6 pips is kept as stated, so the row keeps nothing and passes the upper edge
+src/BlazePhoenixMath.sol	test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnly	Math:539: a row fee of exactly 1e6 pips is asked the lower edge it cannot answer
+src/BlazePhoenixMath.sol	test_AHopWhoseRowsAllReadZeroSelectsNothing	Math:166: the all-dead exit of _select dropped, so a hop with no live row is based and weighed
+src/BlazePhoenixCore.sol	test_QuoteArmsZeroInput	Core:1909: a probe of zero input reads the venue, its mass and its fee
+src/BlazePhoenixCore.sol	test_ConcLiqZeroQuotesNothing	Core:2150: a V4 book with no liquidity in range is walked and quoted
+src/BlazePhoenixRouter.sol	test_Control_AZeroInputLegIsNotBlindness	Router:1741: a leg scaled to zero input reaches the pool
+src/BlazePhoenixCore.sol	test_ZeroForOneCrossesBelowTheTick	Core:2551: the V3 walk going down restarts at the tick it crossed and applies its net twice
+src/BlazePhoenixQuoter.sol	test_OneWeiShort_IsMeasuredAndNotPromised	Quoter:600: a payment one wei short of what the pool paid back is read as untaxed
+src/BlazePhoenixQuoter.sol	test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor	Quoter:694: the probe asks the reserve legs, so a taxed concentrated leg is never measured
+src/BlazePhoenixQuoter.sol	test_AnOutputOneWeiPastInt256MaxIsNotProbed	Quoter:671: a size past int256.max is asked of the pool as a negative amount
+src/BlazePhoenixCore.sol	test_AGateWrapperIsBoundByItsRoundingAlone	Core:2109: a Gate wrapper is read for an impact term
+src/BlazePhoenixCore.sol	test_ACrossingPastUint128MaxSaturates	Core:2547: liquidityNet past uint128.max wraps to its low bits instead of saturating
+src/BlazePhoenixCore.sol	test_AnOrderPastTheLastTickIsPaidWhatTheBookHolds	Core:2550: the walk goes on past the price bound and prices the rest beyond the book
+src/BlazePhoenixMath.sol	test_AHopWhereNoRowVotesIsBasedOnItsMedianRow	Math:599: a hop where no row votes is based on its cheapest row, not its median one
+src/BlazePhoenixMath.sol	test_AFeeOfExactlyOneMillionPipsDoesNotVote	Math:565: a fee of exactly 1e6 pips is put back as a price, dividing by zero
+src/BlazePhoenixRouter.sol	test_Conf_A13_KindNineColumn_FeeOnTheCalendarHop_FeedbackOnlyNative	Router: the registry feedback skips the V3 leg and feeds the kind-9 leg
+test/adapters/AdapterConformance.sol	test_Conf_A13_KindNineColumn_FeeOnTheCalendarHop_FeedbackOnlyNative	meta: the A13 generator drops a cell
+src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsHopZero_LeavesNoUnfundedFigureInTheRoute	Quoter: the exact walk leaves the plan's figures in the hops a fee left unfunded
+src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue	Quoter: the exact door re-walks a route that funded nothing
+test/WitnessCellTenLegsTwoHops.t.sol	test_ThePlanIsTwoHopsOfFiveLegsTenInAll	C11 witness cell: the cell asserts nine legs (LEGS_HOP1 5 -> 4)
+src/BlazePhoenixCore.sol	test_FactoryLookup_OnlyAnExactWordIsAPool_AllModesAndFallbacks	_askPool: a wide factory answer is read from its first word (== 32 becomes >= 32)
+src/BlazePhoenixQuoter.sol	test_LeaderOneWeiUnderItsFloor_RunnerUpSettles_BytesCarryTheRunnerUp	#126 [QF-1]: the encode doors never ask the runner-up when the leader is refused
+src/BlazePhoenixQuoter.sol	test_LeaderExactlyAtItsFloor_BytesCarryTheLeader_RunnerUpNotAsked	#126 [QF-2]: the runner-up is asked when the leader settles
+src/BlazePhoenixQuoter.sol	test_LeaderRefusedByThePreviewGate_RunnerUpNotAsked	#126 [QF-3]: a leader refused by the preview gate asks the runner-up
+src/BlazePhoenixQuoter.sol	test_BothOneWeiUnderTheirFloors_NoBytes_OneSolve_TheLeaderIsReported	#126 [QF-4]: the runner-up replaces the leader whether or not it settles
+src/BlazePhoenixQuoter.sol	test_RunnerUpUnderTheCallersFloor_NoBytes	#126 [QF-5]: the runner-up is packed without the caller's floor
+src/BlazePhoenixQuoter.sol	test_ZeroFloor_NoRunnerUp_NoBytes	G7 eth shallow-3 [QF-6]: the encode doors hand back a zero floor the Router refuses (RouterE(10))
