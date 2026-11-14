@@ -66,7 +66,7 @@ contract G52SameAnswerRangesTest is Test {
     address ref653;
     address refPoda;
 
-    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`, the budget the automatic door hands a solve.
+    /// Mirrors `BlazePhoenixCore.SOLVE_GAS`, the budget the automatic door hands a solve.
     uint256 constant SOLVE_GAS = 14_700_000;
     uint160 constant SP = uint160(1 << 96);   // price 1, tick 0
 
