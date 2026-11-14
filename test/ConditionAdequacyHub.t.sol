@@ -858,6 +858,23 @@ contract ConditionAdequacyHubTest is Test {
         assertEq(hub.v4CodeOf(tokenB), 0, "on either side");
     }
 
+    // RED at d2cf5c9 with mutant "L0-124 Hub:1485" applied (src/BlazePhoenixHub.sol:1485,
+    // `if (ok)` forced true); GREEN at HEAD. Vector: the tick's fee is calldata and the row's
+    // key does not carry it, so a registered hookless V4 row can be ticked at a fee none of the
+    // five recovery steps resolves (the entry's ts 10 does not reproduce the 3000 pid). The
+    // learner must write nothing then; the control at the row's own fee proves it is reached.
+    function test_L1485_ATickAtAFeeNoStepRecoversLearnsNoCode() public {
+        address pool = _trunc(_wrappedPid(tokenA, tokenB, 500, 10));
+        hub.seedPool(pool, BPC.KIND_V4, 500, address(0), tokenA, tokenB);
+        vm.warp(block.timestamp + 1);
+        hub.recordSwap(pool, BPC.KIND_V4, 3000, address(0), tokenA, tokenB, 1e18, 1e18, 1e18 | BPC.TICK_ANCHORED);
+        assertEq(hub.v4CodeOf(tokenA), 0, "an unrecovered tier must not write a pattern code");
+        assertEq(hub.v4CodeOf(tokenB), 0, "on either side");
+        vm.warp(block.timestamp + 1);
+        hub.recordSwap(pool, BPC.KIND_V4, 500, address(0), tokenA, tokenB, 1e18, 1e18, 1e18 | BPC.TICK_ANCHORED);
+        assertTrue(hub.v4CodeOf(tokenA) != 0, "control: the row's own fee recovers ts 10 and teaches the code");
+    }
+
     // =========================================================================
     //  Hub:1494 — the pair proof's two token arms
     //  Every dishonest pool in the suite was codeless: BOTH reads failed

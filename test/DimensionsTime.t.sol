@@ -89,4 +89,44 @@ contract DimensionsTimeTest is Test {
         assertEq(vitalityAfterRevival, 1,
             "a reactivation after full decay must score identically to a brand-new pool's first swap");
     }
+
+    // ── tau's EMA, the falling branch ─────────────────────────────────────────────────────────────
+    // RED at d2cf5c9 with mutant "L1-124 Core:3242" applied (src/BlazePhoenixCore.sol:3242, the
+    // falling step flipped to `+=`); GREEN at HEAD. Spec: tau moves 1/8 of the way to the interval
+    // just closed, rounded up (a non-zero gap moves it by at least 1), and never past it.
+
+    uint32 internal constant TAU_LAST_TS = 1_000;
+
+    function _tauAfter(uint32 tau0, uint32 dt, bool anchored) internal pure returns (uint32) {
+        uint256 slot = (uint256(tau0) << 224) | (uint256(TAU_LAST_TS) << 64);
+        return BPC.decodeTau(BPC.tickSlot(slot, anchored, 1e18, TAU_LAST_TS + dt));
+    }
+
+    function test_TauFallsWhenTheIntervalShrinks() public pure {
+        // dt 1 000 < tau 100 000: 100 000 - ceil(99 000 / 8) = 100 000 - 12 375
+        assertEq(_tauAfter(100_000, 1_000, true), 87_625, "a shorter interval pulls tau down");
+        // control, the rising side: 100 000 + ceil(100 000 / 8)
+        assertEq(_tauAfter(100_000, 200_000, true), 112_500, "a longer interval pushes tau up");
+        // edges: dt == tau leaves it; dt == tau - 1 moves it by exactly 1 (ceil(1/8) = 1)
+        assertEq(_tauAfter(100_000, 100_000, true), 100_000, "dt == tau: no step");
+        assertEq(_tauAfter(100_000, 99_999, true), 99_999, "one second shorter: one second down");
+        assertEq(_tauAfter(100_000, 100_001, true), 100_001, "one second longer: one second up");
+        // an unanchored tick leaves the clock (REG-DUST-CLOCK)
+        assertEq(_tauAfter(100_000, 1_000, false), 100_000, "an unanchored tick moves no tau");
+    }
+
+    function testFuzz_TauMovesTowardDtAndNeverPastIt(uint32 tau0, uint32 dt) public pure {
+        tau0 = uint32(bound(tau0, 1, 1 << 31));
+        dt = uint32(bound(dt, 1, 1 << 31));
+        uint32 t = _tauAfter(tau0, dt, true);
+        uint32 lo = tau0 < dt ? tau0 : dt;
+        uint32 hi = tau0 < dt ? dt : tau0;
+        assertGe(t, lo, "tau never passes dt from above");
+        assertLe(t, hi, "tau never passes dt from below");
+        uint256 gap = hi - lo;
+        uint256 step = t > tau0 ? t - tau0 : tau0 - t;
+        assertEq(step, (gap + 7) / 8, "one eighth of the gap, rounded up");
+        if (dt > tau0) assertGe(t, tau0, "a longer interval never lowers tau");
+        if (dt < tau0) assertLe(t, tau0, "a shorter interval never raises tau");
+    }
 }
