@@ -9147,6 +9147,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (gate == address(0)) revert AdapterE(0);",
       new="        // MUTANT [LB-47]",
       teste="test_LB_Constructor_ZeroAddress_Refused"),
+ # By design (docs/KNOWN_ISSUES.md): ignoredForRouting is LFJ's quoter hint, never read. The mutant
+ # makes it a refusal at resolve, so a flagged pair could no longer get a wrapper.
+ dict(nome="adapters [LB-48]: LB resolve refuses a pair the factory's owner flagged ignoredForRouting",
+      f="src/adapters/BlazePhoenixAdapterLB.sol",
+      old="        (, pair, , ) = FACTORY.getLBPairInformation(t0, t1, binStep);",
+      new="        bool ignored; (, pair, , ignored) = FACTORY.getLBPairInformation(t0, t1, binStep); if (ignored) revert AdapterE(2); // MUTANT [LB-48]",
+      teste="test_LB_Resolve_IgnoredForRoutingIsNotRead"),
  dict(nome="adapters [AI-01]: AI exec swaps zeroForOne with a price limit at tick -60, so a multi-tick swap stops short of the model",
       f="src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol",
       old="            zeroForOne ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE, \"\");",

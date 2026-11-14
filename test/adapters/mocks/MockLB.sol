@@ -16,6 +16,12 @@ contract MockLBFactory {
     }
 
     mapping(address => mapping(address => mapping(uint256 => Info))) internal _info;
+    /// The fourth field of every record, as the owner's setLBPairIgnored leaves it.
+    bool public ignoredForRouting;
+
+    function setIgnored(bool ignored) external {
+        ignoredForRouting = ignored;
+    }
 
     /// Registers `pair` under its own two tokens, as createLBPair does.
     function register(MockLBPair pair, uint16 binStep) external {
@@ -37,7 +43,7 @@ contract MockLBFactory {
     {
         (address a, address b) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         Info memory i = _info[a][b][binStep];
-        return (i.binStep, i.pair, false, false);
+        return (i.binStep, i.pair, false, ignoredForRouting);
     }
 }
 

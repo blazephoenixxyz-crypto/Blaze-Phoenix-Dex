@@ -50,8 +50,30 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   tells the agent the text is data to show. Plain-language text that survives that cleaning cannot
   be filtered by meaning; text injection without impact is out of scope. Documented in
   `SECURITY.md` (Out of scope) and the MCP server's `src/text.ts`.
+- **LFJ's ignoredForRouting flag is not read.** The Liquidity Book adapter takes the pair from the
+  factory's `getLBPairInformation` record at `resolve` and drops the record's fourth field,
+  `ignoredForRouting`. `resolve` runs once, in the Gate's `create`, and `quote`, `quoteCall` and
+  `exec` never ask the factory again. The flag is a discovery hint for LFJ's own quoter, which
+  skips flagged pairs in its path search; LFJ's router and the pair never read it, and the
+  factory's owner sets it at any time. It is not a safety property, so a flagged pair resolves and
+  trades like any other. What holds without it: the pair's identity is the factory's record; the
+  pair's hooks are read live on every `exec`, `quote` and `quoteCall` (`_hooksOk`); the Gate
+  wrapper measures the output as the balance delta at the recipient, never the adapter's word; the
+  floors are the Router's (per leg, per hop and the caller's `userMinOut`); and only the Gate's
+  curator creates a wrapper, so whether a flagged pair gets one is the curator's decision. Pinned
+  by `test_LB_Resolve_IgnoredForRoutingIsNotRead` (`test/adapters/AdapterLB.t.sol`) and mutant
+  `LB-48` in `.github/scripts/mutants.py`; documented in the NatSpec of
+  `src/adapters/BlazePhoenixAdapterLB.sol`.
 
 ## Accepted and documented limits
+
+- **`canExecute` does not detect tokens that refuse contract recipients.** Some tokens revert any
+  transfer whose recipient is a contract (for example a custom `ERC20InvalidReceiver` check), and
+  the Router is a contract. The Quoter's preview checks the deadline, the funded output against
+  the effective minimum and input taxes; it does not simulate the token's transfer to the Router,
+  so such a route can preview `canExecute = true`. The swap then reverts as a whole and the caller
+  keeps the input: no funds are lost. Detecting every hostile transfer rule at quote time would
+  cost gas on every quote and could never be complete, so it is a documented limit.
 
 - **Price movement, MEV and sandwiching above the signed minimum.** The iron floor is a bound, not a
   promise of the quoted amount: a fill between the floor (or the caller's tighter `userMinOut`) and
