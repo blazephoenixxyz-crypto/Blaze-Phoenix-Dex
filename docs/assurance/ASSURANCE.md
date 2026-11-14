@@ -810,6 +810,15 @@ mutant, «124-L5 B6 Quoter: the exact walk charges a single hop on its input», 
 `test_OneHop_TheWalkLeavesTheFeeToTheFundedPass`. The over-promise was a quote, never a fill: the
 Router charges the same hop 0 first (`_chargeHopFee`, `feeH >= amountIn` ⇒ `RouterE(8)`) and never
 asks a Gate adapter's `quoteCall`.
+The walk's early exit left the hops it never reached with the plan's figures in the route it
+returned (JE-124): at 1 wei hop 0 showed 1 in and 1 out, hop 1 the plan's 1e18, while the promise was
+0. Those hops are now written 0 (`_unfund`), the figures the Router funds them with; the promise and
+the Router's refusal are unchanged. Test `test/QuoterExactRouteShowsOnlyFundedFigures.t.sol` (red at
+90c2d85), mutant «124-JE walkfix Quoter: the exact walk leaves the plan's figures in the hops a fee
+left unfunded». A walk that funded nothing promises 0 whatever a second walk says, so the door
+no longer re-walks it (over the zeroed route hop 0 asked its venue for 0): test
+`test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue`, mutant «WALKFIX-124 Quoter: the exact door
+re-walks a route that funded nothing».
 
 ## 4p. How a quote ages — the promise measured against time and drift
 
