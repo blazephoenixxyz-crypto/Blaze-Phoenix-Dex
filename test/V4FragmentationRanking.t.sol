@@ -466,6 +466,42 @@ contract V4FragmentationRankingTest is Test {
         assertGt(dirty, rivalOnly, "the attacked plan pays no more than the rival alone");
     }
 
+
+    /// Q2o. The promise votes (S2, mutant [398]). A narrow V4 book about 5% under a deep pair:
+    /// L = 1e26 on the twenty ticks around its current tick (-513, a rate near 0.95), beside a
+    /// V2 pair holding 2e24 a side at par. The book's virtual output side, L*sqrtP, is far
+    /// above the pair's depth, while what it holds on that side within the sixteen-stretch walk
+    /// (`v4HeldShare`, L*(sqrtP - sqrtPa)) is far under it - both stated as preconditions. Read
+    /// at its virtual depth the book outweighs the pair, the median sits on the book's rate and
+    /// the band built there leaves the pair out; read at what it holds (`_heldShare`, the vote
+    /// `_depthWeightedMedian` takes), the base is the pair and the book falls under the band's
+    /// lower edge. The oracle is the pair alone through the same door: with the book listed
+    /// the order still fills at the pair's rate. Red when the vote reads the uncut depth
+    /// (`d = h` deleted): the base moves onto the book and the order fills near its rate.
+    function test_Q2o_ThePromiseVotes_ANarrowBookUnderTheRateDoesNotTakeTheBase() public {
+        uint256 snap = vm.snapshotState();
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 pairAlone = _swap();
+        vm.revertToState(snap);
+        int24 tk = -513;
+        uint128 narrowL = 1e26;
+        mgr.initialize(_pid(FEE), BPC.sqrtPriceAtTick(tk), tk, FEE);
+        mgr.addPosition(_pid(FEE), tk - 10, tk + 10, TS, narrowL);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        _v2(t0, t1, 2e24, 2e24);
+        uint256 vOut = BPC.mulDiv(narrowL, BPC.sqrtPriceAtTick(tk), uint256(1) << 96);
+        uint256 held = BPC.v4HeldShare(address(mgr), _pid(FEE), TS, true, vOut, type(uint256).max);
+        uint256 withBook = _swap();
+        emit log_named_uint("pair alone           ", pairAlone);
+        emit log_named_uint("with the narrow book ", withBook);
+        emit log_named_uint("book virtual side    ", vOut);
+        emit log_named_uint("book held vote       ", held);
+        assertGt(vOut, 2 * 2e24, "precondition: at its virtual depth the book holds most of the vote mass");
+        assertLt(2 * held, 2e24, "precondition: at what it holds the book is under half the pair's vote");
+        assertLt(BPC.mulDiv(ORDER, 96, 100), pairAlone, "precondition: the pair pays above the book's rate");
+        assertEq(withBook, pairAlone, "the book's virtual depth took the base: the order left the pair");
+    }
+
     /// The amount the plan's first hop sends to the V4 book `pid` (0 when it has no leg there).
     function _v4LegIn(bytes32 pid) internal view returns (uint256 amt) {
         RoutePlan memory p = solver.findBestRoutePlan(t0, t1, ORDER);

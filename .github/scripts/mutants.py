@@ -7488,6 +7488,14 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (w[i] > w[bi] || (w[i] == w[bi] && cands[i].pool < cands[bi].pool)) bi = i;",
       new="            if (w[i] > w[bi]) bi = i; // MUTANT [seat-tie]",
       teste="test_Seat_Unit_WeightTie_GoesToTheLowestAddress"),
+# [398-vote] (2026-11-14): `_depthWeightedMedian` (Math) votes a singleton V4 book at what it holds
+# (`d = h`), not at its virtual depth L*sqrtP; no entry guarded the assignment itself ([398] pins
+# the probe's rank). Q2o: a narrow book under the rate, virtual depth far above a deep pair.
+ dict(nome="[398-vote]: the median votes a narrow V4 book at its virtual depth, so it takes the base from a pair that holds more and pays more",
+      f="src/BlazePhoenixMath.sol",
+      old="                    d = h;",
+      new="                    // MUTANT [398-vote]",
+      teste="test_Q2o_ThePromiseVotes_ANarrowBookUnderTheRateDoesNotTakeTheBase"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
