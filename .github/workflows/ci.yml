@@ -54,19 +54,13 @@ jobs:
         # duas fontes da mesma grandeza sem nada a obriga-las a concordar.
         run: bash .github/scripts/shared-quantities.sh
 
-      - name: llms-full.txt is current
-        # The one-file corpus for agents is generated from the docs it points at; a stale
-        # copy is a stale claim wearing the clothes of a current one.
-        run: python3 .github/scripts/llms_full.py --check
-
-      - name: README and llms.txt figures are current
-        # Every count in the README and in llms.txt is generated from the tree; a number typed by
-        # hand is true on the day it is written and silently false after.
-        run: python3 .github/scripts/readme_stats.py --check
-
-      - name: regime covering array is current
-        # The generated rows must be the rows the generator produces for the declared factors.
-        run: python3 .github/scripts/assurance/covering_array.py --check
+      - name: Generated files are current (covering array, README and llms.txt figures, llms-full.txt)
+        # Every count in the README and in llms.txt is generated from the tree, and llms-full.txt is the
+        # docs it points at concatenated; a number typed by hand, or a copy built before its sources,
+        # is true on the day it is written and silently false after. The generators feed each other
+        # (covering array -> test count -> README -> llms-full.txt), so they run as one command in
+        # dependency order; the failure names it: python3 .github/scripts/regen.py
+        run: python3 .github/scripts/regen.py --check
 
       - name: TickMath table is its definition, certified on every tick
         # Each of the twenty constants of Core.sqrtPriceAtTick is recomputed from its definition, the

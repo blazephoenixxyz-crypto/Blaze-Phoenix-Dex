@@ -1,0 +1,5 @@
+#!/bin/sh
+# Optional: refuse a push whose generated files (README and llms.txt figures, llms-full.txt, the
+# covering array) are behind the tree, the same check CI runs. About one second.
+# Install once for every worktree: git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/.github/scripts/regen.py" --check

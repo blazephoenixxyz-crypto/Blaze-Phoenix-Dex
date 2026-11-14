@@ -342,8 +342,7 @@ solhint 'src/**/*.sol'
 
 # Registers and generated files must agree with the repository
 bash .github/scripts/shared-quantities.sh
-python3 .github/scripts/readme_stats.py --check
-python3 .github/scripts/llms_full.py --check
+python3 .github/scripts/regen.py --check   # rewrite with: python3 .github/scripts/regen.py
 ```
 
 The static guards are plain `grep` invocations inside [`.github/workflows/ci.yml`](.github/workflows/ci.yml),

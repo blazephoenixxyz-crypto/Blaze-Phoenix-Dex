@@ -256,7 +256,7 @@ def main():
             cur = open(out_sol).read() if os.path.exists(out_sol) else ""
             curj = json.load(open(out_json)) if os.path.exists(out_json) else {}
             if cur != sol or curj != doc:
-                print("regime covering array (t=%d) drifted - run: python3 .github/scripts/assurance/covering_array.py" % strength)
+                print("regime covering array (t=%d) drifted - run: python3 .github/scripts/regen.py (the test count in README.md follows it)" % strength)
                 sys.exit(1)
             print(f"regime covering array t={strength} current: {nrows} rows cover {total} {unit} of {combos} combinations")
             continue

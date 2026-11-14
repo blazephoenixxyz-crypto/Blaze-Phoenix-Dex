@@ -84,7 +84,7 @@ def main():
             open(path, "w", encoding="utf-8").write(new)
             print(f"{name}: numbers regenerated")
     if stale:
-        print(f"{', '.join(stale)}: numbers are behind the tree - run: python3 .github/scripts/readme_stats.py")
+        print(f"{', '.join(stale)}: numbers are behind the tree - run: python3 .github/scripts/regen.py (llms-full.txt embeds them and must follow)")
         sys.exit(1)
     if "--check" in sys.argv:
         print("README.md and llms.txt numbers agree with the tree")
