@@ -224,4 +224,56 @@ contract FeeCannotRoundToZeroTest is Test {
         assertGe(paid, floorFee, "the ordinary fee must never fall below nominal");
         assertLe(paid, floorFee + 1, "the ordinary fee must not exceed nominal by more than the rounding");
     }
+
+    // ─── the direction of the rounding, pinned to the wei ────────────────────
+    //
+    // test_DustSwap_PaysAProtocolFee proves only fee > 0, and the control above
+    // accepts anything in [floor, floor + 1]. Neither fixes WHICH of the two a
+    // hop pays once the base clears 357 wei, where the floor is no longer zero:
+    // a fee floored back to mulDiv would pass both and under-charge every trade
+    // whose base is not a multiple of 2_500 by one wei. Here the ceiling is
+    // required exactly, on the treasuries (T1 + T2, the 30/70 split summed) and
+    // on what the pool received (the base less that ceiling).
+    //
+    // The oracle is plain integer arithmetic, not BPC: ceil(b * 28 / 10_000).
+    //
+    // RED with the mutant "fee: rounding goes DOWN again" (Router:786
+    // mulDivUp -> mulDiv, .github/scripts/mutants.py): both tests below fail by
+    // one wei; the multiple-of-the-divisor control stays green under it.
+
+    /// 358 and 359 are the two smallest bases whose floor is non-zero and
+    /// differs from the ceiling: floor 1, ceiling 2.
+    function test_AHopFeeIsTheCeilingNotTheFloor() public {
+        _assertTheHopPaysTheCeiling(358);
+        _assertTheHopPaysTheCeiling(359);
+    }
+
+    function testFuzz_AHopFeeIsTheCeilingNotTheFloor(uint256 b) public {
+        b = bound(b, 358, 1e22);
+        // b * 28 is a multiple of 10_000 exactly when b is a multiple of 2_500:
+        // there floor == ceiling and the rounding direction is not observable.
+        vm.assume(b * PROTOCOL_FEE_BPS % BPS != 0);
+        _assertTheHopPaysTheCeiling(b);
+    }
+
+    /// Control: 2_500 * 28 = 70_000 = 7 * 10_000, so floor and ceiling agree
+    /// and this passes with and without the mutant. It pins that the oracle is
+    /// not simply "one more than the floor".
+    function test_Control_AMultipleOfTheDivisorHasNoRounding() public {
+        assertEq((2_500 * PROTOCOL_FEE_BPS) % BPS, 0, "2_500 is a multiple of the divisor");
+        _assertTheHopPaysTheCeiling(2_500);
+        assertEq(_treasuries(), 7, "7 wei: floor and ceiling are the same fee");
+    }
+
+    function _assertTheHopPaysTheCeiling(uint256 b) internal {
+        uint256 ceilFee = (b * PROTOCOL_FEE_BPS + BPS - 1) / BPS;
+        uint256 t0 = _treasuries();
+        uint256 p0 = tokenA.balanceOf(address(pool));
+
+        vm.prank(user);
+        router.swapExactIn(_route(b), b, 1, user, block.timestamp + 1);
+
+        assertEq(_treasuries() - t0, ceilFee, "the hop fee is the ceiling of b * 28 / 10_000, to the wei");
+        assertEq(tokenA.balanceOf(address(pool)) - p0, b - ceilFee, "the pool received the base less that ceiling");
+    }
 }
