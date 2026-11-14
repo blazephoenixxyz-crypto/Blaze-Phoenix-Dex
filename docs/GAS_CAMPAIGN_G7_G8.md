@@ -1,6 +1,6 @@
 # Gas campaigns G7 and G8: what is measured, and where
 
-Status: first version, 13/11; section 6 (re-measure at `bb4cdbb`) added 14/11. Every number below cites the CI run and the line of its
+Status: first version, 13/11; section 6 (re-measure at `bb4cdbb`) and section 7 (DEX used per chain) added 14/11. Every number below cites the CI run and the line of its
 `report.tsv`. A cell without a source says **not measured**. Tools:
 `tools/g7-gas-campaign/` (G7, random draws over the inventory) and the G8 tool directory next to it (`tools/g8-*/`)
 (G8, one case per AMM family, per bridge and per pair token).
@@ -223,3 +223,41 @@ the test pins it there. The rows of `results-bb4cdbb.tsv` were measured before t
 | `6e1bc78` | the in-frame quote of a cut V3 walk answers what it walked, min(walked, f); the Solver's promise keeps the rest. Before, a cut walk priced the rest of the input on the last range read, so the frame quoted more than the venue pays and the protocol floor (`Router.sol:1649`) refused the fill | bsc gate-6-2 idx 5 (b 132377036), bsc midtail-2 idx 2 (b 132580903) | `test/fork/G7ErrBscV3PayReadsOverstatePoolProtocolFloor.t.sol` |
 | `4f729bc` | encode doors refuse a zero floor (`RouterE(10)`); for one unit of USDC the fee took the base and the door encoded `minOut` 0, which the Router refuses | ethereum shallow-3 idx 2 (b 26316739), ethereum shallow-3 idx 5 (b 26325844) | `test/fork/G7ErrEthShallow3ZeroFloorEncoded.t.sol` |
 | `f82bc67` | encode doors fall back once to the Solver's runner-up when the leader's bytes do not settle | none of the draws above | `test/QuoterEncodeFallsBackOnce.t.sol`, `test/fork/G7ErrEthC6UnwalkedLastHop.t.sol` |
+
+## 7. DEX used per chain
+
+Source: the `# dex used` (B:4895-4935) and `# dex available` (B:4936-4986) sections of
+`report-bb4cdbb.tsv`, regenerated from the same `results-bb4cdbb.tsv` (lines 1-4894 unchanged; sha256
+in `provenance.tsv`). Only `outcome == ok` rows count: the routes that settled. A leg is one entry of
+`legs_detail` (a swap or unlock frame under the Router, not nested in another leg); `% legs` is the
+share of the chain's ok legs, `% gas` the share of their frame gas.
+
+**Not volume.** `legs_detail` records `<target>:<gas>` per leg and no amount, so the share of the
+traded volume per DEX is **not measured** for this re-measure. The runner now writes a `leg_amt`
+column (the input paid to each leg: token transfers into the leg's target under the Router, and
+native value sent to it); it fills only in campaigns run after this change.
+
+**Naming (`basis`).** A leg's target is mapped to its venue through `docs/prereg/gas-1114-universe.tsv`
+(a V4 leg's target is the PoolManager itself). `factory`: a repo constant at that address on the
+same chain names the DEX (the constant's file and line are in g7.py `DEX_NAME`). `addr`: no constant
+on this chain, but the same address with the same kind is named on another chain. `kind`: the kind
+names one protocol (for example `algebra`, `curve_ng`). `gate`: a Gate row (`gate_used = 1`) named by
+its stratum's gate family. `seed`: a seed pool of the stratum in the spec, named only by its Hub
+kind. `unknown`: none of these; unknown is a missing name, not a missing DEX.
+
+Top three DEXes per chain by legs:
+
+| chain | ok legs | 1st | 2nd | 3rd | basis `unknown` | source |
+|---|---|---|---|---|---|---|
+| arbitrum | 1073 | Uniswap V3: 51.4 % legs, 25.8 % gas | PancakeSwap V3: 23.3 %, 63.8 % | unknown: 9.5 %, 3.8 % | 9.5 % | B:4896-4903 |
+| base | 1016 | Uniswap V3: 34.4 %, 18.7 % | PancakeSwap V3: 18.5 %, 51.8 % | Aerodrome CL: 15.7 %, 10.1 % | 10.6 % | B:4904-4912 |
+| bsc | 866 | PancakeSwap V3: 58.2 %, 87.6 % | Uniswap V3: 24.2 %, 6.7 % | unknown: 9.2 %, 2.4 % | 9.2 % | B:4913-4916 |
+| ethereum | 1252 | Uniswap V3 (`addr`): 56.9 %, 80.0 % | unknown v2: 13.6 %, 3.0 % | PancakeSwap V3 (`addr`): 10.4 %, 9.7 % | 23.8 % | B:4917-4924 |
+| optimism | 1006 | Uniswap V3: 52.0 %, 46.4 % | unknown cl: 18.8 %, 22.7 % | Velodrome: 11.8 %, 15.6 % | 22.4 % | B:4925-4931 |
+| robinhood | 693 | Uniswap V3: 76.2 %, 42.1 % | Uniswap V4: 9.1 %, 55.6 % | Uniswap V2: 7.8 %, 1.1 % | 6.9 % | B:4932-4935 |
+| avalanche | - | not measured | - | - | - | absent from the re-measure |
+
+`ok legs` is the sum of the `legs` column over the cited lines; `basis unknown` is the share of
+those legs whose basis is `unknown` (legs named only by their `seed` kind are not in it). `# dex available` lists each venue of the universe with its pools, the
+routable ones and the ok legs that used it. The G8 report (`g8/report-bb4cdbb.tsv`) carries the same
+two sections, because g8.py prints g7's report first; this document cites none of its lines.
