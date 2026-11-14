@@ -3985,14 +3985,14 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl); // MUTANT [723d] = [723]\n',
       teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
- dict(nome='3073-3 [723t]: the rebuild walks every topology, not the winner\'s alone, and three bridges pass a fifth of the search',
+ dict(nome='3073-3 [723t]: the rebuild walks every topology, not the winner\'s alone, and three bridges pass a fifth of the search (re-pointed 11-14: on f7e4d55 TOPOLOGIES = 4 and the ceiling row passes mutated; a count on the grid of three bridges with three books, which rebuilds)',
       f='src/BlazePhoenixSolver.sol',
-      # A ceiling, not a count: 3,200,860 against 2,400,000 (1,550,335 unmutated; release, 2026-11-10).
-      # Sized on TOPOLOGIES = 13: what the edit costs is the count of topologies, so the pair is
-      # measured again wherever that count changes.
+      # A count, not a ceiling: no book of a bridge has a tick read, and the count does not move
+      # with the number of topologies. The ceiling it replaces was 3,200,860 against 2,400,000
+      # (1,550,335 unmutated; release, 2026-11-10, TOPOLOGIES = 13).
       old='        m.bestU = u;\n        _planTopology(m, k, bs, tIn, tOut, amountIn);\n',
       new='        m.bestU = u;\n        for (k = 0; k < TOPOLOGIES; ++k) _planTopology(m, k, bs, tIn, tOut, amountIn); // MUTANT [723t]\n',
-      teste='test_3073_WalkBudget_ThreeBridges_FitsAFifth'),
+      teste='test_3073_WalkBudget_ThreeBridgesThreeBooks_OnlyTheWinningTopologyIsRead'),
  dict(nome="3073-3 [723tl] = [723t] on a second row: the rebuild walks every topology, not the winner's alone, and a bridge that does not lead has its ticks read",
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [723t], held by a count, which does not move with
