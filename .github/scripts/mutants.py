@@ -3906,12 +3906,13 @@ M = [
       old='(i == 0 ? m.walk | CUT : m.walk) | dec << 8);\n',
       new='(i == 0 ? WALK | CUT : m.walk) | dec << 8); // MUTANT [716fl] = [716f]\n',
       teste='test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked'),
- dict(nome='3073-2 [716l]: a single leg held at its cap asks its book while it is ranked, three bridges with three books pass their share',
+ dict(nome='3073-2 [716l]: a single leg held at its cap asks its book while it is ranked, three bridges with three books pass their share (re-pointed 11-14: on f7e4d55 TOPOLOGIES = 4 and the ceiling row passes mutated; a count on the same grid)',
       f='src/BlazePhoenixSolver.sol',
-      # A ceiling, not a count: 18,354,926 against 9,000,000 (6,012,033 unmutated; release, 2026-11-10).
+      # A count, not a ceiling: no book of a bridge has a tick read. The ceiling it replaces was
+      # 18,354,926 against 9,000,000 (6,012,033 unmutated; release, 2026-11-10).
       old='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, h, mode);',
       new='            (legIn, out_, f) = _capacity(cand, tIn, amountIn, out_, h, mode | WALK); // MUTANT [716l]',
-      teste='test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles'),
+      teste='test_3073_WalkBudget_ThreeBridgesThreeBooks_OnlyTheWinningTopologyIsRead'),
  dict(nome='3073-2 [716ld] = [716l] on a second row: a single leg held at its cap asks its book while it is ranked, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [716l], held by a count on the direct grid.

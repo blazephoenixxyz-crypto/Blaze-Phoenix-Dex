@@ -269,6 +269,38 @@ contract CapacityWalkBudgetTest is Test {
         for (uint256 l; l < 3; ++l) assertLt(legs[l].expectedOut, cap, "precondition: no leg of the winner is left at its cap");
     }
 
+    /// The grid of `ThreeBridgesThreeBooks_Settles`, by count: the three direct books split the
+    /// order, the first leg is the book of 3_000. A count of reads, not a ceiling: on this grid
+    /// the share of SOLVE_GAS passes with a candidate walked while it is ranked (mutant [716l])
+    /// and with the rebuild walking every topology (mutant [723t]), and the count does not.
+    function test_3073_WalkBudget_ThreeBridgesThreeBooks_OnlyTheWinningTopologyIsRead() public {
+        _onlyTheWinningTopologyIsRead(3, 0, 3);
+    }
+
+    /// `_grid(3, perPair)`: the direct books lead and split the order, so the walk is the direct
+    /// topology's alone. `_paysWhatItWalks` spends the route's reads on the first leg, three on
+    /// its book (the direct book of the `lead`-th fee); the promise falls, and the rebuild (N1)
+    /// ranks each other direct book alone on the whole order on its walk, sixteen stretches. No
+    /// book of a bridge has a tick read, by the search or by the rebuild.
+    function _onlyTheWinningTopologyIsRead(uint256 perPair, uint256 lead, uint256 nLegs) internal {
+        uint256 n0 = touched.length;
+        _grid(3, perPair);
+        bytes memory ticks = abi.encodeWithSelector(HeavyBookPool.ticks.selector);
+        // After n0: the three bridges, then ten books for each fee, the direct book first.
+        for (uint256 k; k < perPair; ++k) {
+            vm.expectCall(touched[n0 + 3 + 10 * k], ticks, k == lead ? 3 : 16);
+            for (uint256 b = 1; b < 10; ++b) vm.expectCall(touched[n0 + 3 + 10 * k + b], ticks, 0);
+        }
+        _cool();
+        RoutePlan memory plan = solver.findBestRoutePlan(t0, t1, IN);
+        assertEq(plan.best.hops.length, 1, "precondition: the direct books lead");
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, nLegs, "precondition: the direct books split the order");
+        assertEq(legs[0].pool, touched[n0 + 3 + 10 * lead], "precondition: the route's reads are spent on its first leg");
+        uint256 cap = BPC.mulDiv(HELD, 3_000, BPC.BPS);
+        for (uint256 l; l < nLegs; ++l) assertLt(legs[l].expectedOut, cap, "precondition: no leg of the winner is left at its cap");
+    }
+
     // ─── Held legs: the door settles the plan quoted, the walk on its own budget ──
 
     /// Entry A (the uncapped solve), then the solve at the door's budget, which must return
