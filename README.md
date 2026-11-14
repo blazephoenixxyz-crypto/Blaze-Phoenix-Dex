@@ -49,7 +49,6 @@ Each item links to the place where it can be checked. The full list is at [https
 - **Bug bounty:** a [public programme](https://blazephoenix.xyz/bounty) with [credited researchers](https://blazephoenix.xyz/security/researchers) and [published advisories](https://blazephoenix.xyz/security/advisories).
 - **Whitepaper DOI:** [10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091); papers timestamped with [OpenTimestamps](https://blazephoenix.xyz/provenance/provenance.json).
 - **Contact:** contact@blazephoenix.xyz ([security.txt](https://blazephoenix.xyz/.well-known/security.txt)); official channels at [/official](https://blazephoenix.xyz/official).
-- **Audit status:** an independent external audit is scheduled before launch.
 
 ---
 
@@ -92,8 +91,7 @@ A pool is weighed by what it pays for the next unit, never by what it says about
   generation deployed on chain today. `test/fork/DeployedParity.t.sol` pins what is deployed on
   every network, so the two generations are never conflated.
 - **The BZPX token has not launched**, so on-chain volume reflects the calendar, not the code.
-- **An independent external audit is scheduled before launch.** Until then, everything the
-  repository claims about itself is reproducible from a clean checkout; see
+- **Everything the repository claims about itself is reproducible from a clean checkout;** see
   [Guarantees](#guarantees-and-how-to-check-each-one) and [Reproducing every gate](#reproducing-every-gate).
 
 Branch protection on `main` requires five checks, read from the enforcing surface

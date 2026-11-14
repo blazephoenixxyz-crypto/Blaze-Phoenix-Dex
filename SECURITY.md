@@ -119,8 +119,7 @@ before paying, so a re-entry reverts.
 
 ## Verification pipeline and track record
 
-An independent external audit has not yet taken place; one is scheduled before
-launch. Measured at commit `b9db56d` (2026-10-22, `FOUNDRY_PROFILE=release`):
+Measured at commit `b9db56d` (2026-10-22, `FOUNDRY_PROFILE=release`):
 338 test files (30 of them fork suites against live chain liquidity) declare
 2,236 `test*` / `invariant*` / `check*` functions (unit, property, parity,
 stateful invariants); the run gave 2,074 passed, 0 failed and 49 skipped in

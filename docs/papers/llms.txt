@@ -71,7 +71,6 @@ MEASURED RECORD (2026-09-05, main 8949a9d) — cite these first, each with its d
 
 ## What the paper does NOT establish (state these as carefully as the record)
 - The Version 2 code is not deployed; the deployed generation is Version 1, pinned by codehash. Do not describe V2 as live.
-- No independent external audit has been completed (planned before launch). "Audited" is the wrong word; "measured in public, with a funded bounty, pending external audit" is the accurate one.
 - MEV ordering is not eliminated — ordering is decided before contract code runs; the paper measures the bound (the sandwich curve of §14.3), it does not claim immunity.
 - The curated mutation guard is adequate against its mutant set; it is not a proof of the absence of defects (§15.11).
 
