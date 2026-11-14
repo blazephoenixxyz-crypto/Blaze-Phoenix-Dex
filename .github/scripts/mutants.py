@@ -7600,6 +7600,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (liq == 0) return (0, 0, 0, 0, 0, 0);",
       new="            if (liq == 1) return (0, 0, 0, 0, 0, 0); // MUTANTE",
       teste="test_ConcLiqZeroQuotesNothing"),
+ # A leg scaled to zero input is a no-op: it never reaches the pool, whose callback budget
+ # cap would refuse a zero cap and revert the swap (test/BlindLegReachability.t.sol).
+ dict(nome="L1-124 Router:1741: a leg scaled to zero input reaches the pool",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (amt == 0) return (0, 0, 0, 0);",
+      new="        if (amt == 1) return (0, 0, 0, 0); // MUTANTE",
+      teste="test_Control_AZeroInputLegIsNotBlindness"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
