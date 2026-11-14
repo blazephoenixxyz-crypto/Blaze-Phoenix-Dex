@@ -1447,11 +1447,12 @@ library BlazePhoenixCore {
             // Canonical Uniswap V3 SqrtPriceMath.getNextSqrtPriceFromAmount0:
             //     sqrtNew = (L · sqrtP) / (L + amtIn · sqrtP / Q96)
             //
-            // To avoid the L·P overflow path (L ≤ 2¹²⁸, P ≤ 2¹⁶⁰ → 2²⁸⁸),
-            // we factor through mulDiv so every intermediate fits in 256 bits.
-            uint256 product = mulDiv(amtAfterFee, P, Q96);
-            uint256 sqrtNew = mulDiv(L, P, L + product);
-            if (sqrtNew >= P || sqrtNew == 0) return 0;
+            // The pool's own step, the one the walk takes (`_nextSqrtFromInput`): the new
+            // price rounds UP, so the figure is what the pool pays for a swap that ends inside
+            // its first step, never a wei above it (test/OutV3IsNotAboveThePoolsSwap.t.sol).
+            // Rounded up, a price that collapsed reads 1, not 0.
+            uint256 sqrtNew = _nextSqrtFromInput(sqrtP, liq, amtAfterFee, true);
+            if (sqrtNew >= P || sqrtNew <= 1) return 0;
             // zeroForOne: the price FALLS. Truncating means not letting it drop
             // below the boundary.
             if (sqrtLimit != 0 && sqrtNew < sqrtLimit) sqrtNew = sqrtLimit;
@@ -2455,7 +2456,7 @@ library BlazePhoenixCore {
     ///      spending at most `rem` (fee included). Returns the price reached, the input
     ///      spent (fee included) and the output.
     function _v4Step(uint160 sp, uint160 target, uint128 liq, uint256 rem, uint24 fee, bool zeroForOne)
-        private pure returns (uint160 next, uint256 used, uint256 out)
+        internal pure returns (uint160 next, uint256 used, uint256 out)
     {
         uint256 remLessFee = mulDiv(rem, 1_000_000 - fee, 1_000_000);
         uint256 toTarget = zeroForOne ? _amount0Delta(target, sp, liq, true) : _amount1Delta(sp, target, liq, true);

@@ -105,6 +105,9 @@ ALLOW = [
      "The fee() selector left-aligned in a word, copied from BlazePhoenixCore.getV3Fee by the aero-nova mutant."),
     (".github/scripts/mutants.py", "mstore(m, 0xe76c01e4",
      "The globalState() selector left-aligned in a word, copied from the Algebra read in BlazePhoenixCore by the gas-1106 G2-6 mutant."),
+    (".github/scripts/mutants.py", "mstore(0x00, 0x781a891",
+     "The getLBHooksParameters() selector left-aligned in a word, copied from BlazePhoenixAdapterLB._hooksParameters "
+     "by mutant [LB-36] (0x781a8915, and 0x781a8916 in the mutant)."),
 ]
 
 
