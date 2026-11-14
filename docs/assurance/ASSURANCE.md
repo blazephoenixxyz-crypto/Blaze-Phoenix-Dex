@@ -760,7 +760,11 @@ pin (SHARED_QUANTITIES, "the net output the exact door promises"). The offline t
 `test/ExactDoorFollowsTheFeeCalendar.t.sol` asserts equality (delivered == exactOut) over decimals
 6/8/18/24, thin and deep books, dust and the fee's rounding seam, V3 and V2, both regimes and two
 hops; mutants [door-fee-1..3] and the tripwire [door-fee-meta], which refuses a widened fork
-tolerance since the fork row cannot run in the guard.
+tolerance since the fork row cannot run in the guard. On Avalanche the Blackhole row
+(`test_AvaxBH_Q4_BaseMinted_AutoDoor_CrossesTick_QuoteExecOracle`, an Algebra Integral venue
+crossing an initialized tick) asks min(gross, funded) of the raw venue to the wei; its oracle
+still asked the rule before the fix until 2026-11-14 (F-11), and [door-fee-fork-1] in M_FORK
+pairs it with the old rule.
 
 ## 4p. How a quote ages — the promise measured against time and drift
 

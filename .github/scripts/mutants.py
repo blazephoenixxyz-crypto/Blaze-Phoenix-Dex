@@ -9347,6 +9347,15 @@ M_FORK = [
       old='            return uint24(pf + uint256(keyFee) - (pf * uint256(keyFee)) / 1_000_000);',
       new='            return keyFee; // MUTANT [ATQ-fork-13]',
       testes=['test_AtqFork_BaseV4Walk_Spacing200_ToTheExtremeTicks']),
+ # F-11 (2026-11-14): the Avalanche Blackhole row asked the exact door for the rule before 6c02eee
+ # (the output deduction on a single input-charged hop) and went red on the fork lane when the fix
+ # landed. Its oracle now asks min(gross leg output, funded fill) of the raw venue, to the wei: an
+ # Algebra Integral venue crossing an initialized tick, the shape the offline twin does not reach.
+ dict(nome='[door-fee-fork-1]: the output deduction is applied on a single input-charged hop (Algebra Integral, across a tick)',
+      f='src/BlazePhoenixQuoter.sol',
+      old='            ? gross // input-charged: the fee came off `carry` in the loop, or `funded` bounds below',
+      new='            ? gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS) // MUTANT [door-fee-fork-1]',
+      testes=['test_AvaxBH_Q4_BaseMinted_AutoDoor_CrossesTick_QuoteExecOracle']),
 ]
 
 def run(t):
