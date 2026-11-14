@@ -185,9 +185,10 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/Fix1020DelegatedCallbacks.t.sol` | 3 | 1 | 3 |
 | `test/adapters/AdapterConformance.sol` | 2 | 2 | 2 |
 | `test/ref/Frame4007.sol` | 2 | 2 | 2 |
+| `tools/g7-gas-campaign/G7Deploy.s.sol` | 2 | 1 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,824 | 1,430 | 1,824 |
+| **all** | 1,826 | 1,431 | 1,826 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -241,12 +242,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,516 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 509 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 38 | `test/fork/*.t.sol` |
+| Test declarations | 3,523 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 511 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 39 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,824 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,826 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 1 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
