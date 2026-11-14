@@ -165,24 +165,15 @@ library BlazePhoenixMath {
             uint256 m = ord.length;
             if (m == 0) return (0, 0, 0, psis);   // all dead: nothing quotable
 
-            // Band base: the CAPITAL ANCHOR when one exists (any candidate
-            // holds a non-zero real tokenOut balance); plain median only as
-            // fallback (e.g. V4, whose tokens live in the PoolManager
-            // singleton, so per-pool balanceOf is 0 and no anchor forms).
-            // The anchor is derived here by post-scanning the cached arrays
-            // (first max wins, matching the historical in-loop tracker) so the
-            // probe loop above carries no scalar accumulators.
-            // V3 / BP-18: use the real capital anchor (largest tokenOut balance of
-            // a token-custodying candidate — V4 is forced to 0 above, so this can
-            // no longer be dust-forged on a pseudo-address) when one exists.
-            // Otherwise (a V4-only set) anchor on the DEEPEST candidate by measured
-            // liquidity rather than the plain median: a plain median is shifted for
-            // FREE by >=5 stale fakes, whereas out-depthing the honest venue costs
-            // real capital in the PoolManager. This RAISES the attack cost from free
-            // to capital-at-risk; it does NOT make it impossible — active-tick L is
-            // cheap to inflate with a one-spacing position, so a fully robust anchor
-            // (L discounted by tick width, or a full-size-quote sanity check on the
-            // band base) is deferred WITH the V2 tick-cap work.
+            // Band base: the DEPTH-WEIGHTED MEDIAN row of the live prices
+            // (`_depthWeightedMedian`: the votes are measured depth, never
+            // balanceOf); the plain median's row `ord[m / 2]` only when no row
+            // votes (the guard below).
+            // History, none of it live: the base was first the capital anchor
+            // (V3 / BP-18: the largest tokenOut balance of a token-custodying
+            // candidate, and for a V4-only set the DEEPEST candidate by measured
+            // liquidity), then the single deepest pool by measured depth (T2,
+            // below), and is now the depth-weighted median, whose NatSpec says why.
             // T2 (Thomas): anchor on MEASURED DEPTH, never raw balanceOf. The old
             // capital anchor read balsOut[i] = balanceOf(tokenOut, pool), which a
             // plain donation (transfer to the pool) inflates WITHOUT moving the
@@ -192,8 +183,7 @@ library BlazePhoenixMath {
             // the honest deep pool OUT (~75% user loss, preview gamed identically).
             // depths[] is getReserves (V2/Solidly) / getLiquidity (V3), which a
             // donation cannot move; V4 depth is its measured liquidity, capped for
-            // the vote by what its book holds (`_heldShare`). Falls back to the
-            // median only when no candidate reports depth.
+            // the vote by what its book holds (`_heldShare`).
             uint256 base = _depthWeightedMedian(prices, fe, depths, n, cands, tIn, hub, ord);
             // No-vote guard (devil's-advocate): where no live row carries a vote (every
             // live depth 0, or every vote muted to nothing) the weighted median has no row
@@ -239,8 +229,10 @@ library BlazePhoenixMath {
         // =========================================================================
         //  STAGE 2 — DEPTH-WEIGHTED SPLIT (on filtered survivors)
         // =========================================================================
-        // Allocate by REAL depth, normalised within each pool KIND. Psi is 1
-        // for every never-swapped pool, which splits a trade evenly across a
+        // Allocate by REAL depth, normalised against the GLOBAL maximum depth of
+        // the survivors (one normalisation, no per-kind modes: see FIXED below).
+        // Before depth weighting, Psi was 1
+        // for every never-swapped pool, which split a trade evenly across a
         // 790-WETH pool and a 0.34-WETH dust pool — destroying ~20% of value
         // (measured for a WETH/USDC pair: 50/50 gave 1302 USDC vs 1638
         // when concentrated in the deep pool). depthWad reflects current
