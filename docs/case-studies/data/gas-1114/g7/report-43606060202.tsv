@@ -1,0 +1,2028 @@
+# outcomes: chain	kind	mode	n	ok	noquote	revert	rpc_err	timeout	prereq	mf_unforced
+base	family_rep	D	1	1	0	0	0	0	0	0
+base	family_rep	M0	1	1	0	0	0	0	0	0
+base	family_rep	M0w	1	1	0	0	0	0	0	0
+base	family_rep	R10	1	1	0	0	0	0	0	0
+base	family_rep	R20	1	1	0	0	0	0	0	0
+base	family_rep	R25	1	1	0	0	0	0	0	0
+base	family_rep	R7	1	1	0	0	0	0	0	0
+base	fee_high	D	1	1	0	0	0	0	0	0
+base	fee_high	M0	1	1	0	0	0	0	0	0
+base	fee_high	M0w	1	1	0	0	0	0	0	0
+base	fee_high	R10	1	1	0	0	0	0	0	0
+base	fee_high	R20	1	1	0	0	0	0	0	0
+base	fee_high	R25	1	1	0	0	0	0	0	0
+base	fee_high	R7	1	1	0	0	0	0	0	0
+base	fee_low	D	1	1	0	0	0	0	0	0
+base	fee_low	M0	1	1	0	0	0	0	0	0
+base	fee_low	M0w	1	1	0	0	0	0	0	0
+base	fee_low	R10	1	1	0	0	0	0	0	0
+base	fee_low	R20	1	1	0	0	0	0	0	0
+base	fee_low	R25	1	1	0	0	0	0	0	0
+base	fee_low	R7	1	1	0	0	0	0	0	0
+base	gates	D	1	1	0	0	0	0	0	0
+base	gates	M0	1	1	0	0	0	0	0	0
+base	gates	M0w	1	1	0	0	0	0	0	0
+base	gates	R10	1	1	0	0	0	0	0	0
+base	gates	R20	1	1	0	0	0	0	0	0
+base	gates	R25	1	1	0	0	0	0	0	0
+base	gates	R7	1	1	0	0	0	0	0	0
+base	major	D	1	1	0	0	0	0	0	0
+base	major	M0	1	1	0	0	0	0	0	0
+base	major	M0w	1	1	0	0	0	0	0	0
+base	major	R10	1	1	0	0	0	0	0	0
+base	major	R20	1	1	0	0	0	0	0	0
+base	major	R25	1	1	0	0	0	0	0	0
+base	major	R7	1	1	0	0	0	0	0	0
+base	midtail	D	1	1	0	0	0	0	0	0
+base	midtail	M0	1	1	0	0	0	0	0	0
+base	midtail	M0w	1	1	0	0	0	0	0	0
+base	midtail	R10	1	1	0	0	0	0	0	0
+base	midtail	R20	1	1	0	0	0	0	0	0
+base	midtail	R25	1	1	0	0	0	0	0	0
+base	midtail	R7	1	1	0	0	0	0	0	0
+optimism	family_rep	D	1	1	0	0	0	0	0	0
+optimism	family_rep	M0	1	1	0	0	0	0	0	0
+optimism	family_rep	M0w	1	1	0	0	0	0	0	0
+optimism	family_rep	R10	1	1	0	0	0	0	0	0
+optimism	family_rep	R20	1	1	0	0	0	0	0	0
+optimism	family_rep	R25	1	1	0	0	0	0	0	0
+optimism	family_rep	R7	1	1	0	0	0	0	0	0
+optimism	fee_high	D	1	0	1	0	0	0	0	0
+optimism	fee_high	M0	1	0	1	0	0	0	0	0
+optimism	fee_high	M0w	1	0	0	0	0	0	1	0
+optimism	fee_high	R10	1	0	1	0	0	0	0	0
+optimism	fee_high	R20	1	0	1	0	0	0	0	0
+optimism	fee_high	R25	1	0	1	0	0	0	0	0
+optimism	fee_high	R7	1	0	1	0	0	0	0	0
+optimism	fee_low	D	1	1	0	0	0	0	0	0
+optimism	fee_low	M0	1	1	0	0	0	0	0	0
+optimism	fee_low	M0w	1	1	0	0	0	0	0	0
+optimism	fee_low	R10	1	1	0	0	0	0	0	0
+optimism	fee_low	R20	1	1	0	0	0	0	0	0
+optimism	fee_low	R25	1	1	0	0	0	0	0	0
+optimism	fee_low	R7	1	1	0	0	0	0	0	0
+optimism	major	D	1	1	0	0	0	0	0	0
+optimism	major	M0	1	1	0	0	0	0	0	0
+optimism	major	M0w	1	1	0	0	0	0	0	0
+optimism	major	R10	1	1	0	0	0	0	0	0
+optimism	major	R20	1	1	0	0	0	0	0	0
+optimism	major	R25	1	1	0	0	0	0	0	0
+optimism	major	R7	1	1	0	0	0	0	0	0
+optimism	midtail	D	1	1	0	0	0	0	0	0
+optimism	midtail	M0	1	1	0	0	0	0	0	0
+optimism	midtail	M0w	1	1	0	0	0	0	0	0
+optimism	midtail	R10	1	1	0	0	0	0	0	0
+optimism	midtail	R20	1	1	0	0	0	0	0	0
+optimism	midtail	R25	1	1	0	0	0	0	0	0
+optimism	midtail	R7	1	1	0	0	0	0	0	0
+optimism	shallow	D	1	1	0	0	0	0	0	0
+optimism	shallow	M0	1	1	0	0	0	0	0	0
+optimism	shallow	M0w	1	1	0	0	0	0	0	0
+optimism	shallow	R10	1	1	0	0	0	0	0	0
+optimism	shallow	R20	1	1	0	0	0	0	0	0
+optimism	shallow	R25	1	1	0	0	0	0	0	0
+optimism	shallow	R7	1	1	0	0	0	0	0	0
+# swap coverage (mf_unforced counts as its twin M<age>; denominator = every row): chain	n	ok	mf_unforced_twin_ok	swap_ok	swap_ok_pct
+base	42	42	0	42	100.0
+optimism	42	35	0	35	83.3
+# gas: chain	kind	mode	segment	n_ok	p50	p95	p99
+base	family_rep	D	g_quote	1	6569962	6569962	6569962
+base	family_rep	D	g_solve	1	6330540	6330540	6330540
+base	family_rep	D	g_discovery	1	1740812	1740812	1740812
+base	family_rep	D	g_discovery_bridge	1	1314900	1314900	1314900
+base	family_rep	D	g_gates	1	104199	104199	104199
+base	family_rep	D	g_exec	1	908875	908875	908875
+base	family_rep	D	g_legs_sum	1	104308	104308	104308
+base	family_rep	D	g_sweep	1	23076	23076	23076
+base	family_rep	D	g_record	1	514315	514315	514315
+base	family_rep	D	cd_intrinsic	1	6128	6128	6128
+base	family_rep	D	cd_floor7623	1	36320	36320	36320
+base	family_rep	D	g_cold	1	911964	911964	911964
+base	family_rep	D	g_warm	1	589464	589464	589464
+base	family_rep	D	g_coldpart	1	322500	322500	322500
+base	family_rep	M0	g_quote	1	6569962	6569962	6569962
+base	family_rep	M0	g_solve	1	6330540	6330540	6330540
+base	family_rep	M0	g_discovery	1	1740812	1740812	1740812
+base	family_rep	M0	g_discovery_bridge	1	1314900	1314900	1314900
+base	family_rep	M0	g_gates	1	104199	104199	104199
+base	family_rep	M0	g_exec	1	908875	908875	908875
+base	family_rep	M0	g_legs_sum	1	104308	104308	104308
+base	family_rep	M0	g_sweep	1	23076	23076	23076
+base	family_rep	M0	g_record	1	514315	514315	514315
+base	family_rep	M0	cd_intrinsic	1	6128	6128	6128
+base	family_rep	M0	cd_floor7623	1	36320	36320	36320
+base	family_rep	M0	g_cold	1	911964	911964	911964
+base	family_rep	M0	g_warm	1	589464	589464	589464
+base	family_rep	M0	g_coldpart	1	322500	322500	322500
+base	family_rep	M0w	g_quote	1	6689665	6689665	6689665
+base	family_rep	M0w	g_solve	1	6435841	6435841	6435841
+base	family_rep	M0w	g_discovery	1	1740812	1740812	1740812
+base	family_rep	M0w	g_discovery_bridge	1	1314900	1314900	1314900
+base	family_rep	M0w	g_gates	1	104199	104199	104199
+base	family_rep	M0w	g_exec	1	429422	429422	429422
+base	family_rep	M0w	g_legs_sum	1	111509	111509	111509
+base	family_rep	M0w	g_sweep	1	5976	5976	5976
+base	family_rep	M0w	g_record	1	12767	12767	12767
+base	family_rep	M0w	cd_intrinsic	1	6068	6068	6068
+base	family_rep	M0w	cd_floor7623	1	36170	36170	36170
+base	family_rep	M0w	g_cold	1	432511	432511	432511
+base	family_rep	M0w	g_warm	1	304511	304511	304511
+base	family_rep	M0w	g_coldpart	1	128000	128000	128000
+base	family_rep	R10	g_quote	1	6570454	6570454	6570454
+base	family_rep	R10	g_solve	1	6331032	6331032	6331032
+base	family_rep	R10	g_discovery	1	1740812	1740812	1740812
+base	family_rep	R10	g_discovery_bridge	1	1314900	1314900	1314900
+base	family_rep	R10	g_gates	1	104199	104199	104199
+base	family_rep	R10	g_exec	1	908875	908875	908875
+base	family_rep	R10	g_legs_sum	1	104308	104308	104308
+base	family_rep	R10	g_sweep	1	23076	23076	23076
+base	family_rep	R10	g_record	1	514315	514315	514315
+base	family_rep	R10	cd_intrinsic	1	6128	6128	6128
+base	family_rep	R10	cd_floor7623	1	36320	36320	36320
+base	family_rep	R10	g_cold	1	911964	911964	911964
+base	family_rep	R10	g_warm	1	589464	589464	589464
+base	family_rep	R10	g_coldpart	1	322500	322500	322500
+base	family_rep	R20	g_quote	1	6564458	6564458	6564458
+base	family_rep	R20	g_solve	1	6325036	6325036	6325036
+base	family_rep	R20	g_discovery	1	1740812	1740812	1740812
+base	family_rep	R20	g_discovery_bridge	1	1314900	1314900	1314900
+base	family_rep	R20	g_gates	1	104199	104199	104199
+base	family_rep	R20	g_exec	1	908875	908875	908875
+base	family_rep	R20	g_legs_sum	1	104308	104308	104308
+base	family_rep	R20	g_sweep	1	23076	23076	23076
+base	family_rep	R20	g_record	1	514315	514315	514315
+base	family_rep	R20	cd_intrinsic	1	6128	6128	6128
+base	family_rep	R20	cd_floor7623	1	36320	36320	36320
+base	family_rep	R20	g_cold	1	911964	911964	911964
+base	family_rep	R20	g_warm	1	589464	589464	589464
+base	family_rep	R20	g_coldpart	1	322500	322500	322500
+base	family_rep	R25	g_quote	1	6564458	6564458	6564458
+base	family_rep	R25	g_solve	1	6325036	6325036	6325036
+base	family_rep	R25	g_discovery	1	1740812	1740812	1740812
+base	family_rep	R25	g_discovery_bridge	1	1314900	1314900	1314900
+base	family_rep	R25	g_gates	1	104199	104199	104199
+base	family_rep	R25	g_exec	1	908875	908875	908875
+base	family_rep	R25	g_legs_sum	1	104308	104308	104308
+base	family_rep	R25	g_sweep	1	23076	23076	23076
+base	family_rep	R25	g_record	1	514315	514315	514315
+base	family_rep	R25	cd_intrinsic	1	6128	6128	6128
+base	family_rep	R25	cd_floor7623	1	36320	36320	36320
+base	family_rep	R25	g_cold	1	911964	911964	911964
+base	family_rep	R25	g_warm	1	589464	589464	589464
+base	family_rep	R25	g_coldpart	1	322500	322500	322500
+base	family_rep	R7	g_quote	1	6570073	6570073	6570073
+base	family_rep	R7	g_solve	1	6330651	6330651	6330651
+base	family_rep	R7	g_discovery	1	1740812	1740812	1740812
+base	family_rep	R7	g_discovery_bridge	1	1314900	1314900	1314900
+base	family_rep	R7	g_gates	1	104199	104199	104199
+base	family_rep	R7	g_exec	1	908875	908875	908875
+base	family_rep	R7	g_legs_sum	1	104308	104308	104308
+base	family_rep	R7	g_sweep	1	23076	23076	23076
+base	family_rep	R7	g_record	1	514315	514315	514315
+base	family_rep	R7	cd_intrinsic	1	6128	6128	6128
+base	family_rep	R7	cd_floor7623	1	36320	36320	36320
+base	family_rep	R7	g_cold	1	911964	911964	911964
+base	family_rep	R7	g_warm	1	589464	589464	589464
+base	family_rep	R7	g_coldpart	1	322500	322500	322500
+base	fee_high	D	g_quote	1	12564461	12564461	12564461
+base	fee_high	D	g_solve	1	12025350	12025350	12025350
+base	fee_high	D	g_discovery	1	2075121	2075121	2075121
+base	fee_high	D	g_discovery_bridge	1	1489148	1489148	1489148
+base	fee_high	D	g_gates	1	51280	51280	51280
+base	fee_high	D	g_exec	1	2380108	2380108	2380108
+base	fee_high	D	g_legs_sum	1	336858	336858	336858
+base	fee_high	D	g_sweep	1	48845	48845	48845
+base	fee_high	D	g_record	1	1509638	1509638	1509638
+base	fee_high	D	cd_intrinsic	1	11636	11636	11636
+base	fee_high	D	cd_floor7623	1	50090	50090	50090
+base	fee_high	D	g_cold	1	2383384	2383384	2383384
+base	fee_high	D	g_warm	1	1844284	1844284	1844284
+base	fee_high	D	g_coldpart	1	539100	539100	539100
+base	fee_high	M0	g_quote	1	10292595	10292595	10292595
+base	fee_high	M0	g_solve	1	10029446	10029446	10029446
+base	fee_high	M0	g_discovery	1	1646148	1646148	1646148
+base	fee_high	M0	g_discovery_bridge	1	1646148	1646148	1646148
+base	fee_high	M0	g_gates	1	51280	51280	51280
+base	fee_high	M0	g_exec	1	498183	498183	498183
+base	fee_high	M0	g_legs_sum	1	168169	168169	168169
+base	fee_high	M0	g_sweep	1	48845	48845	48845
+base	fee_high	M0	g_record	1	24300	24300	24300
+base	fee_high	M0	cd_intrinsic	1	7852	7852	7852
+base	fee_high	M0	cd_floor7623	1	40630	40630	40630
+base	fee_high	M0	g_cold	1	501334	501334	501334
+base	fee_high	M0	g_warm	1	381834	381834	381834
+base	fee_high	M0	g_coldpart	1	119500	119500	119500
+base	fee_high	M0w	g_quote	1	10223208	10223208	10223208
+base	fee_high	M0w	g_solve	1	10025145	10025145	10025145
+base	fee_high	M0w	g_discovery	1	1646148	1646148	1646148
+base	fee_high	M0w	g_discovery_bridge	1	1646148	1646148	1646148
+base	fee_high	M0w	g_gates	1	51280	51280	51280
+base	fee_high	M0w	g_exec	1	252137	252137	252137
+base	fee_high	M0w	g_legs_sum	1	82647	82647	82647
+base	fee_high	M0w	g_sweep	1	8844	8844	8844
+base	fee_high	M0w	g_record	1	12732	12732	12732
+base	fee_high	M0w	cd_intrinsic	1	6104	6104	6104
+base	fee_high	M0w	cd_floor7623	1	36260	36260	36260
+base	fee_high	M0w	g_cold	1	255226	255226	255226
+base	fee_high	M0w	g_warm	1	195226	195226	195226
+base	fee_high	M0w	g_coldpart	1	60000	60000	60000
+base	fee_high	R10	g_quote	1	12562789	12562789	12562789
+base	fee_high	R10	g_solve	1	12023678	12023678	12023678
+base	fee_high	R10	g_discovery	1	2075121	2075121	2075121
+base	fee_high	R10	g_discovery_bridge	1	1489148	1489148	1489148
+base	fee_high	R10	g_gates	1	51280	51280	51280
+base	fee_high	R10	g_exec	1	2380108	2380108	2380108
+base	fee_high	R10	g_legs_sum	1	336858	336858	336858
+base	fee_high	R10	g_sweep	1	48845	48845	48845
+base	fee_high	R10	g_record	1	1509638	1509638	1509638
+base	fee_high	R10	cd_intrinsic	1	11636	11636	11636
+base	fee_high	R10	cd_floor7623	1	50090	50090	50090
+base	fee_high	R10	g_cold	1	2383384	2383384	2383384
+base	fee_high	R10	g_warm	1	1844284	1844284	1844284
+base	fee_high	R10	g_coldpart	1	539100	539100	539100
+base	fee_high	R20	g_quote	1	12652497	12652497	12652497
+base	fee_high	R20	g_solve	1	12113386	12113386	12113386
+base	fee_high	R20	g_discovery	1	2075121	2075121	2075121
+base	fee_high	R20	g_discovery_bridge	1	1489148	1489148	1489148
+base	fee_high	R20	g_gates	1	51280	51280	51280
+base	fee_high	R20	g_exec	1	2380108	2380108	2380108
+base	fee_high	R20	g_legs_sum	1	336858	336858	336858
+base	fee_high	R20	g_sweep	1	48845	48845	48845
+base	fee_high	R20	g_record	1	1509638	1509638	1509638
+base	fee_high	R20	cd_intrinsic	1	11636	11636	11636
+base	fee_high	R20	cd_floor7623	1	50090	50090	50090
+base	fee_high	R20	g_cold	1	2383384	2383384	2383384
+base	fee_high	R20	g_warm	1	1844284	1844284	1844284
+base	fee_high	R20	g_coldpart	1	539100	539100	539100
+base	fee_high	R25	g_quote	1	12642679	12642679	12642679
+base	fee_high	R25	g_solve	1	12103568	12103568	12103568
+base	fee_high	R25	g_discovery	1	2075121	2075121	2075121
+base	fee_high	R25	g_discovery_bridge	1	1489148	1489148	1489148
+base	fee_high	R25	g_gates	1	51280	51280	51280
+base	fee_high	R25	g_exec	1	2380108	2380108	2380108
+base	fee_high	R25	g_legs_sum	1	336858	336858	336858
+base	fee_high	R25	g_sweep	1	48845	48845	48845
+base	fee_high	R25	g_record	1	1509638	1509638	1509638
+base	fee_high	R25	cd_intrinsic	1	11636	11636	11636
+base	fee_high	R25	cd_floor7623	1	50090	50090	50090
+base	fee_high	R25	g_cold	1	2383384	2383384	2383384
+base	fee_high	R25	g_warm	1	1844284	1844284	1844284
+base	fee_high	R25	g_coldpart	1	539100	539100	539100
+base	fee_high	R7	g_quote	1	12570150	12570150	12570150
+base	fee_high	R7	g_solve	1	12031039	12031039	12031039
+base	fee_high	R7	g_discovery	1	2075121	2075121	2075121
+base	fee_high	R7	g_discovery_bridge	1	1489148	1489148	1489148
+base	fee_high	R7	g_gates	1	51280	51280	51280
+base	fee_high	R7	g_exec	1	2380108	2380108	2380108
+base	fee_high	R7	g_legs_sum	1	336858	336858	336858
+base	fee_high	R7	g_sweep	1	48845	48845	48845
+base	fee_high	R7	g_record	1	1509638	1509638	1509638
+base	fee_high	R7	cd_intrinsic	1	11636	11636	11636
+base	fee_high	R7	cd_floor7623	1	50090	50090	50090
+base	fee_high	R7	g_cold	1	2383384	2383384	2383384
+base	fee_high	R7	g_warm	1	1844284	1844284	1844284
+base	fee_high	R7	g_coldpart	1	539100	539100	539100
+base	fee_low	D	g_quote	1	14513800	14513800	14513800
+base	fee_low	D	g_solve	1	16279616	16279616	16279616
+base	fee_low	D	g_discovery	1	2292854	2292854	2292854
+base	fee_low	D	g_discovery_bridge	1	1710113	1710113	1710113
+base	fee_low	D	g_gates	1	45536	45536	45536
+base	fee_low	D	g_exec	1	1811335	1811335	1811335
+base	fee_low	D	g_legs_sum	1	254785	254785	254785
+base	fee_low	D	g_sweep	1	22901	22901	22901
+base	fee_low	D	g_record	1	1217168	1217168	1217168
+base	fee_low	D	cd_intrinsic	1	9000	9000	9000
+base	fee_low	D	cd_floor7623	1	43500	43500	43500
+base	fee_low	D	g_cold	1	1814530	1814530	1814530
+base	fee_low	D	g_warm	1	1201530	1201530	1201530
+base	fee_low	D	g_coldpart	1	613000	613000	613000
+base	fee_low	M0	g_quote	1	12166775	12166775	12166775
+base	fee_low	M0	g_solve	1	13932591	13932591	13932591
+base	fee_low	M0	g_discovery	1	1869113	1869113	1869113
+base	fee_low	M0	g_discovery_bridge	1	1869113	1869113	1869113
+base	fee_low	M0	g_gates	1	45536	45536	45536
+base	fee_low	M0	g_exec	1	1811335	1811335	1811335
+base	fee_low	M0	g_legs_sum	1	254785	254785	254785
+base	fee_low	M0	g_sweep	1	22901	22901	22901
+base	fee_low	M0	g_record	1	1217168	1217168	1217168
+base	fee_low	M0	cd_intrinsic	1	9000	9000	9000
+base	fee_low	M0	cd_floor7623	1	43500	43500	43500
+base	fee_low	M0	g_cold	1	1814530	1814530	1814530
+base	fee_low	M0	g_warm	1	1201530	1201530	1201530
+base	fee_low	M0	g_coldpart	1	613000	613000	613000
+base	fee_low	M0w	g_quote	1	9902620	9902620	9902620
+base	fee_low	M0w	g_solve	1	9354817	9354817	9354817
+base	fee_low	M0w	g_discovery	1	1286092	1286092	1286092
+base	fee_low	M0w	g_discovery_bridge	1	1286092	1286092	1286092
+base	fee_low	M0w	g_gates	1	41024	41024	41024
+base	fee_low	M0w	g_exec	1	1754217	1754217	1754217
+base	fee_low	M0w	g_legs_sum	1	242899	242899	242899
+base	fee_low	M0w	g_sweep	1	33064	33064	33064
+base	fee_low	M0w	g_record	1	1145766	1145766	1145766
+base	fee_low	M0w	cd_intrinsic	1	10712	10712	10712
+base	fee_low	M0w	cd_floor7623	1	47780	47780	47780
+base	fee_low	M0w	g_cold	1	1757475	1757475	1757475
+base	fee_low	M0w	g_warm	1	1282975	1282975	1282975
+base	fee_low	M0w	g_coldpart	1	474500	474500	474500
+base	fee_low	R10	g_quote	1	14513800	14513800	14513800
+base	fee_low	R10	g_solve	1	16279616	16279616	16279616
+base	fee_low	R10	g_discovery	1	2292854	2292854	2292854
+base	fee_low	R10	g_discovery_bridge	1	1710113	1710113	1710113
+base	fee_low	R10	g_gates	1	45536	45536	45536
+base	fee_low	R10	g_exec	1	1811335	1811335	1811335
+base	fee_low	R10	g_legs_sum	1	254785	254785	254785
+base	fee_low	R10	g_sweep	1	22901	22901	22901
+base	fee_low	R10	g_record	1	1217168	1217168	1217168
+base	fee_low	R10	cd_intrinsic	1	9000	9000	9000
+base	fee_low	R10	cd_floor7623	1	43500	43500	43500
+base	fee_low	R10	g_cold	1	1814530	1814530	1814530
+base	fee_low	R10	g_warm	1	1201530	1201530	1201530
+base	fee_low	R10	g_coldpart	1	613000	613000	613000
+base	fee_low	R20	g_quote	1	14515308	14515308	14515308
+base	fee_low	R20	g_solve	1	16281124	16281124	16281124
+base	fee_low	R20	g_discovery	1	2292854	2292854	2292854
+base	fee_low	R20	g_discovery_bridge	1	1710113	1710113	1710113
+base	fee_low	R20	g_gates	1	45536	45536	45536
+base	fee_low	R20	g_exec	1	1811335	1811335	1811335
+base	fee_low	R20	g_legs_sum	1	254785	254785	254785
+base	fee_low	R20	g_sweep	1	22901	22901	22901
+base	fee_low	R20	g_record	1	1217168	1217168	1217168
+base	fee_low	R20	cd_intrinsic	1	9000	9000	9000
+base	fee_low	R20	cd_floor7623	1	43500	43500	43500
+base	fee_low	R20	g_cold	1	1814530	1814530	1814530
+base	fee_low	R20	g_warm	1	1201530	1201530	1201530
+base	fee_low	R20	g_coldpart	1	613000	613000	613000
+base	fee_low	R25	g_quote	1	14515308	14515308	14515308
+base	fee_low	R25	g_solve	1	16281124	16281124	16281124
+base	fee_low	R25	g_discovery	1	2292854	2292854	2292854
+base	fee_low	R25	g_discovery_bridge	1	1710113	1710113	1710113
+base	fee_low	R25	g_gates	1	45536	45536	45536
+base	fee_low	R25	g_exec	1	1811335	1811335	1811335
+base	fee_low	R25	g_legs_sum	1	254785	254785	254785
+base	fee_low	R25	g_sweep	1	22901	22901	22901
+base	fee_low	R25	g_record	1	1217168	1217168	1217168
+base	fee_low	R25	cd_intrinsic	1	9000	9000	9000
+base	fee_low	R25	cd_floor7623	1	43500	43500	43500
+base	fee_low	R25	g_cold	1	1814530	1814530	1814530
+base	fee_low	R25	g_warm	1	1201530	1201530	1201530
+base	fee_low	R25	g_coldpart	1	613000	613000	613000
+base	fee_low	R7	g_quote	1	14513800	14513800	14513800
+base	fee_low	R7	g_solve	1	16279616	16279616	16279616
+base	fee_low	R7	g_discovery	1	2292854	2292854	2292854
+base	fee_low	R7	g_discovery_bridge	1	1710113	1710113	1710113
+base	fee_low	R7	g_gates	1	45536	45536	45536
+base	fee_low	R7	g_exec	1	1811335	1811335	1811335
+base	fee_low	R7	g_legs_sum	1	254785	254785	254785
+base	fee_low	R7	g_sweep	1	22901	22901	22901
+base	fee_low	R7	g_record	1	1217168	1217168	1217168
+base	fee_low	R7	cd_intrinsic	1	9000	9000	9000
+base	fee_low	R7	cd_floor7623	1	43500	43500	43500
+base	fee_low	R7	g_cold	1	1814530	1814530	1814530
+base	fee_low	R7	g_warm	1	1201530	1201530	1201530
+base	fee_low	R7	g_coldpart	1	613000	613000	613000
+base	gates	D	g_quote	1	4425914	4425914	4425914
+base	gates	D	g_solve	1	4283369	4283369	4283369
+base	gates	D	g_discovery	1	1441254	1441254	1441254
+base	gates	D	g_discovery_bridge	1	1015340	1015340	1015340
+base	gates	D	g_gates	1	93943	93943	93943
+base	gates	D	g_exec	1	909751	909751	909751
+base	gates	D	g_legs_sum	1	103872	103872	103872
+base	gates	D	g_sweep	1	75789	75789	75789
+base	gates	D	g_record	1	514315	514315	514315
+base	gates	D	cd_intrinsic	1	5960	5960	5960
+base	gates	D	cd_floor7623	1	35900	35900	35900
+base	gates	D	g_cold	1	912840	912840	912840
+base	gates	D	g_warm	1	588340	588340	588340
+base	gates	D	g_coldpart	1	324500	324500	324500
+base	gates	M0	g_quote	1	4425914	4425914	4425914
+base	gates	M0	g_solve	1	4283369	4283369	4283369
+base	gates	M0	g_discovery	1	1441254	1441254	1441254
+base	gates	M0	g_discovery_bridge	1	1015340	1015340	1015340
+base	gates	M0	g_gates	1	93943	93943	93943
+base	gates	M0	g_exec	1	909751	909751	909751
+base	gates	M0	g_legs_sum	1	103872	103872	103872
+base	gates	M0	g_sweep	1	75789	75789	75789
+base	gates	M0	g_record	1	514315	514315	514315
+base	gates	M0	cd_intrinsic	1	5960	5960	5960
+base	gates	M0	cd_floor7623	1	35900	35900	35900
+base	gates	M0	g_cold	1	912840	912840	912840
+base	gates	M0	g_warm	1	588340	588340	588340
+base	gates	M0	g_coldpart	1	324500	324500	324500
+base	gates	M0w	g_quote	1	4538251	4538251	4538251
+base	gates	M0w	g_solve	1	4388475	4388475	4388475
+base	gates	M0w	g_discovery	1	1441254	1441254	1441254
+base	gates	M0w	g_discovery_bridge	1	1015340	1015340	1015340
+base	gates	M0w	g_gates	1	93943	93943	93943
+base	gates	M0w	g_exec	1	429346	429346	429346
+base	gates	M0w	g_legs_sum	1	110129	110129	110129
+base	gates	M0w	g_sweep	1	24489	24489	24489
+base	gates	M0w	g_record	1	12767	12767	12767
+base	gates	M0w	cd_intrinsic	1	5948	5948	5948
+base	gates	M0w	cd_floor7623	1	35870	35870	35870
+base	gates	M0w	g_cold	1	432435	432435	432435
+base	gates	M0w	g_warm	1	302435	302435	302435
+base	gates	M0w	g_coldpart	1	130000	130000	130000
+base	gates	R10	g_quote	1	4358706	4358706	4358706
+base	gates	R10	g_solve	1	4216161	4216161	4216161
+base	gates	R10	g_discovery	1	1441254	1441254	1441254
+base	gates	R10	g_discovery_bridge	1	1015340	1015340	1015340
+base	gates	R10	g_gates	1	93943	93943	93943
+base	gates	R10	g_exec	1	909751	909751	909751
+base	gates	R10	g_legs_sum	1	103872	103872	103872
+base	gates	R10	g_sweep	1	75789	75789	75789
+base	gates	R10	g_record	1	514315	514315	514315
+base	gates	R10	cd_intrinsic	1	5960	5960	5960
+base	gates	R10	cd_floor7623	1	35900	35900	35900
+base	gates	R10	g_cold	1	912840	912840	912840
+base	gates	R10	g_warm	1	588340	588340	588340
+base	gates	R10	g_coldpart	1	324500	324500	324500
+base	gates	R20	g_quote	1	4358706	4358706	4358706
+base	gates	R20	g_solve	1	4216161	4216161	4216161
+base	gates	R20	g_discovery	1	1441254	1441254	1441254
+base	gates	R20	g_discovery_bridge	1	1015340	1015340	1015340
+base	gates	R20	g_gates	1	93943	93943	93943
+base	gates	R20	g_exec	1	909751	909751	909751
+base	gates	R20	g_legs_sum	1	103872	103872	103872
+base	gates	R20	g_sweep	1	75789	75789	75789
+base	gates	R20	g_record	1	514315	514315	514315
+base	gates	R20	cd_intrinsic	1	5960	5960	5960
+base	gates	R20	cd_floor7623	1	35900	35900	35900
+base	gates	R20	g_cold	1	912840	912840	912840
+base	gates	R20	g_warm	1	588340	588340	588340
+base	gates	R20	g_coldpart	1	324500	324500	324500
+base	gates	R25	g_quote	1	4358706	4358706	4358706
+base	gates	R25	g_solve	1	4216161	4216161	4216161
+base	gates	R25	g_discovery	1	1441254	1441254	1441254
+base	gates	R25	g_discovery_bridge	1	1015340	1015340	1015340
+base	gates	R25	g_gates	1	93943	93943	93943
+base	gates	R25	g_exec	1	909751	909751	909751
+base	gates	R25	g_legs_sum	1	103872	103872	103872
+base	gates	R25	g_sweep	1	75789	75789	75789
+base	gates	R25	g_record	1	514315	514315	514315
+base	gates	R25	cd_intrinsic	1	5960	5960	5960
+base	gates	R25	cd_floor7623	1	35900	35900	35900
+base	gates	R25	g_cold	1	912840	912840	912840
+base	gates	R25	g_warm	1	588340	588340	588340
+base	gates	R25	g_coldpart	1	324500	324500	324500
+base	gates	R7	g_quote	1	4425914	4425914	4425914
+base	gates	R7	g_solve	1	4283369	4283369	4283369
+base	gates	R7	g_discovery	1	1441254	1441254	1441254
+base	gates	R7	g_discovery_bridge	1	1015340	1015340	1015340
+base	gates	R7	g_gates	1	93943	93943	93943
+base	gates	R7	g_exec	1	909751	909751	909751
+base	gates	R7	g_legs_sum	1	103872	103872	103872
+base	gates	R7	g_sweep	1	75789	75789	75789
+base	gates	R7	g_record	1	514315	514315	514315
+base	gates	R7	cd_intrinsic	1	5960	5960	5960
+base	gates	R7	cd_floor7623	1	35900	35900	35900
+base	gates	R7	g_cold	1	912840	912840	912840
+base	gates	R7	g_warm	1	588340	588340	588340
+base	gates	R7	g_coldpart	1	324500	324500	324500
+base	major	D	g_quote	1	7142971	7142971	7142971
+base	major	D	g_solve	1	7004777	7004777	7004777
+base	major	D	g_discovery	1	1378790	1378790	1378790
+base	major	D	g_discovery_bridge	1	703646	703646	703646
+base	major	D	g_gates	1	30768	30768	30768
+base	major	D	g_exec	1	1054614	1054614	1054614
+base	major	D	g_legs_sum	1	88631	88631	88631
+base	major	D	g_sweep	1	68703	68703	68703
+base	major	D	g_record	1	745186	745186	745186
+base	major	D	cd_intrinsic	1	5744	5744	5744
+base	major	D	cd_floor7623	1	35360	35360	35360
+base	major	D	g_cold	1	1057703	1057703	1057703
+base	major	D	g_warm	1	657203	657203	657203
+base	major	D	g_coldpart	1	400500	400500	400500
+base	major	M0	g_quote	1	3385772	3385772	3385772
+base	major	M0	g_solve	1	3247578	3247578	3247578
+base	major	M0	g_discovery	1	861146	861146	861146
+base	major	M0	g_discovery_bridge	1	861146	861146	861146
+base	major	M0	g_gates	1	30768	30768	30768
+base	major	M0	g_exec	1	322090	322090	322090
+base	major	M0	g_legs_sum	1	88631	88631	88631
+base	major	M0	g_sweep	1	68703	68703	68703
+base	major	M0	g_record	1	12662	12662	12662
+base	major	M0	cd_intrinsic	1	5732	5732	5732
+base	major	M0	cd_floor7623	1	35330	35330	35330
+base	major	M0	g_cold	1	325179	325179	325179
+base	major	M0	g_warm	1	262679	262679	262679
+base	major	M0	g_coldpart	1	62500	62500	62500
+base	major	M0w	g_quote	1	3385772	3385772	3385772
+base	major	M0w	g_solve	1	3247578	3247578	3247578
+base	major	M0w	g_discovery	1	861146	861146	861146
+base	major	M0w	g_discovery_bridge	1	861146	861146	861146
+base	major	M0w	g_gates	1	30768	30768	30768
+base	major	M0w	g_exec	1	270745	270745	270745
+base	major	M0w	g_legs_sum	1	88631	88631	88631
+base	major	M0w	g_sweep	1	17403	17403	17403
+base	major	M0w	g_record	1	12662	12662	12662
+base	major	M0w	cd_intrinsic	1	5732	5732	5732
+base	major	M0w	cd_floor7623	1	35330	35330	35330
+base	major	M0w	g_cold	1	273834	273834	273834
+base	major	M0w	g_warm	1	211334	211334	211334
+base	major	M0w	g_coldpart	1	62500	62500	62500
+base	major	R10	g_quote	1	6998615	6998615	6998615
+base	major	R10	g_solve	1	6860426	6860426	6860426
+base	major	R10	g_discovery	1	1378790	1378790	1378790
+base	major	R10	g_discovery_bridge	1	703646	703646	703646
+base	major	R10	g_gates	1	30768	30768	30768
+base	major	R10	g_exec	1	1054586	1054586	1054586
+base	major	R10	g_legs_sum	1	88631	88631	88631
+base	major	R10	g_sweep	1	68703	68703	68703
+base	major	R10	g_record	1	745186	745186	745186
+base	major	R10	cd_intrinsic	1	5744	5744	5744
+base	major	R10	cd_floor7623	1	35360	35360	35360
+base	major	R10	g_cold	1	1057675	1057675	1057675
+base	major	R10	g_warm	1	657175	657175	657175
+base	major	R10	g_coldpart	1	400500	400500	400500
+base	major	R20	g_quote	1	6996144	6996144	6996144
+base	major	R20	g_solve	1	6859986	6859986	6859986
+base	major	R20	g_discovery	1	1378790	1378790	1378790
+base	major	R20	g_discovery_bridge	1	703646	703646	703646
+base	major	R20	g_gates	1	30768	30768	30768
+base	major	R20	g_exec	1	1041527	1041527	1041527
+base	major	R20	g_legs_sum	1	77323	77323	77323
+base	major	R20	g_sweep	1	68703	68703	68703
+base	major	R20	g_record	1	745962	745962	745962
+base	major	R20	cd_intrinsic	1	5756	5756	5756
+base	major	R20	cd_floor7623	1	35390	35390	35390
+base	major	R20	g_cold	1	1044616	1044616	1044616
+base	major	R20	g_warm	1	652616	652616	652616
+base	major	R20	g_coldpart	1	392000	392000	392000
+base	major	R25	g_quote	1	6995414	6995414	6995414
+base	major	R25	g_solve	1	6859256	6859256	6859256
+base	major	R25	g_discovery	1	1378790	1378790	1378790
+base	major	R25	g_discovery_bridge	1	703646	703646	703646
+base	major	R25	g_gates	1	30768	30768	30768
+base	major	R25	g_exec	1	1041527	1041527	1041527
+base	major	R25	g_legs_sum	1	77323	77323	77323
+base	major	R25	g_sweep	1	68703	68703	68703
+base	major	R25	g_record	1	745962	745962	745962
+base	major	R25	cd_intrinsic	1	5756	5756	5756
+base	major	R25	cd_floor7623	1	35390	35390	35390
+base	major	R25	g_cold	1	1044616	1044616	1044616
+base	major	R25	g_warm	1	652616	652616	652616
+base	major	R25	g_coldpart	1	392000	392000	392000
+base	major	R7	g_quote	1	7084183	7084183	7084183
+base	major	R7	g_solve	1	6914394	6914394	6914394
+base	major	R7	g_discovery	1	1378790	1378790	1378790
+base	major	R7	g_discovery_bridge	1	703646	703646	703646
+base	major	R7	g_gates	1	30768	30768	30768
+base	major	R7	g_exec	1	1197741	1197741	1197741
+base	major	R7	g_legs_sum	1	119131	119131	119131
+base	major	R7	g_sweep	1	68703	68703	68703
+base	major	R7	g_record	1	735008	735008	735008
+base	major	R7	cd_intrinsic	1	5732	5732	5732
+base	major	R7	cd_floor7623	1	35330	35330	35330
+base	major	R7	g_cold	1	1200830	1200830	1200830
+base	major	R7	g_warm	1	739830	739830	739830
+base	major	R7	g_coldpart	1	461000	461000	461000
+base	midtail	D	g_quote	1	11214163	11214163	11214163
+base	midtail	D	g_solve	1	10779629	10779629	10779629
+base	midtail	D	g_discovery	1	2096392	2096392	2096392
+base	midtail	D	g_discovery_bridge	1	1501263	1501263	1501263
+base	midtail	D	g_gates	1	51280	51280	51280
+base	midtail	D	g_exec	1	1764491	1764491	1764491
+base	midtail	D	g_legs_sum	1	203817	203817	203817
+base	midtail	D	g_sweep	1	25263	25263	25263
+base	midtail	D	g_record	1	1268986	1268986	1268986
+base	midtail	D	cd_intrinsic	1	8832	8832	8832
+base	midtail	D	cd_floor7623	1	43080	43080	43080
+base	midtail	D	g_cold	1	1767686	1767686	1767686
+base	midtail	D	g_warm	1	1158686	1158686	1158686
+base	midtail	D	g_coldpart	1	609000	609000	609000
+base	midtail	M0	g_quote	1	9060299	9060299	9060299
+base	midtail	M0	g_solve	1	8625765	8625765	8625765
+base	midtail	M0	g_discovery	1	1655263	1655263	1655263
+base	midtail	M0	g_discovery_bridge	1	1655263	1655263	1655263
+base	midtail	M0	g_gates	1	51280	51280	51280
+base	midtail	M0	g_exec	1	1764491	1764491	1764491
+base	midtail	M0	g_legs_sum	1	203817	203817	203817
+base	midtail	M0	g_sweep	1	25263	25263	25263
+base	midtail	M0	g_record	1	1268986	1268986	1268986
+base	midtail	M0	cd_intrinsic	1	8832	8832	8832
+base	midtail	M0	cd_floor7623	1	43080	43080	43080
+base	midtail	M0	g_cold	1	1767686	1767686	1767686
+base	midtail	M0	g_warm	1	1158686	1158686	1158686
+base	midtail	M0	g_coldpart	1	609000	609000	609000
+base	midtail	M0w	g_quote	1	9086038	9086038	9086038
+base	midtail	M0w	g_solve	1	8683083	8683083	8683083
+base	midtail	M0w	g_discovery	1	1655263	1655263	1655263
+base	midtail	M0w	g_discovery_bridge	1	1655263	1655263	1655263
+base	midtail	M0w	g_gates	1	51280	51280	51280
+base	midtail	M0w	g_exec	1	1141794	1141794	1141794
+base	midtail	M0w	g_legs_sum	1	190533	190533	190533
+base	midtail	M0w	g_sweep	1	8163	8163	8163
+base	midtail	M0w	g_record	1	661313	661313	661313
+base	midtail	M0w	cd_intrinsic	1	8796	8796	8796
+base	midtail	M0w	cd_floor7623	1	42990	42990	42990
+base	midtail	M0w	g_cold	1	1144989	1144989	1144989
+base	midtail	M0w	g_warm	1	724489	724489	724489
+base	midtail	M0w	g_coldpart	1	420500	420500	420500
+base	midtail	R10	g_quote	1	11211036	11211036	11211036
+base	midtail	R10	g_solve	1	10776554	10776554	10776554
+base	midtail	R10	g_discovery	1	2096392	2096392	2096392
+base	midtail	R10	g_discovery_bridge	1	1501263	1501263	1501263
+base	midtail	R10	g_gates	1	51280	51280	51280
+base	midtail	R10	g_exec	1	1764491	1764491	1764491
+base	midtail	R10	g_legs_sum	1	203817	203817	203817
+base	midtail	R10	g_sweep	1	25263	25263	25263
+base	midtail	R10	g_record	1	1268986	1268986	1268986
+base	midtail	R10	cd_intrinsic	1	8832	8832	8832
+base	midtail	R10	cd_floor7623	1	43080	43080	43080
+base	midtail	R10	g_cold	1	1767686	1767686	1767686
+base	midtail	R10	g_warm	1	1158686	1158686	1158686
+base	midtail	R10	g_coldpart	1	609000	609000	609000
+base	midtail	R20	g_quote	1	11099487	11099487	11099487
+base	midtail	R20	g_solve	1	10686406	10686406	10686406
+base	midtail	R20	g_discovery	1	2096392	2096392	2096392
+base	midtail	R20	g_discovery_bridge	1	1501263	1501263	1501263
+base	midtail	R20	g_gates	1	51280	51280	51280
+base	midtail	R20	g_exec	1	1747970	1747970	1747970
+base	midtail	R20	g_legs_sum	1	192475	192475	192475
+base	midtail	R20	g_sweep	1	25263	25263	25263
+base	midtail	R20	g_record	1	1266515	1266515	1266515
+base	midtail	R20	cd_intrinsic	1	8796	8796	8796
+base	midtail	R20	cd_floor7623	1	42990	42990	42990
+base	midtail	R20	g_cold	1	1751165	1751165	1751165
+base	midtail	R20	g_warm	1	1150665	1150665	1150665
+base	midtail	R20	g_coldpart	1	600500	600500	600500
+base	midtail	R25	g_quote	1	11146709	11146709	11146709
+base	midtail	R25	g_solve	1	10733640	10733640	10733640
+base	midtail	R25	g_discovery	1	2096392	2096392	2096392
+base	midtail	R25	g_discovery_bridge	1	1501263	1501263	1501263
+base	midtail	R25	g_gates	1	51280	51280	51280
+base	midtail	R25	g_exec	1	1748015	1748015	1748015
+base	midtail	R25	g_legs_sum	1	192475	192475	192475
+base	midtail	R25	g_sweep	1	25263	25263	25263
+base	midtail	R25	g_record	1	1266515	1266515	1266515
+base	midtail	R25	cd_intrinsic	1	8820	8820	8820
+base	midtail	R25	cd_floor7623	1	43050	43050	43050
+base	midtail	R25	g_cold	1	1751210	1751210	1751210
+base	midtail	R25	g_warm	1	1150710	1150710	1150710
+base	midtail	R25	g_coldpart	1	600500	600500	600500
+base	midtail	R7	g_quote	1	11152346	11152346	11152346
+base	midtail	R7	g_solve	1	10704845	10704845	10704845
+base	midtail	R7	g_discovery	1	2096392	2096392	2096392
+base	midtail	R7	g_discovery_bridge	1	1501263	1501263	1501263
+base	midtail	R7	g_gates	1	51280	51280	51280
+base	midtail	R7	g_exec	1	1913397	1913397	1913397
+base	midtail	R7	g_legs_sum	1	233688	233688	233688
+base	midtail	R7	g_sweep	1	25263	25263	25263
+base	midtail	R7	g_record	1	1259227	1259227	1259227
+base	midtail	R7	cd_intrinsic	1	8820	8820	8820
+base	midtail	R7	cd_floor7623	1	43050	43050	43050
+base	midtail	R7	g_cold	1	1916592	1916592	1916592
+base	midtail	R7	g_warm	1	1249092	1249092	1249092
+base	midtail	R7	g_coldpart	1	667500	667500	667500
+optimism	family_rep	D	g_quote	1	9582978	9582978	9582978
+optimism	family_rep	D	g_solve	1	9460093	9460093	9460093
+optimism	family_rep	D	g_discovery	1	1067819	1067819	1067819
+optimism	family_rep	D	g_discovery_bridge	1	782678	782678	782678
+optimism	family_rep	D	g_gates	1	51280	51280	51280
+optimism	family_rep	D	g_exec	1	665258	665258	665258
+optimism	family_rep	D	g_legs_sum	1	75840	75840	75840
+optimism	family_rep	D	g_sweep	1	68703	68703	68703
+optimism	family_rep	D	g_record	1	376241	376241	376241
+optimism	family_rep	D	cd_intrinsic	1	5828	5828	5828
+optimism	family_rep	D	cd_floor7623	1	35570	35570	35570
+optimism	family_rep	D	g_cold	1	668347	668347	668347
+optimism	family_rep	D	g_warm	1	466347	466347	466347
+optimism	family_rep	D	g_coldpart	1	202000	202000	202000
+optimism	family_rep	M0	g_quote	1	9582978	9582978	9582978
+optimism	family_rep	M0	g_solve	1	9460093	9460093	9460093
+optimism	family_rep	M0	g_discovery	1	1067819	1067819	1067819
+optimism	family_rep	M0	g_discovery_bridge	1	782678	782678	782678
+optimism	family_rep	M0	g_gates	1	51280	51280	51280
+optimism	family_rep	M0	g_exec	1	665258	665258	665258
+optimism	family_rep	M0	g_legs_sum	1	75840	75840	75840
+optimism	family_rep	M0	g_sweep	1	68703	68703	68703
+optimism	family_rep	M0	g_record	1	376241	376241	376241
+optimism	family_rep	M0	cd_intrinsic	1	5828	5828	5828
+optimism	family_rep	M0	cd_floor7623	1	35570	35570	35570
+optimism	family_rep	M0	g_cold	1	668347	668347	668347
+optimism	family_rep	M0	g_warm	1	466347	466347	466347
+optimism	family_rep	M0	g_coldpart	1	202000	202000	202000
+optimism	family_rep	M0w	g_quote	1	9692173	9692173	9692173
+optimism	family_rep	M0w	g_solve	1	9494732	9494732	9494732
+optimism	family_rep	M0w	g_discovery	1	1067819	1067819	1067819
+optimism	family_rep	M0w	g_discovery_bridge	1	782678	782678	782678
+optimism	family_rep	M0w	g_gates	1	51280	51280	51280
+optimism	family_rep	M0w	g_exec	1	696855	696855	696855
+optimism	family_rep	M0w	g_legs_sum	1	122530	122530	122530
+optimism	family_rep	M0w	g_sweep	1	17403	17403	17403
+optimism	family_rep	M0w	g_record	1	365565	365565	365565
+optimism	family_rep	M0w	cd_intrinsic	1	7492	7492	7492
+optimism	family_rep	M0w	cd_floor7623	1	39730	39730	39730
+optimism	family_rep	M0w	g_cold	1	700006	700006	700006
+optimism	family_rep	M0w	g_warm	1	484006	484006	484006
+optimism	family_rep	M0w	g_coldpart	1	216000	216000	216000
+optimism	family_rep	R10	g_quote	1	9582978	9582978	9582978
+optimism	family_rep	R10	g_solve	1	9460093	9460093	9460093
+optimism	family_rep	R10	g_discovery	1	1067819	1067819	1067819
+optimism	family_rep	R10	g_discovery_bridge	1	782678	782678	782678
+optimism	family_rep	R10	g_gates	1	51280	51280	51280
+optimism	family_rep	R10	g_exec	1	665258	665258	665258
+optimism	family_rep	R10	g_legs_sum	1	75840	75840	75840
+optimism	family_rep	R10	g_sweep	1	68703	68703	68703
+optimism	family_rep	R10	g_record	1	376241	376241	376241
+optimism	family_rep	R10	cd_intrinsic	1	5828	5828	5828
+optimism	family_rep	R10	cd_floor7623	1	35570	35570	35570
+optimism	family_rep	R10	g_cold	1	668347	668347	668347
+optimism	family_rep	R10	g_warm	1	466347	466347	466347
+optimism	family_rep	R10	g_coldpart	1	202000	202000	202000
+optimism	family_rep	R20	g_quote	1	9582978	9582978	9582978
+optimism	family_rep	R20	g_solve	1	9460093	9460093	9460093
+optimism	family_rep	R20	g_discovery	1	1067819	1067819	1067819
+optimism	family_rep	R20	g_discovery_bridge	1	782678	782678	782678
+optimism	family_rep	R20	g_gates	1	51280	51280	51280
+optimism	family_rep	R20	g_exec	1	665258	665258	665258
+optimism	family_rep	R20	g_legs_sum	1	75840	75840	75840
+optimism	family_rep	R20	g_sweep	1	68703	68703	68703
+optimism	family_rep	R20	g_record	1	376241	376241	376241
+optimism	family_rep	R20	cd_intrinsic	1	5828	5828	5828
+optimism	family_rep	R20	cd_floor7623	1	35570	35570	35570
+optimism	family_rep	R20	g_cold	1	668347	668347	668347
+optimism	family_rep	R20	g_warm	1	466347	466347	466347
+optimism	family_rep	R20	g_coldpart	1	202000	202000	202000
+optimism	family_rep	R25	g_quote	1	9582978	9582978	9582978
+optimism	family_rep	R25	g_solve	1	9460093	9460093	9460093
+optimism	family_rep	R25	g_discovery	1	1067819	1067819	1067819
+optimism	family_rep	R25	g_discovery_bridge	1	782678	782678	782678
+optimism	family_rep	R25	g_gates	1	51280	51280	51280
+optimism	family_rep	R25	g_exec	1	665258	665258	665258
+optimism	family_rep	R25	g_legs_sum	1	75840	75840	75840
+optimism	family_rep	R25	g_sweep	1	68703	68703	68703
+optimism	family_rep	R25	g_record	1	376241	376241	376241
+optimism	family_rep	R25	cd_intrinsic	1	5828	5828	5828
+optimism	family_rep	R25	cd_floor7623	1	35570	35570	35570
+optimism	family_rep	R25	g_cold	1	668347	668347	668347
+optimism	family_rep	R25	g_warm	1	466347	466347	466347
+optimism	family_rep	R25	g_coldpart	1	202000	202000	202000
+optimism	family_rep	R7	g_quote	1	9582978	9582978	9582978
+optimism	family_rep	R7	g_solve	1	9460093	9460093	9460093
+optimism	family_rep	R7	g_discovery	1	1067819	1067819	1067819
+optimism	family_rep	R7	g_discovery_bridge	1	782678	782678	782678
+optimism	family_rep	R7	g_gates	1	51280	51280	51280
+optimism	family_rep	R7	g_exec	1	665258	665258	665258
+optimism	family_rep	R7	g_legs_sum	1	75840	75840	75840
+optimism	family_rep	R7	g_sweep	1	68703	68703	68703
+optimism	family_rep	R7	g_record	1	376241	376241	376241
+optimism	family_rep	R7	cd_intrinsic	1	5828	5828	5828
+optimism	family_rep	R7	cd_floor7623	1	35570	35570	35570
+optimism	family_rep	R7	g_cold	1	668347	668347	668347
+optimism	family_rep	R7	g_warm	1	466347	466347	466347
+optimism	family_rep	R7	g_coldpart	1	202000	202000	202000
+optimism	fee_low	D	g_quote	1	7629115	7629115	7629115
+optimism	fee_low	D	g_solve	1	7468792	7468792	7468792
+optimism	fee_low	D	g_discovery	1	679319	679319	679319
+optimism	fee_low	D	g_discovery_bridge	1	377231	377231	377231
+optimism	fee_low	D	g_gates	1	30768	30768	30768
+optimism	fee_low	D	g_exec	1	796344	796344	796344
+optimism	fee_low	D	g_legs_sum	1	153190	153190	153190
+optimism	fee_low	D	g_sweep	1	70980	70980	70980
+optimism	fee_low	D	g_record	1	398302	398302	398302
+optimism	fee_low	D	cd_intrinsic	1	5984	5984	5984
+optimism	fee_low	D	cd_floor7623	1	35960	35960	35960
+optimism	fee_low	D	g_cold	1	799433	799433	799433
+optimism	fee_low	D	g_warm	1	570433	570433	570433
+optimism	fee_low	D	g_coldpart	1	229000	229000	229000
+optimism	fee_low	M0	g_quote	1	7629115	7629115	7629115
+optimism	fee_low	M0	g_solve	1	7468792	7468792	7468792
+optimism	fee_low	M0	g_discovery	1	679319	679319	679319
+optimism	fee_low	M0	g_discovery_bridge	1	377231	377231	377231
+optimism	fee_low	M0	g_gates	1	30768	30768	30768
+optimism	fee_low	M0	g_exec	1	796344	796344	796344
+optimism	fee_low	M0	g_legs_sum	1	153190	153190	153190
+optimism	fee_low	M0	g_sweep	1	70980	70980	70980
+optimism	fee_low	M0	g_record	1	398302	398302	398302
+optimism	fee_low	M0	cd_intrinsic	1	5984	5984	5984
+optimism	fee_low	M0	cd_floor7623	1	35960	35960	35960
+optimism	fee_low	M0	g_cold	1	799433	799433	799433
+optimism	fee_low	M0	g_warm	1	570433	570433	570433
+optimism	fee_low	M0	g_coldpart	1	229000	229000	229000
+optimism	fee_low	M0w	g_quote	1	9325624	9325624	9325624
+optimism	fee_low	M0w	g_solve	1	9148033	9148033	9148033
+optimism	fee_low	M0w	g_discovery	1	679319	679319	679319
+optimism	fee_low	M0w	g_discovery_bridge	1	377231	377231	377231
+optimism	fee_low	M0w	g_gates	1	30768	30768	30768
+optimism	fee_low	M0w	g_exec	1	250782	250782	250782
+optimism	fee_low	M0w	g_legs_sum	1	75249	75249	75249
+optimism	fee_low	M0w	g_sweep	1	19680	19680	19680
+optimism	fee_low	M0w	g_record	1	12714	12714	12714
+optimism	fee_low	M0w	cd_intrinsic	1	5972	5972	5972
+optimism	fee_low	M0w	cd_floor7623	1	35930	35930	35930
+optimism	fee_low	M0w	g_cold	1	253871	253871	253871
+optimism	fee_low	M0w	g_warm	1	201871	201871	201871
+optimism	fee_low	M0w	g_coldpart	1	52000	52000	52000
+optimism	fee_low	R10	g_quote	1	7610019	7610019	7610019
+optimism	fee_low	R10	g_solve	1	7449696	7449696	7449696
+optimism	fee_low	R10	g_discovery	1	679319	679319	679319
+optimism	fee_low	R10	g_discovery_bridge	1	377231	377231	377231
+optimism	fee_low	R10	g_gates	1	30768	30768	30768
+optimism	fee_low	R10	g_exec	1	796344	796344	796344
+optimism	fee_low	R10	g_legs_sum	1	153190	153190	153190
+optimism	fee_low	R10	g_sweep	1	70980	70980	70980
+optimism	fee_low	R10	g_record	1	398302	398302	398302
+optimism	fee_low	R10	cd_intrinsic	1	5984	5984	5984
+optimism	fee_low	R10	cd_floor7623	1	35960	35960	35960
+optimism	fee_low	R10	g_cold	1	799433	799433	799433
+optimism	fee_low	R10	g_warm	1	570433	570433	570433
+optimism	fee_low	R10	g_coldpart	1	229000	229000	229000
+optimism	fee_low	R20	g_quote	1	7610019	7610019	7610019
+optimism	fee_low	R20	g_solve	1	7449696	7449696	7449696
+optimism	fee_low	R20	g_discovery	1	679319	679319	679319
+optimism	fee_low	R20	g_discovery_bridge	1	377231	377231	377231
+optimism	fee_low	R20	g_gates	1	30768	30768	30768
+optimism	fee_low	R20	g_exec	1	796344	796344	796344
+optimism	fee_low	R20	g_legs_sum	1	153190	153190	153190
+optimism	fee_low	R20	g_sweep	1	70980	70980	70980
+optimism	fee_low	R20	g_record	1	398302	398302	398302
+optimism	fee_low	R20	cd_intrinsic	1	5984	5984	5984
+optimism	fee_low	R20	cd_floor7623	1	35960	35960	35960
+optimism	fee_low	R20	g_cold	1	799433	799433	799433
+optimism	fee_low	R20	g_warm	1	570433	570433	570433
+optimism	fee_low	R20	g_coldpart	1	229000	229000	229000
+optimism	fee_low	R25	g_quote	1	7610019	7610019	7610019
+optimism	fee_low	R25	g_solve	1	7449696	7449696	7449696
+optimism	fee_low	R25	g_discovery	1	679319	679319	679319
+optimism	fee_low	R25	g_discovery_bridge	1	377231	377231	377231
+optimism	fee_low	R25	g_gates	1	30768	30768	30768
+optimism	fee_low	R25	g_exec	1	796344	796344	796344
+optimism	fee_low	R25	g_legs_sum	1	153190	153190	153190
+optimism	fee_low	R25	g_sweep	1	70980	70980	70980
+optimism	fee_low	R25	g_record	1	398302	398302	398302
+optimism	fee_low	R25	cd_intrinsic	1	5984	5984	5984
+optimism	fee_low	R25	cd_floor7623	1	35960	35960	35960
+optimism	fee_low	R25	g_cold	1	799433	799433	799433
+optimism	fee_low	R25	g_warm	1	570433	570433	570433
+optimism	fee_low	R25	g_coldpart	1	229000	229000	229000
+optimism	fee_low	R7	g_quote	1	7610019	7610019	7610019
+optimism	fee_low	R7	g_solve	1	7449696	7449696	7449696
+optimism	fee_low	R7	g_discovery	1	679319	679319	679319
+optimism	fee_low	R7	g_discovery_bridge	1	377231	377231	377231
+optimism	fee_low	R7	g_gates	1	30768	30768	30768
+optimism	fee_low	R7	g_exec	1	796344	796344	796344
+optimism	fee_low	R7	g_legs_sum	1	153190	153190	153190
+optimism	fee_low	R7	g_sweep	1	70980	70980	70980
+optimism	fee_low	R7	g_record	1	398302	398302	398302
+optimism	fee_low	R7	cd_intrinsic	1	5984	5984	5984
+optimism	fee_low	R7	cd_floor7623	1	35960	35960	35960
+optimism	fee_low	R7	g_cold	1	799433	799433	799433
+optimism	fee_low	R7	g_warm	1	570433	570433	570433
+optimism	fee_low	R7	g_coldpart	1	229000	229000	229000
+optimism	major	D	g_quote	1	4198333	4198333	4198333
+optimism	major	D	g_solve	1	4074844	4074844	4074844
+optimism	major	D	g_discovery	1	679317	679317	679317
+optimism	major	D	g_discovery_bridge	1	368810	368810	368810
+optimism	major	D	g_gates	1	30768	30768	30768
+optimism	major	D	g_exec	1	689806	689806	689806
+optimism	major	D	g_legs_sum	1	78912	78912	78912
+optimism	major	D	g_sweep	1	75789	75789	75789
+optimism	major	D	g_record	1	387491	387491	387491
+optimism	major	D	cd_intrinsic	1	5684	5684	5684
+optimism	major	D	cd_floor7623	1	35210	35210	35210
+optimism	major	D	g_cold	1	692895	692895	692895
+optimism	major	D	g_warm	1	477395	477395	477395
+optimism	major	D	g_coldpart	1	215500	215500	215500
+optimism	major	M0	g_quote	1	3703198	3703198	3703198
+optimism	major	M0	g_solve	1	3530866	3530866	3530866
+optimism	major	M0	g_discovery	1	443310	443310	443310
+optimism	major	M0	g_discovery_bridge	1	443310	443310	443310
+optimism	major	M0	g_gates	1	30768	30768	30768
+optimism	major	M0	g_exec	1	598064	598064	598064
+optimism	major	M0	g_legs_sum	1	183336	183336	183336
+optimism	major	M0	g_sweep	1	75789	75789	75789
+optimism	major	M0	g_record	1	24939	24939	24939
+optimism	major	M0	cd_intrinsic	1	7588	7588	7588
+optimism	major	M0	cd_floor7623	1	39970	39970	39970
+optimism	major	M0	g_cold	1	601215	601215	601215
+optimism	major	M0	g_warm	1	458715	458715	458715
+optimism	major	M0	g_coldpart	1	142500	142500	142500
+optimism	major	M0w	g_quote	1	3605752	3605752	3605752
+optimism	major	M0w	g_solve	1	3484846	3484846	3484846
+optimism	major	M0w	g_discovery	1	443310	443310	443310
+optimism	major	M0w	g_discovery_bridge	1	443310	443310	443310
+optimism	major	M0w	g_gates	1	30768	30768	30768
+optimism	major	M0w	g_exec	1	260971	260971	260971
+optimism	major	M0w	g_legs_sum	1	76166	76166	76166
+optimism	major	M0w	g_sweep	1	24489	24489	24489
+optimism	major	M0w	g_record	1	12680	12680	12680
+optimism	major	M0w	cd_intrinsic	1	5672	5672	5672
+optimism	major	M0w	cd_floor7623	1	35180	35180	35180
+optimism	major	M0w	g_cold	1	264060	264060	264060
+optimism	major	M0w	g_warm	1	210060	210060	210060
+optimism	major	M0w	g_coldpart	1	54000	54000	54000
+optimism	major	R10	g_quote	1	4214392	4214392	4214392
+optimism	major	R10	g_solve	1	4077892	4077892	4077892
+optimism	major	R10	g_discovery	1	679317	679317	679317
+optimism	major	R10	g_discovery_bridge	1	368810	368810	368810
+optimism	major	R10	g_gates	1	30768	30768	30768
+optimism	major	R10	g_exec	1	809372	809372	809372
+optimism	major	R10	g_legs_sum	1	142989	142989	142989
+optimism	major	R10	g_sweep	1	75789	75789	75789
+optimism	major	R10	g_record	1	391198	391198	391198
+optimism	major	R10	cd_intrinsic	1	7624	7624	7624
+optimism	major	R10	cd_floor7623	1	40060	40060	40060
+optimism	major	R10	g_cold	1	812523	812523	812523
+optimism	major	R10	g_warm	1	589023	589023	589023
+optimism	major	R10	g_coldpart	1	223500	223500	223500
+optimism	major	R20	g_quote	1	4214392	4214392	4214392
+optimism	major	R20	g_solve	1	4077892	4077892	4077892
+optimism	major	R20	g_discovery	1	679317	679317	679317
+optimism	major	R20	g_discovery_bridge	1	368810	368810	368810
+optimism	major	R20	g_gates	1	30768	30768	30768
+optimism	major	R20	g_exec	1	809372	809372	809372
+optimism	major	R20	g_legs_sum	1	142989	142989	142989
+optimism	major	R20	g_sweep	1	75789	75789	75789
+optimism	major	R20	g_record	1	391198	391198	391198
+optimism	major	R20	cd_intrinsic	1	7624	7624	7624
+optimism	major	R20	cd_floor7623	1	40060	40060	40060
+optimism	major	R20	g_cold	1	812523	812523	812523
+optimism	major	R20	g_warm	1	589023	589023	589023
+optimism	major	R20	g_coldpart	1	223500	223500	223500
+optimism	major	R25	g_quote	1	4214392	4214392	4214392
+optimism	major	R25	g_solve	1	4077892	4077892	4077892
+optimism	major	R25	g_discovery	1	679317	679317	679317
+optimism	major	R25	g_discovery_bridge	1	368810	368810	368810
+optimism	major	R25	g_gates	1	30768	30768	30768
+optimism	major	R25	g_exec	1	809372	809372	809372
+optimism	major	R25	g_legs_sum	1	142989	142989	142989
+optimism	major	R25	g_sweep	1	75789	75789	75789
+optimism	major	R25	g_record	1	391198	391198	391198
+optimism	major	R25	cd_intrinsic	1	7624	7624	7624
+optimism	major	R25	cd_floor7623	1	40060	40060	40060
+optimism	major	R25	g_cold	1	812523	812523	812523
+optimism	major	R25	g_warm	1	589023	589023	589023
+optimism	major	R25	g_coldpart	1	223500	223500	223500
+optimism	major	R7	g_quote	1	4214392	4214392	4214392
+optimism	major	R7	g_solve	1	4077892	4077892	4077892
+optimism	major	R7	g_discovery	1	679317	679317	679317
+optimism	major	R7	g_discovery_bridge	1	368810	368810	368810
+optimism	major	R7	g_gates	1	30768	30768	30768
+optimism	major	R7	g_exec	1	809372	809372	809372
+optimism	major	R7	g_legs_sum	1	142989	142989	142989
+optimism	major	R7	g_sweep	1	75789	75789	75789
+optimism	major	R7	g_record	1	391198	391198	391198
+optimism	major	R7	cd_intrinsic	1	7624	7624	7624
+optimism	major	R7	cd_floor7623	1	40060	40060	40060
+optimism	major	R7	g_cold	1	812523	812523	812523
+optimism	major	R7	g_warm	1	589023	589023	589023
+optimism	major	R7	g_coldpart	1	223500	223500	223500
+optimism	midtail	D	g_quote	1	6394959	6394959	6394959
+optimism	midtail	D	g_solve	1	6158285	6158285	6158285
+optimism	midtail	D	g_discovery	1	1047540	1047540	1047540
+optimism	midtail	D	g_discovery_bridge	1	760661	760661	760661
+optimism	midtail	D	g_gates	1	51280	51280	51280
+optimism	midtail	D	g_exec	1	880983	880983	880983
+optimism	midtail	D	g_legs_sum	1	161157	161157	161157
+optimism	midtail	D	g_sweep	1	26656	26656	26656
+optimism	midtail	D	g_record	1	423725	423725	423725
+optimism	midtail	D	cd_intrinsic	1	8688	8688	8688
+optimism	midtail	D	cd_floor7623	1	42720	42720	42720
+optimism	midtail	D	g_cold	1	884178	884178	884178
+optimism	midtail	D	g_warm	1	640178	640178	640178
+optimism	midtail	D	g_coldpart	1	244000	244000	244000
+optimism	midtail	M0	g_quote	1	5560023	5560023	5560023
+optimism	midtail	M0	g_solve	1	5324517	5324517	5324517
+optimism	midtail	M0	g_discovery	1	837161	837161	837161
+optimism	midtail	M0	g_discovery_bridge	1	837161	837161	837161
+optimism	midtail	M0	g_gates	1	51280	51280	51280
+optimism	midtail	M0	g_exec	1	880983	880983	880983
+optimism	midtail	M0	g_legs_sum	1	161157	161157	161157
+optimism	midtail	M0	g_sweep	1	26656	26656	26656
+optimism	midtail	M0	g_record	1	423725	423725	423725
+optimism	midtail	M0	cd_intrinsic	1	8688	8688	8688
+optimism	midtail	M0	cd_floor7623	1	42720	42720	42720
+optimism	midtail	M0	g_cold	1	884178	884178	884178
+optimism	midtail	M0	g_warm	1	640178	640178	640178
+optimism	midtail	M0	g_coldpart	1	244000	244000	244000
+optimism	midtail	M0w	g_quote	1	5616292	5616292	5616292
+optimism	midtail	M0w	g_solve	1	5380782	5380782	5380782
+optimism	midtail	M0w	g_discovery	1	837161	837161	837161
+optimism	midtail	M0w	g_discovery_bridge	1	837161	837161	837161
+optimism	midtail	M0w	g_gates	1	51280	51280	51280
+optimism	midtail	M0w	g_exec	1	436946	436946	436946
+optimism	midtail	M0w	g_legs_sum	1	161161	161161	161161
+optimism	midtail	M0w	g_sweep	1	9556	9556	9556
+optimism	midtail	M0w	g_record	1	30939	30939	30939
+optimism	midtail	M0w	cd_intrinsic	1	8676	8676	8676
+optimism	midtail	M0w	cd_floor7623	1	42690	42690	42690
+optimism	midtail	M0w	g_cold	1	440141	440141	440141
+optimism	midtail	M0w	g_warm	1	351141	351141	351141
+optimism	midtail	M0w	g_coldpart	1	89000	89000	89000
+optimism	midtail	R10	g_quote	1	6394959	6394959	6394959
+optimism	midtail	R10	g_solve	1	6158285	6158285	6158285
+optimism	midtail	R10	g_discovery	1	1047540	1047540	1047540
+optimism	midtail	R10	g_discovery_bridge	1	760661	760661	760661
+optimism	midtail	R10	g_gates	1	51280	51280	51280
+optimism	midtail	R10	g_exec	1	880983	880983	880983
+optimism	midtail	R10	g_legs_sum	1	161157	161157	161157
+optimism	midtail	R10	g_sweep	1	26656	26656	26656
+optimism	midtail	R10	g_record	1	423725	423725	423725
+optimism	midtail	R10	cd_intrinsic	1	8688	8688	8688
+optimism	midtail	R10	cd_floor7623	1	42720	42720	42720
+optimism	midtail	R10	g_cold	1	884178	884178	884178
+optimism	midtail	R10	g_warm	1	640178	640178	640178
+optimism	midtail	R10	g_coldpart	1	244000	244000	244000
+optimism	midtail	R20	g_quote	1	6394959	6394959	6394959
+optimism	midtail	R20	g_solve	1	6158285	6158285	6158285
+optimism	midtail	R20	g_discovery	1	1047540	1047540	1047540
+optimism	midtail	R20	g_discovery_bridge	1	760661	760661	760661
+optimism	midtail	R20	g_gates	1	51280	51280	51280
+optimism	midtail	R20	g_exec	1	880983	880983	880983
+optimism	midtail	R20	g_legs_sum	1	161157	161157	161157
+optimism	midtail	R20	g_sweep	1	26656	26656	26656
+optimism	midtail	R20	g_record	1	423725	423725	423725
+optimism	midtail	R20	cd_intrinsic	1	8688	8688	8688
+optimism	midtail	R20	cd_floor7623	1	42720	42720	42720
+optimism	midtail	R20	g_cold	1	884178	884178	884178
+optimism	midtail	R20	g_warm	1	640178	640178	640178
+optimism	midtail	R20	g_coldpart	1	244000	244000	244000
+optimism	midtail	R25	g_quote	1	6394959	6394959	6394959
+optimism	midtail	R25	g_solve	1	6158285	6158285	6158285
+optimism	midtail	R25	g_discovery	1	1047540	1047540	1047540
+optimism	midtail	R25	g_discovery_bridge	1	760661	760661	760661
+optimism	midtail	R25	g_gates	1	51280	51280	51280
+optimism	midtail	R25	g_exec	1	880983	880983	880983
+optimism	midtail	R25	g_legs_sum	1	161157	161157	161157
+optimism	midtail	R25	g_sweep	1	26656	26656	26656
+optimism	midtail	R25	g_record	1	423725	423725	423725
+optimism	midtail	R25	cd_intrinsic	1	8688	8688	8688
+optimism	midtail	R25	cd_floor7623	1	42720	42720	42720
+optimism	midtail	R25	g_cold	1	884178	884178	884178
+optimism	midtail	R25	g_warm	1	640178	640178	640178
+optimism	midtail	R25	g_coldpart	1	244000	244000	244000
+optimism	midtail	R7	g_quote	1	6394959	6394959	6394959
+optimism	midtail	R7	g_solve	1	6158285	6158285	6158285
+optimism	midtail	R7	g_discovery	1	1047540	1047540	1047540
+optimism	midtail	R7	g_discovery_bridge	1	760661	760661	760661
+optimism	midtail	R7	g_gates	1	51280	51280	51280
+optimism	midtail	R7	g_exec	1	880983	880983	880983
+optimism	midtail	R7	g_legs_sum	1	161157	161157	161157
+optimism	midtail	R7	g_sweep	1	26656	26656	26656
+optimism	midtail	R7	g_record	1	423725	423725	423725
+optimism	midtail	R7	cd_intrinsic	1	8688	8688	8688
+optimism	midtail	R7	cd_floor7623	1	42720	42720	42720
+optimism	midtail	R7	g_cold	1	884178	884178	884178
+optimism	midtail	R7	g_warm	1	640178	640178	640178
+optimism	midtail	R7	g_coldpart	1	244000	244000	244000
+optimism	shallow	D	g_quote	1	4076023	4076023	4076023
+optimism	shallow	D	g_solve	1	3831515	3831515	3831515
+optimism	shallow	D	g_discovery	1	858389	858389	858389
+optimism	shallow	D	g_discovery_bridge	1	588186	588186	588186
+optimism	shallow	D	g_gates	1	41024	41024	41024
+optimism	shallow	D	g_exec	1	730662	730662	730662
+optimism	shallow	D	g_legs_sum	1	134891	134891	134891
+optimism	shallow	D	g_sweep	1	44106	44106	44106
+optimism	shallow	D	g_record	1	352708	352708	352708
+optimism	shallow	D	cd_intrinsic	1	5732	5732	5732
+optimism	shallow	D	cd_floor7623	1	35330	35330	35330
+optimism	shallow	D	g_cold	1	733751	733751	733751
+optimism	shallow	D	g_warm	1	507751	507751	507751
+optimism	shallow	D	g_coldpart	1	226000	226000	226000
+optimism	shallow	M0	g_quote	1	2993541	2993541	2993541
+optimism	shallow	M0	g_solve	1	2917530	2917530	2917530
+optimism	shallow	M0	g_discovery	1	664186	664186	664186
+optimism	shallow	M0	g_discovery_bridge	1	664186	664186	664186
+optimism	shallow	M0	g_gates	1	41024	41024	41024
+optimism	shallow	M0	g_exec	1	518445	518445	518445
+optimism	shallow	M0	g_legs_sum	1	227428	227428	227428
+optimism	shallow	M0	g_sweep	1	44106	44106	44106
+optimism	shallow	M0	g_record	1	17568	17568	17568
+optimism	shallow	M0	cd_intrinsic	1	5720	5720	5720
+optimism	shallow	M0	cd_floor7623	1	35300	35300	35300
+optimism	shallow	M0	g_cold	1	521534	521534	521534
+optimism	shallow	M0	g_warm	1	391734	391734	391734
+optimism	shallow	M0	g_coldpart	1	129800	129800	129800
+optimism	shallow	M0w	g_quote	1	2993541	2993541	2993541
+optimism	shallow	M0w	g_solve	1	2917530	2917530	2917530
+optimism	shallow	M0w	g_discovery	1	664186	664186	664186
+optimism	shallow	M0w	g_discovery_bridge	1	664186	664186	664186
+optimism	shallow	M0w	g_gates	1	41024	41024	41024
+optimism	shallow	M0w	g_exec	1	384265	384265	384265
+optimism	shallow	M0w	g_legs_sum	1	144548	144548	144548
+optimism	shallow	M0w	g_sweep	1	27006	27006	27006
+optimism	shallow	M0w	g_record	1	17568	17568	17568
+optimism	shallow	M0w	cd_intrinsic	1	5720	5720	5720
+optimism	shallow	M0w	cd_floor7623	1	35300	35300	35300
+optimism	shallow	M0w	g_cold	1	387354	387354	387354
+optimism	shallow	M0w	g_warm	1	267854	267854	267854
+optimism	shallow	M0w	g_coldpart	1	119500	119500	119500
+optimism	shallow	R10	g_quote	1	4076023	4076023	4076023
+optimism	shallow	R10	g_solve	1	3831515	3831515	3831515
+optimism	shallow	R10	g_discovery	1	858389	858389	858389
+optimism	shallow	R10	g_discovery_bridge	1	588186	588186	588186
+optimism	shallow	R10	g_gates	1	41024	41024	41024
+optimism	shallow	R10	g_exec	1	730662	730662	730662
+optimism	shallow	R10	g_legs_sum	1	134891	134891	134891
+optimism	shallow	R10	g_sweep	1	44106	44106	44106
+optimism	shallow	R10	g_record	1	352708	352708	352708
+optimism	shallow	R10	cd_intrinsic	1	5732	5732	5732
+optimism	shallow	R10	cd_floor7623	1	35330	35330	35330
+optimism	shallow	R10	g_cold	1	733751	733751	733751
+optimism	shallow	R10	g_warm	1	507751	507751	507751
+optimism	shallow	R10	g_coldpart	1	226000	226000	226000
+optimism	shallow	R20	g_quote	1	4076023	4076023	4076023
+optimism	shallow	R20	g_solve	1	3831515	3831515	3831515
+optimism	shallow	R20	g_discovery	1	858389	858389	858389
+optimism	shallow	R20	g_discovery_bridge	1	588186	588186	588186
+optimism	shallow	R20	g_gates	1	41024	41024	41024
+optimism	shallow	R20	g_exec	1	730662	730662	730662
+optimism	shallow	R20	g_legs_sum	1	134891	134891	134891
+optimism	shallow	R20	g_sweep	1	44106	44106	44106
+optimism	shallow	R20	g_record	1	352708	352708	352708
+optimism	shallow	R20	cd_intrinsic	1	5732	5732	5732
+optimism	shallow	R20	cd_floor7623	1	35330	35330	35330
+optimism	shallow	R20	g_cold	1	733751	733751	733751
+optimism	shallow	R20	g_warm	1	507751	507751	507751
+optimism	shallow	R20	g_coldpart	1	226000	226000	226000
+optimism	shallow	R25	g_quote	1	4076023	4076023	4076023
+optimism	shallow	R25	g_solve	1	3831515	3831515	3831515
+optimism	shallow	R25	g_discovery	1	858389	858389	858389
+optimism	shallow	R25	g_discovery_bridge	1	588186	588186	588186
+optimism	shallow	R25	g_gates	1	41024	41024	41024
+optimism	shallow	R25	g_exec	1	730662	730662	730662
+optimism	shallow	R25	g_legs_sum	1	134891	134891	134891
+optimism	shallow	R25	g_sweep	1	44106	44106	44106
+optimism	shallow	R25	g_record	1	352708	352708	352708
+optimism	shallow	R25	cd_intrinsic	1	5732	5732	5732
+optimism	shallow	R25	cd_floor7623	1	35330	35330	35330
+optimism	shallow	R25	g_cold	1	733751	733751	733751
+optimism	shallow	R25	g_warm	1	507751	507751	507751
+optimism	shallow	R25	g_coldpart	1	226000	226000	226000
+optimism	shallow	R7	g_quote	1	4076023	4076023	4076023
+optimism	shallow	R7	g_solve	1	3831515	3831515	3831515
+optimism	shallow	R7	g_discovery	1	858389	858389	858389
+optimism	shallow	R7	g_discovery_bridge	1	588186	588186	588186
+optimism	shallow	R7	g_gates	1	41024	41024	41024
+optimism	shallow	R7	g_exec	1	730662	730662	730662
+optimism	shallow	R7	g_legs_sum	1	134891	134891	134891
+optimism	shallow	R7	g_sweep	1	44106	44106	44106
+optimism	shallow	R7	g_record	1	352708	352708	352708
+optimism	shallow	R7	cd_intrinsic	1	5732	5732	5732
+optimism	shallow	R7	cd_floor7623	1	35330	35330	35330
+optimism	shallow	R7	g_cold	1	733751	733751	733751
+optimism	shallow	R7	g_warm	1	507751	507751	507751
+optimism	shallow	R7	g_coldpart	1	226000	226000	226000
+# noquote classes: chain	kind	mode	n_noquote	S	dust	A	A'	B
+optimism	fee_high	D	1	0	0	0	0	1
+optimism	fee_high	M0	1	0	0	0	0	1
+optimism	fee_high	R10	1	0	0	0	0	1
+optimism	fee_high	R20	1	0	0	0	0	1
+optimism	fee_high	R25	1	0	0	0	0	1
+optimism	fee_high	R7	1	0	0	0	0	1
+# moonslot cases: chain	kind	ms_case	segment	n	p50	p95
+base	family_rep	D	g_quote	1	6569962	6569962
+base	family_rep	D	g_exec	1	908875	908875
+base	family_rep	D	g_legs_sum	1	104308	104308
+base	family_rep	D	dex_overhead	1	804567	804567
+base	family_rep	D	g_record	1	514315	514315
+base	family_rep	miss	g_quote	6	6569962	6689665
+base	family_rep	miss	g_exec	6	908875	908875
+base	family_rep	miss	g_legs_sum	6	104308	111509
+base	family_rep	miss	dex_overhead	6	804567	804567
+base	family_rep	miss	g_record	6	514315	514315
+base	fee_high	D	g_quote	1	12564461	12564461
+base	fee_high	D	g_exec	1	2380108	2380108
+base	fee_high	D	g_legs_sum	1	336858	336858
+base	fee_high	D	dex_overhead	1	2043250	2043250
+base	fee_high	D	g_record	1	1509638	1509638
+base	fee_high	miss	g_quote	4	12570150	12652497
+base	fee_high	miss	g_exec	4	2380108	2380108
+base	fee_high	miss	g_legs_sum	4	336858	336858
+base	fee_high	miss	dex_overhead	4	2043250	2043250
+base	fee_high	miss	g_record	4	1509638	1509638
+base	fee_high	partial	g_quote	2	10223208	10292595
+base	fee_high	partial	g_exec	2	252137	498183
+base	fee_high	partial	g_legs_sum	2	82647	168169
+base	fee_high	partial	dex_overhead	2	169490	330014
+base	fee_high	partial	g_record	2	12732	24300
+base	fee_low	D	g_quote	1	14513800	14513800
+base	fee_low	D	g_exec	1	1811335	1811335
+base	fee_low	D	g_legs_sum	1	254785	254785
+base	fee_low	D	dex_overhead	1	1556550	1556550
+base	fee_low	D	g_record	1	1217168	1217168
+base	fee_low	miss	g_quote	4	14513800	14515308
+base	fee_low	miss	g_exec	4	1811335	1811335
+base	fee_low	miss	g_legs_sum	4	254785	254785
+base	fee_low	miss	dex_overhead	4	1556550	1556550
+base	fee_low	miss	g_record	4	1217168	1217168
+base	fee_low	partial	g_quote	2	9902620	12166775
+base	fee_low	partial	g_exec	2	1754217	1811335
+base	fee_low	partial	g_legs_sum	2	242899	254785
+base	fee_low	partial	dex_overhead	2	1511318	1556550
+base	fee_low	partial	g_record	2	1145766	1217168
+base	gates	D	g_quote	1	4425914	4425914
+base	gates	D	g_exec	1	909751	909751
+base	gates	D	g_legs_sum	1	103872	103872
+base	gates	D	dex_overhead	1	805879	805879
+base	gates	D	g_record	1	514315	514315
+base	gates	miss	g_quote	6	4358706	4538251
+base	gates	miss	g_exec	6	909751	909751
+base	gates	miss	g_legs_sum	6	103872	110129
+base	gates	miss	dex_overhead	6	805879	805879
+base	gates	miss	g_record	6	514315	514315
+base	major	D	g_quote	1	7142971	7142971
+base	major	D	g_exec	1	1054614	1054614
+base	major	D	g_legs_sum	1	88631	88631
+base	major	D	dex_overhead	1	965983	965983
+base	major	D	g_record	1	745186	745186
+base	major	miss	g_quote	4	6996144	7084183
+base	major	miss	g_exec	4	1041527	1197741
+base	major	miss	g_legs_sum	4	77323	119131
+base	major	miss	dex_overhead	4	964204	1078610
+base	major	miss	g_record	4	745186	745962
+base	major	partial	g_quote	2	3385772	3385772
+base	major	partial	g_exec	2	270745	322090
+base	major	partial	g_legs_sum	2	88631	88631
+base	major	partial	dex_overhead	2	182114	233459
+base	major	partial	g_record	2	12662	12662
+base	midtail	D	g_quote	1	11214163	11214163
+base	midtail	D	g_exec	1	1764491	1764491
+base	midtail	D	g_legs_sum	1	203817	203817
+base	midtail	D	dex_overhead	1	1560674	1560674
+base	midtail	D	g_record	1	1268986	1268986
+base	midtail	miss	g_quote	4	11146709	11211036
+base	midtail	miss	g_exec	4	1748015	1913397
+base	midtail	miss	g_legs_sum	4	192475	233688
+base	midtail	miss	dex_overhead	4	1555540	1679709
+base	midtail	miss	g_record	4	1266515	1268986
+base	midtail	partial	g_quote	2	9060299	9086038
+base	midtail	partial	g_exec	2	1141794	1764491
+base	midtail	partial	g_legs_sum	2	190533	203817
+base	midtail	partial	dex_overhead	2	951261	1560674
+base	midtail	partial	g_record	2	661313	1268986
+optimism	family_rep	D	g_quote	1	9582978	9582978
+optimism	family_rep	D	g_exec	1	665258	665258
+optimism	family_rep	D	g_legs_sum	1	75840	75840
+optimism	family_rep	D	dex_overhead	1	589418	589418
+optimism	family_rep	D	g_record	1	376241	376241
+optimism	family_rep	miss	g_quote	6	9582978	9692173
+optimism	family_rep	miss	g_exec	6	665258	696855
+optimism	family_rep	miss	g_legs_sum	6	75840	122530
+optimism	family_rep	miss	dex_overhead	6	589418	589418
+optimism	family_rep	miss	g_record	6	376241	376241
+optimism	fee_low	D	g_quote	1	7629115	7629115
+optimism	fee_low	D	g_exec	1	796344	796344
+optimism	fee_low	D	g_legs_sum	1	153190	153190
+optimism	fee_low	D	dex_overhead	1	643154	643154
+optimism	fee_low	D	g_record	1	398302	398302
+optimism	fee_low	miss	g_quote	6	7610019	9325624
+optimism	fee_low	miss	g_exec	6	796344	796344
+optimism	fee_low	miss	g_legs_sum	6	153190	153190
+optimism	fee_low	miss	dex_overhead	6	643154	643154
+optimism	fee_low	miss	g_record	6	398302	398302
+optimism	major	D	g_quote	1	4198333	4198333
+optimism	major	D	g_exec	1	689806	689806
+optimism	major	D	g_legs_sum	1	78912	78912
+optimism	major	D	dex_overhead	1	610894	610894
+optimism	major	D	g_record	1	387491	387491
+optimism	major	miss	g_quote	4	4214392	4214392
+optimism	major	miss	g_exec	4	809372	809372
+optimism	major	miss	g_legs_sum	4	142989	142989
+optimism	major	miss	dex_overhead	4	666383	666383
+optimism	major	miss	g_record	4	391198	391198
+optimism	major	partial	g_quote	2	3605752	3703198
+optimism	major	partial	g_exec	2	260971	598064
+optimism	major	partial	g_legs_sum	2	76166	183336
+optimism	major	partial	dex_overhead	2	184805	414728
+optimism	major	partial	g_record	2	12680	24939
+optimism	midtail	D	g_quote	1	6394959	6394959
+optimism	midtail	D	g_exec	1	880983	880983
+optimism	midtail	D	g_legs_sum	1	161157	161157
+optimism	midtail	D	dex_overhead	1	719826	719826
+optimism	midtail	D	g_record	1	423725	423725
+optimism	midtail	miss	g_quote	4	6394959	6394959
+optimism	midtail	miss	g_exec	4	880983	880983
+optimism	midtail	miss	g_legs_sum	4	161157	161157
+optimism	midtail	miss	dex_overhead	4	719826	719826
+optimism	midtail	miss	g_record	4	423725	423725
+optimism	midtail	partial	g_quote	2	5560023	5616292
+optimism	midtail	partial	g_exec	2	436946	880983
+optimism	midtail	partial	g_legs_sum	2	161157	161161
+optimism	midtail	partial	dex_overhead	2	275785	719826
+optimism	midtail	partial	g_record	2	30939	423725
+optimism	shallow	D	g_quote	1	4076023	4076023
+optimism	shallow	D	g_exec	1	730662	730662
+optimism	shallow	D	g_legs_sum	1	134891	134891
+optimism	shallow	D	dex_overhead	1	595771	595771
+optimism	shallow	D	g_record	1	352708	352708
+optimism	shallow	miss	g_quote	4	4076023	4076023
+optimism	shallow	miss	g_exec	4	730662	730662
+optimism	shallow	miss	g_legs_sum	4	134891	134891
+optimism	shallow	miss	dex_overhead	4	595771	595771
+optimism	shallow	miss	g_record	4	352708	352708
+optimism	shallow	partial	g_quote	2	2993541	2993541
+optimism	shallow	partial	g_exec	2	384265	518445
+optimism	shallow	partial	g_legs_sum	2	144548	227428
+optimism	shallow	partial	dex_overhead	2	239717	291017
+optimism	shallow	partial	g_record	2	17568	17568
+# exec split: chain	kind	n_ok	legs_p50	legs_p95	dex_overhead_p50	dex_overhead_p95	rec_frac_p50	rec_frac_p95
+base	family_rep	7	104308	111509	804567	804567	0.5659	0.5659
+base	fee_high	7	336858	336858	2043250	2043250	0.6343	0.6343
+base	fee_low	7	254785	254785	1556550	1556550	0.672	0.672
+base	gates	7	103872	110129	805879	805879	0.5653	0.5653
+base	major	7	88631	119131	964204	1078610	0.7066	0.7162
+base	midtail	7	203817	233688	1560674	1679709	0.7192	0.7246
+optimism	family_rep	7	75840	122530	589418	589418	0.5656	0.5656
+optimism	fee_low	7	153190	153190	643154	643154	0.5002	0.5002
+optimism	major	7	142989	183336	666383	666383	0.4833	0.5617
+optimism	midtail	7	161157	161161	719826	719826	0.481	0.481
+optimism	shallow	7	134891	227428	595771	595771	0.4827	0.4827
+# moonslot effect: chain	segment	D_n	D_p50	D_p95	M0_n	M0_p50	M0_p95	M0w_n	M0w_p50	M0w_p95	R7_n	R7_p50	R7_p95	R10_n	R10_p50	R10_p95	R20_n	R20_p50	R20_p95	R25_n	R25_p50	R25_p95
+base	g_quote	6	7142971	14513800	6	6569962	12166775	6	6689665	10223208	6	7084183	14513800	6	6998615	14513800	6	6996144	14515308	6	6995414	14515308
+base	g_exec	6	1054614	2380108	6	908875	1811335	6	429346	1754217	6	1197741	2380108	6	1054586	2380108	6	1041527	2380108	6	1041527	2380108
+base	g_discovery	6	1740812	2292854	6	1646148	1869113	6	1441254	1740812	6	1740812	2292854	6	1740812	2292854	6	1740812	2292854	6	1740812	2292854
+optimism	g_quote	5	6394959	9582978	5	5560023	9582978	5	5616292	9692173	5	6394959	9582978	5	6394959	9582978	5	6394959	9582978	5	6394959	9582978
+optimism	g_exec	5	730662	880983	5	665258	880983	5	384265	696855	5	796344	880983	5	796344	880983	5	796344	880983	5	796344	880983
+optimism	g_discovery	5	858389	1067819	5	679319	1067819	5	679319	1067819	5	858389	1067819	5	858389	1067819	5	858389	1067819	5	858389	1067819
+# moonslot vs Discovery vs market: chain	mode	n_ok	swept	fits_2_10	vsD_p50_bps	vsmid_p50_bps	vsmid_net_p50_bps	label
+base	D	6	6	6	0.0	-51.84	-12.43	fallback-126@3f6f091 src, state tree 19bc178
+base	M0	6	2	6	0.0	-51.84	-12.43	fallback-126@3f6f091 src, state tree 19bc178
+base	M0w	6	2	6	-7.81	-53.43	-12.439999999999998	fallback-126@3f6f091 src, state tree 19bc178
+base	R7	6	6	6	0.0	-58.24	-15.280000000000001	fallback-126@3f6f091 src, state tree 19bc178
+base	R10	6	6	6	0.0	-51.84	-12.43	fallback-126@3f6f091 src, state tree 19bc178
+base	R20	6	6	6	0.0	-52.61	-12.340000000000003	fallback-126@3f6f091 src, state tree 19bc178
+base	R25	6	6	6	0.0	-52.61	-12.340000000000003	fallback-126@3f6f091 src, state tree 19bc178
+optimism	D	5	5	5	0.0	-35.99	-20.83	fallback-126@3f6f091 src, state tree 19bc178
+optimism	M0	5	2	5	0.0	-56.15		fallback-126@3f6f091 src, state tree 19bc178
+optimism	M0w	5	2	5	-4.12	-57.93	0.07000000000000028	fallback-126@3f6f091 src, state tree 19bc178
+optimism	R7	5	5	5	0.0	-35.99	-6.990000000000002	fallback-126@3f6f091 src, state tree 19bc178
+optimism	R10	5	5	5	0.0	-35.99	-6.990000000000002	fallback-126@3f6f091 src, state tree 19bc178
+optimism	R20	5	5	5	0.0	-35.99	-6.990000000000002	fallback-126@3f6f091 src, state tree 19bc178
+optimism	R25	5	5	5	0.0	-35.99	-6.990000000000002	fallback-126@3f6f091 src, state tree 19bc178
+# paired vs D (same chain, stratum, idx, b; both ok; delta = mode - D per draw; delta_p95 only at n >= 20): chain	mode	ms_case	segment	n_pairs	D_p50	M_p50	delta_p50	delta_p95
+arbitrum	M0	all	g_quote	0				
+arbitrum	M0	all	g_exec	0				
+arbitrum	M0	all	g_record	0				
+arbitrum	M0w	all	g_quote	0				
+arbitrum	M0w	all	g_exec	0				
+arbitrum	M0w	all	g_record	0				
+arbitrum	R7	all	g_quote	0				
+arbitrum	R7	all	g_exec	0				
+arbitrum	R7	all	g_record	0				
+arbitrum	R10	all	g_quote	0				
+arbitrum	R10	all	g_exec	0				
+arbitrum	R10	all	g_record	0				
+arbitrum	R20	all	g_quote	0				
+arbitrum	R20	all	g_exec	0				
+arbitrum	R20	all	g_record	0				
+arbitrum	R25	all	g_quote	0				
+arbitrum	R25	all	g_exec	0				
+arbitrum	R25	all	g_record	0				
+avalanche	M0	all	g_quote	0				
+avalanche	M0	all	g_exec	0				
+avalanche	M0	all	g_record	0				
+avalanche	M0w	all	g_quote	0				
+avalanche	M0w	all	g_exec	0				
+avalanche	M0w	all	g_record	0				
+avalanche	R7	all	g_quote	0				
+avalanche	R7	all	g_exec	0				
+avalanche	R7	all	g_record	0				
+avalanche	R10	all	g_quote	0				
+avalanche	R10	all	g_exec	0				
+avalanche	R10	all	g_record	0				
+avalanche	R20	all	g_quote	0				
+avalanche	R20	all	g_exec	0				
+avalanche	R20	all	g_record	0				
+avalanche	R25	all	g_quote	0				
+avalanche	R25	all	g_exec	0				
+avalanche	R25	all	g_record	0				
+base	M0	all	g_quote	6	7142971	6569962	-2271866	
+base	M0	partial	g_quote	4	11214163	9060299	-2347025	
+base	M0	miss	g_quote	2	4425914	4425914	0	
+base	M0	all	g_exec	6	1054614	908875	0	
+base	M0	partial	g_exec	4	1764491	498183	-732524	
+base	M0	miss	g_exec	2	908875	908875	0	
+base	M0	all	g_record	6	745186	514315	0	
+base	M0	partial	g_record	4	1217168	24300	-732524	
+base	M0	miss	g_record	2	514315	514315	0	
+base	M0w	all	g_quote	6	7142971	6689665	-2341253	
+base	M0w	partial	g_quote	4	11214163	9086038	-3757199	
+base	M0w	miss	g_quote	2	4425914	4538251	112337	
+base	M0w	all	g_exec	6	1054614	429346	-622697	
+base	M0w	partial	g_exec	4	1764491	270745	-783869	
+base	M0w	miss	g_exec	2	908875	429346	-480405	
+base	M0w	all	g_record	6	745186	12767	-607673	
+base	M0w	partial	g_record	4	1217168	12732	-732524	
+base	M0w	miss	g_record	2	514315	12767	-501548	
+base	R7	all	g_quote	6	7142971	7084183	0	
+base	R7	miss	g_quote	6	7142971	7084183	0	
+base	R7	all	g_exec	6	1054614	1197741	0	
+base	R7	miss	g_exec	6	1054614	1197741	0	
+base	R7	all	g_record	6	745186	735008	0	
+base	R7	miss	g_record	6	745186	735008	0	
+base	R10	all	g_quote	6	7142971	6998615	-3127	
+base	R10	miss	g_quote	6	7142971	6998615	-3127	
+base	R10	all	g_exec	6	1054614	1054586	0	
+base	R10	miss	g_exec	6	1054614	1054586	0	
+base	R10	all	g_record	6	745186	745186	0	
+base	R10	miss	g_record	6	745186	745186	0	
+base	R20	all	g_quote	6	7142971	6996144	-67208	
+base	R20	miss	g_quote	6	7142971	6996144	-67208	
+base	R20	all	g_exec	6	1054614	1041527	0	
+base	R20	miss	g_exec	6	1054614	1041527	0	
+base	R20	all	g_record	6	745186	745962	0	
+base	R20	miss	g_record	6	745186	745962	0	
+base	R25	all	g_quote	6	7142971	6995414	-67208	
+base	R25	miss	g_quote	6	7142971	6995414	-67208	
+base	R25	all	g_exec	6	1054614	1041527	0	
+base	R25	miss	g_exec	6	1054614	1041527	0	
+base	R25	all	g_record	6	745186	745962	0	
+base	R25	miss	g_record	6	745186	745962	0	
+bsc	M0	all	g_quote	0				
+bsc	M0	all	g_exec	0				
+bsc	M0	all	g_record	0				
+bsc	M0w	all	g_quote	0				
+bsc	M0w	all	g_exec	0				
+bsc	M0w	all	g_record	0				
+bsc	R7	all	g_quote	0				
+bsc	R7	all	g_exec	0				
+bsc	R7	all	g_record	0				
+bsc	R10	all	g_quote	0				
+bsc	R10	all	g_exec	0				
+bsc	R10	all	g_record	0				
+bsc	R20	all	g_quote	0				
+bsc	R20	all	g_exec	0				
+bsc	R20	all	g_record	0				
+bsc	R25	all	g_quote	0				
+bsc	R25	all	g_exec	0				
+bsc	R25	all	g_record	0				
+ethereum	M0	all	g_quote	0				
+ethereum	M0	all	g_exec	0				
+ethereum	M0	all	g_record	0				
+ethereum	M0w	all	g_quote	0				
+ethereum	M0w	all	g_exec	0				
+ethereum	M0w	all	g_record	0				
+ethereum	R7	all	g_quote	0				
+ethereum	R7	all	g_exec	0				
+ethereum	R7	all	g_record	0				
+ethereum	R10	all	g_quote	0				
+ethereum	R10	all	g_exec	0				
+ethereum	R10	all	g_record	0				
+ethereum	R20	all	g_quote	0				
+ethereum	R20	all	g_exec	0				
+ethereum	R20	all	g_record	0				
+ethereum	R25	all	g_quote	0				
+ethereum	R25	all	g_exec	0				
+ethereum	R25	all	g_record	0				
+optimism	M0	all	g_quote	5	6394959	5560023	-495135	
+optimism	M0	partial	g_quote	3	4198333	3703198	-834936	
+optimism	M0	miss	g_quote	2	7629115	7629115	0	
+optimism	M0	all	g_exec	5	730662	665258	0	
+optimism	M0	partial	g_exec	3	730662	598064	-91742	
+optimism	M0	miss	g_exec	2	665258	665258	0	
+optimism	M0	all	g_record	5	387491	376241	0	
+optimism	M0	partial	g_record	3	387491	24939	-335140	
+optimism	M0	miss	g_record	2	376241	376241	0	
+optimism	M0w	all	g_quote	5	6394959	5616292	-592581	
+optimism	M0w	partial	g_quote	3	4198333	3605752	-778667	
+optimism	M0w	miss	g_quote	2	7629115	9325624	109195	
+optimism	M0w	all	g_exec	5	730662	384265	-428835	
+optimism	M0w	partial	g_exec	3	730662	384265	-428835	
+optimism	M0w	miss	g_exec	2	665258	250782	-545562	
+optimism	M0w	all	g_record	5	387491	17568	-374811	
+optimism	M0w	partial	g_record	3	387491	17568	-374811	
+optimism	M0w	miss	g_record	2	376241	12714	-385588	
+optimism	R7	all	g_quote	5	6394959	6394959	0	
+optimism	R7	miss	g_quote	5	6394959	6394959	0	
+optimism	R7	all	g_exec	5	730662	796344	0	
+optimism	R7	miss	g_exec	5	730662	796344	0	
+optimism	R7	all	g_record	5	387491	391198	0	
+optimism	R7	miss	g_record	5	387491	391198	0	
+optimism	R10	all	g_quote	5	6394959	6394959	0	
+optimism	R10	miss	g_quote	5	6394959	6394959	0	
+optimism	R10	all	g_exec	5	730662	796344	0	
+optimism	R10	miss	g_exec	5	730662	796344	0	
+optimism	R10	all	g_record	5	387491	391198	0	
+optimism	R10	miss	g_record	5	387491	391198	0	
+optimism	R20	all	g_quote	5	6394959	6394959	0	
+optimism	R20	miss	g_quote	5	6394959	6394959	0	
+optimism	R20	all	g_exec	5	730662	796344	0	
+optimism	R20	miss	g_exec	5	730662	796344	0	
+optimism	R20	all	g_record	5	387491	391198	0	
+optimism	R20	miss	g_record	5	387491	391198	0	
+optimism	R25	all	g_quote	5	6394959	6394959	0	
+optimism	R25	miss	g_quote	5	6394959	6394959	0	
+optimism	R25	all	g_exec	5	730662	796344	0	
+optimism	R25	miss	g_exec	5	730662	796344	0	
+optimism	R25	all	g_record	5	387491	391198	0	
+optimism	R25	miss	g_record	5	387491	391198	0	
+robinhood	M0	all	g_quote	0				
+robinhood	M0	all	g_exec	0				
+robinhood	M0	all	g_record	0				
+robinhood	M0w	all	g_quote	0				
+robinhood	M0w	all	g_exec	0				
+robinhood	M0w	all	g_record	0				
+robinhood	R7	all	g_quote	0				
+robinhood	R7	all	g_exec	0				
+robinhood	R7	all	g_record	0				
+robinhood	R10	all	g_quote	0				
+robinhood	R10	all	g_exec	0				
+robinhood	R10	all	g_record	0				
+robinhood	R20	all	g_quote	0				
+robinhood	R20	all	g_exec	0				
+robinhood	R20	all	g_record	0				
+robinhood	R25	all	g_quote	0				
+robinhood	R25	all	g_exec	0				
+robinhood	R25	all	g_record	0				
+# g_record by hops x legs (ok rows; D vs M0 unpaired; p95 only at n >= 20): chain	hops	legs	D_n	D_p50	D_p95	M0_n	M0_p50	M0_p95
+base	1	1	3	514315		3	514315	
+base	1	2	0			1	24300	
+base	1	4	1	1509638		0		
+base	2	2	2	1217168		2	1217168	
+optimism	1	1	4	376241		3	376241	
+optimism	1	2	0			1	24939	
+optimism	2	2	1	423725		1	423725	
+# dex used (outcome==ok rows only; pct of the chain's ok legs and of their leg gas; universe gas-1114-universe.tsv): chain	dex	kind	basis	legs	pct_legs	gas	pct_gas	draws	modes
+base	PancakeSwap V3	v3	factory	20	27.4	2470004	34.2	3	D,M0,M0w,R10,R20,R25,R7
+base	Uniswap V3	v3	factory	17	23.3	1226767	17.0	3	D,M0,M0w,R10,R20,R25,R7
+base	unknown		unknown	14	19.2	1470718	20.4	2	D,M0,M0w,R10,R20,R25,R7
+base	Aerodrome CL	cl	factory	9	12.3	942324	13.0	4	D,M0w,R10,R20,R25,R7
+base	Aerodrome	solidly	factory	6	8.2	501632	6.9	1	D,M0,R10,R20,R25,R7
+base	Uniswap V4	v4	factory	5	6.8	460265	6.4	1	D,R10,R20,R25,R7
+base	SushiSwap V3	v3	factory	2	2.7	154646	2.1	1	R20,R25
+optimism	Uniswap V3	v3	factory	33	68.8	3254314	69.9	5	D,M0,M0w,R10,R20,R25,R7
+optimism	Uniswap V4	v4	factory	12	25.0	914102	19.6	2	D,M0,M0w,R10,R20,R25,R7
+optimism	Velodrome	solidly	factory	2	4.2	371976	8.0	1	M0,M0w
+optimism	unknown	cl	unknown	1	2.1	116471	2.5	1	M0
+# dex available (universe; routable = adapter column starts with routable; used_legs over outcome==ok rows): chain	dex	kind	venue	pools	routable	used_legs
+arbitrum	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	68	68	0
+arbitrum	Algebra	algebra	0x1a3c9b1d2f0529d97f2afc5136cc23e58f1fd35b	33	33	0
+arbitrum	SushiSwap V3	v3	0x1af415a1eba07a4986a52b6f2e7de7003d82231e	70	70	0
+arbitrum	Uniswap V3	v3	0x1f98431c8ad98523631ae4a59f267346ea31f984	156	156	0
+arbitrum	Uniswap V4	v4	0x360e68faccca8ca495c1b759fd9eee466db9fb32	66	35	0
+arbitrum	Camelot V2	v2	0x6eccab422d763ac031210895c81787e87b43a652	24	24	0
+arbitrum	unknown	v2	0xc35dadb65012ec5796536bd9864ed8773abc74c4	29	29	0
+arbitrum	Uniswap V2	v2	0xf1d7cc64fb4452f05c498126312ebe29f30fbcf9	29	29	0
+avalanche	Blackhole (Algebra Integral)	algebra_integral	0x512eb749541b7cf294be882d636218c84a5e9e5f	1	1	0
+avalanche	Uniswap V3	v3	0x740b1c1de25031c31ff4fc9a62f554a55cdc1bad	47	47	0
+avalanche	Trader Joe LB 2.1	lb	0x8e42f2f4101563bf679975178e880fd87d3efd4e	42	0	0
+avalanche	Pharaoh	pharaoh	0xae6e5c62328ade73ceefd42228528b70c8157d0d	24	24	0
+avalanche	Trader Joe LB 2.2	lb	0xb43120c4745967fa9b93e79c149e66b0f2d6fe0c	54	0	0
+avalanche	Balancer V2	balancer-v2	0xba12222222228d8ba445958a75a0704d566bf2c8	63	0	0
+avalanche	LB (DLMM_FACTORY)	lb	0xeb480050b016f6c6d45203d2346b68bddda23d4d	6	0	0
+base	PancakeSwap V2	v2	0x02a84c1b3bbd7401a5f7fa98a384ebc70bb5749e	21	21	0
+base	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	98	98	20
+base	Uniswap V3	v3	0x33128a8fc17869897dce68ed026d694621f6fdfd	127	127	17
+base	Aerodrome	solidly	0x420dd381b31aef6683db6b902084cb0ffece40da	63	63	6
+base	Uniswap V4	v4	0x498581ff718922c3f8e6a244956af099b2652b2b	75	35	5
+base	Aerodrome CL	cl	0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a	46	46	9
+base	SushiSwap V2	v2	0x71524b4f93c58fcbf659783284e38825f0622859	15	15	0
+base	Uniswap V2	v2	0x8909dc15e40173ff4699343b6eb8132c65e18ec6	32	32	0
+base	SushiSwap V3	v3	0xc35dadb65012ec5796536bd9864ed8773abc74c4	66	66	2
+base	BaseSwap	v2	0xfda619b6d20975be80a10332cd39b9a4b0faa8bb	24	24	0
+bsc	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	47	47	0
+bsc	Uniswap V4	v4	0x28e2ea090877bf75740558f6bfb36a5ffee9e9df	15	7	0
+bsc	PancakeSwap V2	v2	0xca143ce32fe78f1f7019d7d551a6402fc5350c73	13	13	0
+bsc	Uniswap V3	v3	0xdb1d10011ad0ff90774d0c6bb92e5c5c8b4461f7	38	38	0
+ethereum	Uniswap V4	v4	0x000000000004444c5dc75cb358380d2e3de08a90	69	35	0
+ethereum	PancakeSwap V3	v3	0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865	22	22	0
+ethereum	unknown	v2	0x1097053fd2ea711dad45caccc45eff7548fcb362	10	10	0
+ethereum	unknown	v2	0x115934131916c8b277dd010ee02de363c09d037c	19	19	0
+ethereum	Uniswap V3	v3	0x1f98431c8ad98523631ae4a59f267346ea31f984	155	155	0
+ethereum	unknown	v2	0x43ec799eadd63848443e2347c49f5f52e8fe0f6f	3	3	0
+ethereum	unknown	v2	0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f	46	46	0
+ethereum	Curve NG	curve-ng	0x6a8cbed756804b16e05e741edabd5cb544ae21bf	22	0	0
+ethereum	Balancer V2	balancer-v2	0xba12222222228d8ba445958a75a0704d566bf2c8	269	0	0
+ethereum	unknown	v3	0xbaceb8ec6b9355dfc0269c18bac9d6e2bdc29c4f	32	32	0
+ethereum	unknown	v2	0xc0aee478e3658e2610c5f7a4a2e1777ce9e4f2ac	30	30	0
+optimism	Uniswap V2	v2	0x0c3c1c532f1e39edf36be9fe0be1410313e074bf	20	20	0
+optimism	Uniswap V3	v3	0x1f98431c8ad98523631ae4a59f267346ea31f984	131	131	33
+optimism	Uniswap V4	v4	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3	57	27	12
+optimism	SushiSwap V3	v3	0x9c6522117e2ed1fe5bdb72bb0ed5e3f2bde7dbe0	46	46	0
+optimism	unknown	cl	0xcc0bddb707055e04e497ab22a59c2af4391cd12f	24	24	1
+optimism	Velodrome	solidly	0xf1046053aa5682b4f9a81b5481394da16be5ff5a	43	43	2
+optimism	unknown	v2	0xfbc12984689e5f15626bad03ad60160fe98b303c	8	8	0
+robinhood	Uniswap V3	v3	0x1f7d7550b1b028f7571e69a784071f0205fd2efa	30	30	0
+robinhood	Uniswap V4	v4	0x8366a39cc670b4001a1121b8f6a443a643e40951	14	6	0
+robinhood	Uniswap V2	v2	0x8bceaa40b9acdfaedf85adf4ff01f5ad6517937f	8	8	0
+# 8.1a legs by kind (ok rows; gas = leg frame gasUsed): chain	value	legs	pct	ci95_lo	ci95_hi	n	p50	p90	p99	max	max_at
+base	?	14	19.2	11.8	29.7	14	104308	110129	111509	111509	row:39
+base	cl	9	12.3	6.6	21.8	9	100552	119131	119131	119131	row:5
+base	solidly	6	8.2	3.8	16.8	6	79622	103522	103522	103522	row:17
+base	v3	39	53.4	42.1	64.4	39	87651	177980	177980	177980	row:36
+base	v4	5	6.8	3.0	15.1	5	92053	92053	92053	92053	row:22
+optimism	cl	1	2.1	0.4	10.9	1	116471	116471	116471	116471	row:52
+optimism	solidly	2	4.2	1.2	14.0	2	144548	227428	227428	227428	row:80
+optimism	v3	33	68.8	54.7	80.1	33	78314	153190	153190	153190	row:71
+optimism	v4	12	25.0	14.9	38.8	12	82843	82843	82847	82847	row:46
+all	?	14	11.6			14	104308	110129	111509	111509	row:39
+all	cl	10	8.3			10	100552	117522	119131	119131	row:5
+all	solidly	8	6.6			8	79622	227428	227428	227428	row:80
+all	v3	72	59.5			72	78314	153190	177980	177980	row:36
+all	v4	17	14.0			17	82843	92053	92053	92053	row:22
+# 8.1b legs by dex (ok rows; gas = leg frame gasUsed): chain	value	legs	pct	ci95_lo	ci95_hi	n	p50	p90	p99	max	max_at
+base	Aerodrome CL|cl	9	12.3	6.6	21.8	9	100552	119131	119131	119131	row:5
+base	Aerodrome|solidly	6	8.2	3.8	16.8	6	79622	103522	103522	103522	row:17
+base	PancakeSwap V3|v3	20	27.4	18.5	38.6	20	116166	177980	177980	177980	row:36
+base	SushiSwap V3|v3	2	2.7	0.8	9.5	2	77323	77323	77323	77323	row:8
+base	Uniswap V3|v3	17	23.3	15.1	34.2	17	76309	76805	82647	82647	row:18
+base	Uniswap V4|v4	5	6.8	3.0	15.1	5	92053	92053	92053	92053	row:22
+base	unknown|?	14	19.2	11.8	29.7	14	104308	110129	111509	111509	row:39
+optimism	Uniswap V3|v3	33	68.8	54.7	80.1	33	78314	153190	153190	153190	row:71
+optimism	Uniswap V4|v4	12	25.0	14.9	38.8	12	82843	82843	82847	82847	row:46
+optimism	Velodrome|solidly	2	4.2	1.2	14.0	2	144548	227428	227428	227428	row:80
+optimism	unknown|cl	1	2.1	0.4	10.9	1	116471	116471	116471	116471	row:52
+all	Aerodrome CL|cl	9	7.4			9	100552	119131	119131	119131	row:5
+all	Aerodrome|solidly	6	5.0			6	79622	103522	103522	103522	row:17
+all	PancakeSwap V3|v3	20	16.5			20	116166	177980	177980	177980	row:36
+all	SushiSwap V3|v3	2	1.7			2	77323	77323	77323	77323	row:8
+all	Uniswap V3|v3	50	41.3			50	76805	153190	153190	153190	row:71
+all	Uniswap V4|v4	17	14.0			17	82843	92053	92053	92053	row:22
+all	Velodrome|solidly	2	1.7			2	144548	227428	227428	227428	row:80
+all	unknown|?	14	11.6			14	104308	110129	111509	111509	row:39
+all	unknown|cl	1	0.8			1	116471	116471	116471	116471	row:52
+# 8.1c top 10 pools per chain by legs (ok rows): chain	rank	pool	dex	kind	legs	pct	first_b	last_b	gas_p50	gas_max	max_at
+base	1	0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38	PancakeSwap V3	v3	14	19.2	53911753	55022335	88631	177980	row:36
+base	2	0xa8bf464636f619fecbadda3bd5d28f8c74970c39	unknown	?	14	19.2	54118507	55791351	104308	111509	row:39
+base	3	0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa	Uniswap V3	v3	7	9.6	55250906	55250906	64631	82647	row:18
+base	4	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1	Uniswap V3	v3	7	9.6	54654621	54654621	76805	76805	row:36
+base	5	0x20cb8f872ae894f7c9e32e621c186e5afce82fd0	PancakeSwap V3	v3	6	8.2	53911753	53911753	116166	116166	row:29
+base	6	0x2c4909355b0c036840819484c3a882a95659abf3	Aerodrome	solidly	6	8.2	55250906	55250906	79622	103522	row:17
+base	7	0x498581ff718922c3f8e6a244956af099b2652b2b	Uniswap V4	v4	5	6.8	55250906	55250906	92053	92053	row:22
+base	8	0xafb62448929664bfccb0aae22f232520e765ba88	Aerodrome CL	cl	5	6.8	55250906	55250906	100552	100552	row:22
+base	9	0x57713f7716e0b0f65ec116912f834e49805480d2	SushiSwap V3	v3	2	2.7	55022335	55022335	77323	77323	row:8
+base	10	0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59	Aerodrome CL	cl	2	2.7	53911753	54654621	100029	117522	row:26
+optimism	1	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3	Uniswap V4	v4	12	25.0	159234686	159312623	82843	82847	row:46
+optimism	2	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c	Uniswap V3	v3	7	14.6	159194488	159194488	153190	153190	row:71
+optimism	3	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c	Uniswap V3	v3	7	14.6	159297748	159297748	75840	75840	row:78
+optimism	4	0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05	Uniswap V3	v3	7	14.6	159234686	159234686	78314	78314	row:50
+optimism	5	0x1fb3cf6e48f1e7b10213e7b6d87d4c073c7fdb7b	Uniswap V3	v3	5	10.4	159312623	159312623	76156	78912	row:51
+optimism	6	0xd8afa96459787fd45165b0b912407d136b866f00	Uniswap V3	v3	5	10.4	159201971	159201971	134891	134891	row:85
+optimism	7	0x1bf31a0932a0035c532a7b1dcb94ffe0b35aed14	Velodrome	solidly	2	4.2	159201971	159201971	144548	227428	row:80
+optimism	8	0x478946bcd4a5a22b316470f5486fafb928c0ba25	unknown	cl	1	2.1	159312623	159312623	116471	116471	row:52
+optimism	9	0x73b14a78a0d396c521f954532d43fd5ffe385216	Uniswap V3	v3	1	2.1	159297748	159297748	52550	52550	row:74
+optimism	10	0xc1738d90e2e26c35784a0d3e3d8a9f795074bca4	Uniswap V3	v3	1	2.1	159312623	159312623	76166	76166	row:53
+# 8.1d top 10 pairs per chain by rows (every outcome): chain	rank	tin	tout	n	ok	ok_pct	ci95_lo	ci95_hi	first_b	last_b
+base	1	0x4200000000000000000000000000000000000006	0x4ed4e862860bed51a9570b96d89af5e1b0efefed	7	7	100.0	64.6	100.0	55250906	55250906
+base	2	0x54330d28ca3357f294334bdc454a032e7f353416	0x833589fcd6edb6e08f4c7c32d4f71b54bda02913	7	7	100.0	64.6	100.0	55791351	55791351
+base	3	0x833589fcd6edb6e08f4c7c32d4f71b54bda02913	0x4200000000000000000000000000000000000006	7	7	100.0	64.6	100.0	55022335	55022335
+base	4	0x833589fcd6edb6e08f4c7c32d4f71b54bda02913	0x54330d28ca3357f294334bdc454a032e7f353416	7	7	100.0	64.6	100.0	54118507	54118507
+base	5	0x940181a94a35a4569e4529a3cdfb74e38fd98631	0x833589fcd6edb6e08f4c7c32d4f71b54bda02913	7	7	100.0	64.6	100.0	53911753	53911753
+base	6	0xfde4c96c8593536e31f229ea8f37b2ada2699bb2	0x4200000000000000000000000000000000000006	7	7	100.0	64.6	100.0	54654621	54654621
+optimism	1	0x0b2c639c533813f4aa9d7837caf62653d097ff85	0x4200000000000000000000000000000000000042	7	7	100.0	64.6	100.0	159234686	159234686
+optimism	2	0x33800de7e817a70a694f31476313a7c572bba100	0x0b2c639c533813f4aa9d7837caf62653d097ff85	7	0	0.0	0.0	35.4	159351239	159351239
+optimism	3	0x4200000000000000000000000000000000000006	0x0b2c639c533813f4aa9d7837caf62653d097ff85	7	7	100.0	64.6	100.0	159312623	159312623
+optimism	4	0x4200000000000000000000000000000000000006	0x1f32b1c2345538c0c6f582fcb022739c4a194ebb	7	7	100.0	64.6	100.0	159194488	159194488
+optimism	5	0x4200000000000000000000000000000000000006	0x8700daec35af8ff88c16bdf0418774cb3d7599b4	7	7	100.0	64.6	100.0	159201971	159201971
+optimism	6	0x68f180fcce6836688e9084f035309e29bf0a2095	0x4200000000000000000000000000000000000006	7	7	100.0	64.6	100.0	159297748	159297748
+# 8.2a legs: chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	1	22	52.4	37.7	66.6	22	0	0	0	0	0	0	22	908875	1054586	1197741	1197741	row:5
+base	2	14	33.3	21.0	48.4	14	0	0	0	0	0	0	14	1764491	1811335	1913397	1913397	row:26
+base	3	1	2.4	0.4	12.3	1	0	0	0	0	0	0	1	1754217	1754217	1754217	1754217	row:32
+base	4	5	11.9	5.2	25.0	5	0	0	0	0	0	0	5	2380108	2380108	2380108	2380108	row:22
+optimism	(absent)	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+optimism	1	22	52.4	37.7	66.6	22	0	0	0	0	0	0	22	689806	796344	796344	796344	row:71
+optimism	2	13	31.0	19.1	46.0	13	0	0	0	0	0	0	13	809372	880983	880983	880983	row:50
+all	(absent)	7	8.3	4.1	16.2	0	0	6	0	0	0	1	0					
+all	1	44	52.4	41.8	62.7	44	0	0	0	0	0	0	44	796344	1041527	1197741	1197741	row:5
+all	2	27	32.1	23.1	42.7	27	0	0	0	0	0	0	27	880983	1811335	1913397	1913397	row:26
+all	3	1	1.2	0.2	6.4	1	0	0	0	0	0	0	1	1754217	1754217	1754217	1754217	row:32
+all	4	5	6.0	2.6	13.2	5	0	0	0	0	0	0	5	2380108	2380108	2380108	2380108	row:22
+# 8.2b hops: chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	1	28	66.7	51.6	79.0	28	0	0	0	0	0	0	28	909751	2380108	2380108	2380108	row:22
+base	2	14	33.3	21.0	48.4	14	0	0	0	0	0	0	14	1764491	1811335	1913397	1913397	row:26
+optimism	(absent)	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+optimism	1	28	66.7	51.6	79.0	28	0	0	0	0	0	0	28	730662	809372	809372	809372	row:57
+optimism	2	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+all	(absent)	7	8.3	4.1	16.2	0	0	6	0	0	0	1	0					
+all	1	56	66.7	56.1	75.8	56	0	0	0	0	0	0	56	796344	1197741	2380108	2380108	row:22
+all	2	21	25.0	17.0	35.2	21	0	0	0	0	0	0	21	1754217	1811335	1913397	1913397	row:26
+# 8.2c topology (hops x single|split): chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	1h-single	22	52.4	37.7	66.6	22	0	0	0	0	0	0	22	908875	1054586	1197741	1197741	row:5
+base	1h-split	6	14.3	6.7	27.8	6	0	0	0	0	0	0	6	2380108	2380108	2380108	2380108	row:22
+base	2h-single	13	31.0	19.1	46.0	13	0	0	0	0	0	0	13	1811335	1811335	1913397	1913397	row:26
+base	2h-split	1	2.4	0.4	12.3	1	0	0	0	0	0	0	1	1754217	1754217	1754217	1754217	row:32
+optimism	(absent)	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+optimism	1h-single	22	52.4	37.7	66.6	22	0	0	0	0	0	0	22	689806	796344	796344	796344	row:71
+optimism	1h-split	6	14.3	6.7	27.8	6	0	0	0	0	0	0	6	809372	809372	809372	809372	row:57
+optimism	2h-single	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+all	(absent)	7	8.3	4.1	16.2	0	0	6	0	0	0	1	0					
+all	1h-single	44	52.4	41.8	62.7	44	0	0	0	0	0	0	44	796344	1041527	1197741	1197741	row:5
+all	1h-split	12	14.3	8.4	23.3	12	0	0	0	0	0	0	12	809372	2380108	2380108	2380108	row:22
+all	2h-single	20	23.8	16.0	33.9	20	0	0	0	0	0	0	20	1748015	1811335	1913397	1913397	row:26
+all	2h-split	1	1.2	0.2	6.4	1	0	0	0	0	0	0	1	1754217	1754217	1754217	1754217	row:32
+# 8.2d multi-hop via an intermediate token (hops == 2): chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	direct	28	66.7	51.6	79.0	28	0	0	0	0	0	0	28	909751	2380108	2380108	2380108	row:22
+base	via_intermediate	14	33.3	21.0	48.4	14	0	0	0	0	0	0	14	1764491	1811335	1913397	1913397	row:26
+optimism	(absent)	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+optimism	direct	28	66.7	51.6	79.0	28	0	0	0	0	0	0	28	730662	809372	809372	809372	row:57
+optimism	via_intermediate	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+all	(absent)	7	8.3	4.1	16.2	0	0	6	0	0	0	1	0					
+all	direct	56	66.7	56.1	75.8	56	0	0	0	0	0	0	56	796344	1197741	2380108	2380108	row:22
+all	via_intermediate	21	25.0	17.0	35.2	21	0	0	0	0	0	0	21	1754217	1811335	1913397	1913397	row:26
+# 8.2e bridge token of a 2-hop route: chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	-	28	66.7	51.6	79.0	28	0	0	0	0	0	0	28	909751	2380108	2380108	2380108	row:22
+base	USDC	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	1811335	1811335	1811335	1811335	row:36
+base	WETH	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	1764491	1913397	1913397	1913397	row:26
+optimism	(absent)	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+optimism	-	28	66.7	51.6	79.0	28	0	0	0	0	0	0	28	730662	809372	809372	809372	row:57
+optimism	WETH	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+all	(absent)	7	8.3	4.1	16.2	0	0	6	0	0	0	1	0					
+all	-	56	66.7	56.1	75.8	56	0	0	0	0	0	0	56	796344	1197741	2380108	2380108	row:22
+all	USDC	7	8.3	4.1	16.2	7	0	0	0	0	0	0	7	1811335	1811335	1811335	1811335	row:36
+all	WETH	14	16.7	10.2	26.1	14	0	0	0	0	0	0	14	880983	1764491	1913397	1913397	row:26
+# 8.3a token class (measured, delivered < net_out or leg_amt < amount_in): chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	normal	29	69.0	54.0	80.9	29	0	0	0	0	0	0	29	1754217	2380108	2380108	2380108	row:22
+base	short_in	8	19.0	10.0	33.3	8	0	0	0	0	0	0	8	908875	908875	908875	908875	row:43
+base	short_out	5	11.9	5.2	25.0	5	0	0	0	0	0	0	5	1747970	1913397	1913397	1913397	row:26
+optimism	(absent)	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+optimism	normal	21	50.0	35.5	64.5	21	0	0	0	0	0	0	21	696855	809372	809372	809372	row:57
+optimism	short_in	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	730662	730662	730662	730662	row:85
+optimism	short_out	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+all	(absent)	7	8.3	4.1	16.2	0	0	6	0	0	0	1	0					
+all	normal	50	59.5	48.8	69.4	50	0	0	0	0	0	0	50	809372	1811335	2380108	2380108	row:22
+all	short_in	15	17.9	11.1	27.4	15	0	0	0	0	0	0	15	730662	908875	908875	908875	row:43
+all	short_out	12	14.3	8.4	23.3	12	0	0	0	0	0	0	12	880983	1748015	1913397	1913397	row:26
+# 8.3b decimals tin/tout (site_tokens.json): chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	18/18	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	2380108	2380108	2380108	2380108	row:22
+base	non18	21	50.0	35.5	64.5	21	0	0	0	0	0	0	21	1754217	1811335	1913397	1913397	row:26
+base	unknown	14	33.3	21.0	48.4	14	0	0	0	0	0	0	14	908875	909751	909751	909751	row:15
+optimism	18/18	14	33.3	21.0	48.4	14	0	0	0	0	0	0	14	730662	796344	796344	796344	row:71
+optimism	non18	21	50.0	35.5	64.5	21	0	0	0	0	0	0	21	696855	880983	880983	880983	row:50
+optimism	unknown	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+all	18/18	21	25.0	17.0	35.2	21	0	0	0	0	0	0	21	796344	2380108	2380108	2380108	row:22
+all	non18	42	50.0	39.5	60.5	42	0	0	0	0	0	0	42	880983	1811335	1913397	1913397	row:26
+all	unknown	21	25.0	17.0	35.2	14	0	6	0	0	0	1	14	908875	909751	909751	909751	row:15
+# 8.3c rebase / exotic token: no data (column tok_flags missing)
+# 8.3d native vs wrapped (draws ride the wrapped token): no data (column tin_native missing)
+# 8.4a USD size bucket (peg 1 of a stable side; unpriced = neither side a listed stable): chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	1k-10k	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	1811335	1811335	1811335	1811335	row:36
+base	<1k	28	66.7	51.6	79.0	28	0	0	0	0	0	0	28	909751	1764491	1913397	1913397	row:26
+base	unpriced	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	2380108	2380108	2380108	2380108	row:22
+optimism	<1k	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	809372	809372	809372	809372	row:57
+optimism	dust	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+optimism	unpriced	28	66.7	51.6	79.0	21	0	6	0	0	0	1	21	730662	796344	796344	796344	row:71
+all	1k-10k	7	8.3	4.1	16.2	7	0	0	0	0	0	0	7	1811335	1811335	1811335	1811335	row:36
+all	<1k	35	41.7	31.7	52.3	35	0	0	0	0	0	0	35	909751	1764491	1913397	1913397	row:26
+all	dust	7	8.3	4.1	16.2	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+all	unpriced	35	41.7	31.7	52.3	28	0	6	0	0	0	1	28	730662	2380108	2380108	2380108	row:22
+# 8.4b USD basis: chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	tin	21	50.0	35.5	64.5	21	0	0	0	0	0	0	21	1041527	1811335	1811335	1811335	row:36
+base	tout_delivered	14	33.3	21.0	48.4	14	0	0	0	0	0	0	14	909751	1764491	1913397	1913397	row:26
+base	unpriced	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	2380108	2380108	2380108	2380108	row:22
+optimism	tin	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	880983	880983	880983	880983	row:50
+optimism	tout_delivered	7	16.7	8.3	30.6	7	0	0	0	0	0	0	7	809372	809372	809372	809372	row:57
+optimism	unpriced	28	66.7	51.6	79.0	21	0	6	0	0	0	1	21	730662	796344	796344	796344	row:71
+all	tin	28	33.3	24.2	43.9	28	0	0	0	0	0	0	28	908875	1811335	1811335	1811335	row:36
+all	tout_delivered	21	25.0	17.0	35.2	21	0	0	0	0	0	0	21	909751	1764491	1913397	1913397	row:26
+all	unpriced	35	41.7	31.7	52.3	28	0	6	0	0	0	1	28	730662	2380108	2380108	2380108	row:22
+# 8.4c gas per leg by USD size (ok rows; g_legs_sum / legs): chain	bucket	n	p50	p90	p99	max	max_at
+base	<1k	28	103872	111509	119131	119131	row:5
+base	1k-10k	7	127392	127392	127392	127392	row:36
+base	unpriced	7	84214	84214	84214	84214	row:22
+optimism	dust	7	80578	80580	80580	80580	row:46
+optimism	<1k	7	71494	91668	91668	91668	row:52
+optimism	unpriced	21	134891	153190	227428	227428	row:80
+all	dust	7	80578	80580	80580	80580	row:46
+all	<1k	35	101908	110129	119131	119131	row:5
+all	1k-10k	7	127392	127392	127392	127392	row:36
+all	unpriced	28	84214	153190	227428	227428	row:80
+# 8.4d input per leg paid in tin (ok rows; f = paid / amount_in): chain	dex	kind	legs	rows	f_sum	share_pct	usd_in	usd_rows
+base	unknown	?	14	14	13.9804	33.4	775.70	14
+base	Uniswap V3	v3	14	14	13.3342	31.9	23302.95	7
+base	PancakeSwap V3	v3	10	10	10.0000	23.9	156.17	10
+base	Aerodrome CL	cl	7	7	2.1871	5.2	27.13	2
+base	SushiSwap V3	v3	2	2	2.0000	4.8	6.59	2
+base	Aerodrome	solidly	6	6	0.3005	0.7	0.00	0
+optimism	Uniswap V3	v3	26	25	22.8839	71.5	133.29	6
+optimism	Uniswap V4	v4	7	7	6.9802	21.8	0.14	7
+optimism	Velodrome	solidly	2	2	1.9944	6.2	0.00	0
+optimism	unknown	cl	1	1	0.1272	0.4	4.35	1
+all	Uniswap V3	v3	40	39	36.2181	49.1	23436.24	13
+all	unknown	?	14	14	13.9804	18.9	775.70	14
+all	PancakeSwap V3	v3	10	10	10.0000	13.6	156.17	10
+all	Uniswap V4	v4	7	7	6.9802	9.5	0.14	7
+all	Aerodrome CL	cl	7	7	2.1871	3.0	27.13	2
+all	SushiSwap V3	v3	2	2	2.0000	2.7	6.59	2
+all	Velodrome	solidly	2	2	1.9944	2.7	0.00	0
+all	Aerodrome	solidly	6	6	0.3005	0.4	0.00	0
+all	unknown	cl	1	1	0.1272	0.2	4.35	1
+# 8.5a stratum kind x USD bucket x outcome class: chain	kind	bucket	n	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	ok_pct	ci95_lo	ci95_hi
+base	family_rep	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+base	fee_high	unpriced	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+base	fee_low	1k-10k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+base	gates	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+base	major	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+base	midtail	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+optimism	family_rep	unpriced	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+optimism	fee_high	unpriced	7	0	0	6	0	0	0	1	0.0	0.0	35.4
+optimism	fee_low	unpriced	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+optimism	major	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+optimism	midtail	dust	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+optimism	shallow	unpriced	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	family_rep	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	family_rep	unpriced	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	fee_high	unpriced	14	7	0	6	0	0	0	1	50.0	26.8	73.2
+all	fee_low	1k-10k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	fee_low	unpriced	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	gates	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	major	<1k	14	14	0	0	0	0	0	0	100.0	78.5	100.0
+all	midtail	<1k	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	midtail	dust	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+all	shallow	unpriced	7	7	0	0	0	0	0	0	100.0	64.6	100.0
+# 8.5b causes of every row not ok (decoded): chain	outcome	class	cause	n	first_at	first_b
+optimism	noquote	SolverE	SolverE(5)	6	row:58	159351239
+optimism	prereq	other	M0 not ok	1	row:60	159351239
+all	noquote	SolverE	SolverE(5)	6	row:58	159351239
+all	prereq	other	M0 not ok	1	row:60	159351239
+# 8.6a gas by segment (ok rows): chain	segment	n	p50	p90	p99	max	max_at
+base	g_quote	42	7142971	14513800	14515308	14515308	row:36
+base	g_exec	42	1054586	2380108	2380108	2380108	row:22
+base	g_legs_sum	42	111509	336858	336858	336858	row:22
+base	router_overhead	42	964204	2043250	2043250	2043250	row:22
+base	walk (g_solve)	42	7004777	16279616	16281124	16281124	row:36
+base	verification (g_gates)	42	51280	104199	104199	104199	row:43
+base	g_record	42	745186	1509638	1509638	1509638	row:22
+base	g_discovery	42	1740812	2292854	2292854	2292854	row:36
+base	per_leg	73	92053	117522	177980	177980	row:36
+optimism	g_quote	35	6394959	9582978	9692173	9692173	row:74
+optimism	g_exec	35	730662	880983	880983	880983	row:50
+optimism	g_legs_sum	35	142989	161157	227428	227428	row:80
+optimism	router_overhead	35	595771	719826	719826	719826	row:50
+optimism	walk (g_solve)	35	6158285	9460093	9494732	9494732	row:74
+optimism	verification (g_gates)	35	41024	51280	51280	51280	row:78
+optimism	g_record	35	376241	423725	423725	423725	row:50
+optimism	g_discovery	35	837161	1067819	1067819	1067819	row:78
+optimism	per_leg	48	78314	153190	227428	227428	row:80
+all	g_quote	77	6996144	12570150	14515308	14515308	row:36
+all	g_exec	77	880983	1811335	2380108	2380108	row:22
+all	g_legs_sum	77	142989	254785	336858	336858	row:22
+all	router_overhead	77	719826	1560674	2043250	2043250	row:22
+all	walk (g_solve)	77	6859986	12103568	16281124	16281124	row:36
+all	verification (g_gates)	77	51280	93943	104199	104199	row:43
+all	g_record	77	423725	1268986	1509638	1509638	row:22
+all	g_discovery	77	1378790	2096392	2292854	2292854	row:36
+all	per_leg	121	87651	153190	177980	227428	row:80
+# 8.6b quote estimate vs execution (ok rows; delta = g_exec - est_gas): chain	n	est_p50	exec_p50	delta_p50	delta_p90	delta_p99	delta_max	max_at	under_est	under_pct
+base	42	140000	1054586	901527	1825108	1825108	1825108	row:22	42	100.0
+optimism	35	140000	730662	530983	656344	656344	656344	row:71	35	100.0
+all	77	140000	880983	656344	1531335	1825108	1825108	row:22	77	100.0
+# 8.6c gas by kind of the leg x USD bucket (ok rows, leg frame gas): chain	kind	bucket	n	p50	p90	p99	max	max_at
+base	?	<1k	14	104308	110129	111509	111509	row:39
+base	cl	1k-10k	1	100029	100029	100029	100029	row:32
+base	cl	<1k	3	117522	119131	119131	119131	row:5
+base	cl	unpriced	5	100552	100552	100552	100552	row:22
+base	solidly	unpriced	6	79622	103522	103522	103522	row:17
+base	v3	1k-10k	14	76805	177980	177980	177980	row:36
+base	v3	<1k	18	88631	116166	116166	116166	row:29
+base	v3	unpriced	7	64631	82647	82647	82647	row:18
+base	v4	unpriced	5	92053	92053	92053	92053	row:22
+optimism	cl	<1k	1	116471	116471	116471	116471	row:52
+optimism	solidly	unpriced	2	144548	227428	227428	227428	row:80
+optimism	v3	<1k	6	76156	78912	78912	78912	row:51
+optimism	v3	dust	7	78314	78314	78314	78314	row:50
+optimism	v3	unpriced	20	134891	153190	153190	153190	row:71
+optimism	v4	<1k	5	66833	66865	66865	66865	row:52
+optimism	v4	dust	7	82843	82847	82847	82847	row:46
+all	?	<1k	14	104308	110129	111509	111509	row:39
+all	cl	1k-10k	1	100029	100029	100029	100029	row:32
+all	cl	<1k	4	116471	119131	119131	119131	row:5
+all	cl	unpriced	5	100552	100552	100552	100552	row:22
+all	solidly	unpriced	8	79622	227428	227428	227428	row:80
+all	v3	1k-10k	14	76805	177980	177980	177980	row:36
+all	v3	<1k	24	87651	116166	116166	116166	row:29
+all	v3	dust	7	78314	78314	78314	78314	row:50
+all	v3	unpriced	27	75840	153190	153190	153190	row:71
+all	v4	<1k	5	66833	66865	66865	66865	row:52
+all	v4	dust	7	82843	82847	82847	82847	row:46
+all	v4	unpriced	5	92053	92053	92053	92053	row:22
+# 8.7a fallback to the runner-up (f82bc67): chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	0	42	100.0	91.6	100.0	42	0	0	0	0	0	0	42	1054586	2380108	2380108	2380108	row:22
+optimism	(absent)	7	16.7	8.3	30.6	0	0	6	0	0	0	1	0					
+optimism	0	35	83.3	69.4	91.7	35	0	0	0	0	0	0	35	730662	880983	880983	880983	row:50
+all	(absent)	7	8.3	4.1	16.2	0	0	6	0	0	0	1	0					
+all	0	77	91.7	83.8	95.9	77	0	0	0	0	0	0	77	880983	1811335	2380108	2380108	row:22
+# 8.7c fallback totalOut vs the best's (fb_dout_bps, rows with a fallback): chain	n	p50	p90	p99	max	max_at	min	min_at
+base	28	-43.12	-1.18	-0.6	-0.6	row:26	-568.61	row:20
+optimism	35	-44.26	-10.03	-0.8	-0.8	row:74	-7484.3	row:65
+all	63	-43.9	-2.78	-0.6	-0.6	row:26	-7484.3	row:65
+# 8.7b aged route executed at the current block (7, 10, 25 s): chain	value	n	pct	ci95_lo	ci95_hi	ok	noquote	SolverE	RouterE	revert	mf_unforced	other	g_exec_n	p50	p90	p99	max	max_at
+base	R10	6	25.0	12.0	44.9	6	0	0	0	0	0	0	6	1054586	2380108	2380108	2380108	row:20
+base	R20	6	25.0	12.0	44.9	6	0	0	0	0	0	0	6	1041527	2380108	2380108	2380108	row:21
+base	R25	6	25.0	12.0	44.9	6	0	0	0	0	0	0	6	1041527	2380108	2380108	2380108	row:22
+base	R7	6	25.0	12.0	44.9	6	0	0	0	0	0	0	6	1197741	2380108	2380108	2380108	row:19
+optimism	R10	6	25.0	12.0	44.9	5	0	1	0	0	0	0	5	796344	880983	880983	880983	row:48
+optimism	R20	6	25.0	12.0	44.9	5	0	1	0	0	0	0	5	796344	880983	880983	880983	row:49
+optimism	R25	6	25.0	12.0	44.9	5	0	1	0	0	0	0	5	796344	880983	880983	880983	row:50
+optimism	R7	6	25.0	12.0	44.9	5	0	1	0	0	0	0	5	796344	880983	880983	880983	row:47
+all	R10	12	25.0	14.9	38.8	11	0	1	0	0	0	0	11	908875	1811335	2380108	2380108	row:20
+all	R20	12	25.0	14.9	38.8	11	0	1	0	0	0	0	11	908875	1811335	2380108	2380108	row:21
+all	R25	12	25.0	14.9	38.8	11	0	1	0	0	0	0	11	908875	1811335	2380108	2380108	row:22
+all	R7	12	25.0	14.9	38.8	11	0	1	0	0	0	0	11	908875	1913397	2380108	2380108	row:19
+# 8.8 by mode (age): chain	mode	n	ok	ok_pct	fb_used1	dout_n	dout_p50	dout_p95	dout_min	g_cold_n	g_cold_p50	g_cold_p95	causes
+base	D	6	6	100.0	0	6	0.0	0.0	0.0	6	1057703	2383384	-
+base	M0	6	6	100.0	0	6	0.0	1.27	0.0	6	911964	1814530	-
+base	M0w	6	6	100.0	0	6	-7.81	-0.01	-79.64	6	432435	1757475	-
+base	R7	6	6	100.0	0	6	0.0	0.0	-2.66	6	1200830	2383384	-
+base	R10	6	6	100.0	0	6	0.0	0.0	-1.93	6	1057675	2383384	-
+base	R20	6	6	100.0	0	6	0.0	0.22	-1.51	6	1044616	2383384	-
+base	R25	6	6	100.0	0	6	0.0	0.0	-1.51	6	1044616	2383384	-
+optimism	D	6	5	83.3	0	5	0.0	0.0	0.0	5	733751	884178	noquote:quote:execution reverted=1
+optimism	M0	6	5	83.3	0	5	0.0	0.0	-22.11	5	668347	884178	noquote:quote:execution reverted=1
+optimism	M0w	6	5	83.3	0	5	-4.12	-1.26	-22.31	5	387354	700006	prereq:M0 not ok=1
+optimism	R7	6	5	83.3	0	5	0.0	0.0	-0.74	5	799433	884178	noquote:quote:execution reverted=1
+optimism	R10	6	5	83.3	0	5	0.0	0.0	-0.74	5	799433	884178	noquote:quote:execution reverted=1
+optimism	R20	6	5	83.3	0	5	0.0	0.0	-0.74	5	799433	884178	noquote:quote:execution reverted=1
+optimism	R25	6	5	83.3	0	5	0.0	0.0	-0.74	5	799433	884178	noquote:quote:execution reverted=1
+all	D	12	11	91.7	0	11	0.0	0.0	0.0	11	911964	2383384	noquote:quote:execution reverted=1
+all	M0	12	11	91.7	0	11	0.0	1.27	-22.11	11	799433	1814530	noquote:quote:execution reverted=1
+all	M0w	12	11	91.7	0	11	-4.12	-0.01	-79.64	11	432435	1757475	prereq:M0 not ok=1
+all	R7	12	11	91.7	0	11	0.0	0.0	-2.66	11	911964	2383384	noquote:quote:execution reverted=1
+all	R10	12	11	91.7	0	11	0.0	0.0	-1.93	11	911964	2383384	noquote:quote:execution reverted=1
+all	R20	12	11	91.7	0	11	0.0	0.22	-1.51	11	911964	2383384	noquote:quote:execution reverted=1
+all	R25	12	11	91.7	0	11	0.0	0.0	-1.51	11	911964	2383384	noquote:quote:execution reverted=1
+# 8.9 rows with fb_dout_bps < 0: chain	b	mode	stratum	idx	outcome	fb_used	fb_dout_bps	legs_detail	row
+base	55022335	D	major-1	1	ok	0	-10.84	0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:88631	row:2
+base	55022335	M0	major-1	1	ok	0	-10.84	0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:88631	row:3
+base	55022335	M0w	major-1	1	ok	0	-10.84	0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:88631	row:4
+base	55022335	R7	major-1	1	ok	0	-8.18	0xdbc6998296caa1652a810dc8d3baf4a8294330f1:119131	row:5
+base	55022335	R10	major-1	1	ok	0	-8.92	0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:88631	row:6
+base	55022335	R20	major-1	1	ok	0	-9.34	0x57713f7716e0b0f65ec116912f834e49805480d2:77323	row:7
+base	55022335	R25	major-1	1	ok	0	-9.34	0x57713f7716e0b0f65ec116912f834e49805480d2:77323	row:8
+base	55250906	D	fee_high-1	1	ok	0	-566.72	0x498581ff718922c3f8e6a244956af099b2652b2b:92053;0xafb62448929664bfccb0aae22f232520e765ba88:100552;0x2c4909355b0c036840819484c3a882a95659abf3:79622;0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa:64631	row:16
+base	55250906	M0	fee_high-1	1	ok	0	-566.03	0x2c4909355b0c036840819484c3a882a95659abf3:103522;0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa:64647	row:17
+base	55250906	M0w	fee_high-1	1	ok	0	-557.46	0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa:82647	row:18
+base	55250906	R7	fee_high-1	1	ok	0	-567.21	0x498581ff718922c3f8e6a244956af099b2652b2b:92053;0xafb62448929664bfccb0aae22f232520e765ba88:100552;0x2c4909355b0c036840819484c3a882a95659abf3:79622;0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa:64631	row:19
+base	55250906	R10	fee_high-1	1	ok	0	-568.61	0x498581ff718922c3f8e6a244956af099b2652b2b:92053;0xafb62448929664bfccb0aae22f232520e765ba88:100552;0x2c4909355b0c036840819484c3a882a95659abf3:79622;0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa:64631	row:20
+base	55250906	R20	fee_high-1	1	ok	0	-568.55	0x498581ff718922c3f8e6a244956af099b2652b2b:92053;0xafb62448929664bfccb0aae22f232520e765ba88:100552;0x2c4909355b0c036840819484c3a882a95659abf3:79622;0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa:64631	row:21
+base	55250906	R25	fee_high-1	1	ok	0	-565.86	0x498581ff718922c3f8e6a244956af099b2652b2b:92053;0xafb62448929664bfccb0aae22f232520e765ba88:100552;0x2c4909355b0c036840819484c3a882a95659abf3:79622;0xc9034c3e7f58003e6ae0c8438e7c8f4598d5acaa:64631	row:22
+base	53911753	D	midtail-1	1	ok	0	-2.78	0x20cb8f872ae894f7c9e32e621c186e5afce82fd0:116166;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:87651	row:23
+base	53911753	M0	midtail-1	1	ok	0	-2.78	0x20cb8f872ae894f7c9e32e621c186e5afce82fd0:116166;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:87651	row:24
+base	53911753	M0w	midtail-1	1	ok	0	-1.18	0x82321f3beb69f503380d6b233857d5c43562e2d0:102882;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:87651	row:25
+base	53911753	R7	midtail-1	1	ok	0	-0.6	0x20cb8f872ae894f7c9e32e621c186e5afce82fd0:116166;0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59:117522	row:26
+base	53911753	R10	midtail-1	1	ok	0	-2.49	0x20cb8f872ae894f7c9e32e621c186e5afce82fd0:116166;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:87651	row:27
+base	53911753	R20	midtail-1	1	ok	0	-1.34	0x20cb8f872ae894f7c9e32e621c186e5afce82fd0:116166;0xb4cb800910b228ed3d0834cf79d697127bbb00e5:76309	row:28
+base	53911753	R25	midtail-1	1	ok	0	-1.0	0x20cb8f872ae894f7c9e32e621c186e5afce82fd0:116166;0xb4cb800910b228ed3d0834cf79d697127bbb00e5:76309	row:29
+base	54654621	D	fee_low-1	1	ok	0	-43.9	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1:76805;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:177980	row:30
+base	54654621	M0	fee_low-1	1	ok	0	-43.9	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1:76805;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:177980	row:31
+base	54654621	M0w	fee_low-1	1	ok	0	-43.12	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1:76805;0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59:100029;0xd0b53d9277642d899df5c87a3966a349a798f224:66065	row:32
+base	54654621	R7	fee_low-1	1	ok	0	-43.9	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1:76805;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:177980	row:33
+base	54654621	R10	fee_low-1	1	ok	0	-43.9	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1:76805;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:177980	row:34
+base	54654621	R20	fee_low-1	1	ok	0	-43.9	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1:76805;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:177980	row:35
+base	54654621	R25	fee_low-1	1	ok	0	-43.9	0xd56da2b74ba826f19015e6b7dd9dae1903e85da1:76805;0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38:177980	row:36
+optimism	159234686	D	midtail-1	1	ok	0	-44.26	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:82843;0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05:78314	row:44
+optimism	159234686	M0	midtail-1	1	ok	0	-44.59	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:82843;0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05:78314	row:45
+optimism	159234686	M0w	midtail-1	1	ok	0	-43.34	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:82847;0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05:78314	row:46
+optimism	159234686	R7	midtail-1	1	ok	0	-44.26	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:82843;0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05:78314	row:47
+optimism	159234686	R10	midtail-1	1	ok	0	-44.26	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:82843;0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05:78314	row:48
+optimism	159234686	R20	midtail-1	1	ok	0	-44.26	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:82843;0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05:78314	row:49
+optimism	159234686	R25	midtail-1	1	ok	0	-44.26	0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:82843;0xfc1f3296458f9b2a27a0b91dd7681c4020e09d05:78314	row:50
+optimism	159312623	D	major-1	1	ok	0	-195.88	0x1fb3cf6e48f1e7b10213e7b6d87d4c073c7fdb7b:78912	row:51
+optimism	159312623	M0	major-1	1	ok	0	-193.59	0x478946bcd4a5a22b316470f5486fafb928c0ba25:116471;0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:66865	row:52
+optimism	159312623	M0w	major-1	1	ok	0	-191.84	0xc1738d90e2e26c35784a0d3e3d8a9f795074bca4:76166	row:53
+optimism	159312623	R7	major-1	1	ok	0	-195.16	0x1fb3cf6e48f1e7b10213e7b6d87d4c073c7fdb7b:76156;0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:66833	row:54
+optimism	159312623	R10	major-1	1	ok	0	-195.16	0x1fb3cf6e48f1e7b10213e7b6d87d4c073c7fdb7b:76156;0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:66833	row:55
+optimism	159312623	R20	major-1	1	ok	0	-195.16	0x1fb3cf6e48f1e7b10213e7b6d87d4c073c7fdb7b:76156;0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:66833	row:56
+optimism	159312623	R25	major-1	1	ok	0	-195.16	0x1fb3cf6e48f1e7b10213e7b6d87d4c073c7fdb7b:76156;0x9a13f98cb987694c9f086b1f5eb990eea8264ec3:66833	row:57
+optimism	159194488	D	fee_low-1	1	ok	0	-7484.3	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c:153190	row:65
+optimism	159194488	M0	fee_low-1	1	ok	0	-7484.3	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c:153190	row:66
+optimism	159194488	M0w	fee_low-1	1	ok	0	-7483.8	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c:75249	row:67
+optimism	159194488	R7	fee_low-1	1	ok	0	-7484.3	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c:153190	row:68
+optimism	159194488	R10	fee_low-1	1	ok	0	-7484.3	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c:153190	row:69
+optimism	159194488	R20	fee_low-1	1	ok	0	-7484.3	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c:153190	row:70
+optimism	159194488	R25	fee_low-1	1	ok	0	-7484.3	0x04f6c85a1b00f6d9b75f91fd23835974cc07e65c:153190	row:71
+optimism	159297748	D	family_rep-1	1	ok	0	-10.03	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c:75840	row:72
+optimism	159297748	M0	family_rep-1	1	ok	0	-10.03	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c:75840	row:73
+optimism	159297748	M0w	family_rep-1	1	ok	0	-0.8	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c:69980;0x73b14a78a0d396c521f954532d43fd5ffe385216:52550	row:74
+optimism	159297748	R7	family_rep-1	1	ok	0	-10.03	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c:75840	row:75
+optimism	159297748	R10	family_rep-1	1	ok	0	-10.03	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c:75840	row:76
+optimism	159297748	R20	family_rep-1	1	ok	0	-10.03	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c:75840	row:77
+optimism	159297748	R25	family_rep-1	1	ok	0	-10.03	0x85c31ffa3706d1cce9d525a00f1c7d4a2911754c:75840	row:78
+optimism	159201971	D	shallow-1	1	ok	0	-37.94	0xd8afa96459787fd45165b0b912407d136b866f00:134891	row:79
+optimism	159201971	M0	shallow-1	1	ok	0	-15.87	0x1bf31a0932a0035c532a7b1dcb94ffe0b35aed14:227428	row:80
+optimism	159201971	M0w	shallow-1	1	ok	0	-15.67	0x1bf31a0932a0035c532a7b1dcb94ffe0b35aed14:144548	row:81
+optimism	159201971	R7	shallow-1	1	ok	0	-37.94	0xd8afa96459787fd45165b0b912407d136b866f00:134891	row:82
+optimism	159201971	R10	shallow-1	1	ok	0	-37.94	0xd8afa96459787fd45165b0b912407d136b866f00:134891	row:83
+optimism	159201971	R20	shallow-1	1	ok	0	-37.94	0xd8afa96459787fd45165b0b912407d136b866f00:134891	row:84
+optimism	159201971	R25	shallow-1	1	ok	0	-37.94	0xd8afa96459787fd45165b0b912407d136b866f00:134891	row:85
+# 8.0 index: section	data_lines
+8.1a legs by kind (ok rows; gas = leg frame gasUsed)	14
+8.1b legs by dex (ok rows; gas = leg frame gasUsed)	20
+8.1c top 10 pools per chain by legs (ok rows)	20
+8.1d top 10 pairs per chain by rows (every outcome)	12
+8.2a legs	12
+8.2b hops	8
+8.2c topology (hops x single|split)	13
+8.2d multi-hop via an intermediate token (hops == 2)	8
+8.2e bridge token of a 2-hop route	10
+8.3a token class (measured, delivered < net_out or leg_amt < amount_in)	11
+8.3b decimals tin/tout (site_tokens.json)	9
+8.3c rebase / exotic token	0
+8.3d native vs wrapped (draws ride the wrapped token)	0
+8.4a USD size bucket (peg 1 of a stable side; unpriced = neither side a listed stable)	10
+8.4b USD basis	9
+8.4c gas per leg by USD size (ok rows; g_legs_sum / legs)	10
+8.4d input per leg paid in tin (ok rows; f = paid / amount_in)	19
+8.5a stratum kind x USD bucket x outcome class	22
+8.5b causes of every row not ok (decoded)	4
+8.6a gas by segment (ok rows)	27
+8.6b quote estimate vs execution (ok rows; delta = g_exec - est_gas)	3
+8.6c gas by kind of the leg x USD bucket (ok rows, leg frame gas)	28
+8.7a fallback to the runner-up (f82bc67)	5
+8.7c fallback totalOut vs the best's (fb_dout_bps, rows with a fallback)	3
+8.7b aged route executed at the current block (7, 10, 25 s)	12
+8.8 by mode (age)	21
+8.9 rows with fb_dout_bps < 0	63
