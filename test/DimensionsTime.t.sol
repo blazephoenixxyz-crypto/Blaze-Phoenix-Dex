@@ -91,7 +91,7 @@ contract DimensionsTimeTest is Test {
     }
 
     // ── tau's EMA, the falling branch ─────────────────────────────────────────────────────────────
-    // RED at d2cf5c9 with mutant "L1-124 Core:3242" applied (src/BlazePhoenixCore.sol:3242, the
+    // RED at d2cf5c9 with mutant "Core:3242" applied (src/BlazePhoenixCore.sol:3242, the
     // falling step flipped to `+=`); GREEN at HEAD. Spec: tau moves 1/8 of the way to the interval
     // just closed, rounded up (a non-zero gap moves it by at least 1), and never past it.
 

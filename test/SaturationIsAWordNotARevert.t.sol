@@ -19,7 +19,7 @@ pragma solidity 0.8.36;
 //  RouteQualityOrderSizeError.t.sol (test_ErrSaturatesWhenRankTimesOrderOverflows) and its
 //  mutant; it is not repeated here.
 //
-//  A guard, green at bb4cdbb: its red is the mutant labelled `124-L2 Core:2547` in
+//  A guard, green at bb4cdbb: its red is the mutant labelled `Core:2547` in
 //  .github/scripts/mutants.py (the saturation replaced by a uint128 cast).
 //
 //  forge test --match-path test/SaturationIsAWordNotARevert.t.sol -vv

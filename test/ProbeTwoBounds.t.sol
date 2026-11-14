@@ -13,8 +13,8 @@ pragma solidity 0.8.36;
 //         (errOrder - rnd - 3 WAD / n) * depth * amountIn >= rank * orderIn * WAD;
 //   (vii) a Gate wrapper (KIND_EXTERNAL) carries no impact term on either bound: both are the
 //         rounding terms, err = min(rnd, WAD) and errOrder = rnd, whatever the order and the depth
-//         the Gate reads (ProbeTwoBoundsGateTest, mutant "L1-124 Core:2109").
-// Reserves run from dust to uint112's ceiling. RED at bb4cdbb with each mutant "L1-124 Core:21.."
+//         the Gate reads (ProbeTwoBoundsGateTest, mutant "Core:2109").
+// Reserves run from dust to uint112's ceiling. RED at bb4cdbb with each mutant "Core:21.."
 // applied (src/BlazePhoenixCore.sol:2104-2126, one per test, .github/scripts/mutants.py); GREEN at HEAD.
 
 import {Test} from "forge-std/Test.sol";
@@ -59,7 +59,7 @@ contract ProbeTwoBoundsTest is Test {
         return BPC.universalProbe(c, a, 0, true, o);
     }
 
-    // (i) mutant "L1-124 Core:2112: err's input side is read at the order"
+    // (i) mutant "Core:2112: err's input side is read at the order"
     function testFuzz_ErrAtTheProbeIgnoresTheOrder(uint256 x, uint256 y, uint256 a, uint256 o1, uint256 o2) public {
         x = bound(x, 10, type(uint112).max);
         y = bound(y, 1, type(uint112).max);
@@ -76,7 +76,7 @@ contract ProbeTwoBoundsTest is Test {
         }
     }
 
-    // (ii) mutant "L1-124 Core:2124: the order's impact term rounds down"
+    // (ii) mutant "Core:2124: the order's impact term rounds down"
     function testFuzz_ErrOrderIsNeverBelowErr(uint256 x, uint256 y, uint256 a, uint256 o) public {
         x = bound(x, 10, type(uint112).max);
         y = bound(y, 1, type(uint112).max);
@@ -90,7 +90,7 @@ contract ProbeTwoBoundsTest is Test {
         }
     }
 
-    // (iii) mutant "L1-124 Core:2118: an order one wei under the probe escapes the clamp"
+    // (iii) mutant "Core:2118: an order one wei under the probe escapes the clamp"
     function test_OrderOneWeiUnderTheProbeReadsTheProbesBound() public {
         // price 4, depth 1e18: one wei of the order's input is one unit of the bound
         QuoteCtx memory c = _pair(1e18, 4e18);
@@ -118,7 +118,7 @@ contract ProbeTwoBoundsTest is Test {
         }
     }
 
-    // (iv) mutant "L1-124 Core:2124: an order exactly at the depth is not the whole bound"
+    // (iv) mutant "Core:2124: an order exactly at the depth is not the whole bound"
     function test_OrderAtTheDepthReadsWAD() public {
         QuoteCtx memory c = _pair(1e18, 4e18);   // price 4: the input side is the short one
         uint256 a = 1e15;
@@ -134,7 +134,7 @@ contract ProbeTwoBoundsTest is Test {
         assertLt(atProbe, WAD, "control: the order at the probe is a finite bound");
     }
 
-    // (v) mutant "L1-124 Core:2104: rank 0 reads a zero bound"
+    // (v) mutant "Core:2104: rank 0 reads a zero bound"
     function test_RankZeroIsTheWholeBound() public {
         (, uint256 rank, , uint256 err, uint256 errOrder) = _probe(_pair(0, 0), 1e15, 1e15);
         assertEq(rank, 0, "an empty pair ranks nothing");
@@ -146,7 +146,7 @@ contract ProbeTwoBoundsTest is Test {
         assertLt(errOrder, WAD, "control: and so is the order's");
     }
 
-    // mutant "L1-124 Core:2126: err is not clamped at WAD"
+    // mutant "Core:2126: err is not clamped at WAD"
     function test_TheProbesBoundStopsAtWADTheOrdersDoesNot() public {
         // a = 3 wei on 1e18 / 1e18 at 30 bps: rank 2, n = 2, rnd = (3e18 + 6) / 2 + 1, so the
         // unclamped bound is rnd + 1.5e18 + 2 = 3e18 + 6: past WAD.
@@ -172,7 +172,7 @@ contract ProbeTwoBoundsTest is Test {
         assertGe((errOrder - base) * depth * a, rank * o * WAD, "the order's bound misses the real output at the order");
     }
 
-    // mutant "L1-124 Core:2122: the order's output rounds down"
+    // mutant "Core:2122: the order's output rounds down"
     function test_TheOrdersBoundCoversTheRealOutputAtTheOrder() public {
         QuoteCtx memory c = _pair(1e18, 1e15);
         uint256 a = 1e12;
@@ -241,7 +241,7 @@ contract ProbeTwoBoundsGateTest is Test {
         assertEq(errOrder, rnd, "a Gate wrapper's errOrder carries an impact term");
     }
 
-    // mutant "L1-124 Core:2109: a Gate wrapper is read for an impact term"
+    // mutant "Core:2109: a Gate wrapper is read for an impact term"
     function test_AGateWrapperIsBoundByItsRoundingAlone() public view {
         _roundingOnly(1_000e18, 0);
         _roundingOnly(1_000e18, 1_000e18);

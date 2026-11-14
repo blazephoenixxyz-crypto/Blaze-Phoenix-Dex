@@ -872,7 +872,7 @@ contract BlazePhoenixQuoter {
         uint256 planOut = route.hops.length > 1
             ? BPC.netOfInputFees(route.hops, route.totalOut, feeHop, feeOnOut)
             : route.totalOut;
-        // THE FEE WALK (`_walk`, 124-L5 B6): the same walk as `_fundedOut`, here with the fee only
+        // THE FEE WALK (`_walk`): the same walk as `_fundedOut`, here with the fee only
         // where the Router takes it on two hops or more (a single hop takes its deduction below),
         // and writing each hop's and leg's figures into the returned route.
         uint256 walkOut = _walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true);
@@ -921,7 +921,7 @@ contract BlazePhoenixQuoter {
         // took its fee inside `_walk`, at the hop the Router takes it (#44), and its funded
         // figure is the same walk.
         // A walk that funded nothing promises 0 whatever a second walk says (the min below), so
-        // no venue is asked again: over a route `_walk` zeroed, hop 0 would ask for 0 (WALKFIX-124).
+        // no venue is asked again: over a route `_walk` zeroed, hop 0 would ask for 0.
         uint256 funded = walkOut == 0 ? 0 : _fundedOut(route, amountIn);
         exactOut = funded != type(uint256).max
             ? walkOut // input-charged: the fee came off in `_walk`, or `funded` bounds below
@@ -976,7 +976,7 @@ contract BlazePhoenixQuoter {
         return _walk(route, amountIn, feeHop, false, false);
     }
 
-    /// @dev THE FEE WALK (124-L5 B6), the one producer of the exact door's funded figure: the route
+    /// @dev THE FEE WALK, the one producer of the exact door's funded figure: the route
     ///      funded from `amountIn` as `Router._execute` funds it. At every hop the divisor is the
     ///      hop commitment, the legs' own sum, as in the Router (`_hopScaleImpactAndQuote` reads
     ///      `_legSum(hop)`, never `hop.amountIn`): Q773 (hop 1 on) and T04 (hop 0). A hop the
@@ -986,7 +986,7 @@ contract BlazePhoenixQuoter {
     ///      Solver's capacity clamp cut is never priced at its pre-clamp size). A fee that takes
     ///      all that entered the hop leaves nothing to sell: 0, never a venue's answer for an input
     ///      of 0. `write` records each leg's and hop's funded input and output in the route,
-    ///      0 in the hops such a fee left unfunded (`_unfund`, JE-124).
+    ///      0 in the hops such a fee left unfunded (`_unfund`).
     function _walk(Route memory route, uint256 amountIn, uint256 feeHop, bool feeOnOut, bool write)
         private returns (uint256 carry)
     {
@@ -1017,7 +1017,7 @@ contract BlazePhoenixQuoter {
         }
     }
 
-    /// @dev The hops from `h` on, which a fee that ate the carry left unfunded (JE-124): every
+    /// @dev The hops from `h` on, which a fee that ate the carry left unfunded: every
     ///      hop's and leg's input and output written 0, the figures the Router funds them with,
     ///      never the plan's. No venue is asked.
     function _unfund(Hop[] memory hops, uint256 h) private pure {

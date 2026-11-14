@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
-// 124-L5 B6: the exact door's fee walk (`BlazePhoenixQuoter._walk`) stops at 0 when the fee charged
+// The exact door's fee walk (`BlazePhoenixQuoter._walk`) stops at 0 when the fee charged
 // on a hop's input is the whole of what entered it (`fee >= carry`). On an honest venue the
 // carry left (0) prices 0 anyway, so the guard is visible only through a venue that quotes
 // something for nothing: a Gate wrapper whose adapter has no view price and answers `quoteCall`

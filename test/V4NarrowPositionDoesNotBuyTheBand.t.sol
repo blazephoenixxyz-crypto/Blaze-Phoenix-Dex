@@ -12,7 +12,7 @@ import {MockV4TickManager} from "./mocks/MockV4TickManager.sol";
 ///         the band: the book votes with the share of its virtual output side it holds
 ///         (`v4HeldShare`), so a position with 100x the honest liquidity and almost nothing
 ///         held moves the vote by what it holds, not by what it declares. Measurement, not a
-///         fix: green at 66b499b; the held-share guard's mutant (`124-L3 B13-M1`) turns the
+///         fix: green at 66b499b; the held-share guard's mutant (`Core:2607`) turns the
 ///         band test red.
 /// @dev    The book shape this file adds to V4MedianMassIsHeld (a separate narrow pool) is the
 ///         SAME pool: honest full-range liquidity plus the attacker's range around the price.

@@ -282,7 +282,7 @@ stops before the last row and returns it untested, since its vote always complet
 line is the median whenever the mass crosses only at the dearest row. `test/MedianBandMath.t.sol`
 reads it through `select` (masses 1, 1, 3: the last row; control 1, 1, 2: the middle row; twins;
 a fuzz over three masses and six arrival orders against `2 * cum >= total`); the mutants
-[L0-124 Math:609] return the cheapest row instead, or stop the walk one row early.
+[Math:609] return the cheapest row instead, or stop the walk one row early.
 
 **The split's remainder, unguarded because it cannot overshoot (2026-11-14).** `Solver._split`
 gave the last leg `allocated >= amountIn ? 0 : amountIn - allocated`. Every other leg takes
@@ -294,7 +294,7 @@ is now plain and checked: the impossible case reverts instead of reading 0 (SHAR
 `sumPsi`). `test/SplitRemainderIsTheLastLeg.t.sol` asserts that a split hop's legs spend exactly the
 caller's input and that `hop.amountIn` equals it (three V2 rows of unequal depth, a single-pool
 control, a fuzz over the order from 1e6 wei to 600k e18 and over the depths); the mutant
-[L0-124 Solver:1032] shorts the remainder by one wei.
+[Solver:1032] shorts the remainder by one wei.
 
 **The loose shape's baseline, removed because no hop could take it (2026-11-14).** `Router._execute`
 set `bridgeBase[h - 1] = toutStart` when a hop past the first took the route's output in. With
@@ -798,26 +798,26 @@ pin (SHARED_QUANTITIES, "the net output the exact door promises"). The offline t
 hops; mutants [door-fee-1..3] and the tripwire [door-fee-meta], which refuses a widened fork
 tolerance since the fork row cannot run in the guard.
 
-**One fee walk for both exact passes (2026-11-14, 124-L5 B6).** `Quoter._exact` priced the route in
+**One fee walk for both exact passes (2026-11-14).** `Quoter._exact` priced the route in
 its own loop and `_fundedOut` funded it in a second; only the second stopped when a fee rounded up
 took all that entered a hop. On two hops at 1 wei the first wrote 0 into hop 0's legs and the second,
 reading the rewritten route, saw a 0 commitment and a 0 fee: a venue that quotes something for
 nothing was promised in full. Both passes are now `_walk` (SHARED_QUANTITIES, "the fee walk"); test
-`test/QuoterExactFeeThatEatsTheCarryIsZero.t.sol` (red at 2f1e1b5), mutant «124-L5 B6 Quoter: the walk
+`test/QuoterExactFeeThatEatsTheCarryIsZero.t.sol` (red at 2f1e1b5), mutant «Quoter: the walk
 asks a venue after the fee ate the carry». The single-hop switch of the exact pass (`feeOnOut ||
 route.hops.length == 1`: one hop takes no fee in the walk, only in the funded pass) has its own
-mutant, «124-L5 B6 Quoter: the exact walk charges a single hop on its input», killed by
+mutant, «Quoter: the exact walk charges a single hop on its input», killed by
 `test_OneHop_TheWalkLeavesTheFeeToTheFundedPass`. The over-promise was a quote, never a fill: the
 Router charges the same hop 0 first (`_chargeHopFee`, `feeH >= amountIn` ⇒ `RouterE(8)`) and never
 asks a Gate adapter's `quoteCall`.
 The walk's early exit left the hops it never reached with the plan's figures in the route it
-returned (JE-124): at 1 wei hop 0 showed 1 in and 1 out, hop 1 the plan's 1e18, while the promise was
+returned: at 1 wei hop 0 showed 1 in and 1 out, hop 1 the plan's 1e18, while the promise was
 0. Those hops are now written 0 (`_unfund`), the figures the Router funds them with; the promise and
 the Router's refusal are unchanged. Test `test/QuoterExactRouteShowsOnlyFundedFigures.t.sol` (red at
-90c2d85), mutant «124-JE walkfix Quoter: the exact walk leaves the plan's figures in the hops a fee
+90c2d85), mutant «Quoter: the exact walk leaves the plan's figures in the hops a fee
 left unfunded». A walk that funded nothing promises 0 whatever a second walk says, so the door
 no longer re-walks it (over the zeroed route hop 0 asked its venue for 0): test
-`test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue`, mutant «WALKFIX-124 Quoter: the exact door
+`test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue`, mutant «Quoter: the exact door
 re-walks a route that funded nothing».
 
 ## 4p. How a quote ages — the promise measured against time and drift
@@ -862,7 +862,7 @@ pre-registered in `docs/prereg/kkt-1114.tsv`): 36 V2 universes, 2, 3 and 5 pools
 output against a KKT optimum found by bisection outside the code under test. In every cell the
 gap stays within the certificate the split computes; at one price and one fee the certificate is
 at most 3,014 ppm, under the pre-registered 3,500; across a band of prices the gap reaches
-154,129 ppm and is recorded, not asserted. Weighing every depth the same (mutant `124-L3 B9-M1`)
+154,129 ppm and is recorded, not asserted. Weighing every depth the same (mutant `Math:655`)
 lifts the certificate to 5,669 ppm and turns the bench red. `v3-reads.tsv`
 (`test/fork/V3ReadsBudgetLoss.t.sol`, Base block 52,900,000, the WETH/DAI pool
 `0xC18F50d6A832f12F6DcAaeEe8D0c87A65B96787E`): what a V3 walk capped at `V3_PAY_READS` promises
@@ -873,7 +873,7 @@ own theorems are asserted. One QuoterV2 answer reverts and is written `n/a`, not
 `v4-narrow.tsv` (`test/V4NarrowPositionDoesNotBuyTheBand.t.sol`, mock V4): a one-spacing position
 with 100× the honest liquidity, stacked on the same pool, takes the book's held share from
 857,598 ppm to 8,496 ppm (853,408 to 8,647 on the exact-input side), so it does not buy the
-band; dropping the held-share scaling (`124-L3 B13-M1`) turns the band test red. Allocation
+band; dropping the held-share scaling (`Core:2607`) turns the band test red. Allocation
 numbers drawn from these ledgers are the owner's to set.
 
 ## 5. What none of this establishes

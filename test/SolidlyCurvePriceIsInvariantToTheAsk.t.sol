@@ -18,10 +18,10 @@ pragma solidity 0.8.36;
 //  The volatile law also runs on N_SAMPLES pre-registered samples (docs/prereg/solidly-ask-1113.tsv,
 //  seed_i = sha256(PREREG_TAG || uint256 i)); the stable curve and a factory's fee each have a case.
 //
-//  Guards, green at bb4cdbb: their reds are the mutants labelled `124-L2 Core:1545`,
-//  `124-L2 Core:1546` and `124-L2 Core:1537` in .github/scripts/mutants.py; the stable and the
-//  factory cases are `124-L2 Core:1545-stable` and `124-L2 Core:1546-factory`; a declared
-//  fee of 0 (outside the registered F_LO = 1: another law) is `124-L2 Core:1766-zero`.
+//  Guards, green at bb4cdbb: their reds are the mutants labelled `Core:1545`,
+//  `Core:1546` and `Core:1537` in .github/scripts/mutants.py; the stable and the
+//  factory cases are `Core:1545-stable` and `Core:1546-factory`; a declared
+//  fee of 0 (outside the registered F_LO = 1: another law) is `Core:1766-zero`.
 //
 //  forge test --match-path test/SolidlyCurvePriceIsInvariantToTheAsk.t.sol -vv
 // =============================================================================

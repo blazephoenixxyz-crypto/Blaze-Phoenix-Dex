@@ -7,12 +7,12 @@ pragma solidity 0.8.36;
 // One pip under, the fee is stated: the row is judged from both sides with its own (1 - f_i).
 // Base row 0: price 1e18, fee 3000 pips, e = e_o = 0, so the base keeps (1 - 0.003) on each edge.
 // Oracle: the hand arithmetic in each case, not the library.
-// Mutants (.github/scripts/mutants.py, block `# 124-L1`):
-//   «L1-124 Math:537» `f < PIPS ? f : 0` -> `f <= PIPS ? f : 0` (an unknown fee is kept as stated,
+// Mutants (.github/scripts/mutants.py):
+//   «Math:537» `f < PIPS ? f : 0` -> `f <= PIPS ? f : 0` (an unknown fee is kept as stated,
 //     the row keeps nothing, so it passes the upper edge at any price) -> red;
-//   «L1-124 Math:539» `f >= PIPS ||` -> `f > PIPS ||` (a fee of exactly 1e6 is asked the lower
+//   «Math:539» `f >= PIPS ||` -> `f > PIPS ||` (a fee of exactly 1e6 is asked the lower
 //     edge it cannot answer) -> red;
-//   «L1-124 Math:166» the all-dead exit of `_select` dropped (a hop whose rows all read 0 is
+//   «Math:166» the all-dead exit of `_select` dropped (a hop whose rows all read 0 is
 //     sorted, based and weighed with no row to read) -> red.
 
 import {Test} from "forge-std/Test.sol";

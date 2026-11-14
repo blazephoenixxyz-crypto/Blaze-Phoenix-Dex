@@ -679,7 +679,7 @@
       "status": "blocked",
       "guard": "_solY",
       "test": "test_ThinInputSideExitsOnTheSafeSide",
-      "note": "124-L2, 2026-11-14. Core._solY landed the converged exit on the safe side (K_post >= K_pre) with one +1 wei bump, which assumed _solK increasing in y; it is only non-decreasing: its floor(x*y/WAD) factor moves in steps of WAD/x wei, so with the input side below one normalised unit a single bump can stay on the K-deficient step (two climbs were needed in 1,167 of 26,251 sampled exits over the full domain, never three). Since 2026-11-14 the exit climbs one wei at a time while K-deficient, at most two, and fails closed past that (y0, out = 0). Held by test/SolidlyNewtonLandsOnTheSafeSide.t.sol (the thin-side unit case and its fuzz, the exact-arithmetic fuzz, the swamping input); mutants 124-L2 Core:1863 and Core:1863-fix in .github/scripts/mutants.py."
+      "note": "2026-11-14. Core._solY landed the converged exit on the safe side (K_post >= K_pre) with one +1 wei bump, which assumed _solK increasing in y; it is only non-decreasing: its floor(x*y/WAD) factor moves in steps of WAD/x wei, so with the input side below one normalised unit a single bump can stay on the K-deficient step (two climbs were needed in 1,167 of 26,251 sampled exits over the full domain, never three). Since 2026-11-14 the exit climbs one wei at a time while K-deficient, at most two, and fails closed past that (y0, out = 0). Held by test/SolidlyNewtonLandsOnTheSafeSide.t.sol (the thin-side unit case and its fuzz, the exact-arithmetic fuzz, the swamping input); mutants Core:1863 and Core:1863-fix in .github/scripts/mutants.py."
     }
   ]
 }

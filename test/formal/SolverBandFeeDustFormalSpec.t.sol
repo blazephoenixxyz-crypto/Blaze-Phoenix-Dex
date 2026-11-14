@@ -22,7 +22,7 @@ contract SolverBandFeeDustFormalSpec is Test {
     // (b) raising an error bound never drops a row: k falls, so the upper edge's
     //     left side falls and the lower edge's right side falls (monotone floors);
     // (c) no base (b >= n) keeps nothing; a dead row (price 0) is never kept.
-    // Mutant 124-HAL-H1: src/BlazePhoenixMath.sol:538 `, BPC.WAD) <= pb` -> `, BPC.WAD) < pb`
+    // Mutant H1: src/BlazePhoenixMath.sol:538 `, BPC.WAD) <= pb` -> `, BPC.WAD) < pb`
     //     (f_b = e_b = 0 makes the product equal pb: the base drops itself).
     function _fe(uint24 f, uint64 e, uint64 eo) internal pure returns (uint256) {
         return uint256(f) | uint256(e) << 24 | uint256(eo) << 88;
@@ -53,7 +53,7 @@ contract SolverBandFeeDustFormalSpec is Test {
     // ceiling, not the code's mulDivUp); b > 0 => fee > 0 (no fee-free swap at
     // 357 wei or less); b >= 2 => fee < b (RouterE(8) only at b == 1); the Core
     // sibling scales a one-hop output by (b - fee) / b, rounded down.
-    // Mutant 124-HAL-H2: src/BlazePhoenixCore.sol:461 `mulDivUp(b, PROTOCOL_FEE_BPS, BPS)`
+    // Mutant H2: src/BlazePhoenixCore.sol:461 `mulDivUp(b, PROTOCOL_FEE_BPS, BPS)`
     //     -> `mulDiv(b, PROTOCOL_FEE_BPS, BPS)`. Router `_chargeHopFee` is private: its
     //     own mutant (mulDivUp -> mulDiv) is killed by the forge tests on the 357-wei
     //     edge, not by this check.
@@ -75,7 +75,7 @@ contract SolverBandFeeDustFormalSpec is Test {
     // widen the band past the 2x row (test/FindingAnchorDonation.t.sol:124); at
     // 1 wei a V2 row at price <= 1 quotes 0 (a floor), so it does not vote
     // (Solver `if (o > 0)`). Never above spot, at any size.
-    // Mutant 124-HAL-H3: src/BlazePhoenixCore.sol:1413
+    // Mutant H3: src/BlazePhoenixCore.sol:1413
     //     `return (amtFee * rOut) / (rIn * BPS + amtFee);`
     //  -> `return (amtFee * rOut + rIn * BPS + amtFee - 1) / (rIn * BPS + amtFee);`
     //     (a ceiling: the dead dust row quotes 1 and votes).
@@ -93,7 +93,7 @@ contract SolverBandFeeDustFormalSpec is Test {
     // `amountIn - allocated` never underflows and the legs sum to EXACTLY the
     // order, never more. A lemma: `_split` and `_weights` are private, so this
     // mirrors the floor at n = 3.
-    // Mutant 124-HAL-H4: src/BlazePhoenixSolver.sol:1034
+    // Mutant H4: src/BlazePhoenixSolver.sol:1034
     //     `share = BPC.mulDiv(amountIn, psis[i], sumPsi);` -> `BPC.mulDivUp(...)`.
     //     The lemma holds for floors only; the src mutant is killed by a Solver test,
     //     not by this mirror: test/SplitSharesAreFloors.t.sol (no leg under its floor

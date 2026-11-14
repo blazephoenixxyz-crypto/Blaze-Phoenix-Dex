@@ -15,7 +15,7 @@ pragma solidity 0.8.36;
 //  [60, 120]; an order of up to 3.02e18 stays inside it in both directions, and one
 //  past ~3.0135e18 (fee included) crosses -60 or 60.
 //
-//  Mutant "L1-124 Core:2551" in .github/scripts/mutants.py (`tick = nt` going down too).
+//  Mutant "Core:2551" in .github/scripts/mutants.py (`tick = nt` going down too).
 //
 //  forge test --match-path test/V3WalkTickStepIsDirectional.t.sol -vv
 // =============================================================================

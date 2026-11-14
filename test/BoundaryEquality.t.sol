@@ -159,7 +159,7 @@ contract BoundaryEqualityTest is Test {
 // Read at the library (`BlazePhoenixMath.select`) on rows built by hand, every row vouched
 // (`active`: no Hub read); the band's own edges are test/MedianBandMath.t.sol.
 //
-// RED at 1c33f29 with mutant "L1-124 Math:492" applied (`>= PIPS` -> `> PIPS`: the 1e6 row
+// RED at 1c33f29 with mutant "Math:492" applied (`>= PIPS` -> `> PIPS`: the 1e6 row
 // votes, takes the base, and a base whose fee is the whole keeps every live row); GREEN at HEAD.
 contract BoundaryEqualityBandVoteTest is Test {
     uint256 constant PIPS = 1_000_000;

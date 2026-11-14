@@ -19,7 +19,7 @@ pragma solidity 0.8.36;
 //    3 and 4 live rows, all depth 0, rows out of price order  x  no voter  x  unit
 //    one row with depth (control: the vote still decides)     x  honest     x  unit
 //
-//  Mutant in .github/scripts/mutants.py: "L1-124 Math:599" (`m == 0 || massa == 0` ->
+//  Mutant in .github/scripts/mutants.py: "Math:599" (`m == 0 || massa == 0` ->
 //  `m == 0`: the cheapest row is the base) -> red.
 //
 //  forge test --match-path test/NoVoteBaseIsTheMedianRow.t.sol -vv

@@ -23,7 +23,7 @@ pragma solidity 0.8.36;
 //
 //  Red under: Router:1588 `mulDivUp` -> `mulDiv` (the Router's floor one wei low whenever
 //  the product does not divide) and the Quoter's rescale drifting by one unit
-//  (registered in .github/scripts/mutants.py, block `# 124-L2`). No change to src.
+//  (registered in .github/scripts/mutants.py). No change to src.
 // =============================================================================
 
 import {Test, Vm} from "forge-std/Test.sol";

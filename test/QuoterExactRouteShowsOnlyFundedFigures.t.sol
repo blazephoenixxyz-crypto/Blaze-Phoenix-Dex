@@ -94,7 +94,7 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
         assertEq(q.hops[h].legs[0].expectedOut, funded, string.concat(what, ": leg expectedOut"));
     }
 
-    /// @notice RED-FIRST (JUNTA-ENSAIO-124, 72bb176). Range: 1 wei. Vector: no bridge, so the calendar
+    /// @notice RED-FIRST (72bb176). Range: 1 wei. Vector: no bridge, so the calendar
     ///         charges every hop on its input. Dimension: unit, 2 hops. The fee on hop 0's 1 wei is
     ///         1 wei: nothing reaches either hop, the door promises 0, and the route it returns must
     ///         fund no leg. Red while the walk's early `return 0` leaves the plan's figures in the
@@ -132,12 +132,12 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
         _assertHop(q, 1, 0, "hop 1, eaten by its fee");
     }
 
-    /// @notice RED-FIRST (WALKFIX-124). Gama: 1 wei. Vetor: no bridge, every hop pays on its input.
+    /// @notice RED-FIRST. Gama: 1 wei. Vetor: no bridge, every hop pays on its input.
     ///         Dimensão: unit, 2 hops, venue call count. A walk that funded nothing promises 0
     ///         whatever a second walk would say (the promise is at most the walk's 0), so the exact
     ///         door asks no venue again: the funded figure is not re-walked over the zeroed route,
     ///         where hop 0 would ask its venue for 0. Red while `_exact` calls `_fundedOut` on a
-    ///         gross of 0 (registered mutant «WALKFIX-124 Quoter: the exact door re-walks a route
+    ///         gross of 0 (registered mutant «Quoter: the exact door re-walks a route
     ///         that funded nothing»).
     function test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue() public {
         vm.expectCall(address(adapter), abi.encodeWithSelector(OneToOneGateAdapter.quoteCall.selector), 0);

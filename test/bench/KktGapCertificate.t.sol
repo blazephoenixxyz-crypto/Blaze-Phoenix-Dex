@@ -23,7 +23,7 @@ pragma solidity 0.8.36;
 //        certificate is small; the bound is the pre-registered number.
 //  Every cell is printed as a ledger line (docs/assurance/kkt-gap.tsv). V3/V4 legs are not
 //  concave across a tick whose liquidity rises, and two hops couple through the bridge
-//  amount: there the gap is a record, never an assertion (CONJECTURE, FABLE-DESENHO-124 F2.e).
+//  amount: there the gap is a record, never an assertion (CONJECTURE).
 //
 //  Mutants: Math `_weights` psi -> 1 (equal split): red on (b). Solver `_onTrial` `>=` -> `>`.
 //  Src 0: a benchmark with a certificate, not a guard on a fix.

@@ -858,7 +858,7 @@ contract ConditionAdequacyHubTest is Test {
         assertEq(hub.v4CodeOf(tokenB), 0, "on either side");
     }
 
-    // RED at d2cf5c9 with mutant "L0-124 Hub:1485" applied (src/BlazePhoenixHub.sol:1485,
+    // RED at d2cf5c9 with mutant "Hub:1485" applied (src/BlazePhoenixHub.sol:1485,
     // `if (ok)` forced true); GREEN at HEAD. Vector: the tick's fee is calldata and the row's
     // key does not carry it, so a registered hookless V4 row can be ticked at a fee none of the
     // five recovery steps resolves (the entry's ts 10 does not reproduce the 3000 pid). The

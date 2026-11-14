@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
-// L0-124, Math:327 (`BlazePhoenixMath.seatOf`, INV-7). The split's remainder seat is the deepest
+// Math:327 (`BlazePhoenixMath.seatOf`, INV-7). The split's remainder seat is the deepest
 // survivor by measured weight; a weight TIE goes to the LOWEST pool address, never to the
 // position the candidate arrived in. `select` moves the seat to the last kept position, and its
 // `map` says which candidate stands there, so the oracle reads the seat straight off `select`:
@@ -10,7 +10,7 @@ pragma solidity 0.8.36;
 //
 // Every row here is one V2 pair at the same price and fee (all inside the band, no Hub read),
 // so only the depth and the address can choose the seat.
-// Mutant (mutants.py "L0-124 Math:327"): the tie goes to the HIGHER address. Red in both
+// Mutant (mutants.py "Math:327"): the tie goes to the HIGHER address. Red in both
 // arrival orders of the two-row test: the seat then reads the order, or the wrong end of it.
 //
 //   forge test --match-path test/SeatTieGoesToTheLowestAddress.t.sol -vv

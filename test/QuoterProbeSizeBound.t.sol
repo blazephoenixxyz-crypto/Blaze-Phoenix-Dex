@@ -20,7 +20,7 @@ pragma solidity 0.8.36;
 //
 // Matrix: range {int256.max (control, asked, refused), int256.max + 1, 2^255 .. uint256.max (fuzz)}
 //       x vector {a pool that refuses the dry-run and answers a negative size as taxed}
-//       x door {previewRouteExact}. Mutant: «L1-124 Quoter:671».
+//       x door {previewRouteExact}. Mutant: «Quoter:671».
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";

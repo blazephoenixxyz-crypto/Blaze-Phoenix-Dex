@@ -43,7 +43,7 @@ contract BaseProbe is ExtAdapterBase {
 /// test_CurveNG_Resolve_RebasingCoinRefused, test_CurveNG_Resolve_MalformedHint_Refused).
 /// Red at bb4cdbb: the base had no `_requireHookPinned`, `_requireVenueCallback`,
 /// `_requireAmountAtMost` nor a constructor taking pins, so this file did not compile.
-/// Mutants: block "124-L4" in .github/scripts/mutants.py, and [594], [596] re-pointed at the base.
+/// Mutants: the adapter-base entries in .github/scripts/mutants.py, and [594], [596] re-pointed at the base.
 contract AdapterBaseTest is AdapterHarness {
     address constant HOOKS = address(0xB00C);
     bytes32[3] internal none;

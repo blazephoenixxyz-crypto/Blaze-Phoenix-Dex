@@ -18,8 +18,8 @@ pragma solidity 0.8.36;
 //    l + net = 2^128 - 2 + 2^127 - 1 (past uint128.max)  x  hostile liquidityNet  x  unit
 //    order past the last tick (1e58 and 2e58)             x  one wide range to MAX  x  unit
 //
-//  Mutants in .github/scripts/mutants.py: "L1-124 Core:2547" (the saturation dropped),
-//  "L1-124 Core:2550" (the stop at the price bound dropped).
+//  Mutants in .github/scripts/mutants.py: "Core:2547" (the saturation dropped),
+//  "Core:2550" (the stop at the price bound dropped).
 //
 //  forge test --match-path test/V3WalkEndsWhereTheBookEnds.t.sol -vv
 // =============================================================================

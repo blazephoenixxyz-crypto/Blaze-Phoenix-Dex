@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.36;
 
-// L0-124, Core:2024. The V4 arm of the one quote door (`universalQuoteRank`) hands the CALLER's
+// Core:2024. The V4 arm of the one quote door (`universalQuoteRank`) hands the CALLER's
 // `bar` to the walk: `return _v4Quote(c, amountIn, bar)`. The bar is what separates the two
 // readers of that door (Core:2568-2581): the Quoter asks at type(uint256).max and reads the
 // promise alone (a quote cut at sixteen stretches answers `rank == out` and the "not asked"
@@ -13,7 +13,7 @@ pragma solidity 0.8.36;
 // sixteen-stretch walk spends its stretches on dust and leaves most of the input unspent.
 //
 // Oracle: `v4WalkRank` at the same bar - the door is the walk, at the bar the caller chose.
-// Mutant (mutants.py "L0-124 Core:2024"): the arm passes 0 instead of `bar`, so the Quoter's
+// Mutant (mutants.py "Core:2024"): the arm passes 0 instead of `bar`, so the Quoter's
 // promise-only call resolves the deep walk and its ceiling falls under 2^128 - 1.
 //
 //   forge test --match-path test/V4QuoteHonoursTheCallersBar.t.sol -vv

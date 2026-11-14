@@ -20,7 +20,7 @@ pragma solidity 0.8.36;
 //  The B pool is shallow so hop 1's input runs from a few wei (the fee's round-up is a large
 //  part of it) to millions of wei.
 //
-//  Red under (registered in .github/scripts/mutants.py, block `# 124-L2`): the Router charges
+//  Red under (registered in .github/scripts/mutants.py): the Router charges
 //  hop 0 instead of the calendar's hop (Router:1238).
 // =============================================================================
 

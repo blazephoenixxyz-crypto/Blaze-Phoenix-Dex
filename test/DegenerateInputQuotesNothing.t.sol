@@ -6,10 +6,10 @@ pragma solidity 0.8.36;
 // and its two bounds say nothing is known (rank 0 reads err = errOrder = WAD, the rule of
 // test/ProbeTwoBounds.t.sol). Control: one wei on the same pair declares the pair's mass and fee.
 // Oracle: zeros and WAD, written by hand; the pair's own reserves for the control.
-// Mutant (.github/scripts/mutants.py, block `# 124-L1`):
-//   «L1-124 Core:1909» `if (amountIn == 0)` -> `if (amountIn == 1)` (a zero probe reads the pair:
+// Mutant (.github/scripts/mutants.py):
+//   «Core:1909» `if (amountIn == 0)` -> `if (amountIn == 1)` (a zero probe reads the pair:
 //     its out reserve as mass and its fee) -> red;
-//   «L1-124 Core:2150» `if (liq == 0)` -> `if (liq == 1)` (a V4 book with no liquidity in range
+//   «Core:2150» `if (liq == 0)` -> `if (liq == 1)` (a V4 book with no liquidity in range
 //     is walked and quoted) -> red.
 
 import {Test} from "forge-std/Test.sol";

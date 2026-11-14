@@ -17,7 +17,7 @@ pragma solidity 0.8.36;
 //  Mutants that turn this file red (.github/scripts/mutants.py, [morf-P3-*]): every door above
 //  without its emit; Cfg(1,t1) -> Cfg(2,t1); RescueQueued eta -> 0; Rescued amt -> 0;
 //  Gate:113 forgetting `controlRenounced`; the Router's renounce and cancel back on the
-//  seat-shaped logs they had before NOMES-124 (Cfg(0, 0), RescueQueued(token, to, 0)). Pins of behaviour that exists at cb1d7d9: green
+//  seat-shaped logs they had before the rename (Cfg(0, 0), RescueQueued(token, to, 0)). Pins of behaviour that exists at cb1d7d9: green
 //  there, so the evidence is the mutants.
 // =============================================================================
 import {Test, Vm} from "forge-std/Test.sol";
@@ -223,7 +223,7 @@ contract ConfigDoorEventsArePinnedTest is Test {
         _routerControlRefuses(STRANGER);
     }
 
-    // ─── Router: a renounce and a cancel log no seat they did not write (NOMES-124 L2-07, L2-08) ───
+    // ─── Router: a renounce and a cancel log no seat they did not write ───
 
     /// @notice An indexer that follows `Cfg(0, x)` as the admin seat must not read a renounce as
     ///         `admin = address(0)`: renouncing leaves the seat as it was. The renounce's ONLY log
