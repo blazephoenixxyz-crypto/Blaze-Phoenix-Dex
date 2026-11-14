@@ -45,7 +45,10 @@ SEL = {
     "active": "bf827fdb", "batch": "b9d096b2", "v2swap": "022c0d9f", "v3swap": "128acb08",
     "unlock": "48c89491", "transfer": "a9059cbb", "transferFrom": "23b872dd", "reserves": "0902f1ac", "slot0": "3850c7bd",
     "gstate": "e76c01e4", "record": "abc75427", "fee": "ddca3f43", "liquidity": "1a686502",
+    "decimals": "313ce567",
 }
+# EIP-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1 (a nonzero word = a proxy token)
+EIP1967_IMPL = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 PROTOCOL_FEE_BPS = 28  # src/BlazePhoenixCore.sol:420
 ERROR_SEL = "08c379a0"  # Error(string)
 NQ_CLASSES = ("S", "dust", "A", "A'", "B")  # noquote classes, classify_rows()
@@ -65,7 +68,9 @@ COLS = ["chain", "label", "max_hops_code", "stratum", "kind", "idx", "b", "ts_b"
         "g_legs_sum", "legs_detail", "g_sweep", "g_record", "cd_bytes", "cd_zero", "cd_intrinsic", "cd_floor7623",
         "g_cold", "g_warm", "g_coldpart", "al_src", "delivered", "out_vs_D_bps", "mid", "out_vs_mid_bps",
         "pool_fee_bps", "vs_mid_net_bps", "liq_usd", "nq_class", "g_quote_cap", "ms_case",
-        "gate_used", "vital_v", "vital_depth18", "vital_psi", "leg_amt"]
+        "gate_used", "vital_v", "vital_depth18", "vital_psi", "leg_amt",
+        # appended at 9662ff3+ (forward only; older results lack them and the report says so)
+        "tin_dec", "tout_dec", "tok_flags", "route_mid_token", "fb_used", "fb_gas", "fb_dout_bps", "route_age_s"]
 TTL = 3600  # Solver DISCOVERY_TTL_SECONDS (src/BlazePhoenixSolver.sol:133)
 
 
@@ -192,7 +197,60 @@ def decode_preview(res):
     call = dyn_bytes(d, word(d, 1))
     f = lambda i: int(d[pv + 64 * i:pv + 64 * i + 64], 16)
     return {"netOut": f(4), "effectiveMinOut": f(7), "estGas": f(8), "hops": f(9), "legs": f(10),
-            "canExecute": f(13) == 1, "call": call}
+            "canExecute": f(13) == 1, "call": call, "grossOut": f(1), "route": pv + 2 * f(0)}
+
+
+def route_at(d, r):
+    """(totalOut, estGas, mid) of the Route tuple at hex offset r of d (src/BlazePhoenixCore.sol:99-123:
+    Route = [off hops, totalOut, singleOut, singleOutFloor, expectedImpactBps, confidenceWad, estGas,
+    hasSurplus, isV4Bundle]; Hop = [tokenIn, tokenOut, amountIn, expectedOut, off legs]). mid = the
+    tokenOut of hop 0 when the route has 2+ hops, "-" with 1 hop, "" when the hops do not decode."""
+    g = lambda i: int(d[i:i + 64], 16)
+    total, est = g(r + 64), g(r + 64 * 6)
+    try:
+        h = r + 2 * g(r)
+        n = g(h)
+        if n == 1:
+            mid = "-"
+        elif n >= 2:
+            e = h + 64 + 2 * g(h + 64)
+            mid = "0x" + d[e + 64 + 24:e + 128].lower()
+            if len(mid) != 42:
+                mid = ""
+        else:
+            mid = ""
+    except ValueError:
+        mid = ""
+    return total, est, mid
+
+
+def decode_plan(out):
+    """(best, fallback, hasFallback) of Solver.findBestRoutePlan's RoutePlan = [off best, off fallbackRoute, hasFallback]."""
+    d = strip0x(out)
+    p = 2 * word(d, 0)
+    g = lambda i: int(d[i:i + 64], 16)
+    return route_at(d, p + 2 * g(p)), route_at(d, p + 2 * g(p + 64)), g(p + 128) == 1
+
+
+def fallback_cols(trace, solver, gross):
+    """fb_used, fb_gas, fb_dout_bps of the quote. The Quoter swaps to the fallback only when the best route
+    could not be encoded (_encodePlan, BlazePhoenixQuoter.sol:291-302), with no event: the preview's
+    grossOut (= route.totalOut) is matched against both routes of the Solver's plan. fb_used 1 = the
+    fallback was quoted, 0 = the best was (or there was no fallback), "" = not decodable or both routes
+    give the same totalOut (ambiguous). fb_gas and fb_dout_bps (fallback totalOut vs the best's, a
+    measure) only when the plan has a fallback."""
+    solver = solver.lower()
+    for n, _, _ in frames(trace):
+        if (n.get("to") or "").lower() == solver and sel_of(n) == SEL["solve"] and strip0x(n.get("output") or ""):
+            try:
+                best, fb, has = decode_plan(n["output"])
+            except ValueError:
+                break
+            if not has:
+                return {"fb_used": 0, "fb_gas": "", "fb_dout_bps": ""}
+            used = 1 if gross == fb[0] != best[0] else 0 if gross == best[0] != fb[0] else ""
+            return {"fb_used": used, "fb_gas": fb[1], "fb_dout_bps": bps(fb[0], best[0])}
+    return {"fb_used": "", "fb_gas": "", "fb_dout_bps": ""}
 
 
 def encode_bytes_tail(h):
@@ -572,13 +630,16 @@ def pool_fee_bps(ch, d, legs_detail, hops, legs):
     return total
 
 
-def measure_mode(ch, d, ts_b, mode, hub_state):
-    """Quote trace + preview + exec trace + cold/warm for one mode. Returns a row fragment."""
+def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None):
+    """Quote trace + preview + exec trace + cold/warm for one mode. Returns a row fragment.
+    An aged-route mode (R<a>) quotes at block qb (timestamp ts_q, the deadline from it) and executes
+    that calldata at d["b"]; every other mode quotes and executes at d["b"]."""
     r = {}
-    q = "0x" + SEL["preview"] + addr(d["tin"]) + addr(d["tout"]) + w(d["amount"]) + addr(ch.probe) + w(ts_b + ch.spec["deadline_s"])
+    qb, ts_q = (d["b"], ts_b) if qb is None else (qb, ts_q)
+    q = "0x" + SEL["preview"] + addr(d["tin"]) + addr(d["tout"]) + w(d["amount"]) + addr(ch.probe) + w(ts_q + ch.spec["deadline_s"])
     tx = {"from": CALLER, "to": ch.quoter, "data": q, "gas": GAS}
     ov = ch.override(hub_state=hub_state)
-    tr, r["g_quote_cap"] = trace_call(ch, tx, d["b"], {"tracer": "callTracer", "stateOverrides": ov})
+    tr, r["g_quote_cap"] = trace_call(ch, tx, qb, {"tracer": "callTracer", "stateOverrides": ov})
     seg = quote_segments(tr, ch.solver, ch.hub, ch.gate, ch.wrappers, (d["tin"], d["tout"]))
     r.update(seg)
     if tr.get("error"):
@@ -588,6 +649,11 @@ def measure_mode(ch, d, ts_b, mode, hub_state):
     pv = decode_preview(tr["output"])
     r.update(net_out=pv["netOut"], eff_min_out=pv["effectiveMinOut"], hops=pv["hops"], legs=pv["legs"],
              fits_2_10=fits(pv["hops"], pv["legs"]), est_gas=pv["estGas"])
+    try:
+        r["route_mid_token"] = route_at(strip0x(tr["output"]), pv["route"])[2]
+    except ValueError:
+        r["route_mid_token"] = ""
+    r.update(fallback_cols(tr, ch.solver, pv["grossOut"]))
     if not pv["canExecute"] or not pv["call"]:
         r.update(outcome="noquote", detail="canExecute=0")
         return r
@@ -677,7 +743,45 @@ def modes(spec):
         out.append((m, age, False))
     for m in spec["mf_ages"]:
         out.append(("MF" + m[1:], spec["ages"][m], True))
+    for a in spec.get("route_ages", []):  # aged route: quote a seconds before b, execute at b (no seeding)
+        if int(a) >= 1:
+            out.append((f"R{int(a)}", None, False))
     return out
+
+
+def tok_info(ch, d):
+    """tin_dec, tout_dec (decimals() at b; "" when it reverts or returns no word: absent is not 0) and
+    tok_flags: the measured traits, `tin_proxy`/`tout_proxy` when the EIP-1967 implementation slot is
+    nonzero, "-" with none, "" when a read failed. A rebasing token is not detected here."""
+    out, flags, failed = {}, [], False
+    for side in ("tin", "tout"):
+        try:
+            dd = strip0x(ch.rpc.call("eth_call", [{"to": d[side], "data": "0x" + SEL["decimals"]}, hex(d["b"])]) or "")
+            v = word(dd, 0) if len(dd) >= 64 else None
+            out[side + "_dec"] = v if v is not None and v <= 255 else ""
+        except (RpcError, Reverted, ValueError):
+            out[side + "_dec"] = ""
+        try:
+            sl = strip0x(ch.rpc.call("eth_getStorageAt", [d[side], EIP1967_IMPL, hex(d["b"])]) or "")
+            if not sl:
+                failed = True
+            elif int(sl, 16):
+                flags.append(side + "_proxy")
+        except (RpcError, ValueError):
+            failed = True
+    out["tok_flags"] = "" if failed else (",".join(flags) or "-")
+    return out
+
+
+def route_block(ch, b, ts_b, a):
+    """(bq, ts(bq)): the last block with ts <= ts_b - a, searched in (b - 10a - 1, b]; None when the
+    lower bound is not old enough (the age cannot be bracketed)."""
+    lo = max(0, b - 10 * a - 1)
+    t = ts_b - a + 1
+    if ch.rpc.ts(lo) >= t:
+        return None
+    bq = first_at_or_after(ch.rpc.ts, t, lo, b) - 1
+    return bq, ch.rpc.ts(bq)
 
 
 def measure_draw(ch, d, done):
@@ -691,6 +795,10 @@ def measure_draw(ch, d, done):
         return [dict(base, mode=m, outcome="timeout" if isinstance(e, RpcTimeout) else "rpc_err", detail=f"ts:{e}"[:60])
                 for m, _, _ in modes(ch.spec) if (ch.name, d["stratum"], str(d["idx"]), m) not in done]
     base["ts_b"] = ts_b
+    try:
+        base.update(tok_info(ch, d))
+    except (RpcError, Reverted):
+        pass
     try:
         mid = mid_price(ch, d)
     except (RpcError, Reverted, ValueError):
@@ -722,7 +830,16 @@ def measure_draw(ch, d, done):
                         row.update(outcome="mf_unforced", detail="stamp not found")
                         rows.append(row)
                         continue
-            row.update(measure_mode(ch, d, ts_b, m, hub_state))
+            if m.startswith("R"):
+                q = route_block(ch, d["b"], ts_b, int(m[1:]))
+                if q is None:
+                    row.update(outcome="prereq", detail="route_age:lo")
+                    rows.append(row)
+                    continue
+                row["route_age_s"] = ts_b - q[1]
+                row.update(measure_mode(ch, d, ts_b, m, None, qb=q[0], ts_q=q[1]))
+            else:
+                row.update(measure_mode(ch, d, ts_b, m, hub_state))
             if forced and row.get("swept") == 1 and row.get("outcome") == "ok":
                 row.update(outcome="mf_unforced", detail="discoverFor frame present")
         except Reverted as x:
@@ -1257,6 +1374,39 @@ def dim_table(title, rows, key, seg="g_exec"):
     return out
 
 
+def input_share(rows, pools, venues, strata):
+    """8.4d: per chain x DEX, the input paid in tin to its legs (leg_amt, same order as legs_detail) as
+    a fraction f = paid / amount_in of each ok row; share = sum f of the DEX / sum f of the chain, and
+    usd_in = sum usd * f over the rows with a USD size (hop-2 legs are paid in the bridge token and do
+    not count)."""
+    acc = {}
+    for r in rows:
+        if r["outcome"] != "ok" or not r.get("leg_amt") or not int(r["amount_in"] or 0):
+            continue
+        tin = r["tin"].lower()
+        for L, la in zip(leg_rows(r, pools, venues, strata), r["leg_amt"].split(";")):
+            paid = sum(int(a) for kv in la.split(":", 1)[1].split("+") if "=" in kv
+                       for k, a in [kv.split("=")] if k == tin)
+            if not paid:
+                continue
+            f = paid / int(r["amount_in"])
+            for cn in (r["chain"], "all"):
+                a = acc.setdefault((cn, L[2], L[3]), [0, set(), 0.0, 0.0, set()])
+                a[0] += 1
+                a[1].add(r["_line"])
+                a[2] += f
+                if r["_usd"] is not None:
+                    a[3] += r["_usd"] * f
+                    a[4].add(r["_line"])
+    tot = {}
+    for (cn, _, _), a in acc.items():
+        tot[cn] = tot.get(cn, 0.0) + a[2]
+    out = ["# 8.4d input per leg paid in tin (ok rows; f = paid / amount_in): chain\tdex\tkind\tlegs\trows\tf_sum\tshare_pct\tusd_in\tusd_rows"]
+    for (cn, dex, kind), a in sorted(acc.items(), key=lambda kv: (kv[0][0] == "all", kv[0][0], -kv[1][2], kv[0][1])):
+        out.append(f"{cn}\t{dex}\t{kind}\t{a[0]}\t{len(a[1])}\t{a[2]:.4f}\t{100 * a[2] / tot[cn]:.1f}\t{a[3]:.2f}\t{len(a[4])}")
+    return out
+
+
 def b_range(rs):
     """[first, last] block of rows; blanks when no row records b (absent is not block 0)."""
     bs = [int(r["b"]) for r in rs if r.get("b") not in ("", None)]
@@ -1317,7 +1467,11 @@ def detail_lines(spec, rows, universe, tokens=SITE_TOKENS):
     out += dim_table("8.2c topology (hops x single|split)", rows, topology)
     out += dim_table("8.2d multi-hop via an intermediate token (hops == 2)", rows,
                      lambda r: {"2": "via_intermediate", "1": "direct"}.get(r.get("hops", ""), ""))
-    out += nodata("8.2e bridge token of a 2-hop route", "route_mid_token")
+    if "route_mid_token" in cols:  # "-" = a 1-hop route; (absent) = not measured or not decodable
+        out += dim_table("8.2e bridge token of a 2-hop route", rows,
+                         lambda r: (toks.get((r["chain"], r.get("route_mid_token", "").lower())) or [r.get("route_mid_token", "")])[0])
+    else:
+        out += nodata("8.2e bridge token of a 2-hop route", "route_mid_token")
     # 8.3 token class
     out += dim_table("8.3a token class (measured, delivered < net_out or leg_amt < amount_in)", rows, lambda r: tok_class(r, toks))
     out += dim_table("8.3b decimals tin/tout (site_tokens.json)", rows, lambda r: dec_class(r, toks))
@@ -1335,6 +1489,8 @@ def detail_lines(spec, rows, universe, tokens=SITE_TOKENS):
                 out.append("\t".join(str(x) for x in [cn, bk] + gstats(g)))
     if "leg_amt" not in cols or not any(r.get("leg_amt") for r in rows):
         out += nodata("8.4d input per leg (volume share per DEX)", "leg_amt")
+    else:
+        out += input_share(rows, pools, venues, strata)
     # 8.5 outcome crossed with stratum kind x size bucket, and the revert causes
     out.append("# 8.5a stratum kind x USD bucket x outcome class: chain\tkind\tbucket\tn\t" + "\t".join(OC_CLASSES) + "\tok_pct\tci95_lo\tci95_hi")
     for cn in sorted({r["chain"] for r in rows}) + ["all"]:
@@ -1379,8 +1535,21 @@ def detail_lines(spec, rows, universe, tokens=SITE_TOKENS):
         for (k, bk), g in sorted(by.items()):
             out.append("\t".join(str(x) for x in [cn, k, bk] + gstats(g)))
     # 8.7 fallback and aged route
-    out += nodata("8.7a fallback to the runner-up (f82bc67)", "fb_used") if "fb_used" not in cols else []
-    out += nodata("8.7b aged route executed at the current block (7, 10, 25 s)", "route_age_s") if "route_age_s" not in cols else []
+    if "fb_used" in cols:
+        out += dim_table("8.7a fallback to the runner-up (f82bc67)", rows, lambda r: r.get("fb_used", ""))
+        out.append("# 8.7c fallback totalOut vs the best's (fb_dout_bps, rows with a fallback): chain\tn\tp50\tp90\tp99\tmax\tmax_at\tmin\tmin_at")
+        for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+            v = [(float(r["fb_dout_bps"]), r["_line"]) for r in rows if (cn == "all" or r["chain"] == cn) and r.get("fb_dout_bps") not in ("", None)]
+            if v:
+                mn = min(v)
+                out.append("\t".join(str(x) for x in [cn] + gstats(v) + [mn[0], f"row:{mn[1]}"]))
+    else:
+        out += nodata("8.7a fallback to the runner-up (f82bc67)", "fb_used")
+    if "route_age_s" in cols:
+        out += dim_table("8.7b aged route executed at the current block (7, 10, 25 s)",
+                         [r for r in rows if r["mode"].startswith("R")], lambda r: r["mode"])
+    else:
+        out += nodata("8.7b aged route executed at the current block (7, 10, 25 s)", "route_age_s")
     n, cur = [], None
     for ln in out:
         if ln.startswith("# "):

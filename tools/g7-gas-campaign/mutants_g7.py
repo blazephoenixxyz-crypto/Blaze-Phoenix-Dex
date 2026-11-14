@@ -98,8 +98,19 @@ M = [  # (test id, old, new)
  ("Detail.test_8_4_usd_bucket_edges_and_basis", "if usd < hi)", "if usd <= hi)"),
  ("Detail.test_8_5_causes_decoded_with_their_code", "ERR_BY_SEL = {keccak256(s.encode())[:4]", "ERR_BY_SEL = {keccak256(s.encode())[:3]"),
  ("Detail.test_8_6_gas_by_segment_and_estimate_delta", "mx = max(vals)", "mx = min(vals)"),
- ("Detail.test_8_7_absent_columns_say_no_data", 'out += nodata("8.7a fallback to the runner-up (f82bc67)", "fb_used") if "fb_used" not in cols else []', "out += []"),
+ ("Detail.test_8_7_absent_columns_say_no_data", 'out += nodata("8.7a fallback to the runner-up (f82bc67)", "fb_used")', "out += []"),
  ("Detail.test_index_names_every_section_whole_with_its_line_count", '"8.3a token class (measured, delivered < net_out or leg_amt < amount_in)"', '"8.3a token class (measured: delivered < net_out, or leg_amt < amount_in)"'),
+ ("LegAmt.test_leg_amt_is_the_last_column", '"fb_dout_bps", "route_age_s"]', '"fb_dout_bps", "route_age_s", "leg_amt"]'),
+ ("RoutePlan.test_route_mid_token_is_hop0_token_out", "d[e + 64 + 24:e + 128]", "d[e + 24:e + 64]"),
+ ("RoutePlan.test_fb_used_matches_gross_against_both_routes", "1 if gross == fb[0] != best[0]", "1 if gross == best[0] != fb[0]"),
+ ("RoutePlan.test_aged_route_quotes_at_qb_with_its_deadline_and_executes_at_b", "trace_call(ch, tx, qb,", 'trace_call(ch, tx, d["b"],'),
+ ("RouteAge.test_route_block_is_the_last_block_at_least_a_seconds_old", "first_at_or_after(ch.rpc.ts, t, lo, b) - 1", "first_at_or_after(ch.rpc.ts, t, lo, b)"),
+ ("RouteAge.test_r_mode_row_carries_its_real_age", 'out.append((f"R{int(a)}", None, False))', "pass"),
+ ("TokInfo.test_decimals_failure_is_absent_not_zero", 'except (RpcError, Reverted, ValueError):\n            out[side + "_dec"] = ""', 'except (RpcError, Reverted, ValueError):\n            out[side + "_dec"] = 0'),
+ ("TokInfo.test_proxy_is_the_nonzero_eip1967_slot", "elif int(sl, 16):", "elif False:"),
+ ("DetailNew.test_8_4d_input_share_per_dex_paid_in_tin", "{100 * a[2] / tot[cn]:.1f}", "{100 * a[2]:.1f}"),
+ ("DetailNew.test_8_2e_bridge_token_by_symbol", '    if "route_mid_token" in cols:', "    if False:"),
+ ("DetailNew.test_8_7_fallback_and_aged_route_tables", '[r for r in rows if r["mode"].startswith("R")]', "rows"),
 ]
 # Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
 # must turn its named test red.

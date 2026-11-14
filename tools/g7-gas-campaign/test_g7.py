@@ -216,8 +216,11 @@ class LegAmt(unittest.TestCase):
         self.assertEqual(e["legs_detail"], f"{POOL2}:100;{POOL1}:200;{PM}:150;{POOL3}:80")
         self.assertEqual(e["leg_amt"], f"{POOL2}:{TOKEN}=700;{POOL1}:{TOKEN2}=500;{PM}:eth=300;{POOL3}:")
 
+    # Mutant "column inserted": a new column put before leg_amt (an old results.tsv would misalign).
     def test_leg_amt_is_the_last_column(self):
-        self.assertEqual(g7.COLS[-1], "leg_amt")
+        i = g7.COLS.index("leg_amt")
+        self.assertEqual(g7.COLS[i + 1:], ["tin_dec", "tout_dec", "tok_flags", "route_mid_token", "fb_used", "fb_gas",
+                                           "fb_dout_bps", "route_age_s"])
 
 
 UNIV3_BASE = "0x33128a8fc17869897dce68ed026d694621f6fdfd"
@@ -356,6 +359,9 @@ class FakeRpc:
 
     def ts(self, n):
         return self.tsb
+
+    def call(self, method, params):  # token reads fail here: tok_info leaves its columns empty
+        raise g7.RpcError("fake")
 
 
 class FakeChain:
@@ -1255,7 +1261,7 @@ class Detail(unittest.TestCase):
         self.assertIn("# 8.7b aged route executed at the current block (7, 10, 25 s): no data (column route_age_s missing)", ls)
         rows = [dict(r, fb_used="0", route_age_s="0") for r in self.ROWS]
         ls = self.lines(rows)
-        self.assertFalse([x for x in ls if x.startswith("# 8.7")])
+        self.assertFalse([x for x in ls if x.startswith("# 8.7") and "no data" in x])
 
     # Mutant "8.3a title": the title gets its old `(measured: ...` back (the index cuts the name at the colon).
     def test_index_names_every_section_whole_with_its_line_count(self):
@@ -1267,6 +1273,175 @@ class Detail(unittest.TestCase):
         self.assertTrue(all(h.count(":") == 1 for h in hdrs), [h for h in hdrs if h.count(":") != 1])
         for n, c in idx:
             self.assertEqual(len(section(ls[:i], [h for h in hdrs if h.startswith(f"# {n}: ")][0])), int(c), n)
+
+
+def route_blob(total, est, tokens):
+    """A Route tuple (head + Hop[] with one Hop per (tokenIn, tokenOut)); offsets relative to its start."""
+    hops = []
+    for ti, to in tokens:
+        hops.append(wd(int(ti, 16)) + wd(int(to, 16)) + wd(1) + wd(2) + wd(0xa0) + wd(0))  # legs: empty array
+    n = len(hops)
+    heads, off = [], 32 * n
+    for h in hops:
+        heads.append(wd(off))
+        off += len(h) // 2
+    arr = wd(n) + "".join(heads) + "".join(hops)
+    return wd(9 * 32) + wd(total) + wd(0) * 4 + wd(est) + wd(0) * 2 + arr
+
+
+def plan_blob(best, fb, has):
+    b = route_blob(*best)
+    return "0x" + wd(0x20) + wd(0x60) + wd(0x60 + len(b) // 2) + wd(has) + b + route_blob(*fb)
+
+
+class RoutePlan(unittest.TestCase):
+    BEST = (1000, 300000, [(USDC, WETH), (WETH, TOKEN)])
+    FB = (990, 250000, [(USDC, TOKEN)])
+
+    def tr(self, gross, has=1, fb=None):
+        n = fr(SOLVER, g7.SEL["solve"], 10)
+        n["output"] = plan_blob(self.BEST, fb or self.FB, has)
+        return fr("0xq", g7.SEL["preview"], 100, [n]), gross
+
+    # Mutant "mid is tokenIn": `d[e + 64 + 24:e + 128]` -> `d[e + 24:e + 64]` (hop 0's tokenIn, the route's own tin).
+    def test_route_mid_token_is_hop0_token_out(self):
+        best, fb, has = g7.decode_plan(plan_blob(self.BEST, self.FB, 1))
+        self.assertEqual(best, (1000, 300000, WETH))
+        self.assertEqual(fb, (990, 250000, "-"))
+        self.assertTrue(has)
+
+    # Mutant "fb_used vs best": `1 if gross == fb[0] != best[0]` -> `1 if gross == best[0] != fb[0]`.
+    def test_fb_used_matches_gross_against_both_routes(self):
+        c = lambda *a, **k: g7.fallback_cols(*self.tr(*a, **k)[:1], SOLVER, self.tr(*a, **k)[1])
+        self.assertEqual(c(990), {"fb_used": 1, "fb_gas": 250000, "fb_dout_bps": -100.0})
+        self.assertEqual(c(1000)["fb_used"], 0)
+        self.assertEqual(c(1000, fb=(1000, 1, [(USDC, TOKEN)]))["fb_used"], "")  # same totalOut: ambiguous
+        self.assertEqual(c(990, has=0), {"fb_used": 0, "fb_gas": "", "fb_dout_bps": ""})
+        self.assertEqual(g7.fallback_cols(fr("0xq", "00", 1), SOLVER, 1)["fb_used"], "")  # no plan frame: absent
+
+    # Mutant "aged quote at b": the quote traced at `d["b"]` instead of qb (the route is not aged).
+    def test_aged_route_quotes_at_qb_with_its_deadline_and_executes_at_b(self):
+        ch = mock.Mock()
+        ch.solver, ch.hub, ch.gate, ch.wrappers, ch.quoter, ch.probe, ch.spec = SOLVER, HUB, GATE, [WRAP], ROUTER, TOKEN, SPEC
+        ch.override.return_value = {}
+        seen = []
+        tr = fr("0xq", g7.SEL["preview"], 1000)
+        tr["output"] = Abi("test_fits_2_10_boundaries").preview_blob("aabb", can=0)
+
+        def trace(p):
+            seen.append((p[0]["data"][-64:], p[1]))
+            return tr
+        ch.rpc.call.side_effect = by_method({"debug_traceCall": trace})
+        r = g7.measure_mode(ch, draw(), 1000, "R7", None, qb=496, ts_q=990)
+        self.assertEqual(seen, [(wd(990 + 600), hex(496))])
+        self.assertEqual(r["outcome"], "noquote")
+        g7.measure_mode(ch, draw(), 1000, "D", None)
+        self.assertEqual(seen[-1], (wd(1000 + 600), hex(500)))
+
+
+class RouteAge(unittest.TestCase):
+    class Rpc:
+        def ts(self, n):
+            return 2 * n
+
+    def ch(self):
+        ch = mock.Mock()
+        ch.rpc = self.Rpc()
+        return ch
+
+    # Mutant "bq without -1": `first_at_or_after(...) - 1` -> `first_at_or_after(...)` (ts(bq) > ts_b - a).
+    def test_route_block_is_the_last_block_at_least_a_seconds_old(self):
+        self.assertEqual(g7.route_block(self.ch(), 1000, 2000, 7), (996, 1992))
+        self.assertEqual(g7.route_block(self.ch(), 1000, 2000, 10), (995, 1990))
+        self.assertIsNone(g7.route_block(self.ch(), 3, 6, 25))  # lo = 0 is not old enough
+
+    # Mutant "R modes dropped": the route_ages loop of modes() removed.
+    def test_r_mode_row_carries_its_real_age(self):
+        spec = dict(SPEC, route_ages=[7, 0])
+        self.assertEqual([m for m, _, _ in g7.modes(spec)][-1:], ["R7"])
+        ch = FakeChain(2000, 0)
+        ch.spec = spec
+        calls = []
+
+        def mm(ch_, d, ts_b, m, hub_state, qb=None, ts_q=None):
+            calls.append((m, qb, ts_q))
+            return {"outcome": "ok", "net_out": 5, "delivered": 5, "swept": 0}
+        with mock.patch.object(g7, "measure_mode", mm), mock.patch.object(g7, "mid_price", lambda ch, d: ""), \
+                mock.patch.object(g7, "vital", lambda ch, d: {}), mock.patch.object(g7, "seed_memory", lambda *a: (0, 0, {}, [], [])), \
+                mock.patch.object(g7, "route_block", lambda ch, b, ts_b, a: (b - 4, ts_b - 8)):
+            rows = {r["mode"]: r for r in g7.measure_draw(ch, draw(), {})}
+        self.assertEqual(rows["R7"]["route_age_s"], 8)
+        self.assertIn(("R7", 496, 1992), calls)
+
+
+class TokInfo(unittest.TestCase):
+    def ch(self, dec, slot):
+        ch = mock.Mock()
+
+        def call(method, params):
+            if method == "eth_call":
+                if dec is None:
+                    raise g7.Reverted("0x")
+                return dec
+            return slot(params[0])
+        ch.rpc.call.side_effect = call
+        return ch
+
+    # Mutant "decimals fail is 0": the except branch writes 0 (absent read as a zero-decimal token).
+    def test_decimals_failure_is_absent_not_zero(self):
+        d = draw()
+        self.assertEqual(g7.tok_info(self.ch("0x" + wd(6), lambda t: "0x" + wd(0)), d),
+                         {"tin_dec": 6, "tout_dec": 6, "tok_flags": "-"})
+        r = g7.tok_info(self.ch(None, lambda t: "0x" + wd(0)), d)
+        self.assertEqual((r["tin_dec"], r["tout_dec"]), ("", ""))
+        self.assertEqual(g7.tok_info(self.ch("0x", lambda t: "0x" + wd(0)), d)["tin_dec"], "")
+
+    # Mutant "proxy slot ignored": `elif int(sl, 16):` -> `elif False:`.
+    def test_proxy_is_the_nonzero_eip1967_slot(self):
+        self.assertEqual(g7.EIP1967_IMPL, "0x%064x" % (int.from_bytes(g7.keccak256(b"eip1967.proxy.implementation"), "big") - 1))
+        d = draw()
+        r = g7.tok_info(self.ch("0x" + wd(18), lambda t: "0x" + wd(1 if t == d["tout"] else 0)), d)
+        self.assertEqual(r["tok_flags"], "tout_proxy")
+        self.assertEqual(g7.tok_info(self.ch("0x" + wd(18), lambda t: "0x"), d)["tok_flags"], "")  # not measured
+
+
+def sec(lines, prefix):
+    """section() by the header's prefix (the header carries its column list)."""
+    return section(lines, [x for x in lines if x.startswith(prefix)][0])
+
+
+class DetailNew(unittest.TestCase):
+    """Sections 8.2e, 8.4d, 8.7a/c, 8.7b once their columns exist."""
+    def rows(self):
+        R = [dict(r) for r in Detail.ROWS]
+        R[0].update(leg_amt=f"{POOL1}:{USDC}=5000000000", route_mid_token="-", fb_used=0, fb_dout_bps="")
+        R[1].update(leg_amt=f"{POOL1}:{WETH}=400000000000000000;{POOL2}:{USDC}=5;{V4_BASE}:{WETH}=600000000000000000",
+                    route_mid_token=WETH, fb_used=1, fb_dout_bps=-120.5)
+        R.append(drow("base", 9, mode="R7", route_age_s=8, delivered=7, net_out=7, g_exec=310000, legs_detail=f"{POOL1}:1"))
+        return R
+
+    # Mutant "share of all": `100 * a[2] / tot[cn]` -> `100 * a[2]` (the share is not of the chain's input).
+    def test_8_4d_input_share_per_dex_paid_in_tin(self):
+        ls = sec(Detail.lines(self.rows()), "# 8.4d ")
+        base = [x.split("\t") for x in ls if x.startswith("base\t")]
+        self.assertEqual([(x[2], x[3], x[4], x[5], x[6], x[7], x[8]) for x in base],
+                         [("v3", "2", "2", "1.4000", "70.0", "5400.00", "2"), ("v4", "1", "1", "0.6000", "30.0", "600.00", "1")])
+
+    # Mutant "8.2e missing": the dim_table branch replaced by the no-data line.
+    def test_8_2e_bridge_token_by_symbol(self):
+        ls = sec(Detail.lines(self.rows()), "# 8.2e ")
+        vals = {x.split("\t")[1]: x.split("\t")[2] for x in ls if x.startswith("base\t")}
+        self.assertEqual((vals.get("WETH"), vals.get("-")), ("1", "1"))
+
+    # Mutant "8.7b all modes": the R filter dropped (D rows counted as aged routes).
+    def test_8_7_fallback_and_aged_route_tables(self):
+        L = Detail.lines(self.rows())
+        a = {x.split("\t")[1]: x.split("\t")[2] for x in sec(L, "# 8.7a ") if x.startswith("base\t")}
+        self.assertEqual((a["1"], a["0"]), ("1", "1"))
+        self.assertEqual(sec(L, "# 8.7c ")[0].split("\t")[:2] + sec(L, "# 8.7c ")[0].split("\t")[-2:],
+                         ["base", "1", "-120.5", "row:3"])
+        self.assertEqual([x.split("\t")[:3] for x in sec(L, "# 8.7b ")], [["base", "R7", "1"], ["all", "R7", "1"]])
+
 
 if __name__ == "__main__":
     unittest.main()
