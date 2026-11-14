@@ -7637,6 +7637,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (sizeOut == 0 || sizeOut > uint256(type(int256).max)) return false;",
       new="        if (sizeOut == 0) return false; // MUTANTE",
       teste="test_AnOutputOneWeiPastInt256MaxIsNotProbed"),
+ # A Gate wrapper rounds and nothing else: read for an impact term it would carry a bound it does
+ # not have (test/ProbeTwoBounds.t.sol, ProbeTwoBoundsGateTest).
+ dict(nome="L1-124 Core:2109: a Gate wrapper is read for an impact term",
+      f="src/BlazePhoenixCore.sol",
+      old="        if (c.kind != KIND_EXTERNAL) {",
+      new="        if (true) { // MUTANTE",
+      teste="test_AGateWrapperIsBoundByItsRoundingAlone"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

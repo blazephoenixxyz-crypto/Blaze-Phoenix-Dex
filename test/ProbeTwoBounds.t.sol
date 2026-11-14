@@ -10,7 +10,10 @@ pragma solidity 0.8.36;
 //   (iv)  an order whose input reaches the depth reads the whole bound, WAD, at equality too;
 //   (v)   a quote with no output (rank 0) is the whole bound on both: (WAD, WAD);
 //   (vi)  errOrder covers the REAL output at the order, rank * orderIn / amountIn rounded up:
-//         (errOrder - rnd - 3 WAD / n) * depth * amountIn >= rank * orderIn * WAD.
+//         (errOrder - rnd - 3 WAD / n) * depth * amountIn >= rank * orderIn * WAD;
+//   (vii) a Gate wrapper (KIND_EXTERNAL) carries no impact term on either bound: both are the
+//         rounding terms, err = min(rnd, WAD) and errOrder = rnd, whatever the order and the depth
+//         the Gate reads (ProbeTwoBoundsGateTest, mutant "L1-124 Core:2109").
 // Reserves run from dust to uint112's ceiling. RED at bb4cdbb with each mutant "L1-124 Core:21.."
 // applied (src/BlazePhoenixCore.sol:2104-2126, one per test, .github/scripts/mutants.py); GREEN at HEAD.
 
@@ -18,6 +21,9 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixCore as BPC, QuoteCtx} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
+import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../src/BlazePhoenixGate.sol";
+import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
+import {MockGateAdapter, MockGateRegistry, MockGateVenue} from "./mocks/MockGateAdapters.sol";
 
 contract ProbeTwoBoundsTest is Test {
     uint256 constant WAD = 1e18;
@@ -182,5 +188,69 @@ contract ProbeTwoBoundsTest is Test {
         a = bound(a, 1e9, x / 10);
         o = bound(o, a, x / 2);
         _coversTheRealOutput(_pair(x, y), a, o);
+    }
+}
+
+/// (vii) A live Gate wrapper over a venue paying 99.7 % of its input: the probe reads the
+/// rounding terms alone, on both bounds.
+contract ProbeTwoBoundsGateTest is Test {
+    uint256 constant WAD = 1e18;
+    uint8 constant FAM = 1;
+    uint24 constant KEY = uint24(uint256(FAM) << 16 | 1);
+    QuoteCtx c;
+
+    function setUp() public {
+        MockERC20 a = new MockERC20("A", "A");
+        MockERC20 b = new MockERC20("B", "B");
+        (MockERC20 t0, MockERC20 t1) = address(a) < address(b) ? (a, b) : (b, a);
+        BlazePhoenixGate gate = new BlazePhoenixGate(address(this));
+        MockGateRegistry reg = new MockGateRegistry();
+        MockGateVenue venue = new MockGateVenue(address(t0), address(t1));
+        reg.add(address(venue));
+        t0.mint(address(venue), 1_000_000e18);
+        t1.mint(address(venue), 1_000_000e18);
+        venue.sync();
+        MockGateAdapter adapter = new MockGateAdapter(gate, reg);
+        BlazePhoenixHub hub = new BlazePhoenixHub(address(this));
+        hub.initialize(address(this), address(0xBEEF));
+        hub.setRoles(address(this), address(this), address(this));
+        gate.proposeAdapter(FAM, address(adapter));
+        vm.warp(block.timestamp + gate.ADAPTER_DELAY());
+        gate.acceptAdapter(FAM);
+        BlazePhoenixGateWrapper w =
+            BlazePhoenixGateWrapper(gate.create(address(t1), address(t0), KEY, abi.encode(address(venue))));
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = KEY;
+        hub.addFactory(address(gate), BPC.KIND_EXTERNAL, 5, gate.WRAPPER_INIT_HASH(), fees, new int24[](0));
+        c.kind = BPC.KIND_EXTERNAL;
+        c.pool = address(w);
+        c.hub = address(hub);
+        c.zeroForOne = true;
+        c.fee = KEY;
+        c.tokenIn = address(t0);
+        c.tokenOther = address(t1);
+        c.decIn1 = 19;
+        c.decOther1 = 19;
+    }
+
+    function _roundingOnly(uint256 a, uint256 o) internal view {
+        (, uint256 rank, , uint256 err, uint256 errOrder) = BPC.universalProbe(c, a, 0, true, o);
+        assertEq(rank, a * 9_970 / 10_000, "precondition: the wrapper quotes the venue");
+        uint256 rnd = (3 * WAD + 2 * a) / rank + 1;
+        assertEq(err, rnd < WAD ? rnd : WAD, "a Gate wrapper's err carries an impact term");
+        assertEq(errOrder, rnd, "a Gate wrapper's errOrder carries an impact term");
+    }
+
+    // mutant "L1-124 Core:2109: a Gate wrapper is read for an impact term"
+    function test_AGateWrapperIsBoundByItsRoundingAlone() public view {
+        _roundingOnly(1_000e18, 0);
+        _roundingOnly(1_000e18, 1_000e18);
+        _roundingOnly(1_000e18, 900_000e18);
+    }
+
+    function testFuzz_AGateWrapperIsBoundByItsRoundingAlone(uint256 a, uint256 o) public view {
+        a = bound(a, 1_000, 1e30);
+        o = bound(o, 0, 1e36);
+        _roundingOnly(a, o);
     }
 }
