@@ -256,9 +256,11 @@ contract AvaxBlackholeCoreFork is AvaxForkBase {
 
     /// @dev The equalities every single-venue run must hold, to the wei. Where the Router takes
     ///      the fee decides the Quoter's scalar: off the output (a direct route into a bridge)
-    ///      the scalar is the fill; off the input, the Quoter returns the lower of the output
-    ///      deduction on the leg it priced and the funded fill (Quoter._exact), a floor, and the
-    ///      raw venue reproduces both terms on the same pre-state.
+    ///      the scalar is the fill; off the input, the Quoter returns the lower of the gross leg
+    ///      output and the funded fill (Quoter._exact since 6c02eee: the output deduction only
+    ///      where the calendar charges the output), and the raw venue reproduces both terms on
+    ///      the same pre-state. Gross is the venue on the leg input the Quoter priced (the order),
+    ///      funded is the venue on the order less the input fee, so the min is the funded fill.
     function _assertRun(Run memory r, uint256 amt) internal pure {
         assertGt(r.rawIn, 0, "the route used this venue (input side)");
         assertGt(r.rawOut, 0, "the route used this venue (output side)");
@@ -272,10 +274,8 @@ contract AvaxBlackholeCoreFork is AvaxForkBase {
         } else {
             assertEq(r.feeOut, 0, "fee off the input only");
             assertEq(r.feeIn, _feeUp(amt), "fee off the input, rounded up");
-            uint256 deducted = r.oracleLeg - _feeUp(r.oracleLeg);
-            uint256 floorOut = deducted < r.oracle ? deducted : r.oracle;
-            console2.log("  deducted   ", deducted);
-            assertEq(r.quote, floorOut, "Quoter == min(output deduction, funded fill), from the raw venue");
+            uint256 floorOut = r.oracleLeg < r.oracle ? r.oracleLeg : r.oracle;
+            assertEq(r.quote, floorOut, "Quoter == min(gross leg output, funded fill), from the raw venue");
             assertLe(r.quote, r.exec, "the Quoter's scalar is a floor of the fill");
         }
     }
@@ -399,8 +399,8 @@ contract AvaxBlackholeCoreFork is AvaxForkBase {
     /// @notice Liquidity minted by hand into the BASE WAVAX/BLACK venue (empty at the block):
     ///         the automatic door plans over the Algebra row alone and the Router fills it
     ///         across an initialized tick, to the wei of the raw oracle. WAVAX in, BLACK out:
-    ///         the fee comes off the input, so the Quoter's scalar is its floor (measured under
-    ///         the fill, by the concavity of the output deduction), reproduced from the venue.
+    ///         the fee comes off the input, so the Quoter's scalar is the funded fill, the venue
+    ///         priced on the order less the input fee, reproduced from the venue to the wei.
     function test_AvaxBH_Q4_BaseMinted_AutoDoor_CrossesTick_QuoteExecOracle() public {
         _addAlgebraRow();
         RawIntegralOracle m = new RawIntegralOracle();
