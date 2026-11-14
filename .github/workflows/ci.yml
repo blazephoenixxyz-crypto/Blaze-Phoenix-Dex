@@ -79,6 +79,18 @@ jobs:
         if: needs.changes.outputs.code != 'false'
         uses: foundry-rs/foundry-toolchain@v1
 
+      - name: Swap for the via_ir compile (fail-open)
+        if: needs.changes.outputs.code != 'false'
+        # In run 43631227755, 22 of 40 mutation shards died 18-30 min in, before their first verdict
+        # ("shutdown signal", or "lost communication ... starves it for CPU/Memory"): the window is
+        # the release via_ir compile of the whole tree (613 files). Swap gives that compile room.
+        # Fail-open: a runner where swap cannot be added warns and runs exactly as before.
+        run: |
+          f=/swapfile-ci; [ -d /mnt ] && f=/mnt/swapfile-ci
+          { sudo fallocate -l 12G "$f" && sudo chmod 600 "$f" && sudo mkswap "$f" >/dev/null && sudo swapon "$f"; } \
+            || echo "::warning::no extra swap on this runner; the compile runs on RAM alone"
+          free -m || true
+
       - name: Show versions
         if: needs.changes.outputs.code != 'false'
         run: forge --version
@@ -423,6 +435,18 @@ jobs:
           # and every run of the guard checks them (mutants.py, SNAPSHOT_FLAGS).
           version: v1.8.5
 
+      - name: Swap for the via_ir compile (fail-open)
+        if: needs.changes.outputs.code != 'false'
+        # In run 43631227755, 22 of 40 mutation shards died 18-30 min in, before their first verdict
+        # ("shutdown signal", or "lost communication ... starves it for CPU/Memory"): the window is
+        # the release via_ir compile of the whole tree (613 files). Swap gives that compile room.
+        # Fail-open: a runner where swap cannot be added warns and runs exactly as before.
+        run: |
+          f=/swapfile-ci; [ -d /mnt ] && f=/mnt/swapfile-ci
+          { sudo fallocate -l 12G "$f" && sudo chmod 600 "$f" && sudo mkswap "$f" >/dev/null && sudo swapon "$f"; } \
+            || echo "::warning::no extra swap on this runner; the compile runs on RAM alone"
+          free -m || true
+
       - name: Mutation guard (os guardas tem de ter testes que os apanhem)
         if: needs.changes.outputs.code != 'false'
         # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
@@ -759,6 +783,10 @@ jobs:
       # after one CI run on this pin has measured both specs with no such annotation; until
       # then the switch reports and gates nothing, so a proof is not turned red unmeasured.
       LOOP_BOUND_GATE: "0"
+      # Halmos compiles before it proves. Over the whole tree (via_ir, 613 files) that compile
+      # alone outran the runner in run 43631227755 (~20 min, shut down before a proof ran). The
+      # specs import only src and forge-std, so the test root narrows to test/formal.
+      FOUNDRY_TEST: test/formal
     strategy:
       fail-fast: false
       matrix:
@@ -842,6 +870,9 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 30
+    env:
+      # Same narrowing as formal-spec: compile src + test/formal only, not the whole tree.
+      FOUNDRY_TEST: test/formal
     steps:
       - uses: actions/checkout@v7
         with:
