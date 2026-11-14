@@ -129,7 +129,7 @@ stateful invariants); the run gave 2,074 passed, 0 failed and 49 skipped in
 proofs, Slither (fail on high), an EIP-170 size guard — also
 asserted inside the suite — and the offline gas ledger, which together with the
 suite are what branch protection on `main` requires; the Certora Prover (INV-20
-fail-closed), Aderyn, Solhint and the secret scan run alongside. Beyond the
+fail-closed), Solhint and the secret scan run alongside. Beyond the
 suite, a curated mutation guard of 625 named mutants, a shared-quantity
 register, a calldata-field matrix and twenty instruments over the compiled
 artefact are recomputed per commit. What each guarantees, and how to check it

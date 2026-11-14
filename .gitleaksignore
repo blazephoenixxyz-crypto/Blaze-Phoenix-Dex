@@ -1,0 +1,5 @@
+# Reviewed false positives, one per line, by gitleaks fingerprint
+# (commit:path:rule:line), so each entry silences that one finding only.
+# 9d40bd6 security.yml:79 was an Actions cache key naming the Aderyn source
+# commit (40 hex, a public git object id, not a credential); the job is gone.
+9d40bd6216990f1027a979bcb1e2020f29db8873:.github/workflows/security.yml:generic-api-key:79

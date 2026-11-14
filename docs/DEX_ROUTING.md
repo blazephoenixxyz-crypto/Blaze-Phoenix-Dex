@@ -168,5 +168,5 @@ registry (`test/FrozenAtWriteProbes.t.sol`), the V4 walk against a specification
 swap (`test/V4TickWalk.t.sol`), and a hostile-venue matrix
 (`test/regime/HostileVenueMatrix.t.sol`). Every merge is gated by the suite, the
 mutation guard, fork tests on an archive RPC, Halmos and Certora proofs, Slither,
-Aderyn, and an EIP-170 size guard with margin. The on-chain floor bounds any
+and an EIP-170 size guard with margin. The on-chain floor bounds any
 divergence between a search quote and the realised fill (§5).

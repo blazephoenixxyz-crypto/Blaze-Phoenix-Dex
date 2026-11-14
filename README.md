@@ -108,7 +108,7 @@ file:
 | `Slither (static detectors, fail on high)` | static detectors, failing on high |
 | `gas metrics (offline ledger)` | the gas ledger |
 
-The Certora Prover, Aderyn, Solhint, the secret scan, the mutation guard and the fork suites run
+The Certora Prover, Solhint, the secret scan, the mutation guard and the fork suites run
 alongside them; they report rather than block, and a red run on any of them is treated as work to
 do. Three workflows run on dispatch rather than on every push: the gas campaigns G7 and G8
 ([docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md)) and `fuzz-mc`, the Monte Carlo and
@@ -318,7 +318,7 @@ what it pins.
 
 Every gate runs in CI and identically on a laptop. Toolchain: **Solidity 0.8.36**, pinned with
 `via_ir` across the Foundry profiles; **Foundry** (forge, cast, anvil); **Halmos**;
-**Certora Prover**; **Slither**; **Aderyn**; **Solhint**.
+**Certora Prover**; **Slither**; **Solhint**.
 
 ```bash
 # Build and full suite
@@ -337,7 +337,6 @@ halmos --contract EffV4FeeFormalSpec -v      # INV-20: effV4Fee fails closed
 
 # Static analysis (.github/workflows/security.yml)
 slither . --fail-high
-aderyn . -o aderyn-report.md
 solhint 'src/**/*.sol'
 
 # Registers and generated files must agree with the repository
