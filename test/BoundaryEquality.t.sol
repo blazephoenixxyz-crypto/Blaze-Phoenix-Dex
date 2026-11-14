@@ -15,10 +15,10 @@ pragma solidity 0.8.36;
 // The exactness key is the SAME in both: amountIn = sum(leg.amountIn) + fee,
 // with the protocol fee prepaid ON TOP, so that after _chargeHopFee exactly
 // sum(leg.amountIn) remains -> scaleNum == scaleDen -> every scaling mulDiv is
-// an identity and the calldata expectedOut reaches hopAttested UNCHANGED
+// an identity and the calldata expectedOut reaches hopBound UNCHANGED
 // (case 1), while the measured outV2 reaches amountOut unchanged (case 2).
 //
-// Case 1 (hopGot + slack < hopAttested): with 2 legs, slack = floor(floor(S/2)/5)
+// Case 1 (hopGot + slack < hopBound): with 2 legs, slack = floor(floor(S/2)/5)
 // = floor(S/10). The boundary 2G + floor(S/10) == S is solvable for ANY 2G:
 // S = 10*floor(2G/9) + (2G mod 9), because S |-> S - floor(S/10) = 9q + t
 // sweeps every integer (t in 0..8 covers 2G mod 9). The mutant is NOT
@@ -108,7 +108,7 @@ contract BoundaryEqualityTest is Test {
 
     /// CASE 1 -- the per-hop budget boundary, to the wei.
     /// Two honest legs (each delivers G), attestations inflated until
-    /// hopGot + slack == hopAttested EXACTLY. Each leg passes its own 80%
+    /// hopGot + slack == hopBound EXACTLY. Each leg passes its own 80%
     /// floor (e_i ~ 1.11*G < 1.25*G) -- only the aggregate equality is at stake.
     function test_HopBudget_ExactBoundaryDelivers() public {
         uint256 G = _trueOut(pool1);            // == _trueOut(pool2), equal seeds

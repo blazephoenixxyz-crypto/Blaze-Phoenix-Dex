@@ -6,7 +6,7 @@ pragma solidity 0.8.36;
 //
 //  `Router._execute` (src/BlazePhoenixRouter.sol:1356-1361) now reads
 //
-//      uint256 hopBase = hopQuote != 0 ? hopQuote : hopAttested;
+//      uint256 hopBase = hopQuote != 0 ? hopQuote : hopBound;
 //      if (hopBlind && route.hops[h].expectedOut > hopBase) {
 //          hopBase = route.hops[h].expectedOut;
 //      }
@@ -20,7 +20,7 @@ pragma solidity 0.8.36;
 //
 //  So the blindness correction covers exactly one hop of a route. Layer 1
 //  (Router:1312-1322) was not changed by the fix: a blind leg is still absent
-//  from `hopGot` and from `hopAttested`, so an intermediate hop still compares
+//  from `hopGot` and from `hopBound`, so an intermediate hop still compares
 //  its surviving legs with themselves.
 //
 //  A 2-hop route puts the blind leg on hop 0. `hopBlind` is set, hop 0's own

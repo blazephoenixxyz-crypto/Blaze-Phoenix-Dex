@@ -5,13 +5,13 @@ pragma solidity 0.8.36;
 //  LEG_FLOOR_BPS - the exact formula of the two floors, to the wei.
 //
 //    per leg (Router):  got < mulDivUp(bound, LEG_FLOOR_BPS, BPS)                 -> RouterE(5)
-//    per hop (Router):  hopGot + mulDiv(hopAttested / hopQuoted, BPS - LEG_FLOOR_BPS, BPS)
-//                         < hopAttested                                            -> RouterE(5)
+//    per hop (Router):  hopGot + mulDiv(hopBound / hopQuoted, BPS - LEG_FLOOR_BPS, BPS)
+//                         < hopBound                                            -> RouterE(5)
 //
 //  1. The leg floor is a STRICT comparison against the CEIL of 80% of the bound: a
 //     leg that delivers exactly ceil(0.8 * bound) settles, one wei less is refused.
 //     The bound is chosen so 0.8 * bound is not an integer (the ceil is real).
-//  2. The hop slack is ONE AVERAGE LEG (hopAttested / n), not the whole hop: on a hop
+//  2. The hop slack is ONE AVERAGE LEG (hopBound / n), not the whole hop: on a hop
 //     of n honest legs whose attestations sum to A, the hop settles at the largest A
 //     with A - floor(floor(A / n) * 2000 / 10000) <= hopGot and is refused one wei
 //     above. A slack sized on the whole hop (n times larger) or on 80% instead of 20%

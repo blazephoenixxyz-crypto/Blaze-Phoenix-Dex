@@ -438,7 +438,7 @@ contract BlazePhoenixSolver {
     ///      pre-filtered by registry depth: a proxy pre-filter would be a SECOND producer of the
     ///      same judgement, and the worse of the two — it could discard exactly the route this
     ///      one would pick. Depth already does its job where it should, one level below, ordering
-    ///      candidates WITHIN each hop (`_topKPools`, `_buildHop`).
+    ///      candidates WITHIN each hop (`_rankedPools`, `_buildHop`).
     /// @dev ACCUMULATOR, not a parameter list. It was `_rank(a,b,c,d)` — and the
     ///      parameter count WAS MAX_BRIDGE_ROUTES written in code, which
     ///      created the phantom bridge when the two diverged (the corpus, §4).
@@ -652,7 +652,7 @@ contract BlazePhoenixSolver {
         // Reading `decimals()` in there cost 2,339 gas PER CANDIDATE (measured;
         // EIP-2929 does not make it free because USDC is a proxy). It is read
         // once per pair per solve, by the funnel that weighs the pair's dust
-        // (`_topKPools`), and rides in bits 8-23 of `mode` to every quote of
+        // (`_rankedPools`), and rides in bits 8-23 of `mode` to every quote of
         // every build of the hop: the probes, the split's legs and the gate's
         // full-size singles (test/DecimalsReadOncePerHop.t.sol). Encoded +1 (see
         // QuoteCtx.decIn1): 0 would mean "not filled" and there are tokens with
@@ -1248,7 +1248,7 @@ contract BlazePhoenixSolver {
     }
 
     /// @dev The capacity clamp of a concentrated leg (MAX_CONC_DRAIN_BPS), one rule for the
-    ///      split and the single-leg path: `quote` for `amountIn`, against `held` of tokenOut.
+    ///      split and the single-leg path: `quote` for `amountIn`, against `holdings` of tokenOut.
     ///      Returns the input committed, its promise and, for a leg ranked at the cap without
     ///      WALK, the quote its book may still pay up to (zero otherwise: `_buildHop`'s `held`).
     ///      `mode`: CUT on the first hop, WALK on the winning topology's own build
@@ -1267,14 +1267,14 @@ contract BlazePhoenixSolver {
     ///      walked read-only by `Core.v4WalkOut` (a zero poolId walks a V3-shaped pool through
     ///      its own getters, at its own fee and spacing), held between the cap and the
     ///      single-tick quote. So no promise passes the pool's holdings, on any hop (the cap
-    ///      below them, or P <= quote <= held), and a book that does not answer keeps the cap. The walk
+    ///      below them, or P <= quote <= holdings), and a book that does not answer keeps the cap. The walk
     ///      reads every stretch it crosses cold, so it runs on one topology per solve, never per
     ///      ranked candidate (SOLVE_GAS; test/CapacityWalkBudget.t.sol).
-    function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 held, uint256 mode)
+    function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 holdings, uint256 mode)
         private view returns (uint256, uint256, uint256)
     {
-        uint256 cap = BPC.mulDiv(held, MAX_CONC_DRAIN_BPS, BPC.BPS);
-        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);
+        uint256 cap = BPC.mulDiv(holdings, MAX_CONC_DRAIN_BPS, BPC.BPS);
+        if (quote > holdings) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);
         if (quote <= cap) return (amountIn, quote, 0);
         if (mode & WALK == 0) return (amountIn, cap, quote);
         uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn, 0, 0, c.token0 == tIn);
@@ -1283,12 +1283,12 @@ contract BlazePhoenixSolver {
 
     function _singleLeg(
         address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, uint256 mode, uint256 bar,
-        QuoteCtx memory x, uint256[] memory held, uint256 i
+        QuoteCtx memory x, uint256[] memory holdingsOut, uint256 i
     ) private view returns (Hop memory hop, uint256 up, uint256 hi, uint256 f) {
         // S2: `up` is the rank above the promise and `hi` the ceiling above it (deep V4 walk,
         // gated by `bar`, `v4WalkRank`; both zero elsewhere). They only order, never promise.
         // `f` is `_capacity`'s third answer: the quote of a leg ranked at its cap.
-        // `x`: the candidate's context, built once per build (`_buildHop`). `held`, `i`: the
+        // `x`: the candidate's context, built once per build (`_buildHop`). `holdingsOut`, `i`: the
         // probe pass's readings of the pools' tokenOut holdings and the candidate's seat in
         // them; no readings at all for a lone candidate, which saw no probe pass.
         uint256 out_;
@@ -1299,7 +1299,7 @@ contract BlazePhoenixSolver {
         uint256 h;
         // The pool's tokenOut holdings: the probe pass's reading; a lone candidate's are read
         // here, past its quote - a book with no answer is dropped before its token is asked.
-        if (held.length != 0) h = held[i];
+        if (holdingsOut.length != 0) h = holdingsOut[i];
         else if (BPC.kindHasAny(cand.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) h = BPC.balanceOf(tOut, cand.pool);
         // Same rule as the split path: a reserve-shaped promise above the pool's tokenOut
         // holdings comes from forged reserves, so the candidate is dropped, not clamped
@@ -1433,7 +1433,7 @@ contract BlazePhoenixSolver {
     //  CANDIDATE SELECTION  (lazy discovery, dust dropped by depth, ordered by fitness)
     // =========================================================================
 
-    /// @dev ONE LIST PER ORDERED PAIR PER SOLVE. `_topKPools` is a function of the state and the
+    /// @dev ONE LIST PER ORDERED PAIR PER SOLVE. `_rankedPools` is a function of the state and the
     ///      pair alone, and the solve is a static call, so the state cannot move between two
     ///      builds: a pair read again in the same solve is built once, and each later read gets
     ///      the list as it was built. Since 2026-11-06 (two hops) no two topologies of one
@@ -1446,7 +1446,7 @@ contract BlazePhoenixSolver {
     ///      EACH READ GETS ITS OWN COPY of the array: `_buildHop` compacts and reorders the
     ///      array it is handed, in place, and the next build must start from the list as
     ///      built. The rows are shared: nothing downstream writes a PoolInfo field (only
-    ///      `_topKPools` does, on its own rows, before it returns).
+    ///      `_rankedPools` does, on its own rows, before it returns).
     ///      `m.lists` heads a chain of [next, tA, tB, list, decimals] in memory; 0 is none. `e` is
     ///      the pair's entry (`_sitsOut` edits its list).
     function _candsOf(Melhores memory m, address tA, address tB)
@@ -1461,7 +1461,7 @@ contract BlazePhoenixSolver {
             }
         }
         if (e == 0) {
-            (c, dec) = _topKPools(tA, tB);
+            (c, dec) = _rankedPools(tA, tB);
             e = m.lists;
             assembly ("memory-safe") {
                 let n := mload(0x40)
@@ -1484,7 +1484,7 @@ contract BlazePhoenixSolver {
         }
     }
 
-    function _topKPools(address tA, address tB)
+    function _rankedPools(address tA, address tB)
         private view returns (PoolInfo[] memory out, uint256 dec)
     {
         // Combine registered pools with discovered ones — never let one suppress
@@ -1632,7 +1632,7 @@ contract BlazePhoenixSolver {
             // hour, switch discovery OFF for the pair and hide every honest
             // venue that had never been registered — the registry then held
             // only what the attacker wrote, and the band was theirs. The
-            // permissionless row stays a CANDIDATE (merged in `_topKPools`); it no
+            // permissionless row stays a CANDIDATE (merged in `_rankedPools`); it no
             // longer chooses the path (review 2026-09-02).
             if (BPC.decodeTier(s) != 0) { unchecked { ++i; } continue; }
             uint256 last = uint256(BPC.decodeLastUpdateTs(s));

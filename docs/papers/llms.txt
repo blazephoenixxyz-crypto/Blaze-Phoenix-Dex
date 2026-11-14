@@ -164,7 +164,7 @@ INV-7 · Ψ ranks candidates; no quote, floor or allocation reads it. · enforce
 INV-8 · A pair's registry holds at most sixteen pools, and eviction keeps the fittest by full Ψ with the margin of E13. · enforced by Hub `_canInsert`; `invariant_neverExceedsMaxSlots` (the cap); `test_RecordSwap_EvictsWeakestWhenFullAndNewcomerClearsMargin` (the eviction)
 INV-9 · No address without runtime bytecode enters a route. · enforced by `hasCode` on every derivation (§7)
 INV-10 · The universal callback pays only the pool committed for the current leg, only while a leg is in flight, and never more than the leg's recorded budget. · enforced by Transient leg context; `RouterE(6)` for the pool, `RouterE(8)` for the budget (§11.4)
-INV-11 · A V4 hook whose address declares delta-altering permissions is rejected before any token moves, without calling it. · enforced by E18; `RouterE(9)`; Solver `_topKPools`
+INV-11 · A V4 hook whose address declares delta-altering permissions is rejected before any token moves, without calling it. · enforced by E18; `RouterE(9)`; Solver `_rankedPools`
 INV-12 · No pricing product can overflow: every dangerous multiplication is factored through 512-bit `mulDiv`, and a state that cannot be bounded quotes zero. · enforced by Core (§4.2, §6)
 INV-13 · Rounding runs against over-promise: quotes and payouts floor, protective floors and the fee round up. · enforced by Core `mulDiv` / `mulDivUp` at each site
 INV-14 · Where a bound cannot be proven, the computation returns zero and the venue is surrendered — never a guess, never a schedulable revert inside a quote. · enforced by Fail-closed posture across the Core; `_solKFits` (§6)

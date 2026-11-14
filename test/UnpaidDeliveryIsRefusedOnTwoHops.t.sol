@@ -23,7 +23,7 @@ pragma solidity 0.8.36;
 //     commit nothing, B -> M -> A -> M with A the bridge. The fee is anchored at hop 2 (the
 //     first hop whose input is a bridge), so hop 0 is not charged and delivers tokenOut;
 //     hop 1 runs no leg (nothing in the loop refuses a non-final hop that executes
-//     nothing: RouterE(5) wants `scaledAmt != 0` or `hopAttested != 0`) and hands hop 2 a
+//     nothing: RouterE(5) wants `scaledAmt != 0` or `hopBound != 0`) and hands hop 2 a
 //     delivery of 0; hop 2 owns min(its A, 0) = 0 and charges nothing. Hop 0's output
 //     reaches the delivery with nothing in the book, and Router:1679 is what refuses it.
 //     Red under [inv-s1-1633] (the check removed): the route settles and the 28 bps the

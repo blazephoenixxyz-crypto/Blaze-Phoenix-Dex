@@ -418,8 +418,8 @@ contract OssificationIsNotDeathTest is Test {
     }
 
     /// @notice Renounce freezes the config at its CURRENT values — it does
-    ///         not zero anything. renounceControl emits Cfg(0, address(0))
-    ///         but the admin storage itself must survive, as must every other
+    ///         not zero anything. renounceControl emits ControlRenounced(), not
+    ///         a Cfg: the admin storage itself must survive, as must every other
     ///         frozen value the swap path reads (permit2, weth, treasuries).
     function test_Ossified_FrozenConfigKeepsItsValues_NotZeroed() public {
         address a  = router.admin();

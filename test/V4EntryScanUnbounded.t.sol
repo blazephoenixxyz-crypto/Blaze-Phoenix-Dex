@@ -22,7 +22,7 @@ pragma solidity 0.8.36;
 //
 //  whose own comment calls itself "unreachable for pools registered after this
 //  fix". `_readPoolInfo` is reached from `getActivePools`, which the Solver
-//  calls once per hop of per topology (`_topKPools`, Solver:1253) — and
+//  calls once per hop of per topology (`_rankedPools`, Solver:1253) — and
 //  `swapBestExactIn` runs that solve ON CHAIN.
 //
 //  The second consumer is `_recoverV4Ts` step 5 (Hub:1279-1290), reached from

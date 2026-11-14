@@ -513,8 +513,8 @@ M = [
       teste="test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused"),
  dict(nome="per-hop budget: the attested slack doubles (a strict limit becomes loose)",
       f="src/BlazePhoenixRouter.sol",
-      old="                if (hopGot + slack < hopAttested) revert RouterE(5);",
-      new="                if (hopGot + slack + slack < hopAttested) revert RouterE(5); // MUTANTE",
+      old="                if (hopGot + slack < hopBound) revert RouterE(5);",
+      new="                if (hopGot + slack + slack < hopBound) revert RouterE(5); // MUTANTE",
       teste="test_TwoBleedingLegs_RevertOnHopBudget"),
  dict(nome="entry: && becomes || in the zero-minOut guard (the condition inverts its reach)",
       f="src/BlazePhoenixRouter.sol",
@@ -673,7 +673,7 @@ M = [
  # that landed on equality (the budget tests lived at 82%/85%; the
  # minOut one controlled delivered, not amountOut). Proven NOT
  # equivalent: the boundary is reachable for ANY quote G - in the budget case
- # with hopAttested = S = 10*floor(2G/9) + (2G mod 9) (the function
+ # with hopBound = S = 10*floor(2G/9) + (2G mod 9) (the function
  # S - floor(S/10) covers every integer), in the floor case with
  # singleOutFloor = amountOut (calldata identity). The key to exactness in
  # both: amountIn = sum(leg.amountIn) + prepaid fee -> scaleNum == scaleDen
@@ -682,8 +682,8 @@ M = [
  # green (site attribution clean in both directions).
  dict(nome="per-hop budget: < becomes <= (the exact boundary, not the doubled slack)",
       f="src/BlazePhoenixRouter.sol",
-      old="                if (hopGot + slack < hopAttested) revert RouterE(5);",
-      new="                if (hopGot + slack <= hopAttested) revert RouterE(5); // MUTANTE",
+      old="                if (hopGot + slack < hopBound) revert RouterE(5);",
+      new="                if (hopGot + slack <= hopBound) revert RouterE(5); // MUTANTE",
       teste="test_HopBudget_ExactBoundaryDelivers"),
  dict(nome="aggregate floor: < becomes <= in the amountOut/effMin comparison",
       f="src/BlazePhoenixRouter.sol",
@@ -890,7 +890,7 @@ M = [
       # Retargeted again 2026-10-23 (coerencia-fix-1023): the fallback became a per-leg fold
       # into `hopQuote` (an unpriced leg enters with its attested figure), so a hop with no
       # in-frame quote at all still floors on its attestation. The mutant removes the fold.
-      old="                if (legQuotes[l] == 0) hopQuote += legAtt;",
+      old="                if (legQuotes[l] == 0) hopQuote += legBound;",
       new="                // MUTANT [130]",
       teste="test_LiquidityGapOnLastHop_FloorFallsBackToAttested"),
  dict(nome="impact: an unquotable concentrated leg counts BPS again (the floor collapses to the clamp)",
@@ -1318,15 +1318,15 @@ M = [
  # ── FEE-02 (eighth disclosure round, 2026-09-03): previewPlanExact returns the NET output ──
  dict(nome='FEE-02: previewPlanExact loses the protocol-fee deduction (exactOut is the pool-math ceiling again)',
       f='src/BlazePhoenixQuoter.sol',
-      old='            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
-      new='            : gross; // MUTANT',
+      old='            : walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
+      new='            : walkOut; // MUTANT',
       # Paired with the one-hop route INTO a bridge (fee off the output) since 2026-10-13: on
       # an input-charged single hop `_fundedOut` now bounds the scalar on its own.
       teste='test_ExactOut_OneHop_IsThePoolMathCeilingLessTheFeeRoundedUp'),
  dict(nome='FEE-02: the deduction rounds DOWN (a wei more than delivery on inexact divisions)',
       f='src/BlazePhoenixQuoter.sol',
-      old='            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
-      new='            : gross - BPC.mulDiv(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANT',
+      old='            : walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
+      new='            : walkOut - BPC.mulDiv(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANT',
       teste='test_ExactOut_OneHop_IsThePoolMathCeilingLessTheFeeRoundedUp'),
  # ── previewPlanExact prices the fee where the Router takes it (2026-10-13) ──
  dict(nome='exact floor: the funded figure stops bounding exactOut (input-charged routes promise the output deduction again)',
@@ -1396,17 +1396,17 @@ M = [
       old='        if (owed > maxAmt) revert RouterE(8);',
       new='        // MUTANT',
       teste='test_V3Leg_RevertsWhenPoolDemandsMoreThanCommittedInput'),
- # The compiler's own refusal, paired. `Router:_execute` divides hopAttested/hopQuoted under
- # `if (hopAttested != 0)`, and that guard is what makes panic 0x12 unreachable there: the three
- # hop accumulators are declared inside the hop loop and hopAttested is the sum of exactly the
- # legAtt values whose non-zero-ness increments hopQuoted, so a non-zero sum needs a non-zero
+ # The compiler's own refusal, paired. `Router:_execute` divides hopBound/hopQuoted under
+ # `if (hopBound != 0)`, and that guard is what makes panic 0x12 unreachable there: the three
+ # hop accumulators are declared inside the hop loop and hopBound is the sum of exactly the
+ # legBound values whose non-zero-ness increments hopQuoted, so a non-zero sum needs a non-zero
  # term. Moving the guard onto hopGot - an accumulator the divisor is NOT built from - lets a hop
  # that executes without attesting divide by zero. It dies with `panic: division or modulo by
  # zero (0x12)`, which is the point: the corpus really does drive such a hop, so the argument
  # above is tested rather than merely asserted.
  dict(nome="panic 0x12: the hop-slack guard moves to an accumulator the divisor is not built from",
       f="src/BlazePhoenixRouter.sol",
-      old="            if (hopAttested != 0) {",
+      old="            if (hopBound != 0) {",
       new="            if (hopGot != 0) {",
       teste="test_G7_OneWeiOutput_BoundaryPasses"),
  # The joint the whole hook argument stands on. The sieve reads `leg.hooks`; the swap executes
@@ -2546,8 +2546,8 @@ M = [
       teste='test_N1_Clamp_DefaultPromiseIsTheCap_ExactSeesTheFill'),
  dict(nome='fix-1019 N1: previewPlanExact skips the output fee on a hop into a bridge',
       f='src/BlazePhoenixQuoter.sol',
-      old='            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
-      new='            : gross; // MUTANT m11',
+      old='            : walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
+      new='            : walkOut; // MUTANT m11',
       teste='test_N1_IntoBridge_DefaultLeExactLeDelivered'),
  dict(nome='fix-1019 H3/H9 controls: the input fee drifts 5 bps above PROTOCOL_FEE_BPS (the oracle the honest route settles at)',
       f='src/BlazePhoenixRouter.sol',
@@ -3857,15 +3857,15 @@ M = [
       teste="test_3073_Solver_Split_BookEmptiesBelowTheCap_BesideAWalkedLeg"),
  dict(nome="3073-2 [715]: a phantom leg on a later hop leaves the cap, the chosen route promises past the pool's holdings",
       f='src/BlazePhoenixSolver.sol',
-      old='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
-      new='        if (mode & CUT != 0 && quote > held) return (BPC.mulDiv(amountIn, cap, quote), cap, 0); // MUTANT [715]',
+      old='        if (quote > holdings) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
+      new='        if (mode & CUT != 0 && quote > holdings) return (BPC.mulDiv(amountIn, cap, quote), cap, 0); // MUTANT [715]',
       teste='test_3073_PhantomLaterHop_OnlyRoute_PromiseStaysAtTheCap'),
  dict(nome="3073-2 [715p]: a phantom leg on a later hop is promised its quote, the bridge route outranks the honest direct pool",
       f='src/BlazePhoenixSolver.sol',
       # [715] leaves the later hop's phantom at the cap while it is only ranked, so the test with
       # an honest rival stays green under it. Here the promise itself passes the holdings.
-      old='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
-      new='        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), mode & CUT == 0 ? quote : cap, 0); // MUTANT [715p]',
+      old='        if (quote > holdings) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);',
+      new='        if (quote > holdings) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), mode & CUT == 0 ? quote : cap, 0); // MUTANT [715p]',
       teste='test_3073_PhantomLaterHop_NoLegPromisesPastItsHoldings'),
  dict(nome='3073-2 [716]: every bridge candidate walks its held legs, a bridge that does not lead has its ticks read',
       f='src/BlazePhoenixSolver.sol',
@@ -4142,8 +4142,8 @@ M = [
       teste="test_CurveNG_Depth18_IsThePoolsShortSide"),
  dict(nome="coerencia-fix-1023 [757]: the floor's base folds an unpriced leg only while nothing was priced (the pre-fix rule), so a priced leg shrinks a mixed hop's base to its own share",
       f="src/BlazePhoenixRouter.sol",
-      old="                if (legQuotes[l] == 0) hopQuote += legAtt;",
-      new="                if (legQuotes[l] == 0 && hopQuote == 0) hopQuote += legAtt; // MUTANT [757]",
+      old="                if (legQuotes[l] == 0) hopQuote += legBound;",
+      new="                if (legQuotes[l] == 0 && hopQuote == 0) hopQuote += legBound; // MUTANT [757]",
       teste="test_Coherence_D_MixedLastHopKeepsTheGateLegUnderTheFloor"),
  dict(nome="coerencia-fix-1023 [758]: the Gate's cap takes the word whole, no mass held caps it, so the two doors read different depths for the same mass (since MED the A anchor at any price holds by the mute, [974]; the cap is watched where it is produced)",
       f="src/BlazePhoenixGate.sol",
@@ -4330,7 +4330,7 @@ M = [
       # hops2 (2026-11-06): re-pointed; the entry's sixth word went with M10, the list is built again.
       f='src/BlazePhoenixSolver.sol',
       old='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n',
-      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            (cands, dec) = _topKPools(path[i], path[i + 1]); // MUTANT [825]\n',
+      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            (cands, dec) = _rankedPools(path[i], path[i + 1]); // MUTANT [825]\n',
       teste='test_EachOrderedPairIsBuiltOnce'),
  dict(nome='D10 G1: the hop enters the library twice',
       f='src/BlazePhoenixSolver.sol',
@@ -5268,8 +5268,8 @@ M = [
       teste='testFuzz_B_Exhaustion_EveryHopPaysWhereTheRouterCharges'),
  dict(nome='PAR [916]: a one-hop route takes its output fee rounded down, so the quote promises a wei the Router never delivers',
       f='src/BlazePhoenixQuoter.sol',
-      old='            : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
-      new='            : gross - BPC.mulDiv(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANT',
+      old='            : walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
+      new='            : walkOut - BPC.mulDiv(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANT',
       teste='testFuzz_C_OneHopIntoTheBridge_FeeOffTheOutputIsTheDelivery'),
  dict(nome="PAR [917]: a later hop of the exact pass rounds each leg's share up, so its legs ask more than the Router funds them",
       f='src/BlazePhoenixQuoter.sol',
@@ -5436,8 +5436,8 @@ M = [
       teste='test_Gas_FindBestRoutePlan_PerCandidatePools_1_2_4_8'),
  dict(nome='gas-1106 G3-11: _candsOf rebuilds an ordered pair it already holds (a memo hit is ignored)',
       f='src/BlazePhoenixSolver.sol',
-      old='        if (e == 0) {\n            (c, dec) = _topKPools(tA, tB);',
-      new='        if (true) { // MUTANT G3-11\n            (c, dec) = _topKPools(tA, tB);',
+      old='        if (e == 0) {\n            (c, dec) = _rankedPools(tA, tB);',
+      new='        if (true) { // MUTANT G3-11\n            (c, dec) = _rankedPools(tA, tB);',
       teste='test_Gas_FindBestRoutePlan_PerBridges_1_2_3'),
  dict(nome='gas-1106 G3-12: feeCalendar asks the Hub about tokenOut before it checks that the route is a single hop',
       f='src/BlazePhoenixCore.sol',
@@ -5991,8 +5991,8 @@ M = [
  # fin2-1111 router, the verifier's regression: the exact preview rescaled the net-frame floor by the gross plan figure.
  dict(nome='fin2-router-7 (4007 regression): the Quoter rescales the attested floor by the gross plan output again, net over gross twice, a floor 28 bps below the attested rate on every two-hop exact preview',
       f='src/BlazePhoenixQuoter.sol',
-      old='            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut);',
-      new='            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, route.totalOut); // MUTANT [fin2-router-7]',
+      old='            ? 0 : BPC.mulDiv(route.singleOutFloor, walkOut, planOut);',
+      new='            ? 0 : BPC.mulDiv(route.singleOutFloor, walkOut, route.totalOut); // MUTANT [fin2-router-7]',
       teste='test_TwoHops_TheExactPreviewFloorRateIsTheAttestedRateOnTheNetOutput'),
  dict(nome='fin2-router-8 (4007 regression): the Quoter nets the plan figure on a one-hop route too, where its walk takes no fee: the previewed floor 28 bps above the attested rate on a direct route with the fee on the input',
       f='src/BlazePhoenixQuoter.sol',
@@ -6202,7 +6202,7 @@ M = [
       teste="test_Sq_SameAnswer_BandMovesTheSeats"),
  dict(nome="morf-SQ2-2: the single asks the token again for the holdings the probe pass read",
       f="src/BlazePhoenixSolver.sol",
-      old="        if (held.length != 0) h = held[i];\n        else if (BPC.kindHasAny(cand.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) h = BPC.balanceOf(tOut, cand.pool);",
+      old="        if (holdingsOut.length != 0) h = holdingsOut[i];\n        else if (BPC.kindHasAny(cand.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) h = BPC.balanceOf(tOut, cand.pool);",
       new="        if (BPC.kindHasAny(cand.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) h = BPC.balanceOf(tOut, cand.pool); // MUTANT [morf-SQ2-2]",
       teste="test_Sq_OneHoldingsReadPerCandidate"),
  dict(nome="morf-SQ2-3: the split's share builds a context of its own",
@@ -6218,7 +6218,7 @@ M = [
  dict(nome="morf-SQ2-5: a lone candidate's holdings are read before its quote is seen to be an answer",
       f="src/BlazePhoenixSolver.sol",
       old="        if (out_ == 0) return (hop, 0, 0, 0);\n        uint256 h;",
-      new="        uint256 h;\n        if (held.length == 0) BPC.balanceOf(tOut, cand.pool);\n        if (out_ == 0) return (hop, 0, 0, 0); // MUTANT [morf-SQ2-5]",
+      new="        uint256 h;\n        if (holdingsOut.length == 0) BPC.balanceOf(tOut, cand.pool);\n        if (out_ == 0) return (hop, 0, 0, 0); // MUTANT [morf-SQ2-5]",
       teste="test_Sq_SameRefusal_LoneRowReadsHoldingsOnlyAfterAQuote"),
  dict(nome="morf-SQ2-6: a lone candidate's holdings, read by nobody, are taken as zero",
       f="src/BlazePhoenixSolver.sol",
@@ -6302,19 +6302,29 @@ M = [
       teste='test_RouterPausedSet_EmitsBothDirections'),
  dict(nome='events [morf-P3-9]: Router renounceControl renounces without a log',
       f='src/BlazePhoenixRouter.sol',
-      old='        emit Cfg(0, address(0));\n',
+      old='        emit ControlRenounced();\n',
       new='        // MUTANT [morf-P3-9]\n',
-      teste='test_RouterRenounce_EmitsCfg0Zero_ThenEveryControlDoorRefuses'),
- dict(nome='events [morf-P3-10]: Router queueRescue logs an eta of zero, the cancel line, for the eta it stored',
+      teste='test_RouterRenounce_EmitsControlRenounced_ThenEveryControlDoorRefuses'),
+ dict(nome='events [morf-P3-10]: Router queueRescue logs an eta of zero for the eta it stored',
       f='src/BlazePhoenixRouter.sol',
       old='        emit RescueQueued(token, to, eta);\n',
       new='        emit RescueQueued(token, to, 0); // MUTANT [morf-P3-10]\n',
       teste='test_RouterRescue_LogsTheStoredEtaAndTheMovedAmount'),
  dict(nome='events [morf-P3-11]: Router cancelRescue cancels without a log',
       f='src/BlazePhoenixRouter.sol',
-      old='        emit RescueQueued(token, to, 0);\n',
+      old='        emit RescueCancelled(token, to);\n',
       new='        // MUTANT [morf-P3-11]\n',
       teste='test_RouterRescue_LogsTheStoredEtaAndTheMovedAmount'),
+ dict(nome='events [nomes-L2-08]: Router renounceControl logs the admin seat as address(0) again',
+      f='src/BlazePhoenixRouter.sol',
+      old='        emit ControlRenounced();\n',
+      new='        emit Cfg(0, address(0)); // MUTANT [nomes-L2-08]\n',
+      teste='test_RouterRenounce_LogsNoAdminSeat'),
+ dict(nome='events [nomes-L2-07]: Router cancelRescue logs a queued rescue with eta 0 again',
+      f='src/BlazePhoenixRouter.sol',
+      old='        emit RescueCancelled(token, to);\n',
+      new='        emit RescueQueued(token, to, 0); // MUTANT [nomes-L2-07]\n',
+      teste='test_RouterCancelRescue_LogsNoQueuedRescue'),
  dict(nome='events [morf-P3-12]: Router executeRescue logs zero for the amount it moved',
       f='src/BlazePhoenixRouter.sol',
       old='        emit Rescued(token, to, amt);\n',
@@ -7394,8 +7404,8 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       teste='test_OneHop_InputCharged_ThinBook_6to18_DeliveredIsExactOut'),
  dict(nome='door-fee [door-fee-2]: the output deduction is applied on every route, the input-charged ones included',
       f='src/BlazePhoenixQuoter.sol',
-      old='            ? gross // input-charged: the fee came off in `_walk`, or `funded` bounds below\n',
-      new='            ? gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS) // MUTANT [door-fee-2]\n',
+      old='            ? walkOut // input-charged: the fee came off in `_walk`, or `funded` bounds below\n',
+      new='            ? walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS) // MUTANT [door-fee-2]\n',
       teste='test_OneHop_InputCharged_ThinBook_18to6_DeliveredIsExactOut'),
  dict(nome="door-fee [door-fee-3]: _fundedOut answers no bound for every calendar, so the pin between the two producers never fires",
       f='src/BlazePhoenixQuoter.sol',
@@ -7577,8 +7587,8 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       teste="testFuzz_TheThreeFloorsAgreeToTheWei"),
  dict(nome="124-L2 Quoter:903: the Quoter rescales the floor against the wrong denominator, so floorExact drifts one wei under the Solver's",
       f="src/BlazePhoenixQuoter.sol",
-      old="            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut);",
-      new="            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut + 1); // MUTANTE",
+      old="            ? 0 : BPC.mulDiv(route.singleOutFloor, walkOut, planOut);",
+      new="            ? 0 : BPC.mulDiv(route.singleOutFloor, walkOut, planOut + 1); // MUTANTE",
       teste="test_TheThreeFloorsAgreeToTheWei_SplitRoute"),
 # The fee is charged once, at the calendar's hop, and the bridge is conserved across it
 # (test/ConservationAtTheHop.t.sol: A -> B -> C, B a bridge, measured on balances and Fee events).
@@ -7599,13 +7609,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       teste="test_LegFloorIsCeilOnTheProRataBound"),
  dict(nome="124-L2 Router:1422: the hop slack is sized on the whole hop instead of one average leg, so an over-promising multi-leg hop settles",
       f="src/BlazePhoenixRouter.sol",
-      old="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);",
-      new="                uint256 slack = BPC.mulDiv(hopAttested, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS); // MUTANTE",
+      old="                uint256 slack = BPC.mulDiv(hopBound / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);",
+      new="                uint256 slack = BPC.mulDiv(hopBound, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS); // MUTANTE",
       teste="test_HopFloorSlackIsOneAverageLeg_Grid"),
  dict(nome="124-L2 Router:1422: the hop slack takes the kept share (80%) instead of the tolerated one (20%), four times too loose",
       f="src/BlazePhoenixRouter.sol",
-      old="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);",
-      new="                uint256 slack = BPC.mulDiv(hopAttested / hopQuoted, BPC.LEG_FLOOR_BPS, BPC.BPS); // MUTANTE",
+      old="                uint256 slack = BPC.mulDiv(hopBound / hopQuoted, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS);",
+      new="                uint256 slack = BPC.mulDiv(hopBound / hopQuoted, BPC.LEG_FLOOR_BPS, BPC.BPS); // MUTANTE",
       teste="testFuzz_HopFloorSlackIsOneAverageLeg"),
  dict(nome="124-L2 Core:2547: an upward liquidityNet that passes 2^128 is cast down (wraps) instead of held at the ceiling",
       f="src/BlazePhoenixCore.sol",
@@ -8074,7 +8084,7 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
 # A walk that funded nothing promises 0, so the exact door asks no venue again (WALKFIX-124).
  dict(nome="WALKFIX-124 Quoter: the exact door re-walks a route that funded nothing",
       f="src/BlazePhoenixQuoter.sol",
-      old="        uint256 funded = gross == 0 ? 0 : _fundedOut(route, amountIn);",
+      old="        uint256 funded = walkOut == 0 ? 0 : _fundedOut(route, amountIn);",
       new="        uint256 funded = _fundedOut(route, amountIn); // MUTANT",
       teste="test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue"),
 # C11 (2026-11-14): the witness cell at the route ceiling, 2 hops x 5 legs = 10 legs

@@ -461,7 +461,7 @@ library BlazePhoenixMath {
     /// @dev MASS THAT NOBODY VOUCHES FOR DOES NOT VOTE (bounty #85, Remember Me). Bit i set =
     ///      candidate i is live, pair- or concentrated-shaped, its row was written by whoever
     ///      swapped first (tier != 0) and no registered factory vouches for it (`active`, set in
-    ///      `_topKPools`). Its depth is the contract's own word capped by what it holds, and what
+    ///      `_rankedPools`). Its depth is the contract's own word capped by what it holds, and what
     ///      it holds can be a recoverable donation: thirteen million parked on a synthetic pair
     ///      outvoted twelve million of honest mass and moved the band 6 % off fair. Muted, it
     ///      still quotes, still sits in the band if its rate is fair, and still executes; only
