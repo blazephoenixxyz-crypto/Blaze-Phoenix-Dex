@@ -295,6 +295,13 @@ robinhood	shallow	M6h	24	8	16	0	0	0	0	0
 robinhood	shallow	M72h	24	8	16	0	0	0	0	0
 robinhood	shallow	MF24h	24	0	16	0	0	0	0	8
 robinhood	shallow	MF72h	24	0	16	0	0	0	0	8
+# swap coverage (mf_unforced counts as its twin M<age>; denominator = every row): chain	n	ok	mf_unforced_twin_ok	swap_ok	swap_ok_pct
+arbitrum	800	608	48	656	82.0
+base	800	562	62	624	78.0
+bsc	800	534	74	608	76.0
+ethereum	800	626	46	672	84.0
+optimism	800	648	56	704	88.0
+robinhood	800	447	80	527	65.9
 # gas: chain	kind	mode	segment	n_ok	p50	p95	p99
 arbitrum	family_rep	D	g_quote	5	3307592	45688546	45688546
 arbitrum	family_rep	D	g_solve	5	3095791	6235786	6235786

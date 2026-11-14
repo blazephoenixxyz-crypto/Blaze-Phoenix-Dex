@@ -1,6 +1,6 @@
 # Gas campaigns G7 and G8: what is measured, and where
 
-Status: first version, 13/11. Every number below cites the CI run and the line of its
+Status: first version, 13/11; section 6 (re-measure at `bb4cdbb`) added 14/11. Every number below cites the CI run and the line of its
 `report.tsv`. A cell without a source says **not measured**. Tools:
 `tools/g7-gas-campaign/` (G7, random draws over the inventory) and the G8 tool directory next to it (`tools/g8-*/`)
 (G8, one case per AMM family, per bridge and per pair token).
@@ -178,3 +178,48 @@ record its row filter. Fourteen filters over the same `results.tsv` were tried a
 its n on those three chains. The merged `results.tsv` and the per-chain artefact of each of the
 six chains give the same 800 rows and the same n, so the gap is not a merge artefact. The n
 used in this document are the report's (P:4962-5003); the three earlier n are not used.
+
+## 6. Re-measure at `bb4cdbb`: swap coverage, harness causes, fixes
+
+Source: the local re-measure `docs/case-studies/data/gas-1114/g7/results-bb4cdbb.tsv` (same spec
+and seed as run 43376232767; 6 chains x 800 rows, avalanche absent, not zero) and its report
+`report-bb4cdbb.tsv` in the same directory, regenerated with g7.py at `8c844a1` (command and
+sha256 in `provenance.tsv`). Below, `B:<n>` means line `n` of that report.
+
+**Swap coverage.** The outcome table counts an `mf_unforced` row as not ok. That row is a
+forced-memory mode the harness could not force; when its natural twin `M<age>` of the same draw
+is ok, the swap itself works. `swap coverage` (g7.py `swap_coverage`, `8c844a1`) counts such a
+row as ok; the denominator stays every row.
+
+| chain | n | ok | mf_unforced, twin ok | swap ok | swap ok % | source |
+|---|---|---|---|---|---|---|
+| arbitrum | 800 | 608 | 48 | 656 | 82.0 | B:299 |
+| base | 800 | 562 | 62 | 624 | 78.0 | B:300 |
+| bsc | 800 | 534 | 74 | 608 | 76.0 | B:301 |
+| ethereum | 800 | 626 | 46 | 672 | 84.0 | B:302 |
+| optimism | 800 | 648 | 56 | 704 | 88.0 | B:303 |
+| robinhood | 800 | 447 | 80 | 527 | 65.9 | B:304 |
+| avalanche | - | - | - | - | not measured | absent from the re-measure |
+
+**Harness causes.** Rows that are not ok because of the campaign harness, not the Quoter, the
+Solver or the market. Counts are draws and rows of `results-bb4cdbb.tsv`, classified by replaying
+each failed draw on a fork at its block (the per-draw replay is not in this repository).
+
+| cause | what | draws | rows | status |
+|---|---|---|---|---|
+| H1 | the stratum's venue has no code at the draw's block (created after it; the inventory was taken at a later head) | 55 | 440 | `a1849b4`: a stratum keeps only pools alive at b0 (V2/V3 code, V4 slot0 and both tokens' code); takes effect with a rebuilt spec, so not yet in these rows |
+| H1b | same root as H1 for V4: the venue's slot0 is 0 at the draw's block | 17 | 136 | `a1849b4`, as H1 |
+| H2 | `mf_unforced` row of a draw whose swap is ok | 183 | 366 | `8c844a1`: counted by its twin in swap coverage (the 366 rows are the column `mf_unforced, twin ok` above); seeding V4-native pools through `addV4` not done |
+| H4 | the G7 deploy script does not wire V4 as the fixture it mirrors (`_v4Wire`: `setWeth` and the `MODE_V4_DERIVE` line) on robinhood, optimism and arbitrum | 10 (robinhood; other chains not measured) | 17 (robinhood; other chains not measured) | recorded, not changed |
+| M1 | amount ladder below one unit of output on dust pools (ladder 1e-7..1e-1 of the venue balance) | 13 | 104 | recorded, not changed; the floor N is the owner's number |
+
+**Fixes in source, with the draws they settle.** Each draw was replayed on a fork at its block;
+the test pins it there. The rows of `results-bb4cdbb.tsv` were measured before these commits
+(all 8 rows of each draw are `revert` or `mf_unforced`); a re-measure on the fixed source is
+**not measured**.
+
+| commit | what changed | draws | test |
+|---|---|---|---|
+| `6e1bc78` | the in-frame quote of a cut V3 walk answers what it walked, min(walked, f); the Solver's promise keeps the rest. Before, a cut walk priced the rest of the input on the last range read, so the frame quoted more than the venue pays and the protocol floor (`Router.sol:1649`) refused the fill | bsc gate-6-2 idx 5 (b 132377036), bsc midtail-2 idx 2 (b 132580903) | `test/fork/G7ErrBscV3PayReadsOverstatePoolProtocolFloor.t.sol` |
+| `4f729bc` | encode doors refuse a zero floor (`RouterE(10)`); for one unit of USDC the fee took the base and the door encoded `minOut` 0, which the Router refuses | ethereum shallow-3 idx 2 (b 26316739), ethereum shallow-3 idx 5 (b 26325844) | `test/fork/G7ErrEthShallow3ZeroFloorEncoded.t.sol` |
+| `f82bc67` | encode doors fall back once to the Solver's runner-up when the leader's bytes do not settle | none of the draws above | `test/QuoterEncodeFallsBackOnce.t.sol`, `test/fork/G7ErrEthC6UnwalkedLastHop.t.sol` |
