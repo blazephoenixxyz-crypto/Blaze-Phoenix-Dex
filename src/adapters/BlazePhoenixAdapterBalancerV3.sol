@@ -73,7 +73,9 @@ interface IBalancerV3PoolFactory {
 ///         HOOKS: refused if `enableHookAdjustedAmounts` (the Router's own rule for V4 delta hooks)
 ///         or if a hooks contract is set whose codehash is not one of the two pinned at
 ///         construction (ExtAdapterBase._requireHookPinned; the base's third slot stays empty).
-///         The pin is checked again on every `exec`, like the Router's `isHookLive`.
+///         The pin is checked again on every `exec`, `quote` and `quoteCall`, like the Router's
+///         `isHookLive`: a leg whose exec is refused declares no depth and prices nothing (the
+///         wrapper reads the refusal as 0).
 ///         venuePool = the Vault; aux0 = pool; aux1 = hooks contract (0 if none).
 ///         QUOTE: V3 quotes only by eth_call (`Vault.quote`), so `quote` answers out = 0.
 ///         DEPTH: `quote` declares the pool's raw balances in the Vault (`getPoolTokenInfo`), the
@@ -139,18 +141,20 @@ contract BlazePhoenixAdapterBalancerV3 is ExtAdapterBase, IExtAdapter {
     /// debt is settled (Vault.sol `_swap`; settlement is checked when the outermost unlock ends),
     /// so a balance read mid-session may be a flash loan's. The Curve adapters' `live` probe, in
     /// the Vault's own words.
-    function quote(address, bytes32 aux0, bytes32, bool, uint256)
+    function quote(address, bytes32 aux0, bytes32 aux1, bool, uint256)
         external view returns (uint256 out, uint256 depth18)
     {
         if (VAULT.isUnlocked()) return (0, 0);
+        _requireHookPinned(address(uint160(uint256(aux1))));
         (address[] memory tokens, , uint256[] memory raw, ) = VAULT.getPoolTokenInfo(address(uint160(uint256(aux0))));
         depth18 = _listedDepth18(tokens, raw);
     }
 
     /// eth_call only (the Vault's `quote` requires a static-call context).
     /// The pair is the calling wrapper's, as in `exec`: a caller the Gate did not create is refused.
-    function quoteCall(address, bytes32 aux0, bytes32, bool zeroForOne, uint256 amtIn) external returns (uint256 out) {
+    function quoteCall(address, bytes32 aux0, bytes32 aux1, bool zeroForOne, uint256 amtIn) external returns (uint256 out) {
         (address tIn, address tOut) = _wrapperTokens(zeroForOne);
+        _requireHookPinned(address(uint160(uint256(aux1))));
         bytes memory r = VAULT.quote(abi.encodeCall(this.onQuote, (address(uint160(uint256(aux0))), tIn, tOut, amtIn)));
         out = abi.decode(r, (uint256));
     }

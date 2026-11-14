@@ -198,4 +198,29 @@ abstract contract AdapterConformanceHooked is AdapterConformance {
         vm.expectRevert(_aerr(7));
         BlazePhoenixGateWrapper(w_).swap(address(this), true, 1e18, 0, "");
     }
+
+    // ─── A8: a leg whose exec is refused declares no depth and prices nothing ───
+    // Red at cca1400: after the hook changed, quote = (0, 1e24), vitalOf depth18 = 1e24 and
+    // quoteCall > 0, while exec reverts AdapterE(7).
+
+    function test_Conf_A8_HookChangedAfterCreate_QuoteDeclaresNoDepth() public {
+        (, uint256 d) = BlazePhoenixGateWrapper(w_).quote(true, 0);
+        (, uint256 v, ) = gate.vitalOf(w_);
+        assertGt(d, 0, "the pinned hook declares depth");
+        assertGt(v, 0, "the pinned hook ranks");
+        _changeHook();
+        (uint256 o, uint256 d2) = BlazePhoenixGateWrapper(w_).quote(true, 0);
+        (, uint256 v2, ) = gate.vitalOf(w_);
+        assertEq(o, 0, "quote out after the hook changed");
+        assertEq(d2, 0, "quote depth18 after the hook changed");
+        assertEq(v2, 0, "vitalOf depth18 after the hook changed");
+    }
+
+    function test_Conf_A8_HookChangedAfterCreate_QuoteCallPricesZero() public {
+        vm.prank(address(this), address(0)); // eth_call context, as a simulating venue demands
+        assertGt(BlazePhoenixGateWrapper(w_).quoteCall(true, 1e18), 0, "the pinned hook prices");
+        _changeHook();
+        vm.prank(address(this), address(0));
+        assertEq(BlazePhoenixGateWrapper(w_).quoteCall(true, 1e18), 0, "quoteCall after the hook changed");
+    }
 }
