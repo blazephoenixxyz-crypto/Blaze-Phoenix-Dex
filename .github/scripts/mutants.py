@@ -2384,8 +2384,10 @@ M = [
       teste='test_EntryB_OverBudgetRevertsCleanUnderTheTxCap'),
  dict(nome='R1: the in-transaction search budget lowered under an honest two-bridge plan',
       f='src/BlazePhoenixRouter.sol',
+      # 2026-11-14: on f7e4d55 the two-bridge solve returns its plan from 494,726 gas, measured cold
+      # (release; warm the same), so 500k held it. The budget is cut under that.
       old='    uint256 internal constant SOLVE_GAS         = 14_700_000;',
-      new='    uint256 internal constant SOLVE_GAS         = 500_000; // MUTANT',
+      new='    uint256 internal constant SOLVE_GAS         = 400_000; // MUTANT',
       teste='test_EntryB_HonestPlansFitWithMargin_TwoCleanBridges'),
  dict(nome='R1: an exhausted search is swallowed into an empty plan (the stop loses its own code)',
       f='src/BlazePhoenixRouter.sol',
