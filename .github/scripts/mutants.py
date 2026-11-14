@@ -7761,7 +7761,10 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       f='src/BlazePhoenixCore.sol',
       old='            ok := call(g, token, 0, m, 68, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }\n                case 32 { ok := and(ok, gt(mload(0), 0)) }\n                default { ok := 0 }',
       new='            ok := call(g, token, 0, m, 68, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }\n                case 32 { ok := and(ok, gt(mload(0), 0)) }\n                default { ok := 1 } // MUTANT [ATQ-tokens-2]',
-      teste='test_FeePush_OversizedAnswerThatMovedNothing_IsBooked'),
+      # Re-pointed 2026-11-14 (g5): since e4185d8 `_push` books by two witnesses and never reads
+      # tryTransfer's answer, so the fee-push test is green with this mutant by design. The answer
+      # is read by safeTransfer: the payout to a recipient answered with 64 bytes must refuse.
+      teste='test_HostileRows_Out_V2_Exact'),
  dict(nome='atq-1111 tokens [ATQ-tokens-3]: _received no longer refuses a pull that credited nothing',
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
