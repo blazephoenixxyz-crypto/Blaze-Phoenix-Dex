@@ -7630,6 +7630,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_CONC_POOL)",
       new="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_RESERVES) // MUTANTE",
       teste="test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor"),
+ # A route the caller hands over can carry an output past int256.max into the input probe: asked
+ # of the pool it would read as a negative (exact-out) amount (test/QuoterProbeSizeBound.t.sol).
+ dict(nome="L1-124 Quoter:671: a size past int256.max is asked of the pool as a negative amount",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        if (sizeOut == 0 || sizeOut > uint256(type(int256).max)) return false;",
+      new="        if (sizeOut == 0) return false; // MUTANTE",
+      teste="test_AnOutputOneWeiPastInt256MaxIsNotProbed"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
