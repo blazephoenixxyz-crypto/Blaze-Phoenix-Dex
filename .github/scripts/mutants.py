@@ -7534,6 +7534,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut);",
       new="            ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut + 1); // MUTANTE",
       teste="test_TheThreeFloorsAgreeToTheWei_SplitRoute"),
+# The fee is charged once, at the calendar's hop, and the bridge is conserved across it
+# (test/ConservationAtTheHop.t.sol: A -> B -> C, B a bridge, measured on balances and Fee events).
+ dict(nome="124-L2 Router:1238: the Router charges hop 0 instead of the calendar's bridge hop, so the fee is paid in the input token",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (BPC.paysOnInput(h, feeHop, feeOnOut)) {",
+      new="            if (BPC.paysOnInput(h, feeHop == type(uint256).max ? feeHop : 0, feeOnOut)) { // MUTANTE",
+      teste="test_TheFeeIsChargedOnceAtTheCalendarHop"),
+ dict(nome="124-L2 Solver:1807: the Solver anchors the fee on hop 0 instead of the first bridge hop, so the attested floor nets the wrong hop",
+      f="src/BlazePhoenixSolver.sol",
+      old="                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = h; break; }",
+      new="                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = 0; break; } // MUTANTE",
+      teste="test_TheFeeIsChargedOnceAtTheCalendarHop"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
