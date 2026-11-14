@@ -761,6 +761,19 @@ pin (SHARED_QUANTITIES, "the net output the exact door promises"). The offline t
 hops; mutants [door-fee-1..3] and the tripwire [door-fee-meta], which refuses a widened fork
 tolerance since the fork row cannot run in the guard.
 
+**One fee walk for both exact passes (2026-11-14, 124-L5 B6).** `Quoter._exact` priced the route in
+its own loop and `_fundedOut` funded it in a second; only the second stopped when a fee rounded up
+took all that entered a hop. On two hops at 1 wei the first wrote 0 into hop 0's legs and the second,
+reading the rewritten route, saw a 0 commitment and a 0 fee: a venue that quotes something for
+nothing was promised in full. Both passes are now `_walk` (SHARED_QUANTITIES, "the fee walk"); test
+`test/QuoterExactFeeThatEatsTheCarryIsZero.t.sol` (red at 2f1e1b5), mutant «124-L5 B6 Quoter: the walk
+asks a venue after the fee ate the carry». The single-hop switch of the exact pass (`feeOnOut ||
+route.hops.length == 1`: one hop takes no fee in the walk, only in the funded pass) has its own
+mutant, «124-L5 B6 Quoter: the exact walk charges a single hop on its input», killed by
+`test_OneHop_TheWalkLeavesTheFeeToTheFundedPass`. The over-promise was a quote, never a fill: the
+Router charges the same hop 0 first (`_chargeHopFee`, `feeH >= amountIn` ⇒ `RouterE(8)`) and never
+asks a Gate adapter's `quoteCall`.
+
 ## 4p. How a quote ages — the promise measured against time and drift
 
 A quote is a promise about a future block. `test/QuoteDelayStatistics.t.sol` takes it the way an

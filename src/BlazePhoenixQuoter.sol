@@ -830,7 +830,6 @@ contract BlazePhoenixQuoter {
         private returns (Route memory, uint256 exactOut)
     {
         if (route.hops.length == 0) return (route, 0);
-        uint256 carry = amountIn; // exact input entering the current hop
         // #44 (babayagaleet): on a multi-hop route the Router charges the fee on the INPUT of
         // the anchor hop (`Router:_execute`, same scan as `_pack`), and the next pool rounds on
         // the reduced amount; one deduction off the gross output over-promised by a wei. The
@@ -852,53 +851,14 @@ contract BlazePhoenixQuoter {
         uint256 planOut = route.hops.length > 1
             ? BPC.netOfInputFees(route.hops, route.totalOut, feeHop, feeOnOut)
             : route.totalOut;
-        for (uint256 h; h < route.hops.length; h++) {
-            // Q773 and T04 (2026-10-27): at every hop the divisor is the hop commitment, the legs'
-            // own sum, as in the Router (`_hopScaleImpactAndQuote` reads `_legSum(hop)`, never
-            // `hop.amountIn`) and in `_fundedOut`. A hop that declared another figure was priced on
-            // legs the Router never funds: from hop 1 on (Q773), and at hop 0 (T04), where a figure
-            // under the legs' sum priced them at their full size, and a direct route into a bridge,
-            // which `_fundedOut` does not bound, was promised about twice what the Router fills.
-            uint256 plannedIn;
-            for (uint256 l; l < route.hops[h].legs.length; l++)
-                plannedIn += route.hops[h].legs[l].amountIn;
-            // HOP 0 PAYS BEFORE ITS CAP (T04): the Router charges hop 0 on min(order, Σ leg.amountIn)
-            // and caps what is left (`_chargeHopFee`, then `_hopScaleImpactAndQuote`), so an order
-            // above the commitment pays the fee out of its surplus. Capped first, the quote took the
-            // fee out of the committed legs and fell short of the fill.
-            if (route.hops.length > 1 && BPC.paysOnInput(h, feeHop, feeOnOut))
-                carry -= BPC.mulDivUp(h == 0 && carry > plannedIn ? plannedIn : carry,
-                    BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-            // HOP-0 CAP — the quote-side twin of BlazePhoenixRouter.sol:514.
-            // carry starts at the caller's FULL order, but when the Solver's
-            // capacity clamp fired the plan committed LESS than that, so
-            // carry/plannedIn > 1 would rescale every leg back to its
-            // PRE-clamp size and dry-run the pool with liquidity the plan
-            // never committed — an "execution-grade" quote that no execution
-            // can fill (the NetGakarot shape the Router already caps). The
-            // Router never spends more than the committed Σ leg.amountIn on
-            // hop 0; the quote must not price more than the Router spends.
-            // Later hops legitimately scale: their carry is a real output.
-            if (h == 0 && carry > plannedIn) carry = plannedIn;
-            uint256 hopOut;
-            for (uint256 l; l < route.hops[h].legs.length; l++) {
-                Leg memory leg = route.hops[h].legs[l];
-                uint256 legIn  = plannedIn == 0
-                    ? 0 : BPC.mulDiv(leg.amountIn, carry, plannedIn);
-                uint256 legOut = _priceLeg(leg, route.hops[h].tokenIn, route.hops[h].tokenOut, legIn);
-                route.hops[h].legs[l].amountIn    = legIn;
-                route.hops[h].legs[l].expectedOut = legOut;
-                hopOut += legOut;
-            }
-            route.hops[h].amountIn    = carry;
-            route.hops[h].expectedOut = hopOut;
-            carry = hopOut;
-        }
+        // THE FEE WALK (`_walk`, 124-L5 B6): the same walk as `_fundedOut`, here with the fee only
+        // where the Router takes it on two hops or more (a single hop takes its deduction below),
+        // and writing each hop's and leg's figures into the returned route.
+        uint256 gross = _walk(route, amountIn, feeHop, feeOnOut || route.hops.length == 1, true);
         // The route keeps the POOL-MATH attestation: totalOut/singleOut are
         // what the Router compares realised leg output against, and the fee is
         // the Router's own deduction on the way out — exactly as `_pack` reads
         // `route.totalOut` gross and derives `netOut` from it.
-        uint256 gross = carry;
         uint256 floorExact = planOut == 0
             ? 0 : BPC.mulDiv(route.singleOutFloor, gross, planOut);
         route.totalOut       = gross;
@@ -919,7 +879,7 @@ contract BlazePhoenixQuoter {
         // route pays on the INPUT of its anchor hop - the first whose input is a
         // bridge - or on every hop when none is. Taken on the output instead, the
         // fee was priced through the later hops' curves and the preview could
-        // promise more than delivery. The multi-hop deduction happens in the loop.
+        // promise more than delivery. The multi-hop deduction happens in `_walk`.
         // A SINGLE HOP IS NOT ALWAYS CHARGED ON ITS OUTPUT (2026-10-13). The Router takes the fee
         // off the output only on a direct route INTO a bridge; a direct route whose input is a
         // bridge, or that touches none, pays on its INPUT (`_chargeHopFee`, rounded up) and the
@@ -937,11 +897,11 @@ contract BlazePhoenixQuoter {
         // only where the Router applies it; elsewhere the scalar is the funded figure, the
         // Router's own, and the min below is the pin between the two producers
         // (SHARED_QUANTITIES.md, "the net output the exact door promises"). A multi-hop route
-        // took its fee inside the loop, at the hop the Router takes it (#44), and its funded
+        // took its fee inside `_walk`, at the hop the Router takes it (#44), and its funded
         // figure is the same walk.
         uint256 funded = _fundedOut(route, amountIn);
         exactOut = funded != type(uint256).max
-            ? gross // input-charged: the fee came off `carry` in the loop, or `funded` bounds below
+            ? gross // input-charged: the fee came off in `_walk`, or `funded` bounds below
             : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         if (funded < exactOut) exactOut = funded;
         // Q3 AT THE EXACT DOORS (W3-F2, Luis_MZ, bounty). A leg the Router refuses (RouterE(9)
@@ -984,29 +944,48 @@ contract BlazePhoenixQuoter {
     ///      (hop 0: the order capped by the committed legs; later hops: what arrived), the same
     ///      round-up, the same pro-rata funding of the legs. `type(uint256).max` when the fee is
     ///      taken off the output, where the caller's deduction is already the Router's.
-    function _fundedOut(Route memory route, uint256 amountIn) private returns (uint256 carry) {
+    function _fundedOut(Route memory route, uint256 amountIn) private returns (uint256) {
         uint256 n = route.hops.length;
         // The Router's calendar, `BPC.feeCalendar` (no hop: no question asked, nothing charged).
         (uint256 feeHop, bool feeOnOut) =
             this.feeCalendarOf(route.hops, n == 0 ? address(0) : route.hops[n - 1].tokenOut);
         if (feeOnOut) return type(uint256).max;
+        return _walk(route, amountIn, feeHop, false, false);
+    }
+
+    /// @dev THE FEE WALK (124-L5 B6), the one producer of the exact door's funded figure: the route
+    ///      funded from `amountIn` as `Router._execute` funds it. At every hop the divisor is the
+    ///      hop commitment, the legs' own sum, as in the Router (`_hopScaleImpactAndQuote` reads
+    ///      `_legSum(hop)`, never `hop.amountIn`): Q773 (hop 1 on) and T04 (hop 0). A hop the
+    ///      calendar charges on its input (`BPC.paysOnInput`) pays before its cap, rounded up, on
+    ///      min(order, legs' sum) at hop 0 and on what arrived later (`_chargeHopFee`), then hop 0
+    ///      is capped at the legs' sum (the quote-side twin of the Router's hop-0 cap: a plan the
+    ///      Solver's capacity clamp cut is never priced at its pre-clamp size). A fee that takes
+    ///      all that entered the hop leaves nothing to sell: 0, never a venue's answer for an input
+    ///      of 0. `write` records each leg's and hop's funded input and output in the route.
+    function _walk(Route memory route, uint256 amountIn, uint256 feeHop, bool feeOnOut, bool write)
+        private returns (uint256 carry)
+    {
         carry = amountIn;
-        for (uint256 h; h < n; h++) {
+        for (uint256 h; h < route.hops.length; h++) {
             Hop memory hop = route.hops[h];
             uint256 legSum;
             for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
             if (BPC.paysOnInput(h, feeHop, feeOnOut)) {
-                uint256 feeBase = h == 0 && carry > legSum ? legSum : carry;
-                uint256 fee = BPC.mulDivUp(feeBase, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+                uint256 fee = BPC.mulDivUp(h == 0 && carry > legSum ? legSum : carry, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
                 if (fee >= carry) return 0;
                 carry -= fee;
             }
             if (h == 0 && carry > legSum) carry = legSum;
             uint256 hopOut;
             for (uint256 l; l < hop.legs.length; l++) {
-                uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(hop.legs[l].amountIn, carry, legSum);
-                hopOut += _priceLeg(hop.legs[l], hop.tokenIn, hop.tokenOut, legIn);
+                Leg memory leg = hop.legs[l];
+                uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
+                uint256 legOut = _priceLeg(leg, hop.tokenIn, hop.tokenOut, legIn);
+                if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);
+                hopOut += legOut;
             }
+            if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);
             carry = hopOut;
         }
     }
