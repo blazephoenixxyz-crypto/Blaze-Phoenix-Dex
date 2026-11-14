@@ -743,7 +743,6 @@ src/BlazePhoenixSolver.sol	test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQu
 src/BlazePhoenixSolver.sol	test_3073_HeldWalk_CappedSolveIsTheQuoteOrNothing	3073-5 [741]: a solve short of the walk's budget calls it anyway, and a short walk hands back the plan at the cap
 src/BlazePhoenixSolver.sol	test_3073_Solver_SingleLeg_UnreadableBook_PromiseIsTheCap	3073-5 [742]: a rebuild that ranks no higher than the cap is spliced in anyway
 src/BlazePhoenixSolver.sol	test_3073_HeldSplit_RebuildPastOnePointFiveMillion_IsPromisedItsBooks	3073-5 [743]: the walk's own budget shrunk under a live book's rebuild (DAI->USDC 10k on the fork)
-src/BlazePhoenixSolver.sol	test_withV4Row_quoteTracksWhatTheEncodedRouteDelivers	C1 [c1-m2]: the walk back on a fixed 2.5M, and a live V4 row's rebuild runs out and lowers the quote (G7Err, mainnet fork)
 src/BlazePhoenixSolver.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	C1 [c1-m5]: the dispatch's gas before g0 forgotten, and the automatic door no longer hands the walk its budget
 src/BlazePhoenixSolver.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	C1 [c1-m6]: the walk derived from more than the automatic door hands, and every solve that walks stops there
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_FourHostileHeldBooks_SettlesAsQuoted	C1 [c1-m7]: the walk handed all that SOLVE_GAS leaves after the search, with no WALK_CAP, and four books that burn their GAS_CAP eat the automatic door's execution

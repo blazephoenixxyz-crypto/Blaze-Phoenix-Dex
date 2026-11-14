@@ -30,7 +30,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PATH = "test/fork/AtqForkVenueOracle.t.sol"
+# Every file under test/fork/: the paired tests live in several (AtqForkVenueOracle, avax/, G7Err...).
+PATH = "test/fork/**"
 
 
 def load():

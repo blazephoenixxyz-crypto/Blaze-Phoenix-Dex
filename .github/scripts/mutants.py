@@ -4131,11 +4131,6 @@ M = [
       new='            if staticcall(1500000, address(), p, sub(q, p), 0, 0) { // MUTANT [743]',
       teste="test_3073_HeldSplit_RebuildPastOnePointFiveMillion_IsPromisedItsBooks"),
  # C1 (c1-126): the walk's budget is what SOLVE_GAS leaves after the search, not a fixed WALK_GAS.
- dict(nome='C1 [c1-m2]: the walk back on a fixed 2.5M, and a live V4 row\'s rebuild runs out and lowers the quote (G7Err, mainnet fork)',
-      f='src/BlazePhoenixSolver.sol',
-      old='            if staticcall(w, address(), p, sub(q, p), 0, 0) {',
-      new='            if staticcall(2500000, address(), p, sub(q, p), 0, 0) { // MUTANT [c1-m2]',
-      teste='test_withV4Row_quoteTracksWhatTheEncodedRouteDelivers'),
  dict(nome='C1 [c1-m5]: the dispatch\'s gas before g0 forgotten, and the automatic door no longer hands the walk its budget',
       f='src/BlazePhoenixSolver.sol',
       old='    uint256 private constant ENTRY = 1_200;',
@@ -10105,9 +10100,17 @@ M_FORK = [
  # Algebra Integral venue crossing an initialized tick, the shape the offline twin does not reach.
  dict(nome='[door-fee-fork-1]: the output deduction is applied on a single input-charged hop (Algebra Integral, across a tick)',
       f='src/BlazePhoenixQuoter.sol',
-      old='            ? gross // input-charged: the fee came off `carry` in the loop, or `funded` bounds below',
-      new='            ? gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS) // MUTANT [door-fee-fork-1]',
+      # Re-anchored 2026-11-14 (juncao-125): NOMES-124 (c5ca6c9) renamed `gross` to `walkOut`.
+      old='            ? walkOut // input-charged: the fee came off in `_walk`, or `funded` bounds below',
+      new='            ? walkOut - BPC.mulDivUp(walkOut, BPC.PROTOCOL_FEE_BPS, BPC.BPS) // MUTANT [door-fee-fork-1]',
       testes=['test_AvaxBH_Q4_BaseMinted_AutoDoor_CrossesTick_QuoteExecOracle']),
+ # C1 (c1-126): its test is in test/fork/G7ErrEthV4LineLowersQuote.t.sol (mainnet fork), so it
+ # runs here and not in M, whose keyless baseline would read it as BASELINE MISSING.
+ dict(nome='C1 [c1-m2]: the walk back on a fixed 2.5M, and a live V4 row\'s rebuild runs out and lowers the quote (G7Err, mainnet fork)',
+      f='src/BlazePhoenixSolver.sol',
+      old='            if staticcall(w, address(), p, sub(q, p), 0, 0) {',
+      new='            if staticcall(2500000, address(), p, sub(q, p), 0, 0) { // MUTANT [c1-m2]',
+      testes=['test_withV4Row_quoteTracksWhatTheEncodedRouteDelivers']),
 ]
 
 def run(t):
