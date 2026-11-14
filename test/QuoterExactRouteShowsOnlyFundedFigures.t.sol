@@ -135,7 +135,7 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
     ///         Gama: 3 wei (the boundary +1: hop 1 keeps 1 wei) and 1e18. Vetor: no bridge.
     ///         Dimensão: unit, 2 hops. Red under: the walk's hop write `(carry, hopOut)` ->
     ///         `(hop.amountIn, hopOut)` (the route keeps the hop's planned input; registered mutant
-    ///         «JE-124 Quoter: the exact walk leaves a hop's planned input in the returned route»).
+    ///         «Quoter: the exact walk leaves a hop's planned input in the returned route»).
     function test_Control_TwoHops_TheRouteCarriesTheFundedFigures() public {
         uint256[2] memory amts = [uint256(3), 1e18];
         for (uint256 i; i < 2; ++i) {
