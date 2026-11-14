@@ -17,6 +17,12 @@ on:
   push:
     branches: [main]
 
+# A new push to the same ref cancels the run it supersedes. The group carries the
+# workflow name: one group shared by every workflow would let one workflow cancel another.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

@@ -12,6 +12,12 @@ on:
 # Solhint are report-only (uploaded as artifacts) so they surface issues without
 # blocking on style/informational noise.
 
+# A new push to the same ref cancels the run it supersedes. The group carries the
+# workflow name: one group shared by every workflow would let one workflow cancel another.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changes:
     # Path filter (owner's decision 2026-11-14). A pull request that touches none of the paths
