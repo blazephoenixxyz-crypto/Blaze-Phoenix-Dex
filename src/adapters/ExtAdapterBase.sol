@@ -18,8 +18,10 @@ interface IIndexedVenue {
 ///      Error codes, shared by all adapters:
 ///        0 zero address at construction   1 the caller is not a wrapper of the Gate
 ///        2 the venue does not vouch for the pool (registry / factory / vault)
-///        3 the pair is not traded by that pool        4 an asset of the pool is refused
-///        5 an allowance survived the venue call (PULL)
+///        3 the pair is not traded by that pool        4 an asset or the form of the pool is
+///        refused (asset type, ETH sentinel, metapool, native-enabled tricrypto)
+///        5 an allowance survived the venue call (PULL), or allowance() could not be read (a
+///        failed read is not a zero)
 ///        6 a venue callback outside the adapter's own call, or not from the venue
 ///        7 the pool's hooks are refused                8 the hint is malformed
 ///        9 the amount is outside what the venue takes

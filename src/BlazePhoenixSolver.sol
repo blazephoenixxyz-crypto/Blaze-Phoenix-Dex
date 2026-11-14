@@ -88,6 +88,10 @@ interface IHubR {
 //      105.5 gas/byte. 25 ppm is ~8x that.
 //      History: 20 bps (667x the dead zone) -> 5 bps (167x) -> 0.25 bps (8x).
 //      Neither of the first two had been calibrated against any measurement.
+//
+// IT IS PER CHAIN, one day: 320 B cost $0.003 on Base and ~$257 on Scroll.
+//      The ChainProfile exists to carry that; until then, this value serves
+//      the cheap L2s, which is where the product lives.
 uint32 constant MIN_SPLIT_IMPROVEMENT_PPM = 25;
 
 contract BlazePhoenixSolver {
@@ -122,23 +126,7 @@ contract BlazePhoenixSolver {
     uint256 internal constant DISCOVERY_TTL_SECONDS = 3_600; // ~1 hour, every chain
 
 
-    /// @notice MINIMUM gain a split must have over the best single leg
-    ///         to justify itself, in PARTS PER MILLION (1 bps = 100 ppm).
-    ///
-    /// @dev SCALED IN PPM AND NOT IN BPS, and the reason is that the value the owner
-    ///      wanted — 0.25 bps — is not representable in whole bps. The dead zone
-    ///      MEASURED on Base is 0.030 bps (3 ppm): the real cost of the 320 B of
-    ///      calldata of the extra leg, at 105.5 gas/byte. 25 ppm is ~8x that,
-    ///      which is margin enough not to split on noise and small
-    ///      enough not to throw away real gain.
-    ///
-    ///      HISTORY OF THIS NUMBER, because it teaches: it was 20 bps (667x the dead
-    ///      zone), became 5 bps (167x) and is now 0.25 bps (8x). Neither of the
-    ///      first two versions had been calibrated against any measurement.
-    ///
-    ///      IT IS PER CHAIN, one day: 320 B cost $0.003 on Base and ~$257 on Scroll.
-    ///      The ChainProfile exists to carry that; until then, this value serves
-    ///      the cheap L2s, which is where the product lives.
+    // MIN_SPLIT_IMPROVEMENT_PPM is declared at file level, above the contract, with its calibration.
 
     /// @notice Capacity clamp for concentrated (single-tick-quoted) legs, in
     ///         BPS of the pool's REAL tokenOut balance. The single-tick V3 /
@@ -190,7 +178,7 @@ contract BlazePhoenixSolver {
     ///         a healthy constant-product pair measures ~5,000 bps and stays).
     ///         HONEST LIMIT, stated where it is enforced: `_legImpactBps` measures
     ///         impact for the reserve and concentrated families and returns
-    ///         `DEFAULT_IMPACT_BPS` for the V4 and stable arms, so this ceiling
+    ///         `DEFAULT_IMPACT_BPS` for the V4, V4-native and external-wrapper arms, so this ceiling
     ///         binds exactly where impact is measured and is inert where it is
     ///         nominal. A guard keyed on a nominal number cannot fire; naming that
     ///         beats pretending the cover is uniform.
@@ -444,7 +432,8 @@ contract BlazePhoenixSolver {
     }
 
     /// @dev The SINGLE producer of the "which route is best" judgement, and the criterion is
-    ///      `totalOut` — the output actually BUILT and measured for each topology, not a proxy.
+    ///      the rank `u` (`_considera`): `totalOut` — the output actually BUILT and measured for
+    ///      each topology — plus what the deep walks resolved above that promise. Not a proxy.
     ///      That is why every configured bridge is expanded and handed in here instead of being
     ///      pre-filtered by registry depth: a proxy pre-filter would be a SECOND producer of the
     ///      same judgement, and the worse of the two — it could discard exactly the route this
@@ -460,11 +449,11 @@ contract BlazePhoenixSolver {
     ///      The accumulator erases the possibility: whoever adds a topology
     ///      calls `_considera` one more time and there is no arity to
     ///      forget to raise. It remains the SINGLE PRODUCER of the "which
-    ///      route is best" judgement, and still decides by `totalOut` — the
-    ///      output built and measured, never a proxy.
-    ///      The parameter count here IS MAX_BRIDGE_ROUTES written in code: if
-    ///      they diverge again, the asymmetry the corpus documented in §4 is born —
-    ///      a bridge with admission rights and fitness that can never be a hop.
+    ///      route is best" judgement, and still decides by what was built and
+    ///      measured (the rank `u`, `_considera`), never a proxy.
+    ///      The asymmetry the corpus documented in §4 — a bridge with admission
+    ///      rights and fitness that can never be a hop — is what an arity that
+    ///      diverges from MAX_BRIDGE_ROUTES gives birth to.
     ///      test/RoutableBridgeAsymmetry.t.sol pins both sides.
     struct Melhores {
         uint256    bestU;
@@ -655,7 +644,8 @@ contract BlazePhoenixSolver {
         uint256[] memory rates  = new uint256[](n);
         uint256[] memory depths = new uint256[](n);
         // The band's own figures, per candidate: the fee the probe charged, in pips (bits 0-23;
-        // 1e6 or more: not known), and the bound on the probe's error, in WAD (bits 24 up).
+        // 1e6 or more: not known), the bound on the probe's error, in WAD (bits 24-87), and the
+        // same bound at the hop's size (bits 88 up).
         uint256[] memory fe     = new uint256[](n);
         // DECIMALS HOISTING. Every candidate in this loop is a pool of the
         // SAME pair, so they hold the SAME two tokens — only orientation changes.
@@ -840,16 +830,17 @@ contract BlazePhoenixSolver {
         // by >= MIN_SPLIT_IMPROVEMENT_PPM (ppm), collapse to that single leg. Kills
         // micro-splits whose marginal output gain is smaller than the real
         // gas cost of the extra legs. The single leg it must beat is the best
-        // survivor at full size (post FUNNEL CUT), one full-size quote each.
+        // survivor of the BAND at full size (the funnel cut does not narrow the
+        // rivals: [0, nBand)), one full-size quote each.
         if (legs.length >= 2) {
             // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
             // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
             // probe and are MARGINAL prices. Neither heuristic names the best single leg at
             // full size, so neither is asked: every survivor is quoted at full size below.
-            // `n`, NOT `cands.length`. The survivors are compacted IN
+            // `nBand`, NOT `cands.length`. The survivors are compacted IN
             // PLACE (see the compaction block above) but the memory array
-            // keeps its ORIGINAL length: positions >= n are junk from
-            // candidates the median band REJECTED or the funnel CUT.
+            // keeps its ORIGINAL length: positions >= nBand are junk from
+            // candidates the median band REJECTED.
             // Walking `cands.length` resurrected them as the fallback single
             // leg, voiding both filters - caught by
             // test_UmaPoolFundaNaoCapturaABanda, which exists exactly to
@@ -1621,9 +1612,11 @@ contract BlazePhoenixSolver {
 
     /// @notice True when the pair's registered set is rich and recent enough to
     ///         trust without a fresh discovery sweep: at least MIN_FRESH_VENUES
-    ///         registered pools saw activity within DISCOVERY_TTL_SECONDS (wall
-    ///         clock). A pool never ticked (lastUpdateTs == 0) counts as stale, so
-    ///         genuinely new pairs always fall through to discovery.
+    ///         CURATED (tier 0) registered pools saw activity within
+    ///         DISCOVERY_TTL_SECONDS (wall clock). A permissionless row (tier != 0)
+    ///         stays a candidate but never votes freshness. A pool never ticked
+    ///         (lastUpdateTs == 0) counts as stale, so genuinely new pairs always
+    ///         fall through to discovery.
     function _registryFresh(PoolInfo[] memory reg) private view returns (bool) {
         uint256 rn = reg.length;
         if (rn < MIN_FRESH_VENUES) return false;
@@ -1639,7 +1632,7 @@ contract BlazePhoenixSolver {
             // hour, switch discovery OFF for the pair and hide every honest
             // venue that had never been registered — the registry then held
             // only what the attacker wrote, and the band was theirs. The
-            // permissionless row stays a CANDIDATE (merged below); it no
+            // permissionless row stays a CANDIDATE (merged in `_topKPools`); it no
             // longer chooses the path (review 2026-09-02).
             if (BPC.decodeTier(s) != 0) { unchecked { ++i; } continue; }
             uint256 last = uint256(BPC.decodeLastUpdateTs(s));
@@ -1659,7 +1652,8 @@ contract BlazePhoenixSolver {
     // =========================================================================
 
     /// @dev THE ONLY copy of "one leg's impact in bps" — extracted from twin
-    ///      blocks in `_assembleRoute` and `_assembleRouteMulti` whose only
+    ///      blocks in `_assembleRouteMulti`, its one caller today, and in the
+    ///      single-hop assembler `_assembleRoute`, since removed, whose only
     ///      difference was local variable names. Twins are this codebase's
     ///      defect signature: the INV-20 fee fix below had to be applied to
     ///      BOTH, and the second one's comment already pointed at the first.
@@ -1686,14 +1680,15 @@ contract BlazePhoenixSolver {
                     L.zeroForOne
                 );
         } else {
-            d = BPC.DEFAULT_IMPACT_BPS; // stable / V4 paths: the model does not cover them
+            d = BPC.DEFAULT_IMPACT_BPS; // V4, V4-native, external wrapper: no model here (Solidly stable rides the reserves arm)
         }
     }
 
 
     /// @notice Assemble a route of one hop (direct) or more (bridges). Aggregates impact across
     ///         the stages and derives the output floor from the FINAL
-    ///         output. Hops stay separate so the Router can rescale stage B
+    ///         output net of the input-side protocol fees the Router charges
+    ///         (`BPC.netOfInputFees`, 4007). Hops stay separate so the Router can rescale stage B
     ///         against the real bridge balance produced by stage A.
     function _assembleRouteMulti(
         Hop[] memory hops, address tIn, address tOut,

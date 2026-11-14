@@ -24,7 +24,7 @@
 //      C1  Pure by default. All the math is `pure`; whatever reads chain is
 //          `view` and says `view` in its name or signature. No third category.
 //      C2  One primitive, one producer. Every quantity has exactly ONE function
-//          that produces it (`depthFromL` for depth, `ironFloorBps` for the
+//          that produces it (`depthFromL18` for depth, `ironFloorBpsShv` for the
 //          floor, `universalQuoteRank` for a quote). A second producer is a sibling
 //          waiting to diverge, and divergence is this codebase's defect
 //          signature — confirmed more than ten times.
@@ -51,10 +51,10 @@
 //        Deterministic pool-address resolution via factory lookup or CREATE2,
 //        selected by mode.
 //
-//    3.  ironFloorBps(impact, legs, sigma) -> floorBps
-//        Minimum-output floor in BPS. Tightens with impact and sigma, relaxes
-//        with leg count up to the 25% hard loss ceiling. Pure: no storage or
-//        oracle reads.
+//    3.  ironFloorBpsShv(impact, legShave, sigma) -> floorBps
+//        Minimum-output floor in BPS. Loosens with impact, leg concentration
+//        and sigma, down to the 80% hard floor (a 20% maximum loss). Pure: no
+//        storage or oracle reads.
 //
 //    4.  psi(slot, ...) -> score
 //        Pool fitness score derived from the packed state slot, depth bucket,
@@ -68,6 +68,10 @@ pragma solidity 0.8.36;
 // ─── Shared structs (used by Solver, Router, Quoter) ────────────────────────
 
 struct PoolInfo {
+    /// @dev Two questions under one name. From the Hub (`getActivePools`) it is `true` on every
+    ///      row returned. Inside the Solver's frame it is rewritten to mean "a registered
+    ///      factory's discovery sweep found this pool" (BlazePhoenixSolver, WHO MAY VOTE), and
+    ///      that is the meaning BlazePhoenixMath reads to mute a band vote.
     bool    active;
     bool    stable;
     uint8   kind;
@@ -161,7 +165,7 @@ struct QuoteCtx {
     ///      and a kind-9 pool then prices 0 (no Gate is admitted by the zero address).
     address hub;
     /// @dev Decimals of both tokens, ENCODED AS `decimals + 1`.
-    ///      0 = "not filled in" -> `universalQuote` reads them itself.
+    ///      0 = "not filled in" -> `_quoteArms` reads them itself (`_decIn`, `_decOther`).
     ///
     ///      WHY +1 AND NOT THE RAW VALUE: default memory is zero, and there
     ///      are tokens with GENUINELY 0 decimals. A `0 = not filled in`
@@ -396,7 +400,6 @@ library BlazePhoenixCore {
     uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_000; // 20% absolute hard cap (floor ≥ 80%)
     uint16  internal constant FLOOR_BASE_BPS          = 9_600; // start at 96% floor for clean swaps
     uint16  internal constant FLOOR_PER_LEG_BPS       = 200;   // each extra leg loosens 2%
-    uint16  internal constant FLOOR_IMPACT_FACTOR     = 1;     // 1 BPS floor drop per BPS impact
     // The PER-LEG floor lived alone in the Router while its three siblings lived here. It moves
     // next to them: a local per-pool cap, the same number the aggregate composition uses.
     uint16  internal constant LEG_FLOOR_BPS           = 8_000; // each leg delivers >= 80% of the bound
@@ -530,7 +533,7 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice Integer log10 (5 comparisons max for inputs up to 1e77).
+    /// @notice Integer log10, floored (7 comparisons, fixed, for any uint256).
     function ilog10(uint256 x) internal pure returns (uint256 n) {
         unchecked {
             if (x >= 1e64) { x /= 1e64; n += 64; }
@@ -547,12 +550,6 @@ library BlazePhoenixCore {
     //  §2  POOL-ADDRESS DERIVATION (factory lookup + CREATE2)
     // =========================================================================
 
-    /// @notice Universal CREATE2 derivation. The salt polynomial is selected
-    ///         from (t0, t1, fee, stable, tickSpacing) by `mode`:
-    ///           mode 0 → V2:        salt = keccak(t0, t1)
-    ///           mode 1 → V3:        salt = keccak(t0, t1, fee)
-    ///           mode 2 → Solidly:   salt = keccak(t0, t1, stable)
-    ///           mode 3 → V3-CL:     salt = keccak(t0, t1, tickSpacing)
     /// @notice Resolve a pool address. The `mode` parameter selects the
     ///         strategy for resolving the address from (factory, t0, t1,
     ///         params). Two families are supported:
@@ -649,11 +646,6 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @dev The Algebra (Camelot V3) salt: keccak(abi.encode(t0, t1)) — two
-    ///      left-padded words, NO fee component (fees are dynamic). Single
-    ///      producer, shared with the Hub's attested derive. Requires t0 < t1.
-    ///      Scratch space only. Addresses are masked before the store: inline
-    ///      assembly makes no promise about the bits above a narrow type.
     /// @dev The Uniswap-V3 salt: keccak(abi.encode(t0, t1, fee)). Single producer, shared by
     ///      deriveAddress (sub-mode 1, non-zero fee) and the Gate, which deploys its wrappers
     ///      under it so the Hub's derive finds them by the same formula. Requires t0 < t1.
@@ -661,6 +653,11 @@ library BlazePhoenixCore {
         return keccak256(abi.encode(t0, t1, fee));
     }
 
+    /// @dev The Algebra (Camelot V3) salt: keccak(abi.encode(t0, t1)) — two
+    ///      left-padded words, NO fee component (fees are dynamic). Single
+    ///      producer, shared with the Hub's attested derive. Requires t0 < t1.
+    ///      Scratch space only. Addresses are masked before the store: inline
+    ///      assembly makes no promise about the bits above a narrow type.
     function algebraSalt(address t0, address t1) internal pure returns (bytes32 s) {
         assembly ("memory-safe") {
             mstore(0x00, and(t0, 0xffffffffffffffffffffffffffffffffffffffff))
@@ -680,7 +677,9 @@ library BlazePhoenixCore {
             let p := mload(0x40)
             mstore(p, 0x3119049a00000000000000000000000000000000000000000000000000000000)
             let ok := staticcall(GAS_CAP, factory, p, 0x04, 0x00, 0x20)
-            // `>= 32`, this file's stated returndata policy (see getReserves):
+            // `>= 32`, the at-least reading `getReserves` and `balanceOf` use (not
+            // a file-wide policy: `_askPool`, `_decimalsOf`, `forceApprove` and the
+            // V4 slot readers take exactly 32):
             // a factory whose poolDeployer() answers with extra words is still
             // an answer, and `== 32` pinned it to zero at admission — the
             // attested origin fell back to the factory and every Algebra pool
@@ -953,7 +952,7 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @dev Guards on returndatasize()==32 before reading the result — a
+    /// @dev Guards on returndatasize() >= 32 before reading the result — a
     ///      staticcall to a CODELESS address (EOA, an unset/garbage token
     ///      address) still returns success trivially with zero returndata,
     ///      and the EVM leaves the destination memory untouched rather than
@@ -988,8 +987,8 @@ library BlazePhoenixCore {
             // REFUSES: that is a failed read, not a zero balance.
             ok := staticcall(gas(), token, m, 36, m, 32)
             if ok {
-                // `>= 32`, NOT `== 32` — aligned with this file's own stated
-                // returndata policy (see getReserves): a non-conformant ERC-20
+                // `>= 32`, NOT `== 32` — the at-least reading `getReserves` uses
+                // (not every reader in this file does): a non-conformant ERC-20
                 // that returns MORE than one word still has a balance in word
                 // 0, and this reader feeds the measured floor. `eq` silently
                 // read such tokens as balance 0. (`gas()` vs GAS_CAP here is a
@@ -1027,8 +1026,6 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice Read an ERC-20's decimals(), defaulting to 18 if absent.
-    ///         Used by the stable solver to normalise reserves to 1e18.
     /// @notice A token's decimals, with 18 as the safe default. INTERNAL because
     ///         the REGISTRATION path (Router and Hub) needs it too: the bucket
     ///         that goes into the Monoslot is born there, and a decimals-blind
@@ -1063,9 +1060,10 @@ library BlazePhoenixCore {
                     // runs OUTSIDE the try/catch. The user's gas burns in full.
                     // It also kills the Solver's `decimalsOf(tIn) + 1`, which
                     // overflows the uint8 with `decimals() == 255`.
-                    // 10^77 is the largest value that fits in uint256, so 77 is
-                    // the largest usable exponent; above that we fall back to
-                    // the default of 18 (fail-open, coherent with the rest).
+                    // 77 is a chosen cap on DECIMALS, not the exponent bound:
+                    // `to18`'s 10 ** (dec - 18) stays inside uint256 for any dec
+                    // up to 95. Above the cap we fall back to the default of 18
+                    // (fail-open, coherent with the rest).
                     if lt(v, 78) { d := v }
                 }
             }
@@ -1114,30 +1112,6 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice V3 slot0 → sqrtPriceX96.
-    /// @dev L -> TOKEN-DENOMINATED depth. THE ONLY copy.
-    ///      `depthWad` has to be comparable across venue families: V2 reports min(r0,r1),
-    ///      linear token units. L is on a SQRT scale, so handing it over raw makes a
-    ///      concentrated pool out-anchor an equally deep V2 by ~sqrt(price) — a systematic
-    ///      bias in any pair whose price is far from 1, not an edge case.
-    ///      Convert L into the virtual reserves it represents at the current price, short side:
-    ///          x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
-    ///      mulDiv carries the 512-bit intermediate (L*sp overflows uint256).
-    ///
-    ///      WHY A PRIMITIVE AND NOT THREE COPIES: this conversion existed inline in THREE
-    ///      places (universalQuote V3, universalQuote V4, Hub.claimV4) and was missing entirely
-    ///      in a FOURTH (Router._recordHits), which runs on every executed swap. Sibling copies
-    ///      that diverge are this codebase's defect signature — the 512-bit mulDiv and the live
-    ///      Algebra fee were the same thing. A copy cannot diverge from itself.
-    ///      `sp == 0` (failed read) returns raw L, preserving the previous behaviour.
-    /// @dev NO PRICE, NO DEPTH. This function used to return raw `liq` when the price was not
-    ///      readable — that is, it returned a number IN OTHER UNITS, which is exactly the bug it
-    ///      exists to eliminate. L is on a SQRT scale; delivered raw it makes a concentrated pool
-    ///      out-anchor an equally deep pair pool by a factor of sqrt-of-price.
-    ///      Rule: the ABSENCE of a measurement is not a value. The correct return is zero.
-    ///      Consumers handle it safely: the Solver's `_weights` normalises against the family
-    ///      maximum and gives a zero the minimum weight (`if (w == 0) w = 1`), with no division
-    ///      by zero. It fails SOFT — the pool loses priority, it does not poison the comparison.
     /// @notice Normalise a token-denominated quantity to 18 decimals.
     /// @dev SATURATES instead of reverting: an absurd depth must degrade to
     ///      "very deep", never make the whole quote fail.
@@ -1227,6 +1201,30 @@ library BlazePhoenixCore {
         return to18(side > type(uint128).max ? type(uint128).max : side, dOut);
     }
 
+    /// @dev L -> TOKEN-DENOMINATED depth. THE ONLY copy.
+    ///      `depthWad` has to be comparable across venue families: V2 reports min(r0,r1),
+    ///      linear token units. L is on a SQRT scale, so handing it over raw makes a
+    ///      concentrated pool out-anchor an equally deep V2 by ~sqrt(price) — a systematic
+    ///      bias in any pair whose price is far from 1, not an edge case.
+    ///      Convert L into the virtual reserves it represents at the current price, short side:
+    ///          x0 = L / sqrtP  (token0)      x1 = L * sqrtP  (token1)
+    ///      mulDiv carries the 512-bit intermediate (L*sp overflows uint256).
+    ///
+    ///      WHY A PRIMITIVE AND NOT THREE COPIES: this conversion existed inline in THREE
+    ///      places (universalQuote V3, universalQuote V4, Hub.claimV4) and was missing entirely
+    ///      in a FOURTH (Router._recordHits), which runs on every executed swap. Sibling copies
+    ///      that diverge are this codebase's defect signature — the 512-bit mulDiv and the live
+    ///      Algebra fee were the same thing. A copy cannot diverge from itself.
+    /// @dev NO PRICE, NO DEPTH. This function used to return raw `liq` when the price was not
+    ///      readable — that is, it returned a number IN OTHER UNITS, which is exactly the bug it
+    ///      exists to eliminate. L is on a SQRT scale; delivered raw it makes a concentrated pool
+    ///      out-anchor an equally deep pair pool by a factor of sqrt-of-price.
+    ///      Rule: the ABSENCE of a measurement is not a value. The correct return is zero.
+    ///      Consumers handle it safely: the Solver's `_weights` normalises against the family
+    ///      maximum and gives a zero the minimum weight (`if (w == 0) w = 1`), with no division
+    ///      by zero. It fails SOFT — the pool loses priority, it does not poison the comparison.
+    ///      No caller in src today: every depth site uses `depthFromL18` above, the same
+    ///      conversion with the decimals applied.
     function depthFromL(uint128 liq, uint160 sp) internal pure returns (uint256) {
         if (sp == 0) return 0;
         uint256 x0 = mulDiv(uint256(liq), Q96, sp);
@@ -1297,19 +1295,9 @@ library BlazePhoenixCore {
         }
     }
 
-    /// @notice Effective fee for a V3/Algebra-family pool — measure, don't take
-    ///         the nominal. The exact sibling of effV4Fee (INV-20).
-    /// @dev    A static V3 key is truth: a non-zero configured fee wins and no
-    ///         extra read happens. A 0 configured fee is the Hub's dynamic-fee
-    ///         sentinel for Algebra (Hub:361-366), so the live fee measured from
-    ///         globalState() is used instead. When the pool is dynamic-shaped
-    ///         but its fee could not be measured, this FAILS CLOSED with a
-    ///         sentinel >= 1e6 — outV3's own guard then quotes 0 — rather than
-    ///         quoting a fee-free number that execution will not honour. Same
-    ///         fail-closed shape effV4Fee uses for a non-zero protocolFee.
     /// @notice The fee a V2 pool charges when the pair does not declare it.
     /// @dev    SINGLE PRODUCER of a number that was hand-written in THREE places: the Router's
-    ///         QUOTE path, the Router's EXECUTION path, and `universalQuote` here. The first two
+    ///         QUOTE path, the Router's EXECUTION path, and the quote dispatcher here (`_quoteArms` today). The first two
     ///         are the pair that MUST agree — if they diverge, the quote lies about what the
     ///         execution will do, which is the exact shape of the fee leaks already closed in
     ///         this codebase. Three copies of a literal are this codebase's defect signature
@@ -1429,8 +1417,11 @@ library BlazePhoenixCore {
     /// @param sqrtLimit Price boundary where the swap is TRUNCATED, or 0 for no
     ///        truncation. Between initialized ticks `L` does
     ///        not change, so truncating at the current range's boundary gives
-    ///        EXACT for what fits inside it and STRICTLY BELOW for the rest —
-    ///        never above, whatever the liquidity distribution ahead. That is
+    ///        what fits inside it to within the rounding of the next sqrt price
+    ///        (zeroForOne floors `sqrtNew`, which can lift the output by up to
+    ///        L / 2^96 wei, as `universalProbe` counts) and STRICTLY BELOW for the
+    ///        rest — never above by more than that, whatever the liquidity
+    ///        distribution ahead. That is
     ///        the only acceptable direction of error: over-estimating promises
     ///        what is not delivered, and the iron floor does not protect because
     ///        it is derived from this very quote.
@@ -1641,7 +1632,7 @@ library BlazePhoenixCore {
     ///
     ///         WHY THE DECIMALS. The stable invariant k = x3y + xy3 is homogeneous of degree 4,
     ///         so with reserves at the SAME scale the result is scale-invariant — which is why
-    ///         the equal-decimals path passes (0,0) and normalises nothing. With 18/6 the raw
+    ///         the equal-decimals path passes (18,18), which scales by 1. With 18/6 the raw
     ///         reserves are 12 orders of magnitude apart and the curve returns garbage. The real
     ///         pair normalises internally because it KNOWS its decimals; whoever asks it has to
     ///         know them too.
@@ -1652,10 +1643,11 @@ library BlazePhoenixCore {
     ///         divergence: one of the three places passing the wrong token would suffice. It only
     ///         runs in the fallback, so the two staticcalls are paid on the rare path.
     ///
-    ///         WHAT THIS PRIMITIVE DOES NOT DO: the haircut. See `universalQuote` and
-    ///         `_execSolidlyAmt` — that is the margin of a REQUEST, not a property of the curve,
-    ///         and it does not travel into the quote channels. A single policy means a single
-    ///         CURVE, not a single set of adjustments.
+    ///         WHAT THIS PRIMITIVE DOES NOT DO: the haircut. `_solidlyAsk` applies it
+    ///         (`SOLIDLY_CURVE_ASK_BPS`), for the quote dispatcher and the Router's execution
+    ///         alike; `legQuoteImpact` reads the curve bare. It is the margin of a REQUEST, not a
+    ///         property of the curve. A single policy means a single CURVE, not a single set of
+    ///         adjustments.
     function solidlyCurveOut(
         address pool, uint256 ain, uint256 rIn, uint256 rOut,
         bool stable, uint256 cfgFee, address tokenIn
@@ -1682,8 +1674,8 @@ library BlazePhoenixCore {
         return _solidlyStable(ain, rIn, rOut, fee, dIn, dOut);
     }
 
-    /// @dev Core stable solver. When dIn==dOut==0 the reserves are used as-is
-    ///      (equal-decimal fast path); otherwise each side is scaled to 1e18.
+    /// @dev Core stable solver. Each side is scaled by 10 ** (18 - d); a caller with
+    ///      pre-normalised reserves passes 18 (0 is a real decimals value, not a sentinel).
     function _solidlyStable(
         uint256 ain, uint256 rIn, uint256 rOut, uint256 fee,
         uint8 dIn, uint8 dOut
@@ -1721,7 +1713,7 @@ library BlazePhoenixCore {
         // inside mulDiv's own require: the checked-arithmetic quote DoS this
         // guard exists to prevent, and which its own comment claimed fixed.
         // The revert is caught by nothing on the way out — solidlyCurveOut,
-        // universalQuote and the Solver's scan all propagate it — so one such
+        // `_quoteArms` and the Solver's scan all propagate it — so one such
         // pair takes its whole pair's quoting with it.
         //
         // The sentinel watched the RESERVES; what fails is the RESULT of the
@@ -1752,8 +1744,10 @@ library BlazePhoenixCore {
         internal view returns (uint256 fee)
     {
         // CEILING ON THE DECLARED FALLBACK — the sibling of `effV2Fee`.
-        // `cfgFee` is `leg.fee`, i.e. CALLDATA, at all three call sites of
-        // `solidlyCurveOut` (Router quote, Router execution, Core.universalQuote).
+        // `cfgFee` is the declared fee (`leg.fee`, i.e. CALLDATA, on the Router's
+        // doors) at both call sites of `solidlyCurveOut`: `_solidlyAsk` (the quote
+        // dispatcher `_quoteArms` and, through `solidlyAskOut`, the Router's
+        // execution) and `legQuoteImpact`.
         // A Solidly-shaped pair that exposes neither `getAmountOut` nor a working
         // `factory()`/`getFee` leaves this declaration as the ONLY fee source, and
         // an over-declared value (9_900 = 99%) collapses the leg's on-chain quote
@@ -1779,15 +1773,6 @@ library BlazePhoenixCore {
         if (ok && word > 0 && word < BPS) fee = word;
     }
 
-    /// @dev Can `_solK(x, y)` be represented at all? The solver evaluates the
-    ///      invariant at the POST-TRADE input reserve, so the caller passes
-    ///      `X + A`, the largest x the cubic will ever see for this quote.
-    ///
-    ///      Checked in the same shape `_solK` computes, so the test cannot
-    ///      drift from the thing it guards: a = xy/WAD and b = (x^2+y^2)/WAD
-    ///      each already fit (mulDiv carries 512-bit intermediates); what can
-    ///      fail is the final a*b/WAD. It fits exactly when a <= uintmax*WAD/b,
-    ///      which is checked without ever forming a*b.
     /// @dev Does a·b / WAD fit a word? `mulDiv` reverts exactly when the high word of a·b is
     ///      at least the divisor, so the test IS that comparison — two multiplications and no
     ///      division, which is what lets it be asked on dust (b below one WAD) without the check
@@ -1799,6 +1784,14 @@ library BlazePhoenixCore {
         unchecked { return mm - p0 - (mm < p0 ? 1 : 0) < WAD; }
     }
 
+    /// @dev Can `_solK(x, y)` be represented at all? The solver evaluates the
+    ///      invariant at the POST-TRADE input reserve, so the caller passes
+    ///      `X + A`, the largest x the cubic will ever see for this quote.
+    ///
+    ///      Checked in the same shape `_solK` computes, so the test cannot
+    ///      drift from the thing it guards: a = xy/WAD and b = (x^2+y^2)/WAD
+    ///      each already fit (mulDiv carries 512-bit intermediates); what can
+    ///      fail is the final a*b/WAD, which `_mulFitsWad` asks.
     /// @dev k = x·y·(x² + y²)/WAD³ must fit a word before Newton starts; the seed is the largest
     ///      (x, y) the iteration sees (y only descends from it), so one check covers the loop.
     function _solKFits(uint256 x, uint256 y) private pure returns (bool) {
@@ -1907,7 +1900,9 @@ library BlazePhoenixCore {
     ///         it, `_solidlyAsk`); every other arm has it in hand.
     ///         `mass` is the tokenOut side the venue declares at its own price, 18 decimals
     ///         (the out reserve of a pair, `outSide18` of a concentrated book): the unit every
-    ///         row of a hop is summed in (`universalProbe`). A Gate wrapper's is its `depthWad`.
+    ///         row of a hop is summed in (`universalProbe`). A Gate wrapper's is its `depthWad`,
+    ///         scaled up by the rate this very quote paid when it buys the cheaper token
+    ///         (o18 > i18).
     function _quoteArms(QuoteCtx memory c, uint256 amountIn, uint256 bar, bool wantFee)
         private view
         returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi, uint256 fee, uint256 mass)
@@ -1960,8 +1955,8 @@ library BlazePhoenixCore {
             // the live fee — measured, never the Hub's 0 sentinel. See
             // v3StateAndDynFee / quoteV3Fee: the INV-20 "measure, don't take the
             // nominal" rule, applied to the OTHER dynamic-fee family in this
-            // same dispatcher. Static V3 keys are untouched (cfgFee wins, no
-            // extra read, byte-identical quote and gas).
+            // same dispatcher. A non-Algebra pool is asked its own fee() first
+            // (`quoteV3Fee`); the key's fee answers only when fee() does not.
             (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
             uint128 liq = getLiquidity(c.pool);
             // NO boundary clamp, for now: `v3StateAndDynFee` does not yet return
@@ -2073,7 +2068,10 @@ library BlazePhoenixCore {
     ///         n * sqrtP / 2^96 (zeroForOne) and on L * dSqrt / sqrtNew (the other way) each cost
     ///         under 1 / sqrt(n * o) <= (1/n + 1/o) / 2, and its floor on dSqrt = n * 2^96 / L
     ///         under L / (2^96 * n). While L <= 2^96 the two ways total, to first order, under
-    ///         1.5/n + 1.5/(o - 1) and 2.5/n + 1.5/o: 3 * WAD / n and 3 * WAD / o cover them
+    ///         1.5/n + 1.5/(o - 1) and 2.5/n + 1.5/o: 3 * WAD / n covers the first terms, and the
+    ///         second ride in the output side's 3 * WAD / o, the one 1/o term the code adds
+    ///         (`rnd`): a concentrated arm spends at most 1/o of it there (its floor and the
+    ///         zeroForOne lift pull opposite ways; the Solidly -1 is another arm's)
     ///         (2026-10-28: without the first a 62-wei probe behind a 54.66% fee read 0.42% under
     ///         its spot with e = 1.25e-6, test/MedianProbeErrorBound.t.sol). NOT BOUNDED here,
     ///         and written down as limits: a V4 walk that crosses into thinner ticks, a Solidly
@@ -2132,7 +2130,7 @@ library BlazePhoenixCore {
         if (err > WAD) err = WAD;   // packed in 64 bits by the Solver: past WAD it would spill into errOrder's
     }
 
-    /// @dev The V4 arm of `universalQuote`, the one producer for both entry points.
+    /// @dev The V4 arm of `_quoteArms`, the one producer for both entry points.
     function _v4Quote(QuoteCtx memory c, uint256 amountIn, uint256 bar)
         private view
         returns (uint256 out, uint256 depthWad, uint256 rank, uint256 hi, uint256 fee, uint256 mass)
@@ -2274,7 +2272,10 @@ library BlazePhoenixCore {
     //  high) and the tick bitmap (+5: one word per 256 compressed ticks).
     //  Every function below is the pool's own arithmetic with its own rounding -
     //  input rounded up, output rounded down - so the walk can only understate a
-    //  delivery, and only where it stops early.
+    //  delivery, and only where it stops early. One exception: the rest term of
+    //  `v3PaysOnBudget` is priced by `outV3`, whose zeroForOne floor on the next
+    //  sqrt price can lift that term by up to L / 2^96 wei (the answer stays
+    //  capped by `f`).
 
     int24   internal constant V4_MIN_TICK = -887_272;
     int24   internal constant V4_MAX_TICK =  887_272;
@@ -2762,8 +2763,9 @@ library BlazePhoenixCore {
     //  score(pool) = vitality × bucketWeight(depth) × (1 + bridgeBonus)
     //                         × (1 + concentrationBonus)
     //
-    //  All factors live in a single packed uint256 slot, so reading the score
-    //  costs one SLOAD. Slot layout:
+    //  Vitality and the depth bucket live in a single packed uint256 slot (one
+    //  SLOAD); the bridge bit and the concentration flag are `psi`'s arguments,
+    //  each a fixed bonus (2_500 / 500 bps). Slot layout:
     //
     //      bits  [  0:0  ] = active flag
     //      bits  [  7:1  ] = reserved — bit 5 = stable curve (Hub, from the pool's own
@@ -2773,7 +2775,7 @@ library BlazePhoenixCore {
     //      bits  [ 31:8  ] = fee tier (uint24)
     //      bits  [ 39:32 ] = pool kind (uint8)
     //      bits  [ 47:40 ] = risk tier (uint8)
-    //      bits  [ 59:48 ] = concentration bonus BPS (uint12, max 4095)
+    //      bits  [ 59:48 ] = concentration bonus BPS (uint12, max 4095) — packed, not read by `psi`
     //      bits  [ 63:60 ] = depth bucket (uint4) — no overlap with conc bits
     //      bits  [ 95:64 ] = lastUpdateTs (uint32)
     //      bits  [127:96 ] = emaIn (uint32)
@@ -2904,7 +2906,8 @@ library BlazePhoenixCore {
     }
 
     /// @notice Composite fitness of a pool given its slot, bridge bit and
-    ///         concentration flag, in BPS form.
+    ///         concentration flag, in units of vitality x bucket weight (BPS only
+    ///         scales the two bonuses).
     function psi(
         uint256 slot, uint32 currentTs,
         bool isBridge, bool isConcentrated
@@ -3013,7 +3016,7 @@ library BlazePhoenixCore {
 
     /// @dev THE COMPARISON behind `reservesHeld`, one producer for every door that reads a
     ///      pair's declared reserves (bounty #85, Remember Me): the registration door above,
-    ///      the quote dispatcher (`universalQuote`) and the registry depth (`registryDepth18`).
+    ///      the quote dispatcher (`_quoteArms`) and the registry depth (`registryDepth18`).
     ///      The registration door alone was not enough: a pair proves itself once, at its
     ///      first swap, and its `getReserves` is its own code's answer every read after that.
     ///      `ra`/`rb` are reserves already read, oriented like `ta`/`tb`.
@@ -3261,8 +3264,8 @@ library BlazePhoenixCore {
     //
     //     base   = FLOOR_BASE_BPS                          (9 600)
     //     legShv = FLOOR_PER_LEG_BPS × max(0, legs - 1)    (200 per extra leg)
-    //     impShv = FLOOR_IMPACT_FACTOR × impactBps         (1:1 BPS)
-    //     sigShv = sigmaLn / 1e14                          (clamped)
+    //     impShv = min(impactBps, BPS)                     (1 bps of floor per bps of impact)
+    //     sigShv = sigmaLn / 1e14                          (not clamped itself: the sum is)
     //     floor  = max(base − legShv − impShv − sigShv, BPS − FLOOR_HARD_MAX_LOSS_BPS)
     //
     //  i.e. starts at 96% for clean single-leg swaps, loosens with impact and
@@ -3324,9 +3327,6 @@ library BlazePhoenixCore {
         return i > BPS ? BPS : i;
     }
 
-    /// @notice Dimensionally-correct V3 price impact in BPS (monotonic).
-    /// @dev    Impact = 1 - effectivePrice/spotPrice via outV3 + sqrtPriceX96.
-    ///         Quote-time estimate; execution protection is the Omega floor.
     /// @notice V4 hook policy read from the hook ADDRESS bits (CREATE2-style).
     /// @dev    V4 encodes permissions in the lowest 14 bits of the hook address
     ///         (immutable). A single AND tells us if the hook can return swap
@@ -3408,7 +3408,7 @@ library BlazePhoenixCore {
     // ─── the Gate's wrappers as planner rows (gated-auto, 2026-10-22) ───
 
     /// @notice THE ONE PRODUCER of a Gate wrapper's price for a leg: the Quoter's kind-9 arm and
-    ///         `universalQuote` (the Solver's) read it, so the price a plan is built on and the
+    ///         `_quoteArms` (the Solver's) read it, so the price a plan is built on and the
     ///         price the quote channel reports are the same. `live` is `gateWrapperLive` (the
     ///         identity the Router demands at execution); a pool that is not live prices 0.
     ///         `out` is the wrapper's view `quote` (its adapter's answer), run under
