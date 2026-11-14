@@ -296,6 +296,20 @@ caller's input and that `hop.amountIn` equals it (three V2 rows of unequal depth
 control, a fuzz over the order from 1e6 wei to 600k e18 and over the depths); the mutant
 [L0-124 Solver:1032] shorts the remainder by one wei.
 
+**The loose shape's baseline, removed because no hop could take it (2026-11-14).** `Router._execute`
+set `bridgeBase[h - 1] = toutStart` when a hop past the first took the route's output in. With
+`MAX_HOPS = 2` (Core) the only such hop is the last one, whose `tokenOut` is the route's, and the
+shape check above it refuses a hop whose input is its own output (`RouterE(3)`), so the condition
+was false on every input that reaches it; the readers of `bridgeBase` (`_chargeHopFee`,
+`_hopScaleImpactAndQuote`, the sweep) see the same entry with or without the line. It is the
+argument by which `mutants.py` already leaves several Router lines without an entry ("EQUIVALENT
+since MAX_HOPS = 2"). The line is gone, with no test or mutant of its own: each part of its premise
+already has one. `MAX_HOPS` itself has no mutant, because the Solver's bridge path is a literal of
+`MAX_HOPS + 1` tokens and no other value compiles. The ceiling's mutant, raised by one, is red on
+`test_TheLooseShapeIsPastTheHopCeilingAndRefused` (`test/SwapOutputNeverExceedsWhatTheVenuesDeclared.t.sol`,
+the three-hop A->C->B->C shape). The self-hop arm's mutants, H3 and fix-1019 H3, are red on
+`test_legOutRaw_MidRouteSelfHop_IsRefused` and `test_H3_SelfHop_IsRefusedRouterE3`.
+
 ## 4f. How far each refusal observes from what decides
 
 Every defect confirmed in this repository, internal or reported, has one shape: a check observes

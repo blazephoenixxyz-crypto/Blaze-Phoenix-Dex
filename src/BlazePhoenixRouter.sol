@@ -1179,8 +1179,8 @@ contract BlazePhoenixRouter {
             // route named an arbitrary STRANDED token as hop.tokenIn and scaled the
             // Router's whole balance of it into the swap; bridgeBase[h-1] baselines
             // route.hops[h-1].tokenOut, which is that same token ONLY under
-            // continuity. tokenIn/tokenOut-typed bridges carry bridgeBase==0, so use
-            // their own entry baselines (baseIn / toutStart) instead.
+            // continuity. No bridge is the route's tokenIn (refused just below) or its tokenOut
+            // (with MAX_HOPS = 2 the hop taking it in would be a self-hop, refused above).
             // A ROUTE VISITS ITS INPUT ONCE. Hop 0's fee base is capped by what hop 0 commits
             // (`_legSum`), and the part it does not commit waits in the Router for the sweep
             // after the loop; that cap is the measured pull only while no later hop takes the
@@ -1189,9 +1189,9 @@ contract BlazePhoenixRouter {
             // shape is refused rather than re-priced.
             if (h != 0) {
                 if (hop.tokenIn != route.hops[h - 1].tokenOut || hop.tokenIn == tokenIn) revert RouterE(3);
-                // The loose shape's baseline is the output's own (its bridgeBase entry was never
-                // set); the sweep skips tokenOut, so the entry is free to carry it (4111).
-                if (hop.tokenIn == tokenOut) bridgeBase[h - 1] = toutStart;
+                // No hop past the first takes tokenOut in: with MAX_HOPS = 2 that hop is the last,
+                // whose tokenOut is the route's, and a self-hop is refused above. The loose shape
+                // A->X->B->X is three hops, past the ceiling; a third hop brings back its baseline.
                 // A CYCLIC ROUTE (tokenIn == tokenOut) RETURNS HOP 0'S UNSPENT INPUT HERE, to the
                 // payer the docstring above names as its owner (H9, oc-1018). After the loop the
                 // residual and the output are the same token and can no longer be told apart, so
@@ -1365,10 +1365,10 @@ contract BlazePhoenixRouter {
                 hopGot += legGot;
                 hopAttested += legAtt;
                 // 3310: a leg that makes tokenOut adds what its venue declares it paid; a leg that
-                // hands tokenOut to its venue (a later hop of the loose A->X->B->X shape) takes what
-                // it handed off the cap. Floored at zero: hop 0 of a cyclic route spends the input,
-                // measured against baseIn and made by no leg. A hop that spends nothing (a no-op
-                // tail) leaves the output as made.
+                // hands tokenOut to its venue takes what it handed off the cap (under MAX_HOPS = 2
+                // only hop 0 of a cyclic route: no later hop takes tokenOut in). Floored at zero:
+                // that hop spends the input, measured against baseIn and made by no leg. A hop that
+                // spends nothing (a no-op tail) leaves the output as made.
                 if (legOutRaw == tokenOut) outCap += legDecl;
                 else if (legIn == tokenOut) outCap = outCap > scaledAmt ? outCap - scaledAmt : 0;
                 if (legAtt != 0) { unchecked { ++hopQuoted; } }
