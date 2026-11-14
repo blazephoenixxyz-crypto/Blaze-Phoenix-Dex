@@ -47,6 +47,23 @@ contract DiffVenueLatticeDeliveryTest is DiffWorld {
         assertEq(points, 110, "the lattice was not walked whole");
     }
 
+    /// The premise of MR-R1, from the lattice's own figures and never from the Solver: every
+    /// two venues' spots differ by less than the round trip between them at 0.3% a side, so
+    /// neither is an open arbitrage against the other and the band keeps both. A venue outside
+    /// it is dropped by design (src/BlazePhoenixMath.sol, WHAT THIS COSTS, 1), and MR-R1 would
+    /// then be a relation about the filter.
+    function test_Lattice_EveryTwoVenuesLeaveNoRoundTripOpen() public pure {
+        uint256 keep = 997 * 997;   // (1 - 0.003)^2, per 1e6
+        for (uint256 i = 1; i < 16; i <<= 1) {
+            (, uint256 xi, uint256 yi) = _latticeVenue(i);
+            for (uint256 j = 1; j < 16; j <<= 1) {
+                (, uint256 xj, uint256 yj) = _latticeVenue(j);
+                // s_i / s_j >= (1 - f)^2, with s = y / x: yi * xj * 1e6 >= yj * xi * keep
+                assertGe(yi * xj / 1e18 * 1e6, yj * xi / 1e18 * keep, "two venues of the lattice leave a round trip open");
+            }
+        }
+    }
+
     /// MR-R1 is not vacuous. Two deep venues quote the same marginal price, and each one's
     /// output is strictly concave in its input, so some split pays strictly more than either
     /// corner: the route must be one of those, not the better corner.

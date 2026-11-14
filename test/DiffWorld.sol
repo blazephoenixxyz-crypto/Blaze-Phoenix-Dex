@@ -77,17 +77,31 @@ abstract contract DiffWorld is Test {
     /// The venue lattice: bit i of `mask` puts venue i on a fresh pair (x, y).
     ///   1  V2       1,000,000 : 1,000,000   price 1
     ///   2  V3       liquidity 1,000,000     price 1
-    ///   4  Solidly    300,000 :   303,000   y is 1% cheaper than x
-    ///   8  V2          50,000 :    49,000   y is 2% dearer than x
-    /// Every price sits inside the Solver's median band, so no relation over this lattice is a
-    /// relation about the filter.
+    ///   4  Solidly    300,000 :   300,750   y is 0.25% cheaper than x
+    ///   8  V2          50,000 :    49,875   y is 0.25% dearer than x
+    /// Every venue charges 0.3%, and every two spots differ by less than the round trip between
+    /// them, (1 - 0.003)^-2 - 1 = 0.60%: no venue is an open arbitrage against another, so each
+    /// is an honest venue at rest, which the Solver's band never drops (src/BlazePhoenixMath.sol,
+    /// THE BAND). No relation over this lattice is a relation about the filter; the pin is
+    /// test_Lattice_EveryTwoVenuesLeaveNoRoundTripOpen. Until 11-14 venue 4 sat 1% and venue 8
+    /// 2% off price 1: open round trips, which the band drops by design (WHAT THIS COSTS, 1).
     function _lattice(uint256 mask) internal returns (MockERC20 x, MockERC20 y) {
         x = _token("X");
         y = _token("Y");
-        if (mask & 1 != 0) _venue(K_V2, x, y, 1_000_000e18, 1_000_000e18);
-        if (mask & 2 != 0) _venue(K_V3, x, y, 1_000_000e18, 0);
-        if (mask & 4 != 0) _venue(K_SOLIDLY, x, y, 300_000e18, 303_000e18);
-        if (mask & 8 != 0) _venue(K_V2, x, y, 50_000e18, 49_000e18);
+        for (uint256 bit = 1; bit < 16; bit <<= 1) {
+            if (mask & bit == 0) continue;
+            (uint8 kind, uint256 rx, uint256 ry) = _latticeVenue(bit);
+            _venue(kind, x, y, rx, ry);
+        }
+    }
+
+    /// Venue `bit` of the lattice: its kind and what it holds of x and of y (a V3 venue's ry is
+    /// its liquidity again: a single tick at price 1).
+    function _latticeVenue(uint256 bit) internal pure returns (uint8 kind, uint256 rx, uint256 ry) {
+        if (bit == 1) return (K_V2, 1_000_000e18, 1_000_000e18);
+        if (bit == 2) return (K_V3, 1_000_000e18, 1_000_000e18);
+        if (bit == 4) return (K_SOLIDLY, 300_000e18, 300_750e18);
+        return (K_V2, 50_000e18, 49_875e18);
     }
 
     /// The order sizes of the grids: from dust to a fifth of the deepest venue.

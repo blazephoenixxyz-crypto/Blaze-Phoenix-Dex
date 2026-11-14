@@ -63,8 +63,25 @@ contract DiffPlanDoorVsSolveDoorTest is DiffWorld {
     /// One order of the small ladder through both doors. Returns whether it settled.
     function _smallOrder(Pair memory w, uint256 kind, uint256 amt) internal returns (bool) {
         Shot memory b = _solveOnSnapshot(w.x, w.y, amt, 1);
-        (BlazePhoenixQuoter.Preview memory pv, bytes memory cd, Shot memory p) = _planOnSnapshot(w.x, w.y, amt, 0);
         string memory where = _at("", kind, 0, amt);
+        // Where the Solver finds no route the plan door refuses by revert, before any bytes
+        // exist (test/QuoterPreviewAndEncode.t.sol, test_AnUnroutablePairRefusesBeforeAnyBytesExist):
+        // that refusal must be the solve door's own, selector and code.
+        uint256 snap = vm.snapshotState();
+        (bool asked, bytes memory why) = address(quoter).call(
+            abi.encodeCall(quoter.previewAndEncode, (address(w.x), address(w.y), amt, user, block.timestamp + 20)));
+        vm.revertToState(snap);
+        if (!asked) {
+            assertFalse(b.ok, string.concat("the plan door refused an order the solve door executes ", where));
+            assertEq(why.length, 36, string.concat("the plan door refused without a coded error ", where));
+            uint256 c;
+            assembly ("memory-safe") { c := mload(add(why, 36)) }
+            assertEq(bytes4(why), b.sel, string.concat("the two doors refused with different errors ", where));
+            assertEq(c, b.code, string.concat("the two doors refused with different codes ", where));
+            assertEq(b.delivered, 0, string.concat("a refused order delivered ", where));
+            return false;
+        }
+        (BlazePhoenixQuoter.Preview memory pv, bytes memory cd, Shot memory p) = _planOnSnapshot(w.x, w.y, amt, 0);
         assertEq(pv.canExecute, b.ok, string.concat("the preview and the solve door disagree on whether the order settles ", where));
         assertEq(cd.length != 0, pv.canExecute, string.concat("bytes and canExecute disagree ", where));
         if (b.ok) {
