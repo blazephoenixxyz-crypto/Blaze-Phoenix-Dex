@@ -33,6 +33,7 @@ still inherit one idea, and no text analysis sees that. A profile is a floor on 
 a proof of independence - the number can only be too generous, never too harsh.
 
 Usage: python3 evidence_independence.py <repo_root>
+       python3 evidence_independence.py --self-test
 """
 import json, os, re, sys, glob
 
@@ -53,20 +54,161 @@ CROSS = lambda t: bool(
     and re.search(r"\.swapExactIn\(|\.swapBestExactIn\(", t)
     and re.search(r"assert\w*\([^;]*\bpv\.|assert\w*\([^;]*preview", t))
 
-_WORKFLOWS = None
+_GATING = None
+
+# A SPEC A JOB NAMES IS NOT A SPEC CI ENFORCES. The first version of this test asked whether the
+# contract's name appeared anywhere in a workflow. CompositionFormalSpec is named by a job marked
+# continue-on-error, CoreFormalSpec by a step ending in `|| true`, and a third spec only in a
+# comment: all three came out as ("halmos", "formal") evidence while a red result could not turn
+# any run red. A confirmation that cannot fail is not a confirmation. Only a command that can
+# fail its workflow counts: in a step's `run`, outside comments, with no `|| true` (or `|| :`)
+# on its own command, in a step and a job neither of which is continue-on-error.
+_MASKED = re.compile(r"\|\|\s*(true|:)(\s|;|$)")
+_COE = re.compile(r"^\s*(-\s+)?continue-on-error:\s*(true|\$\{\{)")
 
 
-def _is_run_by_ci(path):
-    """Does any workflow name the contract this file declares?"""
-    global _WORKFLOWS
-    if _WORKFLOWS is None:
-        _WORKFLOWS = ""
-        for w in glob.glob(os.path.join(ROOT, ".github", "workflows", "*.y*ml")):
-            _WORKFLOWS += open(w).read()
+def _commands(run_lines):
+    """The shell commands of one `run`, comments dropped, backslash continuations joined."""
+    out, cur = [], ""
+    for line in run_lines:
+        line = re.sub(r"(^|\s)#.*$", "", line).rstrip()
+        if line.endswith("\\"):
+            cur += line[:-1] + " "
+            continue
+        cur += line
+        if cur.strip():
+            out.append(cur.strip())
+        cur = ""
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+def _gating_commands(text):
+    """Every shell command in one workflow that can turn the workflow red."""
+    lines = text.splitlines()
+    ind = lambda l: len(l) - len(l.lstrip(" "))
+    try:
+        j0 = next(i for i, l in enumerate(lines) if re.match(r"^jobs:\s*$", l))
+    except StopIteration:
+        return []
+    jobs, cur = [], None
+    for l in lines[j0 + 1:]:
+        if l.strip() and ind(l) == 0:
+            break
+        if re.match(r"^  [\w-]+:\s*$", l):
+            cur = []
+            jobs.append(cur)
+        elif cur is not None:
+            cur.append(l)
+    out = []
+    for body in jobs:
+        if any(_COE.match(l) and ind(l) == 4 for l in body):
+            continue
+        steps, cur, k = [], None, None
+        s0 = next((i for i, l in enumerate(body) if re.match(r"^    steps:\s*$", l)), len(body))
+        for l in body[s0 + 1:]:
+            m = re.match(r"^(\s*)-\s", l)
+            if m and (k is None or ind(l) == k) and ind(l) > 4:
+                k = ind(l)
+                cur = [l]
+                steps.append(cur)
+            elif cur is not None and (not l.strip() or ind(l) > k):
+                cur.append(l)
+            elif cur is not None:
+                cur = None
+        for st in steps:
+            if any(_COE.match(l) and ind(l.replace("-", " ", 1)) == k + 2 for l in st):
+                continue
+            for i, l in enumerate(st):
+                m = re.match(r"^\s*(-\s+)?run:\s*(.*)$", l)
+                if not m or ind(l.replace("-", " ", 1)) != k + 2:
+                    continue
+                head = m.group(2).strip()
+                if head and head[0] not in "|>":
+                    body_lines = [head]
+                else:
+                    body_lines = []
+                    for l2 in st[i + 1:]:
+                        if l2.strip() and ind(l2) <= k + 2:
+                            break
+                        body_lines.append(l2)
+                out += [c for c in _commands(body_lines) if not _MASKED.search(c)]
+    return out
+
+
+def _is_run_by_ci(path, workflows=None):
+    """Does a command that can fail CI name the contract this file declares?"""
+    global _GATING
+    if workflows is not None:
+        gating = [c for w in workflows for c in _gating_commands(w)]
+    else:
+        if _GATING is None:
+            _GATING = []
+            for w in glob.glob(os.path.join(ROOT, ".github", "workflows", "*.y*ml")):
+                _GATING += _gating_commands(open(w).read())
+        gating = _GATING
     for m in re.finditer(r"contract\s+(\w+)", open(path).read()):
-        if m.group(1) in _WORKFLOWS:
+        if any(re.search(r"\b%s\b" % re.escape(m.group(1)), c) for c in gating):
             return True
     return False
+
+
+def _self_test():
+    """Each way a job can name a spec without enforcing it, and the one way it does.
+
+    Mutant that must turn this red: drop the `_MASKED` filter (or the continue-on-error skip) in
+    _gating_commands, or the comment strip in _commands - a masked or commented spec then
+    reports as run by CI."""
+    import tempfile
+    sol = tempfile.NamedTemporaryFile("w", suffix=".t.sol", delete=False)
+    sol.write("contract FooFormalSpec {}\n")
+    sol.close()
+    head = "on: [push]\njobs:\n"
+    step = lambda run, coe="": (
+        "      - name: s\n" + coe + "        run: " + run + "\n")
+    cases = [
+        ("gating step", head + "  a:\n    runs-on: x\n    steps:\n"
+         + step("halmos --contract FooFormalSpec -v"), True),
+        ("job continue-on-error", head + "  a:\n    continue-on-error: true\n    steps:\n"
+         + step("halmos --contract FooFormalSpec -v"), False),
+        ("step || true", head + "  a:\n    steps:\n"
+         + step("timeout 9 halmos --contract FooFormalSpec -v || true"), False),
+        ("step continue-on-error", head + "  a:\n    steps:\n"
+         + step("halmos --contract FooFormalSpec", "        continue-on-error: true\n"), False),
+        ("named only in a comment", head + "  a:\n    steps:\n"
+         + "      - name: s\n        # test/formal/FooFormalSpec.t.sol\n        run: echo hi\n",
+         False),
+        ("named in a comment inside the run", head + "  a:\n    steps:\n"
+         + "      - name: s\n        run: |\n          # halmos --contract FooFormalSpec\n"
+         "          echo report-only\n", False),
+        ("|| true on a continuation", head + "  a:\n    steps:\n"
+         + "      - name: s\n        run: |\n          halmos --contract FooFormalSpec \\\n"
+         "            -v || true\n", False),
+        ("block run, pipefail + grep", head + "  a:\n    steps:\n"
+         + "      - name: s\n        run: |\n          set -o pipefail\n"
+         "          halmos --contract FooFormalSpec -v 2>&1 | tee x.log\n"
+         "          ! grep -q 'loop unrolling bound' x.log\n", True),
+        ("other job gates, this one masks", head + "  a:\n    continue-on-error: true\n"
+         "    steps:\n" + step("halmos --contract FooFormalSpec") + "  b:\n    steps:\n"
+         + step("halmos --contract BarSpec"), False),
+    ]
+    bad = 0
+    for name, wf, want in cases:
+        got = _is_run_by_ci(sol.name, [wf])
+        ok = got == want
+        bad += not ok
+        print(("ok   " if ok else "FAIL ") + f"{name}: run by CI = {got}, expected {want}")
+    os.unlink(sol.name)
+    if bad:
+        sys.exit("evidence_independence self-test: %d case(s) wrong" % bad)
+    print("evidence_independence self-test: %d cases, each way to name a spec without "
+          "enforcing it is refused" % len(cases))
+
+
+if ROOT == "--self-test":
+    _self_test()
+    sys.exit(0)
 
 
 def axes_of(path, text):

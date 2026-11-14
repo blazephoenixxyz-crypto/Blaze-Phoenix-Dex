@@ -68,6 +68,11 @@ jobs:
         # The generated rows must be the rows the generator produces for the declared factors.
         run: python3 .github/scripts/assurance/covering_array.py --check
 
+      - name: Formal evidence counts only what CI enforces (evidence independence self-test)
+        # A spec named by a continue-on-error job, behind `|| true` or in a comment cannot turn a
+        # run red, so it is not formal evidence. The self-test proves each of those is refused.
+        run: python3 .github/scripts/assurance/evidence_independence.py --self-test
+
       - name: TickMath table is its definition, certified on every tick
         # Each of the twenty constants of Core.sqrtPriceAtTick is recomputed from its definition, the
         # integer nearest to 2^128 / sqrt(1.0001)^(2^i). The certificate is regenerated on all
