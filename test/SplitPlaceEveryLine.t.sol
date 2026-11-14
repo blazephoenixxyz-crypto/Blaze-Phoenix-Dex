@@ -259,13 +259,23 @@ contract SplitPlaceEveryLineTest is SplitPlaceFixture {
     /// holds `heldX`, more than the depth of any venue beside it, so it takes the remainder; two
     /// honest venues hold ten times their liquidity. The order is `pct` percent of the summed
     /// depths, above them: the book is asked more than it holds, its input is cut to what its cap
-    /// pays, and the cut stays uncommitted (`_capacity`, CUT). A venue behind 90% takes its
+    /// pays, and the cut stays uncommitted (`_capacity`, CUT). A venue one pip under 90% takes its
     /// depth's share, is tried and leaves; the honest venues then take more, the book is asked
     /// more and is cut to the same input, so the split kept commits less than the split before
     /// it did. The hop states the sum of its own legs' inputs, the one it states where the 90%
     /// venue was never listed. A committed input carried over from the split before states more
     /// than the legs take. The ranges stop where the split without the 90% venue still pays
     /// more than the split with it: past them the venue stays (test/SplitPlaceKnownRed.t.sol).
+    /// ONE PIP UNDER, NOT AT (2026-11-14). The venue stood at 900,000 pips when this was written
+    /// (35b0839). Since 25ac1fc a row whose fee reaches the route's ceiling on a leg's impact
+    /// (`MAX_ROUTE_IMPACT_BPS`, 9,000 bps = 900,000 pips) is not quoted (`Solver._buildHop`;
+    /// test/DestroyerLegAtBirth.t.sol), so at 900,000 the venue was no leg, no leg was tried and
+    /// the line that keeps the split after a trial was not read: at a4ac71f this test was green
+    /// with [ATQ-mutacao-7] applied. One pip under the ceiling the venue is a row again and the
+    /// trial runs: with the mutant the hop of the first case commits 345.124e18 while its legs
+    /// take 319.409e18.
+    uint24 constant UNDER_THE_CEILING_FEE = 899_999;
+
     function _cutThroughATrial(uint256 heldX, uint128 lC, uint256 pct) internal {
         _market();
         if (address(tA) < address(tB)) (tA, tB) = (tB, tA);
@@ -282,7 +292,7 @@ contract SplitPlaceEveryLineTest is SplitPlaceFixture {
         assertEq(pv.route.hops[0].legs.length, 3, "precondition: the three venues are not the legs");
         assertGt(_inOf(pv, address(x)), 0, "precondition: the book is no leg");
         assertLt(without, amt, "precondition: the book's input was not cut");
-        MockV3Pool c = _venueOn(tA, tB, 900_000, lC, 9 * uint256(lC));
+        MockV3Pool c = _venueOn(tA, tB, UNDER_THE_CEILING_FEE, lC, 9 * uint256(lC));
         pv = _preview(amt);
         assertEq(pv.route.hops.length, 1, "the route is not direct");
         assertEq(_inOf(pv, address(c)), 0, "the 90% venue kept a leg");
