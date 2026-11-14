@@ -48,6 +48,8 @@ def stats_block():
         ("Curated mutants, each paired with the test that must kill it", mutants(),
          "entries in `.github/scripts/mutants.py`"),
         ("Certora Prover specifications", len(files("certora/**/*.spec")), "`certora/**/*.spec`"),
+        ("Gas snapshots, each a measured figure CI re-measures", len(files("snapshots/*.json")), "`snapshots/*.json`"),
+        ("Contracts whose runtime size is pinned to the byte", len(sizes()), "`.sizes-snapshot`"),
         ("CI workflows", len(files(".github/workflows/*.yml")), "`.github/workflows/*.yml`"),
         ("Researchers credited", len(researchers()), "`SECURITY_HALL_OF_FAME.md`"),
     ]
@@ -56,12 +58,56 @@ def stats_block():
     return "\n".join(out)
 
 
+def sizes():
+    text = open(os.path.join(ROOT, ".sizes-snapshot"), encoding="utf-8").read()
+    return re.findall(r"^(\w+) runtime=(\d+) initcode=(\d+)\s*$", text, re.M)
+
+
+def const(name, src):
+    """The integer a `constant NAME = <int or NAME +|* int>` in src/<src> declares; fails if absent."""
+    text = open(os.path.join(ROOT, "src", src), encoding="utf-8").read()
+    m = re.search(r"\bconstant\s+" + name + r"\s*=\s*([\w+* ]+?)\s*;", text)
+    if not m:
+        sys.exit(f"readme_stats: constant {name} not found in src/{src}")
+    expr = re.sub(r"(?<=\d)_(?=\d)", "", m.group(1))
+    expr = re.sub(r"\b[A-Z][A-Z0-9_]*\b", lambda r: str(const(r.group(0), src)), expr)
+    if not re.fullmatch(r"[\d+* ]+", expr):
+        sys.exit(f"readme_stats: constant {name} in src/{src} is not an integer expression")
+    return eval(expr)
+
+
+def constants_block():
+    hops, legs = const("MAX_HOPS", "BlazePhoenixCore.sol"), const("MAX_LEGS_PER_HOP", "BlazePhoenixCore.sol")
+    rows = [
+        ("Protocol fee, basis points", const("PROTOCOL_FEE_BPS", "BlazePhoenixCore.sol"), "`PROTOCOL_FEE_BPS`, `src/BlazePhoenixCore.sol`"),
+        ("Hops per route, at most", hops, "`MAX_HOPS`, `src/BlazePhoenixCore.sol`"),
+        ("Venue legs per hop, at most", legs, "`MAX_LEGS_PER_HOP`, `src/BlazePhoenixCore.sol`"),
+        ("Venue legs per route, at most", hops * legs, "`MAX_HOPS` x `MAX_LEGS_PER_HOP`"),
+        ("Route topologies the Solver compares", const("TOPOLOGIES", "BlazePhoenixSolver.sol"), "`TOPOLOGIES`, `src/BlazePhoenixSolver.sol`"),
+    ]
+    out = ["| Protocol constant | Value | Read from |", "|---|---:|---|"]
+    out += [f"| {name} | {n:,} | {src} |" for name, n, src in rows]
+    out += ["", "| Contract | Runtime bytes | EIP-170 headroom (24,576) |", "|---|---:|---:|"]
+    out += [f"| `{c}` | {int(r):,} | {24576 - int(r):,} |" for c, r, _ in sizes()]
+    return "\n".join(out)
+
+
+def case_studies_block():
+    out = []
+    for f in files("docs/case-studies/gas-*.md"):
+        title = next((l[2:].strip() for l in open(f, encoding="utf-8") if l.startswith("# ")), os.path.basename(f))
+        out.append(f"- [{title}]({os.path.relpath(f, ROOT)})")
+    return "\n".join(out)
+
+
 def researchers_block():
     return " · ".join(researchers())
 
 
 def render(text, name):
-    for tag, body in (("repo-stats", stats_block()), ("researchers", researchers_block())):
+    blocks = (("repo-stats", stats_block()), ("protocol-constants", constants_block()),
+              ("gas-case-studies", case_studies_block()), ("researchers", researchers_block()))
+    for tag, body in blocks:
         begin, end = f"<!-- {tag}:begin -->", f"<!-- {tag}:end -->"
         pat = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.S)
         if len(pat.findall(text)) != 1:

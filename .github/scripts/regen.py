@@ -45,7 +45,12 @@ def conflicted():
 
 def main():
     check = "--check" in sys.argv
-    failed = [s for s in STEPS if run(s, check) != 0]
+    failed = []
+    for s in STEPS:
+        if run(s, check) != 0:
+            failed.append(s)
+            if not check:
+                break  # a consumer must not be built from a producer that failed
     if not check and failed:
         sys.exit(f"regen: {', '.join(failed)} failed; nothing after it can be trusted")
     left = conflicted()
