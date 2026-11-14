@@ -614,7 +614,7 @@ def measure_mode(ch, d, ts_b, mode, hub_state):
     r["gate_used"] = int(any(f"{x.lower()}:" in r["legs_detail"] for x in ch.wrappers))
     r.update(delivered=delivered, g_cold=gas_used, pool_fee_bps=pool_fee_bps(ch, d, r["legs_detail"], pv["hops"], pv["legs"]))
     if not ok:
-        r.update(outcome="revert", detail=revert_detail("exec:", ret))
+        r.update(outcome="revert", detail=revert_detail("exec:", ret, 72))  # selector + the uint16 code word
         return r
     # warm: same call with the access list of the same call
     al, src = None, "createAccessList"
@@ -1078,6 +1078,321 @@ def dex_lines(spec, rows, universe):
     return out
 
 
+# ── detailed breakdown (report section 8): every table per chain and over all chains ──
+_RC = [1, 0x8082, 0x800000000000808a, 0x8000000080008000, 0x808b, 0x80000001, 0x8000000080008081, 0x8000000000008009,
+       0x8a, 0x88, 0x80008009, 0x8000000a, 0x8000808b, 0x800000000000008b, 0x8000000000008089, 0x8000000000008003,
+       0x8000000000008002, 0x8000000000000080, 0x800a, 0x800000008000000a, 0x8000000080008081, 0x8000000000008080,
+       0x80000001, 0x8000000080008008]
+_ROT = [[0, 36, 3, 41, 18], [1, 44, 10, 45, 2], [62, 6, 43, 15, 61], [28, 55, 25, 21, 56], [27, 20, 39, 8, 14]]
+
+
+def keccak256(data):
+    """Keccak-256 (the pre-NIST padding Solidity uses), pure Python: selectors are computed from
+    the error signatures in src, not copied."""
+    M, rot = (1 << 64) - 1, lambda v, n: ((v << n) | (v >> (64 - n))) & M if n else v
+    st = [[0] * 5 for _ in range(5)]
+    p = bytearray(data) + b"\x01" + b"\x00" * ((-len(data) - 2) % 136) + b"\x80" if (len(data) + 1) % 136 else bytearray(data) + b"\x81"
+    for o in range(0, len(p), 136):
+        for i in range(17):
+            st[i % 5][i // 5] ^= int.from_bytes(p[o + 8 * i:o + 8 * i + 8], "little")
+        for rc in _RC:
+            c = [st[x][0] ^ st[x][1] ^ st[x][2] ^ st[x][3] ^ st[x][4] for x in range(5)]
+            d = [c[(x - 1) % 5] ^ rot(c[(x + 1) % 5], 1) for x in range(5)]
+            st = [[st[x][y] ^ d[x] for y in range(5)] for x in range(5)]
+            b = [[0] * 5 for _ in range(5)]
+            for x in range(5):
+                for y in range(5):
+                    b[y][(2 * x + 3 * y) % 5] = rot(st[x][y], _ROT[x][y])
+            st = [[b[x][y] ^ (~b[(x + 1) % 5][y] & b[(x + 2) % 5][y]) for y in range(5)] for x in range(5)]
+            st[0][0] ^= rc
+    return b"".join(st[i % 5][i // 5].to_bytes(8, "little") for i in range(4))
+
+
+ERR_SIGS = {  # the custom errors of src (file:line of the declaration)
+    "SolverE(uint16)": "src/BlazePhoenixSolver.sol:187", "QuoterE(uint16)": "src/BlazePhoenixQuoter.sol:184",
+    "HubE(uint16)": "src/BlazePhoenixHub.sol:427", "RouterE(uint16)": "src/BlazePhoenixRouter.sol:312",
+}
+ERR_BY_SEL = {keccak256(s.encode())[:4].hex(): s.split("(")[0] for s in ERR_SIGS}
+OC_CLASSES = ("ok", "noquote", "SolverE", "RouterE", "revert", "mf_unforced", "other")
+USD_BUCKETS = (("dust", 1), ("<1k", 1e3), ("1k-10k", 1e4), ("10k-100k", 1e5), ("100k-1M", 1e6), (">=1M", float("inf")))
+STABLES = {"USDC", "USDT", "DAI", "USDG", "USDbC", "USDC.e", "USDT0"}  # USD = one unit of these (peg 1, not measured)
+SITE_TOKENS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site_tokens.json")
+
+
+def decode_err(detail):
+    """(class, name) of a detail: a custom error of src decoded by its selector with its uint16
+    code when recorded (`SolverE(5)`), `Error:<text>` kept, else the raw selector."""
+    i = detail.find("0x")
+    if i < 0:
+        return "", detail
+    h = detail[i + 2:]
+    name = ERR_BY_SEL.get(h[:8])
+    if not name:
+        return "", detail[i:i + 10]
+    return name, f"{name}({int(h[8:72], 16)})" if len(h) >= 72 else f"{name}(code not recorded)"
+
+
+def oc_class(r):
+    """Outcome class of a row: SolverE / RouterE when its revert data decodes to that error, else
+    ok, noquote, revert, mf_unforced; rpc_err, timeout and prereq are `other`."""
+    o = r.get("outcome", "")
+    name = decode_err(r.get("detail", ""))[0] if o in ("noquote", "revert") else ""
+    if name in ("SolverE", "RouterE"):
+        return name
+    return o if o in OC_CLASSES else "other"
+
+
+def load_tokens(path=SITE_TOKENS):
+    """{(chain, token): (symbol, decimals)} from the site's token list; {} when absent."""
+    if not path or not os.path.exists(path):
+        return {}
+    j = json.load(open(path))
+    return {(cn, t["address"].lower()): (t["symbol"], int(t["decimals"])) for cn, c in j["chains"].items() for t in c["tokens"]}
+
+
+def usd_size(r, toks):
+    """(usd, basis) of a row's input: tin a stable -> amount_in; tout a stable -> delivered (ok) or
+    amount_in * mid; else (None, "unpriced"). Measured amounts only; the peg is the one assumption."""
+    cn = r["chain"]
+    ti, to = toks.get((cn, r["tin"].lower())), toks.get((cn, r["tout"].lower()))
+    if ti and ti[0] in STABLES:
+        return int(r["amount_in"]) / 10 ** ti[1], "tin"
+    if to and to[0] in STABLES:
+        if r.get("outcome") == "ok" and r.get("delivered") not in ("", None):
+            return int(r["delivered"]) / 10 ** to[1], "tout_delivered"
+        if r.get("mid") not in ("", None):
+            return int(r["amount_in"]) * float(r["mid"]) / 10 ** to[1], "tout_mid"
+    return None, "unpriced"
+
+
+def usd_bucket(usd):
+    if usd is None:
+        return "unpriced"
+    return next(n for n, hi in USD_BUCKETS if usd < hi)
+
+
+def topology(r):
+    """One of the 4 route shapes from (hops, legs): 1h-single, 1h-split, 2h-single, 2h-split; "" absent."""
+    h, l = r.get("hops", ""), r.get("legs", "")
+    if not h or not l:
+        return ""
+    return f"{h}h-" + ("single" if int(l) == int(h) else "split")
+
+
+def tok_class(r, toks):
+    """Measured token class of a row: `short_out` when an ok row delivered less than the quote's
+    net_out (a fee-on-transfer or rebasing tout shows here), `short_in` when leg_amt records the
+    first leg paid less tin than amount_in, else `normal`; "" when not ok (not measured)."""
+    if r.get("outcome") != "ok":
+        return ""
+    if r.get("delivered") not in ("", None) and r.get("net_out") not in ("", None) and int(r["delivered"]) < int(r["net_out"]):
+        return "short_out"
+    la = (r.get("leg_amt") or "").split(";")[0]
+    paid = dict(x.split("=") for x in la.split(":", 1)[1].split("+") if "=" in x) if ":" in la else {}
+    if r["tin"].lower() in paid and int(paid[r["tin"].lower()]) < int(r["amount_in"]) and int(r.get("legs") or 0) == 1:
+        return "short_in"
+    return "normal"
+
+
+def dec_class(r, toks):
+    """tin/tout decimals from the site token list: 18/18, `non18`, or `unknown` (absent there)."""
+    ds = [toks.get((r["chain"], r[k].lower()), (None, None))[1] for k in ("tin", "tout")]
+    if None in ds:
+        return "unknown"
+    return "18/18" if ds == [18, 18] else "non18"
+
+
+def wilson(k, n, z=1.96):
+    """95 % Wilson interval of k/n in percent (lo, hi)."""
+    if not n:
+        return "", ""
+    p, d = k / n, 1 + z * z / n
+    c, h = (p + z * z / (2 * n)) / d, z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return f"{100 * max(0, c - h):.1f}", f"{100 * min(1, c + h):.1f}"
+
+
+def gstats(vals):
+    """n, p50, p90, p99, max and the row line of the max over (value, line) pairs; blanks at n 0."""
+    if not vals:
+        return [0, "", "", "", "", ""]
+    v = [x for x, _ in vals]
+    mx = max(vals)
+    return [len(v), pct(v, 50), pct(v, 90), pct(v, 99), mx[0], f"row:{mx[1]}"]
+
+
+def share(k, n):
+    """pct of k/n, with its Wilson 95 % interval when n < 100."""
+    if not n:
+        return ["", "", ""]
+    lo, hi = wilson(k, n) if n < 100 else ("", "")
+    return [f"{100 * k / n:.1f}", lo, hi]
+
+
+def leg_rows(r, pools, venues, strata):
+    """[(target, gas, dex, kind)] of a row's legs."""
+    out = []
+    for x in (r.get("legs_detail") or "").split(";"):
+        if x:
+            t, g = x.rsplit(":", 1)
+            dex, kind, _, _ = leg_dex(r["chain"], t.lower(), r, pools, venues, strata)
+            out.append((t.lower(), int(g), dex, kind or "?"))
+    return out
+
+
+def dim_table(title, rows, key, seg="g_exec"):
+    """Per chain and `all`: one line per value of `key(row)` with n, pct of the chain's rows (Wilson
+    when n < 100), each outcome class, and the gas of segment `seg` over its ok rows."""
+    out = [f"# {title}: chain\tvalue\tn\tpct\tci95_lo\tci95_hi\t" + "\t".join(OC_CLASSES)
+           + f"\t{seg}_n\tp50\tp90\tp99\tmax\tmax_at"]
+    for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+        rs = [r for r in rows if cn == "all" or r["chain"] == cn]
+        groups = {}
+        for r in rs:
+            groups.setdefault(key(r), []).append(r)
+        for v in sorted(groups, key=str):
+            g = groups[v]
+            oc = [sum(oc_class(r) == c for r in g) for c in OC_CLASSES]
+            gas = [(int(r[seg]), r["_line"]) for r in g if r["outcome"] == "ok" and r.get(seg) not in ("", None)]
+            out.append("\t".join(str(x) for x in [cn, v if v != "" else "(absent)", len(g)] + share(len(g), len(rs)) + oc + gstats(gas)))
+    return out
+
+
+def b_range(rs):
+    """[first, last] block of rows; blanks when no row records b (absent is not block 0)."""
+    bs = [int(r["b"]) for r in rs if r.get("b") not in ("", None)]
+    return [min(bs), max(bs)] if bs else ["", ""]
+
+
+def nodata(title, col):
+    return [f"# {title}: no data (column {col} missing)"]
+
+
+def detail_lines(spec, rows, universe, tokens=SITE_TOKENS):
+    """Report section 8: swaps by DEX and top pools, structure, token class, USD size, outcome x every
+    dimension, gas, fallback and aged route. A dimension whose column is absent prints
+    `no data (column X missing)` and nothing else."""
+    uni = load_universe(universe)
+    pools = {(u["chain"], u["pool"]): (u["venue"], u["kind"]) for u in uni}
+    venues = {(u["chain"], u["venue"]): u["kind"] for u in uni}
+    strata, toks = strata_index(spec), load_tokens(tokens)
+    for i, r in enumerate(rows):
+        r.setdefault("_line", i + 2)
+    cols = set(rows[0]) if rows else set()
+    for r in rows:
+        r["_usd"], r["_usd_basis"] = usd_size(r, toks)
+        r["_bucket"] = usd_bucket(r["_usd"])
+    out = []
+    # 8.1 legs by kind and DEX, top pools and pairs
+    legs = [(r, *x) for r in rows if r["outcome"] == "ok" for x in leg_rows(r, pools, venues, strata)]
+    for title, k in (("8.1a legs by kind", lambda L: L[4]), ("8.1b legs by dex", lambda L: f"{L[3]}|{L[4]}")):
+        out.append(f"# {title} (ok rows; gas = leg frame gasUsed): chain\tvalue\tlegs\tpct\tci95_lo\tci95_hi\tn\tp50\tp90\tp99\tmax\tmax_at")
+        for cn in sorted({L[0]["chain"] for L in legs}) + ["all"]:
+            ls = [L for L in legs if cn == "all" or L[0]["chain"] == cn]
+            for v in sorted({k(L) for L in ls}):
+                g = [L for L in ls if k(L) == v]
+                out.append("\t".join(str(x) for x in [cn, v, len(g)] + share(len(g), len(ls)) + gstats([(L[2], L[0]["_line"]) for L in g])))
+    out.append("# 8.1c top 10 pools per chain by legs (ok rows): chain\trank\tpool\tdex\tkind\tlegs\tpct\tfirst_b\tlast_b\tgas_p50\tgas_max\tmax_at")
+    for cn in sorted({L[0]["chain"] for L in legs}):
+        ls = [L for L in legs if L[0]["chain"] == cn]
+        by = {}
+        for L in ls:
+            by.setdefault(L[1], []).append(L)
+        for i, (p, g) in enumerate(sorted(by.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:10]):
+            bs = b_range([L[0] for L in g])
+            st = gstats([(L[2], L[0]["_line"]) for L in g])
+            out.append(f"{cn}\t{i + 1}\t{p}\t{g[0][3]}\t{g[0][4]}\t{len(g)}\t{100 * len(g) / len(ls):.1f}\t{bs[0]}\t{bs[1]}\t{st[1]}\t{st[4]}\t{st[5]}")
+    out.append("# 8.1d top 10 pairs per chain by rows (every outcome): chain\trank\ttin\ttout\tn\tok\tok_pct\tci95_lo\tci95_hi\tfirst_b\tlast_b")
+    for cn in sorted({r["chain"] for r in rows}):
+        by = {}
+        for r in rows:
+            if r["chain"] == cn:
+                by.setdefault((r["tin"].lower(), r["tout"].lower()), []).append(r)
+        for i, ((a, b), g) in enumerate(sorted(by.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:10]):
+            ok = sum(r["outcome"] == "ok" for r in g)
+            out.append("\t".join(str(x) for x in [cn, i + 1, a, b, len(g), ok] + share(ok, len(g))
+                                 + b_range(g)))
+    # 8.2 structure
+    out += dim_table("8.2a legs", rows, lambda r: r.get("legs", ""))
+    out += dim_table("8.2b hops", rows, lambda r: r.get("hops", ""))
+    out += dim_table("8.2c topology (hops x single|split)", rows, topology)
+    out += dim_table("8.2d multi-hop via an intermediate token (hops == 2)", rows,
+                     lambda r: {"2": "via_intermediate", "1": "direct"}.get(r.get("hops", ""), ""))
+    out += nodata("8.2e bridge token of a 2-hop route", "route_mid_token")
+    # 8.3 token class
+    out += dim_table("8.3a token class (measured, delivered < net_out or leg_amt < amount_in)", rows, lambda r: tok_class(r, toks))
+    out += dim_table("8.3b decimals tin/tout (site_tokens.json)", rows, lambda r: dec_class(r, toks))
+    out += nodata("8.3c rebase / exotic token", "tok_flags")
+    out += nodata("8.3d native vs wrapped (draws ride the wrapped token)", "tin_native")
+    # 8.4 volume
+    out += dim_table("8.4a USD size bucket (peg 1 of a stable side; unpriced = neither side a listed stable)", rows, lambda r: r["_bucket"])
+    out += dim_table("8.4b USD basis", rows, lambda r: r["_usd_basis"])
+    out.append("# 8.4c gas per leg by USD size (ok rows; g_legs_sum / legs): chain\tbucket\tn\tp50\tp90\tp99\tmax\tmax_at")
+    for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+        for bk in [n for n, _ in USD_BUCKETS] + ["unpriced"]:
+            g = [(int(r["g_legs_sum"]) // int(r["legs"]), r["_line"]) for r in rows if (cn == "all" or r["chain"] == cn)
+                 and r["_bucket"] == bk and r["outcome"] == "ok" and r.get("legs") not in ("", None, "0") and r.get("g_legs_sum")]
+            if g:
+                out.append("\t".join(str(x) for x in [cn, bk] + gstats(g)))
+    if "leg_amt" not in cols or not any(r.get("leg_amt") for r in rows):
+        out += nodata("8.4d input per leg (volume share per DEX)", "leg_amt")
+    # 8.5 outcome crossed with stratum kind x size bucket, and the revert causes
+    out.append("# 8.5a stratum kind x USD bucket x outcome class: chain\tkind\tbucket\tn\t" + "\t".join(OC_CLASSES) + "\tok_pct\tci95_lo\tci95_hi")
+    for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+        by = {}
+        for r in rows:
+            if cn == "all" or r["chain"] == cn:
+                by.setdefault((r["kind"], r["_bucket"]), []).append(r)
+        for (k, bk), g in sorted(by.items()):
+            oc = [sum(oc_class(r) == c for r in g) for c in OC_CLASSES]
+            out.append("\t".join(str(x) for x in [cn, k, bk, len(g)] + oc + share(oc[0], len(g))))
+    out.append("# 8.5b causes of every row not ok (decoded): chain\toutcome\tclass\tcause\tn\tfirst_at\tfirst_b")
+    for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+        by = {}
+        for r in rows:
+            if (cn == "all" or r["chain"] == cn) and r["outcome"] != "ok":
+                by.setdefault((r["outcome"], oc_class(r), decode_err(r.get("detail", ""))[1]), []).append(r)
+        for (o, c, cause), g in sorted(by.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+            out.append(f"{cn}\t{o}\t{c}\t{cause}\t{len(g)}\trow:{g[0]['_line']}\t{g[0]['b']}")
+    # 8.6 gas
+    seg = [("g_quote", "g_quote"), ("g_exec", "g_exec"), ("g_legs_sum", "g_legs_sum"), ("router_overhead", "dex_overhead"),
+           ("walk (g_solve)", "g_solve"), ("verification (g_gates)", "g_gates"), ("g_record", "g_record"), ("g_discovery", "g_discovery")]
+    out.append("# 8.6a gas by segment (ok rows): chain\tsegment\tn\tp50\tp90\tp99\tmax\tmax_at")
+    for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+        rs = [r for r in rows if (cn == "all" or r["chain"] == cn) and r["outcome"] == "ok"]
+        for name, s in seg:
+            out.append("\t".join(str(x) for x in [cn, name] + gstats([(v, r["_line"]) for r in rs for v in [split_value(r, s)] if v is not None])))
+        out.append("\t".join(str(x) for x in [cn, "per_leg"] + gstats([(L[2], L[0]["_line"]) for L in legs if cn == "all" or L[0]["chain"] == cn])))
+    out.append("# 8.6b quote estimate vs execution (ok rows; delta = g_exec - est_gas): chain\tn\test_p50\texec_p50\tdelta_p50\tdelta_p90\tdelta_p99\tdelta_max\tmax_at\tunder_est\tunder_pct")
+    for cn in sorted({r["chain"] for r in rows}) + ["all"]:
+        rs = [r for r in rows if (cn == "all" or r["chain"] == cn) and r["outcome"] == "ok" and r.get("est_gas") and r.get("g_exec")]
+        if rs:
+            dl = [(int(r["g_exec"]) - int(r["est_gas"]), r["_line"]) for r in rs]
+            st, under = gstats(dl), sum(d > 0 for d, _ in dl)
+            out.append("\t".join(str(x) for x in [cn, len(rs), pct([int(r["est_gas"]) for r in rs], 50), pct([int(r["g_exec"]) for r in rs], 50)]
+                                 + st[1:] + [under, f"{100 * under / len(rs):.1f}"]))
+    out.append("# 8.6c gas by kind of the leg x USD bucket (ok rows, leg frame gas): chain\tkind\tbucket\tn\tp50\tp90\tp99\tmax\tmax_at")
+    for cn in sorted({L[0]["chain"] for L in legs}) + ["all"]:
+        by = {}
+        for L in legs:
+            if cn == "all" or L[0]["chain"] == cn:
+                by.setdefault((L[4], L[0]["_bucket"]), []).append((L[2], L[0]["_line"]))
+        for (k, bk), g in sorted(by.items()):
+            out.append("\t".join(str(x) for x in [cn, k, bk] + gstats(g)))
+    # 8.7 fallback and aged route
+    out += nodata("8.7a fallback to the runner-up (f82bc67)", "fb_used") if "fb_used" not in cols else []
+    out += nodata("8.7b aged route executed at the current block (7, 10, 25 s)", "route_age_s") if "route_age_s" not in cols else []
+    n, cur = [], None
+    for ln in out:
+        if ln.startswith("# "):
+            cur = ln[2:].split(":")[0]
+            n.append([cur, 0])
+        else:
+            n[-1][1] += 1
+    out.append("# 8.0 index: section\tdata_lines")
+    out += [f"{s}\t{c}" for s, c in n]
+    return out
+
+
 def cmd_report(spec_path, out_path, universe=UNIVERSE):
     spec = json.load(open(spec_path))
     rows = classify_rows(load_rows(out_path))
@@ -1170,6 +1485,8 @@ def cmd_report(spec_path, out_path, universe=UNIVERSE):
             cells += [len(g), pct(g, 50) if g else "", pct(g, 95) if len(g) >= PAIRED_MIN_N else ""]
         print("\t".join(k) + "\t" + "\t".join(str(c) for c in cells))
     for ln in dex_lines(spec, rows, universe):
+        print(ln)
+    for ln in detail_lines(spec, rows, universe):
         print(ln)
 
 
