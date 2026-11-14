@@ -38,6 +38,7 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
     BlazePhoenixGate gate;
     BlazePhoenixHub hub;
     MockGateRegistry reg;
+    OneToOneGateAdapter adapter;
     BlazePhoenixQuoter quoter;
     MockERC20[3] tk;
 
@@ -45,7 +46,7 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
         for (uint256 i; i < 3; ++i) tk[i] = new MockERC20("T", "T");
         gate = new BlazePhoenixGate(address(this));
         reg = new MockGateRegistry();
-        OneToOneGateAdapter adapter = new OneToOneGateAdapter(gate, reg);
+        adapter = new OneToOneGateAdapter(gate, reg);
         gate.proposeAdapter(FAM, address(adapter));
         vm.warp(block.timestamp + gate.ADAPTER_DELAY());
         gate.acceptAdapter(FAM);
@@ -129,6 +130,19 @@ contract QuoterExactRouteShowsOnlyFundedFiguresTest is Test {
         assertEq(exactOut, 0, "the fee ate the anchor hop's input: the door promises 0");
         _assertHop(q, 0, 1, "hop 0, no fee, 1 wei funded");
         _assertHop(q, 1, 0, "hop 1, eaten by its fee");
+    }
+
+    /// @notice RED-FIRST (WALKFIX-124). Gama: 1 wei. Vetor: no bridge, every hop pays on its input.
+    ///         Dimensão: unit, 2 hops, venue call count. A walk that funded nothing promises 0
+    ///         whatever a second walk would say (the promise is at most the walk's 0), so the exact
+    ///         door asks no venue again: the funded figure is not re-walked over the zeroed route,
+    ///         where hop 0 would ask its venue for 0. Red while `_exact` calls `_fundedOut` on a
+    ///         gross of 0 (registered mutant «WALKFIX-124 Quoter: the exact door re-walks a route
+    ///         that funded nothing»).
+    function test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue() public {
+        vm.expectCall(address(adapter), abi.encodeWithSelector(OneToOneGateAdapter.quoteCall.selector), 0);
+        (, uint256 exactOut) = _preview(1);
+        assertEq(exactOut, 0, "the fee ate the order: the door promises 0");
     }
 
     /// @notice Control, green today: above the fee every hop is written with what the Router funds.

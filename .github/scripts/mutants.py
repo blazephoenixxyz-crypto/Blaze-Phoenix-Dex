@@ -7877,8 +7877,8 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
 # pass; a fee that takes all that entered a hop stops it at 0 (a venue is never asked for 0 in).
  dict(nome="124-L5 B6 Quoter: the walk asks a venue after the fee ate the carry",
       f="src/BlazePhoenixQuoter.sol",
-      old="                if (fee >= carry) return 0;",
-      new="                if (fee > carry) return 0; // MUTANT",
+      old="                if (fee >= carry) {",
+      new="                if (fee > carry) { // MUTANT",
       teste="test_OneHop_AFeeThatEatsTheWholeInputPromisesZero"),
  dict(nome="124-L5 B6 Quoter: the exact walk charges a single hop on its input",
       f="src/BlazePhoenixQuoter.sol",
@@ -7892,6 +7892,19 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);",
       new="            if (write) (hop.amountIn, hop.expectedOut) = (hop.amountIn, hopOut); // MUTANT",
       teste="test_Control_TwoHops_TheRouteCarriesTheFundedFigures"),
+# 124-JE walkfix (2026-11-14): a fee that eats a hop's carry stops the exact walk at 0, and the hops
+# from there on are written 0 in the returned route, never left with the plan's figures.
+ dict(nome="124-JE walkfix Quoter: the exact walk leaves the plan's figures in the hops a fee left unfunded",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                    if (write) _unfund(route.hops, h);",
+      new="                    // MUTANT",
+      teste="test_TwoHops_AFeeThatEatsHopZero_LeavesNoUnfundedFigureInTheRoute"),
+# A walk that funded nothing promises 0, so the exact door asks no venue again (WALKFIX-124).
+ dict(nome="WALKFIX-124 Quoter: the exact door re-walks a route that funded nothing",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        uint256 funded = gross == 0 ? 0 : _fundedOut(route, amountIn);",
+      new="        uint256 funded = _fundedOut(route, amountIn); // MUTANT",
+      teste="test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

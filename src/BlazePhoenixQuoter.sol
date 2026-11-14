@@ -899,7 +899,9 @@ contract BlazePhoenixQuoter {
         // (SHARED_QUANTITIES.md, "the net output the exact door promises"). A multi-hop route
         // took its fee inside `_walk`, at the hop the Router takes it (#44), and its funded
         // figure is the same walk.
-        uint256 funded = _fundedOut(route, amountIn);
+        // A walk that funded nothing promises 0 whatever a second walk says (the min below), so
+        // no venue is asked again: over a route `_walk` zeroed, hop 0 would ask for 0 (WALKFIX-124).
+        uint256 funded = gross == 0 ? 0 : _fundedOut(route, amountIn);
         exactOut = funded != type(uint256).max
             ? gross // input-charged: the fee came off in `_walk`, or `funded` bounds below
             : gross - BPC.mulDivUp(gross, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
@@ -962,7 +964,8 @@ contract BlazePhoenixQuoter {
     ///      is capped at the legs' sum (the quote-side twin of the Router's hop-0 cap: a plan the
     ///      Solver's capacity clamp cut is never priced at its pre-clamp size). A fee that takes
     ///      all that entered the hop leaves nothing to sell: 0, never a venue's answer for an input
-    ///      of 0. `write` records each leg's and hop's funded input and output in the route.
+    ///      of 0. `write` records each leg's and hop's funded input and output in the route,
+    ///      0 in the hops such a fee left unfunded (`_unfund`, JE-124).
     function _walk(Route memory route, uint256 amountIn, uint256 feeHop, bool feeOnOut, bool write)
         private returns (uint256 carry)
     {
@@ -973,7 +976,10 @@ contract BlazePhoenixQuoter {
             for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
             if (BPC.paysOnInput(h, feeHop, feeOnOut)) {
                 uint256 fee = BPC.mulDivUp(h == 0 && carry > legSum ? legSum : carry, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
-                if (fee >= carry) return 0;
+                if (fee >= carry) {
+                    if (write) _unfund(route.hops, h);
+                    return 0;
+                }
                 carry -= fee;
             }
             if (h == 0 && carry > legSum) carry = legSum;
@@ -987,6 +993,17 @@ contract BlazePhoenixQuoter {
             }
             if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);
             carry = hopOut;
+        }
+    }
+
+    /// @dev The hops from `h` on, which a fee that ate the carry left unfunded (JE-124): every
+    ///      hop's and leg's input and output written 0, the figures the Router funds them with,
+    ///      never the plan's. No venue is asked.
+    function _unfund(Hop[] memory hops, uint256 h) private pure {
+        for (; h < hops.length; h++) {
+            Hop memory hop = hops[h];
+            (hop.amountIn, hop.expectedOut) = (0, 0);
+            for (uint256 l; l < hop.legs.length; l++) (hop.legs[l].amountIn, hop.legs[l].expectedOut) = (0, 0);
         }
     }
 
