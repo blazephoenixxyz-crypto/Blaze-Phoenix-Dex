@@ -45,6 +45,15 @@
 // test/MathBoundarySameAnswer.t.sol holds the two to one answer on the rows it draws; it proves nothing
 // where the two funnels would part.
 //
+// ALIGNED 2026-11-15 TO C1, THE WALK'S BUDGET DERIVED FROM SOLVE_GAS (8a4d6e1). The rebuild's
+// static self-call ran on a fixed WALK_GAS of 2,500,000; the Solver now hands it
+// W = min((SOLVE_GAS - ENTRY - s - 20,000) * 63 / 64, WALK_CAP) for a search that spent s, and
+// stops with empty revert data when entered on less than SOLVE_GAS - ENTRY. That budget moved
+// here literally (`g0` read first in `findBestRoutePlan`, ENTRY = 1,200, SOLVE_GAS and WALK_CAP
+// read from the LIVE Core, like the band's mass): with 2.5M a rebuild the Solver completes ran
+// out of gas here and the plan built at the cap stood (G52's held grid where a bridge leads,
+// 145.4e18 against 184.7e18). The search s is this reference's own, so where a walk needs
+// between the two Solvers' budgets the comparison would part; the rows drawn do not.
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
 //  Version    : 2.0.0
@@ -320,6 +329,7 @@ contract SolverRefPoda1027 {
     function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
         external view returns (RoutePlan memory plan)
     {
+        uint256 g0 = gasleft();
         if (tIn == address(0) || tOut == address(0) || tIn == tOut || amountIn == 0)
             revert SolverE(4);
 
@@ -376,7 +386,7 @@ contract SolverRefPoda1027 {
         // the cap stands. The fallback stays the runner-up read above. A solve that cannot
         // hand the walk its whole budget stops with empty revert data (out of gas, RouterE(17)
         // at the automatic door) - never a different plan.
-        if (m.bestHeld) _walkOnItsOwnBudget(plan, bk, m.bestU);
+        if (m.bestHeld) _walkOnItsOwnBudget(plan, bk, m.bestU, g0);
     }
 
     /// @dev The gas the rebuild of `findBestRoutePlan` runs on. Fixed: the walk's outcome is a
@@ -384,24 +394,30 @@ contract SolverRefPoda1027 {
     ///      rebuild over every held book a build seats fits, on the grids of
     ///      test/CapacityWalkBudget.t.sol and on a live book
     ///      (test/fork/CapacityPromiseAsksTheVenue.t.sol).
-    uint256 private constant WALK_GAS = 2_500_000;
+    uint256 private constant ENTRY = 1_200;
+    uint256 private constant SOLVE_B = LiveCore.SOLVE_GAS - ENTRY;
 
     /// @dev The rebuild, as a static self-call of `findBestRoutePlan` carrying `bk` and the rank
     ///      `u` to beat past the three arguments (only the Solver itself is answered on them).
     ///      Its answer is spliced in as `plan.best` without decoding: the returned encoding is
     ///      [0x20][0x60][off fallback][0][best], and only the fallback blob and its flag are
     ///      ours. On any failure of the self-call the plan built at the cap is returned.
-    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u) private view {
+    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u, uint256 g0) private view {
         bytes memory f = abi.encode(plan.fallbackRoute);
         bool hf = plan.hasFallback;
+        uint256 b = SOLVE_B;
+        uint256 c = LiveCore.WALK_CAP;
         assembly ("memory-safe") {
             let p := mload(0x40)
             calldatacopy(p, 0, 0x64)                    // this solve's own call: the one entry, its three words
             mstore(add(p, 0x64), bk)
             mstore(add(p, 0x84), u)
-            // The whole WALK_GAS reaches the self-call or the solve stops (EIP-150 keeps 1/64).
-            if lt(gas(), add(div(mul(WALK_GAS, 64), 63), 20000)) { revert(0, 0) }
-            if staticcall(WALK_GAS, address(), p, 0xa4, 0, 0) {
+            // C1: W = min((SOLVE_B - s - 20,000) * 63 / 64, WALK_CAP), as in the Solver.
+            let s := sub(g0, gas())
+            if or(lt(g0, b), iszero(lt(add(s, 20000), b))) { revert(0, 0) }
+            let w := div(mul(sub(sub(b, s), 20000), 63), 64)
+            if gt(w, c) { w := c }
+            if staticcall(w, address(), p, 0xa4, 0, 0) {
                 returndatacopy(p, 0x40, 0x20)
                 let n := add(mload(p), 0x20)            // the bytes up to the end of `best`
                 returndatacopy(p, 0, n)
