@@ -239,7 +239,7 @@ before its output about anything else was allowed to count.
 ## 7. The rhetoric
 
 Assurance is usually communicated in numerators. *We have 1,059 tests. We have 96% coverage. We
-have an audit. We have a bounty with eighteen researchers.* Every one of those is true here, and
+have a bounty with eighteen researchers.* Every one of those is true here, and
 not one of them would have caught the defect that started this.
 
 Four rules, offered as a replacement.

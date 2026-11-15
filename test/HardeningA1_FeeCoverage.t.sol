@@ -5,7 +5,7 @@ pragma solidity 0.8.36;
 //  A1 / C1b regression — a forged near-zero quote must NOT evade the fee.
 //
 //  _execute charges the protocol fee on the in-frame on-chain quote
-//  (onchainQuoteAcc) so a crafted route.totalOut cannot shrink the fee base.
+//  (quoteAcc) so a crafted route.totalOut cannot shrink the fee base.
 //  But the V3/Algebra quote prices with the CALLER's leg.fee while execution
 //  charges the pool's own fee: leg.fee near 1e6 drives outV3 toward 0, so the
 //  pre-fix feeBase = min(quote, delivered) collapsed and the bulk of the

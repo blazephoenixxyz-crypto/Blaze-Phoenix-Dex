@@ -1,0 +1,12 @@
+tag	kkt-1114
+sol	test/bench/KktGapCertificate.t.sol
+seed	keccak256(abi.encode(TAG, universe, n, i)) per pool; keccak256(abi.encode(TAG, universe, n, "price")) per universe
+universe	0	v2-one-price-one-fee	every pool at one price, fee 30 bps
+universe	1	v2-band-prices	each pool at price * dev, dev in [0.96, 1.04]
+const	N	2,3,5
+const	DEPTH_IN	1e24 * (1 + r mod 16)
+const	PRICE_THOUSANDTHS	100 + r mod 9901
+const	SIZE_PPM_OF_DEPTH	1,100,1000,10000,50000,200000
+const	FEE_BPS	30
+const	BOUND_PPM	3500	asserted in universe 0 only: certificate / F; fixed 11-14 after run 1 (placeholder 10000): measured max 3014 (size 1 ppm, 1 leg), <= 114 from 100 ppm
+const	SLACK_WEI	n	integer quotes, one wei per leg

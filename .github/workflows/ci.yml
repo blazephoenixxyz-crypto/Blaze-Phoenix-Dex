@@ -6,18 +6,56 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A new push to the same ref cancels the run it supersedes. The group carries the
+# workflow name: one group shared by every workflow would let one workflow cancel another.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FOUNDRY_PROFILE: default
 
-# A newer push to the same ref cancels the run it supersedes (2026-11-14): runs no longer queue
-# behind their own stale predecessors for the account's ~20 concurrent jobs.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
+  changes:
+    # Path filter (owner's decision 2026-11-14). A pull request that touches none of the paths
+    # below (docs, notes, README) runs the cheap guards and skips the heavy jobs. A filter on
+    # `on.pull_request.paths` would skip the whole workflow, and a required check whose workflow
+    # never starts stays "Expected" forever and blocks the merge; a job skipped by its `if`
+    # reports success under its own name. The matrix shards and the gate job keep running and
+    # skip their steps instead: a skipped matrix job reports one check under the unexpanded
+    # name, never the per-shard names the branch rule requires. Push to main and manual runs
+    # always run everything. The filter fails open: if it cannot answer, or this job dies,
+    # nothing reads 'false' and every job runs (a job skipped because a job it needs failed
+    # would also report success, so the jobs below ask `!cancelled()`, not the default).
+    name: changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outcome != 'success' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'test/**'
+              - 'script/**'
+              - 'lib/**'
+              - '.github/**'
+              - 'foundry.toml'
+              - 'remappings.txt'
+              - 'snapshots/**'
+              - '.sizes-snapshot'
   test:
     name: build + test (fast profile)
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     # The mutation guard and the deep invariant pass grew past this job's ceiling and run
     # as their own jobs since 2026-10-07 (mutation-guard, deep-invariant).
@@ -38,9 +76,23 @@ jobs:
         run: python3 .github/scripts/check_no_secrets.py
 
       - name: Install Foundry
+        if: needs.changes.outputs.code != 'false'
         uses: foundry-rs/foundry-toolchain@v1
 
+      - name: Swap for the via_ir compile (fail-open)
+        if: needs.changes.outputs.code != 'false'
+        # In run 43631227755, 22 of 40 mutation shards died 18-30 min in, before their first verdict
+        # ("shutdown signal", or "lost communication ... starves it for CPU/Memory"): the window is
+        # the release via_ir compile of the whole tree (613 files). Swap gives that compile room.
+        # Fail-open: a runner where swap cannot be added warns and runs exactly as before.
+        run: |
+          f=/swapfile-ci; [ -d /mnt ] && f=/mnt/swapfile-ci
+          { sudo fallocate -l 12G "$f" && sudo chmod 600 "$f" && sudo mkswap "$f" >/dev/null && sudo swapon "$f"; } \
+            || echo "::warning::no extra swap on this runner; the compile runs on RAM alone"
+          free -m || true
+
       - name: Show versions
+        if: needs.changes.outputs.code != 'false'
         run: forge --version
 
       - name: Shared-quantity register (a pin that does not name what it pins is a hole with a green test in front of it)
@@ -60,19 +112,24 @@ jobs:
         # duas fontes da mesma grandeza sem nada a obriga-las a concordar.
         run: bash .github/scripts/shared-quantities.sh
 
-      - name: llms-full.txt is current
-        # The one-file corpus for agents is generated from the docs it points at; a stale
-        # copy is a stale claim wearing the clothes of a current one.
-        run: python3 .github/scripts/llms_full.py --check
+      - name: Generated files are current (covering array, README and llms.txt figures, llms-full.txt)
+        # Every count in the README and in llms.txt is generated from the tree, and llms-full.txt is the
+        # docs it points at concatenated; a number typed by hand, or a copy built before its sources,
+        # is true on the day it is written and silently false after. The generators feed each other
+        # (covering array -> test count -> README -> llms-full.txt), so they run as one command in
+        # dependency order; the failure names it: python3 .github/scripts/regen.py
+        run: python3 .github/scripts/regen.py --check
 
-      - name: README and llms.txt figures are current
-        # Every count in the README and in llms.txt is generated from the tree; a number typed by
-        # hand is true on the day it is written and silently false after.
-        run: python3 .github/scripts/readme_stats.py --check
+      - name: The regeneration order can fail (regen self-test)
+        # On a scratch copy of the tree, a new test and a new llms.txt line must reach llms-full.txt
+        # after one regen, and a conflict marker in prose must be reported as one. A step dropped
+        # from STEPS, or moved before its producer, or a conflict check that crashes, turns this red.
+        run: python3 .github/scripts/regen.py --self-test
 
-      - name: regime covering array is current
-        # The generated rows must be the rows the generator produces for the declared factors.
-        run: python3 .github/scripts/assurance/covering_array.py --check
+      - name: Formal evidence counts only what CI enforces (evidence independence self-test)
+        # A spec named by a continue-on-error job, behind `|| true` or in a comment cannot turn a
+        # run red, so it is not formal evidence. The self-test proves each of those is refused.
+        run: python3 .github/scripts/assurance/evidence_independence.py --self-test
 
       - name: TickMath table is its definition, certified on every tick
         # Each of the twenty constants of Core.sqrtPriceAtTick is recomputed from its definition, the
@@ -306,9 +363,11 @@ jobs:
           fi
 
       - name: Build
+        if: needs.changes.outputs.code != 'false'
         run: forge build
 
       - name: Test
+        if: needs.changes.outputs.code != 'false'
         # Fork tests (test/fork/**) require a dedicated archive RPC; on the
         # shared CI they hit public-endpoint rate limits (HTTP 429) and fail
         # non-deterministically. Exclude them from the fast profile — run them
@@ -331,6 +390,8 @@ jobs:
 
   mutation-guard:
     name: mutation guard (shard ${{ matrix.shard }} of 40)
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     # Its own job since 2026-10-07, in four parallel shards. Inside `test` the guard took 80 of
     # the job's 90 minutes at ~271 mutants and was cancelled (runs 37653877143, 37653884792);
@@ -351,8 +412,10 @@ jobs:
     # cancelled at 75 with 3-32 mutants unjudged. 23.3 + 0.49 * 1229 / 17 = 58.7.
     # Twenty since 2026-11-13: at 1,368 mutants seventeen shards took 56-75 min and two were
     # cancelled at 75 (run 43509365862); 23.3 + 0.49 * 1368 / 17 = 62.7, on twenty 56.8.
-    # Not more: the account runs ~20 jobs at once and every shard pays the 23-minute baseline
-    # again, so past ~20 shards the run gets longer, not shorter (40 shards: two waves, ~80 min).
+    # Forty since 2026-11-14 (owner's order): on twenty shards the jobs ran out of their 75
+    # minutes. 1,482 mutants give 23.3 + 0.49 * 1482 / 40 = 41.5, under 60 up to ~2,990 mutants.
+    # Branch protection requires these forty names; the aggregator `mutation guard` below runs
+    # in addition to them, not in their place.
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -360,17 +423,32 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
     steps:
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.code != 'false'
         with:
           submodules: recursive
 
       - name: Install Foundry
+        if: needs.changes.outputs.code != 'false'
         uses: foundry-rs/foundry-toolchain@v1
         with:
           # Pinned: the gas ledgers' snapshots (snapshots/*.json) are this binary's measurement,
           # and every run of the guard checks them (mutants.py, SNAPSHOT_FLAGS).
           version: v1.8.5
 
+      - name: Swap for the via_ir compile (fail-open)
+        if: needs.changes.outputs.code != 'false'
+        # In run 43631227755, 22 of 40 mutation shards died 18-30 min in, before their first verdict
+        # ("shutdown signal", or "lost communication ... starves it for CPU/Memory"): the window is
+        # the release via_ir compile of the whole tree (613 files). Swap gives that compile room.
+        # Fail-open: a runner where swap cannot be added warns and runs exactly as before.
+        run: |
+          f=/swapfile-ci; [ -d /mnt ] && f=/mnt/swapfile-ci
+          { sudo fallocate -l 12G "$f" && sudo chmod 600 "$f" && sudo mkswap "$f" >/dev/null && sudo swapon "$f"; } \
+            || echo "::warning::no extra swap on this runner; the compile runs on RAM alone"
+          free -m || true
+
       - name: Mutation guard (os guardas tem de ter testes que os apanhem)
+        if: needs.changes.outputs.code != 'false'
         # PORQUE ISTO GATEIA. Nesta base de codigo, DUAS vezes documentadas, um fix vivo ficou
         # com testes mortos: a suite passava na mesma com o fix REMOVIDO. O caso mais recente
         # passou 5/5 com o portao de cobertura arrancado — o revert que o teste apanhava vinha
@@ -387,11 +465,36 @@ jobs:
         env:
           MUTANTS_SHARD: ${{ matrix.shard }}
           MUTANTS_SHARDS: 40
+          # Two test threads: the long shards lost their runner to memory at 65-67 min with four.
+          FOUNDRY_THREADS: "2"
           PYTHONUNBUFFERED: "1"
         run: python3 .github/scripts/mutants.py
 
+  mutation-guard-gate:
+    name: mutation guard
+    # One required check for the whole guard: it fails unless every shard succeeded. It runs
+    # always(), so a failed or cancelled shard turns it red instead of leaving it skipped (a
+    # skipped required check would read as passing). A run with no code change still passes,
+    # because the shards skip their steps and report success.
+    needs: mutation-guard
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard of the mutation guard passed
+        env:
+          SHARDS_RESULT: ${{ needs.mutation-guard.result }}
+        run: |
+          echo "mutation-guard shards: $SHARDS_RESULT"
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "::error::mutation guard: at least one shard did not succeed ($SHARDS_RESULT)"
+            exit 1
+          fi
+
   deep-invariant:
     name: deep invariant pass (report-only)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     # Its own job since 2026-10-07. Inside `test` the 128x128 campaign took the gate from
     # 47-65 minutes to 87-90 of its 90 (the push run of d5cedff was cancelled at 90:28),
@@ -509,6 +612,8 @@ jobs:
 
   n-version:
     name: n-version lane (same source, other code generation)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -540,6 +645,8 @@ jobs:
 
   size-guard:
     name: EIP-170 size guard (release profile)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -667,8 +774,21 @@ jobs:
     # One job per spec since 2026-11-14: in run 43593384783 the single job was shut down by the
     # runner at ~19-24 min (exit 143) before both specs had run. Each spec now gets its own clock;
     # the job below keeps the required check name and fails if any spec fails.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Halmos 0.3.3 reports a path cut by the loop bound as a WARNING and the check still
+      # PASSES: a bound that was hit proves nothing. Both PROOF steps below already look for
+      # that warning and annotate it. Set this to "1" (the warning then fails the step) only
+      # after one CI run on this pin has measured both specs with no such annotation; until
+      # then the switch reports and gates nothing, so a proof is not turned red unmeasured.
+      LOOP_BOUND_GATE: "0"
+      # Halmos compiles before it proves. Over the whole tree (via_ir, 613 files) that compile
+      # alone outran the runner in run 43631227755 (~20 min, shut down before a proof ran). The
+      # specs import only src and forge-std, so the test root narrows to test/formal.
+      FOUNDRY_TEST: test/formal
     strategy:
       fail-fast: false
       matrix:
@@ -682,7 +802,7 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Install Halmos
-        run: pip install halmos
+        run: pip install halmos==0.3.3   # pinned: a proof is measured on one prover; bump by PR
 
       - name: Symbolic PROOF — Core math hard gate (iron floor / impact / V3 fail-closed)
         # test/formal/CoreFormalGateSpec.t.sol. Checks land in this contract
@@ -691,7 +811,13 @@ jobs:
         # (INV-1's arithmetic heart), impactV2Bps <= BPS, outV3 fail-closed on
         # degenerate inputs. REAL gate — no `|| true`.
         if: matrix.spec == 'CoreFormalGateSpec'
-        run: halmos --contract CoreFormalGateSpec -v
+        run: |
+          set -o pipefail
+          halmos --contract CoreFormalGateSpec -v 2>&1 | tee halmos-core-gate.log
+          if grep -q 'not been fully explored due to the loop unrolling bound' halmos-core-gate.log; then
+            echo "::warning::CoreFormalGateSpec: a path was cut by the loop bound, so that check is not a proof"
+            [ "$LOOP_BOUND_GATE" != 1 ]
+          fi
 
       - name: Symbolic PROOF — INV-20 effV4Fee fail-closed (hard gate)
         # test/formal/EffV4FeeFormalSpec.t.sol. Pure comparison logic, no 512-bit
@@ -707,7 +833,13 @@ jobs:
         # this proof was never reaching the runner at all. We believed we had two
         # hard gates and were running one.
         if: matrix.spec == 'EffV4FeeFormalSpec'
-        run: halmos --contract EffV4FeeFormalSpec -v
+        run: |
+          set -o pipefail
+          halmos --contract EffV4FeeFormalSpec -v 2>&1 | tee halmos-effv4fee.log
+          if grep -q 'not been fully explored due to the loop unrolling bound' halmos-effv4fee.log; then
+            echo "::warning::EffV4FeeFormalSpec: a path was cut by the loop bound, so that check is not a proof"
+            [ "$LOOP_BOUND_GATE" != 1 ]
+          fi
 
       # A SECOND SYMBOLIC ENGINE BELONGS HERE, AND IS NOT WIRED YET.
       # hevm was added beside Halmos on these same specs and removed in the same
@@ -728,21 +860,72 @@ jobs:
       # and in a codebase where failing closed IS the design that manufactures
       # false positives faster than it finds defects.
 
+  formal-composition:
+    name: formal composition spec (Halmos, report-only)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    # Report-only until measured: test/formal/CompositionFormalSpec.t.sol has never been run by
+    # Halmos (not on a runner, not locally). It becomes a hard gate in the formal job above only
+    # after a run here measures every check discharging cleanly, the same path CoreFormalGateSpec
+    # took. Its own job, so a timeout here cannot eat the formal job's 30-minute budget, and
+    # continue-on-error so a red result reports without failing the workflow. Not a required check.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    env:
+      # Same narrowing as formal-spec: compile src + test/formal only, not the whole tree.
+      FOUNDRY_TEST: test/formal
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Halmos
+        run: pip install halmos==0.3.3   # pinned: a proof is measured on one prover; bump by PR
+
+      - name: Symbolic checks (report-only)
+        # Bounded at the process, not with timeout-minutes: a cancelled step propagates to the job
+        # even under continue-on-error (see formal-explore.yml).
+        run: timeout 1500 halmos --contract CompositionFormalSpec --solver-timeout-assertion 300s -v
+
+      - name: Symbolic - band, hop fee, dust probe, split (report-only)
+        # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
+        # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
+        # a bound that was hit proves nothing, so this step fails on that warning too. A
+        # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
+        run: |
+          set -o pipefail
+          timeout 1500 halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
+            --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
+          ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
+
   formal:
     # The required status check keeps this exact name; it is green only when every spec is.
+    # A run with no code change skips the specs (the `changes` filter) and passes here.
     name: formal verification (Halmos symbolic)
-    needs: formal-spec
+    needs: [changes, formal-spec]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every Halmos spec discharged
+        env:
+          SPEC_RESULT: ${{ needs.formal-spec.result }}
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          echo "formal-spec matrix result: ${{ needs.formal-spec.result }}"
-          test "${{ needs.formal-spec.result }}" = "success"
+          echo "formal-spec matrix result: $SPEC_RESULT (code changed: $CODE_CHANGED)"
+          if [ "$SPEC_RESULT" = "success" ]; then exit 0; fi
+          if [ "$SPEC_RESULT" = "skipped" ] && [ "$CODE_CHANGED" = "false" ]; then exit 0; fi
+          echo "::error::formal: at least one Halmos spec did not succeed ($SPEC_RESULT)"
+          exit 1
 
   gas-metrics:
     name: gas metrics (offline ledger)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     # 30 since the snapshot gate below (2026-11-09): both steps share one release compile, and a
     # full one takes 10.8 min on a fast runner and 15.3 on a slow one (see mutation-guard).

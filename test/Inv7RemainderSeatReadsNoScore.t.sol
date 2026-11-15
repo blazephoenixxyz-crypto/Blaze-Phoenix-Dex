@@ -11,7 +11,7 @@ pragma solidity 0.8.36;
 //  quote, floor or allocation reads it." / "The registry decides what is seen;
 //  it has no vote on what is paid."
 //
-//  Channel: `_topKPools` (Solver:1395-1425) emits the KEPT set in Ψ order.
+//  Channel: `_rankedPools` (Solver:1395-1425) emits the KEPT set in Ψ order.
 //  `_buildHop` gives the LAST position the remainder (Solver:795-800), and the
 //  input-side phantom cut (Solver:858-861) returns freed input to that
 //  remainder. So Ψ picks which venue absorbs the freed input.
@@ -246,7 +246,7 @@ contract Inv7RemainderSeatReadsNoScoreTest is Test {
         // INV-7 at the seat itself (SHARED_QUANTITIES, remainder seat). The plan here is D1 and D2
         // alone, so the seat carries only the rounding of the shares, 1 wei of X, and pays no Y that
         // the three figures above can see. In B, D1 and D2 tie at psi 192 and the funnel lists D1
-        // first (Solver._topKPools), so a seat that followed the psi order would fall on D2 there and
+        // first (Solver._rankedPools), so a seat that followed the psi order would fall on D2 there and
         // on D1 in A. The deepest survivor, D1 (600 X against D2's 400 X), sits last in both.
         assertEq(a.lastLeg, address(D1), "the remainder seat is the deepest survivor");
         assertEq(b.lastLeg, a.lastLeg, "INV-7: the remainder seat read the score");

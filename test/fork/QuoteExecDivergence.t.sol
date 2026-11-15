@@ -23,7 +23,7 @@ interface IERC20Q {
 /// `canExecute == true`, e o `swapExactIn` reverte com `RouterE(5)`.
 ///
 /// `RouterE(5)` tem QUATRO sitios no Router, e sao perguntas diferentes:
-///   Router:1007  hopGot + slack < hopAttested   (Camada 1, por hop)
+///   Router:1007  hopGot + slack < hopBound   (Camada 1, por hop)
 ///   Router:1122  amountOut < effMin             (piso agregado da rota)
 ///   Router:1140  delivered < userMinOut         (piso do utilizador)
 ///   Router:1320  got < bound * LEG_FLOOR_BPS    (piso POR PERNA)

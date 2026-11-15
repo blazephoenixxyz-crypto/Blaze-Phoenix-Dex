@@ -67,12 +67,12 @@ abstract contract SplitPlaceFixture is Test {
     }
 
     /// A book behind `fee` at price 1 (spacing 60, no initialized tick): it declares a million
-    /// times HONEST_L and holds `held` of each token.
-    function _book(uint24 fee, uint256 held) internal returns (MockV3BookPool p) {
+    /// times HONEST_L and holds `holdings` of each token.
+    function _book(uint24 fee, uint256 holdings) internal returns (MockV3BookPool p) {
         p = new MockV3BookPool(address(tA), address(tB), fee, 60);
         p.setState(uint160(BPC.Q96), 1_000_000 * HONEST_L);
-        tA.mint(address(p), held);
-        tB.mint(address(p), held);
+        tA.mint(address(p), holdings);
+        tB.mint(address(p), holdings);
         Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V3, fee);
         hub.seedPool(address(p), BPC.KIND_V3, fee, address(0), address(tA), address(tB));
     }

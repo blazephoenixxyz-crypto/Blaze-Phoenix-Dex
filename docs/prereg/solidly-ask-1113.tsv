@@ -1,0 +1,17 @@
+tag	solidly-ask-1113
+sol	test/SolidlyCurvePriceIsInvariantToTheAsk.t.sol
+seed	sha256(PREREG_TAG || uint256 i), i < N_SAMPLES
+const	N_SAMPLES	1024
+const	R_LO	1e15
+const	R_HI	1e30
+const	F_LO	1
+const	F_HI	100
+must_contain	        assertEq((PIPS - fee) * BPS, (BPS - f) * 100 * ASK, "the kept share is (1 - f) times the ask");
+must_contain	        assertEq(out, cv * ASK / BPS, "the ask is 9,800 bps of the curve, floored");
+note	the oracle is the pair's own curve (MockSolidlyPair.getAmountOut asked directly) and the ask written in the test as 9,800 BPS, never the Core's branch; both equalities are exact, no tolerance in wei
+note	sample i: s = seed_i; word k = keccak256(abi.encode(s, k)); rIn, rOut = logIn(word 0, word 1, R_LO, R_HI); a = logIn(word 2, 1, rIn / 10); f = F_LO + word 3 mod (F_HI - F_LO + 1); zeroForOne = word 4 odd; logIn(w, lo, hi) = lo + ((w >> 8) mod 2^(w mod 100)) mod (hi - lo + 1)
+note	F_HI = 100 is derived: the pair has no factory, so the declared fee is the fee, and Core.readDynamicFee caps a declaration at V2_FEE_CEILING_BPS = 100 (above it reads 30)
+note	N_SAMPLES = 1024: with zero failures the 95% upper bound of the failure rate is 3/1024 (rule of three); it is the registered count, not a tolerance
+note	F_ZERO, decided by the owner (2026-11-14): f = 0 stays out of F_LO = 1. A declared fee of 0 reads as 30 in Core.readDynamicFee (the fallback), another law with its own case, test_ZeroDeclaredFeeIsAskedAtTheFallback
+note	R_RANGE, decided by the owner (2026-11-14): R_LO = 1e15 and R_HI = 1e30 stay (raw units on 18-decimal tokens)
+lock	c74ab0f7beb0d266597f93a6fc45078281c8ebf2ac89583c141f1f5c30438474

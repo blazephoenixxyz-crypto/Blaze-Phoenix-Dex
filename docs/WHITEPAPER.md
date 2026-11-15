@@ -7,7 +7,7 @@
 > The current design is in [papers/whitepaper-v2.2.md](papers/whitepaper-v2.2.md) and in the
 > Technical Whitepaper v2.3 (DOI [10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091)).
 
-> Status: unaudited research/engineering preview. This document describes the
+> Status: research/engineering preview. This document describes the
 > design as implemented and validated by the test campaign in `TESTING.md`. It is
 > **not** a security attestation — see *Status & limitations*. Nothing here is an
 > offer or financial advice.
@@ -302,8 +302,7 @@ baseline.
 
 ## 8. Status & limitations
 
-This is **unaudited**. The following are explicit and, where noted, by design for
-v1.0:
+The following are explicit and, where noted, by design for v1.0:
 
 1. **Single-tick quote approximation.** Concentrated-liquidity quotes (V3 and V4)
    use a current-tick formula that ignores tick crossing. On large, tick-crossing
@@ -316,9 +315,8 @@ v1.0:
    proper `coins()` resolution and dedicated tests.
 3. **Admin is a single key** until a multisig/timelock is wired or control is
    renounced.
-4. **Requires external audit and formal verification** of the floor/fee math and
-   the V4 settle/take accounting before custodying material value. A risk-ranked
-   review scope (`audit/SCOPE.md`) is referenced by prior versions of this
+4. **Requires formal verification** of the floor/fee math and the V4 settle/take
+   accounting before custodying material value. A risk-ranked review scope (`audit/SCOPE.md`) is referenced by prior versions of this
    document but does not yet exist in this repository.
 5. **This reconstruction pass found and fixed six bugs that had shipped
    silently**, discovered by cross-referencing the implementation against
@@ -338,5 +336,4 @@ warm, with execution that enforces its own safety floor and never holds user
 funds at rest. It removes the off-chain solver from the trust model and, with
 freshness-gated discovery, makes atomic on-chain solve-and-swap practical. What
 remains before production is not more testing but the formal-assurance work any
-serious protocol passes: external audit, formal verification, and timelocked
-governance.
+serious protocol passes: formal verification and timelocked governance.

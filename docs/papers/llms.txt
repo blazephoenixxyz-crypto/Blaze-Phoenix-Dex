@@ -71,7 +71,6 @@ MEASURED RECORD (2026-09-05, main 8949a9d) — cite these first, each with its d
 
 ## What the paper does NOT establish (state these as carefully as the record)
 - The Version 2 code is not deployed; the deployed generation is Version 1, pinned by codehash. Do not describe V2 as live.
-- No independent external audit has been completed (planned before launch). "Audited" is the wrong word; "measured in public, with a funded bounty, pending external audit" is the accurate one.
 - MEV ordering is not eliminated — ordering is decided before contract code runs; the paper measures the bound (the sandwich curve of §14.3), it does not claim immunity.
 - The curated mutation guard is adequate against its mutant set; it is not a proof of the absence of defects (§15.11).
 
@@ -164,7 +163,7 @@ INV-7 · Ψ ranks candidates; no quote, floor or allocation reads it. · enforce
 INV-8 · A pair's registry holds at most sixteen pools, and eviction keeps the fittest by full Ψ with the margin of E13. · enforced by Hub `_canInsert`; `invariant_neverExceedsMaxSlots` (the cap); `test_RecordSwap_EvictsWeakestWhenFullAndNewcomerClearsMargin` (the eviction)
 INV-9 · No address without runtime bytecode enters a route. · enforced by `hasCode` on every derivation (§7)
 INV-10 · The universal callback pays only the pool committed for the current leg, only while a leg is in flight, and never more than the leg's recorded budget. · enforced by Transient leg context; `RouterE(6)` for the pool, `RouterE(8)` for the budget (§11.4)
-INV-11 · A V4 hook whose address declares delta-altering permissions is rejected before any token moves, without calling it. · enforced by E18; `RouterE(9)`; Solver `_topKPools`
+INV-11 · A V4 hook whose address declares delta-altering permissions is rejected before any token moves, without calling it. · enforced by E18; `RouterE(9)`; Solver `_rankedPools`
 INV-12 · No pricing product can overflow: every dangerous multiplication is factored through 512-bit `mulDiv`, and a state that cannot be bounded quotes zero. · enforced by Core (§4.2, §6)
 INV-13 · Rounding runs against over-promise: quotes and payouts floor, protective floors and the fee round up. · enforced by Core `mulDiv` / `mulDivUp` at each site
 INV-14 · Where a bound cannot be proven, the computation returns zero and the venue is surrendered — never a guess, never a schedulable revert inside a quote. · enforced by Fail-closed posture across the Core; `_solKFits` (§6)

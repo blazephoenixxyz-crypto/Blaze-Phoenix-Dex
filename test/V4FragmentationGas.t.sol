@@ -45,7 +45,7 @@ contract V4FragmentationGasTest is Test {
     uint256 constant ORDER = 1e22;
     /// The plan must stay quotable in one ordinary `eth_call`.
     uint256 constant PLAN_GAS_CEILING = 30_000_000;
-    /// Mirrors `BlazePhoenixRouter.SOLVE_GAS`, less the capacity walk's own budget: a solve the
+    /// Mirrors `BlazePhoenixCore.SOLVE_GAS`, less the capacity walk's own budget: a solve the
     /// door refuses searched past this before the walk could be handed its budget.
     uint256 constant SEARCH_GAS = 12_000_000;
 

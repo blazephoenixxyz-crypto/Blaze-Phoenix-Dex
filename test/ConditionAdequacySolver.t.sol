@@ -588,7 +588,7 @@ contract CASplitGateAlt is CABase {
 }
 
 // =============================================================================
-//  _topKPools: the discovery dedup (1295 c1) and the fitness selection's three
+//  _rankedPools: the discovery dedup (1295 c1) and the fitness selection's three
 //  conjuncts (1340), driven through the regime where order was fatal until
 //  poda-1027 — more candidates than MAX_CANDIDATES(8), where the guillotine fell
 //  BEFORE anything was quoted. No count cuts the funnel now (Solver._dropDust).

@@ -30,7 +30,7 @@ pragma solidity 0.8.36;
 // O QUE NAO SE UNIFICA, e e a parte subtil: o HAIRCUT de 200 bps NAO deve viajar para o canal de
 // COTACAO do Router. O Core diz para que serve — "under-ask by 200 bps so the pool's K rounding,
 // which we cannot observe, always has slack": e margem de um PEDIDO, nao de um PISO. Aplica-lo a
-// cotacao deflacionaria `qs` no portao de cobertura, a base da fee e o `hopAttested`. Politica
+// cotacao deflacionaria `qs` no portao de cobertura, a base da fee e o `hopBound`. Politica
 // unica aqui significa uma unica CURVA, nao um unico conjunto de ajustes.
 
 import {Test} from "forge-std/Test.sol";

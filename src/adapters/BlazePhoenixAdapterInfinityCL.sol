@@ -90,21 +90,15 @@ contract BlazePhoenixAdapterInfinityCL is ExtAdapterBase, IExtAdapter, ILockCall
 
     IInfinityVault public immutable VAULT;
     IInfinityCLPoolManager public immutable CL_MANAGER;
-    bytes32 public immutable HOOK_CODEHASH0;
-    bytes32 public immutable HOOK_CODEHASH1;
-    bytes32 public immutable HOOK_CODEHASH2;
 
-    bool transient private _inExec;
-
-    /// `refHooks`: deployed hooks whose code may run under this adapter, pinned by codehash; a
-    /// slot left at address(0) pins nothing.
-    constructor(address gate, address clManager, address[3] memory refHooks) ExtAdapterBase(gate) {
+    /// `refHooks`: deployed hooks whose code may run under this adapter, pinned by codehash into
+    /// the base's three slots (ExtAdapterBase._requireHookPinned); a slot left at address(0) pins nothing.
+    constructor(address gate, address clManager, address[3] memory refHooks)
+        ExtAdapterBase(gate, [_pin(refHooks[0]), _pin(refHooks[1]), _pin(refHooks[2])])
+    {
         if (clManager == address(0)) revert AdapterE(0);
         CL_MANAGER = IInfinityCLPoolManager(clManager);
         VAULT = IInfinityVault(IInfinityCLPoolManager(clManager).vault());
-        HOOK_CODEHASH0 = _pin(refHooks[0]);
-        HOOK_CODEHASH1 = _pin(refHooks[1]);
-        HOOK_CODEHASH2 = _pin(refHooks[2]);
     }
 
     function _pin(address h) private view returns (bytes32 c) {
@@ -130,14 +124,6 @@ contract BlazePhoenixAdapterInfinityCL is ExtAdapterBase, IExtAdapter, ILockCall
     /// The manager's record of the id: a key written once, at initialize, so it cannot change.
     function _key(bytes32 id) private view returns (IInfinityCLPoolManager.PoolKey memory k) {
         (k.currency0, k.currency1, k.hooks, k.poolManager, k.fee, k.parameters) = CL_MANAGER.poolIdToPoolKey(id);
-    }
-
-    /// The ONE producer of "may this pool's hooks run under us": none, or code that is one of
-    /// the three pinned codehashes.
-    function _requireHookPinned(address hooks) private view {
-        if (hooks == address(0)) return;
-        bytes32 h = hooks.codehash;
-        if (h == bytes32(0) || (h != HOOK_CODEHASH0 && h != HOOK_CODEHASH1 && h != HOOK_CODEHASH2)) revert AdapterE(7);
     }
 
     function exec(address, bytes32 aux0, bytes32, bool zeroForOne, uint256 amtIn, address recipient)

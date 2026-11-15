@@ -2,7 +2,7 @@
 """Offline tests for g7.py (no RPC, no key). Run: python3 -I tools/g7-gas-campaign/test_g7.py
 
 Each test names the mutant of g7.py that turns it red; mutants_g7.py applies every one of them
-and checks that its test goes red (73/73 on 2026-11-13, 5 of them the named meta-mutants).
+and checks that its test goes red (100/100 on 2026-11-14, 5 of them the named meta-mutants).
 """
 import os
 import sys
@@ -180,6 +180,112 @@ class Segments(unittest.TestCase):
         self.assertEqual(g7.exec_segments(self.exec_trace(), ROUTER)["g_exec"], 500)
 
 
+TOKEN2 = "0x" + "d2" * 20
+POOL3 = "0x" + "b3" * 20
+PM = "0x" + "f4" * 20
+
+
+def tok(token, sel, *words, gas=5, value=0):
+    """A token call frame with ABI words (addresses as hex, amounts as int)."""
+    d = sel + "".join(wd(w) if isinstance(w, int) else "0" * 24 + w[2:] for w in words)
+    return {"to": token, "input": "0x" + d, "gasUsed": hex(gas), "value": hex(value), "calls": []}
+
+
+class LegAmt(unittest.TestCase):
+    def trace(self):
+        v3_leg = fr(POOL1, g7.SEL["v3swap"], 200, [
+            tok(TOKEN, g7.SEL["transfer"], ROUTER, 650),  # the pool pays out: not an input
+            fr(ROUTER, "fa461e33", 60, [tok(TOKEN2, g7.SEL["transferFrom"], A1, POOL1, 500)]),  # callback payment
+        ])
+        pm_leg = fr(PM, g7.SEL["unlock"], 150)
+        pm_leg["value"] = hex(300)
+        router = fr(ROUTER, "c0ffee00", 900, [
+            tok(TOKEN, g7.SEL["transfer"], POOL2, 700),  # v2 pays the pair before swap()
+            fr(POOL2, g7.SEL["v2swap"], 100),
+            v3_leg,
+            pm_leg,
+            fr(POOL3, g7.SEL["v2swap"], 80),  # paid by no transfer in its window
+        ])
+        # a transfer to the first leg's pool outside the Router (probe setup): not a leg input
+        return fr("0xprobe", g7.SEL["run"], 1000, [tok(TOKEN, g7.SEL["transfer"], POOL2, 9999), router])
+
+    # Mutants: `if dst == to:` -> `if dst:` (the pool's payout to the Router counted as POOL1 input);
+    # `if id(n) not in under: continue` removed (the probe's transfer counted as POOL2 input).
+    def test_input_per_leg_from_transfers_into_the_target_under_the_router(self):
+        e = g7.exec_segments(self.trace(), ROUTER)
+        self.assertEqual(e["legs_detail"], f"{POOL2}:100;{POOL1}:200;{PM}:150;{POOL3}:80")
+        self.assertEqual(e["leg_amt"], f"{POOL2}:{TOKEN}=700;{POOL1}:{TOKEN2}=500;{PM}:eth=300;{POOL3}:")
+
+    # Mutant "column inserted": a new column put before leg_amt (an old results.tsv would misalign).
+    def test_leg_amt_is_the_last_column(self):
+        i = g7.COLS.index("leg_amt")
+        self.assertEqual(g7.COLS[i + 1:], ["tin_dec", "tout_dec", "tok_flags", "route_mid_token", "fb_used", "fb_gas",
+                                           "fb_dout_bps", "route_age_s"])
+
+
+UNIV3_BASE = "0x33128a8fc17869897dce68ed026d694621f6fdfd"
+V4_BASE = "0x498581ff718922c3f8e6a244956af099b2652b2b"
+UNIV3_OP = "0x1f98431c8ad98523631ae4a59f267346ea31f984"
+SUSHI_C35D = "0xc35dadb65012ec5796536bd9864ed8773abc74c4"
+
+
+def dexrow(chain, legs, mode="D", outcome="ok", stratum="s1", idx=1, b=100, gate_used=0):
+    return {"chain": chain, "stratum": stratum, "idx": idx, "b": b, "mode": mode, "outcome": outcome,
+            "gate_used": gate_used, "legs_detail": ";".join(f"{t}:{g}" for t, g in legs)}
+
+
+class DexUsage(unittest.TestCase):
+    POOLS = {("base", POOL1): (UNIV3_BASE, "v3"), ("ethereum", POOL2): (UNIV3_OP, "v3"),
+             ("arbitrum", POOL3): (SUSHI_C35D, "v2")}
+    VENUES = {("base", UNIV3_BASE): "v3", ("base", V4_BASE): "v4", ("base", SUSHI_C35D): "v3",
+              ("optimism", UNIV3_OP): "v3", ("ethereum", UNIV3_OP): "v3", ("arbitrum", SUSHI_C35D): "v2"}
+    STRATA = {("base", "gate-1"): {"id": "gate-1", "gate_family": "curve_ng"},
+              ("base", "s1"): {"id": "s1", "seed_pools": [{"pool": TOKEN, "kind": 5}]}}
+
+    def usage(self):
+        rows = [dexrow("base", [(POOL1, 100), (V4_BASE, 50)]),  # 2 legs: universe pool + the V4 PoolManager
+                dexrow("base", [(POOL1, 110)], mode="M0"),  # same draw, another mode
+                dexrow("base", [(WRAP, 70)], stratum="gate-1", gate_used=1),  # Gate wrapper
+                dexrow("base", [(TOKEN, 30)]),  # seed pool of the stratum (Hub kind 5)
+                dexrow("base", [(POOL1, 999)], outcome="revert"),  # not a settled route
+                dexrow("optimism", [(A1, 40)]),  # no source
+                dexrow("ethereum", [(POOL2, 60)]),  # 1f98 v3: no constant on ethereum
+                dexrow("arbitrum", [(POOL3, 20)])]  # c35d v2: base names c35d only as a v3 factory
+        return g7.dex_usage(rows, self.POOLS, self.VENUES, self.STRATA)
+
+    # Mutants: `c[0] += 1` -> `+= 2`; a draw counted per row (`c[2].add(id(r))`); the outcome==ok
+    # filter removed (the revert leg adds 1 leg and 999 gas).
+    def test_legs_gas_draws_modes_over_ok_rows(self):
+        b = self.usage()["base"]
+        self.assertEqual(b[("Uniswap V3", "v3", "factory")], [2, 210, {("base", "s1", 1, 100)}, {"D", "M0"}])
+        self.assertEqual(b[("Uniswap V4", "v4", "factory")][:2], [1, 50])
+        self.assertEqual(b[("Curve NG", "curve_ng", "gate")][:2], [1, 70])
+        self.assertEqual(b[("unknown", "solidly", "seed")][:2], [1, 30])
+        self.assertEqual(sum(v[0] for v in b.values()), 5)
+
+    # Mutant: `and k == kind and` -> `and` (arbitrum c35d v2 named SushiSwap V3 from base's v3 factory).
+    def test_addr_basis_needs_the_same_kind_on_another_chain(self):
+        u = self.usage()
+        self.assertEqual(list(u["ethereum"]), [("Uniswap V3", "v3", "addr")])
+        self.assertEqual(list(u["arbitrum"]), [("unknown", "v2", "unknown")])
+        self.assertEqual(list(u["optimism"]), [("unknown", "", "unknown")])
+
+    def test_report_sections_pct_of_the_chain(self):
+        d = tempfile.mkdtemp()
+        uni = os.path.join(d, "u.tsv")
+        with open(uni, "w") as f:
+            f.write("chain\tvenue\tkind\tpool\tadapter\n")
+            f.write(f"base\t{UNIV3_BASE}\tv3\t{POOL1}\troutable:x\nbase\t{V4_BASE}\tv4\t{POOL2}\tnone\n")
+        rows = [dexrow("base", [(POOL1, 150), (V4_BASE, 50)]), dexrow("base", [(POOL1, 100)], idx=2)]
+        ls = g7.dex_lines({"chains": {}}, rows, uni)
+        used = section(ls, [x for x in ls if x.startswith("# dex used")][0])
+        self.assertEqual(used, ["base\tUniswap V3\tv3\tfactory\t2\t66.7\t250\t83.3\t2\tD",
+                                "base\tUniswap V4\tv4\tfactory\t1\t33.3\t50\t16.7\t1\tD"])
+        avail = section(ls, [x for x in ls if x.startswith("# dex available")][0])
+        self.assertEqual(avail, [f"base\tUniswap V3\tv3\t{UNIV3_BASE}\t1\t1\t2",
+                                 f"base\tUniswap V4\tv4\t{V4_BASE}\t1\t0\t1"])
+
+
 class Stamp(unittest.TestCase):
     # Mutant: `rep` replaced by `pat` (no rewrite), or `i = b.find(pat, i + width)` replaced by -1.
     def test_rewrites_every_packed_occurrence(self):
@@ -253,6 +359,9 @@ class FakeRpc:
 
     def ts(self, n):
         return self.tsb
+
+    def call(self, method, params):  # token reads fail here: tok_info leaves its columns empty
+        raise g7.RpcError("fake")
 
 
 class FakeChain:
@@ -568,6 +677,30 @@ class FundGuard(unittest.TestCase):
         self.assertEqual(r["g_quote_cap"], int(g7.GAS, 16))
 
 
+
+class ExecRevert(unittest.TestCase):
+    # Mutant: the exec revert keeps the selector only (`revert_detail("exec:", ret, 72)` -> `ret)`):
+    # the uint16 code of RouterE is lost and the report reads `RouterE(code not recorded)`.
+    def test_exec_revert_keeps_the_selector_and_the_code_word(self):
+        ch = mock.Mock()
+        ch.solver, ch.hub, ch.gate, ch.wrappers, ch.quoter, ch.probe, ch.spec = SOLVER, HUB, GATE, [WRAP], ROUTER, TOKEN, SPEC
+        ch.router = ROUTER
+        ch.c = {"native_wrap": WRAP}
+        ch.override.return_value = {}
+        ch.balance_slot.return_value = (A1, "0x1")
+        tr = fr("0xq", g7.SEL["preview"], 1000)
+        tr["output"] = Abi("test_fits_2_10_boundaries").preview_blob("aabb")
+        ch.rpc.call.side_effect = by_method({"debug_traceCall": tr, "eth_call": "0x" + wd(2)})  # funded: amount 2
+        ret = "0x62b0a386" + wd(7)
+        with mock.patch.object(g7, "decode_run", lambda out: (False, ret, 0, 0, None)), \
+                mock.patch.object(g7, "exec_segments", lambda *a: {"legs_detail": ""}), \
+                mock.patch.object(g7, "pool_fee_bps", lambda *a: ""):
+            r = g7.measure_mode(ch, draw(), 1, "D", None)
+        self.assertEqual((r["outcome"], r["detail"]), ("revert", "exec:" + ret))
+        self.assertEqual(g7.decode_err(r["detail"]), ("RouterE", "RouterE(7)"))
+        self.assertEqual(g7.oc_class(r), "RouterE")
+
+
 class OutOfGas(unittest.TestCase):
     # Mutant: the retry keeps the same cap (`cap *= 2` -> `cap *= 1`).
     def test_out_of_gas_trace_is_retried_once_with_twice_the_cap(self):
@@ -839,6 +972,42 @@ class GRecordShape(unittest.TestCase):
         self.assertEqual(s, ["base\t1\t1\t20\t10000\t19000\t19\t100\t"])  # D rank 19 of 20; M0 n 19: none
 
 
+class SwapCoverage(unittest.TestCase):
+    """H2 (G7-COBERTURA 1c): mf_unforced says the MF counterfactual could not be forced, not that the
+    swap failed. Swap coverage counts an mf_unforced row as its natural twin M<age> (same draw, same
+    seeded memory, unforced): ok if the twin is ok. The denominator stays every row. In
+    results-bb4cdbb 366 of 534 mf_unforced rows were of draws whose 6 other modes were ok.
+    Red at a1849b4 (before the fix)."""
+    SPEC8 = dict(SPEC, ages={"M0": 0, "M1h": 3600, "M6h": 21600, "M24h": 86400, "M72h": 259200},
+                 mf_ages=["M24h", "M72h"])
+    HDR = ("# swap coverage (mf_unforced counts as its twin M<age>; denominator = every row): "
+           "chain\tn\tok\tmf_unforced_twin_ok\tswap_ok\tswap_ok_pct")
+    NAT = ("D", "M0", "M1h", "M6h", "M24h", "M72h")
+
+    def draw(self, idx, nat, mf=("mf_unforced", "mf_unforced")):
+        rows = [okrow(m, idx=idx, b=100 * idx, outcome=o) for m, o in zip(self.NAT, nat)]
+        return rows + [okrow(m, idx=idx, b=100 * idx, outcome=o) for m, o in zip(("MF24h", "MF72h"), mf)]
+
+    def rows(self):
+        return (self.draw(1, ["ok"] * 6) +                                     # oooooouu: 8/8
+                self.draw(2, ["noquote"] * 6) +                                # nnnnnnuu: 0/8
+                self.draw(3, ["ok", "ok", "ok", "ok", "noquote", "ok"]))       # MF24h twin noquote: 6/8
+
+    # Mutant "mf_unforced is a swap failure": the twin rule dropped (oooooouu counts 6/8, not 8/8).
+    def test_draw_with_swap_ok_and_mf_unforced_counts_8_of_8(self):
+        cov = g7.swap_coverage(self.draw(1, ["ok"] * 6))
+        self.assertEqual(cov, {"base": (8, 6, 2)})
+
+    # Mutant "any mf_unforced is ok": the twin's outcome not checked (draws 2 and 3 gain 3 rows).
+    # Mutant "twin is D": the twin taken as the draw's D row (draw 3 MF24h counts ok).
+    def test_report_counts_mf_unforced_as_its_twin_over_every_row(self):
+        lines = report_lines(self.rows(), self.SPEC8)
+        self.assertIn(self.HDR, lines)
+        self.assertEqual(section(lines, self.HDR), ["base\t24\t11\t3\t14\t58.3"])
+        # the outcomes table still counts mf_unforced as its own outcome
+        self.assertIn("base\tpairs\tMF24h\t3\t0\t0\t0\t0\t0\t0\t3", lines)
+
+
 class Seed(unittest.TestCase):
     """The measure takes the pre-registered seed (seed.txt, a block hash fixed after the
     pre-registration commit, seed.py); no dispatch input can choose it."""
@@ -934,6 +1103,344 @@ class TxFlags(unittest.TestCase):
         # mutant: $TXF dropped from the adapters' forge create
         for l in self.broadcast_lines("forge create"):
             self.assertIn("$TXF", l)
+
+
+USDC = "0x" + "f6" * 20  # 6 decimals, a stable of the site list
+WETH = "0x" + "f1" * 20  # 18 decimals
+POOL4 = "0x" + "b4" * 20
+
+
+def drow(chain, idx, outcome="ok", **kw):
+    r = {"chain": chain, "stratum": "s1", "kind": "pairs", "idx": idx, "b": 1000 + idx, "mode": "D", "tin": USDC,
+         "tout": WETH, "amount_in": 5000000000, "outcome": outcome}
+    r.update(kw)
+    return r
+
+
+class Detail(unittest.TestCase):
+    """detail_lines (report section 8) over a small fixture: 2 chains, 1 SolverE noquote, RouterE
+    with and without its code, a short_out row, a 6-decimal stable tin, a 2-hop split route."""
+    ROWS = [
+        # base 1: 5000 USDC in (tin stable) -> 1k-10k; 1 hop 1 leg; delivered == net_out (normal)
+        drow("base", 1, hops=1, legs=1, legs_detail=f"{POOL1}:100000", g_exec=300000, g_legs_sum=100000,
+             est_gas=280000, g_quote=900000, delivered=1000, net_out=1000),
+        # base 2: WETH -> USDC, delivered 999.999999 USD (tout stable, ok) -> <1k; 2 hops 3 legs; short_out
+        drow("base", 2, tin=WETH, tout=USDC, amount_in=10 ** 18, hops=2, legs=3,
+             legs_detail=f"{POOL1}:50000;{POOL2}:60000;{V4_BASE}:70000", g_exec=400000, g_legs_sum=180000,
+             est_gas=420000, g_quote=1100000, delivered=999999999, net_out=1000000000),
+        # base 3: noquote SolverE(5); 1 USDC in: the bucket edge (1.0 is <1k, not dust)
+        drow("base", 3, "noquote", amount_in=1000000, detail="0x3d0ccdde" + wd(5)),
+        # base 4: RouterE with its code; base 5: a V2 revert string; both carry legs that must not count
+        drow("base", 4, "revert", detail="RouterE:0x62b0a386" + wd(7), legs_detail=f"{POOL1}:777777"),
+        drow("base", 5, "revert", detail="UniswapV2: TRANSFER_FAILED", legs_detail=f"{POOL1}:888888"),
+        # optimism 6: unlisted tokens (unpriced, decimals unknown); 1 hop 2 legs; under-estimated
+        drow("optimism", 6, tin=TOKEN, tout=WRAP, hops=1, legs=2, legs_detail=f"{POOL3}:90000;{POOL3}:60000",
+             g_exec=250000, g_legs_sum=150000, est_gas=200000, g_quote=800000, delivered=5, net_out=5),
+        drow("optimism", 7, "mf_unforced", tin=TOKEN, tout=WRAP),
+        # optimism 8: RouterE whose code was not recorded (selector only)
+        drow("optimism", 8, "revert", tin=TOKEN, tout=WRAP, detail="0x62b0a386"),
+    ]
+
+    @classmethod
+    def lines(cls, rows=None):
+        import copy
+        import json
+        d = tempfile.mkdtemp()
+        uni, tok = os.path.join(d, "u.tsv"), os.path.join(d, "t.json")
+        with open(uni, "w") as f:
+            f.write("chain\tvenue\tkind\tpool\tadapter\n")
+            f.write(f"base\t{UNIV3_BASE}\tv3\t{POOL1}\tx\nbase\t{UNIV3_BASE}\tv3\t{POOL2}\tx\nbase\t{V4_BASE}\tv4\t{POOL4}\tx\n")
+        json.dump({"chains": {"base": {"tokens": [{"address": USDC, "symbol": "USDC", "decimals": 6},
+                                                  {"address": WETH, "symbol": "WETH", "decimals": 18}]}}}, open(tok, "w"))
+        rows = copy.deepcopy(rows or cls.ROWS)
+        cols = set().union(*rows)
+        for r in rows:  # a results.tsv row: every column present, absent cells empty
+            for k in cols:
+                r[k] = str(r.get(k, ""))
+        return g7.detail_lines({"chains": {}}, rows, uni, tok)
+
+    def sec(self, ls, num):
+        return section(ls, [x for x in ls if x.startswith(f"# {num} ")][0])
+
+    # Mutant "padding": the one-byte 0x81 pad dropped (`if (len(data) + 1) % 136 else` -> `if True else`).
+    # Expected values from `cast keccak` / `cast sig` (foundry), not from g7.py.
+    def test_keccak_matches_cast_at_the_padding_edges_and_the_src_selectors(self):
+        self.assertEqual(g7.keccak256(b"").hex(), "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+        self.assertEqual(g7.keccak256(b"a" * 135).hex(), "34367dc248bbd832f4e3e69dfaac2f92638bd0bbd18f2912ba4ef454919cf446")
+        self.assertEqual(g7.keccak256(b"a" * 136).hex(), "a6c4d403279fe3e0af03729caada8374b5ca54d8065329a3ebcaeb4b60aa386e")
+        self.assertEqual(g7.ERR_BY_SEL, {"3d0ccdde": "SolverE", "765afc20": "QuoterE", "9a3fb915": "HubE", "62b0a386": "RouterE"})
+
+    # Mutant "wilson centre": `z * z / (2 * n)` -> `z * z / n`; mutant "share": `if n < 100 else` -> `if True else`.
+    def test_wilson_interval_and_share_only_below_100(self):
+        self.assertEqual(g7.wilson(0, 10), ("0.0", "27.8"))  # 3.8416 / 13.8416
+        self.assertEqual(g7.wilson(5, 10), ("23.7", "76.3"))
+        self.assertEqual(g7.wilson(0, 0), ("", ""))
+        self.assertEqual(g7.share(1, 4), ["25.0", "4.6", "69.9"])
+        self.assertEqual(g7.share(50, 100), ["50.0", "", ""])
+
+    # Mutant "8.1 not ok": the ok filter of the legs dropped (the revert rows add 777777 and 888888).
+    def test_8_1_legs_by_kind_and_top_pools_over_ok_rows(self):
+        ls = self.lines()
+        a = self.sec(ls, "8.1a")
+        self.assertIn("base\tv3\t3\t75.0\t30.1\t95.4\t3\t60000\t100000\t100000\t100000\trow:2", a)
+        self.assertIn("base\tv4\t1\t25.0\t4.6\t69.9\t1\t70000\t70000\t70000\t70000\trow:3", a)
+        self.assertIn("optimism\t?\t2\t100.0\t34.2\t100.0\t2\t60000\t90000\t90000\t90000\trow:7", a)
+        c = self.sec(ls, "8.1c")
+        self.assertEqual(c[0], f"base\t1\t{POOL1}\tUniswap V3\tv3\t2\t50.0\t1001\t1002\t50000\t100000\trow:2")
+        d = self.sec(ls, "8.1d")
+        self.assertIn(f"base\t1\t{USDC}\t{WETH}\t4\t1\t25.0\t4.6\t69.9\t1001\t1005", d)
+
+    # Mutant "absent b is 0": `else ["", ""]` -> `else [0, 0]` (a fixture without b printed block 0).
+    def test_8_1_block_range_skips_absent_b(self):
+        self.assertEqual(g7.b_range([{"b": ""}, {"b": "7"}, {"b": "3"}, {}]), [3, 7])
+        self.assertEqual(g7.b_range([{"b": ""}]), ["", ""])
+
+    # Mutant "topology": `int(l) == int(h)` -> `!=` (single and split swap).
+    def test_8_2_topology_hops_legs(self):
+        c = self.sec(self.lines(), "8.2c")
+        vals = {(x.split("\t")[0], x.split("\t")[1]): x.split("\t")[2] for x in c}
+        self.assertEqual(vals, {("base", "(absent)"): "3", ("base", "1h-single"): "1", ("base", "2h-split"): "1",
+                                ("optimism", "(absent)"): "2", ("optimism", "1h-split"): "1",
+                                ("all", "(absent)"): "5", ("all", "1h-single"): "1", ("all", "1h-split"): "1",
+                                ("all", "2h-split"): "1"})
+
+    # Mutant "short_out at equality": `< int(r["net_out"])` -> `<=` (rows 1 and 6 deliver exactly net_out).
+    def test_8_3_token_class_and_decimals(self):
+        ls = self.lines()
+        a = {tuple(x.split("\t")[:3]) for x in self.sec(ls, "8.3a")}
+        self.assertTrue({("base", "normal", "1"), ("base", "short_out", "1"), ("optimism", "normal", "1"),
+                         ("all", "normal", "2"), ("all", "short_out", "1")} <= a)
+        b = {tuple(x.split("\t")[:3]) for x in self.sec(ls, "8.3b")}
+        self.assertEqual(b, {("base", "non18", "5"), ("optimism", "unknown", "3"), ("all", "non18", "5"), ("all", "unknown", "3")})
+
+    # Mutant "bucket edge": `if usd < hi` -> `<=` (1.0 USD becomes dust, 5000 stays 1k-10k).
+    def test_8_4_usd_bucket_edges_and_basis(self):
+        self.assertEqual([g7.usd_bucket(x) for x in (None, 0.999999, 1.0, 999.999999, 1000.0, 1e6)],
+                         ["unpriced", "dust", "<1k", "<1k", "1k-10k", ">=1M"])
+        ls = self.lines()
+        a = {tuple(x.split("\t")[:3]) for x in self.sec(ls, "8.4a")}
+        self.assertEqual(a, {("base", "1k-10k", "3"), ("base", "<1k", "2"), ("optimism", "unpriced", "3"),
+                             ("all", "1k-10k", "3"), ("all", "<1k", "2"), ("all", "unpriced", "3")})
+        b = {tuple(x.split("\t")[:3]) for x in self.sec(ls, "8.4b")}
+        self.assertIn(("base", "tout_delivered", "1"), b)
+        self.assertIn(("base", "tin", "4"), b)
+        c = self.sec(ls, "8.4c")
+        self.assertIn("base\t<1k\t1\t60000\t60000\t60000\t60000\trow:3", c)  # 180000 // 3
+        self.assertIn("# 8.4d input per leg (volume share per DEX): no data (column leg_amt missing)", ls)
+
+    # Mutant "selector": ERR_BY_SEL keyed on `[:3]` (no error of src decodes).
+    def test_8_5_causes_decoded_with_their_code(self):
+        ls = self.lines()
+        b = [x.split("\t")[:6] for x in self.sec(ls, "8.5b")]
+        self.assertIn(["base", "noquote", "SolverE", "SolverE(5)", "1", "row:4"], b)
+        self.assertIn(["base", "revert", "RouterE", "RouterE(7)", "1", "row:5"], b)
+        self.assertIn(["base", "revert", "revert", "UniswapV2: TRANSFER_FAILED", "1", "row:6"], b)
+        self.assertIn(["optimism", "revert", "RouterE", "RouterE(code not recorded)", "1", "row:9"], b)
+        self.assertIn(["optimism", "mf_unforced", "mf_unforced", "", "1", "row:8"], b)
+        a = self.sec(ls, "8.5a")
+        # ok noquote SolverE RouterE revert mf_unforced other, then ok pct with its Wilson interval
+        self.assertIn("base\tpairs\t<1k\t2\t1\t0\t1\t0\t0\t0\t0\t50.0\t9.5\t90.5", a)
+
+    # Mutant "max is min": `mx = max(vals)` -> `mx = min(vals)` (the max column and its row move).
+    def test_8_6_gas_by_segment_and_estimate_delta(self):
+        ls = self.lines()
+        a = self.sec(ls, "8.6a")
+        self.assertIn("base\tg_exec\t2\t300000\t400000\t400000\t400000\trow:3", a)
+        self.assertIn("base\trouter_overhead\t2\t200000\t220000\t220000\t220000\trow:3", a)
+        self.assertIn("base\twalk (g_solve)\t0\t\t\t\t\t", a)  # absent column: n 0, never a zero gas
+        self.assertIn("all\tper_leg\t6\t60000\t100000\t100000\t100000\trow:2", a)
+        b = self.sec(ls, "8.6b")
+        # base: deltas +20000 (row 2), -20000 (row 3); optimism +50000
+        self.assertIn("base\t2\t280000\t300000\t-20000\t20000\t20000\t20000\trow:2\t1\t50.0", b)
+        self.assertIn("all\t3\t280000\t300000\t20000\t50000\t50000\t50000\trow:7\t2\t66.7", b)
+
+    # Mutant "nodata dropped": the 8.7a no-data line replaced by [] (an absent column must say so).
+    def test_8_7_absent_columns_say_no_data(self):
+        ls = self.lines()
+        self.assertIn("# 8.7a fallback to the runner-up (f82bc67): no data (column fb_used missing)", ls)
+        self.assertIn("# 8.7b aged route executed at the current block (7, 10, 25 s): no data (column route_age_s missing)", ls)
+        rows = [dict(r, fb_used="0", route_age_s="0") for r in self.ROWS]
+        ls = self.lines(rows)
+        self.assertFalse([x for x in ls if x.startswith("# 8.7") and "no data" in x])
+
+    # Mutant "8.3a title": the title gets its old `(measured: ...` back (the index cuts the name at the colon).
+    def test_index_names_every_section_whole_with_its_line_count(self):
+        ls = self.lines()
+        i = ls.index("# 8.0 index: section\tdata_lines")
+        idx = [x.split("\t") for x in ls[i + 1:]]
+        hdrs = [x for x in ls[:i] if x.startswith("# ")]
+        self.assertEqual([n for n, _ in idx], [h[2:h.index(": ")] for h in hdrs])
+        self.assertTrue(all(h.count(":") == 1 for h in hdrs), [h for h in hdrs if h.count(":") != 1])
+        for n, c in idx:
+            self.assertEqual(len(section(ls[:i], [h for h in hdrs if h.startswith(f"# {n}: ")][0])), int(c), n)
+
+
+def route_blob(total, est, tokens):
+    """A Route tuple (head + Hop[] with one Hop per (tokenIn, tokenOut)); offsets relative to its start."""
+    hops = []
+    for ti, to in tokens:
+        hops.append(wd(int(ti, 16)) + wd(int(to, 16)) + wd(1) + wd(2) + wd(0xa0) + wd(0))  # legs: empty array
+    n = len(hops)
+    heads, off = [], 32 * n
+    for h in hops:
+        heads.append(wd(off))
+        off += len(h) // 2
+    arr = wd(n) + "".join(heads) + "".join(hops)
+    return wd(9 * 32) + wd(total) + wd(0) * 4 + wd(est) + wd(0) * 2 + arr
+
+
+def plan_blob(best, fb, has):
+    b = route_blob(*best)
+    return "0x" + wd(0x20) + wd(0x60) + wd(0x60 + len(b) // 2) + wd(has) + b + route_blob(*fb)
+
+
+class RoutePlan(unittest.TestCase):
+    BEST = (1000, 300000, [(USDC, WETH), (WETH, TOKEN)])
+    FB = (990, 250000, [(USDC, TOKEN)])
+
+    def tr(self, gross, has=1, fb=None):
+        n = fr(SOLVER, g7.SEL["solve"], 10)
+        n["output"] = plan_blob(self.BEST, fb or self.FB, has)
+        return fr("0xq", g7.SEL["preview"], 100, [n]), gross
+
+    # Mutant "mid is tokenIn": `d[e + 64 + 24:e + 128]` -> `d[e + 24:e + 64]` (hop 0's tokenIn, the route's own tin).
+    def test_route_mid_token_is_hop0_token_out(self):
+        best, fb, has = g7.decode_plan(plan_blob(self.BEST, self.FB, 1))
+        self.assertEqual(best, (1000, 300000, WETH))
+        self.assertEqual(fb, (990, 250000, "-"))
+        self.assertTrue(has)
+
+    # Mutant "fb_used vs best": `1 if gross == fb[0] != best[0]` -> `1 if gross == best[0] != fb[0]`.
+    def test_fb_used_matches_gross_against_both_routes(self):
+        c = lambda *a, **k: g7.fallback_cols(*self.tr(*a, **k)[:1], SOLVER, self.tr(*a, **k)[1])
+        self.assertEqual(c(990), {"fb_used": 1, "fb_gas": 250000, "fb_dout_bps": -100.0})
+        self.assertEqual(c(1000)["fb_used"], 0)
+        self.assertEqual(c(1000, fb=(1000, 1, [(USDC, TOKEN)]))["fb_used"], "")  # same totalOut: ambiguous
+        self.assertEqual(c(990, has=0), {"fb_used": 0, "fb_gas": "", "fb_dout_bps": ""})
+        self.assertEqual(g7.fallback_cols(fr("0xq", "00", 1), SOLVER, 1)["fb_used"], "")  # no plan frame: absent
+
+    # Mutant "aged quote at b": the quote traced at `d["b"]` instead of qb (the route is not aged).
+    def test_aged_route_quotes_at_qb_with_its_deadline_and_executes_at_b(self):
+        ch = mock.Mock()
+        ch.solver, ch.hub, ch.gate, ch.wrappers, ch.quoter, ch.probe, ch.spec = SOLVER, HUB, GATE, [WRAP], ROUTER, TOKEN, SPEC
+        ch.override.return_value = {}
+        seen = []
+        tr = fr("0xq", g7.SEL["preview"], 1000)
+        tr["output"] = Abi("test_fits_2_10_boundaries").preview_blob("aabb", can=0)
+
+        def trace(p):
+            seen.append((p[0]["data"][-64:], p[1]))
+            return tr
+        ch.rpc.call.side_effect = by_method({"debug_traceCall": trace})
+        r = g7.measure_mode(ch, draw(), 1000, "R7", None, qb=496, ts_q=990)
+        self.assertEqual(seen, [(wd(990 + 600), hex(496))])
+        self.assertEqual(r["outcome"], "noquote")
+        g7.measure_mode(ch, draw(), 1000, "D", None)
+        self.assertEqual(seen[-1], (wd(1000 + 600), hex(500)))
+
+
+class RouteAge(unittest.TestCase):
+    class Rpc:
+        def ts(self, n):
+            return 2 * n
+
+    def ch(self):
+        ch = mock.Mock()
+        ch.rpc = self.Rpc()
+        return ch
+
+    # Mutant "bq without -1": `first_at_or_after(...) - 1` -> `first_at_or_after(...)` (ts(bq) > ts_b - a).
+    def test_route_block_is_the_last_block_at_least_a_seconds_old(self):
+        self.assertEqual(g7.route_block(self.ch(), 1000, 2000, 7), (996, 1992))
+        self.assertEqual(g7.route_block(self.ch(), 1000, 2000, 10), (995, 1990))
+        self.assertIsNone(g7.route_block(self.ch(), 3, 6, 25))  # lo = 0 is not old enough
+
+    # Mutant "R modes dropped": the route_ages loop of modes() removed.
+    def test_r_mode_row_carries_its_real_age(self):
+        spec = dict(SPEC, route_ages=[7, 0])
+        self.assertEqual([m for m, _, _ in g7.modes(spec)][-1:], ["R7"])
+        ch = FakeChain(2000, 0)
+        ch.spec = spec
+        calls = []
+
+        def mm(ch_, d, ts_b, m, hub_state, qb=None, ts_q=None):
+            calls.append((m, qb, ts_q))
+            return {"outcome": "ok", "net_out": 5, "delivered": 5, "swept": 0}
+        with mock.patch.object(g7, "measure_mode", mm), mock.patch.object(g7, "mid_price", lambda ch, d: ""), \
+                mock.patch.object(g7, "vital", lambda ch, d: {}), mock.patch.object(g7, "seed_memory", lambda *a: (0, 0, {}, [], [])), \
+                mock.patch.object(g7, "route_block", lambda ch, b, ts_b, a: (b - 4, ts_b - 8)):
+            rows = {r["mode"]: r for r in g7.measure_draw(ch, draw(), {})}
+        self.assertEqual(rows["R7"]["route_age_s"], 8)
+        self.assertIn(("R7", 496, 1992), calls)
+
+
+class TokInfo(unittest.TestCase):
+    def ch(self, dec, slot):
+        ch = mock.Mock()
+
+        def call(method, params):
+            if method == "eth_call":
+                if dec is None:
+                    raise g7.Reverted("0x")
+                return dec
+            return slot(params[0])
+        ch.rpc.call.side_effect = call
+        return ch
+
+    # Mutant "decimals fail is 0": the except branch writes 0 (absent read as a zero-decimal token).
+    def test_decimals_failure_is_absent_not_zero(self):
+        d = draw()
+        self.assertEqual(g7.tok_info(self.ch("0x" + wd(6), lambda t: "0x" + wd(0)), d),
+                         {"tin_dec": 6, "tout_dec": 6, "tok_flags": "-"})
+        r = g7.tok_info(self.ch(None, lambda t: "0x" + wd(0)), d)
+        self.assertEqual((r["tin_dec"], r["tout_dec"]), ("", ""))
+        self.assertEqual(g7.tok_info(self.ch("0x", lambda t: "0x" + wd(0)), d)["tin_dec"], "")
+
+    # Mutant "proxy slot ignored": `elif int(sl, 16):` -> `elif False:`.
+    def test_proxy_is_the_nonzero_eip1967_slot(self):
+        self.assertEqual(g7.EIP1967_IMPL, "0x%064x" % (int.from_bytes(g7.keccak256(b"eip1967.proxy.implementation"), "big") - 1))
+        d = draw()
+        r = g7.tok_info(self.ch("0x" + wd(18), lambda t: "0x" + wd(1 if t == d["tout"] else 0)), d)
+        self.assertEqual(r["tok_flags"], "tout_proxy")
+        self.assertEqual(g7.tok_info(self.ch("0x" + wd(18), lambda t: "0x"), d)["tok_flags"], "")  # not measured
+
+
+def sec(lines, prefix):
+    """section() by the header's prefix (the header carries its column list)."""
+    return section(lines, [x for x in lines if x.startswith(prefix)][0])
+
+
+class DetailNew(unittest.TestCase):
+    """Sections 8.2e, 8.4d, 8.7a/c, 8.7b once their columns exist."""
+    def rows(self):
+        R = [dict(r) for r in Detail.ROWS]
+        R[0].update(leg_amt=f"{POOL1}:{USDC}=5000000000", route_mid_token="-", fb_used=0, fb_dout_bps="")
+        R[1].update(leg_amt=f"{POOL1}:{WETH}=400000000000000000;{POOL2}:{USDC}=5;{V4_BASE}:{WETH}=600000000000000000",
+                    route_mid_token=WETH, fb_used=1, fb_dout_bps=-120.5)
+        R.append(drow("base", 9, mode="R7", route_age_s=8, delivered=7, net_out=7, g_exec=310000, legs_detail=f"{POOL1}:1"))
+        return R
+
+    # Mutant "share of all": `100 * a[2] / tot[cn]` -> `100 * a[2]` (the share is not of the chain's input).
+    def test_8_4d_input_share_per_dex_paid_in_tin(self):
+        ls = sec(Detail.lines(self.rows()), "# 8.4d ")
+        base = [x.split("\t") for x in ls if x.startswith("base\t")]
+        self.assertEqual([(x[2], x[3], x[4], x[5], x[6], x[7], x[8]) for x in base],
+                         [("v3", "2", "2", "1.4000", "70.0", "5400.00", "2"), ("v4", "1", "1", "0.6000", "30.0", "600.00", "1")])
+
+    # Mutant "8.2e missing": the dim_table branch replaced by the no-data line.
+    def test_8_2e_bridge_token_by_symbol(self):
+        ls = sec(Detail.lines(self.rows()), "# 8.2e ")
+        vals = {x.split("\t")[1]: x.split("\t")[2] for x in ls if x.startswith("base\t")}
+        self.assertEqual((vals.get("WETH"), vals.get("-")), ("1", "1"))
+
+    # Mutant "8.7b all modes": the R filter dropped (D rows counted as aged routes).
+    def test_8_7_fallback_and_aged_route_tables(self):
+        L = Detail.lines(self.rows())
+        a = {x.split("\t")[1]: x.split("\t")[2] for x in sec(L, "# 8.7a ") if x.startswith("base\t")}
+        self.assertEqual((a["1"], a["0"]), ("1", "1"))
+        self.assertEqual(sec(L, "# 8.7c ")[0].split("\t")[:2] + sec(L, "# 8.7c ")[0].split("\t")[-2:],
+                         ["base", "1", "-120.5", "row:3"])
+        self.assertEqual([x.split("\t")[:3] for x in sec(L, "# 8.7b ")], [["base", "R7", "1"], ["all", "R7", "1"]])
 
 
 if __name__ == "__main__":

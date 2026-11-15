@@ -5,8 +5,15 @@ pragma solidity 0.8.36;
 //  3073-5 [743], the walk's own budget, without a fork.
 //  Red against mutant [697] of .github/scripts/mutants.py at 59ecf3f; green on 59ecf3f.
 //
-//  The capacity rebuild of a held winning build runs in a static self-call on
-//  exactly WALK_GAS (Solver, 2,500,000); a rebuild that runs out of it leaves the
+//  C1 (c1-126): the walk's budget is no longer a fixed WALK_GAS but what SOLVE_GAS
+//  leaves after the search (Solver._walkOnItsOwnBudget), and a rebuild that runs out
+//  of it still leaves the plan at the cap. The history below is
+//  of the fixed budget; the test now pins that the rebuild here costs more than 1.5M
+//  (a fixed budget of 1.5M, mutant [c1-m2], leaves every leg at the cap) and that the solve at
+//  the automatic door's budget still promises every book its walk.
+//
+//  Before C1: the capacity rebuild of a held winning build ran in a static self-call on
+//  exactly WALK_GAS (Solver, 2,500,000); a rebuild that ran out of it left the
 //  plan at the cap. WALK_GAS was sized on the Base fork (d188006: live rebuilds
 //  1.63M-1.69M, DAI->USDC 10k and 15k), and the fork test that pinned it
 //  (test/fork/CapacityPromiseAsksTheVenue.t.sol) passed with WALK_GAS at 1.5M
@@ -79,9 +86,10 @@ contract CapacityWalkNeedsItsWholeBudgetTest is Test {
     uint256 constant IN   = 200e18;
     uint256 constant HELD = 100e18;             // cap 30e18 per book; a quarter of IN walks ~43.7e18
 
-    /// Solver.WALK_GAS and the budget of mutant [697].
-    uint256 constant WALK_GAS   = 2_500_000;
+    /// The budget of mutant [c1-m2] (formerly [697]).
     uint256 constant SHORT_WALK = 1_500_000;
+    /// Mirrors `BlazePhoenixCore.SOLVE_GAS`, the automatic door's budget.
+    uint256 constant SOLVE_GAS  = 14_700_000;
 
     /// Solver.MAX_CONC_DRAIN_BPS: a held leg's cap is this share of its pool's tokenOut holdings.
     uint256 constant MAX_CONC_DRAIN_BPS = 3_000;
@@ -122,10 +130,10 @@ contract CapacityWalkNeedsItsWholeBudgetTest is Test {
     }
 
     /// Every held leg of the split is promised its own book's walk at its committed input,
-    /// above its cap: the rebuild completed on WALK_GAS. On 1.5M it runs out and every leg
-    /// keeps the cap.
+    /// above its cap: the rebuild completed on the budget SOLVE_GAS leaves it, at the automatic
+    /// door's gas. On 1.5M it runs out and every leg keeps the cap.
     function test_3073_HeldSplit_RebuildPastOnePointFiveMillion_IsPromisedItsBooks() public {
-        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, IN);
+        RoutePlan memory plan = solver.findBestRoutePlan{gas: SOLVE_GAS}(tIn, tOut, IN);
         Leg[] memory legs = plan.best.hops[0].legs;
         assertEq(legs.length, 4, "precondition: the four held books split the order");
         uint256 cap = BPC.mulDiv(HELD, MAX_CONC_DRAIN_BPS, BPC.BPS);
@@ -135,10 +143,9 @@ contract CapacityWalkNeedsItsWholeBudgetTest is Test {
             assertEq(legs[i].expectedOut, w, "the held leg is promised its book's walk, not the cap");
         }
 
-        // Sentinel: the rebuild's cost stays inside (SHORT_WALK, WALK_GAS) with room on both sides.
+        // Sentinel: the rebuild's cost stays above SHORT_WALK with room.
         uint256 g = _rebuildGas();
         emit log_named_uint("rebuild gas, own call", g);
         assertGt(g, SHORT_WALK + 300_000, "the rebuild no longer needs more than 1.5M: re-size EXTRA");
-        assertLt(g, WALK_GAS - 200_000, "the rebuild nears WALK_GAS: re-size EXTRA");
     }
 }

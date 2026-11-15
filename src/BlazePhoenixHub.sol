@@ -25,8 +25,9 @@
 //          only one of them is this codebase's defect signature; it happened here
 //          and is fixed. But the correction is NOT that both use the same
 //          constant: they close with `KINDS_ROUTABLE` and `KINDS_EXECUTABLE`,
-//          which today differ by one bit (V4_NATIVE, which no factory registers
-//          and the Router executes). Using the same constant is not asking the
+//          which today differ in two bits: V4_NATIVE (8), which no factory
+//          registers and the Router executes, and EXTERNAL (9), which a factory
+//          registers (the Gate's wrappers) and `recordSwap` does not accept. Using the same constant is not asking the
 //          same question — the first attempt shared the mask and silently killed
 //          all native-pool registration. And there is a THIRD door, the operator's
 //          `seedPool`, which deliberately does not filter kind: it is the only one
@@ -43,13 +44,15 @@
 //      inputs to quote mathematics. It does not decide routes. And it has no
 //      venue allow-list: admission is by proof, not by trust.
 //
-//  single packed 256-bit slot (vitality, depth bucket, kind, timestamps,
-//  bridge bit), so reading its fitness score costs one SLOAD. Storage is
-//  three mappings:
+//  single packed 256-bit slot (vitality, depth bucket, kind, timestamps),
+//  so reading its own state costs one SLOAD; the bridge bonus of its fitness
+//  is not in the slot, it is read live per pair (`_pairBridged`). The registry
+//  is three mappings per key and one per pair:
 //
 //    1.  slot[key]        → packed pool state
 //    2.  poolOf[key]      → address of the pool
-//    3.  pairKeys[t0][t1] → slot keys for the (t0, t1) pair
+//    3.  hooksOf[key]     → hooks of the pool (V4 only)
+//    4.  pairKeys[t0][t1] → slot keys for the (t0, t1) pair
 //
 //  Registration is automatic: a swap routed through a previously unknown
 //  pool inserts it on the success path with vitality = 1 and a depth bucket
@@ -62,7 +65,9 @@
 //  describe the supported DEXs; for any (t0, t1) the Hub iterates the factory
 //  list, derives candidate addresses and includes those with code. V4 is
 //  handled separately: the PoolManager singleton has no per-pair factory, so
-//  admins register V4 keys directly.
+//  its pools are derived (`MODE_V4_DERIVE`), claimed permissionlessly with an
+//  on-chain proof (`claimV4`), registered on a routed swap (`recordSwap`) or
+//  entered by an operator (`addV4`, `seedPool`).
 //
 //  Storage layout follows ERC-7201 namespacing for proxy compatibility.
 // =============================================================================
@@ -104,9 +109,12 @@ contract BlazePhoenixHub {
     /// was optimizing the door nobody pays for: the same mistake as SSTORE2
     /// (-48,772 gas measured, expected value ~0).
     uint8   internal constant MAX_BRIDGES            = 3;
-    /// @dev How many bridges the Solver ACTUALLY routes through. NOT the same as MAX_BRIDGES,
-    ///      and the difference between the two was a silent asymmetry: the Solver expands the
-    ///      bridges HAND-UNROLLED (`b0`, `b1` in Solver:203-215) and `_rank` has three seats —
+    /// @dev How many bridges the Solver routes through. EQUAL to MAX_BRIDGES today (the Solver
+    ///      expands every configured bridge), and kept as a separate name because it answers
+    ///      a different question, as the third paragraph says.
+    ///
+    ///      HISTORY: the two differed, and the difference was a silent asymmetry. The Solver
+    ///      expanded the bridges HAND-UNROLLED (`b0`, `b1`) and `_rank` had three seats —
     ///      direct + two. The third bridge could never be a hop.
     ///
     ///      AND IT STILL HAD POWERS. `isBridge[t]` opens the permissionless `claimV4` door
@@ -206,12 +214,6 @@ contract BlazePhoenixHub {
         | (uint256(1) << BPC.KIND_ALGEBRA)   // 6 — concentrated, dynamic fee
         | (uint256(1) << BPC.KIND_V4_NATIVE);// 8 — singleton, native-ETH leg
 
-    /// @notice The valid discovery modes, by the same criterion.
-    /// @dev    0-3 call the factory (getPair/getPool); 4-7 derive by CREATE2; 9 is the V4 derive.
-    ///         Bit 8 is clear: it was the meta-registry of a withdrawn venue and left with it.
-    ///         Without this mask it would stay accepted for ANY kind, because the only previous
-    ///         bound was `mode > MODE_V4_DERIVE` and 8 fitted inside it — a mode that only made
-    ///         sense for a removed venue would remain open to every other one.
     /// @dev Kinds whose `pool` field is a pair exposing token0()/token1() — so `recordSwap`'s
     ///      authenticity proof applies to them. It used to be the literal 0x6b, which had bit 3
     ///      set for an already-withdrawn venue.
@@ -227,6 +229,12 @@ contract BlazePhoenixHub {
           (uint256(1) << BPC.KIND_V2) | (uint256(1) << BPC.KIND_V3)
         | (uint256(1) << BPC.KIND_SOLIDLY) | (uint256(1) << BPC.KIND_ALGEBRA);
 
+    /// @notice The valid discovery modes, by the same criterion.
+    /// @dev    0-3 call the factory (getPair/getPool); 4-7 derive by CREATE2; 9 is the V4 derive.
+    ///         Bit 8 is clear: it was the meta-registry of a withdrawn venue and left with it.
+    ///         Without this mask it would stay accepted for ANY kind, because the only previous
+    ///         bound was `mode > MODE_V4_DERIVE` and 8 fitted inside it — a mode that only made
+    ///         sense for a removed venue would remain open to every other one.
     uint256 internal constant MODES_VALID = 0x2FF; // bits 0-7 and 9; bit 8 is a tombstone
     // MODE enumeration: 0-3 are factory-call (getPair/getPool variants);
     // 4-7 are CREATE2 salt families (V2 salt, V3 salt, EIP-1167 clone, V3-CL).
@@ -339,7 +347,7 @@ contract BlazePhoenixHub {
         mapping(address => bool) isBridge;
         // factories
         Factory[] factories;
-        // V4 registry (singleton-managed, manual entries)
+        // V4 registry (entries from addV4, claimV4, recordSwap and seedPool)
         V4Entry[] v4Entries;
         address v4PoolManager;
         // hooks allow-list + codehash pin (Layer 3: auto-pause on code change)
@@ -352,7 +360,7 @@ contract BlazePhoenixHub {
         bool initialized;
         bool controlRenounced;
         // V4 derive-discovery: learned per-token "pattern code" — the packed
-        // (fee << 24 | uint24(tickSpacing)) hookless tier this token's V4
+        // (bucket << 48 | fee << 24 | uint24(tickSpacing)) hookless tier this token's V4
         // pool was last PROVEN at (claimV4 or a routed V4 swap). 0 = unknown
         // (a real tier always has tickSpacing >= 1, so a valid code is never
         // zero). DISCOVERY-HINT METADATA ONLY (INV-16 boundary): read
@@ -419,7 +427,9 @@ contract BlazePhoenixHub {
     error HubE(uint16 code);
 
     // 1 = unauthorized, 2 = paused, 3 = zero address, 4 = bad input
-    // 5 = unknown pool, 6 = max slots, 7 = bridge cap, 8 = hook denied
+    // 5 = invalid factory configuration (addFactory: kind, mode, initHash,
+    //     mode-kind coherence, Algebra fee, V4 extras),
+    // 6 = max slots (no path reverts with it today), 7 = bridge cap, 8 = hook denied
     // 9 = V4 claim ineligible (no bridge anchor / not a live hookless pool /
     //     unresolved dynamic fee)
 
@@ -695,10 +705,13 @@ contract BlazePhoenixHub {
     ///             4-7 CREATE2, 9 V4 derive-scan (8 is a tombstone) [invalidMode]
     ///           * CREATE2 modes (mode >= 4) require initHash != 0, except
     ///             modes 8 and 9 which derive nothing via CREATE2         [R1]
-    ///           * mode 4 (V2 salt)  is only valid for kind V2
+    ///           * mode 4 (V2 salt)  is only valid for kind V2 or SOLIDLY
     ///           * mode 6 (clone)    is only valid for kind SOLIDLY
-    ///           * mode 5 (V3 salt)  is valid for V3 or ALGEBRA; ALGEBRA
+    ///           * mode 5 (V3 salt)  is valid for KINDS_V3_SALT = V3, ALGEBRA or
+    ///             EXTERNAL (the Gate); ALGEBRA
     ///             additionally requires every fee == 0 (dynamic-fee sentinel) [R2]
+    ///           * modes 0-3 and 7 take every routable kind but EXTERNAL
+    ///             (KINDS_LOOKUP) — the whole table is MODE_KINDS
     ///           * mode 9 (V4 derive) is only valid for kind V4, and its
     ///             fees/spacings are PAIRED explicit extras (fees[i] with
     ///             spacings[i], never a cross-product) — equal length required
@@ -808,9 +821,9 @@ contract BlazePhoenixHub {
                 initHash: initHash, fees: fees, spacings: spacings
             }));
         } else {
-            // THE TWIN OF THE HOOK GUARD (allowHook, Hub:496). After renunciation
+            // THE TWIN OF THE HOOK GUARD (`allowHook`'s renounced re-arm guard). After renunciation
             // the surviving curator lever is admission, and it must not double as
-            // the cancel button of the Layer-3 auto-skip at Hub:912: a factory
+            // the cancel button of the Layer-3 auto-skip in `_scanFactory`: a factory
             // admitted honestly, whose runtime then moved, is paused by its pin
             // and stays paused for ever — re-adding it at its NEW code is
             // refused. A live admin may still re-attest on purpose; a factory
@@ -821,7 +834,7 @@ contract BlazePhoenixHub {
             // The first is the runtime moving: that is what the pin is for.
             //
             // The second is the MODE moving from a DERIVE family (4-7) to an ASK family (0-3).
-            // Hub:937-947 explains why the pin is applied only to the asking modes: a derive row
+            // `_scanFactory` explains why the pin is applied only to the asking modes: a derive row
             // answers a theorem the factory cannot influence, so its code is irrelevant. That
             // reasoning is sound in one direction only. Converting a live derive row into an ask
             // row after renunciation hands discovery the factory's own answer for every pair,
@@ -850,12 +863,12 @@ contract BlazePhoenixHub {
             // derivation of an admitted row is therefore FIXED, exactly as the
             // attested Algebra origin below is fixed, and for the same reason.
             //
-            // What stays open is what Hub:411-418 guarantees: an identical re-add is
+            // What stays open is what the `renounceControl` NatSpec guarantees: an identical re-add is
             // a no-op refresh, and a factory that was never listed is still
             // admissible. This freezes rows, not the registry. Both are pinned in
             // RenouncedRowDerivationFreeze.t.sol.
             // AFTER RENUNCIATION A LIVE ROW ACCEPTS ONLY AN IDENTICAL RE-ADD.
-            // This is what Hub:411-418 already describes — "re-listing an
+            // This is what the `allowHook` guard comment already describes — "re-listing an
             // unchanged one still works" — stated as a rule rather than as a list
             // of the fields anyone happened to think of. The list was the wrong
             // shape: this block writes five fields and every one of them decides
@@ -890,7 +903,7 @@ contract BlazePhoenixHub {
             address live = BPC.resolvePoolDeployer(factory);
             address pinned = $.factoryDeployer[factory];
             // A ZERO PIN IS NOT AN ABSENCE (review 2026-09-03, second pass).
-            // Hub:339 gives zero a MEANING - "the factory itself is the origin"
+            // `HubStore.factoryDeployer` gives zero a MEANING - "the factory itself is the origin"
             // - and this block writes `live` even when the resolver answers
             // zero, so a row that is already live can carry a zero pin for
             // ever: every plain V3-family factory without a `poolDeployer()`
@@ -898,9 +911,9 @@ contract BlazePhoenixHub {
             // would therefore leave the freeze open for exactly those rows,
             // and close it for a fresh listing that is entitled to attest.
             // The discriminator the slot cannot carry is `row == n`
-            // (Hub:690-696): "this address was admitted for the FIRST time by
+            // (the append branch above): "this address was admitted for the FIRST time by
             // THIS call". A fresh listing may still attest - the grow-only
-            // power Hub:411-418 keeps, pinned by RenouncedFactoryRearm.t.sol
+            // power the `renounceControl` NatSpec keeps, pinned by RenouncedFactoryRearm.t.sol
             // - but an already-admitted row may not take a first pin after
             // ossification.
             // ONE WRITE SITE, NOT TWO. The nested form of the first attempt measured
@@ -910,8 +923,8 @@ contract BlazePhoenixHub {
             // `--sizes` is the measurement. Folding both arms into a single predicate and a
             // single SSTORE keeps the semantics identical and stops via-ir from emitting the
             // store sequence twice.
-            // First arm: a FRESH listing may still attest - the grow-only power Hub:411-418
-            // keeps - but an already-admitted row may not take a first pin after ossification.
+            // First arm: a FRESH listing may still attest - the grow-only power the `renounceControl`
+            // NatSpec keeps - but an already-admitted row may not take a first pin after ossification.
             // Second arm: an existing attestation never follows the live answer once control
             // is gone, and a dead resolver never demotes a good one to zero.
             bool mayPin = pinned == address(0)
@@ -1202,7 +1215,7 @@ contract BlazePhoenixHub {
             // poolDeployer() answer, which BPC.deriveAddress resolves with a
             // LIVE staticcall — the one derive input a factory could still
             // influence after admission (an EIP-1967 proxy changes its answer
-            // with its codehash intact, so the L872 pin is blind to it; a
+            // with its codehash intact, so the `_scanFactory` codehash pin is blind to it; a
             // compare-then-derive check would still leave two live asks for a
             // gas-introspecting liar to split). Derive from the origin
             // ATTESTED at admission instead: zero live input. A factory whose
@@ -1363,7 +1376,8 @@ contract BlazePhoenixHub {
     ///      (belt-and-braces over the batch filter; the re-read is warm),
     ///      applies the INV-20 dynamic-fee gate, and dedups by pool address
     ///      (existing doctrine — one venue must not saturate the top-K).
-    ///      `code` is the packed tier (fee << 24 | uint24(tickSpacing)).
+    ///      `code` is the packed tier (fee << 24 | uint24(tickSpacing)); a learned code also
+    ///      carries its teacher's depth bucket above bit 47, which the uint24 reads here drop.
     function _admitV4(
         address mgr, address t0, address t1, uint256 code,
         PoolInfo[] memory hits, uint256 k
@@ -1717,7 +1731,9 @@ contract BlazePhoenixHub {
     }
     function v4EntryCount() external view returns (uint256) { return _store().v4Entries.length; }
     /// @notice Learned V4 pattern code of a token: packed
-    ///         (fee << 24 | uint24(tickSpacing)), 0 = none. Hint metadata
+    ///         (bucket << 48 | fee << 24 | uint24(tickSpacing)), 0 = none: bits 0-23
+    ///         tickSpacing, 24-47 fee, 48-51 the depth bucket of the proof that
+    ///         taught it. Hint metadata
     ///         only — never a routing weight (INV-16).
     function v4CodeOf(address token) external view returns (uint256) { return _store().v4CodeOf[token]; }
 
@@ -1899,7 +1915,7 @@ contract BlazePhoenixHub {
         //     trusted: it feeds `computeV4PoolId`, and `_recoverV4Ts` above has
         //     already returned without registering if the derived pid missed the pool.
         //   Algebra (`dyn`) -> 0, the sentinel that tells the reader to MEASURE live
-        //     (`quoteV3Fee`). That is rule R2 (L511-512), which only existed at the
+        //     (`quoteV3Fee`). That is rule R2 (in `addFactory`), which only existed at the
         //     `addFactory` door — this door never had it.
         //   Static V3 -> the tier its derivation is keyed by, when the pool answers it;
         //     else 0, the live read (`_concRowFee`; aero-nova: a fee() answer is a snapshot).
@@ -1925,7 +1941,7 @@ contract BlazePhoenixHub {
         // fail — so explicit that `V4Entry` pins `hooks: address(0)` by
         // hand) or belongs to a hookless kind. Writing the calldata `hooks`
         // allowed poisoning `hooksOf[key]`: a non-allow-listed address made
-        // the LEGITIMATE pool drop out of the `getActivePools` filter (L1156,
+        // the LEGITIMATE pool drop out of the `getActivePools` hook filter (
         // `pi.hooks == address(0) || isHookLive(pi.hooks)`).
         // DERIVE, DON'T DECLARE — the last of this door's three trusted fields.
         // `fee` is already replaced below (`_concRowFee`) and `hooks` is forced to
@@ -2070,7 +2086,8 @@ contract BlazePhoenixHub {
         return newcomerPsi > worstPsi + (worstPsi / 4);
     }
 
-    /// @notice Fitness of a slot using its packed bridge bit and kind-derived conc.
+    /// @notice Fitness of a slot using the pair's live bridge flag (`_pairBridged`, passed in)
+    ///         and its kind-derived conc.
     /// @dev The ONLY producer of psi in this contract. The question "is this pool concentrated
     ///      liquidity?" is a MEMBERSHIP test against a state-SHAPE class (in the pool or in the
     ///      singleton, immaterial to the weight) — it collapses into theta without violating the

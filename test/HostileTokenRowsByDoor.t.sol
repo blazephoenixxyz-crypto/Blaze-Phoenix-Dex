@@ -173,7 +173,7 @@ abstract contract HostileRowsCells is HostileRowsHarness {
         }
         if (d == Door.NATIVE) _chk(address(router).balance == 0, "ETH left on the Router");
         if (_m(r) == HostileERC20.Mode.HOOK) _reentryRefused(_at(r) >= AT_RECIP ? tOut : tIn);
-        if (!noProbe && (r == Row.IN_FEE_BLOCKED || r == Row.IN_FEE_FALSE || r == Row.IN_FEE_GASBURN)) _probeBooked(s, o0);
+        if (!noProbe && (r == Row.IN_FEE_BLOCKED || r == Row.IN_FEE_FALSE || r == Row.IN_FEE_GASBURN)) _probeBooked(s, o0, r);
         if (r == Row.IN_FEE_FALSE_MOVES || r == Row.IN_FEE_OVERSIZED || r == Row.IN_FEE_HOOK) {
             _chk(o0 == 0, "a push that moved the share was booked as well");
             _chk(tIn.balanceOf(T1) > s.t1, "the share did not reach treasury 1");
@@ -182,9 +182,20 @@ abstract contract HostileRowsCells is HostileRowsHarness {
 
     /// @dev A refused push: booked, not moved; a slot owed nothing claims nothing; the owed slot
     ///      claims exactly the booking, once the token lets it, and the Router is back to its own.
-    function _probeBooked(Snap memory s, uint256 o0) private {
+    ///      While the token still refuses the payee, the claim is refused and the booking stands:
+    ///      a `false` answer read as a success would clear the booking and pay nothing.
+    function _probeBooked(Snap memory s, uint256 o0, Row r) private {
         _chk(o0 > 0, "a refused push was not booked");
         _chk(tIn.balanceOf(T1) == s.t1, "a refused push moved tokens");
+        {
+            vm.prank(T1);
+            (bool ok0, bytes memory r0) = address(router).call{gas: 2_000_000}(abi.encodeCall(router.claimFee, (address(tIn))));
+            (, string memory what0) = Outcomes.classify(r0);
+            _chk(!ok0, string.concat("a claim the token refuses settled (", _rowName(r), ")"));
+            if (!ok0 && r != Row.IN_FEE_GASBURN) _chk(keccak256(bytes(what0)) == keccak256("BPC:transfer"),
+                string.concat("a refused claim reverted with ", what0, ", expected BPC:transfer"));
+            _chk(router.owed(address(tIn), 0) == o0 && tIn.balanceOf(T1) == s.t1, "a refused claim moved the booking");
+        }
         tIn.setModeTo(T1, HostileERC20.Mode.NONE);
         bytes memory claim = abi.encodeCall(router.claimFee, (address(tIn)));
         vm.prank(T2);

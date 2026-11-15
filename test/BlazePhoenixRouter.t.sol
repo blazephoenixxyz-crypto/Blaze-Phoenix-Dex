@@ -294,7 +294,11 @@ contract BlazePhoenixRouterTest is Test {
 
         vm.prank(user);
         uint256 delivered = router.swapExactIn(route, amountIn, 1, user, block.timestamp + 1);
-        assertApproxEqRel(delivered, expectedOut, 0.01e18);
+        // No bridge is registered, so the protocol fee comes off hop 0's input before the leg
+        // (rounded up); the single leg is scaled to exactly that net input, and the mock pays
+        // exactly outV3 on what it receives: the pool math on the net input, to the wei.
+        uint256 netIn = amountIn - BPC.mulDivUp(amountIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        assertEq(delivered, BPC.outV3(netIn, sqrtP, liq, 3000, zfo, 0), "delivered != pool math on the net input");
     }
 
     function test_V3Leg_RevertsWhenPoolDemandsMoreThanCommittedInput() public {

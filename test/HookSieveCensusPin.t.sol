@@ -177,11 +177,11 @@ contract HookSieveCensusPinTest is Test {
 
     function test_A4_solver_sieves_in_the_merge_and_never_unlocks() public view {
         bytes memory s = _src(SOLVER);
-        (uint256 a, uint256 b) = _fnSlice(s, "function _topKPools");
+        (uint256 a, uint256 b) = _fnSlice(s, "function _rankedPools");
         uint256 first  = _indexOf(s, bytes("BPC.hookAltersDeltas("), 0);
         uint256 second = _indexOf(s, bytes("BPC.hookAltersDeltas("), first + 1);
         assertTrue(first != NF && second != NF && a < first && second < b && first < second,
-            "A4 pin: the Solver's two sieve sites left the _topKPools candidate merge (registry loop + discovery loop)");
+            "A4 pin: the Solver's two sieve sites left the _rankedPools candidate merge (registry loop + discovery loop)");
         assertEq(_count(s, ").unlock("), 0, "A4 pin: the Solver gained an unlock call - the planner must stay view-only");
         assertEq(_count(s, ").swap("), 0, "A4 pin: the Solver gained a swap call - the planner must stay view-only");
     }

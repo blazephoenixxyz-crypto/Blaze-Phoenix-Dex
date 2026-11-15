@@ -49,7 +49,6 @@ Each item links to the place where it can be checked. The full list is at [https
 - **Bug bounty:** a [public programme](https://blazephoenix.xyz/bounty) with [credited researchers](https://blazephoenix.xyz/security/researchers) and [published advisories](https://blazephoenix.xyz/security/advisories).
 - **Whitepaper DOI:** [10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091); papers timestamped with [OpenTimestamps](https://blazephoenix.xyz/provenance/provenance.json).
 - **Contact:** contact@blazephoenix.xyz ([security.txt](https://blazephoenix.xyz/.well-known/security.txt)); official channels at [/official](https://blazephoenix.xyz/official).
-- **Audit status:** an independent external audit is scheduled before launch.
 
 ---
 
@@ -92,8 +91,7 @@ A pool is weighed by what it pays for the next unit, never by what it says about
   generation deployed on chain today. `test/fork/DeployedParity.t.sol` pins what is deployed on
   every network, so the two generations are never conflated.
 - **The BZPX token has not launched**, so on-chain volume reflects the calendar, not the code.
-- **An independent external audit is scheduled before launch.** Until then, everything the
-  repository claims about itself is reproducible from a clean checkout; see
+- **Everything the repository claims about itself is reproducible from a clean checkout;** see
   [Guarantees](#guarantees-and-how-to-check-each-one) and [Reproducing every gate](#reproducing-every-gate).
 
 Branch protection on `main` requires five checks, read from the enforcing surface
@@ -108,7 +106,7 @@ file:
 | `Slither (static detectors, fail on high)` | static detectors, failing on high |
 | `gas metrics (offline ledger)` | the gas ledger |
 
-The Certora Prover, Solhint, the secret scan, the mutation guard and the fork suites run
+The Certora Prover, Aderyn, Solhint, the secret scan, the mutation guard and the fork suites run
 alongside them; they report rather than block, and a red run on any of them is treated as work to
 do. Three workflows run on dispatch rather than on every push: the gas campaigns G7 and G8
 ([docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md)) and `fuzz-mc`, the Monte Carlo and
@@ -269,16 +267,55 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,376 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 478 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 36 | `test/fork/*.t.sol` |
+| Test declarations | 3,532 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 515 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
-| Symbolic properties (Halmos) | 16 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,710 | entries in `.github/scripts/mutants.py` |
-| Certora Prover specifications | 1 | `certora/**/*.spec` |
+| Symbolic properties (Halmos) | 20 | `function check*` |
+| Curated mutants, each paired with the test that must kill it | 1,895 | entries in `.github/scripts/mutants.py` |
+| Certora Prover specifications | 4 | `certora/**/*.spec` |
+| Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
+| Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
 | CI workflows | 10 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
+
+### Protocol constants and contract sizes (read from `src/` and `.sizes-snapshot`; CI fails if stale)
+
+<!-- protocol-constants:begin -->
+| Protocol constant | Value | Read from |
+|---|---:|---|
+| Protocol fee, basis points | 28 | `PROTOCOL_FEE_BPS`, `src/BlazePhoenixCore.sol` |
+| Hops per route, at most | 2 | `MAX_HOPS`, `src/BlazePhoenixCore.sol` |
+| Venue legs per hop, at most | 5 | `MAX_LEGS_PER_HOP`, `src/BlazePhoenixCore.sol` |
+| Venue legs per route, at most | 10 | `MAX_HOPS` x `MAX_LEGS_PER_HOP` |
+| Route topologies the Solver compares | 4 | `TOPOLOGIES`, `src/BlazePhoenixSolver.sol` |
+
+| Contract | Runtime bytes | EIP-170 headroom (24,576) |
+|---|---:|---:|
+| `BlazePhoenixAdapterAlgebraIntegral` | 6,666 | 17,910 |
+| `BlazePhoenixAdapterBalancerV2` | 5,208 | 19,368 |
+| `BlazePhoenixAdapterBalancerV3` | 6,179 | 18,397 |
+| `BlazePhoenixAdapterCurveCryptoNG` | 3,026 | 21,550 |
+| `BlazePhoenixAdapterCurveNG` | 3,528 | 21,048 |
+| `BlazePhoenixAdapterInfinityBin` | 5,584 | 18,992 |
+| `BlazePhoenixAdapterInfinityCL` | 5,975 | 18,601 |
+| `BlazePhoenixAdapterLB` | 3,118 | 21,458 |
+| `BlazePhoenixCore` | 21,801 | 2,775 |
+| `BlazePhoenixGate` | 10,710 | 13,866 |
+| `BlazePhoenixGateWrapper` | 4,408 | 20,168 |
+| `BlazePhoenixHub` | 23,360 | 1,216 |
+| `BlazePhoenixMath` | 10,680 | 13,896 |
+| `BlazePhoenixQuoter` | 19,760 | 4,816 |
+| `BlazePhoenixRouter` | 23,710 | 866 |
+| `BlazePhoenixSolver` | 21,253 | 3,323 |
+<!-- protocol-constants:end -->
+
+### Gas case studies (measured; linked as they are published)
+
+<!-- gas-case-studies:begin -->
+
+<!-- gas-case-studies:end -->
 
 ## Assurance: what the repository measures about its own evidence
 
@@ -318,7 +355,7 @@ what it pins.
 
 Every gate runs in CI and identically on a laptop. Toolchain: **Solidity 0.8.36**, pinned with
 `via_ir` across the Foundry profiles; **Foundry** (forge, cast, anvil); **Halmos**;
-**Certora Prover**; **Slither**; **Solhint**.
+**Certora Prover**; **Slither**; **Aderyn**; **Solhint**.
 
 ```bash
 # Build and full suite
@@ -337,12 +374,12 @@ halmos --contract EffV4FeeFormalSpec -v      # INV-20: effV4Fee fails closed
 
 # Static analysis (.github/workflows/security.yml)
 slither . --fail-high
+aderyn . -o aderyn-report.md
 solhint 'src/**/*.sol'
 
 # Registers and generated files must agree with the repository
 bash .github/scripts/shared-quantities.sh
-python3 .github/scripts/readme_stats.py --check
-python3 .github/scripts/llms_full.py --check
+python3 .github/scripts/regen.py --check   # rewrite with: python3 .github/scripts/regen.py
 ```
 
 The static guards are plain `grep` invocations inside [`.github/workflows/ci.yml`](.github/workflows/ci.yml),

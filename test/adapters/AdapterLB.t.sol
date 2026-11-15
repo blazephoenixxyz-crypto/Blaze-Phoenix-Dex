@@ -319,6 +319,30 @@ contract AdapterLBTest is AdapterHarness {
         assertEq(uint256(BlazePhoenixGateWrapper(w2).aux0()), 2, "HOOKED, X is token1");
     }
 
+    /// BY DESIGN (docs/KNOWN_ISSUES.md, "LFJ's ignoredForRouting flag"): the record's fourth field
+    /// is LFJ's quoter hint, not a safety property, and is never read. Flagged at create, the pair
+    /// resolves to the factory's record with its shape; flagged after create, a wrapper made while
+    /// the flag was clear still quotes, quoteCalls and executes, to the same values.
+    function test_LB_Resolve_IgnoredForRoutingIsNotRead() public {
+        factory.setIgnored(true);
+        (, address rec, , bool ignored) = factory.getLBPairInformation(address(t0), address(t1), BS);
+        assertTrue(ignored, "anti-vacuity: the record reports the flag");
+        assertEq(rec, address(pair));
+        // At create: the adapter's own answer, then a wrapper over a fresh flagged pair.
+        (address vp, bytes32 a0, bytes32 a1) = adapter.resolve(address(t0), address(t1), KEY, abi.encode(uint256(BS)));
+        assertEq(vp, address(pair), "the factory's record, flag or not");
+        assertEq(uint256(a0), 2, "HOOKED, X is token1");
+        assertEq(a1, bytes32(0));
+        MockLBPair p2 = _pair(address(t1), address(t0), 25);
+        address w2 = gate.create(address(t0), address(t1), KEY + 1, abi.encode(uint256(25)));
+        assertEq(BlazePhoenixGateWrapper(w2).venuePool(), address(p2));
+        assertEq(BlazePhoenixGateWrapper(w2).quoteCall(true, 1e18), 4.985e17, "flagged at create: quoteCall");
+        _assertLive(w2);
+        // After create: `w` was made with the flag clear and is asked with it set.
+        assertEq(BlazePhoenixGateWrapper(w).quoteCall(false, 1e18), 1.994e18, "flagged after create: quoteCall");
+        _assertLive(w);
+    }
+
     function test_LB_Resolve_PairNotInTheRegistry_Refused() public {
         vm.expectRevert(_aerr(2));
         gate.create(address(t0), address(t1), KEY + 1, abi.encode(uint256(25)));

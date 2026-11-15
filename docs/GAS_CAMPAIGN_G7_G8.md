@@ -1,6 +1,6 @@
 # Gas campaigns G7 and G8: what is measured, and where
 
-Status: first version, 13/11. Every number below cites the CI run and the line of its
+Status: first version, 13/11; section 6 (re-measure at `bb4cdbb`) and section 7 (DEX used per chain) added 14/11. Every number below cites the CI run and the line of its
 `report.tsv`. A cell without a source says **not measured**. Tools:
 `tools/g7-gas-campaign/` (G7, random draws over the inventory) and the G8 tool directory next to it (`tools/g8-*/`)
 (G8, one case per AMM family, per bridge and per pair token).
@@ -178,3 +178,141 @@ record its row filter. Fourteen filters over the same `results.tsv` were tried a
 its n on those three chains. The merged `results.tsv` and the per-chain artefact of each of the
 six chains give the same 800 rows and the same n, so the gap is not a merge artefact. The n
 used in this document are the report's (P:4962-5003); the three earlier n are not used.
+
+## 6. Re-measure at `bb4cdbb`: swap coverage, harness causes, fixes
+
+Source: the local re-measure `docs/case-studies/data/gas-1114/g7/results-bb4cdbb.tsv` (same spec
+and seed as run 43376232767; 6 chains x 800 rows, avalanche absent, not zero) and its report
+`report-bb4cdbb.tsv` in the same directory, regenerated with g7.py at `8c844a1` (command and
+sha256 in `provenance.tsv`). Below, `B:<n>` means line `n` of that report.
+
+**Swap coverage.** The outcome table counts an `mf_unforced` row as not ok. That row is a
+forced-memory mode the harness could not force; when its natural twin `M<age>` of the same draw
+is ok, the swap itself works. `swap coverage` (g7.py `swap_coverage`, `8c844a1`) counts such a
+row as ok; the denominator stays every row.
+
+| chain | n | ok | mf_unforced, twin ok | swap ok | swap ok % | source |
+|---|---|---|---|---|---|---|
+| arbitrum | 800 | 608 | 48 | 656 | 82.0 | B:299 |
+| base | 800 | 562 | 62 | 624 | 78.0 | B:300 |
+| bsc | 800 | 534 | 74 | 608 | 76.0 | B:301 |
+| ethereum | 800 | 626 | 46 | 672 | 84.0 | B:302 |
+| optimism | 800 | 648 | 56 | 704 | 88.0 | B:303 |
+| robinhood | 800 | 447 | 80 | 527 | 65.9 | B:304 |
+| avalanche | - | - | - | - | not measured | absent from the re-measure |
+
+**Harness causes.** Rows that are not ok because of the campaign harness, not the Quoter, the
+Solver or the market. Counts are draws and rows of `results-bb4cdbb.tsv`, classified by replaying
+each failed draw on a fork at its block (the per-draw replay is not in this repository).
+
+| cause | what | draws | rows | status |
+|---|---|---|---|---|
+| H1 | the stratum's venue has no code at the draw's block (created after it; the inventory was taken at a later head) | 55 | 440 | `a1849b4`: a stratum keeps only pools alive at b0 (V2/V3 code, V4 slot0 and both tokens' code); takes effect with a rebuilt spec, so not yet in these rows |
+| H1b | same root as H1 for V4: the venue's slot0 is 0 at the draw's block | 17 | 136 | `a1849b4`, as H1 |
+| H2 | `mf_unforced` row of a draw whose swap is ok | 183 | 366 | `8c844a1`: counted by its twin in swap coverage (the 366 rows are the column `mf_unforced, twin ok` above); seeding V4-native pools through `addV4` not done |
+| H4 | the G7 deploy script does not wire V4 as the fixture it mirrors (`_v4Wire`: `setWeth` and the `MODE_V4_DERIVE` line) on robinhood, optimism and arbitrum | 10 (robinhood; other chains not measured) | 17 (robinhood; other chains not measured) | recorded, not changed |
+| M1 | amount ladder below one unit of output on dust pools (ladder 1e-7..1e-1 of the venue balance) | 13 | 104 | recorded, not changed; the floor N is the owner's number |
+
+**Fixes in source, with the draws they settle.** Each draw was replayed on a fork at its block;
+the test pins it there. The rows of `results-bb4cdbb.tsv` were measured before these commits
+(all 8 rows of each draw are `revert` or `mf_unforced`); a re-measure on the fixed source is
+**not measured**.
+
+| commit | what changed | draws | test |
+|---|---|---|---|
+| `6e1bc78` | the in-frame quote of a cut V3 walk answers what it walked, min(walked, f); the Solver's promise keeps the rest. Before, a cut walk priced the rest of the input on the last range read, so the frame quoted more than the venue pays and the protocol floor (`Router.sol:1649`) refused the fill | bsc gate-6-2 idx 5 (b 132377036), bsc midtail-2 idx 2 (b 132580903) | `test/fork/G7ErrBscV3PayReadsOverstatePoolProtocolFloor.t.sol` |
+| `4f729bc` | encode doors refuse a zero floor (`RouterE(10)`); for one unit of USDC the fee took the base and the door encoded `minOut` 0, which the Router refuses | ethereum shallow-3 idx 2 (b 26316739), ethereum shallow-3 idx 5 (b 26325844) | `test/fork/G7ErrEthShallow3ZeroFloorEncoded.t.sol` |
+| `f82bc67` | encode doors fall back once to the Solver's runner-up when the leader's bytes do not settle | none of the draws above | `test/QuoterEncodeFallsBackOnce.t.sol`, `test/fork/G7ErrEthC6UnwalkedLastHop.t.sol` |
+
+## 7. DEX used per chain
+
+Source: the `# dex used` (B:4895-4935) and `# dex available` (B:4936-4986) sections of
+`report-bb4cdbb.tsv`, regenerated from the same `results-bb4cdbb.tsv` (lines 1-4894 unchanged; sha256
+in `provenance.tsv`). Only `outcome == ok` rows count: the routes that settled. A leg is one entry of
+`legs_detail` (a swap or unlock frame under the Router, not nested in another leg); `% legs` is the
+share of the chain's ok legs, `% gas` the share of their frame gas.
+
+**Not volume.** `legs_detail` records `<target>:<gas>` per leg and no amount, so the share of the
+traded volume per DEX is **not measured** for this re-measure. The runner now writes a `leg_amt`
+column (the input paid to each leg: token transfers into the leg's target under the Router, and
+native value sent to it); it fills only in campaigns run after this change.
+
+**Naming (`basis`).** A leg's target is mapped to its venue through `docs/prereg/gas-1114-universe.tsv`
+(a V4 leg's target is the PoolManager itself). `factory`: a repo constant at that address on the
+same chain names the DEX (the constant's file and line are in g7.py `DEX_NAME`). `addr`: no constant
+on this chain, but the same address with the same kind is named on another chain. `kind`: the kind
+names one protocol (for example `algebra`, `curve_ng`). `gate`: a Gate row (`gate_used = 1`) named by
+its stratum's gate family. `seed`: a seed pool of the stratum in the spec, named only by its Hub
+kind. `unknown`: none of these; unknown is a missing name, not a missing DEX.
+
+Top three DEXes per chain by legs:
+
+| chain | ok legs | 1st | 2nd | 3rd | basis `unknown` | source |
+|---|---|---|---|---|---|---|
+| arbitrum | 1073 | Uniswap V3: 51.4 % legs, 25.8 % gas | PancakeSwap V3: 23.3 %, 63.8 % | unknown: 9.5 %, 3.8 % | 9.5 % | B:4896-4903 |
+| base | 1016 | Uniswap V3: 34.4 %, 18.7 % | PancakeSwap V3: 18.5 %, 51.8 % | Aerodrome CL: 15.7 %, 10.1 % | 10.6 % | B:4904-4912 |
+| bsc | 866 | PancakeSwap V3: 58.2 %, 87.6 % | Uniswap V3: 24.2 %, 6.7 % | unknown: 9.2 %, 2.4 % | 9.2 % | B:4913-4916 |
+| ethereum | 1252 | Uniswap V3 (`addr`): 56.9 %, 80.0 % | unknown v2: 13.6 %, 3.0 % | PancakeSwap V3 (`addr`): 10.4 %, 9.7 % | 23.8 % | B:4917-4924 |
+| optimism | 1006 | Uniswap V3: 52.0 %, 46.4 % | unknown cl: 18.8 %, 22.7 % | Velodrome: 11.8 %, 15.6 % | 22.4 % | B:4925-4931 |
+| robinhood | 693 | Uniswap V3: 76.2 %, 42.1 % | Uniswap V4: 9.1 %, 55.6 % | Uniswap V2: 7.8 %, 1.1 % | 6.9 % | B:4932-4935 |
+| avalanche | - | not measured | - | - | - | absent from the re-measure |
+
+`ok legs` is the sum of the `legs` column over the cited lines; `basis unknown` is the share of
+those legs whose basis is `unknown` (legs named only by their `seed` kind are not in it). `# dex available` lists each venue of the universe with its pools, the
+routable ones and the ok legs that used it. The G8 report (`g8/report-bb4cdbb.tsv`) carries the same
+two sections, because g8.py prints g7's report first; this document cites none of its lines.
+
+## 8. Detailed breakdown
+
+Source: `docs/case-studies/data/gas-1114/g7/report-detail-bb4cdbb.tsv`, regenerated from the same
+`results-bb4cdbb.tsv` with the g7.py of the commit that adds it (command and sha256 in
+`provenance.tsv`). Its lines 1-4986 are byte-identical to `report-bb4cdbb.tsv`; lines 4987-5891 are
+the new sections. Below, `D:<n>` means line `n` of that file; the index of the sections and their
+data lines is D:5867-5891. Each table has one row per chain and value plus an `all` row, the
+outcome classes, and the `g_exec` percentiles with the results row of the maximum (`row:<n>`).
+`ci95_lo`/`ci95_hi` (Wilson) are filled only when the denominator is below 100 rows.
+
+| section | lines | what it splits |
+|---|---|---|
+| 8.1a-8.1d | D:4987-5198 | legs by kind and by DEX (leg frame gas), top 10 pools and top 10 pairs per chain |
+| 8.2a-8.2d | D:5199-5325 | legs, hops, topology (hops x single/split), direct vs via an intermediate token |
+| 8.3a-8.3b | D:5327-5367 | token class (measured), decimals of tin/tout |
+| 8.4a-8.4c | D:5370-5479 | USD size bucket, its basis, gas per leg by bucket |
+| 8.5a-8.5b | D:5481-5668 | stratum kind x USD bucket x outcome, decoded cause of every row not ok |
+| 8.6a-8.6c | D:5669-5864 | gas by segment, quote estimate vs execution, leg kind x USD bucket |
+
+**Topology** (D:5299-5303, all chains). `(absent)` is a row with no executed route: 1167 rows,
+which are the 707 `SolverE(5)` noquotes plus the 460 `mf_unforced` rows whose stamp was not found.
+
+| topology | rows | ok | g_exec p50 | p90 | source |
+|---|---|---|---|---|---|
+| 1h-single | 1956 | 1840 | 503455 | 908906 | D:5300 |
+| 1h-split | 646 | 610 | 1086392 | 2650011 | D:5301 |
+| 2h-single | 759 | 711 | 1137652 | 1742063 | D:5302 |
+| 2h-split | 272 | 264 | 1917830 | 4054655 | D:5303 |
+
+Robinhood has no `2h-split` row (D:5296-5298). 2-hop routes via an intermediate token: 1031 rows,
+975 ok (D:5325); which token bridged them is not recorded (8.2e).
+
+**Causes of every row not ok** (D:5662-5668, all chains): `SolverE(5)` 707, `stamp not found` 460,
+`discoverFor frame present` 74, `UniswapV2: TRANSFER_FAILED` 46, `RouterE` with its code not
+recorded 36, `BPC:transferFrom` 30, `canExecute=0` 22. The runner now records the selector and the
+code word of an execution revert, so a `RouterE` of a later campaign carries its code.
+
+**Token class** (D:5346-5348). `short_out` (delivered < `net_out`) is 432 of the 3425 ok rows;
+`normal` 2993. The class is measured on the delivered amount, not read from a token list.
+Decimals come from `site_tokens.json` (D:5349-5367): bsc is `unknown` on all 800 rows, because bsc
+is absent from that file (not measured, not zero).
+
+**USD size** (D:5370-5413). Only a side that is a listed stable is priced, at peg 1 (not measured);
+3112 rows (64.8 %) are `unpriced`, and bsc is unpriced on every row. The `>=1M` bucket has 88 rows,
+67 ok, g_exec p50 4692506 (D:5411). Gas per leg by bucket is D:5438-5479.
+
+**Quote estimate vs execution** (D:5734-5740). On all 3425 ok rows the executed gas is above the
+quote's `est_gas`: est p50 140000, exec p50 769420, delta p50 568614 (D:5740).
+
+**No data, not zero.** Six sections print `no data` because the column is missing from
+`results-bb4cdbb.tsv`: 8.2e `route_mid_token` (D:5326), 8.3c `tok_flags` (D:5368), 8.3d
+`tin_native` (D:5369), 8.4d `leg_amt` (D:5480), 8.7a `fb_used` (D:5865) and 8.7b `route_age_s`
+(D:5866). Rebase or exotic tokens, native input, the fallback to the runner-up and an aged route
+were not drawn or not recorded in this run; they need a new campaign.

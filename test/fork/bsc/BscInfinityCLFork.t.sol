@@ -7,6 +7,7 @@ import {BlazePhoenixGate, BlazePhoenixGateWrapper} from "../../../src/BlazePhoen
 import {
     BlazePhoenixAdapterInfinityCL, IInfinityCLPoolManager, IInfinityVault
 } from "../../../src/adapters/BlazePhoenixAdapterInfinityCL.sol";
+import {InfinityCLPinProbe} from "../../adapters/mocks/InfinityPinProbes.sol";
 
 interface IHooksBitmap {
     function getHooksRegistrationBitmap() external view returns (uint16);
@@ -107,8 +108,9 @@ contract BscInfinityCLFork is AdapterHarness {
             assertEq(uint256(params) & 0xffff, 69, "bitmap 69 in the key");
             assertEq(IHooksBitmap(h).getHooksRegistrationBitmap(), 69, "the hook registers 69");
         }
-        assertEq(a.HOOK_CODEHASH0(), HOOK_B0BA.codehash);
-        assertEq(a.HOOK_CODEHASH1(), HOOK_B0BB.codehash);
+        (bytes32 c0, bytes32 c1,) = new InfinityCLPinProbe(address(gate), CL, _pins()).pins();
+        assertEq(c0, HOOK_B0BA.codehash);
+        assertEq(c1, HOOK_B0BB.codehash);
         assertTrue(HOOK_B0BA.codehash != HOOK_B0BB.codehash, "two codes, two pins");
     }
 

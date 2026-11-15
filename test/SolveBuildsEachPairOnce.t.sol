@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  A SOLVE BUILDS EACH PAIR'S CANDIDATE LIST ONCE.
 //
-//  A build (`_topKPools`: the registry read, its freshness gate, the discovery
+//  A build (`_rankedPools`: the registry read, its freshness gate, the discovery
 //  sweep, the fitness batch) is a function of the state and the ordered pair, and
 //  the solve is a static call, so a second build of a pair can only return the
 //  list the first one returned. `_candsOf` keeps one list per ordered pair for

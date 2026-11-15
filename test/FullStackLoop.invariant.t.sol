@@ -93,7 +93,7 @@ contract FullStackLoopHandler is Test {
     // Set if a Solver plan SETTLED while containing a leg whose pool neither
     // the registry (getPool under the hop-pair key) nor discovery (discoverFor
     // over the same pair) attests. The Solver builds candidates exclusively
-    // from getActivePools ∪ discoverFor (_topKPools), so this firing means a
+    // from getActivePools ∪ discoverFor (_rankedPools), so this firing means a
     // plan reached execution against a pool the Hub never vouched for.
     bool public ghost_unattestedPlanSettled;
 
@@ -262,7 +262,7 @@ contract FullStackLoopHandler is Test {
     ///      for that hop's pair: either registered (getPool under the keyOf of
     ///      pool + hop tokens resolves to the pool) or served by discovery
     ///      (discoverFor over the same pair lists it). These are exactly the
-    ///      two sources _topKPools unions, so an unattested leg means the plan
+    ///      two sources _rankedPools unions, so an unattested leg means the plan
     ///      settles against a pool the registry does not stand behind.
     function _planAttested(Route memory r) internal view returns (bool) {
         for (uint256 h; h < r.hops.length; ++h) {

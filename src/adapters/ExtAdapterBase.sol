@@ -18,8 +18,10 @@ interface IIndexedVenue {
 ///      Error codes, shared by all adapters:
 ///        0 zero address at construction   1 the caller is not a wrapper of the Gate
 ///        2 the venue does not vouch for the pool (registry / factory / vault)
-///        3 the pair is not traded by that pool        4 an asset of the pool is refused
-///        5 an allowance survived the venue call (PULL)
+///        3 the pair is not traded by that pool        4 an asset or the form of the pool is
+///        refused (asset type, ETH sentinel, metapool, native-enabled tricrypto)
+///        5 an allowance survived the venue call (PULL), or allowance() could not be read (a
+///        failed read is not a zero)
 ///        6 a venue callback outside the adapter's own call, or not from the venue
 ///        7 the pool's hooks are refused                8 the hint is malformed
 ///        9 the amount is outside what the venue takes
@@ -27,10 +29,41 @@ abstract contract ExtAdapterBase {
     error AdapterE(uint8 code);
 
     IGateWrappers public immutable GATE;
+    /// The hooks codes this adapter lets run under it, fixed at construction. A zero slot is
+    /// empty: no code has codehash zero, and an address without code is refused before the slots.
+    bytes32 internal immutable HOOK_CODEHASH0;
+    bytes32 internal immutable HOOK_CODEHASH1;
+    bytes32 internal immutable HOOK_CODEHASH2;
 
-    constructor(address gate) {
+    /// True only while this adapter's own `exec` runs: what a venue callback is checked against.
+    /// Written by the inheriting adapters around their own venue call (Slither does not follow it).
+    // slither-disable-next-line uninitialized-state
+    bool transient internal _inExec;
+
+    constructor(address gate, bytes32[3] memory hookCodehashes) {
         if (gate == address(0)) revert AdapterE(0);
         GATE = IGateWrappers(gate);
+        (HOOK_CODEHASH0, HOOK_CODEHASH1, HOOK_CODEHASH2) = (hookCodehashes[0], hookCodehashes[1], hookCodehashes[2]);
+    }
+
+    /// The ONE producer of "may this pool's hooks run under us": none, or code whose codehash is
+    /// one of the three pinned at construction. Belonging only: what a venue lets the hooks do
+    /// (Balancer V3 `enableHookAdjustedAmounts`) is each adapter's own acceptance, kept there.
+    function _requireHookPinned(address hooks) internal view {
+        if (hooks == address(0)) return;
+        bytes32 h = hooks.codehash;
+        if (h == bytes32(0) || (h != HOOK_CODEHASH0 && h != HOOK_CODEHASH1 && h != HOOK_CODEHASH2)) revert AdapterE(7);
+    }
+
+    /// A venue callback: only from `venue`, and only inside this adapter's own `exec` (the
+    /// transient credit of a venue session belongs to whoever runs inside it).
+    function _requireVenueCallback(address venue) internal view {
+        if (msg.sender != venue || !_inExec) revert AdapterE(6);
+    }
+
+    /// The amount fits what the venue takes in one call (a ceiling the venue itself reports).
+    function _requireAmountAtMost(uint256 amt, uint256 max) internal pure {
+        if (amt > max) revert AdapterE(9);
     }
 
     /// The ONE producer of "who may run exec, and on which tokens". The caller must be a wrapper

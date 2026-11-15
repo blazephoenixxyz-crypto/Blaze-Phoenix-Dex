@@ -94,8 +94,14 @@ contract StableCurveReachesTheSolverTest is Test {
             // a plan or an empty plan: fine either way
         } catch Error(string memory reason) {
             fail(string.concat("a library revert unwound the Solver's plan: ", reason));
-        } catch (bytes memory) {
-            // the Solver's own selector (no route): the pool was refused, not the door
+        } catch (bytes memory err) {
+            // only the Solver's own refusal (no route) may end the plan: the pool was refused,
+            // not the door. A Panic, an empty revert or another contract's error fails here.
+            assertEq(
+                err,
+                abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5)),
+                "only the Solver's own no-route refusal may end the plan"
+            );
         }
     }
 }

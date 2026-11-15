@@ -113,7 +113,9 @@ contract HopBudgetAggregateTest is Test {
         legs[0] = _leg(poolHonest,   BPC.mulDiv(o1, 10_000, 8_200));   // 82%
         legs[1] = _leg(poolAttacked, BPC.mulDiv(o2, 10_000, 8_200));   // 82%
         vm.prank(user);
-        vm.expectRevert();
+        // Layer 1 (shared per-hop budget) refuses with RouterE(5): each leg at 82% clears its own
+        // 80% floor, and hopGot + slack = 0.82A + 0.2(A/2) = 0.92A < A = hopAttested.
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
         router.swapExactIn(_route(legs, AMT_PER_LEG * 2), AMT_PER_LEG * 2, 1, user, block.timestamp + 1);
     }
 

@@ -8,6 +8,7 @@ import {
     BlazePhoenixAdapterInfinityCL, IInfinityVault, ILockCallback, IInfinityCLPoolManager
 } from "../../src/adapters/BlazePhoenixAdapterInfinityCL.sol";
 import {MockInfVault, MockInfCLPoolManager, PinnedHook, SecondHook, ForgingHook, OtherHook} from "./mocks/MockInfinity.sol";
+import {InfinityCLPinProbe} from "./mocks/InfinityPinProbes.sol";
 import {MockERC20Dec} from "./mocks/MockERC20Dec.sol";
 
 /// An unpinned hook whose beforeSwap works: the code a pinned hook's address may come to hold.
@@ -341,13 +342,17 @@ contract AdapterInfinityCLTest is AdapterHarness {
     }
 
     function test_InfCL_Constructor_PinsAreTheRefHooksCodehash() public {
-        assertEq(adapter.HOOK_CODEHASH0(), address(hook).codehash);
-        assertEq(adapter.HOOK_CODEHASH1(), address(hook1).codehash);
-        assertEq(adapter.HOOK_CODEHASH2(), address(hook2).codehash);
-        BlazePhoenixAdapterInfinityCL a2 =
-            new BlazePhoenixAdapterInfinityCL(address(gate), address(cl), [address(hook), address(0), address(0)]);
-        assertEq(a2.HOOK_CODEHASH1(), bytes32(0), "an empty slot pins nothing");
-        assertEq(a2.HOOK_CODEHASH2(), bytes32(0), "an empty slot pins nothing");
+        InfinityCLPinProbe p =
+            new InfinityCLPinProbe(address(gate), address(cl), [address(hook), address(hook1), address(hook2)]);
+        (bytes32 c0, bytes32 c1, bytes32 c2) = p.pins();
+        assertEq(c0, address(hook).codehash);
+        assertEq(c1, address(hook1).codehash);
+        assertEq(c2, address(hook2).codehash);
+        InfinityCLPinProbe a2 =
+            new InfinityCLPinProbe(address(gate), address(cl), [address(hook), address(0), address(0)]);
+        (, c1, c2) = a2.pins();
+        assertEq(c1, bytes32(0), "an empty slot pins nothing");
+        assertEq(c2, bytes32(0), "an empty slot pins nothing");
     }
 
     function test_InfCL_Constructor_ZeroManager_Refused() public {

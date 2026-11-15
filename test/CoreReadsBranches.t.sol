@@ -35,6 +35,12 @@ pragma solidity 0.8.36;
 //      consumer normalises amounts, and 18 is the documented safe default.
 //    * v4 extsload words are STRICT (== 32, Core:1598/1603) — a slot read is
 //      a word or it is nothing.
+//    * factory lookups are STRICT (== 32, `_askPool`) — every lookup selector
+//      returns an ABI `address`, so a wider answer comes from a factory that
+//      does not speak that ABI, and refusing it costs only discovery (the Hub
+//      still proves code and pair on whatever a factory answers). The
+//      poolDeployer() read is the opposite policy (>= 32, T19): a real
+//      factory answered it wide.
 //
 //  Every test states what breaks it: deleting the guarded branch body it
 //  targets flips a pinned observable (a revert that stops happening, a zero
@@ -783,5 +789,88 @@ contract CoreExternalReadsTest is Test {
             address(0),
             "20 raw bytes are not a pool address"
         );
+    }
+
+    // ── _askPool reads exactly one word ────────────────────────────────────
+    //
+    // The six lookup selectors (modes 0-3 and the two dialect fallbacks) all
+    // return an ABI `address`: exactly 32 bytes. Each case below puts a pool
+    // that HAS CODE in word 0 and varies only the answer's length, so the one
+    // thing that decides the result is the width. Oracle: the address placed
+    // in the mock (exactly 32 bytes) or address(0) (any other width).
+    // Mutant: `eq(returndatasize(), 32)` -> `iszero(lt(returndatasize(), 32))`
+    // in `_askPool` reads word 0 of the 33- and 64-byte answers: red.
+
+    uint16[8] internal WIDTHS = [uint16(0), 20, 31, 32, 33, 63, 64, 96];
+
+    /// (selector, mode) for the canonical ask of each mode and both fallbacks.
+    /// In the fallback rows the factory reverts the canonical selector, so a
+    /// pool can only come from the fallback ask.
+    function _lookupCase(uint256 i) internal pure returns (bytes4 sel, uint8 mode) {
+        if (i == 0) return (bytes4(0xe6a43905), 0); // getPair(address,address)
+        if (i == 1) return (bytes4(0x1698ee82), 1); // getPool(address,address,uint24)
+        if (i == 2) return (bytes4(0x79bc57d5), 2); // getPool(address,address,bool)
+        if (i == 3) return (bytes4(0x28af8d0b), 3); // getPool(address,address,int24)
+        if (i == 4) return (bytes4(0xd9a641e1), 1); // Algebra poolByPair(address,address)
+        return (bytes4(0x6801cc30), 2);             // Solidly V1 getPair(address,address,bool)
+    }
+
+    function test_FactoryLookup_OnlyAnExactWordIsAPool_AllModesAndFallbacks() public {
+        address pool = address(new PoolWithCode());
+        assertGt(pool.code.length, 0, "precondition: the answered pool has code");
+
+        for (uint256 c; c < 6; ++c) {
+            (bytes4 sel, uint8 mode) = _lookupCase(c);
+            for (uint256 w; w < WIDTHS.length; ++w) {
+                uint16 width = WIDTHS[w];
+                WidthFactory fac = new WidthFactory(sel, pool, width);
+                address got = BPC.deriveAddress(address(fac), TA, TB, POOL_FEE, true, 60, mode, bytes32(0));
+                address want = width == 32 ? pool : address(0);
+                assertEq(got, want, string.concat(
+                    "case ", vm.toString(c), " width ", vm.toString(uint256(width)),
+                    ": only a 32-byte answer is a pool"));
+            }
+        }
+    }
+
+    /// Fuzzed width and word: the result is the placed address iff the answer
+    /// is exactly 32 bytes, for every lookup selector.
+    function testFuzz_FactoryLookup_OnlyAnExactWordIsAPool(uint256 c, uint16 width, address word0) public {
+        c = bound(c, 0, 5);
+        width = uint16(bound(width, 0, 160));
+        (bytes4 sel, uint8 mode) = _lookupCase(c);
+        WidthFactory fac = new WidthFactory(sel, word0, width);
+        address got = BPC.deriveAddress(address(fac), TA, TB, POOL_FEE, true, 60, mode, bytes32(0));
+        assertEq(got, width == 32 ? word0 : address(0), "only a 32-byte answer is read");
+    }
+}
+
+/// @dev A contract with code, standing in for the pool a factory answers.
+contract PoolWithCode {
+    function ping() external pure returns (bool) { return true; }
+}
+
+/// @dev Factory that answers ONE selector with `width` bytes: word 0 is `word0`
+///      (a clean address), every later word is junk. Every other selector
+///      reverts, so a fallback ask is reached only through a canonical miss.
+contract WidthFactory {
+    bytes4  internal immutable sel;
+    address internal immutable word0;
+    uint16  internal immutable width;
+
+    constructor(bytes4 s, address w0, uint16 w) { sel = s; word0 = w0; width = w; }
+
+    fallback() external {
+        if (msg.sig != sel) revert();
+        address w0 = word0;
+        uint256 n = width;
+        assembly {
+            let p := mload(0x40)
+            mstore(p, w0)
+            for { let i := 32 } lt(i, n) { i := add(i, 32) } {
+                mstore(add(p, i), 0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF)
+            }
+            return(p, n)
+        }
     }
 }

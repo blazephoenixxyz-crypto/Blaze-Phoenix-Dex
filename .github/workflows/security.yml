@@ -12,9 +12,53 @@ on:
 # report-only (uploaded as an artifact) so it surfaces issues without blocking
 # on style/informational noise.
 
+# A new push to the same ref cancels the run it supersedes. The group carries the
+# workflow name: one group shared by every workflow would let one workflow cancel another.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    # Path filter (owner's decision 2026-11-14). A pull request that touches none of the paths
+    # below (docs, notes, README) runs the cheap guards and skips the heavy jobs. A filter on
+    # `on.pull_request.paths` would skip the whole workflow, and a required check whose workflow
+    # never starts stays "Expected" forever and blocks the merge; a job skipped by its `if`
+    # reports success under its own name. The matrix shards and the gate job keep running and
+    # skip their steps instead: a skipped matrix job reports one check under the unexpanded
+    # name, never the per-shard names the branch rule requires. Push to main and manual runs
+    # always run everything. The filter fails open: if it cannot answer, or this job dies,
+    # nothing reads 'false' and every job runs (a job skipped because a job it needs failed
+    # would also report success, so the jobs below ask `!cancelled()`, not the default).
+    name: changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outcome != 'success' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'test/**'
+              - 'script/**'
+              - 'lib/**'
+              - '.github/**'
+              - 'foundry.toml'
+              - 'remappings.txt'
+              - 'snapshots/**'
+              - '.sizes-snapshot'
   slither:
     name: Slither (static detectors, fail on high)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -27,7 +71,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Slither
-        run: pip install slither-analyzer
+        run: pip install slither-analyzer==0.11.6   # pinned: one analyzer per measured run
       - name: Slither — full detectors, SARIF + markdown summary
         run: |
           slither . \
@@ -102,10 +146,48 @@ jobs:
           name: solhint-report
           path: solhint-report.txt
 
+  # Certora runs in the vendor cloud and needs the CERTORAKEY repo secret. The gate job
+  # reports whether the key exists; without it every matrix entry shows SKIPPED (never a
+  # green that proved nothing) and the run summary says no rule was proven.
+  certora-gate:
+    name: Certora key present?
+    runs-on: ubuntu-latest
+    outputs:
+      has_key: ${{ steps.k.outputs.has_key }}
+    steps:
+      - id: k
+        env:
+          K: ${{ secrets.CERTORAKEY }}
+        run: |
+          if [ -n "$K" ]; then
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CERTORAKEY not set: Certora NOT RUN - no rule proven."
+            echo "### Certora NOT RUN - no rule proven (CERTORAKEY secret missing)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   certora:
-    name: Certora Prover (INV-20 effV4Fee fail-closed)
+    name: Certora ${{ matrix.conf }}${{ matrix.rule && format(' / {0}', matrix.rule) || '' }}
+    # Only by hand or on a push to main, not on every PR (owner's order, 2026-11-14): the
+    # prover's free tier is 2,000 minutes a month. It is not a required check, so a PR where
+    # it is skipped is not blocked.
+    needs: certora-gate
+    if: ${{ needs.certora-gate.outputs.has_key == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - conf: effv4fee
+          - conf: floorsfee
+          - conf: router-control
+          - { conf: router-swap, rule: zeroMinOutRefused }
+          - { conf: router-swap, rule: amountInAboveU128Refused }
+          - { conf: router-swap, rule: pausedBlocksEverySwapDoor }
+          - { conf: router-swap, rule: deliveryAtLeastMinOutOrRevert }
+          - { conf: router-swap, rule: routerHoldsNothing }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -115,17 +197,13 @@ jobs:
           python-version: "3.11"
       - name: Install certora-cli + solc 0.8.36
         run: |
-          pip install certora-cli solc-select
+          pip install certora-cli==8.20.3 solc-select
           solc-select install 0.8.36
           solc-select use 0.8.36
           # Certora resolves the "solc0.8.36" name from PATH.
           ln -sf "$(command -v solc)" /usr/local/bin/solc0.8.36
-      - name: Run Certora (skips gracefully until CERTORAKEY is set)
+      - name: Run Certora (waits for the verdict; a violated rule fails the job)
         env:
           CERTORAKEY: ${{ secrets.CERTORAKEY }}
-        run: |
-          if [ -z "$CERTORAKEY" ]; then
-            echo "CERTORAKEY not set — Certora scaffold is ready; add the repo secret to run the proof."
-            exit 0
-          fi
-          certoraRun certora/conf/effv4fee.conf
+          RULE: ${{ matrix.rule }}
+        run: certoraRun "certora/conf/${{ matrix.conf }}.conf" ${RULE:+--rule "$RULE"}

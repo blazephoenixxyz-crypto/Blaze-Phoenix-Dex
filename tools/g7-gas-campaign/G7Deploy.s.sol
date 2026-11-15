@@ -13,9 +13,15 @@ pragma solidity 0.8.36;
 // Wiring sources (test-only, placeholder treasuries):
 //   base      test/fork/TokenSweep.t.sol BaseChainFixture.setUp (3 bridges, 8 factories, _v4Wire)
 //             + the Gate of test/fork/BaseTestDeploy.sol:82 + BASE_PCK2 of BaseTestDeploy.sol
-//   optimism  test/fork/MultichainProbe.t.sol _core + OptimismProbeTest.setUp
-//   arbitrum  test/fork/MultichainProbe.t.sol _core + ArbitrumProbeTest.setUp
-//   robinhood test/fork/MultichainProbe.t.sol _core + RobinhoodProbeTest.setUp
+//   optimism  test/fork/MultichainProbe.t.sol _core + OptimismProbeTest.setUp + _v4Wire
+//   arbitrum  test/fork/MultichainProbe.t.sol _core + ArbitrumProbeTest.setUp + _v4Wire
+//   robinhood test/fork/MultichainProbe.t.sol _core + RobinhoodProbeTest.setUp + _v4Wire
+//
+// _v4Wire on every chain with a PoolManager: without its MODE_V4_DERIVE row the Hub never runs the
+// V4 derive scan, so cold discovery (mode D) sees no V4 pool at all, while the seeded modes still
+// reach it through the memory. Pinned by test/fork/G7RobinhoodV4Wire.t.sol (G7 robinhood
+// midtail-1: USDG->USDe lives on a V4 pool only). Each PoolManager below was checked on chain
+// (2026-11-14): 24009-byte runtime, and slot0 of the native-ETH/USDC|USDG 500/10 pool non-zero.
 //
 //   G7_CHAIN=<chain> G7_PK=<throwaway key> forge script tools/g7-gas-campaign/G7Deploy.s.sol \
 //       --tc G7Deploy --rpc-url http://127.0.0.1:<port> --broadcast
@@ -109,19 +115,22 @@ contract G7Deploy is Script {
     function _optimism(address me) internal {
         address WETH = 0x4200000000000000000000000000000000000006;
         address USDC = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
-        _core(me, 0x9a13F98Cb987694C9F086b1F5eB990EeA8264Ec3, true); // G7: Gate mounted for the gates stratum
+        address PM = 0x9a13F98Cb987694C9F086b1F5eB990EeA8264Ec3;
+        _core(me, PM, true); // G7: Gate mounted for the gates stratum
         hub.addBridge(WETH); hub.addBridge(USDC); hub.addBridge(0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb);
         hub.addFactory(0x1F98431c8aD98523631AE4a59f267346ea31F984, KIND_V3, MODE_CREATE2_V3, UNIV3_INIT, _v3Fees(), _v3Sp());
         hub.addFactory(0xF1046053aa5682b4F9a81b5481394DA16BE5FF5a, KIND_SOLIDLY, MODE_CALL_SOLIDLY, bytes32(0), _n24(), _nSp());
         hub.addFactory(0x0c3c1c532F1e39EdF36BE9Fe0bE1410313E074Bf, KIND_V2, MODE_CALL_GENERIC, bytes32(0), _n24(), _nSp());
         hub.addFactory(0x9c6522117e2ed1fE5bdb72bb0eD5E3f2bdE7DBe0, KIND_V3, MODE_CALL_V3, bytes32(0), _v3Fees(), _v3Sp());
         hub.addV4(USDC, WETH, 500, 10, address(0));
+        _v4Wire(PM, WETH, USDC);
     }
 
     function _arbitrum(address me) internal {
         address WETH = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
         address USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-        _core(me, 0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32, true); // G7: Gate mounted for the gates stratum
+        address PM = 0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32;
+        _core(me, PM, true); // G7: Gate mounted for the gates stratum
         hub.addBridge(WETH); hub.addBridge(USDC); hub.addBridge(0x5979D7b546E38E414F7E9822514be443A4800529);
         hub.addFactory(0x1F98431c8aD98523631AE4a59f267346ea31F984, KIND_V3, MODE_CREATE2_V3, UNIV3_INIT, _v3Fees(), _v3Sp());
         hub.addFactory(0xf1D7CC64Fb4452F05c498126312eBE29f30Fbcf9, KIND_V2, MODE_CALL_GENERIC, bytes32(0), _n24(), _nSp());
@@ -129,15 +138,20 @@ contract G7Deploy is Script {
         hub.addFactory(0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865, KIND_V3, MODE_CALL_V3, bytes32(0), _v3Fees(), _v3Sp());
         hub.addFactory(0x6EcCab422D763aC031210895C81787E87B43A652, KIND_V2, MODE_CALL_GENERIC, bytes32(0), _n24(), _nSp());
         hub.addV4(USDC, WETH, 500, 10, address(0));
+        _v4Wire(PM, WETH, USDC);
     }
 
     function _robinhood(address me) internal {
-        _core(me, 0x8366a39CC670B4001A1121B8F6A443A643e40951, true); // G7: Gate mounted for the gates stratum
-        hub.addBridge(0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73); // WETH
-        hub.addBridge(0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168); // USDG
+        address PM = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+        address WETH = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
+        address USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
+        _core(me, PM, true); // G7: Gate mounted for the gates stratum
+        hub.addBridge(WETH);
+        hub.addBridge(USDG);
         hub.addBridge(0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31); // VIRTUAL (pool token, 18 decimals; owner decision 13/11)
         hub.addFactory(0x1f7d7550B1b028f7571E69A784071F0205FD2EfA, KIND_V3, MODE_CALL_V3, bytes32(0), _v3Fees(), _v3Sp());
         hub.addFactory(0x8bcEaA40B9AcdfAedF85AdF4FF01F5Ad6517937f, KIND_V2, MODE_CALL_GENERIC, bytes32(0), _n24(), _nSp());
+        _v4Wire(PM, WETH, USDG);
     }
 
     // Ethereum: not wired on main (G7.md "Cobertura"). Core + Gate here; WETH from

@@ -59,7 +59,7 @@ def main():
     if "--check" in sys.argv:
         cur = open(OUT, encoding="utf-8").read() if os.path.exists(OUT) else ""
         if cur != text:
-            print("llms-full.txt is behind its sources - run: python3 .github/scripts/llms_full.py")
+            print("llms-full.txt is behind its sources - run: python3 .github/scripts/regen.py (llms-full.txt embeds README.md and llms.txt, so it goes last)")
             sys.exit(1)
         print(f"llms-full.txt current ({len(text):,} bytes, {len(DOCS)} documents)")
         return

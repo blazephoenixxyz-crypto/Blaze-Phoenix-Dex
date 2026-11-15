@@ -88,6 +88,10 @@ interface IHubR {
 //      105.5 gas/byte. 25 ppm is ~8x that.
 //      History: 20 bps (667x the dead zone) -> 5 bps (167x) -> 0.25 bps (8x).
 //      Neither of the first two had been calibrated against any measurement.
+//
+// IT IS PER CHAIN, one day: 320 B cost $0.003 on Base and ~$257 on Scroll.
+//      The ChainProfile exists to carry that; until then, this value serves
+//      the cheap L2s, which is where the product lives.
 uint32 constant MIN_SPLIT_IMPROVEMENT_PPM = 25;
 
 contract BlazePhoenixSolver {
@@ -122,23 +126,7 @@ contract BlazePhoenixSolver {
     uint256 internal constant DISCOVERY_TTL_SECONDS = 3_600; // ~1 hour, every chain
 
 
-    /// @notice MINIMUM gain a split must have over the best single leg
-    ///         to justify itself, in PARTS PER MILLION (1 bps = 100 ppm).
-    ///
-    /// @dev SCALED IN PPM AND NOT IN BPS, and the reason is that the value the owner
-    ///      wanted — 0.25 bps — is not representable in whole bps. The dead zone
-    ///      MEASURED on Base is 0.030 bps (3 ppm): the real cost of the 320 B of
-    ///      calldata of the extra leg, at 105.5 gas/byte. 25 ppm is ~8x that,
-    ///      which is margin enough not to split on noise and small
-    ///      enough not to throw away real gain.
-    ///
-    ///      HISTORY OF THIS NUMBER, because it teaches: it was 20 bps (667x the dead
-    ///      zone), became 5 bps (167x) and is now 0.25 bps (8x). Neither of the
-    ///      first two versions had been calibrated against any measurement.
-    ///
-    ///      IT IS PER CHAIN, one day: 320 B cost $0.003 on Base and ~$257 on Scroll.
-    ///      The ChainProfile exists to carry that; until then, this value serves
-    ///      the cheap L2s, which is where the product lives.
+    // MIN_SPLIT_IMPROVEMENT_PPM is declared at file level, above the contract, with its calibration.
 
     /// @notice Capacity clamp for concentrated (single-tick-quoted) legs, in
     ///         BPS of the pool's REAL tokenOut balance. The single-tick V3 /
@@ -190,7 +178,7 @@ contract BlazePhoenixSolver {
     ///         a healthy constant-product pair measures ~5,000 bps and stays).
     ///         HONEST LIMIT, stated where it is enforced: `_legImpactBps` measures
     ///         impact for the reserve and concentrated families and returns
-    ///         `DEFAULT_IMPACT_BPS` for the V4 and stable arms, so this ceiling
+    ///         `DEFAULT_IMPACT_BPS` for the V4, V4-native and external-wrapper arms, so this ceiling
     ///         binds exactly where impact is measured and is inert where it is
     ///         nominal. A guard keyed on a nominal number cannot fire; naming that
     ///         beats pretending the cover is uniform.
@@ -227,6 +215,7 @@ contract BlazePhoenixSolver {
     function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
         external view returns (RoutePlan memory plan)
     {
+        uint256 g0 = gasleft();
         if (tIn == address(0) || tOut == address(0) || tIn == tOut || amountIn == 0)
             revert SolverE(4);
 
@@ -282,12 +271,13 @@ contract BlazePhoenixSolver {
         // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
         // capacity-held candidates are ranked and promised what their own books pay. A walk
         // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
-        // (GAS_CAP per read), so the rebuild runs in a static self-call on exactly WALK_GAS:
-        // the plan depends on the state, never on the gas the caller brought. A rebuild that
-        // completes and ranks above what the build at the cap pays leads; otherwise the plan
-        // built at the cap stands. The fallback stays the runner-up read above. A solve that cannot
-        // hand the walk its whole budget stops with empty revert data (out of gas, RouterE(17)
-        // at the automatic door) - never a different plan. The walk's assembly return is this
+        // (GAS_CAP per read), so the rebuild runs in a static self-call on what SOLVE_GAS leaves
+        // after the search (`_walkOnItsOwnBudget`): a function of the state, never of the gas
+        // the caller brought, and the same at both doors. A rebuild that completes and ranks
+        // above what the build at the cap pays leads; otherwise the plan built at the cap stands.
+        // The fallback stays the runner-up read above. A solve that cannot hand the walk its
+        // whole budget stops with empty revert data (RouterE(17) at the automatic door) - never
+        // a different plan. The walk's assembly return is this
         // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`.
         //
         // N1: THE LEADER ANSWERS FOR WHAT ITS BOOKS PAY. The plan built at the cap is promised what
@@ -301,15 +291,15 @@ contract BlazePhoenixSolver {
         uint256 fl;
         (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
         uint256 d = m.bestR.totalOut - plan.best.totalOut;
-        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl);
+        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);
     }
 
-    /// @dev The gas the rebuild of `findBestRoutePlan` runs on. Fixed: the walk's outcome is a
-    ///      function of the state alone (test/EntryBSolveBudget.t.sol R1). Sized so a
-    ///      rebuild over every held book a build seats fits, on the grids of
-    ///      test/CapacityWalkBudget.t.sol and on a live book
-    ///      (test/fork/CapacityPromiseAsksTheVenue.t.sol).
-    uint256 private constant WALK_GAS = 2_500_000;
+    /// @dev The gas the dispatch spends before `findBestRoutePlan` reads `g0`, measured in the
+    ///      default and release builds and rounded up (test/CapacityWalkBudget.t.sol, the
+    ///      threshold test). SOLVE_B is what the automatic door leaves at `g0`: the solve's whole
+    ///      budget, from which the walk's is derived.
+    uint256 private constant ENTRY = 1_200;
+    uint256 private constant SOLVE_B = BPC.SOLVE_GAS - ENTRY;
 
     /// @dev The rebuild, as a static self-call of `findBestRoutePlan` carrying `bk` and the rank
     ///      `u` to beat past the three arguments, then one [tokenIn, tokenOut, pool] for each book
@@ -317,9 +307,17 @@ contract BlazePhoenixSolver {
     ///      Its answer is spliced in as `plan.best` without decoding: the returned encoding is
     ///      [0x20][0x60][off fallback][0][best], and only the fallback blob and its flag are
     ///      ours. On any failure of the self-call the plan built at the cap is returned.
-    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u, uint256 fl) private view {
+    ///      The budget is what SOLVE_B leaves after the search, s = g0 - gas():
+    ///      W = min((SOLVE_B - s - 20,000) * 63 / 64, WALK_CAP), the 20,000 kept for the splice;
+    ///      WALK_CAP keeps what a hostile walk can burn off the door's execution. A solve entered
+    ///      on less than SOLVE_B, or whose search left less than 20,000 of it, stops: the walk is
+    ///      handed the same W at both doors (the automatic door enters on SOLVE_B, a quote on
+    ///      more) and the plan stays a function of the state (R1).
+    function _walkOnItsOwnBudget(RoutePlan memory plan, uint256 bk, uint256 u, uint256 fl, uint256 g0) private view {
         bytes memory f = abi.encode(plan.fallbackRoute);
         bool hf = plan.hasFallback;
+        uint256 b = SOLVE_B;
+        uint256 c = BPC.WALK_CAP;
         assembly ("memory-safe") {
             let p := mload(0x40)
             calldatacopy(p, 0, 0x64)                    // this solve's own call: the one entry, its three words
@@ -327,9 +325,13 @@ contract BlazePhoenixSolver {
             mstore(add(p, 0x84), u)
             let q := add(p, 0xa4)
             for {} fl { fl := mload(fl) } { mcopy(q, add(fl, 0x20), 0x60) q := add(q, 0x60) }
-            // The whole WALK_GAS reaches the self-call or the solve stops (EIP-150 keeps 1/64).
-            if lt(gas(), add(div(mul(WALK_GAS, 64), 63), 20000)) { revert(0, 0) }
-            if staticcall(WALK_GAS, address(), p, sub(q, p), 0, 0) {
+            // gas() >= SOLVE_B - s is g0 >= SOLVE_B: then W * 64 / 63 + 20,000 is left here and
+            // EIP-150 hands the self-call the whole W.
+            let s := sub(g0, gas())
+            if or(lt(g0, b), iszero(lt(add(s, 20000), b))) { revert(0, 0) }
+            let w := div(mul(sub(sub(b, s), 20000), 63), 64)
+            if gt(w, c) { w := c }
+            if staticcall(w, address(), p, sub(q, p), 0, 0) {
                 returndatacopy(p, 0x40, 0x20)
                 let n := add(mload(p), 0x20)            // the bytes up to the end of `best`
                 returndatacopy(p, 0, n)
@@ -444,12 +446,13 @@ contract BlazePhoenixSolver {
     }
 
     /// @dev The SINGLE producer of the "which route is best" judgement, and the criterion is
-    ///      `totalOut` — the output actually BUILT and measured for each topology, not a proxy.
+    ///      the rank `u` (`_considera`): `totalOut` — the output actually BUILT and measured for
+    ///      each topology — plus what the deep walks resolved above that promise. Not a proxy.
     ///      That is why every configured bridge is expanded and handed in here instead of being
     ///      pre-filtered by registry depth: a proxy pre-filter would be a SECOND producer of the
     ///      same judgement, and the worse of the two — it could discard exactly the route this
     ///      one would pick. Depth already does its job where it should, one level below, ordering
-    ///      candidates WITHIN each hop (`_topKPools`, `_buildHop`).
+    ///      candidates WITHIN each hop (`_rankedPools`, `_buildHop`).
     /// @dev ACCUMULATOR, not a parameter list. It was `_rank(a,b,c,d)` — and the
     ///      parameter count WAS MAX_BRIDGE_ROUTES written in code, which
     ///      created the phantom bridge when the two diverged (the corpus, §4).
@@ -460,11 +463,11 @@ contract BlazePhoenixSolver {
     ///      The accumulator erases the possibility: whoever adds a topology
     ///      calls `_considera` one more time and there is no arity to
     ///      forget to raise. It remains the SINGLE PRODUCER of the "which
-    ///      route is best" judgement, and still decides by `totalOut` — the
-    ///      output built and measured, never a proxy.
-    ///      The parameter count here IS MAX_BRIDGE_ROUTES written in code: if
-    ///      they diverge again, the asymmetry the corpus documented in §4 is born —
-    ///      a bridge with admission rights and fitness that can never be a hop.
+    ///      route is best" judgement, and still decides by what was built and
+    ///      measured (the rank `u`, `_considera`), never a proxy.
+    ///      The asymmetry the corpus documented in §4 — a bridge with admission
+    ///      rights and fitness that can never be a hop — is what an arity that
+    ///      diverges from MAX_BRIDGE_ROUTES gives birth to.
     ///      test/RoutableBridgeAsymmetry.t.sol pins both sides.
     struct Melhores {
         uint256    bestU;
@@ -655,14 +658,15 @@ contract BlazePhoenixSolver {
         uint256[] memory rates  = new uint256[](n);
         uint256[] memory depths = new uint256[](n);
         // The band's own figures, per candidate: the fee the probe charged, in pips (bits 0-23;
-        // 1e6 or more: not known), and the bound on the probe's error, in WAD (bits 24 up).
+        // 1e6 or more: not known), the bound on the probe's error, in WAD (bits 24-87), and the
+        // same bound at the hop's size (bits 88 up).
         uint256[] memory fe     = new uint256[](n);
         // DECIMALS HOISTING. Every candidate in this loop is a pool of the
         // SAME pair, so they hold the SAME two tokens — only orientation changes.
         // Reading `decimals()` in there cost 2,339 gas PER CANDIDATE (measured;
         // EIP-2929 does not make it free because USDC is a proxy). It is read
         // once per pair per solve, by the funnel that weighs the pair's dust
-        // (`_topKPools`), and rides in bits 8-23 of `mode` to every quote of
+        // (`_rankedPools`), and rides in bits 8-23 of `mode` to every quote of
         // every build of the hop: the probes, the split's legs and the gate's
         // full-size singles (test/DecimalsReadOncePerHop.t.sol). Encoded +1 (see
         // QuoteCtx.decIn1): 0 would mean "not filled" and there are tokens with
@@ -840,16 +844,17 @@ contract BlazePhoenixSolver {
         // by >= MIN_SPLIT_IMPROVEMENT_PPM (ppm), collapse to that single leg. Kills
         // micro-splits whose marginal output gain is smaller than the real
         // gas cost of the extra legs. The single leg it must beat is the best
-        // survivor at full size (post FUNNEL CUT), one full-size quote each.
+        // survivor of the BAND at full size (the funnel cut does not narrow the
+        // rivals: [0, nBand)), one full-size quote each.
         if (legs.length >= 2) {
             // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
             // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
             // probe and are MARGINAL prices. Neither heuristic names the best single leg at
             // full size, so neither is asked: every survivor is quoted at full size below.
-            // `n`, NOT `cands.length`. The survivors are compacted IN
+            // `nBand`, NOT `cands.length`. The survivors are compacted IN
             // PLACE (see the compaction block above) but the memory array
-            // keeps its ORIGINAL length: positions >= n are junk from
-            // candidates the median band REJECTED or the funnel CUT.
+            // keeps its ORIGINAL length: positions >= nBand are junk from
+            // candidates the median band REJECTED.
             // Walking `cands.length` resurrected them as the fallback single
             // leg, voiding both filters - caught by
             // test_UmaPoolFundaNaoCapturaABanda, which exists exactly to
@@ -1025,11 +1030,11 @@ contract BlazePhoenixSolver {
         for (uint256 i; i < n; ) {
             uint256 share;
             if (i == n - 1) {
-                // Last leg takes the remainder. Guard against rounding
-                // overshoot in the preceding mulDiv allocations: if the
-                // accumulated total already meets or exceeds amountIn,
-                // this leg gets nothing rather than underflowing.
-                share = allocated >= amountIn ? 0 : amountIn - allocated;
+                // Last leg takes the remainder. There is no overshoot to guard: `sumPsi` is the
+                // sum of psis[0..n) (Math `_weights`, `_cutByWeight`, `_seatTheSplit`; `_placed`
+                // takes psis[j] out with its row), so the floors above sum to at most amountIn.
+                // The subtraction is checked: the impossible case reverts instead of reading 0.
+                share = amountIn - allocated;
             } else {
                 share = BPC.mulDiv(amountIn, psis[i], sumPsi);
             }
@@ -1257,7 +1262,7 @@ contract BlazePhoenixSolver {
     }
 
     /// @dev The capacity clamp of a concentrated leg (MAX_CONC_DRAIN_BPS), one rule for the
-    ///      split and the single-leg path: `quote` for `amountIn`, against `held` of tokenOut.
+    ///      split and the single-leg path: `quote` for `amountIn`, against `holdings` of tokenOut.
     ///      Returns the input committed, its promise and, for a leg ranked at the cap without
     ///      WALK, the quote its book may still pay up to (zero otherwise: `_buildHop`'s `held`).
     ///      `mode`: CUT on the first hop, WALK on the winning topology's own build
@@ -1276,14 +1281,14 @@ contract BlazePhoenixSolver {
     ///      walked read-only by `Core.v4WalkOut` (a zero poolId walks a V3-shaped pool through
     ///      its own getters, at its own fee and spacing), held between the cap and the
     ///      single-tick quote. So no promise passes the pool's holdings, on any hop (the cap
-    ///      below them, or P <= quote <= held), and a book that does not answer keeps the cap. The walk
+    ///      below them, or P <= quote <= holdings), and a book that does not answer keeps the cap. The walk
     ///      reads every stretch it crosses cold, so it runs on one topology per solve, never per
     ///      ranked candidate (SOLVE_GAS; test/CapacityWalkBudget.t.sol).
-    function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 held, uint256 mode)
+    function _capacity(PoolInfo memory c, address tIn, uint256 amountIn, uint256 quote, uint256 holdings, uint256 mode)
         private view returns (uint256, uint256, uint256)
     {
-        uint256 cap = BPC.mulDiv(held, MAX_CONC_DRAIN_BPS, BPC.BPS);
-        if (quote > held) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);
+        uint256 cap = BPC.mulDiv(holdings, MAX_CONC_DRAIN_BPS, BPC.BPS);
+        if (quote > holdings) return (mode & CUT == 0 ? amountIn : BPC.mulDiv(amountIn, cap, quote), cap, 0);
         if (quote <= cap) return (amountIn, quote, 0);
         if (mode & WALK == 0) return (amountIn, cap, quote);
         uint256 w = BPC.v4WalkOut(c.pool, bytes32(0), amountIn, 0, 0, c.token0 == tIn);
@@ -1292,12 +1297,12 @@ contract BlazePhoenixSolver {
 
     function _singleLeg(
         address tIn, address tOut, uint256 amountIn, PoolInfo memory cand, uint256 mode, uint256 bar,
-        QuoteCtx memory x, uint256[] memory held, uint256 i
+        QuoteCtx memory x, uint256[] memory holdingsOut, uint256 i
     ) private view returns (Hop memory hop, uint256 up, uint256 hi, uint256 f) {
         // S2: `up` is the rank above the promise and `hi` the ceiling above it (deep V4 walk,
         // gated by `bar`, `v4WalkRank`; both zero elsewhere). They only order, never promise.
         // `f` is `_capacity`'s third answer: the quote of a leg ranked at its cap.
-        // `x`: the candidate's context, built once per build (`_buildHop`). `held`, `i`: the
+        // `x`: the candidate's context, built once per build (`_buildHop`). `holdingsOut`, `i`: the
         // probe pass's readings of the pools' tokenOut holdings and the candidate's seat in
         // them; no readings at all for a lone candidate, which saw no probe pass.
         uint256 out_;
@@ -1308,7 +1313,7 @@ contract BlazePhoenixSolver {
         uint256 h;
         // The pool's tokenOut holdings: the probe pass's reading; a lone candidate's are read
         // here, past its quote - a book with no answer is dropped before its token is asked.
-        if (held.length != 0) h = held[i];
+        if (holdingsOut.length != 0) h = holdingsOut[i];
         else if (BPC.kindHasAny(cand.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) h = BPC.balanceOf(tOut, cand.pool);
         // Same rule as the split path: a reserve-shaped promise above the pool's tokenOut
         // holdings comes from forged reserves, so the candidate is dropped, not clamped
@@ -1442,7 +1447,7 @@ contract BlazePhoenixSolver {
     //  CANDIDATE SELECTION  (lazy discovery, dust dropped by depth, ordered by fitness)
     // =========================================================================
 
-    /// @dev ONE LIST PER ORDERED PAIR PER SOLVE. `_topKPools` is a function of the state and the
+    /// @dev ONE LIST PER ORDERED PAIR PER SOLVE. `_rankedPools` is a function of the state and the
     ///      pair alone, and the solve is a static call, so the state cannot move between two
     ///      builds: a pair read again in the same solve is built once, and each later read gets
     ///      the list as it was built. Since 2026-11-06 (two hops) no two topologies of one
@@ -1455,7 +1460,7 @@ contract BlazePhoenixSolver {
     ///      EACH READ GETS ITS OWN COPY of the array: `_buildHop` compacts and reorders the
     ///      array it is handed, in place, and the next build must start from the list as
     ///      built. The rows are shared: nothing downstream writes a PoolInfo field (only
-    ///      `_topKPools` does, on its own rows, before it returns).
+    ///      `_rankedPools` does, on its own rows, before it returns).
     ///      `m.lists` heads a chain of [next, tA, tB, list, decimals] in memory; 0 is none. `e` is
     ///      the pair's entry (`_sitsOut` edits its list).
     function _candsOf(Melhores memory m, address tA, address tB)
@@ -1470,7 +1475,7 @@ contract BlazePhoenixSolver {
             }
         }
         if (e == 0) {
-            (c, dec) = _topKPools(tA, tB);
+            (c, dec) = _rankedPools(tA, tB);
             e = m.lists;
             assembly ("memory-safe") {
                 let n := mload(0x40)
@@ -1493,7 +1498,7 @@ contract BlazePhoenixSolver {
         }
     }
 
-    function _topKPools(address tA, address tB)
+    function _rankedPools(address tA, address tB)
         private view returns (PoolInfo[] memory out, uint256 dec)
     {
         // Combine registered pools with discovered ones — never let one suppress
@@ -1621,9 +1626,11 @@ contract BlazePhoenixSolver {
 
     /// @notice True when the pair's registered set is rich and recent enough to
     ///         trust without a fresh discovery sweep: at least MIN_FRESH_VENUES
-    ///         registered pools saw activity within DISCOVERY_TTL_SECONDS (wall
-    ///         clock). A pool never ticked (lastUpdateTs == 0) counts as stale, so
-    ///         genuinely new pairs always fall through to discovery.
+    ///         CURATED (tier 0) registered pools saw activity within
+    ///         DISCOVERY_TTL_SECONDS (wall clock). A permissionless row (tier != 0)
+    ///         stays a candidate but never votes freshness. A pool never ticked
+    ///         (lastUpdateTs == 0) counts as stale, so genuinely new pairs always
+    ///         fall through to discovery.
     function _registryFresh(PoolInfo[] memory reg) private view returns (bool) {
         uint256 rn = reg.length;
         if (rn < MIN_FRESH_VENUES) return false;
@@ -1639,7 +1646,7 @@ contract BlazePhoenixSolver {
             // hour, switch discovery OFF for the pair and hide every honest
             // venue that had never been registered — the registry then held
             // only what the attacker wrote, and the band was theirs. The
-            // permissionless row stays a CANDIDATE (merged below); it no
+            // permissionless row stays a CANDIDATE (merged in `_rankedPools`); it no
             // longer chooses the path (review 2026-09-02).
             if (BPC.decodeTier(s) != 0) { unchecked { ++i; } continue; }
             uint256 last = uint256(BPC.decodeLastUpdateTs(s));
@@ -1659,7 +1666,8 @@ contract BlazePhoenixSolver {
     // =========================================================================
 
     /// @dev THE ONLY copy of "one leg's impact in bps" — extracted from twin
-    ///      blocks in `_assembleRoute` and `_assembleRouteMulti` whose only
+    ///      blocks in `_assembleRouteMulti`, its one caller today, and in the
+    ///      single-hop assembler `_assembleRoute`, since removed, whose only
     ///      difference was local variable names. Twins are this codebase's
     ///      defect signature: the INV-20 fee fix below had to be applied to
     ///      BOTH, and the second one's comment already pointed at the first.
@@ -1686,14 +1694,15 @@ contract BlazePhoenixSolver {
                     L.zeroForOne
                 );
         } else {
-            d = BPC.DEFAULT_IMPACT_BPS; // stable / V4 paths: the model does not cover them
+            d = BPC.DEFAULT_IMPACT_BPS; // V4, V4-native, external wrapper: no model here (Solidly stable rides the reserves arm)
         }
     }
 
 
     /// @notice Assemble a route of one hop (direct) or more (bridges). Aggregates impact across
     ///         the stages and derives the output floor from the FINAL
-    ///         output. Hops stay separate so the Router can rescale stage B
+    ///         output net of the input-side protocol fees the Router charges
+    ///         (`BPC.netOfInputFees`, 4007). Hops stay separate so the Router can rescale stage B
     ///         against the real bridge balance produced by stage A.
     function _assembleRouteMulti(
         Hop[] memory hops, address tIn, address tOut,

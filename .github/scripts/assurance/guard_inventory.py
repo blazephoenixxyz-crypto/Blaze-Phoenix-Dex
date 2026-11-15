@@ -107,7 +107,39 @@ if undriven:
     print("\ncodes with no exact assertion (argue or drive; unreachable-by-construction is an answer):")
     print("  " + ", ".join(undriven))
 
+# SHAPE GUARDS. Not every guard refuses: some reshape a value and carry on (a halved step, a
+# fail-closed seed). The `revert` screen above cannot see them, so they are registered by hand,
+# each with its exact source line and its evidence, and the register is checked against the code
+# so that it goes stale loudly. Classes: driven-killed (a test fires it and kills its mutant),
+# driven-equivalent (a test fires it; its mutant changes no output, said where the mutant would
+# be), defensive-unreached (no sampled input reaches it; the evidence says how it was sampled).
+SHAPE_GUARDS = [
+    ("BlazePhoenixCore.sol", "if (dy >= y) dy = y / 2;", "driven-equivalent",
+     "test_InputThatSwampsThePoolHalvesTheStep"),
+    ("BlazePhoenixCore.sol", "if (fp == 0) return y0;", "defensive-unreached",
+     "0/53517 sampled Newton runs (X, Y, A log-uniform in 1..3.4e38); K > 0 gives fp >= 1 at the seed"),
+    ("BlazePhoenixCore.sol", "for (uint256 j; _solK(x, y) < K; ++j) {", "driven-killed",
+     "test_ThinInputSideExitsOnTheSafeSide"),
+    ("BlazePhoenixCore.sol", "if (j == 2) return y0;", "defensive-unreached",
+     "0/47303 sampled Newton exits need a third climb (thin and full input sides, 2026-11-14)"),
+]
+stale = []
+for f, line, cls, ev in SHAPE_GUARDS:
+    body = open(os.path.join(ROOT, "src", f)).read()
+    if body.count(line) != 1:
+        stale.append(f"{f}: `{line}` found {body.count(line)} times (expected once)")
+    if cls.startswith("driven") and not re.search(r"function\s+%s\s*\(" % re.escape(ev), tests):
+        stale.append(f"{f}: `{line}` names {ev}, which no test defines")
+print(f"shape guards registered       : {len(SHAPE_GUARDS)} ({len(stale)} stale)")
+for x in stale:
+    print(f"::error::shape guard register is stale: {x}")
+
 json.dump({"sites": len(sites), "codes": len(by_code), "driven": len(driven),
            "undriven": undriven, "ambiguous_sites": ambiguous,
+           "shape_guards": [{"file": f, "line": l, "class": c, "evidence": e}
+                            for f, l, c, e in SHAPE_GUARDS],
+           "shape_guards_stale": stale,
            "detail": sites},
           open(os.path.join(ROOT, "assurance-guard-inventory.json"), "w"), indent=1)
+if stale:
+    sys.exit(1)

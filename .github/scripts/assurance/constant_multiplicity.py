@@ -118,5 +118,35 @@ print(f"  never pushed in the artefact : {len(zero)}")
 print("\nA constant the artefact never pushes was folded into something else or is dead.")
 print("A high count is a QUESTION: inlining duplicates a constant across call sites, so it is")
 print("the ratio to the NAME's uses that carries signal, not the count.")
-json.dump({"rows": rows, "never_pushed": [r["constant"] for r in zero]},
+# A question answered by two readers of one constant: the readers move together or the answer
+# splits. Each pair is registered with the exact source lines that read the constant; a reader
+# added, removed or rewritten fails the check, so one reader cannot change alone.
+PAIRED = {
+    "SOLIDLY_CURVE_ASK_BPS": (
+        "how much of the replicated curve's output the Solidly ask claims, in the output and in the fee",
+        ("out = (solidlyCurveOut(pool, amountIn, rIn, rOut, stable, cfgFee, tokenIn) * SOLIDLY_CURVE_ASK_BPS) / BPS;",
+         "if (wantFee) fee = 1_000_000 - (BPS - readDynamicFee(pool, stable, cfgFee)) * SOLIDLY_CURVE_ASK_BPS / 100;"),
+        "test/SolidlyCurvePriceIsInvariantToTheAsk.t.sol"),
+}
+paired_broken = []
+for name, (question, readers, witness) in PAIRED.items():
+    found = []
+    for p in sorted(glob.glob(os.path.join(ROOT, "src", "*.sol"))):
+        for ln in open(p):
+            s = ln.strip()
+            if not re.search(r"\b%s\b" % re.escape(name), s): continue
+            if s.startswith(("//", "*", "/*")) or re.search(r"\bconstant\s+%s\b" % re.escape(name), s): continue
+            found.append(s)
+    if sorted(found) != sorted(readers):
+        paired_broken.append(f"{name} ({question}): readers in src {found} != registered {list(readers)}")
+    if not os.path.exists(os.path.join(ROOT, witness)):
+        paired_broken.append(f"{name}: witness {witness} is not in the tree")
+print(f"\npaired constants: {len(PAIRED)}, broken: {len(paired_broken)}")
+for b in paired_broken:
+    print(f"::error::paired constant moved alone: {b}")
+
+json.dump({"rows": rows, "never_pushed": [r["constant"] for r in zero],
+           "paired": sorted(PAIRED), "paired_broken": paired_broken},
           open(os.path.join(ROOT, "assurance-constants.json"), "w"), indent=1)
+if paired_broken:
+    sys.exit(1)

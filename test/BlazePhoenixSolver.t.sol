@@ -15,7 +15,7 @@ import {MockV2Factory} from "./mocks/MockV2Factory.sol";
 
 /// @notice Coverage for BlazePhoenixSolver — previously zero tests (see
 ///         TESTING.md "Known gaps"). Exercises the median-rate filter, the
-///         capital anchor, the two-tier capacity clamp (MAX_CONC_DRAIN_BPS),
+///         depth-weighted band base, the two-tier capacity clamp (MAX_CONC_DRAIN_BPS),
 ///         bridge topology selection/ranking, the leg-budget funnel cut,
 ///         and the registry-freshness discovery gate.
 contract BlazePhoenixSolverTest is Test {
@@ -201,8 +201,8 @@ contract BlazePhoenixSolverTest is Test {
     // =========================================================================
 
     function test_MedianFilter_ExcludesOutlierPool() public {
-        // Honest deep pool at the true rate (1.6), larger real balance -> it
-        // becomes the capital anchor. Outlier pool quotes a wildly different
+        // Honest deep pool at the true rate (1.6), most of the measured depth -> its
+        // row is the depth-weighted median (the band base). Outlier pool quotes a wildly different
         // rate (10x) from thin reserves.
         MockV2Pair honest  = _seedV2(address(tokenA), address(tokenB), 100_000e18, 160_000e18);
         MockV2Pair outlier = _seedV2(address(tokenA), address(tokenB), 100e18,     1_000e18);
@@ -216,15 +216,15 @@ contract BlazePhoenixSolverTest is Test {
     }
 
     // =========================================================================
-    //  Capital anchor overrides a plain (dust-majority) median
+    //  The depth-weighted median overrides a plain (dust-majority) median
     // =========================================================================
 
-    function test_CapitalAnchor_DustMajorityDoesNotOutvoteDeepPool() public {
+    function test_DepthWeightedMedian_DustMajorityDoesNotOutvoteDeepPool() public {
         // Two dust pools agree on a stale ~1.0 rate; one deep pool quotes the
         // true 1.6 rate. A NAIVE median of {1.0, 1.0, 1.6} would pick 1.0 as
         // the consensus and filter the deep pool out as the "outlier". The
-        // capital anchor must instead base the band on the deep pool (larger
-        // real tokenB balance), excluding the dust pools instead.
+        // depth-weighted median must instead base the band on the deep pool (it
+        // holds more than half the measured depth), excluding the dust pools instead.
         MockV2Pair dust1 = _seedV2(address(tokenA), address(tokenB), 1_000e18, 1_000e18);
         MockV2Pair dust2 = _seedV2(address(tokenA), address(tokenB), 1_000e18, 1_000e18);
         MockV2Pair deep  = _seedV2(address(tokenA), address(tokenB), 1_000_000e18, 1_600_000e18);
@@ -233,7 +233,7 @@ contract BlazePhoenixSolverTest is Test {
         RoutePlan memory plan = solver.findBestRoutePlan(address(tokenA), address(tokenB), amountIn);
 
         assertEq(plan.best.hops[0].legs.length, 1,
-            "capital anchor must exclude the two dust pools, not the deep one");
+            "depth-weighted median must exclude the two dust pools, not the deep one");
         assertEq(plan.best.hops[0].legs[0].pool, address(deep));
         dust1; dust2;
     }

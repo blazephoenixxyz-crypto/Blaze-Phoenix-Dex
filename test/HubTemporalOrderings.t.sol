@@ -9,7 +9,7 @@ pragma solidity 0.8.36;
 //  swap) does not contain addFactory, setOperator, setRoles, initialize or
 //  setAdmin. This file tests three orderings of the ones that touch the Hub's
 //  AUTHORITY state, and each test is written against the PROMISE the
-//  renounceControl docstring makes, quoted verbatim below (Hub:408-415):
+//  renounceControl docstring makes, quoted verbatim below (Hub:468-475):
 //
 //      "Permanently surrender the CONTROL powers - the ones that can redirect
 //       or freeze the protocol: setRoles, setOperator, setPaused, setV4Manager
@@ -21,7 +21,7 @@ pragma solidity 0.8.36;
 //      The refusal itself is already pinned by
 //      OssificationIsNotDeath.test_Composition_HubPauseThenRenounce_IsRefused.
 //      What is NOT pinned anywhere is the CONSEQUENCE named in the Hub's own
-//      comment at Hub:417-425: `recordSwap` is `onlyRouter`, `$.router` moves
+//      comment at Hub:477-485: `recordSwap` is `onlyRouter`, `$.router` moves
 //      only through `setRoles`, and the Router wraps its call in
 //      `try hub.recordSwap(...) {} catch {}` (Router:2032-2035). So after
 //      renunciation the registry's ONLY write door is bound to one address for
@@ -31,8 +31,8 @@ pragma solidity 0.8.36;
 //
 //  ORDERING 2  renounceControl() -> initialize(...)        RED before the fix of 2026-09-03, GREEN since
 //      `renounceControl` is `onlyAdmin` and the admin exists from the
-//      CONSTRUCTOR (Hub:386-394), so it can be called on a Hub that was never
-//      initialized. `initialize` (Hub:396-406) is gated only by
+//      CONSTRUCTOR (Hub:441-449), so it can be called on a Hub that was never
+//      initialized. `initialize` (Hub:451-466) is gated only by
 //      `$.initialized || msg.sender != $.admin` - it carries no
 //      `controlRenounced` term - and it writes `$.admin`, `$.operator[admin_]`
 //      and `$.v4PoolManager`. Two of those three are powers the docstring says
@@ -48,7 +48,7 @@ pragma solidity 0.8.36;
 //      permanence VISIBLE rather than implicit, and to price it: the surviving
 //      grant still reaches `seedPool`, which registers a pool as `trusted` and
 //      whose `_register` evicts the weakest incumbent UNCONDITIONALLY (no
-//      `_canInsert` 25% margin - Hub:1789-1814 versus Hub:1702-1745).
+//      `_canInsert` 25% margin - Hub:2148-2179 versus Hub:2037-2086).
 //
 //  REPAIR PASS, 2026-09-03. Four control tests were deleted as duplicates of
 //  the existing suite; each contract's "controls" banner names what took over.
@@ -210,7 +210,7 @@ contract HubRenounceThenInitializeTest is Test {
     address constant STRANGER = address(0xBEEF);
 
     /// @dev DELIBERATELY NOT INITIALIZED. The whole ordering lives in the window
-    ///      the constructor opens: `$.admin` is set at construction (Hub:386-394)
+    ///      the constructor opens: `$.admin` is set at construction (Hub:441-449)
     ///      so `renounceControl` (onlyAdmin) is callable before `initialize` ever
     ///      runs. Every other test file in the tree calls `initialize` in setUp,
     ///      which is exactly why this window has no coverage.
@@ -302,7 +302,7 @@ contract HubOperatorGrantOutlivesRenounceTest is Test {
     address constant V4MGR    = address(0xD00D);
     address constant POOL_A   = address(0x1001);
 
-    /// @dev Hub:87 `MAX_SLOTS = 16`, internal - pinned here the same way
+    /// @dev Hub:93 `MAX_SLOTS = 16`, internal - pinned here the same way
     ///      ConditionAdequacyHub pins the mode constants. If it moves, this
     ///      test stops filling the pair and the eviction assertion goes red,
     ///      which is the correct outcome: the number is load-bearing.

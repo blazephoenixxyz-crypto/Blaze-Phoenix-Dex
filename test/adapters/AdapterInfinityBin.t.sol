@@ -7,6 +7,7 @@ import {BlazePhoenixGateWrapper} from "../../src/BlazePhoenixGate.sol";
 import {IInfinityCLPoolManager} from "../../src/adapters/BlazePhoenixAdapterInfinityCL.sol";
 import {BlazePhoenixAdapterInfinityBin, IInfinityBinPoolManager} from "../../src/adapters/BlazePhoenixAdapterInfinityBin.sol";
 import {MockInfVault, MockInfBinPoolManager, PinnedHook, SecondHook, ForgingHook} from "./mocks/MockInfinity.sol";
+import {InfinityBinPinProbe} from "./mocks/InfinityPinProbes.sol";
 import {MockERC20Dec} from "./mocks/MockERC20Dec.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
@@ -381,13 +382,17 @@ contract AdapterInfinityBinTest is AdapterHarness {
     }
 
     function test_InfBin_Constructor_PinsAreTheRefHooksCodehash() public {
-        assertEq(adapter.HOOK_CODEHASH0(), address(hook).codehash);
-        assertEq(adapter.HOOK_CODEHASH1(), address(hook1).codehash);
-        assertEq(adapter.HOOK_CODEHASH2(), address(hook2).codehash);
-        BlazePhoenixAdapterInfinityBin a2 =
-            new BlazePhoenixAdapterInfinityBin(address(gate), address(bin), [address(hook), address(0), address(0)]);
-        assertEq(a2.HOOK_CODEHASH1(), bytes32(0), "an empty slot pins nothing");
-        assertEq(a2.HOOK_CODEHASH2(), bytes32(0), "an empty slot pins nothing");
+        InfinityBinPinProbe p =
+            new InfinityBinPinProbe(address(gate), address(bin), [address(hook), address(hook1), address(hook2)]);
+        (bytes32 c0, bytes32 c1, bytes32 c2) = p.pins();
+        assertEq(c0, address(hook).codehash);
+        assertEq(c1, address(hook1).codehash);
+        assertEq(c2, address(hook2).codehash);
+        InfinityBinPinProbe a2 =
+            new InfinityBinPinProbe(address(gate), address(bin), [address(hook), address(0), address(0)]);
+        (, c1, c2) = a2.pins();
+        assertEq(c1, bytes32(0), "an empty slot pins nothing");
+        assertEq(c2, bytes32(0), "an empty slot pins nothing");
     }
 
     function test_InfBin_Constructor_ZeroManager_Refused() public {

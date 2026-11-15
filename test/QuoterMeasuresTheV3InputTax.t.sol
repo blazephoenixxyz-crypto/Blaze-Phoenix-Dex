@@ -20,7 +20,8 @@ pragma solidity 0.8.36;
 // The view door (`previewPlan`, `canExecute`) holds no token in a view frame and cannot
 // measure a transfer; its verdict is not asserted here, so that nothing pins it as right.
 //
-// Matrix: range {tax 0, 1 bps..99.99 % (fuzz), a dust order whose tax rounds to zero}
+// Matrix: range {tax 0, 1 bps..99.99 % (fuzz), a dust order whose tax rounds to zero,
+//               a payment one wei short}
 //       x vector {taxed tokenIn on hop 0, taxed bridge on hop 1, the same tax on a reserve pair}
 //       x door {previewPlanExact (Solver route), previewRouteExact (hand-built), previewAndEncode and
 //                previewAndEncodeWithMinOut (the bytes), Router}.
@@ -231,6 +232,23 @@ contract QuoterMeasuresTheV3InputTaxTest is Test {
         assertGt(exactOut, 0, "an order the tax does not touch is refused");
         vm.prank(user);
         assertGt(router.swapExactIn(rt, dust, 1, user, block.timestamp + 1), 0, "the Router does not fill");
+    }
+
+    /// Range, one wei past the floor: at 1 bps an order of 15_000 is taxed one wei, and so is
+    /// the probe's payment back to the pool (~14_909). The Router refuses a pool paid one wei
+    /// short (`- bal0 < owed`); the probe reads the same strict edge, so nothing is promised.
+    function test_OneWeiShort_IsMeasuredAndNotPromised() public {
+        fot.setFeeOnTransferBps(1);
+        uint256 amt = 15_000; // amt * 1 / 10_000 == 1
+        (Route memory rt, uint256 exactOut) = quoter.previewPlanExact(address(fot), address(tB), amt);
+        assertEq(rt.hops.length, 1, "pre-condition: the Solver seats the V3 pool");
+        assertEq(exactOut, 0, "a payment one wei short is promised");
+        (, uint256 handOut) = quoter.previewRouteExact(_handBuilt(amt), amt);
+        assertEq(handOut, 0, "a hand-built leg paid one wei short is promised");
+
+        vm.prank(user);
+        vm.expectRevert(_rerr(13));
+        router.swapExactIn(rt, amt, 1, user, block.timestamp + 1);
     }
 
     // ───────────────── the encode doors (not view: they dry-run the floor) -> no bytes ─────────────────

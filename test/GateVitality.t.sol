@@ -9,7 +9,8 @@ pragma solidity 0.8.36;
 //    1. identity is derived: only the Gate's own wrappers, with a live adapter,
 //       and through the Quoter only an admitted Gate's (BPC.gateWrapperLive);
 //    2. depth by shape, never attested: the adapter's word capped by the
-//       shorter of the venue pool's real holdings (Core.shortSide18, the
+//       shorter of the real holdings at the venue's `venuePool` address (the
+//       pool, or the shared Vault for Balancer; Core.shortSide18, the
 //       registry's own depth of a pair; the larger holding until 2026-10-23);
 //    3. use that costs nothing is not use (W5-C1): a swap ticks only when it
 //       moves a material share of BOTH of the venue's holdings;

@@ -190,13 +190,13 @@ contract SplitLegPaysForItsPlaceTest is Test {
     }
 
     /// A concentrated book at price 1 behind 0.3% (spacing 60, no initialized tick, so its walk and
-    /// its swap settle at one tick): it declares BOOK_L and holds `held` of each token, so the
+    /// its swap settle at one tick): it declares BOOK_L and holds `holdings` of each token, so the
     /// Solver weighs it by what it holds and promises at most MAX_CONC_DRAIN_BPS of it.
-    function _book(uint256 held) internal returns (MockV3BookPool p) {
+    function _book(uint256 holdings) internal returns (MockV3BookPool p) {
         p = new MockV3BookPool(address(tA), address(tB), 3000, 60);
         p.setState(uint160(BPC.Q96), BOOK_L);
-        tA.mint(address(p), held);
-        tB.mint(address(p), held);
+        tA.mint(address(p), holdings);
+        tB.mint(address(p), holdings);
         Origin.wire(hub, address(p), address(tA), address(tB), BPC.KIND_V3, 3000);
         hub.seedPool(address(p), BPC.KIND_V3, 3000, address(0), address(tA), address(tB));
     }

@@ -273,6 +273,45 @@ quote is the **lowest observed** across pinned-seed runs, because every run's cl
 of what that run executed, so a lower number is never contradicted by a higher one. Any citation
 should say how many runs it rests on — this one rests on two.
 
+**A fallback no input could reach, made the regular case (2026-11-14).** `Math._wMedian` walked
+every row of the price order and then returned the last row in case none had crossed half the
+mass. None could fail to: the mass is the checked sum of the votes, the running sum after the last
+row equals it, and half is `(massa + 1) / 2 <= massa` once `massa >= 1` (a zero mass returns
+earlier). The line never ran, `_wMedian` is private, and no mutant on it could die. The walk now
+stops before the last row and returns it untested, since its vote always completes the half: the
+line is the median whenever the mass crosses only at the dearest row. `test/MedianBandMath.t.sol`
+reads it through `select` (masses 1, 1, 3: the last row; control 1, 1, 2: the middle row; twins;
+a fuzz over three masses and six arrival orders against `2 * cum >= total`); the mutants
+[Math:609] return the cheapest row instead, or stop the walk one row early.
+
+**The split's remainder, unguarded because it cannot overshoot (2026-11-14).** `Solver._split`
+gave the last leg `allocated >= amountIn ? 0 : amountIn - allocated`. Every other leg takes
+floor(A * psi_i / S), and S is the sum of the live psis for the whole life of the split
+(`Math._weights` sums them, `_cutByWeight` re-sums the kept budget, `_seatTheSplit` subtracts the
+rows it zeroes, `Solver._placed` takes out the psi of the row it drops), so the floors add up to at
+most A, and the capacity clamp only lowers `allocated`. The guard could not fire. The subtraction
+is now plain and checked: the impossible case reverts instead of reading 0 (SHARED_QUANTITIES,
+`sumPsi`). `test/SplitRemainderIsTheLastLeg.t.sol` asserts that a split hop's legs spend exactly the
+caller's input and that `hop.amountIn` equals it (three V2 rows of unequal depth, a single-pool
+control, a fuzz over the order from 1e6 wei to 600k e18 and over the depths); the mutant
+[Solver:1032] shorts the remainder by one wei. `test/SplitSharesAreFloors.t.sol` pins the rounding
+direction that sum cannot see: on three rows of equal depth no leg gets less than floor(A / n), and
+the mutant [Solver:1034] (the shares rounded up) turns it red.
+
+**The loose shape's baseline, removed because no hop could take it (2026-11-14).** `Router._execute`
+set `bridgeBase[h - 1] = toutStart` when a hop past the first took the route's output in. With
+`MAX_HOPS = 2` (Core) the only such hop is the last one, whose `tokenOut` is the route's, and the
+shape check above it refuses a hop whose input is its own output (`RouterE(3)`), so the condition
+was false on every input that reaches it; the readers of `bridgeBase` (`_chargeHopFee`,
+`_hopScaleImpactAndQuote`, the sweep) see the same entry with or without the line. It is the
+argument by which `mutants.py` already leaves several Router lines without an entry ("EQUIVALENT
+since MAX_HOPS = 2"). The line is gone, with no test or mutant of its own: each part of its premise
+already has one. `MAX_HOPS` itself has no mutant, because the Solver's bridge path is a literal of
+`MAX_HOPS + 1` tokens and no other value compiles. The ceiling's mutant, raised by one, is red on
+`test_TheLooseShapeIsPastTheHopCeilingAndRefused` (`test/SwapOutputNeverExceedsWhatTheVenuesDeclared.t.sol`,
+the three-hop A->C->B->C shape). The self-hop arm's mutants, H3 and fix-1019 H3, are red on
+`test_legOutRaw_MidRouteSelfHop_IsRefused` and `test_H3_SelfHop_IsRefusedRouterE3`.
+
 ## 4f. How far each refusal observes from what decides
 
 Every defect confirmed in this repository, internal or reported, has one shape: a check observes
@@ -513,11 +552,15 @@ when a held candidate of that build could pay more than what it chose, so a solv
 per route and not once per ranked candidate: `test/CapacityWalkBudget.t.sol` holds grids of V3 books the cap
 binds on every pair (sixteen stretches each, four storage words per tick) to the margins
 `test/EntryBSolveBudget.t.sol` sets inside the search's 12M, and pins that no concentrated leg is
-promised more than its pool holds on any hop. That one walk runs in a static self-call on its own
-fixed budget (`WALK_GAS`), so what a book makes its reads cost never spends the search's budget,
-and the plan stays a function of the state: SOLVE_GAS is the search's 12M plus that budget, held
+promised more than its pool holds on any hop. That one walk runs in a static self-call on what
+SOLVE_GAS leaves after the search, at most `WALK_CAP` = 8,000,000 (C1, 2026-11-14: a fixed 2.5M `WALK_GAS` before, too little for
+a live mainnet V4 row's 4.66M rebuild), the same at both doors, so what a book makes its reads
+cost never stops the search and the plan stays a function of the state; a walk that does not
+finish leaves the plan at the cap. Held
 grids of three bridges and six books and four books whose every read burns its cap settle at the
-automatic door as quoted, and a capped solve returns the quote or nothing.
+automatic door as quoted, and a capped solve returns the quote or nothing. After a search past
+~6.55M the derived budget falls under `WALK_CAP`; at the longest search after which a held book's
+walk still finishes, the plan is the same at the door's gas and at 30M (C1, mutant [n1-5]).
 
 ## 4l. Mutants aimed at the invariants
 
@@ -766,6 +809,28 @@ crossing an initialized tick) asks min(gross, funded) of the raw venue to the we
 still asked the rule before the fix until 2026-11-14 (F-11), and [door-fee-fork-1] in M_FORK
 pairs it with the old rule.
 
+**One fee walk for both exact passes (2026-11-14).** `Quoter._exact` priced the route in
+its own loop and `_fundedOut` funded it in a second; only the second stopped when a fee rounded up
+took all that entered a hop. On two hops at 1 wei the first wrote 0 into hop 0's legs and the second,
+reading the rewritten route, saw a 0 commitment and a 0 fee: a venue that quotes something for
+nothing was promised in full. Both passes are now `_walk` (SHARED_QUANTITIES, "the fee walk"); test
+`test/QuoterExactFeeThatEatsTheCarryIsZero.t.sol` (red at 2f1e1b5), mutant «Quoter: the walk
+asks a venue after the fee ate the carry». The single-hop switch of the exact pass (`feeOnOut ||
+route.hops.length == 1`: one hop takes no fee in the walk, only in the funded pass) has its own
+mutant, «Quoter: the exact walk charges a single hop on its input», killed by
+`test_OneHop_TheWalkLeavesTheFeeToTheFundedPass`. The over-promise was a quote, never a fill: the
+Router charges the same hop 0 first (`_chargeHopFee`, `feeH >= amountIn` ⇒ `RouterE(8)`) and never
+asks a Gate adapter's `quoteCall`.
+The walk's early exit left the hops it never reached with the plan's figures in the route it
+returned: at 1 wei hop 0 showed 1 in and 1 out, hop 1 the plan's 1e18, while the promise was
+0. Those hops are now written 0 (`_unfund`), the figures the Router funds them with; the promise and
+the Router's refusal are unchanged. Test `test/QuoterExactRouteShowsOnlyFundedFigures.t.sol` (red at
+90c2d85), mutant «Quoter: the exact walk leaves the plan's figures in the hops a fee
+left unfunded». A walk that funded nothing promises 0 whatever a second walk says, so the door
+no longer re-walks it (over the zeroed route hop 0 asked its venue for 0): test
+`test_TwoHops_AFeeThatEatsHopZero_AsksNoVenue`, mutant «Quoter: the exact door
+re-walks a route that funded nothing».
+
 ## 4p. How a quote ages — the promise measured against time and drift
 
 A quote is a promise about a future block. `test/QuoteDelayStatistics.t.sol` takes it the way an
@@ -799,6 +864,28 @@ the ABI as mean, minimum, maximum and spread: on the three-token universe `previ
 121,313 gas (σ 1,433) where discovery finds one pool and 235,574 (σ 1,815) where a fresh registry
 prices three; `batchQuote` of ten, 205,539 per entry; on live Base 1,524,221 cold, 1,414,633 warm,
 1,359,925 cold again — the discovery sweep is about 7 % of a live quote.
+
+## 4q. Three ledgers: what the models cost, measured
+
+Three measurements, no fix behind them, each printing its cells into a ledger under
+`docs/assurance/`. `kkt-gap.tsv` (`test/bench/KktGapCertificate.t.sol`, seed and bound
+pre-registered in `docs/prereg/kkt-1114.tsv`): 36 V2 universes, 2, 3 and 5 pools, the split's
+output against a KKT optimum found by bisection outside the code under test. In every cell the
+gap stays within the certificate the split computes; at one price and one fee the certificate is
+at most 3,014 ppm, under the pre-registered 3,500; across a band of prices the gap reaches
+154,129 ppm and is recorded, not asserted. Weighing every depth the same (mutant `Math:655`)
+lifts the certificate to 5,669 ppm and turns the bench red. `v3-reads.tsv`
+(`test/fork/V3ReadsBudgetLoss.t.sol`, Base block 52,900,000, the WETH/DAI pool
+`0xC18F50d6A832f12F6DcAaeEe8D0c87A65B96787E`): what a V3 walk capped at `V3_PAY_READS` promises
+against what the pool pays, four sizes, both directions. The signed error runs from −2 ppm to
++364,529,849 ppm on a book that thins past the last range read; a promise above what the pool
+pays is refused by the floor (`RouterE 5`), so the error is a ledger line and only the walk's
+own theorems are asserted. One QuoterV2 answer reverts and is written `n/a`, not zero.
+`v4-narrow.tsv` (`test/V4NarrowPositionDoesNotBuyTheBand.t.sol`, mock V4): a one-spacing position
+with 100× the honest liquidity, stacked on the same pool, takes the book's held share from
+857,598 ppm to 8,496 ppm (853,408 to 8,647 on the exact-input side), so it does not buy the
+band; dropping the held-share scaling (`Core:2607`) turns the band test red. Allocation
+numbers drawn from these ledgers are the owner's to set.
 
 ## 5. What none of this establishes
 

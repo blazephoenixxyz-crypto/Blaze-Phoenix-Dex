@@ -33,7 +33,7 @@ contract HeadlessSolidlyPair {
 ///         declare a 99% fee on an attacker-shaped pair, collapse the leg's
 ///         on-chain quote, and — when the leg is the final hop — deflate
 ///         `finalHopQuote` and with it `protocolFloorOut`, the figure the
-///         protocol advertises as unforgeable by calldata.
+///         protocol advertised as unforgeable by calldata.
 ///
 ///         Reported externally 2026-08-26. This is the sibling hunt the V2 fix
 ///         should have carried out (house rule B8: when one instance falls,
