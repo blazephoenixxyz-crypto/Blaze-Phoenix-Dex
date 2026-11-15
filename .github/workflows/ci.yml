@@ -657,13 +657,28 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Release build with sizes
+      - name: Swap for the via_ir compile (fail-open)
+        # Same step as in the test and mutation-guard jobs. In run 43728959643 this job died twice
+        # inside the release build ("shutdown signal", exit 143), ~27 min in.
+        # Fail-open: a runner where swap cannot be added warns and runs exactly as before.
+        run: |
+          f=/swapfile-ci; [ -d /mnt ] && f=/mnt/swapfile-ci
+          { sudo fallocate -l 12G "$f" && sudo chmod 600 "$f" && sudo mkswap "$f" >/dev/null && sudo swapon "$f"; } \
+            || echo "::warning::no extra swap on this runner; the compile runs on RAM alone"
+          free -m || true
+
+      - name: Release build with sizes (src/ only)
         id: sizes
+        # What ships is src/, and every reader below reads src/ only: the snapshot walks src/,
+        # the margin reads the BlazePhoenix* rows, the hashes read out/BlazePhoenix*.json.
+        # A bare `forge build` also compiled all of test/ under release via_ir: 525 files,
+        # 1035 s in run 43568440226, against 17 files for src/. The probe step at the end
+        # compiles the test files it needs itself.
         env:
           FOUNDRY_PROFILE: release
         run: |
           set -o pipefail
-          forge build --sizes | tee sizes.txt
+          forge build --sizes src | tee sizes.txt
 
       - name: Every size is the committed one (.sizes-snapshot)
         # The margin check below only fails at 24000. This one fails on ANY byte that moves,
@@ -724,6 +739,10 @@ jobs:
                   print(f"  {n} = {r} bytes")
           expected = {"BlazePhoenixCore", "BlazePhoenixHub", "BlazePhoenixQuoter",
                       "BlazePhoenixRouter", "BlazePhoenixSolver", "BlazePhoenixMath"}
+          # The margin reads every contract the snapshot lists: a build narrowed below src/
+          # drops rows from sizes.txt, and a dropped row is a contract the margin never read.
+          with open(".sizes-snapshot") as f:
+              expected |= {l.split()[0] for l in f if l.strip()}
           missing = expected - {n for n, _ in rows}
           if missing:
               print(f"\nGUARD ERROR: deployed contracts missing from sizes.txt: {sorted(missing)}")
