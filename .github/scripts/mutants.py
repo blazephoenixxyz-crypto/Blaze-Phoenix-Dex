@@ -10530,6 +10530,11 @@ def baseline():
     out = ANSI.sub("", r.stdout + r.stderr)
     green = set(re.findall(r"\[PASS\]\s+(\w+)", out))
     red = set(re.findall(r"\[FAIL[^\]]*\]\s+(\w+)", out))
+    # The pattern above stops at the first "]", and a fuzz counterexample with an array argument
+    # nests them ("args=[[0x.., 0x.., 0x..], 0x..]] testFuzz_X(bytes32[3],bytes)"): that FAIL named
+    # nothing and its test read as BASELINE MISSING. The last "] name(" of the line is the name; the
+    # first pattern stays for a reason that spans lines.
+    red |= set(re.findall(r"^\s*\[FAIL\b.*\]\s+(\w+)\(", out, re.M))
     red |= set(re.findall(r"^\s*\[(\w+)\] Failed to match snapshots", out, re.M))
     return green, red, out, r.returncode
 
