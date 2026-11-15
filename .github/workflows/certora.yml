@@ -1,0 +1,48 @@
+name: certora
+
+# Called only from security.yml (job `certora`), after certora-gate said it runs. The matrix lives
+# here, behind a caller job with a fixed name, because a matrix job skipped by its own `if` reports
+# one check under the unexpanded name ("Certora ${{ matrix.conf }}..."): the skip on a pull request
+# then shows as the caller's name, and a run shows one check per conf and rule.
+on:
+  workflow_call:
+    secrets:
+      CERTORAKEY:
+        required: true
+
+jobs:
+  certora:
+    name: Certora ${{ matrix.conf }}${{ matrix.rule && format(' / {0}', matrix.rule) || '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - conf: effv4fee
+          - conf: floorsfee
+          - conf: router-control
+          - { conf: router-swap, rule: zeroMinOutRefused }
+          - { conf: router-swap, rule: amountInAboveU128Refused }
+          - { conf: router-swap, rule: pausedBlocksEverySwapDoor }
+          - { conf: router-swap, rule: deliveryAtLeastMinOutOrRevert }
+          - { conf: router-swap, rule: routerHoldsNothing }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install certora-cli + solc 0.8.36
+        run: |
+          pip install certora-cli==8.20.3 solc-select
+          solc-select install 0.8.36
+          solc-select use 0.8.36
+          # Certora resolves the "solc0.8.36" name from PATH.
+          ln -sf "$(command -v solc)" /usr/local/bin/solc0.8.36
+      - name: Run Certora (waits for the verdict; a violated rule fails the job)
+        env:
+          CERTORAKEY: ${{ secrets.CERTORAKEY }}
+          RULE: ${{ matrix.rule }}
+        run: certoraRun "certora/conf/${{ matrix.conf }}.conf" ${RULE:+--rule "$RULE"}

@@ -146,64 +146,43 @@ jobs:
           name: solhint-report
           path: solhint-report.txt
 
-  # Certora runs in the vendor cloud and needs the CERTORAKEY repo secret. The gate job
-  # reports whether the key exists; without it every matrix entry shows SKIPPED (never a
-  # green that proved nothing) and the run summary says no rule was proven.
+  # Certora runs in the vendor cloud, needs the CERTORAKEY repo secret, and runs only by hand or on
+  # a push to main, not on every PR (owner's order, 2026-11-14: the prover's free tier is 2,000
+  # minutes a month). It is not a required check. The gate says whether it runs and, when it does
+  # not, why, as a warning and in the run summary: a skip is never a green that proved nothing.
+  # The matrix is in certora.yml, behind a job with a fixed name: a skipped matrix job reports its
+  # check under the unexpanded name ("Certora ${{ matrix.conf }}..."), never a readable one.
   certora-gate:
-    name: Certora key present?
+    name: Certora gate (main push or manual run, with CERTORAKEY)
     runs-on: ubuntu-latest
     outputs:
-      has_key: ${{ steps.k.outputs.has_key }}
+      run: ${{ steps.k.outputs.run }}
     steps:
       - id: k
         env:
           K: ${{ secrets.CERTORAKEY }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         run: |
-          if [ -n "$K" ]; then
-            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$K" ]; then
+            why="CERTORAKEY secret missing"
+          elif [ "$EVENT" = workflow_dispatch ] || { [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; }; then
+            why=""
           else
-            echo "has_key=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::CERTORAKEY not set: Certora NOT RUN - no rule proven."
-            echo "### Certora NOT RUN - no rule proven (CERTORAKEY secret missing)" >> "$GITHUB_STEP_SUMMARY"
+            why="runs only on a push to main or by hand, not on $EVENT"
+          fi
+          if [ -z "$why" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Certora NOT RUN - no rule proven ($why)."
+            echo "### Certora NOT RUN - no rule proven ($why)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   certora:
-    name: Certora ${{ matrix.conf }}${{ matrix.rule && format(' / {0}', matrix.rule) || '' }}
-    # Only by hand or on a push to main, not on every PR (owner's order, 2026-11-14): the
-    # prover's free tier is 2,000 minutes a month. It is not a required check, so a PR where
-    # it is skipped is not blocked.
+    name: Certora prover (main push or manual run only)
     needs: certora-gate
-    if: ${{ needs.certora-gate.outputs.has_key == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - conf: effv4fee
-          - conf: floorsfee
-          - conf: router-control
-          - { conf: router-swap, rule: zeroMinOutRefused }
-          - { conf: router-swap, rule: amountInAboveU128Refused }
-          - { conf: router-swap, rule: pausedBlocksEverySwapDoor }
-          - { conf: router-swap, rule: deliveryAtLeastMinOutOrRevert }
-          - { conf: router-swap, rule: routerHoldsNothing }
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-      - name: Install certora-cli + solc 0.8.36
-        run: |
-          pip install certora-cli==8.20.3 solc-select
-          solc-select install 0.8.36
-          solc-select use 0.8.36
-          # Certora resolves the "solc0.8.36" name from PATH.
-          ln -sf "$(command -v solc)" /usr/local/bin/solc0.8.36
-      - name: Run Certora (waits for the verdict; a violated rule fails the job)
-        env:
-          CERTORAKEY: ${{ secrets.CERTORAKEY }}
-          RULE: ${{ matrix.rule }}
-        run: certoraRun "certora/conf/${{ matrix.conf }}.conf" ${RULE:+--rule "$RULE"}
+    if: ${{ needs.certora-gate.outputs.run == 'true' }}
+    uses: ./.github/workflows/certora.yml
+    secrets:
+      CERTORAKEY: ${{ secrets.CERTORAKEY }}
