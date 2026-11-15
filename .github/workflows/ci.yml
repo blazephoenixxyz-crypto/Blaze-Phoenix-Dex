@@ -465,6 +465,8 @@ jobs:
         env:
           MUTANTS_SHARD: ${{ matrix.shard }}
           MUTANTS_SHARDS: 40
+          # Two test threads: the long shards lost their runner to memory at 65-67 min with four.
+          FOUNDRY_THREADS: "2"
           PYTHONUNBUFFERED: "1"
         run: python3 .github/scripts/mutants.py
 
@@ -887,7 +889,7 @@ jobs:
       - name: Symbolic checks (report-only)
         # Bounded at the process, not with timeout-minutes: a cancelled step propagates to the job
         # even under continue-on-error (see formal-explore.yml).
-        run: timeout 1500 halmos --contract CompositionFormalSpec -v
+        run: timeout 1500 halmos --contract CompositionFormalSpec --solver-timeout-assertion 300s -v
 
       - name: Symbolic - band, hop fee, dust probe, split (report-only)
         # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
