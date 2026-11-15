@@ -106,6 +106,7 @@ contract AdapterBaseTest is AdapterHarness {
 
     function testFuzz_Base_Pin_ACodeOutsideThePinsIsRefused(bytes32[3] memory pins, bytes memory code) public {
         vm.assume(code.length != 0);
+        vm.assume(code[0] != 0xEF); // vm.etch refuses an EIP-7702 0xEF01 prefix that is not 23 bytes
         vm.etch(HOOKS, code);
         bytes32 h = keccak256(code);
         vm.assume(h != pins[0] && h != pins[1] && h != pins[2]);
@@ -116,6 +117,7 @@ contract AdapterBaseTest is AdapterHarness {
 
     function testFuzz_Base_Pin_EachSlotAdmitsItsCode(bytes memory code, uint8 slot, bytes32 a, bytes32 b) public {
         vm.assume(code.length != 0);
+        vm.assume(code[0] != 0xEF); // vm.etch refuses an EIP-7702 0xEF01 prefix that is not 23 bytes
         vm.etch(HOOKS, code);
         _probe(_pinsWith(keccak256(code), slot, a, b)).pin(HOOKS);
     }

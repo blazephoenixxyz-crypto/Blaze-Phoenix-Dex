@@ -10580,6 +10580,9 @@ def main():
             falhas.append(f"BASELINE RED: '{t}' already fails with no mutation, so every mutant "
                           f"paired with it scores as killed for free and proves nothing.")
             print(f"  BASELINE RED  {t}")
+            for ln in base_out.splitlines():
+                if re.match(rf"^\s*\[FAIL\b.*\]\s+{re.escape(t)}\(", ln):
+                    print(f"    {ln.strip()[:2000]}")
     if unseen:
         for t in sorted(unseen):
             falhas.append(f"BASELINE MISSING: '{t}' appeared as neither PASS nor FAIL in the "
