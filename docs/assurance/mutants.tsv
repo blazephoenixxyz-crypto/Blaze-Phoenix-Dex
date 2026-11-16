@@ -1931,3 +1931,9 @@ src/BlazePhoenixSolver.sol	test_HookedThinCurrentTickDeepNeighbourBookKeepsItsSe
 src/BlazePhoenixSolver.sol	test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat	4660 E1 Solver._heldBooks: the funnel walks sixteen stretches (the horizon is the promise again)
 src/BlazePhoenixSolver.sol	test_FunnelHorizon_OneBookIsReadOnTwoStretches	4660 E1 Solver: the horizon is one stretch (the neighbour is not read)
 src/BlazePhoenixCore.sol	test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat	4660 E1 Core._v4Walk: the walk ignores its horizon n and stops at sixteen stretches
+src/BlazePhoenixCore.sol	testFuzz_TheFigureIsTheIndependentStep	cr1116 [CR-1]: the shared sqrt step rounds token0-in down, outV3 and the walk move together
+src/BlazePhoenixCore.sol	test_HostileRows_In_V2_Exact	cr1116 [CR-2]: the protocol fee rises to 29 bps, past the ceiling the hostile rows write down
+test/fork/AtqForkVenueOracle.sol	test_AnExplicitUrlRunsWithoutTheKey	cr1116 [CR-3]: the fork oracle asks for DRPC_KEY even with an explicit archive URL
+src/BlazePhoenixRouter.sol	test_AtqBlockedTreasury_OwedBookedClaimExact	cr1116 [CR-4]: claimFee refuses a blocked holder with RouterE(1), not the transfer guard
+src/BlazePhoenixCore.sol	test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger	cr1116 [CR-5]: a dust tick stamps the row, tau intact, so the next interval is measured short
+src/BlazePhoenixRouter.sol	test_HostileRows_Out_Ext_Exact	cr1116 [CR-6]: an EXT route that delivers nothing refuses with RouterE(5) instead of RouterE(8)

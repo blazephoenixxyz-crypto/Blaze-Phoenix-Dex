@@ -56,7 +56,8 @@ abstract contract HostileRowsCells is HostileRowsHarness {
         if (r == Row.IN_VENUE_REB_DN || r == Row.OUT_RECIP_REB_DN) return "Panic(17)";
         // the token's own refusal (HostileERC20 Mode.REVERT) when the Router pays out
         if (r == Row.OUT_ROUTER_BLOCKED) return "Hostile: blocked";
-        // a payout that reports success and moves nothing: the delivery check, or the EXT zero-output check
+        // a payout that reports success and moves nothing: the delivery check, or the EXT zero-output
+        // check (totalReceived == 0 after the outCap clamp)
         if (r == Row.OUT_ROUTER_TRUE_NOMOVE) return k == Kind.EXT ? "RouterE(8)" : "RouterE(5)";
         return "";
     }
