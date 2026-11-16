@@ -11,9 +11,11 @@ harnesses and type-checks the specs; it proves nothing.
 1. Get a key (certora.com).
 2. GitHub: Settings → Secrets and variables → Actions → New repository secret,
    name `CERTORAKEY`.
-3. The next run of `.github/workflows/security.yml` runs the `certora` matrix. Without the
-   key, `certora-gate` writes "Certora NOT RUN - no rule proven" to the run summary and every
-   matrix entry shows SKIPPED.
+3. The next push to main, or a manual run of `.github/workflows/security.yml`, runs the
+   matrix in `.github/workflows/certora.yml`. Pull requests do not run it (free-tier minutes).
+   When it does not run, `certora-gate` writes "Certora NOT RUN - no rule proven" and the reason
+   (key missing, or the event) to the run summary, and the single check "Certora prover (main
+   push or manual run only)" shows SKIPPED.
 
 Every conf sets `wait_for_results: "all"`: without it `certoraRun` exits 0 as soon as the
 job is submitted, a green that proved nothing. `rule_sanity: "basic"` flags vacuous rules.

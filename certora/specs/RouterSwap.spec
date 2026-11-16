@@ -2,7 +2,7 @@
  * Certora CVL - Router swap doors: refusals, pause, delivery, holds-nothing.
  * Target: BlazePhoenixRouter through certora/harness/RouterHarness.sol;
  * tokA = DummyERC20A (tokenIn), tokB = DummyERC20B (tokenOut).
- * Run one rule per job (`--rule`, see .github/workflows/security.yml).
+ * Run one rule per job (`--rule`, see .github/workflows/certora.yml).
  *
  * Venue model: every external call the scene cannot resolve (pools, the V4 PoolManager,
  * WETH, Permit2) is HAVOC_ECF: it may change the storage of any OTHER contract, token

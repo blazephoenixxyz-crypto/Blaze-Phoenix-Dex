@@ -276,7 +276,7 @@ above is the place for it.
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
-| CI workflows | 10 | `.github/workflows/*.yml` |
+| CI workflows | 11 | `.github/workflows/*.yml` |
 | Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
 
