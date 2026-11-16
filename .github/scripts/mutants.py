@@ -716,10 +716,10 @@ M = [
       old="                if (hopGot + slack < hopBound) revert RouterE(5);",
       new="                if (hopGot + slack <= hopBound) revert RouterE(5); // MUTANTE",
       teste="test_HopBudget_ExactBoundaryDelivers"),
- dict(nome="aggregate floor: < becomes <= in the amountOut/effMin comparison",
+ dict(nome="aggregate floor: < becomes <= in the outCap/effMin comparison",
       f="src/BlazePhoenixRouter.sol",
-      old="        if (amountOut < effMin) revert RouterE(5);",
-      new="        if (amountOut <= effMin) revert RouterE(5); // MUTANTE",
+      old="        if (outCap < effMin) revert RouterE(5);",
+      new="        if (outCap <= effMin) revert RouterE(5); // MUTANTE",
       teste="test_AggregateFloor_ExactBoundaryDelivers"),
  # ── the twelve guards that had never fired (2026-09-01) ────────────────
  # An inventory classified 29 refusal sites as driven from one side only.
@@ -1751,8 +1751,8 @@ M = [
       teste="invariant_StrandedMoneyIsNeverSwept"),
  dict(nome="INVARIANT-AIMED FLOOR-half: the protocol floor is halved",
       f="src/BlazePhoenixRouter.sol",
-      old="        if (amountOut < effMin) revert RouterE(5);",
-      new="        if (amountOut < effMin / 2) revert RouterE(5); // MUTANTE",
+      old="        if (outCap < effMin) revert RouterE(5);",
+      new="        if (outCap < effMin / 2) revert RouterE(5); // MUTANTE",
       teste="invariant_DeliveredNeverBelowTheProtocolFloor"),
 
 
@@ -10575,6 +10575,37 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='if (totalReceived == 0) revert RouterE(8);',
       new='if (totalReceived == 0) revert RouterE(5); // MUTANT [CR-6]',
       teste='test_HostileRows_Out_Ext_Exact'),
+ # ── fot-out-1116: the route floors read the declared gross (test/RouteFloorsReadTheDeclaredGross) ──
+ # The protocol floor and the caller's singleOutFloor price GROSS; the Router reads them against
+ # `outCap` (what the venues declared they paid in tokenOut), not against the net an output tax
+ # leaves. Each mutant below is killed by the named test; F4 is the untaxed control.
+ dict(nome="fot-out-1116 MB1: the route floors read the measured net again (amountOut, not outCap)",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (outCap < effMin) revert RouterE(5);",
+      new="        if (amountOut < effMin) revert RouterE(5); // MUTANTE",
+      teste="test_UnderAnOutputTax_TheRoutersEdgeIsTheUntaxedEdge"),
+ dict(nome="fot-out-1116 MB2: the route floors switched off",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (outCap < effMin) revert RouterE(5);",
+      new="        if (false) revert RouterE(5); // MUTANTE",
+      teste="test_AnUntaxedOutputSettlesAsBefore"),
+ dict(nome="fot-out-1116 MB3: variant A, an output shortfall at the leg is noted as a FoT ratio",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);",
+      new="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);\n"
+          "            if (got < declared) _noteFot(BPC.mulDiv(got, BPC.BPS, declared)); // MUTANTE",
+      teste="test_ParallelTaxedLegsAreNotOverDiscounted"),
+ dict(nome="fot-out-1116 MB3b: variant A, as MB3, watched by the singleOutFloor arm",
+      f="src/BlazePhoenixRouter.sol",
+      old="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);",
+      new="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);\n"
+          "            if (got < declared) _noteFot(BPC.mulDiv(got, BPC.BPS, declared)); // MUTANTE",
+      teste="test_AOneWeiShortfallKeepsTheCallersSingleOutFloor"),
+ dict(nome="fot-out-1116 MB4: the leg's bound rescaled by the venue's word (got / declared)",
+      f="src/BlazePhoenixRouter.sol",
+      old="                ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)",
+      new="                ? BPC.mulDiv(BPC.mulDiv(leg.expectedOut, amt, leg.amountIn), got, declared == 0 ? 1 : declared) // MUTANTE",
+      teste="test_OutputTaxAboveTheLegFloorIsStillRefused"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
