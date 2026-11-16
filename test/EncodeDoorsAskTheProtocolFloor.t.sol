@@ -178,7 +178,7 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
             fin = out1;
             tOut = address(tC);
         }
-        r = Route({hops: hops, totalOut: fin, singleOut: 0, singleOutFloor: cfgExactFloor ? _solversFloor(hops, tOut, fin) : 1,
+        r = Route({hops: hops, totalOut: fin, singleOut: 0, singleOutFloor: cfgExactFloor ? this._solversFloor(hops, tOut, fin) : 1,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         bool onOut = hops.length == 1 && hub.isBridgeToken(tOut);
         order = onOut ? sumIn : sumIn + BPC.mulDivUp(sumIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
@@ -190,8 +190,27 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
     /// share-weighted over the route's legs) and of the legs' concentration, on the final output
     /// net of the input-side fees (`BPC.netOfInputFees`, none when one hop lands in a bridge),
     /// rounded up. A promise the Solver cannot attest would test the door against a plan no
-    /// Solver hands it; this one keeps the sub-case's question, a binding promise on the bytes.
-    function _solversFloor(Hop[] memory hops, address tOut, uint256 fin) internal view returns (uint256) {
+    /// Solver hands it. It does not bind: the door rescales it onto its own walk, about the
+    /// Solver's rate times `walkOut`, under the carry the walk delivers, so the protocol floor
+    /// decides every edge here. This arm checks that the Solver's promise moves no edge; it
+    /// does not pin the rescale (`Quoter` floorExact): a mutant that inflates it is refused by
+    /// the door and by the Router on the door's route alike (M27, a recorded survivor).
+    function _solversFloor(Hop[] memory hops, address tOut, uint256 fin) external view returns (uint256) {
+        uint256 floorBps = _solversFloorBps(hops);
+        uint256 base = fin;
+        if (!(hops.length == 1 && hub.isBridgeToken(tOut))) {
+            uint256 feeHop = type(uint256).max;
+            for (uint256 h; h < hops.length; ++h) {
+                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = h; break; }
+            }
+            base = BPC.netOfInputFees(hops, fin, feeHop, false);
+        }
+        return BPC.mulDivUp(base, floorBps, BPC.BPS);
+    }
+
+    /// The Solver's floor rate on `hops`: its impact ruler share-weighted over the route's legs,
+    /// and the legs' concentration, through `BPC.ironFloorBpsShv`.
+    function _solversFloorBps(Hop[] memory hops) internal view returns (uint256) {
         uint256 weightedAcc;
         uint256 totalLegs;
         uint256 legShv;
@@ -210,16 +229,7 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
             totalLegs += ls.length;
             legShv += BPC.legShaveBps(sA, sA2);
         }
-        uint256 floorBps = BPC.ironFloorBpsShv(totalLegs > 0 ? weightedAcc / totalLegs : 0, legShv, 0);
-        uint256 base = fin;
-        if (!(hops.length == 1 && hub.isBridgeToken(tOut))) {
-            uint256 feeHop = type(uint256).max;
-            for (uint256 h; h < hops.length; ++h) {
-                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = h; break; }
-            }
-            base = BPC.netOfInputFees(hops, fin, feeHop, false);
-        }
-        return BPC.mulDivUp(base, floorBps, BPC.BPS);
+        return BPC.ironFloorBpsShv(totalLegs > 0 ? weightedAcc / totalLegs : 0, legShv, 0);
     }
 
     /// The Solver's impact ruler for one leg (Solver:1683-1699), on the same reads.
@@ -389,7 +399,8 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
             if (c == 1) hub.addBridge(address(tB));
             assertEq(hub.isBridgeToken(address(tB)), c == 1, "premise: the calendar");
             // Both promises on both calendars: the Solver sizes its floor for each (gross on
-            // the output calendar, net of the input fee on the other, Solver:1812-1821).
+            // the output calendar, net of the input fee on the other, Solver:1812-1821). The
+            // Solver's floor sits under the carry, so the edge is the protocol floor's on both.
             for (uint256 f; f < 2; ++f) {
                 _single(gap, SMALL + 7);
                 cfgExactFloor = f == 1;
@@ -568,6 +579,29 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
             (bool encoded, bool settled, bytes memory ret) = _at(0);
             assertTrue(settled, string.concat(tag, ": premise, the Router settles: ", vm.toString(ret)));
             assertTrue(encoded, string.concat(tag, ": the door refused a route the Router settles"));
+        }
+    }
+
+
+    // ------------------------------------------------------------------ D2 (Router:1430-1440, 1578-1590)
+
+    /// The blind last hop's anchor (Router:1430-1440): a plan whose last hop arrives blind (its
+    /// leg unattested) with a declared hop figure twice what it pays. The Router anchors such a
+    /// hop's floor on the declared figure; the door asks no floor on it, and hands bytes whose
+    /// leg and hop carry the walk's figures, so the Router never sees the hop blind. Across the
+    /// regimes of T1 and the control's, the door never encodes what the Router refuses.
+    function test_ABlindLastHop_TheDoorEncodesNothingTheRouterRefuses() public {
+        MockV3Pool gap = _v3(tA, tB, 500, DEEP_L);
+        uint128[5] memory ls = [uint128(4.3e18), 5.67e18, 9e18, 19e18, 99e18];
+        for (uint256 i; i < ls.length; ++i) {
+            _single(gap, SMALL);
+            (Route memory r, address tOut, uint256 order) = _build(ls[i]);
+            r.hops[0].expectedOut = 2 * r.totalOut;
+            r.hops[0].legs[0].expectedOut = 0;
+            (bool encoded, bool settled, bytes memory ret) = _run(r, tOut, order);
+            string memory tag = string.concat("blind, swapLiquidity ", vm.toString(uint256(ls[i])));
+            if (!settled) _assertRouterE(ret, 5, tag);
+            assertFalse(encoded && !settled, string.concat(tag, ": encoded, the Router refuses"));
         }
     }
 }
