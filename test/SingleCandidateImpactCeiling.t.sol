@@ -101,7 +101,7 @@ contract SingleCandidateImpactCeilingTest is Test {
         _seedPair(1e18);
 
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5)));
         router.swapBestExactIn(
             address(usdA), address(usdB), USER_INPUT, 1, user, block.timestamp + 1
         );

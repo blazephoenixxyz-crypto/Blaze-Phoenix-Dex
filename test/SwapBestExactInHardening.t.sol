@@ -111,7 +111,7 @@ contract SwapBestExactInHardeningTest is Test {
         stray.mint(user, 10e18);
         vm.startPrank(user);
         stray.approve(address(router), type(uint256).max);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5)));
         router.swapBestExactIn(address(stray), address(tokenB), 1e18, 1, user, block.timestamp + 1);
         vm.stopPrank();
         assertEq(stray.balanceOf(user), 10e18, "failed discovery must never move funds");

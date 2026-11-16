@@ -2441,6 +2441,17 @@ M = [
       old='            assembly ("memory-safe") { revert(add(e, 32), mload(e)) }',
       new='            revert RouterE(17); // MUTANT',
       teste='test_EntryB_SolverRevertPassesThroughIntact'),
+ # decorativos-1116 D5/D6: both tests accepted any revert, so this rewrite left them green.
+ dict(nome="R1: an unknown token's no-route refusal is rewritten into the budget stop",
+      f='src/BlazePhoenixRouter.sol',
+      old='            assembly ("memory-safe") { revert(add(e, 32), mload(e)) }',
+      new='            revert RouterE(17); // MUTANT',
+      teste='test_Guards_NoRoute_FailsClosed'),
+ dict(nome="R1: the impact ceiling's refusal is rewritten into the budget stop",
+      f='src/BlazePhoenixRouter.sol',
+      old='            assembly ("memory-safe") { revert(add(e, 32), mload(e)) }',
+      new='            revert RouterE(17); // MUTANT',
+      teste='test_POSITIVE_TrustlessDoorRefusesInsteadOfFilling'),
  # The V3 twins. Both stayed green until MockV3Pool checked the limit the way UniswapV3Pool
  # does ('SPL'): before that, the mock ignored the 4th argument of swap().
  dict(nome="V3 swap: the price limits are swapped (every swap aims the wrong way)",
