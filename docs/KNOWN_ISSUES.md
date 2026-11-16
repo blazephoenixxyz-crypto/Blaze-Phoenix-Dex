@@ -106,20 +106,30 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   (the protocol floor and the caller's single-output floor) read the gross the venues declared
   paying, and to the Router a venue that declares more than it pays and a token that taxes the
   venue-to-Router transfer are the same observation. Such a venue is held on what the Router
-  measured, against an attested figure: a priced leg by the per-leg floor, `LEG_FLOOR_BPS` (80%)
-  of its attestation, and by the hop budget its parallel legs share; a last hop with a leg that has
-  no attestation by the same 80% of the hop's figure (the one the protocol floor is a fraction of),
-  re-priced by a measured input tax. The effect, on a quoted route and on a blind last hop alike:
-  a venue named in the calldata may deliver anywhere between 80% and 100% of the attested figure
-  and the swap settles; under 80% it is refused with `RouterE(5)`. `userMinOut` is read on what
-  reaches the recipient and no declaration moves it, so it is the caller's bound inside that band.
+  measured, on two checks. Each attested leg answers on its own: its measured delta against the
+  per-leg floor, `LEG_FLOOR_BPS` (80%) of its attestation, and the hop budget its parallel legs
+  share. The whole last hop answers together: the route's measured output against the same 80% of
+  the hop's figure (the one the protocol floor is a fraction of: the in-frame quote, else the
+  attested figure, else the hop's declared figure), re-priced by a measured input tax. The second
+  check is what holds a leg priced in frame that attests nothing, whose own floor rests on the
+  quote coverage share alone. The effect: a venue named in the calldata may deliver anywhere
+  between 80% and 100% of that figure and the swap settles; under 80% it is refused with
+  `RouterE(5)`. Two shapes read that band differently. On a last hop of several legs the hop is
+  held on its measured sum, so one leg may deliver under 80% of its share where another delivers
+  over it, as long as an attested leg clears its own floor. A last hop whose legs are all blind
+  and that declares no figure has none to hold: the protocol floor is not armed and `userMinOut`
+  is the only bound. `userMinOut` is read on what reaches the recipient and no declaration moves
+  it, so it is the caller's bound inside the band as well.
   Documented in `docs/assurance/threats.json` (`SOK-FOT`).
-- **A buy of a token that taxes the venue-to-Router transfer settles only under the per-leg floor and
-  the hop budget.** Those two checks take their base from the quote attestation, not from a venue,
-  so they keep reading the measured delta: a tax and a venue shortfall are one observation to them.
-  The tax settles while it stays inside the per-leg floor (`LEG_FLOOR_BPS`) and the hop budget,
-  which parallel legs share (less the slack the fill already used); past them the Router refuses
-  with `RouterE(5)`, which no quote preview can see in advance. Fail-closed: the caller keeps the
+- **A buy of a token that taxes the venue-to-Router transfer settles only under the per-leg floor,
+  the hop budget and the last hop's measured floor.** Those two checks take their base from the
+  quote attestation, not from a venue, so they keep reading the measured delta: a tax and a venue
+  shortfall are one observation to them. The last hop's measured floor reads the net the Router
+  received against `LEG_FLOOR_BPS` (80%) of the hop's figure, so the tax and whatever the fill fell
+  short of that figure share the same 20%. The tax settles while it stays inside the per-leg floor
+  (`LEG_FLOOR_BPS`), the hop budget, which parallel legs share (less the slack the fill already
+  used), and the last hop's measured floor; past them the Router refuses with `RouterE(5)`, which
+  no quote preview can see in advance. Fail-closed: the caller keeps the
   input and pays the gas of a reverted transaction. Route such buys through one leg. A Gate leg's
   declaration is the Router's own measured delta, so on that leg the route floors read the net.
   Documented in `docs/assurance/threats.json` (`SOK-FOT`).
