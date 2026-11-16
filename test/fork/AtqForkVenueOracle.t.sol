@@ -19,6 +19,7 @@ pragma solidity 0.8.36;
 import {console2} from "forge-std/Test.sol";
 import {AtqForkVenueOracle, AtqPoolKey, IV4ManagerAtq} from "./AtqForkVenueOracle.sol";
 import {BlazePhoenixQuoter} from "../../src/BlazePhoenixQuoter.sol";
+import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixCore as BPC, Route} from "../../src/BlazePhoenixCore.sol";
 
 interface IConcViewAtq {
@@ -174,11 +175,15 @@ contract AtqForkBaseTest is AtqForkBaseStack {
     }
 
     // The real pool left AT a price limit by its own swap, then quoted and executed against.
+    // WETH is token0: at MIN_SQRT_RATIO WETH -> USDC is closed, at MAX_SQRT_RATIO USDC -> WETH.
+    // Measured at the pinned block: every cell, both directions, refuses with SolverE(5).
     function _atLimit(bool lower) internal {
         hub.addFactory(UNIV3, KIND_V3, MODE_CREATE2_V3, UNIV3_INIT, _one24(10000), _oneSp(200));
         (, uint160 sp) = _swapConc(V3_1PCT, lower ? WETH : USDC, lower, CORNER_IN);
         assertEq(sp, lower ? MIN_P1 : MAX_M1, "setup: the pool is not at its price limit");
-        _ladder(WETH, USDC, 1e9, 1e2, 100, 7);
+        wantRefusal = abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5));
+        if (lower) _closedThenOpen(WETH, USDC, 1e9, 1e2, 100, 7);
+        else _closedThenOpen(USDC, WETH, 1e2, 1e9, 100, 7);
     }
 
     function test_AtqFork_BaseUniV3Thin_PoolLeftAtMinSqrtRatio_EveryPreviewRefusesTyped() public {

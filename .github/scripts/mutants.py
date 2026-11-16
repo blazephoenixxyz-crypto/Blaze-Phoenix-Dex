@@ -10728,6 +10728,14 @@ M_FORK = [
       old='            if staticcall(w, address(), p, sub(q, p), 0, 0) {',
       new='            if staticcall(1500000, address(), p, sub(q, p), 0, 0) { // MUTANT [c1-m2o]',
       testes=['test_oracle_withoutV4Row_quotesEncodesAndSettlesAboveTheFloor']),
+ # cr1116 (PR #125 review): the closed-direction cells name SolverE(5); before this the typed
+ # verdict accepted any typed refusal, so this mutant stayed green (m7_old 2/2 pass, m7_new 0/2).
+ dict(nome='cr1116 [CR-7]: no route refuses with SolverE(4), a typed refusal the closed cells do not name',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (m.bestU == 0) revert SolverE(5);',
+      new='        if (m.bestU == 0) revert SolverE(4); // MUTANT [CR-7]',
+      testes=['test_AtqFork_BaseUniV3Thin_PoolLeftAtMinSqrtRatio_EveryPreviewRefusesTyped',
+              'test_AtqFork_BaseUniV3Thin_PoolLeftAtMaxSqrtRatio_EveryPreviewRefusesTyped']),
 ]
 
 def run(t):

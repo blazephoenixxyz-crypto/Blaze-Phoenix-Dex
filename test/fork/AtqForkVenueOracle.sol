@@ -125,6 +125,10 @@ abstract contract AtqForkVenueOracle is Test {
     uint256 internal firstAboveAmt;
     uint256 internal worstGapNum; // largest (paid - quote), with its paid, among non-offenders
     uint256 internal worstGapDen;
+    uint256 internal nWrongRefusal; // preview refusals other than the one the cells name (`wantRefusal`)
+    uint256 internal nClosedCells;  // cells asked in the direction a price limit closes (`_closedThenOpen`)
+    uint256 internal nClosedRefused; // of those, previews that refused
+    bytes internal wantRefusal;     // the exact refusal (selector and code) a preview may answer with; empty: any typed one
 
     // oracle swap context
     address private _cbPool;
@@ -196,6 +200,17 @@ abstract contract AtqForkVenueOracle is Test {
         if (toCorner) { _cell(tIn, tOut, CORNER_MID); _cell(tIn, tOut, CORNER_IN); }
     }
 
+    /// @dev The direction a price limit closes, then the open one; the closed one's cells are
+    ///      counted apart, so a plan there cannot hide behind the open direction's legs.
+    function _closedThenOpen(address cIn, address cOut, uint256 unitC, uint256 unitO, uint256 step, uint256 rungs) internal {
+        uint256 c0 = nCells;
+        uint256 r0 = nRefusedPreview;
+        _direction(cIn, cOut, unitC, step, rungs);
+        nClosedCells += nCells - c0;
+        nClosedRefused += nRefusedPreview - r0;
+        _direction(cOut, cIn, unitO, step, rungs);
+    }
+
     function _cell(address tIn, address tOut, uint256 amt) internal {
         ++nCells;
         uint256 snap = vm.snapshotState();
@@ -210,26 +225,27 @@ abstract contract AtqForkVenueOracle is Test {
         } catch (bytes memory e) {
             ++nRefusedPreview;
             if (!_typed(e)) ++nUntyped;
+            if (wantRefusal.length != 0 && keccak256(e) != keccak256(wantRefusal)) ++nWrongRefusal;
             console2.log(string.concat("cell in=", vm.toString(amt), " preview refused ", vm.toString(e)));
         }
         // revertToState also rewinds THIS contract's storage: the tally crosses it in memory.
-        uint256[20] memory t = _tally();
+        uint256[21] memory t = _tally();
         vm.revertToState(snap);
         _restore(t);
     }
 
-    function _tally() private view returns (uint256[20] memory t) {
+    function _tally() private view returns (uint256[21] memory t) {
         t[0] = nLegs; t[1] = nAbove; t[2] = nExact; t[3] = nCorner; t[4] = nSettled; t[5] = nBroken;
         t[6] = nShort; t[7] = nUntyped; t[8] = nKept; t[9] = nRefund; t[10] = nRefusedPreview;
         t[11] = firstAboveQuote; t[12] = firstAbovePaid; t[13] = firstAboveAmt; t[14] = worstGapNum; t[15] = worstGapDen; t[16] = nCut;
-        t[17] = nAcross; t[18] = worstOverNum; t[19] = worstOverDen;
+        t[17] = nAcross; t[18] = worstOverNum; t[19] = worstOverDen; t[20] = nWrongRefusal;
     }
 
-    function _restore(uint256[20] memory t) private {
+    function _restore(uint256[21] memory t) private {
         nLegs = t[0]; nAbove = t[1]; nExact = t[2]; nCorner = t[3]; nSettled = t[4]; nBroken = t[5];
         nShort = t[6]; nUntyped = t[7]; nKept = t[8]; nRefund = t[9]; nRefusedPreview = t[10];
         firstAboveQuote = t[11]; firstAbovePaid = t[12]; firstAboveAmt = t[13]; worstGapNum = t[14]; worstGapDen = t[15]; nCut = t[16];
-        nAcross = t[17]; worstOverNum = t[18]; worstOverDen = t[19];
+        nAcross = t[17]; worstOverNum = t[18]; worstOverDen = t[19]; nWrongRefusal = t[20];
     }
 
     /// @dev P1 on every concentrated leg of a one-hop route; each on its own snapshot.
@@ -345,11 +361,19 @@ abstract contract AtqForkVenueOracle is Test {
         assertEq(nKept, 0, string.concat(tag, ": the Router holds a balance it did not book as owed"));
     }
 
-    /// @dev A venue the plan cannot use: every preview refuses, and every refusal carries a selector.
+    /// @dev A venue the plan cannot use in the direction its price limit closes: every preview
+    ///      there refuses, with the refusal the cells name (selector and code). The open
+    ///      direction may refuse the same way or come back with a concentrated leg.
     function _verdictRefusedTyped(string memory tag) internal view {
         console2.log(string.concat(tag, ": cells=", vm.toString(nCells), " previewRefused=", vm.toString(nRefusedPreview),
             " untyped=", vm.toString(nUntyped), " legs=", vm.toString(nLegs), " above=", vm.toString(nAbove)));
+        console2.log(string.concat(tag, ": closed=", vm.toString(nClosedCells), " closedRefused=", vm.toString(nClosedRefused),
+            " wrongRefusal=", vm.toString(nWrongRefusal)));
         assertGt(nCells, 0, string.concat(tag, ": no cell was asked"));
+        assertGt(nClosedCells, 0, string.concat(tag, ": no cell was asked in the direction the price limit closes"));
+        assertGt(wantRefusal.length, 0, string.concat(tag, ": the cells name no refusal"));
+        assertEq(nClosedRefused, nClosedCells, string.concat(tag, ": a plan came back in the direction the price limit closes"));
+        assertEq(nWrongRefusal, 0, string.concat(tag, ": a refusal other than the one the cells name"));
         assertEq(nAbove, 0, string.concat(tag, ": a quote above what the pool pays"));
         assertEq(nUntyped, 0, string.concat(tag, ": a refusal with no selector"));
         assertEq(nRefusedPreview + nLegs, nCells, string.concat(tag, ": a plan with no concentrated leg came back"));
