@@ -86,6 +86,22 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Luis_MZ**
 - **Agis Apriansyah**
 - **Joko**
+- **abyanraf**
+- **Juann**
+- **roosterxyz**
+- **frankyhd**
+- **Yudiasher**
+- **Sunfyre Kali**
+- **Caraxes / caraxestigo**
+- **Marshall Billy**
+- **Kahf**
+- **Haikal Jim**
+- **Aditya Singh (CyberBeast010)**
+- **Basa**
+- **Sierra Natya**
+- **Dimzy**
+- **Kusuma**
+- **dodo142**
 
 ---
 
