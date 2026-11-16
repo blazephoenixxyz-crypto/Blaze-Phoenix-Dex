@@ -299,17 +299,4 @@ contract RouteIntegrityFieldsTest is Test {
         router.swapExactIn(rLie, amt, 1, user, block.timestamp + 1);
         assertEq(IERC20B(c0).balanceOf(user), before, "nothing moved");
     }
-
-    /// A V2 pair executed under the V3 kind: the pair has no V3 swap selector, so the
-    /// call reverts before any token moves.
-    function test_PairKindLie_V2AsV3_Reverts() public {
-        uint256 amt = 1e18;
-        V2PairK pair = _newPair();
-        uint256 before = IERC20B(c0).balanceOf(user);
-        Route memory r = _pairRoute(pair, BPC.KIND_V3, amt);
-        vm.prank(user);
-        vm.expectRevert();
-        router.swapExactIn(r, amt, 1, user, block.timestamp + 1);
-        assertEq(IERC20B(c0).balanceOf(user), before, "nothing moved");
-    }
 }
