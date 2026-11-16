@@ -50,6 +50,8 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
     bool cfgKnobIsAttestation;    // false: knob = swapLiquidity; true: attestation = cfgTop - knob
     uint256 cfgTop;
     bool cfgExactFloor;           // singleOutFloor = the floor the Solver attests, else 1
+    MockV3Pool cfgBlind;          // a leg left unattested (expectedOut 0): blind where the frame prices none
+    uint256 cfgDeclared;          // the declared figure of the last hop, when that hop holds `cfgBlind`
 
     uint24[4] fees = [uint24(100), 500, 3000, 10000];
 
@@ -101,6 +103,8 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
         cfgTop = 0;
         cfgExactFloor = false;
         cfgIn = tA;
+        cfgBlind = MockV3Pool(address(0));
+        cfgDeclared = 0;
     }
 
     function _legV3(MockV3Pool p, address tIn, uint256 amt, uint256 exp) internal view returns (Leg memory) {
@@ -178,10 +182,22 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
             fin = out1;
             tOut = address(tC);
         }
+        if (address(cfgBlind) != address(0)) _blindIn(hops);
         r = Route({hops: hops, totalOut: fin, singleOut: 0, singleOutFloor: cfgExactFloor ? this._solversFloor(hops, tOut, fin) : 1,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         bool onOut = hops.length == 1 && hub.isBridgeToken(tOut);
         order = onOut ? sumIn : sumIn + BPC.mulDivUp(sumIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    }
+
+    /// `cfgBlind`'s leg left unattested; the last hop, when it holds it, declared at `cfgDeclared`.
+    function _blindIn(Hop[] memory hops) internal view {
+        for (uint256 h; h < hops.length; ++h) {
+            for (uint256 l; l < hops[h].legs.length; ++l) {
+                if (hops[h].legs[l].pool != address(cfgBlind)) continue;
+                hops[h].legs[l].expectedOut = 0;
+                if (h + 1 == hops.length) hops[h].expectedOut = cfgDeclared;
+            }
+        }
     }
 
     /// The `singleOutFloor` the Solver attests on `hops` (Solver:1761-1793 and 1812-1821), and not
@@ -583,25 +599,201 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
     }
 
 
-    // ------------------------------------------------------------------ D2 (Router:1430-1440, 1578-1590)
+    // ------------------------------------------------------------------ Blind hop (Router:1360-1362, 1430-1440)
 
-    /// The blind last hop's anchor (Router:1430-1440): a plan whose last hop arrives blind (its
-    /// leg unattested) with a declared hop figure twice what it pays. The Router anchors such a
-    /// hop's floor on the declared figure; the door asks no floor on it, and hands bytes whose
-    /// leg and hop carry the walk's figures, so the Router never sees the hop blind. Across the
-    /// regimes of T1 and the control's, the door never encodes what the Router refuses.
-    function test_ABlindLastHop_TheDoorEncodesNothingTheRouterRefuses() public {
-        MockV3Pool gap = _v3(tA, tB, 500, DEEP_L);
-        uint128[5] memory ls = [uint128(4.3e18), 5.67e18, 9e18, 19e18, 99e18];
-        for (uint256 i; i < ls.length; ++i) {
-            _single(gap, SMALL);
-            (Route memory r, address tOut, uint256 order) = _build(ls[i]);
-            r.hops[0].expectedOut = 2 * r.totalOut;
-            r.hops[0].legs[0].expectedOut = 0;
-            (bool encoded, bool settled, bytes memory ret) = _run(r, tOut, order);
-            string memory tag = string.concat("blind, swapLiquidity ", vm.toString(uint256(ls[i])));
-            if (!settled) _assertRouterE(ret, 5, tag);
-            assertFalse(encoded && !settled, string.concat(tag, ": encoded, the Router refuses"));
+    /// The Router on `data`, funded with `order` of `tIn`, state restored after.
+    function _send(bytes memory data, address tIn, uint256 order) internal returns (bool settled, bytes memory ret) {
+        uint256 snap = vm.snapshotState();
+        MockERC20(tIn).mint(address(this), order);
+        MockERC20(tIn).approve(address(router), order);
+        (settled, ret) = address(router).call(data);
+        vm.revertToState(snap);
+    }
+
+    /// The Router on the plan the config names, as the caller hands it, no door between
+    /// (`userMinOut = 1`), its last hop declared at `d` when that hop holds the blind leg.
+    function _rawAt(uint256 d) internal returns (bool, bytes memory) {
+        cfgDeclared = d;
+        (Route memory r, , uint256 order) = _build(0);
+        return _send(abi.encodeCall(router.swapExactIn, (r, order, 1, recipient, block.timestamp + 1)), r.hops[0].tokenIn, order);
+    }
+
+    /// The door on the same plan, its bytes run on the Router.
+    function _doorAt(uint256 d) internal returns (bool encoded, bool settled, bytes memory ret) {
+        cfgDeclared = d;
+        return _at(0);
+    }
+
+    /// A V3 pool the frame cannot price (`liquidity() == 0` at its tick, T7's) filling from `fill`.
+    function _blindPool(MockERC20 a, MockERC20 b, uint128 fill) internal returns (MockV3Pool p) {
+        p = _v3(a, b, 500, 0);
+        p.setSwapLiquidity(fill);
+    }
+
+    /// One hop whose only leg, `amt` into `p`, arrives blind: what it pays.
+    function _blindHop(MockV3Pool p, uint256 amt) internal returns (uint256 paid) {
+        _reset();
+        cfgP0.push(p);
+        cfgA0.push(amt);
+        cfgBlind = p;
+        paid = _paysV3(p, address(tA), amt);
+        assertGt(paid, 0, "premise: the blind leg fills");
+    }
+
+    /// HB1. Red at e731dfc: a last hop whose only leg arrives blind (unattested, and the frame
+    /// prices none), its declared figure above what it pays. The Router anchors the protocol
+    /// floor on the larger of the hop's base and its declared figure (Router:1430-1432): declared
+    /// at twice the fill it refuses (RouterE(5)), declared at the fill it settles, so the refusal
+    /// is the anchor's. The door read no declared figure: its base was 0, it asked no floor and
+    /// it encoded what the Router refuses. Then the Router's edge on the declared figure, by
+    /// bisection (edge settled, edge+1 refused), and the door on both sides of it. Fills of 1e30
+    /// and 1e24 liquidity, orders of 1e15, 1e18 and 1e21 wei.
+    function test_ABlindLastHopDeclaredAboveTheFill_IsNotEncoded() public {
+        uint128[2] memory fills = [uint128(DEEP_L), 1e24];
+        uint256[3] memory amts = [uint256(1e15), SMALL, 1e21];
+        for (uint256 j; j < fills.length; ++j) {
+            MockV3Pool p = _blindPool(tA, tB, fills[j]);
+            for (uint256 i; i < amts.length; ++i) {
+                uint256 paid = _blindHop(p, amts[i]);
+                string memory tag = string.concat("fill L ", vm.toString(uint256(fills[j])), ", order ", vm.toString(amts[i]));
+                (bool settled, bytes memory ret) = _rawAt(2 * paid);
+                assertFalse(settled, string.concat(tag, ": premise, the Router refuses the hop declared at 2x"));
+                _assertRouterE(ret, 5, string.concat(tag, " declared at 2x"));
+                (settled, ret) = _rawAt(paid);
+                assertTrue(settled, string.concat(tag, ": premise, the Router settles it declared at the fill: ", vm.toString(ret)));
+                (bool encoded, , ) = _doorAt(2 * paid);
+                _agree(encoded, false, string.concat(tag, " declared at 2x"));
+                (uint256 lo, uint256 hi) = (paid, 2 * paid);
+                while (hi - lo > 1) {
+                    uint256 mid = lo + (hi - lo) / 2;
+                    (settled, ) = _rawAt(mid);
+                    if (settled) lo = mid;
+                    else hi = mid;
+                }
+                emit log_named_uint(string.concat(tag, " Router edge on the declared figure"), lo);
+                (encoded, , ) = _doorAt(lo);
+                _agree(encoded, true, string.concat(tag, " declared at the edge"));
+                (encoded, , ) = _doorAt(hi);
+                _agree(encoded, false, string.concat(tag, " declared at edge+1"));
+            }
         }
+        _assertNoDisagreement();
+    }
+
+    /// HB2. Control, green at e731dfc (red under a door that refuses every blind last hop): the
+    /// same hops declared at the fill and at 0 are settled by the Router and encoded by the door.
+    function test_ABlindLastHopDeclaredAtTheFill_IsEncodedAndSettles() public {
+        uint128[2] memory fills = [uint128(DEEP_L), 1e24];
+        uint256[3] memory amts = [uint256(1e15), SMALL, 1e21];
+        for (uint256 j; j < fills.length; ++j) {
+            MockV3Pool p = _blindPool(tA, tB, fills[j]);
+            for (uint256 i; i < amts.length; ++i) {
+                uint256 paid = _blindHop(p, amts[i]);
+                for (uint256 k; k < 2; ++k) {
+                    string memory tag = string.concat("fill L ", vm.toString(uint256(fills[j])), ", order ",
+                        vm.toString(amts[i]), k == 0 ? ", declared 0" : ", declared at the fill");
+                    (bool encoded, bool settled, bytes memory ret) = _doorAt(k == 0 ? 0 : paid);
+                    assertTrue(settled, string.concat(tag, ": settled: ", vm.toString(ret)));
+                    assertTrue(encoded, string.concat(tag, ": encoded"));
+                }
+            }
+        }
+    }
+
+    /// HB3. Red at e731dfc: a blind leg off the last hop (hop 0 of two). The Router refuses it
+    /// outright (Router:1360-1361, RouterE(5)): the floor's base is the last hop's, so nothing
+    /// would bound it. The door asked the last hop's floor alone and encoded it. Control: the
+    /// same leg attested is encoded and settled.
+    function test_ABlindLegOffTheLastHop_IsNotEncoded() public {
+        MockV3Pool deep = _v3(tB, tC, 500, DEEP_L);
+        uint128[2] memory fills = [uint128(DEEP_L), 1e24];
+        for (uint256 j; j < fills.length; ++j) {
+            _blindHop(_blindPool(tA, tB, fills[j]), SMALL);
+            cfgP1.push(deep);
+            cfgW1.push(1);
+            string memory tag = string.concat("blind on hop 0, fill L ", vm.toString(uint256(fills[j])));
+            (bool settled, bytes memory ret) = _rawAt(0);
+            assertFalse(settled, string.concat(tag, ": premise, the Router refuses"));
+            _assertRouterE(ret, 5, tag);
+            (bool encoded, , ) = _doorAt(0);
+            assertFalse(encoded, string.concat(tag, ": encoded, the Router refuses"));
+            cfgBlind = MockV3Pool(address(0));
+            (encoded, settled, ret) = _doorAt(0);
+            assertTrue(settled, string.concat(tag, ", attested: premise, the Router settles: ", vm.toString(ret)));
+            assertTrue(encoded, string.concat(tag, ", attested: encoded"));
+        }
+    }
+
+    /// HB4. Red at e731dfc on the band+1 arm (the Router anchored on the declared figure, the door
+    /// did not); red under a door whose declared figure replaces the base instead of raising it
+    /// (M32) on the 1-wei arm. T1's priced leg (its fill the knob) beside a blind leg of 1/100 its size,
+    /// the hop declared at 1 wei and at the fixture's band quote of the priced leg -1 and +1. At
+    /// the Router's edge on the priced leg's fill, by bisection, the door encodes exactly where
+    /// the Router settles.
+    function test_OnAMixedBlindHopTheDeclaredFigureOnlyRaisesTheBase() public {
+        MockV3Pool gap = _v3(tA, tB, 500, DEEP_L);
+        MockV3Pool p = _blindPool(tA, tB, DEEP_L);
+        uint256 band = _bandV3(gap, address(tA), SMALL);
+        uint256[3] memory ds = [uint256(1), band - 1, band + 1];
+        for (uint256 i; i < ds.length; ++i) {
+            _single(gap, SMALL);
+            cfgP0.push(p);
+            cfgA0.push(SMALL / 100);
+            cfgBlind = p;
+            cfgDeclared = ds[i];
+            _edgeCase(4.3e18, 99e18, string.concat("mixed hop, declared ", vm.toString(ds[i])));
+        }
+        _assertNoDisagreement();
+    }
+
+    /// HB5. Green at e731dfc (red under a blind predicate that forgets the leg's funding, M33): a
+    /// leg the frame cannot price, unattested and funded with 0, beside a priced leg, the hop
+    /// declared at twice what it pays. The Router spends nothing on that leg and sees no blind
+    /// hop (`scaledAmt != 0`, Router:1360): it settles, and the door encodes.
+    function test_AZeroFundedLegIsNotBlind() public {
+        MockV3Pool deep = _v3(tA, tB, 500, DEEP_L);
+        MockV3Pool p = _blindPool(tA, tB, DEEP_L);
+        _reset();
+        cfgP0.push(deep);
+        cfgA0.push(SMALL);
+        cfgP0.push(p);
+        cfgA0.push(0);
+        cfgBlind = p;
+        (bool encoded, bool settled, bytes memory ret) = _doorAt(2 * _paysV3(deep, address(tA), SMALL));
+        assertTrue(settled, string.concat("premise, the Router settles: ", vm.toString(ret)));
+        assertTrue(encoded, "the door refused a hop the Router sees no blind leg in");
+    }
+
+    /// HB6. Fuzz, red at e731dfc where the draw lands above the Router's anchor: one hop, two
+    /// hops blind on the last, two hops blind on the first; the fill, the order (1e15 to 1e21
+    /// wei) and the declared figure (0 to 4x what the blind hop pays) drawn. The door never
+    /// encodes what the Router refuses.
+    /// forge-config: default.fuzz.runs = 64
+    function testFuzz_TheDoorNeverEncodesWhatTheRouterRefuses_BlindHop(uint256 d, uint256 amt, uint8 shape, bool deep)
+        public
+    {
+        amt = bound(amt, 1e15, 1e21);
+        shape %= 3;
+        uint128 fill = deep ? DEEP_L : 1e24;
+        uint256 paid;
+        if (shape == 1) {
+            MockV3Pool p0 = _v3(tA, tB, 500, DEEP_L);
+            MockV3Pool p1 = _blindPool(tB, tC, fill);
+            _reset();
+            cfgP0.push(p0);
+            cfgA0.push(amt);
+            cfgP1.push(p1);
+            cfgW1.push(1);
+            cfgBlind = p1;
+            paid = _paysV3(p1, address(tB), _paysV3(p0, address(tA), amt));
+        } else {
+            paid = _blindHop(_blindPool(tA, tB, fill), amt);
+            if (shape == 2) {
+                cfgP1.push(_v3(tB, tC, 500, DEEP_L));
+                cfgW1.push(1);
+            }
+        }
+        (bool encoded, bool settled, ) = _doorAt(bound(d, 0, 4 * paid));
+        assertFalse(encoded && !settled, "encoded, the Router refuses");
     }
 }

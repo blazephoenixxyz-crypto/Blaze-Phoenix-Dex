@@ -1020,8 +1020,9 @@ contract BlazePhoenixQuoter {
     ) private returns (uint256 carry) {
         carry = amountIn;
         // The protocol floor's accumulators, in memory for the stack: [0] the route's impact
-        // (`BPC.wImp` summed over every leg), [1] the hop's base (the last hop's stays).
-        uint256[2] memory acc;
+        // (`BPC.wImp` summed over every leg), [1] the hop's base (the last hop's stays), [2] the
+        // hop holds a blind leg (`Router._execute`'s `hopBlind`), reset with [1].
+        uint256[3] memory acc;
         for (uint256 h; h < route.hops.length; h++) {
             Hop memory hop = route.hops[h];
             uint256 legSum;
@@ -1038,7 +1039,7 @@ contract BlazePhoenixQuoter {
             uint256 hopOut;
             uint256 hopBound;
             uint256 bounded;
-            acc[1] = 0;
+            (acc[1], acc[2]) = (0, 0);
             for (uint256 l; l < hop.legs.length; l++) {
                 Leg memory leg = hop.legs[l];
                 uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
@@ -1056,6 +1057,13 @@ contract BlazePhoenixQuoter {
             }
             if (hopBound != 0
                 && hopOut + BPC.mulDiv(hopBound / bounded, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS) < hopBound) return 0;
+            // A BLIND LEG, as the Router reads it: off the last hop it is refused; on it the
+            // hop's declared figure anchors the floor when it is the larger. Read before
+            // `write` replaces it: the Router reads the bytes' figure.
+            if (acc[2] != 0) {
+                if (h + 1 != route.hops.length) return 0;
+                if (hop.expectedOut > acc[1]) acc[1] = hop.expectedOut;
+            }
             if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);
             carry = hopOut;
         }
@@ -1081,7 +1089,7 @@ contract BlazePhoenixQuoter {
     ///      `_walk`'s accumulators: its `BPC.wImp` share of the route's impact, its share of the
     ///      hop's base (the frame quote, or the bound where the frame prices none: there no lift
     ///      moves the bound, the covered share of 0 being 0) and its squared amount.
-    function _askLeg(uint256[2] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, uint256 legOut)
+    function _askLeg(uint256[3] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, uint256 legOut)
         private view returns (uint256 bound)
     {
         bound = (leg.expectedOut != 0 && leg.amountIn != 0)
@@ -1091,6 +1099,7 @@ contract BlazePhoenixQuoter {
         for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
         acc[0] += BPC.wImp(imp, leg.amountIn, hop.legs.length, legSum == 0 ? 1 : legSum);
         acc[1] += q != 0 ? q : bound;
+        if (legIn != 0 && leg.expectedOut == 0 && q == 0) acc[2] = 1;
         uint256 covered = BPC.mulDiv(
             q, BPC.MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
         if (bound < covered) bound = covered;
