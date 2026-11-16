@@ -890,7 +890,9 @@ jobs:
     # continue-on-error so a red result reports without failing the workflow. Not a required check.
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 30
+    # Two steps bounded at 1500 s each plus setup: the job budget sits above their sum, so each
+    # step ends on its own bound with a readable message instead of a job cancellation.
+    timeout-minutes: 60
     env:
       # Same narrowing as formal-spec: compile src + test/formal only, not the whole tree.
       FOUNDRY_TEST: test/formal
@@ -905,20 +907,72 @@ jobs:
       - name: Install Halmos
         run: pip install halmos==0.3.3   # pinned: a proof is measured on one prover; bump by PR
 
-      - name: Symbolic checks (report-only)
+      - name: Symbolic checks (report-only, bitwuzla)
         # Bounded at the process, not with timeout-minutes: a cancelled step propagates to the job
         # even under continue-on-error (see formal-explore.yml).
-        run: timeout 1500 halmos --contract CompositionFormalSpec --solver-timeout-assertion 300s -v
+        # Solver measurement: under the default yices, three checks hit the 300 s
+        # assertion timeout with no counterexample; the bottleneck is 256-bit division. This step
+        # runs bitwuzla, pinned to 0.8.1. Halmos 0.3.3 (pinned above) downloads it only because
+        # HALMOS_ALLOW_DOWNLOAD is set here, and verifies the archive against the sha256 it pins
+        # for bitwuzla-0.8.1 before installing it; a mismatch aborts the step.
+        env:
+          HALMOS_ALLOW_DOWNLOAD: "1"
+        run: |
+          timeout 1500 halmos --contract CompositionFormalSpec --solver bitwuzla-0.8.1 \
+            --solver-timeout-assertion 300s -v
 
       - name: Symbolic - band, hop fee, dust probe, split (report-only)
         # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
         # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
         # a bound that was hit proves nothing, so this step fails on that warning too. A
         # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
+        # Explicit bounds: 1500 s of wall time and 12 GiB of memory (no swap) for halmos and its
+        # solver processes together, enforced by a dedicated cgroup. An out-of-memory kill stays
+        # inside that cgroup and ends this step with a readable error, not the runner.
+        env:
+          SBFD_MEM_MAX: 12G
+          SBFD_TIME_MAX: "1500"
         run: |
-          set -o pipefail
-          timeout 1500 halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
-            --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
+          cg=/sys/fs/cgroup/halmos-sbfd
+          grep -qw memory /sys/fs/cgroup/cgroup.subtree_control \
+            || echo +memory | sudo tee /sys/fs/cgroup/cgroup.subtree_control > /dev/null
+          sudo mkdir -p "$cg"
+          echo "$SBFD_MEM_MAX" | sudo tee "$cg/memory.max" > /dev/null
+          if [ -f "$cg/memory.swap.max" ]; then echo 0 | sudo tee "$cg/memory.swap.max" > /dev/null; fi
+          echo 1 | sudo tee "$cg/memory.oom.group" > /dev/null
+          echo "memory cap: $(cat "$cg/memory.max") bytes, wall-time cap: ${SBFD_TIME_MAX} s"
+          # Only the halmos subtree joins the cgroup; this shell stays outside it, so it survives
+          # an out-of-memory kill of the group and reports it. The fifo holds the child until it
+          # has been moved, so nothing it starts runs outside the cap.
+          mkfifo sbfd.gate
+          (
+            read -r _ < sbfd.gate
+            timeout "$SBFD_TIME_MAX" halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
+              --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
+            exit "${PIPESTATUS[0]}"
+          ) &
+          pid=$!
+          echo "$pid" | sudo tee "$cg/cgroup.procs" > /dev/null
+          echo go > sbfd.gate
+          set +e
+          wait "$pid"
+          rc=$?
+          set -e
+          oom=$(awk '$1 == "oom_kill" {print $2}' "$cg/memory.events")
+          peak=$(cat "$cg/memory.peak" 2>/dev/null || echo n/a)
+          echo "halmos exit: $rc, peak memory: $peak bytes, oom kills: ${oom:-0}"
+          if [ "${oom:-0}" -gt 0 ]; then
+            echo "::error::SolverBandFeeDustFormalSpec: out of memory, the ${SBFD_MEM_MAX} cap was hit (exit $rc)"
+            exit 1
+          fi
+          if [ "$rc" -eq 124 ]; then
+            echo "::error::SolverBandFeeDustFormalSpec: wall-time cap of ${SBFD_TIME_MAX} s reached"
+            exit 1
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::SolverBandFeeDustFormalSpec: halmos exited with $rc"
+            exit 1
+          fi
           ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
 
   formal:
