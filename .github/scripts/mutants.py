@@ -2452,6 +2452,12 @@ M = [
       old='            assembly ("memory-safe") { revert(add(e, 32), mload(e)) }',
       new='            revert RouterE(17); // MUTANT',
       teste='test_POSITIVE_TrustlessDoorRefusesInsteadOfFilling'),
+ # decorativos-1116 D3: the hostile-token arm never settled, so conservationH summed only mints.
+ dict(nome="decorativos-1116 D3: the treasury2 cut is sent to 0xdead (hostile-token conservation)",
+      f="src/BlazePhoenixRouter.sol",
+      old="if (t2 > 0) _push(token, 1, treasury2, t2);",
+      new="if (t2 > 0) _push(token, 1, address(0xdead), t2);",
+      teste="invariant_conservationH"),
  # The V3 twins. Both stayed green until MockV3Pool checked the limit the way UniswapV3Pool
  # does ('SPL'): before that, the mock ignored the 4th argument of swap().
  dict(nome="V3 swap: the price limits are swapped (every swap aims the wrong way)",
