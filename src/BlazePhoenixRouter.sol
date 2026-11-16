@@ -265,7 +265,8 @@ contract BlazePhoenixRouter {
     ///         · `realized` is what was delivered, MEASURED at the recipient, after anything cut
     ///           on the way out (the output-side fee where it applies, a transfer tax).
     ///         · `floorUsed` is the floor that had to be beaten, checked before those cuts and
-    ///           published net of a transfer tax on tokenOut (scaled by realized / amount sent).
+    ///           published net of a transfer tax on tokenOut (scaled by amount received / amount
+    ///           declared at the Router, and by realized / amount sent).
     ///           With no output-side fee it never exceeds `realized` on a settled swap; where
     ///           that fee applies it stays in the units the Solver attests the floor in.
     event ExecutionProof(
@@ -1678,13 +1679,14 @@ contract BlazePhoenixRouter {
             assembly { tstore(sFee, 0) }
         }
 
-        // The floor was checked against `amountOut`, before the transfer to the recipient; a
-        // token that taxes that transfer delivers less than `net`. The floor is published net
-        // of that tax, by the ratio measured at the recipient, so a taxed tokenOut never shows
-        // a met floor the tax already took. Identity on an untaxed token, so the published floor
+        // The floor was checked against `outCap`, the gross the venues declared; a token that
+        // taxes the venue->Router transfer lands `amountOut`, and one that taxes the transfer to
+        // the recipient delivers less than `net`. The floor is published net of both cuts, by the
+        // ratios measured at the Router and at the recipient, so a taxed tokenOut never shows a
+        // met floor the tax already took. Identity on an untaxed token, so the published floor
         // stays the floor the Solver attests (the output-side fee is a known cut and is not
-        // re-expressed); rounds down. `net` is non-zero: amountOut >= effMin > 0 and fOut < amountOut.
-        protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net);
+        // re-expressed); rounds down. Divisors non-zero: outCap >= amountOut > 0, fOut < amountOut.
+        protocolFloorOut = BPC.mulDiv(BPC.mulDiv(protocolFloorOut, amountOut, outCap), delivered, net);
         amountOut = delivered;
         _recordHits(route, executedMask, legTook, legOut);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
