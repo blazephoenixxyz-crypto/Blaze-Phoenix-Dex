@@ -122,11 +122,11 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   it, so it is the caller's bound inside the band as well.
   Documented in `docs/assurance/threats.json` (`SOK-FOT`).
 - **A buy of a token that taxes the venue-to-Router transfer settles only under the per-leg floor,
-  the hop budget and the last hop's measured floor.** Those two checks take their base from the
+  the hop budget and the last hop's measured floor.** The first two take their base from the
   quote attestation, not from a venue, so they keep reading the measured delta: a tax and a venue
   shortfall are one observation to them. The last hop's measured floor reads the net the Router
   received against `LEG_FLOOR_BPS` (80%) of the hop's figure, so the tax and whatever the fill fell
-  short of that figure share the same 20%. The tax settles while it stays inside the per-leg floor
+  short of that figure share the same fifth. The tax settles while it stays inside the per-leg floor
   (`LEG_FLOOR_BPS`), the hop budget, which parallel legs share (less the slack the fill already
   used), and the last hop's measured floor; past them the Router refuses with `RouterE(5)`, which
   no quote preview can see in advance. Fail-closed: the caller keeps the
