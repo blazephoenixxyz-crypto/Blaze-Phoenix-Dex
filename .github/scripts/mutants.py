@@ -10544,6 +10544,22 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
  # EQUIVALENT, not registered: Core._v4Walk `if (i < n) lo = out;` -> `if (i < V4_WALK_MAX_STEPS)`.
  # Every caller but `v4Held` passes n = V4_WALK_MAX_STEPS (same line), and `v4Held` drops `lo`
  # (`(, held, ) = _v4Walk(...)`), so no caller can tell the two apart.
+ # cr-1116 (2026-11-16, CodeRabbit #125): the reviews that asked for an oracle outside the code under test.
+ dict(nome='cr1116 [CR-1]: the shared sqrt step rounds token0-in down, outV3 and the walk move together',
+      f='src/BlazePhoenixCore.sol',
+      old='if (den >= num1) return uint160(mulDivUp(num1, sp, den));',
+      new='if (den >= num1) return uint160(mulDiv(num1, sp, den)); // MUTANT [CR-1]',
+      teste='testFuzz_TheFigureIsTheIndependentStep'),
+ dict(nome='cr1116 [CR-2]: the protocol fee rises to 29 bps, past the ceiling the hostile rows write down',
+      f='src/BlazePhoenixCore.sol',
+      old='PROTOCOL_FEE_BPS        = 28;',
+      new='PROTOCOL_FEE_BPS        = 29; // MUTANT [CR-2]',
+      teste='test_HostileRows_In_V2_Exact'),
+ dict(nome='cr1116 [CR-3]: the fork oracle asks for DRPC_KEY even with an explicit archive URL',
+      f='test/fork/AtqForkVenueOracle.sol', inl='test/AtqForkUrlGuard.t.sol',
+      old='        bytes memory u = bytes(aliasOrUrl);\n',
+      new='        bytes memory u = bytes(aliasOrUrl);\n        if (u.length != type(uint256).max) return true; // MUTANT [CR-3]\n',
+      teste='test_AnExplicitUrlRunsWithoutTheKey'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

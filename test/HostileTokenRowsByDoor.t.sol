@@ -50,6 +50,10 @@ abstract contract HostileRowsCells is HostileRowsHarness {
         return "";
     }
 
+    /// @dev the fee ceiling, written down here and not read from the Core: a larger
+    ///      PROTOCOL_FEE_BPS must not raise the bar it is measured against.
+    uint256 internal constant FEE_CEIL_BPS = 28;
+
     // per-test overrides (the guards file drives single cells with them)
     uint8 forceWant = 255;
     uint256 wrapBps = 10_000;
@@ -168,7 +172,7 @@ abstract contract HostileRowsCells is HostileRowsHarness {
             uint256 dust = (_m(r) == HostileERC20.Mode.SHORT && _at(r) == AT_RECIP) ? 1 : 0;
             _chk(tIn.sharesOf(address(router)) == s.fShIn + o0 + o1, "tokenIn residue on the Router");
             _chk(tOut.sharesOf(address(router)) == s.fShOut + dust, "tokenOut residue on the Router");
-            _chk(f1 + f2 <= BPC.mulDivUp(amt, BPC.PROTOCOL_FEE_BPS, BPC.BPS), "the fee exceeds 28 bps of the ask");
+            _chk(f1 + f2 <= (amt * FEE_CEIL_BPS + 9_999) / 10_000, "the fee exceeds 28 bps of the ask");
             if (d != Door.NATIVE) _chk(s.userBal - tIn.balanceOf(user) <= amt, "the user paid more than the ask");
         }
         if (d == Door.NATIVE) _chk(address(router).balance == 0, "ETH left on the Router");

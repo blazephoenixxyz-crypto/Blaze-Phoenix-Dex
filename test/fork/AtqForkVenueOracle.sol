@@ -133,10 +133,25 @@ abstract contract AtqForkVenueOracle is Test {
     receive() external payable {}
 
     function _fork(string memory aliasOrUrl, uint256 blockNumber) internal returns (bool) {
-        if (bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return false; }
+        if (_needsDrpcKey(aliasOrUrl) && bytes(vm.envOr("DRPC_KEY", string(""))).length == 0) { vm.skip(true); return false; }
         vm.createSelectFork(aliasOrUrl, blockNumber);
         user = makeAddr("atq-fork-user");
         live = true;
+        return true;
+    }
+
+    /// @dev The key is needed for a foundry.toml alias (they resolve through ${DRPC_KEY} or a
+    ///      public endpoint with no archive) and for a dRPC URL. An explicit http(s)/ws(s) URL
+    ///      from *_FORK_URL is a local archive: it runs without the key.
+    function _needsDrpcKey(string memory aliasOrUrl) internal pure returns (bool) {
+        bytes memory u = bytes(aliasOrUrl);
+        if (!_startsWith(u, "http://") && !_startsWith(u, "https://") && !_startsWith(u, "ws://") && !_startsWith(u, "wss://")) return true;
+        return _startsWith(u, "https://lb.drpc.live/");
+    }
+
+    function _startsWith(bytes memory s, bytes memory p) internal pure returns (bool) {
+        if (s.length < p.length) return false;
+        for (uint256 i; i < p.length; ++i) if (s[i] != p[i]) return false;
         return true;
     }
 
