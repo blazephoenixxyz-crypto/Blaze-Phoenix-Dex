@@ -52,6 +52,33 @@ contract ShortWeiToken {
     }
 }
 
+/// A token that taxes only the transfers made by one address (`taxedFrom`): a venue that pays
+/// `taxBps` less than it declares, while every other transfer, the Router's included, is whole.
+contract VenueTaxedToken {
+    string public name = "V";
+    string public symbol = "V";
+    uint8 public constant decimals = 18;
+    uint256 public totalSupply;
+    address public taxedFrom;
+    uint256 public taxBps;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function setTax(address from, uint256 bps) external { taxedFrom = from; taxBps = bps; }
+    function mint(address to, uint256 a) external { balanceOf[to] += a; totalSupply += a; }
+    function approve(address s, uint256 a) external returns (bool) { allowance[msg.sender][s] = a; return true; }
+    function transfer(address to, uint256 a) external returns (bool) { _move(msg.sender, to, a); return true; }
+    function transferFrom(address f, address to, uint256 a) external returns (bool) {
+        if (allowance[f][msg.sender] != type(uint256).max) allowance[f][msg.sender] -= a;
+        _move(f, to, a);
+        return true;
+    }
+    function _move(address f, address to, uint256 a) private {
+        balanceOf[f] -= a;
+        balanceOf[to] += f == taxedFrom ? a - a * taxBps / 10_000 : a;
+    }
+}
+
 contract RouteFloorsReadTheDeclaredGrossTest is Test {
     uint128 constant DEEP_L = 1e30;
     uint256 constant ORDER = 1e18 + 7;
@@ -363,6 +390,66 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
         (bool s, bytes memory ret, , ) = _at(DEEP_L, ORDER);
         assertFalse(s, "600 bps on four legs refused");
         _assertRouterE(ret, 5, "600 bps four legs");
+    }
+
+    /// Pin, green at 92c5718 by design: the per-leg floor holds a short leg on its own, where no
+    /// aggregate bound sees it. Last hop of two attested legs: venue 0 fills a quarter of the
+    /// order and pays 75% of what it declares, venue 1 fills the rest and pays all of it. The hop
+    /// clears the hop budget (one average leg's fifth) and the last hop's measured share (80% of
+    /// its figure); only the short leg's own floor (80% of its attestation) refuses, RouterE(5).
+    /// Killed by MB4 (the leg's bound rescaled by the venue's word): the same route settles.
+    /// Oracle: what each venue pays, read at the venue on the honest run, and the token's
+    /// arithmetic; the floors are literals (8_000 / 10_000), not the Router's constants.
+    function test_AShortLegAmongHonestLegs_IsRefusedAtItsOwnLegFloor() public {
+        VenueTaxedToken tV = new VenueTaxedToken();
+        _legs(2, address(tV));
+        uint256[2] memory amts = [ORDER / 4, ORDER - ORDER / 4];
+        uint256[2] memory decl;
+        Leg[] memory ls = new Leg[](2);
+        for (uint256 i; i < 2; ++i) {
+            decl[i] = _pays(legs[i], amts[i]);
+            ls[i] = Leg({
+                pool: address(legs[i]), hooks: address(0), kind: BPC.KIND_V3, fee: 500, tickSpacing: 1,
+                zeroForOne: legs[i].token0() == address(tA), stable: false, amountIn: amts[i], expectedOut: decl[i],
+                auxId: bytes32(0)
+            });
+        }
+        Hop[] memory hops = new Hop[](1);
+        hops[0] = Hop({tokenIn: address(tA), tokenOut: tOut, amountIn: ORDER, expectedOut: decl[0] + decl[1], legs: ls});
+        Route memory r = Route({hops: hops, totalOut: decl[0] + decl[1], singleOut: 0, singleOutFloor: 1,
+            expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+        bytes memory data = abi.encodeCall(router.swapExactIn, (r, ORDER, 1, recipient, block.timestamp + 1));
+        uint256 pay = ORDER + BPC.mulDivUp(ORDER, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+
+        // Non-vacuity: the same route, both venues honest, settles and lands what the venues
+        // paid, read at the venues (the protocol fee leaves the input first, so they fill a
+        // little less than they attest).
+        uint256[2] memory paid;
+        uint256 snap = vm.snapshotState();
+        for (uint256 i; i < 2; ++i) paid[i] = tV.balanceOf(address(legs[i]));
+        tA.mint(address(this), pay);
+        tA.approve(address(router), pay);
+        (bool s, bytes memory ret) = address(router).call(data);
+        assertTrue(s, string.concat("premise: the honest route settles: ", vm.toString(ret)));
+        for (uint256 i; i < 2; ++i) paid[i] -= tV.balanceOf(address(legs[i]));
+        uint256 hopPaid = paid[0] + paid[1];
+        assertEq(tV.balanceOf(recipient), hopPaid, "premise: the recipient gets what the venues paid");
+        vm.revertToState(snap);
+
+        // The shape, by the token's arithmetic: the short leg's delta is under 80% of what its
+        // venue pays, while the hop clears one average leg's fifth and 80% of what it pays.
+        uint256 got0 = paid[0] - paid[0] * 2_500 / 10_000;
+        uint256 hopGot = got0 + paid[1];
+        assertLt(got0, _legShare(paid[0]), "shape: the short leg is under its own floor");
+        assertGe(hopGot + hopPaid / 2 * 2_000 / 10_000, hopPaid, "shape: the hop clears the hop budget");
+        assertGe(hopGot, _legShare(hopPaid), "shape: the hop clears the last hop's measured share");
+
+        tV.setTax(address(legs[0]), 2_500);
+        tA.mint(address(this), pay);
+        tA.approve(address(router), pay);
+        (s, ret) = address(router).call(data);
+        assertFalse(s, "a leg paying 75% of its word is refused");
+        _assertRouterE(ret, 5, "short leg among honest legs");
     }
 
     // ------------------------------------------------------------------ F10 (pin)
