@@ -262,7 +262,7 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
     // ------------------------------------------------------------------ F6
 
     /// Red at 969bcc6: whether the Router settles at a fill does not depend on the output tax,
-    /// under the per-leg floor (20 %). The oracle is the same Router at tax 0.
+    /// under the per-leg floor (`LEG_FLOOR_BPS`). The oracle is the same Router at tax 0.
     function testFuzz_TheOutputTaxMovesNoRouteFloor(uint16 bps, uint256 knob) public {
         bps = uint16(bound(bps, 1, 1999));
         knob = bound(knob, E0 / 2, E0 * 2);
@@ -278,7 +278,8 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
     // ------------------------------------------------------------------ F7
 
     /// Red at 969bcc6: parallel taxed legs. Each leg's gross is summed, nothing compounds, so 2
-    /// legs at 5 % and 4 legs at 4 % (under the hop budget, 20 % / L) settle at the untaxed edge.
+    /// legs at 500 bps and 4 legs at 400 bps (under the hop budget, (BPS - `LEG_FLOOR_BPS`) / L)
+    /// settle at the untaxed edge.
     function test_ParallelTaxedLegsAreNotOverDiscounted() public {
         uint256[2] memory ns = [uint256(2), 4];
         uint16[2] memory taxes = [uint16(500), 400];
@@ -292,7 +293,7 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
 
     // ------------------------------------------------------------------ F9a, F9b (pins)
 
-    /// Pin, green at 969bcc6 by design (KNOWN_ISSUES): a tax over the per-leg floor (20 %) is a
+    /// Pin, green at 969bcc6 by design (KNOWN_ISSUES): a tax over the per-leg floor (`LEG_FLOOR_BPS`) is a
     /// shortfall against the attestation, which a venue's word does not move. Refused, fill deep.
     function test_OutputTaxAboveTheLegFloorIsStillRefused() public {
         _legs(1, address(tB));
@@ -302,7 +303,7 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
         _assertRouterE(ret, 5, "2500 bps one leg");
     }
 
-    /// Pin, green at 969bcc6 by design (KNOWN_ISSUES): over the hop budget (20 % / L), 600 bps on
+    /// Pin, green at 969bcc6 by design (KNOWN_ISSUES): over the hop budget ((BPS - `LEG_FLOOR_BPS`) / L), 600 bps on
     /// four legs is refused though each leg clears its own floor.
     function test_OutputTaxAboveTheHopBudgetIsStillRefused() public {
         _legs(4, address(tB));
