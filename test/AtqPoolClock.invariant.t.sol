@@ -10,17 +10,16 @@ pragma solidity 0.8.36;
 // depend on how the code computes them:
 //
 //   K1  lastUpdateTs never goes back, never passes the block's time, and is the block's time
-//       after a registration and after an anchored tick; after a dust tick it is the block's
-//       time or where it was (the open reading of K3), never a third value; a tick on one
-//       pool never touches another pool's row
+//       after a registration and after an anchored tick; a dust tick leaves it where it was
+//       (Core.tickSlot stamps only an anchored tick); a tick on one pool never touches another
+//       pool's row
 //   K2  a dust tick, a zero leg, a paused Hub and a stranger leave tau exactly where it was
 //       (and the last three leave the whole row where it was)
 //   K3  an anchored tick moves tau by 2^-3 of its distance to the interval it closes, rounded
-//       up, where the interval is the time since the pool's previous tick of any kind or the
-//       time since its previous anchored tick (no value in between). An unmeasured clock
+//       up, where the interval is the time since the pool's previous anchored tick: a dust tick
+//       in between does not shorten it. An unmeasured clock
 //       (tau 0) starts from the fixed step over its taus, 24 576 / 4 = 6 144 s, so the first
 //       interval moves it by an eighth like any other and is never read whole (fix-1102).
-//       With no dust between two anchored ticks the two readings meet and the law is exact.
 //       A zero-length interval has one more reading: no interval was closed, tau stays.
 //
 // Mutants: [ATQ-inv-n] in .github/scripts/mutants.py.
@@ -56,7 +55,7 @@ contract AtqClockHandler is Test {
     uint256 public dustTicks;
     uint256 public zeroLegs;
     uint256 public pausedTicks;
-    uint256 public exactTicks; // anchored ticks whose interval had one reading only
+    uint256 public exactTicks; // anchored ticks with no dust tick inside their interval
 
     constructor(BlazePhoenixHub hub_, address[3] memory pools_) {
         hub = hub_;
@@ -130,17 +129,16 @@ contract AtqClockHandler is Test {
         uint32 tau1 = _tau(s1);
         if (!anchored) {
             if (tau1 != tau0) _fail("a dust tick moved the clock");
-            if (_ts(s1) != nowTs && _ts(s1) != _ts(s0[i])) _fail("a dust tick put the stamp at a third value");
+            if (_ts(s1) != _ts(s0[i])) _fail("a dust tick moved the stamp");
             c.tsAny = nowTs;
             ++dustTicks;
             return;
         }
         if (_ts(s1) != nowTs) _fail("an anchored tick did not stamp the row with the block's time");
-        uint32 lo = _step(tau0, nowTs - c.tsAny);
-        uint32 hi = _step(tau0, nowTs - c.tsAnchored);
+        uint32 want = _step(tau0, nowTs - c.tsAnchored);
         bool still = nowTs == c.tsAnchored && tau1 == tau0; // a zero-length interval that closed nothing
-        if (tau1 != lo && tau1 != hi && !still) _fail("an anchored tick put the clock outside every reading of its interval");
-        if (lo == hi) ++exactTicks;
+        if (tau1 != want && !still) _fail("an anchored tick did not measure the interval since the last anchored tick");
+        if (c.tsAny == c.tsAnchored) ++exactTicks; // no dust inside the interval
         c.tsAny = nowTs;
         c.tsAnchored = nowTs;
         ++anchoredTicks;
@@ -206,11 +204,11 @@ contract AtqPoolClockInvariantTest is Test {
     function _checkAll() internal view {
         assertEq(h.nBad(), 0, h.bad());
         for (uint256 i; i < 3; ++i) {
-            (bool seated, uint32 tsAny, uint32 tsAnchored) = h.ghost(i);
+            (bool seated,, uint32 tsAnchored) = h.ghost(i);
             uint256 s = hub.getSlot(h.keys(i));
             uint32 ts = h.tsOf(i);
             assertEq(s != 0, seated, "K1: a row exists exactly when the pool was seated");
-            assertTrue(ts == tsAny || ts == tsAnchored, "K1: the stamp is neither the pool's last tick nor its last anchored tick");
+            assertEq(ts, tsAnchored, "K1: the stamp is not the pool's last anchored tick");
             assertLe(ts, vm.getBlockTimestamp(), "K1: the stamp is ahead of the block");
         }
     }
@@ -244,8 +242,12 @@ contract AtqPoolClockInvariantTest is Test {
         h.walkStranger(0);
         assertEq(h.tsOf(0), T0 + 900, "neither a paused Hub nor a stranger stamped the row");
 
+        vm.warp(T0 + 905);
+        h.walkTick(0, false, 1e18); // dust in a later second: the stamp and the clock stay
+        assertEq(h.tsOf(0), T0 + 900, "a dust tick in a later second left the stamp where it was");
+
         vm.warp(T0 + 910);
-        h.walkTick(0, true, 1e18); // dt = 10 on tau = 4814: 4814 - ceil(4804 / 8)
+        h.walkTick(0, true, 1e18); // dt = 10 since the last anchored tick, not 5 since the dust, on tau = 4814: 4814 - ceil(4804 / 8)
         assertEq(h.tauOf(0), 4213, "a shorter interval pulls tau down by an eighth of the distance, rounded up");
         h.walkTick(2, true, 1e18); // first interval of pool 2, 910 s after it was seated: 6144 - ceil(5234 / 8)
         assertEq(h.tauOf(2), 5489, "pool 2 measures its own first interval from 24576 / 4");
@@ -256,8 +258,8 @@ contract AtqPoolClockInvariantTest is Test {
         assertEq(h.tauOf(0), 4213, "pool 0's clock did not move while pool 2's rose");
 
         assertEq(h.anchoredTicks(), 5, "anchored ticks");
-        assertEq(h.exactTicks(), 5, "every one of them had a single reading of its interval");
-        assertEq(h.dustTicks(), 1, "dust ticks");
+        assertEq(h.exactTicks(), 4, "anchored intervals with no dust inside");
+        assertEq(h.dustTicks(), 2, "dust ticks");
         assertEq(h.zeroLegs(), 1, "zero legs");
         assertEq(h.pausedTicks(), 1, "paused ticks");
         _checkAll();

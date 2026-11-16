@@ -10565,6 +10565,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        BPC.safeTransfer(token, msg.sender, a);\n    }\n    function setPermit2',
       new='        if (!BPC.tryTransfer(token, msg.sender, a, gasleft())) revert RouterE(1); // MUTANT [CR-4]\n    }\n    function setPermit2',
       teste='test_AtqBlockedTreasury_OwedBookedClaimExact'),
+ dict(nome='cr1116 [CR-5]: a dust tick stamps the row, tau intact, so the next interval is measured short',
+      f='src/BlazePhoenixCore.sol',
+      old='        if (!anchored || (lastTs != 0 && currentTs <= lastTs)) return s;\n',
+      new='        if (!anchored) return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(currentTs) << 64); // MUTANT [CR-5]\n        if (lastTs != 0 && currentTs <= lastTs) return s;\n',
+      teste='test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
