@@ -10570,6 +10570,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        if (!anchored || (lastTs != 0 && currentTs <= lastTs)) return s;\n',
       new='        if (!anchored) return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(currentTs) << 64); // MUTANT [CR-5]\n        if (lastTs != 0 && currentTs <= lastTs) return s;\n',
       teste='test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger'),
+ dict(nome='cr1116 [CR-6]: an EXT route that delivers nothing refuses with RouterE(5) instead of RouterE(8)',
+      f='src/BlazePhoenixRouter.sol',
+      old='if (totalReceived == 0) revert RouterE(8);',
+      new='if (totalReceived == 0) revert RouterE(5); // MUTANT [CR-6]',
+      teste='test_HostileRows_Out_Ext_Exact'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

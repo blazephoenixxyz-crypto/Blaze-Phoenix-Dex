@@ -41,12 +41,23 @@ abstract contract HostileRowsCells is HostileRowsHarness {
             || r == Row.IN_PULL_GASBURN || r == Row.IN_PULL_OVERSIZED)
             return d == Door.PERMIT2 ? "TRANSFER_FROM_FAILED" : "BPC:transferFrom";
         if (r == Row.IN_VENUE_BLOCKED && k != Kind.V4) return "BPC:transfer";
-        if (r == Row.IN_VENUE_TRUE_NOMOVE) return _pair(k) ? "RouterE(8)" : _callback(k) ? "RouterE(13)" : "";
+        if (r == Row.IN_VENUE_TRUE_NOMOVE) return _pair(k) ? "RouterE(8)" : _callback(k) ? "RouterE(13)" : "unlock: callback reverted";
         if (r == Row.IN_FOT30 && _callback(k)) return "RouterE(13)";
         if (r == Row.OUT_RECIP_BLOCKED || r == Row.OUT_RECIP_FALSE_NOMOVE || r == Row.OUT_RECIP_FALSE_MOVES
             || r == Row.OUT_RECIP_OVERSIZED || r == Row.OUT_RECIP_GASBURN) return "BPC:transfer";
         if (r == Row.OUT_RECIP_TRUE_NOMOVE) return "RouterE(5)";
         if (r == Row.OUT_ROUTER_REB_UP && k != Kind.EXT) return "RouterE(20)";
+        // V4 settles inside unlock: a refusal there surfaces as the mock manager's own require
+        if (k == Kind.V4 && (r == Row.IN_VENUE_BLOCKED || r == Row.IN_FOT30 || r == Row.IN_VENUE_SHORT2 || r == Row.IN_VENUE_REB_DN || r == Row.OUT_ROUTER_BLOCKED))
+            return "unlock: callback reverted";
+        // a callback venue owed an exact amount that did not arrive
+        if ((r == Row.IN_VENUE_SHORT2 && _callback(k)) || (r == Row.IN_VENUE_REB_DN && k == Kind.EXT)) return "RouterE(13)";
+        // the 10% rebase down (HostileERC20 REBASE_DN) shrinks a balance read before the move: checked underflow
+        if (r == Row.IN_VENUE_REB_DN || r == Row.OUT_RECIP_REB_DN) return "Panic(17)";
+        // the token's own refusal (HostileERC20 Mode.REVERT) when the Router pays out
+        if (r == Row.OUT_ROUTER_BLOCKED) return "Hostile: blocked";
+        // a payout that reports success and moves nothing: the delivery check, or the EXT zero-output check
+        if (r == Row.OUT_ROUTER_TRUE_NOMOVE) return k == Kind.EXT ? "RouterE(8)" : "RouterE(5)";
         return "";
     }
 
@@ -129,6 +140,7 @@ abstract contract HostileRowsCells is HostileRowsHarness {
             (bool ours, string memory what) = Outcomes.classify(ret);
             lastWhat = what;
             string memory ww = forceWant != 255 ? "" : _wantWhat(r, k, d);
+            if (want == REFUSE && forceWant == 255) _chk(bytes(ww).length != 0, string.concat("a refusal cell names no reason; it refused with ", what));
             if (bytes(ww).length != 0) _chk(keccak256(bytes(ww)) == keccak256(bytes(what)), string.concat("refused with ", what, ", expected ", ww));
             ++nRefused;
             _chk(tIn.sharesOf(user) == s.userSh && user.balance == s.userEth, "a refusal leaves the user untouched");
