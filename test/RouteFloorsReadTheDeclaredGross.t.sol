@@ -10,8 +10,9 @@ pragma solidity 0.8.36;
 //  slack, and a one-wei transfer remainder (stETH-like) failed a `singleOutFloor` set at
 //  the gross. They now read `outCap`: what the venues declared they paid in tokenOut, net of
 //  what the route took back out, which on an untaxed token IS `amountOut`. The per-leg floor and
-//  the hop budget stay on the measured delta against the attestation, and `userMinOut` stays on
-//  what lands at the recipient.
+//  the hop budget stay on the measured delta against the attestation, the whole last hop is held
+//  on the measured output against `LEG_FLOOR_BPS` of its figure (the one floor an output tax
+//  moves), and `userMinOut` stays on what lands at the recipient.
 //  Oracle: the Router's own execution at tax 0 (every edge found by bisection over the Router),
 //  the gross read at the venues (what left the pools' tokenOut balances), and the TOKEN's
 //  arithmetic for the net (`g - g * bps / 1e4`, floor), never the Router's.
@@ -181,6 +182,20 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
         return g - g * bps / 10_000;
     }
 
+    /// The per-leg share (`LEG_FLOOR_BPS`), rounded up. Literal on purpose: the oracle does not
+    /// read the constant under test.
+    function _legShare(uint256 x) internal pure returns (uint256) {
+        return (x * 8_000 + 9_999) / 10_000;
+    }
+
+    /// The last hop's figure for `order`, read at the venue: untaxed, filling with the liquidity
+    /// it quotes with, the venue pays what the Router quotes in frame.
+    function _figure(uint256 order) internal returns (uint256 h) {
+        bool s;
+        (s, , , h) = _at(DEEP_L, order);
+        assertTrue(s, "premise: the deep fill settles untaxed");
+    }
+
     /// What lands at the recipient under `bps`, by the token's arithmetic: each venue's transfer
     /// to the Router is taxed on its own, then the Router's single transfer to the recipient.
     function _landed(uint256 bps) internal view returns (uint256 atRouter) {
@@ -205,19 +220,53 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
 
     /// Red at 969bcc6: under any output tax the Router refused RouterE(5) at the untaxed edge
     /// (the floor read the net). The gross a venue pays at a knob does not depend on the tax,
-    /// so neither does the edge.
+    /// so neither does the edge, while the net at that edge clears the per-leg share of the
+    /// hop's figure.
     function test_UnderAnOutputTax_TheRoutersEdgeIsTheUntaxedEdge() public {
         _legs(1, address(tB));
-        uint16[6] memory taxes = [uint16(1), 100, 390, 410, 1000, 1900];
+        uint16[6] memory taxes = [uint16(1), 100, 390, 410, 1000, 1600];
         uint256[3] memory orders = [uint256(1e15), ORDER, 1e21];
         for (uint256 o; o < 3; ++o) {
             uint256 order = orders[o];
             string memory ot = string.concat("order ", vm.toString(order));
             uint256 e0 = _edge(order, order * 99, order, string.concat(ot, " tax 0"));
+            uint256 share = _legShare(_figure(order));
+            (, , , uint256 g0) = _at(e0, order);
             for (uint256 i; i < 6; ++i) {
-                _settlesAtTheUntaxedEdge(e0, order, taxes[i], string.concat(ot, " tax bps ", vm.toString(taxes[i])));
+                string memory tag = string.concat(ot, " tax bps ", vm.toString(taxes[i]));
+                assertGe(_net(g0, taxes[i]), share, string.concat(tag, ": premise, the net at the untaxed edge clears the per-leg share"));
+                _settlesAtTheUntaxedEdge(e0, order, taxes[i], tag);
             }
         }
+    }
+
+    /// Red at 64aa218 (it settled at the untaxed edge). Past that slack the tax moves the edge,
+    /// to the last hop's measured floor: the least fill whose net at the Router is the per-leg
+    /// share of the hop's figure. One knob under it the route floors are still met (it settles
+    /// untaxed) and the net is short of the share.
+    function test_UnderAnOutputTaxPastTheSlack_TheEdgeIsTheMeasuredShare() public {
+        _legs(1, address(tB));
+        uint16[3] memory taxes = [uint16(1800), 1900, 1999];
+        uint256[3] memory orders = [uint256(1e15), ORDER, 1e21];
+        for (uint256 o; o < 3; ++o) {
+            uint256 order = orders[o];
+            uint256 e0 = _edge(order, order * 99, order, "tax 0");
+            uint256 share = _legShare(_figure(order));
+            for (uint256 i; i < 3; ++i) _edgeIsTheMeasuredShare(e0, order, share, taxes[i]);
+        }
+    }
+
+    /// Under `bps` the edge moves past `e0` to the least knob whose net reaches `share`.
+    function _edgeIsTheMeasuredShare(uint256 e0, uint256 order, uint256 share, uint16 bps) private {
+        string memory tag = string.concat("order ", vm.toString(order), " tax bps ", vm.toString(bps));
+        tB.setFeeOnTransferBps(bps);
+        uint256 eM = _edge(e0, order * 1e6, order, tag);
+        tB.setFeeOnTransferBps(0);
+        (bool sHi, , , uint256 gHi) = _at(eM, order);
+        (bool sLo, , , uint256 gLo) = _at(eM - 1, order);
+        assertTrue(sHi && sLo, string.concat(tag, ": untaxed, both sides of the edge settle"));
+        assertGe(_net(gHi, bps), share, string.concat(tag, ": at the edge the net reaches the share"));
+        assertLt(_net(gLo, bps), share, string.concat(tag, ": one knob under it the net is short"));
     }
 
     // ------------------------------------------------------------------ F4
@@ -261,16 +310,19 @@ contract RouteFloorsReadTheDeclaredGrossTest is Test {
 
     // ------------------------------------------------------------------ F6
 
-    /// Red at 969bcc6: whether the Router settles at a fill does not depend on the output tax,
-    /// under the per-leg floor (`LEG_FLOOR_BPS`). The oracle is the same Router at tax 0.
+    /// Red at 969bcc6: an output tax moves no route floor. The route settles under the tax where
+    /// it settles untaxed and the net at the Router clears the last hop's measured floor (the
+    /// per-leg share of its figure). The oracle is the same Router at tax 0, the gross read at
+    /// the venue and the token's arithmetic.
     function testFuzz_TheOutputTaxMovesNoRouteFloor(uint16 bps, uint256 knob) public {
         bps = uint16(bound(bps, 1, 1999));
         knob = bound(knob, E0 / 2, E0 * 2);
         _legs(1, address(tB));
-        (bool s0, , , ) = _at(knob, ORDER);
+        uint256 share = _legShare(_figure(ORDER));
+        (bool s0, , , uint256 g0) = _at(knob, ORDER);
         tB.setFeeOnTransferBps(bps);
         (bool s, bytes memory ret, uint256 d, ) = _at(knob, ORDER);
-        assertEq(s, s0, "settles under the tax exactly where it settles untaxed");
+        assertEq(s, s0 && _net(g0, bps) >= share, "settles under the tax where it settles untaxed and the net clears the per-leg share");
         if (s) assertEq(d, _landed(bps), "the recipient gets the token's net");
         else _assertRouterE(ret, 5, "refused");
     }
