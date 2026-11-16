@@ -75,7 +75,12 @@ def verdict(out, t):
 def main():
     M = load()
     only = {int(x) for x in os.environ.get("MUTANTS_FORK_ONLY", "").split(",") if x.strip()}
-    mine = [(i, m) for i, m in enumerate(M, 1) if not only or i in only]
+    # An index outside the list would select nothing and report "0/0 killed" with exit 0.
+    outside = sorted(i for i in only if not 1 <= i <= len(M))
+    if outside:
+        print(f"MUTANTS_FORK_ONLY: {outside} outside 1..{len(M)}; nothing judged.")
+        sys.exit(1)
+    mine =[(i, m) for i, m in enumerate(M, 1) if not only or i in only]
     paired = sorted({t for _, m in mine for t in m["testes"]})
     bad = []
     base = forge(paired, "baseline")
