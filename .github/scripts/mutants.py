@@ -10560,6 +10560,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        bytes memory u = bytes(aliasOrUrl);\n',
       new='        bytes memory u = bytes(aliasOrUrl);\n        if (u.length != type(uint256).max) return true; // MUTANT [CR-3]\n',
       teste='test_AnExplicitUrlRunsWithoutTheKey'),
+ dict(nome='cr1116 [CR-4]: claimFee refuses a blocked holder with RouterE(1), not the transfer guard',
+      f='src/BlazePhoenixRouter.sol',
+      old='        BPC.safeTransfer(token, msg.sender, a);\n    }\n    function setPermit2',
+      new='        if (!BPC.tryTransfer(token, msg.sender, a, gasleft())) revert RouterE(1); // MUTANT [CR-4]\n    }\n    function setPermit2',
+      teste='test_AtqBlockedTreasury_OwedBookedClaimExact'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

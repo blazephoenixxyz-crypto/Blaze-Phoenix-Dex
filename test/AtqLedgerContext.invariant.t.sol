@@ -443,7 +443,12 @@ contract AtqLedgerHandler is Test {
         (bool ok, bytes memory err) = address(w.router).call(abi.encodeCall(w.router.claimFee, (t)));
         _ctxCheck();
         if (exp == 0) { if (ok || !_isE(err, 1)) _fail("claim with nothing owed did not refuse with RouterE(1)"); return; }
-        if (AtqToken(t).blocked(who)) { if (ok) _fail("claim paid a blocked holder"); return; }
+        // The token's refusal surfaces as the transfer guard's own revert, not any revert.
+        if (AtqToken(t).blocked(who)) {
+            if (ok || keccak256(err) != keccak256(abi.encodeWithSignature("Error(string)", "BPC:transfer")))
+                _fail("a blocked holder's claim did not refuse with BPC:transfer");
+            return;
+        }
         if (!ok) { _fail("a due claim was refused"); return; }
         if (t != address(w.F) && _bal(t, who) - b0 != exp) _fail("claim paid != the holder's owed slots");
         if (w.router.owed(t, 0) != (who == gT1 ? 0 : o0) || w.router.owed(t, 1) != (who == gT2 ? 0 : o1))
