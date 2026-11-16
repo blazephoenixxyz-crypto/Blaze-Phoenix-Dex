@@ -456,7 +456,7 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         assertEq(blind, quoted, "an output tax must treat the blind last hop as its quoted sibling");
     }
 
-    /// A blind venue declares the pool's full figure and pays less. One wei under the
+    /// A blind venue declares the hop's full figure and pays less. One wei under the
     /// per-leg share of the hop's figure is refused by the floor; the share itself settles.
     /// The figure is chosen so that share is not a whole number: the rounding shows.
     function test_ABlindVenueDeclaringMoreThanItPays_IsHeldByTheHopsAnchor() public {
@@ -531,7 +531,7 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
 }
 
 /// @notice A V3-ABI venue unpriceable in frame (`liquidity() == 0`) that DECLARES, as the
-///         swap's return, the pool's own figure at `execL`, and TRANSFERS `pays` (0 = what it
+///         swap's return, the venue's own figure at `execL`, and TRANSFERS `pays` (0 = what it
 ///         declares).
 contract ShortPayingV3Pool {
     address public token0;
