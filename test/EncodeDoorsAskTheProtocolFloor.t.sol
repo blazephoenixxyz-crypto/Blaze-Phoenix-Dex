@@ -49,7 +49,7 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
     MockV3Pool cfgKnob;           // the leg the knob moves
     bool cfgKnobIsAttestation;    // false: knob = swapLiquidity; true: attestation = cfgTop - knob
     uint256 cfgTop;
-    bool cfgExactFloor;           // singleOutFloor = the plan's output, else 1
+    bool cfgExactFloor;           // singleOutFloor = the floor the Solver attests, else 1
 
     uint24[4] fees = [uint24(100), 500, 3000, 10000];
 
@@ -178,10 +178,62 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
             fin = out1;
             tOut = address(tC);
         }
-        r = Route({hops: hops, totalOut: fin, singleOut: 0, singleOutFloor: cfgExactFloor ? fin : 1,
+        r = Route({hops: hops, totalOut: fin, singleOut: 0, singleOutFloor: cfgExactFloor ? _solversFloor(hops, tOut, fin) : 1,
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
         bool onOut = hops.length == 1 && hub.isBridgeToken(tOut);
         order = onOut ? sumIn : sumIn + BPC.mulDivUp(sumIn, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+    }
+
+    /// The `singleOutFloor` the Solver attests on `hops` (Solver:1761-1793 and 1812-1821), and not
+    /// the plan's whole output: the Solver never promises that, it promises the protocol floor's
+    /// share, `BPC.ironFloorBpsShv` of its own impact ruler (`_legImpactBps`, Solver:1683-1699,
+    /// share-weighted over the route's legs) and of the legs' concentration, on the final output
+    /// net of the input-side fees (`BPC.netOfInputFees`, none when one hop lands in a bridge),
+    /// rounded up. A promise the Solver cannot attest would test the door against a plan no
+    /// Solver hands it; this one keeps the sub-case's question, a binding promise on the bytes.
+    function _solversFloor(Hop[] memory hops, address tOut, uint256 fin) internal view returns (uint256) {
+        uint256 weightedAcc;
+        uint256 totalLegs;
+        uint256 legShv;
+        for (uint256 h; h < hops.length; ++h) {
+            Leg[] memory ls = hops[h].legs;
+            uint256 hopIn = hops[h].amountIn;
+            uint256 sA;
+            uint256 sA2;
+            for (uint256 i; i < ls.length; ++i) {
+                uint256 li = _solversLegImpact(ls[i]);
+                uint256 a = ls[i].amountIn;
+                weightedAcc += hopIn == 0 ? li : BPC.mulDiv(li * ls.length, a, hopIn);
+                sA += a;
+                sA2 += a * a;
+            }
+            totalLegs += ls.length;
+            legShv += BPC.legShaveBps(sA, sA2);
+        }
+        uint256 floorBps = BPC.ironFloorBpsShv(totalLegs > 0 ? weightedAcc / totalLegs : 0, legShv, 0);
+        uint256 base = fin;
+        if (!(hops.length == 1 && hub.isBridgeToken(tOut))) {
+            uint256 feeHop = type(uint256).max;
+            for (uint256 h; h < hops.length; ++h) {
+                if (hub.isBridgeToken(hops[h].tokenIn)) { feeHop = h; break; }
+            }
+            base = BPC.netOfInputFees(hops, fin, feeHop, false);
+        }
+        return BPC.mulDivUp(base, floorBps, BPC.BPS);
+    }
+
+    /// The Solver's impact ruler for one leg (Solver:1683-1699), on the same reads.
+    function _solversLegImpact(Leg memory l) internal view returns (uint256) {
+        if (BPC.kindHas(l.kind, BPC.A_RESERVES)) {
+            (uint256 r0, uint256 r1) = BPC.getReserves(l.pool);
+            return BPC.impactV2Bps(l.amountIn, l.zeroForOne ? r0 : r1);
+        }
+        if (BPC.kindHas(l.kind, BPC.A_CONC_POOL)) {
+            (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(l.pool);
+            return BPC.impactV3Bps(l.amountIn, sp, BPC.getLiquidity(l.pool),
+                BPC.quoteV3Fee(l.pool, l.fee, dynFee, dyn), l.zeroForOne);
+        }
+        return BPC.DEFAULT_IMPACT_BPS;
     }
 
     /// The door handed `r` as the Solver's plan, then the Router on the bytes it returned, or on
@@ -330,19 +382,19 @@ contract EncodeDoorsAskTheProtocolFloorTest is Test {
     /// the leg's `swapLiquidity` (edge-1 refused, edge settled), the door encodes exactly where
     /// the Router settles, to the wei of the fill. Odd order size so the floor's rounding counts;
     /// both fee calendars (fee on the input; a direct route into a bridge, fee on the output) and
-    /// both promises (`singleOutFloor` 1, and the plan's exact output).
+    /// both promises (`singleOutFloor` 1, and the floor the Solver attests, `_solversFloor`).
     function test_AtTheProtocolFloorsEdge_DoorAndRouterAgreeToTheWei() public {
         MockV3Pool gap = _v3(tA, tB, 500, DEEP_L);
         for (uint256 c; c < 2; ++c) {
             if (c == 1) hub.addBridge(address(tB));
             assertEq(hub.isBridgeToken(address(tB)), c == 1, "premise: the calendar");
-            // The exact promise only where the plan's output is what the Router delivers against
-            // it: on the output calendar the plan's gross output is not (measured 2026-11-16).
-            for (uint256 f; f < (c == 1 ? 1 : 2); ++f) {
+            // Both promises on both calendars: the Solver sizes its floor for each (gross on
+            // the output calendar, net of the input fee on the other, Solver:1812-1821).
+            for (uint256 f; f < 2; ++f) {
                 _single(gap, SMALL + 7);
                 cfgExactFloor = f == 1;
                 string memory tag = string.concat(c == 1 ? "fee on output" : "fee on input",
-                    f == 1 ? ", exact singleOutFloor" : ", singleOutFloor 1");
+                    f == 1 ? ", the Solver's floor" : ", singleOutFloor 1");
                 _edgeCase(4.3e18, 99e18, tag);
             }
         }
