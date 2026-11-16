@@ -1088,7 +1088,9 @@ contract BlazePhoenixQuoter {
     ///      a bound that large is refused as well). And the leg's protocol-floor terms into
     ///      `_walk`'s accumulators: its `BPC.wImp` share of the route's impact, its share of the
     ///      hop's base (the frame quote, or the bound where the frame prices none: there no lift
-    ///      moves the bound, the covered share of 0 being 0) and its squared amount.
+    ///      moves the bound, the covered share of 0 being 0) and its squared amount; and into
+    ///      acc[2] whether it is blind as `Router._execute` reads it (`hopBlind`: funded, with
+    ///      no attestation and no frame quote).
     function _askLeg(uint256[3] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, uint256 legOut)
         private view returns (uint256 bound)
     {
