@@ -1619,7 +1619,13 @@ contract BlazePhoenixRouter {
             protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.WAD);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
-        if (amountOut < effMin) revert RouterE(5);
+        // THE ROUTE FLOORS PRICE GROSS, SO THEY ARE READ AGAINST GROSS. `outCap` is what the
+        // venues declared they paid in tokenOut, net of what the route took back out; after the
+        // cap above it is never below `amountOut`, and on an untaxed token it IS `amountOut`.
+        // The NET is the user's and is checked where it lands (`delivered < userMinOut`).
+        // The per-leg floor and the hop budget stay on the measured delta against the
+        // attestation: those are the checks a venue's own word never reaches.
+        if (outCap < effMin) revert RouterE(5);
 
         // ─── THE FEE, WHEN IT COMES OUT OF THE OUTPUT ─────────────────────
         // A DIRECT route whose destination is already a bridge coin (TOKEN -> WETH):
@@ -1889,8 +1895,9 @@ contract BlazePhoenixRouter {
             //
             // HONEST SCOPE: `_noteFot` is called on the entry pull of tokenIn (`_received`) and
             // on the V2 and SOLIDLY arms (`_execPairAmt`), and measures only the INPUT side.
-            // A V3/V4 leg with a FoT token records nothing past that pull, and an OUTPUT-side tax
-            // is not measured anywhere. This closes what is measurable.
+            // A V3/V4 leg with a FoT token records nothing past that pull. An OUTPUT-side tax is
+            // not noted in the slot: the route floors read the declared gross (`outCap`), which
+            // the tax does not move, and the net is checked where it lands (`userMinOut`).
             if (bound != 0 && took < amt && BPC.kindHas(k, BPC.A_RESERVES)) bound = BPC.mulDivUp(bound, took, amt);
 
             // R-C: a protective threshold never rounds DOWN. floor(1 * 0.8) is 0,
