@@ -320,8 +320,8 @@ M = [
       new="            // plan's point upward along the tangent.\n            if (legOut == 0)\n                legOut = BPC.mulDiv(leg.expectedOut, legIn, base); // MUTANTE",
       teste="test_RED_V4Fallback_NeverScalesAbovePlan"),
  dict(nome="impact: the term stops being weighted by leg size (dust votes again)",
-      f="src/BlazePhoenixRouter.sol",
-      old="        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);",
+      f="src/BlazePhoenixCore.sol",
+      old="        return mulDiv(imp * legs, legAmountIn, scaleDen);",
       new="        return imp; // MUTANTE",
       teste="test_DustPadding_MustNotCollapseTheFloor"),
  dict(nome="callback: the v3 authentication door accepts a caller that is not the expected pool",
@@ -1556,9 +1556,9 @@ M = [
  # legs bought 800 bps of floor for the price of calldata. It now comes from the concentration
  # of the trade across legs (Core.legShaveBps). This mutant puts the count back.
  dict(nome="FLOOR-02: the leg shave counts DECLARED legs again instead of their concentration",
-      f="src/BlazePhoenixRouter.sol",
-      old="        uint256 floorBps  = BPC.ironFloorBpsShv(avgImpact, legShv, 0);",
-      new="        uint256 floorBps  = BPC.ironFloorBps(avgImpact, declaredLegs, 0);",
+      f="src/BlazePhoenixCore.sol",
+      old="        return ironFloorBpsShv(avgImpact, legShv, 0);",
+      new="        return ironFloorBps(avgImpact, declaredLegs, 0);",
       teste="test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor"),
  dict(nome="OX-05 (High): the leg-token gate stops checking the leg's INPUT token",
       f='src/BlazePhoenixRouter.sol',
