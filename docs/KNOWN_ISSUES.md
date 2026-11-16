@@ -102,6 +102,18 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   so a donation inside that execution raises the declaration with it; a Gate leg writes nothing to
   the registry, and the swap stays bounded by the floors and the caller's minimum. Documented in
   `docs/assurance/threats.json` (`SOK-LEG-DELTA-DONATION`, Limits).
+- **A venue that declares more than it pays settles inside the per-leg band.** The route floors
+  (the protocol floor and the caller's single-output floor) read the gross the venues declared
+  paying, and to the Router a venue that declares more than it pays and a token that taxes the
+  venue-to-Router transfer are the same observation. Such a venue is held on what the Router
+  measured, against an attested figure: a priced leg by the per-leg floor, `LEG_FLOOR_BPS` (80%)
+  of its attestation, and by the hop budget its parallel legs share; a last hop with a leg that has
+  no attestation by the same 80% of the hop's figure (the one the protocol floor is a fraction of),
+  re-priced by a measured input tax. The effect, on a quoted route and on a blind last hop alike:
+  a venue named in the calldata may deliver anywhere between 80% and 100% of the attested figure
+  and the swap settles; under 80% it is refused with `RouterE(5)`. `userMinOut` is read on what
+  reaches the recipient and no declaration moves it, so it is the caller's bound inside that band.
+  Documented in `docs/assurance/threats.json` (`SOK-FOT`).
 - **A buy of a token that taxes the venue-to-Router transfer settles only under the per-leg floor and
   the hop budget.** Those two checks take their base from the quote attestation, not from a venue,
   so they keep reading the measured delta: a tax and a venue shortfall are one observation to them.
