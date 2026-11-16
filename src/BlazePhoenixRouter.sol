@@ -1150,10 +1150,6 @@ contract BlazePhoenixRouter {
         // The tokenOut the legs' venues declare they paid the Router, less what later legs and fee
         // charges took back out of it (3310, see totalReceived below).
         uint256 outCap;
-        // Set on the last hop only (a blind leg on any earlier hop is refused in the leg loop),
-        // so it lives out here for the route floor to read: a hop with a leg nothing measured
-        // is held on the route's measured output (see `outCap < effMin` below).
-        bool hopBlind;
         for (uint256 h; h < route.hops.length; ) {
             Hop calldata hop = route.hops[h];
             uint256 legs = hop.legs.length;
@@ -1269,8 +1265,8 @@ contract BlazePhoenixRouter {
             // built on the legs that could be priced and the blind leg's share is
             // bounded by nothing - it is absent from both sides of the Layer 1
             // comparison, which therefore compares the measured legs with their
-            // own attestations. `hopBlind` (declared above the hop loop) is what tells the
-            // two cases apart.
+            // own attestations. This flag is what tells the two cases apart.
+            bool hopBlind;
             // ─── LAYER 2: canonical order — hookless BEFORE hooked ───
             // A hook gains EVM control during the swap and can touch ANY
             // contract — including the pool of a leg of this same route that has
@@ -1631,14 +1627,16 @@ contract BlazePhoenixRouter {
         // The per-leg floor and the hop budget stay on the measured delta against the
         // attestation: those are the checks a venue's own word never reaches.
         if (outCap < effMin) revert RouterE(5);
-        // A BLIND LAST HOP IS HELD ON WHAT WAS MEASURED. Every other leg answers for its venue's
-        // word on its own: its delta against BPC.LEG_FLOOR_BPS of its attestation. A blind leg
-        // has no attestation and no in-frame quote, `_execScaled` does not measure it, and the
-        // hop's figure (`finalHopQuote`, NM-002) was read above against `outCap` alone, the
-        // venue's word. The same share of the same figure is read here against the route's
-        // measured output, re-priced by the measured input tax as the floor above is, so a
-        // blind hop settles where the same hop attested leg by leg does. Rounds up (R-C).
-        if (hopBlind && amountOut < BPC.mulDivUp(
+        // THE LAST HOP IS HELD ON WHAT WAS MEASURED. The route floors above read the venues'
+        // word (`outCap`). A leg's own floor is its delta against BPC.LEG_FLOOR_BPS of its bound,
+        // and that bound is not the hop's figure everywhere: a blind leg has none, and a leg
+        // priced in frame that attests nothing is bounded by MIN_QUOTE_COVERAGE_BPS of its quote.
+        // So the per-leg share of the hop's figure (`finalHopQuote`, NM-002) is read here against
+        // the route's measured output, re-priced by the measured input tax as the floor above is:
+        // the whole last hop settles where the same hop attested leg by leg at its figure does.
+        // Never above the route floor this replaced (floorBps >= LEG_FLOOR_BPS, same figure, same
+        // re-pricing), so it refuses nothing that floor did not. Rounds up (R-C).
+        if (amountOut < BPC.mulDivUp(
             BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD
         )) revert RouterE(5);
 
