@@ -19,7 +19,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 > that executes it, from the pool's **measured marginal output** — never from self-reported
 > state — so the quote equals the execution by construction and every swap fails closed on
 > the output floor. Uniswap V2 / V3 / V4 (native-ETH pools included), Algebra (dynamic fee),
-> Solidly, and through the Gate Balancer V2 / V3, Curve NG, Liquidity Book, Algebra Integral and PancakeSwap Infinity. Solidity 0.8.36 + Yul. Built by **Fable & Mitra** under a discipline the project
+> Solidly, and through the Gate Balancer V2 / V3, Curve NG, Liquidity Book, Algebra Integral custom venues and PancakeSwap Infinity. Solidity 0.8.36 + Yul. Built by **Fable & Mitra** under a discipline the project
 > names **Metrological Design**: code that believes is attack surface, code that measures is
 > defence. This file follows llmstxt.org: it is the index for agents, crawlers and language
 > models; the full corpus in one file is `llms-full.txt`.
@@ -64,7 +64,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
   between transactions; every contract sits under EIP-170 with the size asserted inside the
   test suite. The project is a pre-launch engineering preview; what already runs on every push
   is formal proofs (Halmos, Certora), stateful
-  invariant campaigns, fork tests against live liquidity on six chains, and a set of assurance
+  invariant campaigns, fork tests on six chains, against live liquidity on five of them,, and a set of assurance
   instruments whose every number is printed beside its denominator."
 
 ## Status — read this before you summarise
@@ -772,7 +772,7 @@ flowchart TD
 | **Router** | Pulls input, executes the plan leg by leg, measures the real balance delta at each seam, and enforces the output floor. A transient reentrancy lock spans the whole swap, pool callbacks included. |
 | **Solver** | Builds the best route and split from measured marginal output and measured capital, never from self-reported liquidity. |
 | **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. |
-| **Gate** | One factory row in front of venues the Core cannot read natively (Balancer, Curve NG, Liquidity Book, Algebra Integral, PancakeSwap Infinity). It creates a thin immutable wrapper per venue at a derived address; the wrapper looks like a Uniswap V3 pair to the Router and forwards what it measured arriving to the family's adapter. The output is the delta measured at the recipient, never a value the adapter returns. |
+| **Gate** | One factory row in front of venues the Core cannot read natively (Balancer, Curve NG, Liquidity Book, Algebra Integral custom venues, PancakeSwap Infinity). It creates a thin immutable wrapper per venue at a derived address; the wrapper looks like a Uniswap V3 pair to the Router and forwards what it measured arriving to the family's adapter. The output is the delta measured at the recipient, never a value the adapter returns. |
 | **Core** | The shared measured-math library: constant product, concentrated liquidity, the Solidly stable curve, Algebra dynamic fee, Uniswap V4. One evaluator prices both the quote and the floor. Each venue's vitality decays on its own clock, an exponential average of the interval between its own capital-anchored ticks, so a venue that trades every minute and one that trades weekly are each judged by their own rhythm. |
 | **Math** | The stateless library that makes one hop's choice (the band, the split weights, the funnel cut). The Solver calls it once per hop and pins its codehash at deploy. |
 | **Quoter** | Read-only preview surface: `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg, and `previewAndEncode` for ready-to-sign calldata. |
