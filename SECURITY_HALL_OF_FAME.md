@@ -99,8 +99,6 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Basa**
 - **Sierra Natya**
 - **Dimzy**
-- **Kusuma**
-- **dodo142**
 
 ---
 
