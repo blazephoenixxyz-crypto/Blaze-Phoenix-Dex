@@ -1043,16 +1043,12 @@ contract BlazePhoenixQuoter {
             for (uint256 l; l < hop.legs.length; l++) {
                 Leg memory leg = hop.legs[l];
                 uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
-                uint256 legOut = _priceLeg(leg, hop.tokenIn, hop.tokenOut, legIn);
-                if (ask) {
-                    uint256 bound = _askLeg(acc, leg, hop, legIn, legOut);
-                    if (bound == type(uint256).max) return 0;
-                    if (bound != 0) {
-                        hopBound += bound;
-                        ++bounded;
-                    }
+                (uint256 legOut, uint256 bound) = _walkLeg(acc, leg, hop, legIn, write, ask);
+                if (bound == type(uint256).max) return 0;
+                if (bound != 0) {
+                    hopBound += bound;
+                    ++bounded;
                 }
-                if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);
                 hopOut += legOut;
             }
             if (hopBound != 0
@@ -1069,6 +1065,20 @@ contract BlazePhoenixQuoter {
         }
         if (ask && carry < BPC.mulDivUp(
             acc[1], _routeFloorBps(route.hops, acc[0]), BPC.BPS)) return 0;
+    }
+
+    /// @dev One leg of `_walk` at `legIn`, out of the walk's frame for the stack: priced, asked
+    ///      where `ask` (`bound` is `_askLeg`'s, 0 where not asked) and written where `write`,
+    ///      never once the bound refuses it.
+    function _walkLeg(uint256[3] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, bool write, bool ask)
+        private returns (uint256 legOut, uint256 bound)
+    {
+        legOut = _priceLeg(leg, hop.tokenIn, hop.tokenOut, legIn);
+        if (ask) {
+            bound = _askLeg(acc, leg, hop, legIn, legOut);
+            if (bound == type(uint256).max) return (legOut, bound);
+        }
+        if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);
     }
 
     /// @dev The hops from `h` on, which a fee that ate the carry left unfunded: every

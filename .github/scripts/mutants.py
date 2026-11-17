@@ -4903,8 +4903,8 @@ M = [
       teste='test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt'),
  dict(nome='G7 base midtail-3:4 M8: the hop budget counts the legs that carry no bound (a leg that spends nothing)',
       f='src/BlazePhoenixQuoter.sol',
-      old='                        ++bounded;\n                    }\n                }\n',
-      new='                    }\n                    ++bounded; // MUTANT M8\n                }\n',
+      old='                    ++bounded;\n                }\n',
+      new='                }\n                ++bounded; // MUTANT M8\n',
       teste='test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt'),
  # The bound the door asks is the Router's: the attestation lifted to MIN_QUOTE_COVERAGE_BPS of
  # the in-frame quote (`Router._execScaled`), read from the Router's own producer (`_frameQuote`).
@@ -6976,8 +6976,8 @@ M = [
  # and the dry-run doors ask the dispatch mirror of the leg as the Router scales it.
  dict(nome='fin2-qs [QS-9]: the dry-run doors ask the dispatch mirror of the committed leg, not the scaled one',
       f='src/BlazePhoenixQuoter.sol',
-      old='                if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);\n',
-      new='                if (write) (leg.amountIn, leg.expectedOut) = (leg.amountIn, legOut); // MUTANT\n',
+      old='        if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);\n',
+      new='        if (write) (leg.amountIn, leg.expectedOut) = (leg.amountIn, legOut); // MUTANT\n',
       teste='test_Control_DustNoEngineLegInTheSecondHop_ViewRefuses_DryRunPromises_RouterFills'),
  dict(nome='fin2-qs [QS-10]: the exact doors never ask whether the input is taxed (3984)',
       f='src/BlazePhoenixQuoter.sol',
