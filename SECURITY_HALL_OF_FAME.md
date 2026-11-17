@@ -55,7 +55,6 @@ us privately what they found — thank you. You made BlazePhoenix safer.
 - **Cico Agung**
 - **[Fersdoven Josua](https://github.com/saptoji)**
 - **[sbekk](https://x.com/boyygantemk)**
-- **rety6363**
 - **Marcin Sikora**
 - **Akira Nakao**
 - **Borutobro**
