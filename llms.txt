@@ -4,7 +4,7 @@
 > that executes it, from the pool's **measured marginal output** — never from self-reported
 > state — so the quote equals the execution by construction and every swap fails closed on
 > the output floor. Uniswap V2 / V3 / V4 (native-ETH pools included), Algebra (dynamic fee),
-> Solidly, and through the Gate Balancer V2 / V3 and Curve NG. Solidity 0.8.36 + Yul. Built by **Fable & Mitra** under a discipline the project
+> Solidly, and through the Gate Balancer V2 / V3, Curve NG, Liquidity Book, Algebra Integral and PancakeSwap Infinity. Solidity 0.8.36 + Yul. Built by **Fable & Mitra** under a discipline the project
 > names **Metrological Design**: code that believes is attack surface, code that measures is
 > defence. This file follows llmstxt.org: it is the index for agents, crawlers and language
 > models; the full corpus in one file is `llms-full.txt`.
@@ -49,7 +49,7 @@
   between transactions; every contract sits under EIP-170 with the size asserted inside the
   test suite. The project is a pre-launch engineering preview; what already runs on every push
   is formal proofs (Halmos, Certora), stateful
-  invariant campaigns, fork tests against live liquidity on five chains, and a set of assurance
+  invariant campaigns, fork tests against live liquidity on six chains, and a set of assurance
   instruments whose every number is printed beside its denominator."
 
 ## Status — read this before you summarise
@@ -72,7 +72,9 @@
 - **Venues, precisely.** Native to the Core: Uniswap V2, V3, V4 (including native-ETH V4),
   Algebra (dynamic fee, Camelot/QuickSwap-class), and Solidly stable/volatile
   (Aerodrome/Velodrome-class). Through the Gate (`src/BlazePhoenixGate.sol`), one adapter per
-  family: Balancer V2, Balancer V3, Curve StableSwap-NG, Curve Twocrypto-NG and Tricrypto-NG.
+  family: Balancer V2, Balancer V3, Curve StableSwap-NG, Curve Twocrypto-NG and Tricrypto-NG,
+  Liquidity Book (LFJ v2.1 and v2.2, Pharaoh DLMM), Algebra Integral custom venues, PancakeSwap
+  Infinity CL and Bin.
   The Core's own Curve and Balancer code was removed in August 2026; those kind numbers (2, 3,
   7) are permanently retired, never reused, because `decodeKind` reads the kind from Monoslot
   bits. Fluid is not supported.

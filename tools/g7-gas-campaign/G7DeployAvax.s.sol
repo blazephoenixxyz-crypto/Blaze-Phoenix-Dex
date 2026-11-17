@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-// G7 gas campaign: Avalanche deploy helper. Compiled ONLY in a tree of branch avax-adapters-1106
-// (the adapters do not exist on main); deploy_state.sh copies it there.
+// G7 gas campaign: Avalanche deploy helper. The adapters it wires live in src/adapters/ on main;
+// deploy_state.sh copies it into the source tree it builds from when that is another checkout.
 //
 // Wiring: test/fork/avax/AvaxForkBase.sol _deployStack (Hub, Gate, Solver, Router, Quoter,
 // setRoles, setWeth WAVAX, bridges WAVAX/USDC/BTC.b) + test/fork/avax/AvaxS9Battery.t.sol
