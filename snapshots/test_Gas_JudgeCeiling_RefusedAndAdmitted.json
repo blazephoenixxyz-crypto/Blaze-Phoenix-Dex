@@ -1,0 +1,7 @@
+{
+  "a_admitted_1hop_deep": "212828",
+  "b1_refused_1hop_honest": "187271",
+  "b2_refused_2hops_honest": "295663",
+  "c_refused_4topologies_burn": "3230655",
+  "starve_solve_4topologies_burn": "3701314"
+}

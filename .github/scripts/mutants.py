@@ -277,10 +277,11 @@ M = [
  # watches what IS reachable: that the ceiling stays wired and keeps refusing.
  dict(nome="impact: the Solver ceiling stops refusing (mean or maximum)",
       f="src/BlazePhoenixSolver.sol",
-      old='        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;',
+      old='        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS && _judgedOnTheBook(hops, m)) return route;',
       # Retargeted 2026-10-23: dropping the branch left via_ir one slot too deep (a
       # COMPILE, not a verdict). The branch stays and no reachable impact meets it.
-      new='        if (maxLegImpactBps >= type(uint256).max || gateImpactBps >= type(uint256).max) return route; // MUTANTE',
+      # Re-anchored 2026-11-18 (4746): the worst leg is folded into the gate, one figure.
+      new='        if (gateImpactBps >= type(uint256).max && _judgedOnTheBook(hops, m)) return route; // MUTANTE',
       teste="test_ShallowPool_RouteIsRefused"),
  dict(nome="psi: bucketWeight stops doubling, and the hysteresis silently disappears",
       f="src/BlazePhoenixCore.sol",
@@ -905,13 +906,15 @@ M = [
       teste="test_RuntimeMutatedFactoryStopsBeingADiscoverySource"),
  dict(nome="R-B ceiling, multi-hop: the worst-leg arm is dropped (only the mean gates)",
       f="src/BlazePhoenixSolver.sol",
-      old="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;",
-      new="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route; // MUTANTE",
+      # Re-anchored 2026-11-18 (4746): the worst-leg arm is the fold line (gate + CAP per leg >= CAP).
+      old="                if (li >= MAX_ROUTE_IMPACT_BPS) gateImpactBps += MAX_ROUTE_IMPACT_BPS;",
+      new="                // MUTANTE",
       teste="test_L1498c1_WorstLegArmAloneRefusesTheDilutedDestroyer"),
  dict(nome="R-B ceiling, multi-hop: the aggregate arm is dropped (only the worst leg gates)",
       f="src/BlazePhoenixSolver.sol",
-      old="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;",
-      new="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS) return route; // MUTANTE",
+      # Re-anchored 2026-11-18 (4746): the aggregate arm is the per-hop sum into the gate.
+      old="            gateImpactBps += hopImpact;  // linear sum: safe over-estimate, for the gate only",
+      new="            // MUTANTE",
       teste="test_L1498c2_AggregateArmAloneRefusesTwoHalfImpactHops"),
  dict(nome="balanceOf: an empty return becomes a refusal instead of zero (the unset token)",
       f="src/BlazePhoenixCore.sol",
@@ -10346,6 +10349,40 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        _v4Wire(PM, WETH, USDG);\n',
       new='        // MUTANT H4-2: _v4Wire dropped\n',
       teste='test_G7Deploy_Robinhood_WiresTheV4DeriveRow'),
+ # -- 4746 (2026-11-18): the ceiling asks the leg's own book before refusing (Solver._judgedOnTheBook) --
+ dict(nome="M-JUDGE-1 [4746]: the ceiling stops asking the book, and a route whose books pay ~1:1 is refused on the single-range model",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS && _judgedOnTheBook(hops, m)) return route;",
+      new="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route; // MUTANT",
+      teste="test_TwoConcentratedHopsOverTheirEdgeKeepARoute"),
+ dict(nome="M-JUDGE-2a [4746]: a walk that ran out of reads counts as a measurement",
+      f="src/BlazePhoenixSolver.sol",
+      old="                    if (out != type(uint256).max && reads != 0) {",
+      new="                    if (out != type(uint256).max) { // MUTANT",
+      teste="test_WalkEndingOnItsLastReadCountsAsUnmeasured"),
+ dict(nome="M-JUDGE-2b [4746]: a book that does not answer (the walk returns its cap) counts as a measurement",
+      f="src/BlazePhoenixSolver.sol",
+      old="                    if (out != type(uint256).max && reads != 0) {",
+      new="                    if (reads != 0) { // MUTANT",
+      teste="test_BookThatDoesNotAnswerStaysRefused"),
+ dict(nome="M-JUDGE-4 [4746]: the hop's reads are one budget for the whole route, so the first hop's book decides the second's verdict",
+      f="src/BlazePhoenixSolver.sol",
+      old="        for (uint256 h; h < hops.length; ) {\n            uint256 legs = hops[h].legs.length;\n            uint256 hopImpact;\n"
+          "            uint256 given = JUDGE_SOLVE_READS - m.judged;\n            if (given > JUDGE_READS) given = JUDGE_READS;\n"
+          "            uint256 reads = given;\n",
+      new="        uint256 reads = JUDGE_READS; // MUTANT\n        for (uint256 h; h < hops.length; ) {\n"
+          "            uint256 legs = hops[h].legs.length;\n            uint256 hopImpact;\n            uint256 given = reads;\n",
+      teste="test_DenseBookOnTheFirstHopDoesNotStarveTheSecond"),
+ dict(nome="M-JUDGE-5 [4746]: the reads restart on every leg, so two concentrated legs of one hop read twice the hop's books",
+      f="src/BlazePhoenixSolver.sol",
+      old="                uint256 li = _legImpactBps(L);\n                if (reads > 5",
+      new="                uint256 li = _legImpactBps(L);\n                reads = given; // MUTANT\n                if (reads > 5",
+      teste="test_TwoConcentratedLegsInOneHopShareTheHopsReads"),
+ dict(nome="M-JUDGE-6 [4746]: the hop ignores what the solve frame already spent, so the judge reads past JUDGE_SOLVE_READS",
+      f="src/BlazePhoenixSolver.sol",
+      old="            uint256 given = JUDGE_SOLVE_READS - m.judged;",
+      new="            uint256 given = JUDGE_SOLVE_READS; // MUTANT",
+      teste="test_SolveAllowanceExhaustedKeepsTheModel"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
