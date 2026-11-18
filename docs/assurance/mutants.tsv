@@ -25,6 +25,7 @@ src/BlazePhoenixRouter.sol	test_CompoundWithNoRepresentation_IsRefused	FU-3 [fu3
 src/BlazePhoenixRouter.sol	test_SplitHop_PartialTakeOnAConcentratedLeg_IsRefusedByItsLegFloor	FU-3 [fu3-4]: a partial take on a concentrated venue is read as a tax and discounts its bound
 src/BlazePhoenixRouter.sol	test_LegGate_ToTheWei_AndOneWeiUnder	FU-3 [fu3-5]: the measured shrink of the leg bound rounds down
 src/BlazePhoenixRouter.sol	test_HonestFill_CompoundBelowOneBp_Settles	FU-3 [fu3-6]: the push writes its ratio in bps into a slot read in WAD
+src/BlazePhoenixRouter.sol	test_RouteFloor_ToTheWei_IsTheOnlyRefuser	FU-3 [fu3-7]: the route floor reader caps the WAD slot at BPS and the floor shrinks to dust
 src/BlazePhoenixCore.sol	test_Parity_Reserves	theta: one bit of the attribute table
 src/BlazePhoenixCore.sol	test_FallbackPath_UnequalDecimals_MustStillSettle	solidly: re-blinding the decimals in the single primitive
 src/BlazePhoenixCore.sol	test_NoPriceMeansNoDepth	depthFromL18: restore the raw L when there is no price

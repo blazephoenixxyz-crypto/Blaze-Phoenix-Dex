@@ -16,13 +16,14 @@ pragma solidity ^0.8.24;
 ///         Matrix (range x vector x dimension):
 ///           range     pull net {999 wei, 1e6 wei, 1 bp, 2 bps, 14 bps, 100 bps, fuzz 1..5000 bps}
 ///                     x push net {1 bp, 100, 9993, 9999 bps, fuzz 1..10000, none};
-///                     the leg gate at its exact wei and one wei under it
+///                     the leg gate at its exact wei and one wei under it; the route floor
+///                     at its exact wei and one wei under it, with every leg gate cleared
 ///           vector    pool {honest, pays half, pays an exact amount}; venue {V2, Solidly, V3
 ///                     partial take}; tax on {pull, push, push to one pool of a split hop,
 ///                     second hop's push}
 ///           dimension unit, fuzz, boundary; 1 hop and 2 hops; 1 leg and 2 legs; ERC20.
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
@@ -286,6 +287,56 @@ contract FotLegRatioIsMeasuredTest is Test {
         } else {
             assertEq(_swap(), paid, "at or above the gate the swap settles");
         }
+    }
+
+    /// @dev The protocol floor and the quote the swap just used, read off its `ExecutionProof`.
+    function _proof() private returns (uint256 quoted, uint256 floorUsed) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(router) || logs[i].topics[0] != BlazePhoenixRouter.ExecutionProof.selector) continue;
+            (quoted,, floorUsed,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+            return (quoted, floorUsed);
+        }
+        revert("no ExecutionProof");
+    }
+
+    /// @notice The route floor is re-priced by the compound in WAD, to the wei, and here it is the
+    ///         only bound that refuses. Only the push is taxed (it keeps 99%): the leg is quoted
+    ///         before the push, so the untaxed run prices the same leg and gives the floor `p0`
+    ///         before re-pricing. The taxed floor is `ceil(p0 * compound / WAD)` with
+    ///         `compound = took * WAD / amt`; one wei under it is refused, the floor itself
+    ///         settles, and the leg gate sits far below both. Reading the slot at any other unit
+    ///         (a belt that caps it at `BPS`) drops this floor to about nothing and the wei under
+    ///         it settles.
+    function test_RouteFloor_ToTheWei_IsTheOnlyRefuser() public {
+        _seed(R_IN, R_OUT);
+        uint256 snap = vm.snapshotState();
+        vm.recordLogs();
+        _swap();
+        (uint256 q0, uint256 p0) = _proof();
+        vm.revertToState(snap);
+
+        uint256 amt = _legIn(AMOUNT_IN);
+        uint256 took = amt * 9_900 / 10_000;
+        uint256 compound = BPC.mulDiv(took, BPC.WAD, amt);
+        assertEq(compound, 99e16, "the compound is the push's 99%");
+        assertTrue(mulmod(p0, compound, BPC.WAD) != 0, "the re-priced floor has a remainder");
+        uint256 floor = BPC.mulDivUp(p0, compound, BPC.WAD);
+        assertLt(_gate(_outV2(AMOUNT_IN, R_IN, R_OUT), amt, took), floor - 1, "the leg gate is not the bound");
+        assertLt(floor, BPC.outV2(took, R_IN, R_OUT, BPC.effV2Fee(30)), "an honest pool clears the floor");
+
+        tokenIn.set(10_000, 9_900, 0, address(router));
+        snap = vm.snapshotState();
+        pair.setPayWei(floor - 1);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
+        _swap();
+        vm.revertToState(snap);
+        pair.setPayWei(floor);
+        vm.recordLogs();
+        assertEq(_swap(), floor, "the floor itself settles");
+        (uint256 q1, uint256 p1) = _proof();
+        assertEq(q1, q0, "the push tax does not move the quote");
+        assertEq(p1, floor, "the floor used is the re-priced one");
     }
 
     // ── split hop: two legs of one hop, the second one's ratio is not the first one's ──
