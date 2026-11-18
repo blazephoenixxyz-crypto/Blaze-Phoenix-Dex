@@ -666,7 +666,7 @@ contract BlazePhoenixRouter {
         received = BPC.balanceOf(tokenIn, address(this)) - balBefore;
         if (received == 0) revert RouterE(8);
         if (received > amountIn) received = amountIn + BPC.mulDiv(received - amountIn, amountIn, amountIn + balBefore);
-        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.BPS, amountIn));
+        else if (received != amountIn) _noteFot(BPC.mulDiv(received, BPC.WAD, amountIn));
     }
 
     function _swapPrePulled(
@@ -1592,7 +1592,7 @@ contract BlazePhoenixRouter {
         // finalHopQuote prices GROSS amounts, so an un-re-priced floor would
         // falsely reject a correct FoT fill once the transfer fee exceeds
         // ~(BPS − floorBps)/BPS (≈ >4%). The slot holds the compounded
-        // measured net ratio in bps (see _noteFot); honest tokens never set
+        // measured net ratio in WAD (see _noteFot); honest tokens never set
         // it — behaviour unchanged for them.
         //
         // SCOPING (known, bounded, deliberately deferred): the slot compounds
@@ -1613,10 +1613,10 @@ contract BlazePhoenixRouter {
             if (route.singleOutFloor > effMin) effMin = route.singleOutFloor;
         } else {
             assembly { tstore(sF, 0) }
-            if (fotSeen > BPC.BPS) fotSeen = BPC.BPS; // belt; writers clamp
+            if (fotSeen > BPC.WAD) fotSeen = BPC.WAD; // belt; the writer caps
             // R-C: this SHRINKS the floor by the measured tax, so rounding up
             // shrinks it LESS — the conservative direction.
-            protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.BPS);
+            protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.WAD);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
         if (amountOut < effMin) revert RouterE(5);
@@ -1757,12 +1757,7 @@ contract BlazePhoenixRouter {
         bool guard = legOut != address(0) && amt != 0
             && ((leg.expectedOut != 0 && leg.amountIn != 0) || (legQuote != 0 && legAmt != 0));
         uint256 balBefore;
-        uint256 fotBefore;
-        if (guard) {
-            balBefore = BPC.balanceOf(legOut, address(this));
-            uint256 s0 = TSLOT_FOT;
-            assembly { fotBefore := tload(s0) }
-        }
+        if (guard) balBefore = BPC.balanceOf(legOut, address(this));
 
         uint8 k = leg.kind;
         // `declared`: what the venue declares it paid the Router for this leg (DEX-11, read
@@ -1878,27 +1873,25 @@ contract BlazePhoenixRouter {
             // deflating itself present the SAME calldata. No predicate separates them. A
             // measurement separates them. The measurement is what is used.
             //
-            // RATIO LOCAL TO THE LEG, not the compound one. `_noteFot` COMPOSES multiplicatively
-            // along the route (each tax applies to what survived the previous one), but this leg's
-            // `bound` was skewed only by THIS leg's tax. It is recovered by difference from the
-            // snapshot: if `prev != 0`, then `after = prev * local / BPS`, hence
-            // `local = after * BPS / prev`. mulDiv rounds down, so the recovered local is <= the
-            // true one: it understates the discount, tightens the floor, fails OPEN.
+            // RATIO LOCAL TO THE LEG, not the compound one, and MEASURED, not recovered. This
+            // leg's `bound` was skewed only by THIS leg's tax, and the leg's own producer already
+            // holds that ratio at full resolution: `took / amt`, what the pool received over what
+            // was sent to it. It used to be recovered by difference from two reads of the
+            // compound slot (`after * BPS / before`), and a quotient of two coarse integers is
+            // only as fine as the smaller one: with the slot at 2 before the leg the recovered
+            // ratio halved (fail-open), and with the slot clamped it overstated seven-fold and
+            // refused an honest fill. A measured shrink of a protective bound rounds UP (R-C,
+            // same rule as the aggregate floor).
+            //
+            // PAIR ARMS ONLY. There `took != amt` means the push was taxed (`_execPairAmt`).
+            // On a concentrated venue `took < amt` is a partial take, not a tax: the pool chose
+            // to consume less, and its bound is not discounted for it.
             //
             // HONEST SCOPE: `_noteFot` is called on the entry pull of tokenIn (`_received`) and
             // on the V2 and SOLIDLY arms (`_execPairAmt`), and measures only the INPUT side.
             // A V3/V4 leg with a FoT token records nothing past that pull, and an OUTPUT-side tax
             // is not measured anywhere. This closes what is measurable.
-            {
-                uint256 s1 = TSLOT_FOT;
-                uint256 fotAfter; assembly { fotAfter := tload(s1) }
-                if (fotAfter != fotBefore && bound != 0) {
-                    uint256 legNet = fotBefore == 0
-                        ? fotAfter
-                        : BPC.mulDiv(fotAfter, BPC.BPS, fotBefore);
-                    if (legNet < BPC.BPS) bound = BPC.mulDiv(bound, legNet, BPC.BPS);
-                }
-            }
+            if (bound != 0 && took < amt && BPC.kindHas(k, BPC.A_RESERVES)) bound = BPC.mulDivUp(bound, took, amt);
 
             // R-C: a protective threshold never rounds DOWN. floor(1 * 0.8) is 0,
             // and `got < 0` cannot fire, so a one-wei bound demanded zero delivery.
@@ -1939,21 +1932,21 @@ contract BlazePhoenixRouter {
         legOut = leg.zeroForOne ? t1 : t0;
     }
 
-    /// @notice Record a measured fee-on-transfer NET ratio (bps) for this
+    /// @notice Record a measured fee-on-transfer NET ratio (WAD) for this
     ///         swap in transient storage. TSLOT_FOT == 0 means "no FoT seen";
-    ///         otherwise it holds the compounded measured net ratio, clamped
-    ///         to [1, BPS] so a nonzero write always keeps the flag set and
-    ///         can never inflate the floor. Multiple FoT hops compound
-    ///         multiplicatively (each hop's fee applies to what survived the
-    ///         previous one).
-    function _noteFot(uint256 netBps) private {
-        if (netBps == 0) netBps = 1;
-        if (netBps > BPC.BPS) netBps = BPC.BPS;
+    ///         otherwise it holds the compounded measured net ratio in
+    ///         (0, WAD], capped at WAD so it can never inflate the floor.
+    ///         Multiple FoT hops compound multiplicatively (each hop's fee
+    ///         applies to what survived the previous one). A ratio the slot
+    ///         cannot represent is refused, never rounded to a value nobody
+    ///         measured: zero would read as "no FoT seen".
+    function _noteFot(uint256 net) private {
+        if (net > BPC.WAD) net = BPC.WAD;
         uint256 sF = TSLOT_FOT;
         uint256 prev; assembly { prev := tload(sF) }
-        if (prev != 0) netBps = BPC.mulDiv(prev, netBps, BPC.BPS);
-        if (netBps == 0) netBps = 1;
-        assembly { tstore(sF, netBps) }
+        if (prev != 0) net = BPC.mulDiv(prev, net, BPC.WAD);
+        if (net == 0) revert RouterE(8);
+        assembly { tstore(sF, net) }
     }
 
     /// @dev EXPERIMENT: fused push-then-swap engine (V2 + Solidly). Same
@@ -1990,7 +1983,7 @@ contract BlazePhoenixRouter {
             if (realIn == 0) revert RouterE(8);
             took = realIn;
             if (isV2) { rIn = rInB; rOut = leg.zeroForOne ? r1b : r0b; }
-            _noteFot(BPC.mulDiv(realIn, BPC.BPS, amt));
+            _noteFot(BPC.mulDiv(realIn, BPC.WAD, amt));
         }
         if (isV2) {
             outAmt = BPC.outV2(took, rIn, rOut, BPC.effV2Fee(leg.fee));
