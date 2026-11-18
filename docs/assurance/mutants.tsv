@@ -1924,3 +1924,6 @@ src/BlazePhoenixSolver.sol	test_ADeepBookWeighsWhatItHoldsOnTheOtherRows	4660 So
 src/BlazePhoenixSolver.sol	test_ThinCurrentTickDeepNeighbourBookKeepsItsSeat	4660 Solver._dropDust: no book is ever walked
 src/BlazePhoenixSolver.sol	test_TwoHops_SixDecimals_ThinTickBookKeepsItsSeatOnTheFirstHop	4660 Solver._heldBooks: the walk is compared raw against masses in 18 decimals (first of two hops, six-decimal bridge)
 src/BlazePhoenixSolver.sol	test_HookedThinCurrentTickDeepNeighbourBookKeepsItsSeat	4660 Solver._heldBooks: a hooked book is not walked
+src/BlazePhoenixSolver.sol	test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat	4660 E1 Solver._heldBooks: the funnel walks sixteen stretches (the horizon is the promise again)
+src/BlazePhoenixSolver.sol	test_FunnelHorizon_OneBookIsReadOnTwoStretches	4660 E1 Solver: the horizon is one stretch (the neighbour is not read)
+src/BlazePhoenixCore.sol	test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat	4660 E1 Core._v4Walk: the walk ignores its horizon n and stops at sixteen stretches

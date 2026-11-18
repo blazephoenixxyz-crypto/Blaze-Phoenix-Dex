@@ -112,6 +112,10 @@ contract BlazePhoenixSolver {
     ///      past the owner's two-hop design and past the Router's ceiling since then.
     uint256 private constant BRIDGE_SLOTS = 3;   // the Hub's MAX_BRIDGE_ROUTES, read in `findBestRoutePlan`
     uint256 private constant TOPOLOGIES   = 1 + BRIDGE_SLOTS;
+    /// @dev The funnel's horizon (`_heldBooks`, I-FUNNEL-STRETCHES): the stretches it reads of each
+    ///      singleton book under the bar, the current tick and the next. Fixed, so what the funnel
+    ///      reads on a pair is two stretches a book, never a figure a book declares.
+    uint256 private constant FUNNEL_STRETCHES = 2;
 
 
     /// @notice Skip the full CREATE2 discovery sweep when the pair already has at
@@ -1149,10 +1153,12 @@ contract BlazePhoenixSolver {
     ///      was the short side for a pair and the virtual one for a singleton book: a one-tick
     ///      book holding ~2,500 USDC dropped a pair holding 1,000 WETH and 3,000,000 USDC.
     ///      A SINGLETON BOOK (V4) is measured twice. Its declared side is the current tick
-    ///      alone, not a bound: what it holds is read by a walk of sixteen stretches, which reads
-    ///      more when the book is deep next to its tick (4660) and less when one-wei positions
-    ///      cut it. Its OWN d_j is the larger of the two, so a cut walk does not unseat an honest
-    ///      book (S2) and a thin tick does not hide a deep one. What it adds to the OTHER rows'
+    ///      alone, not a bound: what it holds is read by a walk of FUNNEL_STRETCHES (its tick and
+    ///      the next stretch), which reads more when the book is deep next to its tick (4660) and
+    ///      less when one-wei positions cut it. Capital past the next stretch is not a seat: hiding
+    ///      it there costs the book its seat, never the other rows theirs. Its OWN d_j is the
+    ///      larger of the two, so a cut walk does not unseat an honest book (S2) and a thin tick
+    ///      does not hide a deep one. What it adds to the OTHER rows'
     ///      D is what it holds over that walk (`_heldBooks`, the figure the band's vote reads).
     ///      A book that declares mass is never dropped unread: a singleton row under the bar on
     ///      its declared side walks the books, every one of them, because a declared side is
@@ -1220,8 +1226,8 @@ contract BlazePhoenixSolver {
     }
 
     /// @dev What the singleton books of a hop HOLD of tokenOut, written over what each adds to
-    ///      the other rows' D (`_dropDust`): the output of an unbounded, fee-free walk of sixteen
-    ///      stretches, the `held` of `Core.v4HeldShare`, capped like a declared side (2^128 - 1).
+    ///      the other rows' D (`_dropDust`): the output of an unbounded, fee-free walk of
+    ///      FUNNEL_STRETCHES (`Core.v4Held`), capped like a declared side (2^128 - 1).
     ///      `r` and `sum` take it in both directions; `d` is only raised to it, never cut (S2).
     ///      A book that declares nothing (an empty current tick) is left at zero, unwalked.
     function _heldBooks(
@@ -1230,8 +1236,7 @@ contract BlazePhoenixSolver {
     ) private view returns (uint256) {
         for (uint256 j; j < n; ) {
             if (d[j] != 0 && pids[j] != 0) {
-                (, uint256 held, ) = BPC.v4WalkRank(
-                    mgr, pids[j], type(uint256).max, 0, rows[j].tickSpacing, rows[j].token0 == tA, type(uint256).max);
+                uint256 held = BPC.v4Held(mgr, pids[j], rows[j].tickSpacing, rows[j].token0 == tA, FUNNEL_STRETCHES);
                 held = BPC.to18(held > type(uint128).max ? type(uint128).max : held, dOut);
                 sum = sum - r[j] + held;
                 r[j] = held;

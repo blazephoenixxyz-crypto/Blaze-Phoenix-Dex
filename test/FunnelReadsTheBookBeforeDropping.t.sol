@@ -253,9 +253,10 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
 
     // ---- range: a walk past 2^128 is capped like a declared side ---------------------------
 
-    /// tokenOut with 0 decimals (to18 multiplies by 1e18) and a book whose walk pays ~2^177
-    /// units: uncapped, `d * 1e6` leaves uint256 and the whole search reverts. A one-wei book
-    /// beside it makes the walk happen. The mass is capped at 2^128 - 1, as `outSide18` caps.
+    /// tokenOut with 0 decimals (to18 multiplies by 1e18) and a book whose walk over the funnel's
+    /// horizon (two stretches) pays past 2^256 / 1e24 units: uncapped, `d * 1e6` leaves uint256
+    /// and the whole search reverts. A one-wei book beside it makes the walk happen. The mass is
+    /// capped at 2^128 - 1, as `outSide18` caps.
     function test_AWalkPastUint128IsCappedAndTheSearchStands() public {
         PathologicalERC20 a = new PathologicalERC20("A", "A", 18);
         PathologicalERC20 z = new PathologicalERC20("Z", "Z", 0);
@@ -266,17 +267,17 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
         p.setReserves(uint112(1e30), uint112(1e30));
         hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(a), address(z));
         bytes32 deep = BPC.computeV4PoolId(address(a), address(z), 3000, TS, address(0));
-        mgr.initialize(deep, mgr.sqrtAt(700_020), 700_020, 3000);
-        mgr.addPosition(deep, 699_960, 700_080, TS, 1);
-        mgr.addPosition(deep, 600_000, 699_960, TS, type(uint128).max / 2);
+        mgr.initialize(deep, mgr.sqrtAt(800_040), 800_040, 3000);
+        mgr.addPosition(deep, 799_980, 800_100, TS, 1);
+        mgr.addPosition(deep, 700_020, 799_980, TS, type(uint128).max / 2);
         hub.addV4(address(a), address(z), 3000, TS, address(0));
         bytes32 dust = BPC.computeV4PoolId(address(a), address(z), 500, TS, address(0));
         mgr.initialize(dust, mgr.sqrtAt(1), 1, 500);
         mgr.addPosition(dust, 0, 60, TS, 1);
         hub.addV4(address(a), address(z), 500, TS, address(0));
-        (, uint256 held, ) = BPC.v4WalkRank(address(mgr), deep, type(uint256).max, 0, TS, true, type(uint256).max);
+        uint256 held = BPC.v4Held(address(mgr), deep, TS, true, 2);
         emit log_named_uint("deep_walk_raw", held);
-        assertGt(held, uint256(type(uint128).max), "fixture: the walk pays past 2^128");
+        assertGt(held, type(uint256).max / 1e24, "fixture: the funnel's walk, uncapped, leaves uint256 at d * 1e6");
         solver.findBestRoutePlan(address(a), address(z), 1e18);
     }
 
@@ -311,13 +312,15 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
     }
 
     /// COUNTED. Two one-wei books beside the pair: the search reads two declared sides and two
-    /// walks on the manager, exactly. Each book is walked once, and a dropped book is not probed.
+    /// walks of the funnel's horizon (two stretches) on the manager, exactly. Each book is walked
+    /// once, and a dropped book is not probed.
     function test_EachBookUnderTheBarIsWalkedOnce() public {
         (uint256 r0, ) = _reads(AMT);
         bytes32 a = _book(500, 1, 1);
         _book(100, 1, 1);
         (uint256 r2, ) = _reads(AMT);
-        (uint256 mass, uint256 walk) = _readsOfOneBook(a);
+        (uint256 mass, ) = _readsOfOneBook(a);
+        uint256 walk = _walkReads(a, 2);
         assertGt(walk, mass, "fixture: a walk reads more than a declared side");
         assertEq(r2 - r0, 2 * mass + 2 * walk, "two one-wei books cost other than two declared sides and two walks");
     }
@@ -428,6 +431,112 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
         assertEq(plan.hops.length, 2, "fixture: not a two-hop plan");
         assertGt(_legs(plan, pid), 0, "a deep book of a six-decimal token was dropped on the first hop");
         assertGt(out, pairOnly, "the plan pays no more than the pairs alone");
+    }
+
+    // ---- the funnel's horizon (I-FUNNEL-STRETCHES, 4660 E1, h = 2) -------------------------
+    // Each singleton book under the bar is walked FUNNEL_STRETCHES = 2 stretches, its current
+    // tick and the next, whatever else sits on the pair: what the funnel reads on a pair is two
+    // stretches a book, and no declared figure or count of books moves it.
+
+    /// Slots one walk of `h` stretches (`Core.v4Held`) makes on `pid`.
+    function _walkReads(bytes32 pid, uint256 h) internal returns (uint256) {
+        vm.record();
+        BPC.v4Held(address(mgr), pid, TS, true, h);
+        (bytes32[] memory rd, ) = vm.accesses(address(mgr));
+        return rd.length;
+    }
+
+    /// `nb` one-wei books beside the pair: the search reads, on the manager, nb declared sides
+    /// and nb walks of exactly two stretches, and a walk of two reads other than one of one or three.
+    function _assertTwoStretches(uint256 nb) internal returns (bytes32 a) {
+        (uint256 r0, ) = _reads(AMT);
+        for (uint256 k; k < nb; ++k) a = _book(uint24(101 + 100 * k), 1, 1);
+        (uint256 rn, ) = _reads(AMT);
+        (uint256 mass, ) = _readsOfOneBook(a);
+        uint256 w = _walkReads(a, 2);
+        assertGt(w, _walkReads(a, 1), "fixture: one stretch reads as much as two");
+        assertLt(w, _walkReads(a, 3), "fixture: three stretches read as much as two");
+        assertEq(rn - r0, nb * (mass + w), "the books were not each walked on two stretches");
+    }
+
+    /// COUNTED, one book: two stretches, fewer than the promise's sixteen.
+    function test_FunnelHorizon_OneBookIsReadOnTwoStretches() public {
+        bytes32 a = _assertTwoStretches(1);
+        (, uint256 promise_) = _readsOfOneBook(a);
+        assertLt(_walkReads(a, 2), promise_, "fixture: two stretches read as much as the promise's walk");
+    }
+
+    /// COUNTED, a full pair (the incumbent and fifteen books): two stretches each, so the pair
+    /// reads thirty stretches and not two hundred and forty.
+    function test_FunnelHorizon_FifteenBooksReadTwoStretchesEach() public { _assertTwoStretches(15); }
+
+    /// Books whose current tick is empty declare nothing and are not walked: eight of them beside
+    /// two one-wei books leave the read at two declared sides and two walks of two stretches.
+    function test_FunnelHorizon_EmptyTickBooksAreNotWalked() public {
+        (uint256 r0, ) = _reads(AMT);
+        bytes32 e;
+        for (uint256 k; k < 8; ++k) e = _book(uint24(101 + 100 * k), 0, 1);
+        bytes32 a = _book(5_001, 1, 1);
+        _book(5_101, 1, 1);
+        (uint256 rn, ) = _reads(AMT);
+        (uint256 massE, ) = _readsOfOneBook(e);
+        (uint256 mass, ) = _readsOfOneBook(a);
+        assertEq(rn - r0, 8 * massE + 2 * (mass + _walkReads(a, 2)), "empty-tick books were walked");
+    }
+
+    /// A book at tick 1: `liqNow` on [0, 60), one wei on [-120, 0), `liqDeep` on [-6000, -120):
+    /// its capital starts on the THIRD stretch of a zeroForOne walk.
+    function _bookFar(uint24 fee, uint128 liqNow, uint128 liqDeep) internal returns (bytes32 pid) {
+        pid = BPC.computeV4PoolId(address(t0), address(t1), fee, TS, address(0));
+        mgr.initialize(pid, mgr.sqrtAt(1), 1, fee);
+        mgr.addPosition(pid, 0, 60, TS, liqNow);
+        mgr.addPosition(pid, -120, 0, TS, 1);
+        mgr.addPosition(pid, -6000, -120, TS, liqDeep);
+        hub.addV4(address(t0), address(t1), fee, TS, address(0));
+    }
+
+    /// THE RESIDUAL, PINNED. Alone beside the pair, a book whose capital starts on its third
+    /// stretch is dropped, though sixteen stretches would seat it. Hiding capital past the
+    /// horizon costs the book its own seat, never another row's; this pins the horizon at two
+    /// so that it moves only by decision.
+    function test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat() public {
+        bytes32 far = _bookFar(500, 1e18, 1_000_000e18);
+        assertLt(uint256(1e18) * 1e6, GAMMA_PPM * PAIR, "fixture: the current tick alone is under the bar");
+        assertLt(BPC.v4Held(address(mgr), far, TS, true, 2) * 1e6, GAMMA_PPM * PAIR, "fixture: two stretches hold under the bar");
+        assertGt(BPC.v4Held(address(mgr), far, TS, true, 16) * 1e6, GAMMA_PPM * PAIR, "fixture: sixteen stretches hold over the bar");
+        (Route memory plan, ) = _plan(AMT);
+        assertEq(_legs(plan, far), 0, "the funnel read past two stretches of a lone book");
+    }
+
+    /// THE HORIZON DOES NOT MOVE WITH THE CROWD. Thirteen one-wei books beside the pair: the book
+    /// deep on its second stretch keeps its seat, the one deep on its third is dropped.
+    function test_FunnelHorizon_ACrowdedPairReadsTheSameTwoStretches() public {
+        for (uint256 k; k < 13; ++k) _book(uint24(101 + 100 * k), 1, 1);
+        bytes32 near = _book(3000, 1e18, 1_000_000e18);
+        bytes32 far = _bookFar(500, 1e18, 1_000_000e18);
+        (Route memory plan, ) = _plan(AMT);
+        assertGt(_legs(plan, near), 0, "a crowded pair dropped the book deep on its second stretch");
+        assertEq(_legs(plan, far), 0, "a crowded pair read past two stretches a book");
+    }
+
+    /// CROWDED, WEIGHED (other rows). Twelve one-wei books beside the deep book of
+    /// test_ADeepBookWeighsWhatItHoldsOnTheOtherRows: read on two stretches, it still adds what it
+    /// holds, not its declared side, to the other rows' D, and the small pair is dropped.
+    function test_FunnelHorizon_ACrowdedDeepBookWeighsWhatItHoldsOnTheOtherRows() public {
+        uint256 q = 10.01e18;
+        MockV2Pair small = new MockV2Pair(address(t0), address(t1));
+        t0.mint(address(small), 10e18);
+        t1.mint(address(small), q);
+        small.setReserves(uint112(10e18), uint112(q));
+        hub.seedPool(address(small), BPC.KIND_V2, 30, address(0), address(t0), address(t1));
+        for (uint256 k; k < 12; ++k) _book(uint24(101 + 100 * k), 1, 1);
+        bytes32 pid = _book(3000, 1e18, 40_000_000e18);
+        uint256 held = BPC.v4Held(address(mgr), pid, TS, true, 2);
+        assertGe(q * 1e6, GAMMA_PPM * (PAIR + 2e18), "fixture: against the declared sides the small pair is over the bar");
+        assertLt(q * 1e6, GAMMA_PPM * (PAIR + held), "fixture: against two stretches of the book the small pair is dust");
+        (Route memory plan, ) = _plan(SMALL);
+        assertEq(_legsAt(plan, address(small)), 0, "a crowded book weighed its declared side, not what it holds");
+        assertGt(plan.hops.length, 0, "the pair lost its route");
     }
 
     function _seedPair(address a, address b, uint256 ra, uint256 rb) internal {

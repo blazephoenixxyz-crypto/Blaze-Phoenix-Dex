@@ -2085,7 +2085,7 @@ M = [
  # ── THE V4 WALK (dex-19): the pool's own book, walked; each guard and the edit that reopens it ──
  dict(nome="V4 walk: ranking goes back to the edge-blind single-tick form (dex-19 reopens)",
       f="src/BlazePhoenixCore.sol",
-      old="            (out, rank, hi) = _v4Walk(c.v4Manager, pid, amountIn, uint24(fee), c.tickSpacing, c.zeroForOne, bar);",
+      old="            (out, rank, hi) = _v4Walk(c.v4Manager, pid, amountIn, uint24(fee), c.tickSpacing, c.zeroForOne, bar, V4_WALK_MAX_STEPS);",
       new="            out = outV3(amountIn, sp, liq, uint24(fee), c.zeroForOne, 0); rank = out; hi = out; bar; // MUTANT",
       teste="test_AOneTickRangeCannotTakeTheRouteFromAnHonestPool"),
  dict(nome="V4 walk: a crossing leaves the liquidity unchanged",
@@ -7232,8 +7232,8 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       teste='test_Funnel_ASingletonBookWhoseWalkDustCutKeepsItsSeat'),
  dict(nome='massa MAT-01 Solver._heldBooks: the walk reads the side of the token being sold',
       f='src/BlazePhoenixSolver.sol',
-      old='rows[j].tickSpacing, rows[j].token0 == tA, type(uint256).max);',
-      new='rows[j].tickSpacing, rows[j].token0 != tA, type(uint256).max); // MUTANT',
+      old='rows[j].tickSpacing, rows[j].token0 == tA, FUNNEL_STRETCHES);',
+      new='rows[j].tickSpacing, rows[j].token0 != tA, FUNNEL_STRETCHES); // MUTANT',
       teste='test_Funnel_ASingletonBookHoldingNoneOfTheBoughtTokenDropsNoRow'),
  dict(nome='massa MAT-01 Solver._dropDust: singleton mass is never counted, so no book is ever walked',
       f='src/BlazePhoenixSolver.sol',
@@ -10469,7 +10469,7 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
  dict(nome='4660 Solver._heldBooks: each book is walked twice',
       f='src/BlazePhoenixSolver.sol',
       old='                sum = sum - r[j] + held;\n',
-      new='                BPC.v4WalkRank(mgr, pids[j], type(uint256).max, 0, rows[j].tickSpacing, rows[j].token0 == tA, type(uint256).max); // MUTANT\n                sum = sum - r[j] + held;\n',
+      new='                BPC.v4Held(mgr, pids[j], rows[j].tickSpacing, rows[j].token0 == tA, FUNNEL_STRETCHES); // MUTANT\n                sum = sum - r[j] + held;\n',
       teste='test_EachBookUnderTheBarIsWalkedOnce'),
  dict(nome='4660 Solver._heldBooks: a book declaring nothing (an empty current tick) is walked',
       f='src/BlazePhoenixSolver.sol',
@@ -10501,6 +10501,26 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            if (d[j] != 0 && pids[j] != 0) {',
       new='            if (d[j] != 0 && pids[j] != 0 && rows[j].hooks == address(0)) { // MUTANT',
       teste='test_HookedThinCurrentTickDeepNeighbourBookKeepsItsSeat'),
+ # 4660 E1 (2026-11-19): the funnel's horizon is FUNNEL_STRETCHES = 2 (the tick and the next stretch),
+ # fixed, so what `_heldBooks` reads on a pair is two stretches a book whatever the books declare or count.
+ dict(nome='4660 E1 Solver._heldBooks: the funnel walks sixteen stretches (the horizon is the promise again)',
+      f='src/BlazePhoenixSolver.sol',
+      old='rows[j].tickSpacing, rows[j].token0 == tA, FUNNEL_STRETCHES);',
+      new='rows[j].tickSpacing, rows[j].token0 == tA, BPC.V4_WALK_MAX_STEPS); // MUTANT',
+      teste='test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat'),
+ dict(nome='4660 E1 Solver: the horizon is one stretch (the neighbour is not read)',
+      f='src/BlazePhoenixSolver.sol',
+      old='    uint256 private constant FUNNEL_STRETCHES = 2;',
+      new='    uint256 private constant FUNNEL_STRETCHES = 1; // MUTANT',
+      teste='test_FunnelHorizon_OneBookIsReadOnTwoStretches'),
+ dict(nome='4660 E1 Core._v4Walk: the walk ignores its horizon n and stops at sixteen stretches',
+      f='src/BlazePhoenixCore.sol',
+      old='            if (i == n - 1) {',
+      new='            if (i == V4_WALK_MAX_STEPS - 1) { // MUTANT',
+      teste='test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat'),
+ # EQUIVALENT, not registered: Core._v4Walk `if (i < n) lo = out;` -> `if (i < V4_WALK_MAX_STEPS)`.
+ # Every caller but `v4Held` passes n = V4_WALK_MAX_STEPS (same line), and `v4Held` drops `lo`
+ # (`(, held, ) = _v4Walk(...)`), so no caller can tell the two apart.
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
