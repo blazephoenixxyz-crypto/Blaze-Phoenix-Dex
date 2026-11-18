@@ -10,7 +10,7 @@ pragma solidity ^0.8.24;
 ///             (714 bps for a leg that kept 100): an honest fill is refused, `RouterE(5)`;
 ///           - at a slot of 2 or 3 the division is coarse (2 -> 1 reads as 5000 bps for a leg
 ///             that kept 9999): the leg gate asks 40% of the attestation instead of 80%.
-///         The leg's ratio is `took / amt`, both measured by the leg itself. The slot keeps the
+///         The leg's ratio is `took / amt`, both measured by the leg itself. The slot (`TSLOT_FOT`) keeps the
 ///         route's compound in WAD, and a ratio it cannot represent is refused.
 ///
 ///         Matrix (range x vector x dimension):
