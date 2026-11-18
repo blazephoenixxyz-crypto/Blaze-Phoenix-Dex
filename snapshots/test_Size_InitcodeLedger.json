@@ -1,14 +1,14 @@
 {
-  "BlazePhoenixAdapterBalancerV2": "5973",
-  "BlazePhoenixAdapterBalancerV3": "6974",
-  "BlazePhoenixAdapterCurveCryptoNG": "3407",
-  "BlazePhoenixAdapterCurveNG": "3909",
-  "BlazePhoenixCore": "21831",
-  "BlazePhoenixGate": "15897",
-  "BlazePhoenixGateWrapper": "4923",
-  "BlazePhoenixHub": "23626",
-  "BlazePhoenixMath": "10710",
-  "BlazePhoenixQuoter": "20178",
-  "BlazePhoenixRouter": "24389",
-  "BlazePhoenixSolver": "32388"
+  "BlazePhoenixAdapterBalancerV2": "5578",
+  "BlazePhoenixAdapterBalancerV3": "6574",
+  "BlazePhoenixAdapterCurveCryptoNG": "3391",
+  "BlazePhoenixAdapterCurveNG": "3893",
+  "BlazePhoenixCore": "19068",
+  "BlazePhoenixGate": "15951",
+  "BlazePhoenixGateWrapper": "4929",
+  "BlazePhoenixHub": "22046",
+  "BlazePhoenixMath": "9706",
+  "BlazePhoenixQuoter": "18634",
+  "BlazePhoenixRouter": "23389",
+  "BlazePhoenixSolver": "30473"
 }

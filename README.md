@@ -267,8 +267,8 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,532 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 515 | `test/**/*.t.sol` |
+| Test declarations | 3,535 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 516 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
@@ -293,22 +293,22 @@ above is the place for it.
 
 | Contract | Runtime bytes | EIP-170 headroom (24,576) |
 |---|---:|---:|
-| `BlazePhoenixAdapterAlgebraIntegral` | 6,666 | 17,910 |
-| `BlazePhoenixAdapterBalancerV2` | 5,208 | 19,368 |
-| `BlazePhoenixAdapterBalancerV3` | 6,179 | 18,397 |
-| `BlazePhoenixAdapterCurveCryptoNG` | 3,026 | 21,550 |
-| `BlazePhoenixAdapterCurveNG` | 3,528 | 21,048 |
-| `BlazePhoenixAdapterInfinityBin` | 5,584 | 18,992 |
-| `BlazePhoenixAdapterInfinityCL` | 5,975 | 18,601 |
-| `BlazePhoenixAdapterLB` | 3,118 | 21,458 |
-| `BlazePhoenixCore` | 21,801 | 2,775 |
-| `BlazePhoenixGate` | 10,710 | 13,866 |
-| `BlazePhoenixGateWrapper` | 4,408 | 20,168 |
-| `BlazePhoenixHub` | 23,360 | 1,216 |
-| `BlazePhoenixMath` | 10,680 | 13,896 |
-| `BlazePhoenixQuoter` | 19,760 | 4,816 |
-| `BlazePhoenixRouter` | 23,710 | 866 |
-| `BlazePhoenixSolver` | 21,253 | 3,323 |
+| `BlazePhoenixAdapterAlgebraIntegral` | 6,347 | 18,229 |
+| `BlazePhoenixAdapterBalancerV2` | 4,836 | 19,740 |
+| `BlazePhoenixAdapterBalancerV3` | 5,794 | 18,782 |
+| `BlazePhoenixAdapterCurveCryptoNG` | 3,014 | 21,562 |
+| `BlazePhoenixAdapterCurveNG` | 3,516 | 21,060 |
+| `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
+| `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
+| `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
+| `BlazePhoenixCore` | 19,038 | 5,538 |
+| `BlazePhoenixGate` | 10,758 | 13,818 |
+| `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
+| `BlazePhoenixHub` | 21,780 | 2,796 |
+| `BlazePhoenixMath` | 9,676 | 14,900 |
+| `BlazePhoenixQuoter` | 18,216 | 6,360 |
+| `BlazePhoenixRouter` | 22,710 | 1,866 |
+| `BlazePhoenixSolver` | 20,342 | 4,234 |
 <!-- protocol-constants:end -->
 
 ### Gas case studies (measured; linked as they are published)
