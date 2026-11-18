@@ -3128,8 +3128,8 @@ library BlazePhoenixCore {
     ///         tokenOut the row can pay, 18 decimals. Pair shapes: the out reserve, 0 unless the
     ///         pair holds its reserves (`heldBy`). Concentrated pools: the declared tokenOut
     ///         side (`outSide18`) capped by the tokenOut the pool holds. Single-tick (V4): the
-    ///         declared side alone - an UPPER bound, because what a singleton book holds is read
-    ///         only by walking it (`Solver._dropDust` walks it when a row's seat depends on it).
+    ///         declared side alone, the current tick's liquidity; the book's held mass is read
+    ///         only by walking it, and the walk can read more (4660) or less (`Solver._dropDust`).
     ///         A Gate wrapper is not read here: 0. The same figures the probe's mass is made of
     ///         (`_quoteArms` and the Solver's cap), so the funnel and the vote measure one thing.
     /// @dev    Internal: it compiles into its one caller, the Solver. `dOut` is tokenOut's

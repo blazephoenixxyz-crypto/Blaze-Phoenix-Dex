@@ -1148,13 +1148,20 @@ contract BlazePhoenixSolver {
     ///      token is restated, and out-massing a row costs tokenOut held. The registry's depth
     ///      was the short side for a pair and the virtual one for a singleton book: a one-tick
     ///      book holding ~2,500 USDC dropped a pair holding 1,000 WETH and 3,000,000 USDC.
-    ///      A SINGLETON BOOK (V4) is measured twice. Its OWN d_j is the side it declares, an
-    ///      upper bound: what it holds is read by a walk of sixteen stretches that one-wei
-    ///      positions can cut, and a cut walk must not unseat an honest book (S2). What it adds
-    ///      to the OTHER rows' D is what it holds over that walk (`_heldBooks`, the figure the
-    ///      band's vote reads). The walk is made only when a seat depends on it: with the books
-    ///      at their declared side D is at its largest and with them at zero at its smallest,
-    ///      so a row kept against the first or dropped against the second is decided unread.
+    ///      A SINGLETON BOOK (V4) is measured twice. Its declared side is the current tick
+    ///      alone, not a bound: what it holds is read by a walk of sixteen stretches, which reads
+    ///      more when the book is deep next to its tick (4660) and less when one-wei positions
+    ///      cut it. Its OWN d_j is the larger of the two, so a cut walk does not unseat an honest
+    ///      book (S2) and a thin tick does not hide a deep one. What it adds to the OTHER rows'
+    ///      D is what it holds over that walk (`_heldBooks`, the figure the band's vote reads).
+    ///      A book that declares mass is never dropped unread: a singleton row under the bar on
+    ///      its declared side walks the books, every one of them, because a declared side is
+    ///      virtual (L * sqrtP) and costs about two wei to raise: no order among unread books and
+    ///      no count of failed walks holds against a free number. A book whose current tick is
+    ///      empty declares nothing and is not walked: the probe does not quote it, so it must
+    ///      not weigh on the rows the probe can quote. Any other row is decided unread when it is
+    ///      dropped with the books at zero (D at its smallest); one kept against their declared
+    ///      sides is kept unread.
     ///      For pools at one price and fee, the most a leg on j adds to what the others pay,
     ///      relative to it, is d_j / (D - d_j) at every size, so a dropped row cannot lift an
     ///      order by the improvement a split must show to be kept: no threshold of its own and no
@@ -1195,7 +1202,7 @@ contract BlazePhoenixSolver {
                 uint256 x = d[i] * 1e6;
                 if (rows[i].kind != BPC.KIND_EXTERNAL
                     && x < MIN_SPLIT_IMPROVEMENT_PPM * (sum - d[i])
-                    && x >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - v - (pids[i] != 0 ? 0 : d[i]))) {
+                    && (pids[i] != 0 || x >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - v - d[i]))) {
                     sum = _heldBooks(rows, pids, d, r, n, tA, uint8(dec) - 1, mgr, sum);
                     break;
                 }
@@ -1214,20 +1221,21 @@ contract BlazePhoenixSolver {
 
     /// @dev What the singleton books of a hop HOLD of tokenOut, written over what each adds to
     ///      the other rows' D (`_dropDust`): the output of an unbounded, fee-free walk of sixteen
-    ///      stretches, the `held` of `Core.v4HeldShare`. Only ever lowers `r` and `sum`.
+    ///      stretches, the `held` of `Core.v4HeldShare`, capped like a declared side (2^128 - 1).
+    ///      `r` and `sum` take it in both directions; `d` is only raised to it, never cut (S2).
+    ///      A book that declares nothing (an empty current tick) is left at zero, unwalked.
     function _heldBooks(
         PoolInfo[] memory rows, bytes32[] memory pids, uint256[] memory d, uint256[] memory r,
         uint256 n, address tA, uint8 dOut, address mgr, uint256 sum
     ) private view returns (uint256) {
         for (uint256 j; j < n; ) {
-            if (pids[j] != 0) {
+            if (d[j] != 0 && pids[j] != 0) {
                 (, uint256 held, ) = BPC.v4WalkRank(
                     mgr, pids[j], type(uint256).max, 0, rows[j].tickSpacing, rows[j].token0 == tA, type(uint256).max);
-                held = BPC.to18(held, dOut);
-                if (held < d[j]) {
-                    sum -= d[j] - held;
-                    r[j] = held;
-                }
+                held = BPC.to18(held > type(uint128).max ? type(uint128).max : held, dOut);
+                sum = sum - r[j] + held;
+                r[j] = held;
+                if (held > d[j]) d[j] = held;
             }
             unchecked { ++j; }
         }
