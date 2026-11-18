@@ -688,6 +688,14 @@
       "guard": "_solY",
       "test": "test_ThinInputSideExitsOnTheSafeSide",
       "note": "2026-11-14. Core._solY landed the converged exit on the safe side (K_post >= K_pre) with one +1 wei bump, which assumed _solK increasing in y; it is only non-decreasing: its floor(x*y/WAD) factor moves in steps of WAD/x wei, so with the input side below one normalised unit a single bump can stay on the K-deficient step (two climbs were needed in 1,167 of 26,251 sampled exits over the full domain, never three). Since 2026-11-14 the exit climbs one wei at a time while K-deficient, at most two, and fails closed past that (y0, out = 0). Held by test/SolidlyNewtonLandsOnTheSafeSide.t.sol (the thin-side unit case and its fuzz, the exact-arithmetic fuzz, the swamping input); mutants Core:1863 and Core:1863-fix in .github/scripts/mutants.py."
+    },
+    {
+      "id": "JUDGE-CEILING-ON-THE-SINGLE-RANGE-MODEL",
+      "class": "A concentrated leg priced by the single-range model (its current liquidity taken to go on for ever) reads a thin range at the price beside a deep book as a destroyer, and a route whose books each pay near 1:1 is refused with SolverE(5)",
+      "status": "blocked",
+      "guard": "_judgedOnTheBook",
+      "test": "test_TwoConcentratedHopsOverTheirEdgeKeepARoute",
+      "note": "4746/4755, 2026-11-18. Solver._assembleRouteMulti refused on _legImpactBps alone: two V3 hops on a 1e18 range beside a 1e22 book, 2e18 in, each settling near 1:1, were refused (and the 4755 geometry at 10,000e18). Red at 2c8cbbe in test/JudgeAsksTheBook.t.sol. Since then the worst leg is folded into the gate and, before refusing, each concentrated leg is judged on its own book walked (Core.v3PaysOnBudget, then Core.impactV3FromOut): only a walk that finished inside its reads is a measurement, a book that does not answer or a walk that ran out of reads keeps the model figure, which refuses; JUDGE_READS 12 per hop, JUDGE_SOLVE_READS 24 per frame (SHARED_QUANTITIES). The floor keeps the single-range figure the Router's arm reads. A leader the judge admitted whose re-assembly on what its books pay is refused on the frame's spent reads stops with SolverE(5), never an empty plan (test_LeaderAdmittedByTheJudgeDoesNotLeaveAnEmptyPlan, red at f96bf6c). Mutants M-JUDGE-1, -2a, -2b, -3, -4, -5, -6, -7. Two concentrated legs on one hop still share the hop's reads and stay refused (pinned, M-JUDGE-5)."
     }
   ]
 }

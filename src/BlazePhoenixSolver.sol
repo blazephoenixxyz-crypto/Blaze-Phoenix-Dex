@@ -353,7 +353,9 @@ contract BlazePhoenixSolver {
     ///      the route is assembled again, one producer of the floor. The ranking is not changed
     ///      here: each book whose promise fell is handed back on `fl`, a chain of [next, tokenIn,
     ///      tokenOut, pool] in memory (0 is none), and the leader's build is rebuilt without them
-    ///      (N1, `findBestRoutePlan`).
+    ///      (N1, `findBestRoutePlan`). An assembly that now refuses the route (the judge's reads
+    ///      spent in this frame, `_judgedOnTheBook`) stops the solve with SolverE(5), as a refused
+    ///      build does, never an empty plan; inside the rebuild's self-call the cap's plan stands.
     function _paysWhatItWalks(Route memory r, address tIn, address tOut, Melhores memory m)
         private view returns (Route memory, uint256 fl)
     {
@@ -384,7 +386,9 @@ contract BlazePhoenixSolver {
             unchecked { ++h; }
         }
         if (!fell) return (r, fl);
-        return (_assembleRouteMulti(r.hops, tIn, tOut, m, num), fl);
+        r = _assembleRouteMulti(r.hops, tIn, tOut, m, num);
+        if (r.totalOut == 0) revert SolverE(5);
+        return (r, fl);
     }
 
     /// @dev One build of the leading topology on the rebuild (`findBestRoutePlan`), and its rank on

@@ -10383,6 +10383,16 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            uint256 given = JUDGE_SOLVE_READS - m.judged;",
       new="            uint256 given = JUDGE_SOLVE_READS; // MUTANT",
       teste="test_SolveAllowanceExhaustedKeepsTheModel"),
+ dict(nome="M-JUDGE-3 [4746]: a route the judge admits is floored at impact 0, not on the single-range figure the Router's arm reads",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS && _judgedOnTheBook(hops, m)) return route;",
+      new="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS) { if (_judgedOnTheBook(hops, m)) return route; weightedAcc = 0; } // MUTANT",
+      teste="test_FloorFigureUnchangedByTheJudge"),
+ dict(nome="M-JUDGE-7 [4746]: the leader re-assembled on the judge's spent reads is refused and returned as an empty plan",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (r.totalOut == 0) revert SolverE(5);\n",
+      new="        // MUTANT\n",
+      teste="test_LeaderAdmittedByTheJudgeDoesNotLeaveAnEmptyPlan"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

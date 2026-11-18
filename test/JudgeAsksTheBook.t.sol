@@ -651,6 +651,29 @@ contract JudgeAsksTheBook is Test {
         solver.findBestRoutePlan(address(c), address(d), ORD);
     }
 
+    /// The leader the judge admitted, re-assembled on what its books pay (`_paysWhatItWalks`)
+    /// with the frame's reads already spent: hop 0 a dense book whose walk spends the hop's 12
+    /// reads and does not finish (model ~6,700), so its promise falls; hop 1 a 1e17 range that
+    /// only the judge keeps (model >= 9,000). The re-assembly is handed 4 reads, keeps hop 1's
+    /// model figure and refuses. The solve stops with SolverE(5), as at base 2c8cbbe, never an
+    /// empty plan returned as an answer. Red at f96bf6c (an empty `best`, no revert): three
+    /// stair sizes and orders, each one a geometry the review measured empty.
+    function test_LeaderAdmittedByTheJudgeDoesNotLeaveAnEmptyPlan() public {
+        uint128[3] memory per = [uint128(1e17), 5e17, 3e17];
+        uint256[3] memory ord = [ORD, ORD, 15e17];
+        for (uint256 i; i < 3; ++i) {
+            uint256 snap = vm.snapshotState();
+            (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
+            MockV3TickPool q = _dense(c, mid, CUR, per[i], 40);
+            _book(mid, d, 1e17, DEEP);
+            (, uint256 left0) = _judgeWalk(q, address(c) < address(mid), ord[i]);
+            assertEq(left0, 0, "premise: hop 0's walk spends every read and does not finish");
+            vm.expectRevert(_refusal());
+            solver.findBestRoutePlan(address(c), address(d), ord[i]);
+            vm.revertToState(snap);
+        }
+    }
+
     /// @dev Two V2 pairs in a row: the judge never runs (no concentrated leg), so the folded
     ///      ceiling (gate + CAP per leg at >= CAP) must refuse exactly what the two reductions
     ///      refused (worst leg >= 9,000, or the hops' figures summed >= 9,000). Oracle: Core's own
