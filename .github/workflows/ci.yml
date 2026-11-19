@@ -627,10 +627,10 @@ jobs:
       - name: Build the Core and Math probes under three other code generations
         # test/nversion: the suite executes one binary (the release settings). This lane
         # compiles the same quote maths and band selection at optimizer_runs = 1 and 20000,
-        # and under a Yul step sequence with no FunctionSpecializer (nver3), and asserts the
-        # four binaries agree on fuzzed inputs. A disagreement is a compiler-setting
-        # dependence in the source, and would be invisible to a suite that runs under one
-        # setting alone.
+        # and under solc's built-in Yul step sequence, with the FunctionSpecializer the release
+        # drops (nver3), and asserts the four binaries agree on fuzzed inputs. A disagreement
+        # is a compiler-setting dependence in the source, and would be invisible to a suite
+        # that runs under one setting alone.
         run: |
           FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'
           FOUNDRY_PROFILE=nver2 forge build --skip '*.t.sol'

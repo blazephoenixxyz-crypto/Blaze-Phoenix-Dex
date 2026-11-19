@@ -10,9 +10,11 @@ pragma solidity 0.8.36;
 //  one setting, is invisible to a suite that runs under that setting alone.
 //
 //  The lane: `FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'` (optimizer
-//  runs = 1), `nver2` (runs = 20000) and `nver3` (a Yul step sequence with no
-//  FunctionSpecializer) emit test/nversion/CoreProbe.sol and MathProbe.sol into
-//  out-nver1/ to out-nver3/. This test deploys those binaries beside the ones
+//  runs = 1), `nver2` (runs = 20000, under the built-in sequence: without the
+//  FunctionSpecializer it runs out of stack there) and `nver3` (solc's built-in
+//  Yul step sequence, with the FunctionSpecializer the release drops) emit
+//  test/nversion/CoreProbe.sol and MathProbe.sol into out-nver1/ to
+//  out-nver3/. This test deploys those binaries beside the ones
 //  compiled with the suite and asserts equality on fuzzed inputs: the Core's
 //  quote maths value by value, the Math library's band selection byte for
 //  byte (the whole return, or the whole revert). Missing

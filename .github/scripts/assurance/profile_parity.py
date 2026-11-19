@@ -32,8 +32,8 @@ Parity alone is relative: if both profiles drift together (runs 200 -> 199 in ea
 in each), every comparison still agrees. So the default is also pinned to ABSOLUTE values below,
 and a deliberate change edits PINNED in the same commit. Two blind spots of the toml close with
 it: a typo inside optimizer_details.yulDetails is dropped by forge in silence (no warning, the
-effective config shows an empty yulDetails), and any optimizer_details at all differs from the
-pinned absence; a key left out of the toml takes forge's default, which moves with the forge
+effective config shows an empty yulDetails), and any other step sequence (solc's built-in one,
+which carries the FunctionSpecializer the release dropped) differs from the pinned one; a key left out of the toml takes forge's default, which moves with the forge
 release (the CI does not pin forge), and `--effective` reads what forge actually resolved.
 
 One instrument setting is pinned too, though it generates no code: `isolate`. It decides what a
@@ -53,14 +53,17 @@ COMPARED = ["default", "release"]
 KEYS = ["solc_version", "evm_version", "optimizer", "optimizer_runs", "via_ir",
         "optimizer_details", "bytecode_hash", "cbor_metadata",
         "additional_compiler_profiles", "compilation_restrictions", "revert_strings"]
+# The release's Yul step sequence: solc 0.8.36's built-in one without the FunctionSpecializer (F).
+NO_F = {"yul": True, "yulDetails": {"optimizerSteps": "dfDvulfnTUtnIfxa[r]EscLMVcul [j]Trpeulxa[r]cLvifMCTUca[r]"
+        "LSsTOtfDnca[r]IulcscCTUtvifMx[scCTUt] TOntnfDIulvifMjmul[jul] VcTOcul jmul"}}
 # Absolute values, for both compared profiles. None = the key is absent from the toml.
 PINNED = {"solc_version": "0.8.36", "evm_version": "cancun", "optimizer": True, "optimizer_runs": 200,
-          "via_ir": True, "optimizer_details": None, "bytecode_hash": "none", "cbor_metadata": None,
+          "via_ir": True, "optimizer_details": NO_F, "bytecode_hash": "none", "cbor_metadata": None,
           "additional_compiler_profiles": None, "compilation_restrictions": None, "revert_strings": None,
           "isolate": True}
 # What forge resolves for the same pin (`forge config --json`): absent keys read as its defaults.
 EFFECTIVE = {"solc": "0.8.36", "evm_version": "cancun", "optimizer": True, "optimizer_runs": 200,
-             "via_ir": True, "optimizer_details": None, "bytecode_hash": "none", "cbor_metadata": True,
+             "via_ir": True, "optimizer_details": NO_F, "bytecode_hash": "none", "cbor_metadata": True,
              "additional_compiler_profiles": [], "compilation_restrictions": [], "revert_strings": None,
              "isolate": True}
 
@@ -112,8 +115,9 @@ def self_test(root):
     def both(t, old, new):
         n = t.count(old)
         return t.replace(old, new), n
-    noF = 'optimizer_details = { yul = true, yulDetails = { optimizerSteps = "dhfoDgvulfnTUtnIf:fDnTOcmu" } }'
-    typo = 'optimizer_details = { yul = true, yulDetails = { optimizerStep = "dhfoDgvulfnTUtnIf:fDnTOcmu" } }'
+    steps = 'optimizer_details = { yul = true, yulDetails = { optimizerSteps = "'
+    seq = NO_F["yulDetails"]["optimizerSteps"]
+    withF = steps + 'dhfoDgvulfnTUtnIf:fDnTOcmu" } }'
     restr = 'compilation_restrictions = [{ paths = "src/BlazePhoenixRouter.sol", optimizer_runs = 1 }]'
     extra = 'additional_compiler_profiles = [{ name = "tight", optimizer_runs = 1 }]'
     runs, nr = both(base, "optimizer_runs = 200\n", "optimizer_runs = 199\n")
@@ -121,8 +125,12 @@ def self_test(root):
     mutants = {
         "runs 200->199 in every profile": (runs, nr >= 2),
         "solc 0.8.36->0.8.38 in every profile": (solc, ns >= 2),
-        "noF optimizer steps in release only": (put(base, "release", noF), True),
-        "typo inside yulDetails, in both profiles": (put(put(base, "default", typo), "release", typo), True),
+        "F restored in release only (optimizer_details dropped)":
+            (sub_in(base, "release", steps + seq + '" } }\n', ""), True),
+        "another step sequence (with F) in release only":
+            (sub_in(base, "release", steps + seq + '" } }', withF), True),
+        "typo inside yulDetails, in both profiles":
+            (sub_in(sub_in(base, "default", "optimizerSteps", "optimizerStep"), "release", "optimizerSteps", "optimizerStep"), True),
         "bytecode_hash ipfs in release": (sub_in(base, "release", 'bytecode_hash = "none"', 'bytecode_hash = "ipfs"'), True),
         "cbor_metadata off in release": (put(base, "release", "cbor_metadata = false"), True),
         "isolate dropped from default": (base.replace("isolate = true\n", "", 1), "isolate = true\n" in base),
