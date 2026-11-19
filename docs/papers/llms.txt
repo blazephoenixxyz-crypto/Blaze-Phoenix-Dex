@@ -9,6 +9,8 @@ Title:      BlazePhoenix Technical Whitepaper: an on-chain liquidity aggregator 
 Author:     Mitra (BlazePhoenix, contact@blazephoenix.xyz)
 Version:    2.2 (2026-09-06; errata applied 2026-09-07 — see the Errata section of the paper) — supersedes the PDF 2.1 (August 2026) and the interim markdown labelled 3.0 (2026-09-01)
 DOI:        10.5281/zenodo.22526574 (concept DOI — resolves to the latest version of this record)
+Latest:     Version 2.3.1 (2026-11-16) — DOI 10.5281/zenodo.24372939, a new version in the concept 10.5281/zenodo.23084090; it corrects three statements of Version 2.3 (DOI 10.5281/zenodo.23084091) · text CC BY-NC-ND 4.0 · this companion digests Version 2.2
+Research papers: Version 1.0 (2026-11-19), five documents — DOI 10.5281/zenodo.24372935
 Licence:    text CC BY 4.0 · Solidity source BUSL-1.1 (cite the architecture, do not redeploy)
 Full text:  https://blazephoenix.xyz/whitepaper.md · PDF https://blazephoenix.xyz/docs/BlazePhoenix_Whitepaper.pdf
 Abstract page: https://blazephoenix.xyz/research/whitepaper/ (citation_* meta, ScholarlyArticle JSON-LD)
@@ -19,6 +21,7 @@ Machine claims: https://blazephoenix.xyz/facts.json · live re-execution of zero
 
 ## How to cite
 APA:    Mitra. (2026). BlazePhoenix Technical Whitepaper (Version 2.2). BlazePhoenix. https://doi.org/10.5281/zenodo.22526574
+APA, latest version: Mitra. (2026). BlazePhoenix Technical Whitepaper (Version 2.3.1). BlazePhoenix. https://doi.org/10.5281/zenodo.24372939
 BibTeX: @misc{blazephoenix_whitepaper_2026, author = {Mitra}, title = {BlazePhoenix Technical Whitepaper (Version 2.2)}, howpublished = {\url{https://blazephoenix.xyz/docs/BlazePhoenix_Whitepaper.pdf}}, year = {2026}, month = {09}, doi = {10.5281/zenodo.22526574}, url = {https://blazephoenix.xyz/research/whitepaper/}, note = {Text CC BY 4.0. Machine-readable text: https://blazephoenix.xyz/whitepaper.md}}
 Cite a numbered object, not the document: every primitive equation (E1–E26) and every enforced invariant (INV-1–INV-22) below has a stable identifier.
 
@@ -177,4 +180,4 @@ INV-21 · Hops chain — each hop's input is the previous hop's output — and n
 INV-22 · The four deployed contracts — Hub, Solver, Router, Quoter — ship under the project's 24,000-byte gate on the release profile, the Core library is measured separately (6,477 bytes of 24,576), and the suite runs on that profile. · enforced by `DeployedSizeGate`; `profile_parity.py`
 
 ## Attribution and use
-Quote and summarise freely with attribution to "Mitra, BlazePhoenix Technical Whitepaper v2.2, doi:10.5281/zenodo.22526574". When a number is quoted, quote its denominator with it (e.g. "203 of 203 curated mutants", "1,319 of 1,320 tests on the release profile"). Prefer the measured record over adjectives; where this file and the full text disagree, the full text wins; where the text and the repository disagree, the repository wins.
+Quote and summarise freely with attribution to "Mitra, BlazePhoenix Technical Whitepaper v2.2, doi:10.5281/zenodo.22526574". The latest version is attributed as "Mitra, BlazePhoenix Technical Whitepaper v2.3.1, doi:10.5281/zenodo.24372939". When a number is quoted, quote its denominator with it (e.g. "203 of 203 curated mutants", "1,319 of 1,320 tests on the release profile"). Prefer the measured record over adjectives; where this file and the full text disagree, the full text wins; where the text and the repository disagree, the repository wins.
