@@ -8825,7 +8825,10 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-3]',
-      teste='test_HostileRows_In_Algebra_Best'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='testFuzz_Received_ZeroCreditOnAZeroAsk_UnderAHeldBalance_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-4]: safeTransferFrom takes an oversized answer as success',
       f='src/BlazePhoenixCore.sol',
       old='            ok := call(gas(), token, 0, m, 100, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }\n                case 32 { ok := and(ok, gt(mload(0), 0)) }\n                default { ok := 0 }',
@@ -8840,7 +8843,10 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-6]',
-      teste='test_HostileRows_In_Algebra_Permit2'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='test_Received_ZeroCreditOnAZeroAsk_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-7]: safeTransferFrom takes an oversized answer as success',
       f='src/BlazePhoenixCore.sol',
       old='            ok := call(gas(), token, 0, m, 100, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }\n                case 32 { ok := and(ok, gt(mload(0), 0)) }\n                default { ok := 0 }',
@@ -8855,12 +8861,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-9]',
-      teste='test_HostileRows_In_Ext_Permit2'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='test_Received_ZeroCreditOnAZeroAsk_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-10]: _received no longer refuses a pull that credited nothing',
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-10]',
-      teste='test_HostileRows_In_Solidly_Best'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='testFuzz_Received_ZeroCreditOnAZeroAsk_UnderAHeldBalance_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-11]: safeTransferFrom takes an oversized answer as success',
       f='src/BlazePhoenixCore.sol',
       old='            ok := call(gas(), token, 0, m, 100, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }\n                case 32 { ok := and(ok, gt(mload(0), 0)) }\n                default { ok := 0 }',
@@ -8875,12 +8887,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-13]',
-      teste='test_HostileRows_In_Solidly_Permit2'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='test_Received_ZeroCreditOnAZeroAsk_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-14]: _received no longer refuses a pull that credited nothing',
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-14]',
-      teste='test_HostileRows_In_V2_Best'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='testFuzz_Received_ZeroCreditOnAZeroAsk_UnderAHeldBalance_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-15]: safeTransferFrom takes an oversized answer as success',
       f='src/BlazePhoenixCore.sol',
       old='            ok := call(gas(), token, 0, m, 100, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }\n                case 32 { ok := and(ok, gt(mload(0), 0)) }\n                default { ok := 0 }',
@@ -8895,12 +8913,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-17]',
-      teste='test_HostileRows_In_V2_Permit2'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='test_Received_ZeroCreditOnAZeroAsk_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-18]: _received no longer refuses a pull that credited nothing',
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-18]',
-      teste='test_HostileRows_In_V3_Best'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='testFuzz_Received_ZeroCreditOnAZeroAsk_UnderAHeldBalance_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-19]: safeTransferFrom takes an oversized answer as success',
       f='src/BlazePhoenixCore.sol',
       old='            ok := call(gas(), token, 0, m, 100, 0, 32)\n            if ok {\n                switch returndatasize()\n                case 0 { ok := iszero(iszero(extcodesize(token))) }\n                case 32 { ok := and(ok, gt(mload(0), 0)) }\n                default { ok := 0 }',
@@ -8915,7 +8939,10 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       f='src/BlazePhoenixRouter.sol',
       old='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        if (received == 0) revert RouterE(8);',
       new='        received = BPC.balanceOf(tokenIn, address(this)) - balBefore;\n        // MUTANT [ATQ-tokens-21]',
-      teste='test_HostileRows_In_V3_Permit2'),
+      # Re-pointed 2026-11-19 (FU-3): `_noteFot` now refuses a zero ratio with the same RouterE(8),
+      # so a non-zero ask that credited nothing is refused identically without this check. Only a
+      # zero ask (Permit2 door) tells them apart: without the check it refuses with RouterE(3).
+      teste='test_Received_ZeroCreditOnAZeroAsk_IsRefusedWithRouterE8'),
  dict(nome='atq-1111 tokens [ATQ-tokens-22]: the treasury push is given all the gas left instead of FEE_GAS',
       f='src/BlazePhoenixRouter.sol',
       # Re-anchored 2026-11-12 (g5): fix1112-4122 (e4185d8) made `_push` book by two witnesses and
