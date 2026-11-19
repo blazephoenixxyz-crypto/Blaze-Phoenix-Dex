@@ -166,7 +166,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 |---|---:|---:|---:|
 | `src/BlazePhoenixRouter.sol` | 436 | 369 | 436 |
 | `src/BlazePhoenixCore.sol` | 411 | 333 | 411 |
-| `src/BlazePhoenixSolver.sol` | 251 | 182 | 251 |
+| `src/BlazePhoenixSolver.sol` | 251 | 181 | 251 |
 | `src/BlazePhoenixHub.sol` | 218 | 190 | 218 |
 | `src/BlazePhoenixQuoter.sol` | 144 | 123 | 144 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
@@ -188,7 +188,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/ref/Frame4007.sol` | 2 | 2 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,907 | 1,503 | 1,907 |
+| **all** | 1,907 | 1,502 | 1,907 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)

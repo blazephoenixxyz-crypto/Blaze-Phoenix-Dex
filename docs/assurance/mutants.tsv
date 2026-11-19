@@ -1297,7 +1297,7 @@ src/BlazePhoenixSolver.sol	test_G52_SameAnswer_FragmentedFirstStageLeadsOnItsRan
 src/BlazePhoenixSolver.sol	test_G52_SameAnswer_NewEntryOverAReleasedBuild	hops2 [1063]: G52: a new list entry leaves its link unwritten, and the walk of the chain reads a released build for the entry before it
 src/BlazePhoenixRouter.sol	test_Q2k_TwoBridgeChainIsRefused_OneBridgeAnalogueFills	hops2 [1064]: MAX_HOPS Router: the hop ceiling is raised by one and the three-hop chain assembled from one-hop plans settles
 src/BlazePhoenixSolver.sol	test_FunnelCut_KeepsDeepestFiveOfSeven	hops2 [1065]: PIN-01 Solver: the direct hop's leg budget falls one under the ceiling and the funnel keeps one deep pool too few
-src/BlazePhoenixSolver.sol	test_TwoBridgeChain_IsRefused_OneBridgeAnalogueIsPlanned	hops2 [1066]: Solver: a solve with no route returns an empty plan instead of refusing (SolverE(5))
+src/BlazePhoenixSolver.sol	test_Gas_JudgeCeiling_RefusedAndAdmitted	hops2 [1066]: Solver: a solve with no route is refused at the plan check, after re-assembling an empty leader (gas: same SolverE(5))
 src/BlazePhoenixSolver.sol	test_DirectaMelhorGanhaSobreAsDuasPontes	hops2 [1067]: Solver: the direct topology is never planned (every solve routes through a bridge)
 src/BlazePhoenixCore.sol	test_HopMass_TheFunnelAndTheVoteReadOneFormula_18_18	massa MAT-01 Core.hopMass18: a pair row is measured by the token it is paid in, not the token it pays
 src/BlazePhoenixCore.sol	test_HopMass_APairDeclaringMoreThanItHoldsIsNoMass	massa MAT-01 Core.hopMass18: a pair declaring reserves it does not hold still counts as mass

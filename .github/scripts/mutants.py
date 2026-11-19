@@ -7115,11 +7115,20 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='cands, MAX_LEGS_PER_HOP, m.walk | CUT | dec << 8);\n',
       new='cands, MAX_LEGS_PER_HOP - 1, m.walk | CUT | dec << 8); // MUTANT\n',
       teste='test_FunnelCut_KeepsDeepestFiveOfSeven'),
- dict(nome='hops2 [1066]: Solver: a solve with no route returns an empty plan instead of refusing (SolverE(5))',
+ # [1066] is EQUIVALENT in the revert data since PR #139 (2026-11-19), and paired with the judge's gas
+ # ledger. `plan.best.totalOut == 0` (M-JUDGE-10) refuses every plan leaving the search with the same
+ # SolverE(5), and with bestU == 0 nothing was ever considered: `_considera` is the one writer of bestU,
+ # bestR and bestHeld in this frame and writes them only on u > bestU, so bestHeld is false and bestR is
+ # empty, `_paysWhatItWalks` returns it with totalOut 0 (d = 0), no walk runs and the plan's check
+ # refuses. test_TwoBridgeChain_IsRefused_OneBridgeAnalogueIsPlanned (its pair until then) passes
+ # mutated. What the guard keeps is the early exit, and the ledger pins it (release, 2026-11-19): the
+ # refused rows move by +872 to +884 gas (b1, b2, c, and n: nothing seeded, 59,641 -> 60,525), the
+ # admitted rows by +174 (the layout alone).
+ dict(nome='hops2 [1066]: Solver: a solve with no route is refused at the plan check, after re-assembling an empty leader (gas: same SolverE(5))',
       f='src/BlazePhoenixSolver.sol',
       old='        if (m.bestU == 0) revert SolverE(5);',
       new='        // MUTANT',
-      teste='test_TwoBridgeChain_IsRefused_OneBridgeAnalogueIsPlanned'),
+      teste='test_Gas_JudgeCeiling_RefusedAndAdmitted'),
  dict(nome='hops2 [1067]: Solver: the direct topology is never planned (every solve routes through a bridge)',
       f='src/BlazePhoenixSolver.sol',
       old='        if (k == 0) return _planDirect(m, tIn, tOut, amountIn);',

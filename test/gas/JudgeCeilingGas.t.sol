@@ -33,8 +33,13 @@ import {MockV3TickPool} from "../mocks/MockV3TickPool.sol";
 ///       running out of reads (24 judged reads in the frame), refused;
 ///   starve  four topologies of deep books whose every read burns JBURN, the direct route
 ///       admitted by its book (test_JudgeCannotStarveTheSolve's world).
+///   n   nothing seeded on the pair: the search leaves no route, refused, the judge never runs.
 /// Mutant M-JUDGE-6g in .github/scripts/mutants.py (the hop ignores what the frame spent): every
 /// first hop of (c) is handed 12 reads, the frame reads past 24, and row c moves.
+/// Mutant hops2 [1066] (the search's no-route refusal, Solver `m.bestU == 0`, dropped): the solve
+/// refuses all the same, with the same SolverE(5), at the plan's own check (`plan.best.totalOut
+/// == 0`), after re-assembling an empty leader. The refusals (b1, b2, c, n) are the rows that
+/// carry that work; it is the guard's only external effect.
 contract JudgeCeilingGasTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
@@ -107,6 +112,13 @@ contract JudgeCeilingGasTest is Test {
         (g, ok) = _solveGas(t0, t1, JORD);
         assertTrue(ok, "premise: the leader the books pay keeps a route");
         vm.snapshotValue(JGAS, "starve_solve_4topologies_burn", g);
+        vm.revertToState(s);
+        // (n) refused, nothing seeded on the pair: nothing to judge, the search leaves no route.
+        (g, ok) = _solveGas(t0, t1, JORD);
+        assertFalse(ok, "premise: (n) is refused");
+        vm.snapshotValue(JGAS, "n_refused_no_route", g);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, 5));
+        solver.findBestRoutePlan(t0, t1, JORD);
     }
 
     // ─── the worlds (test/CapacityWalkBudget.t.sol's, unchanged) ─────────────
