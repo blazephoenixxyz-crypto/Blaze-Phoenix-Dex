@@ -1159,7 +1159,8 @@ contract BlazePhoenixSolver {
     ///      it there costs the book its seat, never the other rows theirs. Its OWN d_j is the
     ///      larger of the two, so a cut walk does not unseat an honest book (S2) and a thin tick
     ///      does not hide a deep one. What it adds to the OTHER rows'
-    ///      D is what it holds over that walk (`_heldBooks`, the figure the band's vote reads).
+    ///      D is what it holds over that walk (`_heldBooks`: the band's vote reads the same
+    ///      walk, `_v4Walk`, over V4_WALK_MAX_STEPS stretches; the funnel over FUNNEL_STRETCHES).
     ///      A book that declares mass is never dropped unread: a singleton row under the bar on
     ///      its declared side walks the books, every one of them, because a declared side is
     ///      virtual (L * sqrtP) and costs about two wei to raise: no order among unread books and
