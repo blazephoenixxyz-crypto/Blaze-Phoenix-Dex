@@ -73,15 +73,21 @@ contract SeedDoorMeasuresWhatItWritesTest is Test {
     function _warm(address[] memory rows, uint256 depthWad, uint32 n) internal {
         // fix-1102 A: was unanchored ticks in one second until the count reached n, because dust moved the clock; now n rounds of material swaps ROUND apart, because an unanchored tick or one inside the stamped second moves nothing (BlazePhoenixCore.sol:2898)
         uint256 amt = depthWad >> BPC.MATERIAL_SHIFT;   // the least material trade (BlazePhoenixCore.sol:2854)
+        // fix-1118: was vm.warp(block.timestamp + ROUND) per round; now the cheatcode's clock, because a
+        // via_ir build may reuse one timestamp() across vm.warp (the optimizer holds it constant in a
+        // transaction), and under the PR #136 step sequence it did: all n rounds warped to 6145, count 1
+        // (test/DimensionsTime.t.sol:11-14, test/DustIsMeasuredAgainstThePair.t.sol:171).
+        uint256 t = vm.getBlockTimestamp();
         for (uint32 k; k < n; ++k) {
-            vm.warp(block.timestamp + ROUND);
+            t += ROUND;
+            vm.warp(t);
             for (uint256 i; i < rows.length; ++i) {
                 hub.recordSwap(rows[i], BPC.KIND_V2, 30, address(0), address(A), address(B), amt, amt,
                     depthWad | BPC.TICK_ANCHORED);
             }
         }
         // The dust the old loop sent, in a second of its own: it counts nothing and pumps no psi.
-        vm.warp(block.timestamp + 1);
+        vm.warp(t + 1);
         for (uint256 i; i < rows.length; ++i) {
             assertEq(BPC.decodeSwapCount(hub.getSlot(_key(rows[i]))), n, "setup: the row is warm");
             uint256 psi0 = hub.getPsi(rows[i], address(A), address(B));
