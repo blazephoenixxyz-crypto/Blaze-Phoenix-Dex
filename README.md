@@ -17,7 +17,7 @@
 
 [Website](https://blazephoenix.xyz) ·
 [Contract reference](https://blazephoenixxyz-crypto.github.io/Blaze-Phoenix-Dex/) ·
-[Whitepaper](docs/papers/whitepaper-v2.2.md) ·
+[Whitepaper v2.3](https://blazephoenix.xyz/whitepaper.md) ·
 [SDK](https://github.com/blazephoenixxyz-crypto/SDK) ·
 [MCP server](https://github.com/blazephoenixxyz-crypto/blazephoenix-mcp) ·
 [HTTP API](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-API) ·
@@ -152,7 +152,7 @@ flowchart TD
 | **Router** | Pulls input, executes the plan leg by leg, measures the real balance delta at each seam, and enforces the output floor. A transient reentrancy lock spans the whole swap, pool callbacks included. |
 | **Solver** | Builds the best route and split from measured marginal output and measured capital, never from self-reported liquidity. |
 | **Hub** | Pool registry and on-chain discovery. Every venue, Uniswap V4 included, is proven live before it can route. |
-| **Gate** | One factory row in front of venues the Core cannot read natively (Balancer V2 and V3, Curve StableSwap-NG, Curve Twocrypto-NG and Tricrypto-NG). It creates a thin immutable wrapper per venue at a derived address; the wrapper looks like a Uniswap V3 pair to the Router and forwards what it measured arriving to the family's adapter. The output is the delta measured at the recipient, never a value the adapter returns. |
+| **Gate** | One factory row in front of venues the Core cannot read natively (Balancer, Curve NG, Liquidity Book, Algebra Integral custom venues, PancakeSwap Infinity). It creates a thin immutable wrapper per venue at a derived address; the wrapper looks like a Uniswap V3 pair to the Router and forwards what it measured arriving to the family's adapter. The output is the delta measured at the recipient, never a value the adapter returns. |
 | **Core** | The shared measured-math library: constant product, concentrated liquidity, the Solidly stable curve, Algebra dynamic fee, Uniswap V4. One evaluator prices both the quote and the floor. Each venue's vitality decays on its own clock, an exponential average of the interval between its own capital-anchored ticks, so a venue that trades every minute and one that trades weekly are each judged by their own rhythm. |
 | **Math** | The stateless library that makes one hop's choice (the band, the split weights, the funnel cut). The Solver calls it once per hop and pins its codehash at deploy. |
 | **Quoter** | Read-only preview surface: `previewPlan` for the modelled route, `previewPlanExact` for a dry-run re-price of every concentrated leg, and `previewAndEncode` for ready-to-sign calldata. |
@@ -171,7 +171,7 @@ Uniswap **V2**, **V3** and **V4** (including **native-ETH V4** pools) ·
 **Solidly** stable and volatile (Aerodrome/Velodrome class).
 
 Through the Gate, one adapter per family:
-**Balancer V2** · **Balancer V3** · **Curve StableSwap-NG** · **Curve Twocrypto-NG and Tricrypto-NG**.
+**Balancer V2** · **Balancer V3** · **Curve StableSwap-NG** · **Curve Twocrypto-NG and Tricrypto-NG** · **Liquidity Book** (LFJ v2.1 and v2.2, Pharaoh DLMM) · **Algebra Integral** custom venues · **PancakeSwap Infinity** CL and Bin.
 
 A Gate adapter is immutable and leaves no allowance standing; after each call it may hold no more
 of either token than before. It is admitted by a 48-hour propose and accept step, with its code
@@ -408,7 +408,7 @@ Full roll and terms: [`SECURITY_HALL_OF_FAME.md`](SECURITY_HALL_OF_FAME.md).
 
 ```
 src/                    Router, Solver, Hub, Quoter, Gate, with the Core and Math libraries
-src/adapters/           the Gate's adapters: Balancer V2 and V3, Curve StableSwap-NG and Twocrypto/Tricrypto-NG
+src/adapters/           the Gate's adapters, one per venue family (sizes in the table above)
 test/                   unit, property, parity, stateful invariants, regressions
   fork/                 suites against live chain liquidity, and the pins of what is deployed
   formal/               Halmos specifications and composition proofs
