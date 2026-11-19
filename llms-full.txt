@@ -637,7 +637,7 @@ Source: https://raw.githubusercontent.com/blazephoenixxyz-crypto/Blaze-Phoenix-D
 
 [Website](https://blazephoenix.xyz) ·
 [Contract reference](https://blazephoenixxyz-crypto.github.io/Blaze-Phoenix-Dex/) ·
-[Whitepaper v2.3](https://blazephoenix.xyz/whitepaper.md) ·
+[Whitepaper v2.3.1](docs/papers/whitepaper-v2.3.1.md) ·
 [SDK](https://github.com/blazephoenixxyz-crypto/SDK) ·
 [MCP server](https://github.com/blazephoenixxyz-crypto/blazephoenix-mcp) ·
 [HTTP API](https://github.com/blazephoenixxyz-crypto/Blaze-Phoenix-API) ·
@@ -1062,7 +1062,7 @@ CITATION.cff            how to cite this repository
 | [docs/assurance/ASSURANCE.md](docs/assurance/ASSURANCE.md) | the assurance instruments: method, definitions, limits |
 | [docs/GAS_CAMPAIGN_G7_G8.md](docs/GAS_CAMPAIGN_G7_G8.md) | the gas campaigns G7 and G8: what is measured per chain, the source line of each number, what is not measured |
 | [TESTING.md](TESTING.md) | how the suite is organised and extended |
-| [Whitepaper v2.2](docs/papers/whitepaper-v2.2.md) · [Litepaper v2.2](docs/papers/litepaper-v2.2.md) | the design and its mathematics ([PDF editions](docs/papers)) |
+| [Whitepaper v2.3.1](docs/papers/whitepaper-v2.3.1.md) · [Whitepaper v2.2](docs/papers/whitepaper-v2.2.md) · [Litepaper v2.2](docs/papers/litepaper-v2.2.md) | the design and its mathematics ([PDF editions](docs/papers)) |
 
 ## For AI agents and indexers
 
