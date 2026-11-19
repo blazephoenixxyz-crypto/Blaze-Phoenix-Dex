@@ -277,7 +277,7 @@ above is the place for it.
 | Gas snapshots, each a measured figure CI re-measures | 68 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
 | CI workflows | 11 | `.github/workflows/*.yml` |
-| Researchers credited | 63 | `SECURITY_HALL_OF_FAME.md` |
+| Researchers credited | 76 | `SECURITY_HALL_OF_FAME.md` |
 <!-- repo-stats:end -->
 
 ### Protocol constants and contract sizes (read from `src/` and `.sizes-snapshot`; CI fails if stale)
@@ -398,7 +398,7 @@ code, and a mutant the test must kill; nothing is closed by argument alone. With
 researchers who read the source, thought adversarially and told us privately what they found:
 
 <!-- researchers:begin -->
-Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gakarot)](https://github.com/NetGakarot) · amitbhakar · llen · AmanDara1 · [Binod Bk](https://github.com/Binodbk) · momonom207 · Tarun Pardeshi · [eveeyrp](https://x.com/eveeyRP) · [siam siddik](https://github.com/siamdiddik) · Fauzi Susanto · Ibnu76 · Makino Ken · [destinyae](https://x.com/0xDestinyae) · Anonymous · Mohd Huzaifa · superagent · sus1lo · Amir · Charan · acit aja · Ashish · Josh W · M2000 Slash · 0xkonde · Cico Agung · [Fersdoven Josua](https://github.com/saptoji) · [sbekk](https://x.com/boyygantemk) · rety6363 · Marcin Sikora · Akira Nakao · Borutobro · Tuan Berdasi · [OxHulk](https://x.com/OxHulk) · oncodewa · Jo arsy · Mansor · Yudha Eka Saputra · Raditya · [BK001](https://github.com/CHARIRAbdelhamid) · Brian Wahyu · budi · ALZEA · [Pavan Baile](https://www.linkedin.com/in/pavan-baile-0bb596244) · Widya Kuya · Ricki Ariadi · biasaajash · Bandreg · polabears · Danu Fandiyana (anmxx) · PapaCZ · WANZ · TOT · fortworun · KHIKHI · Garin · Luis_MZ · Agis Apriansyah · Joko
+Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gakarot)](https://github.com/NetGakarot) · amitbhakar · llen · AmanDara1 · [Binod Bk](https://github.com/Binodbk) · momonom207 · Tarun Pardeshi · [eveeyrp](https://x.com/eveeyRP) · [siam siddik](https://github.com/siamdiddik) · Fauzi Susanto · Ibnu76 · Makino Ken · [destinyae](https://x.com/0xDestinyae) · Anonymous · Mohd Huzaifa · superagent · sus1lo · Amir · Charan · acit aja · Ashish · Josh W · M2000 Slash · 0xkonde · Cico Agung · [Fersdoven Josua](https://github.com/saptoji) · [sbekk](https://x.com/boyygantemk) · Marcin Sikora · Akira Nakao · Borutobro · Tuan Berdasi · [OxHulk](https://x.com/OxHulk) · oncodewa · Jo arsy · Mansor · Yudha Eka Saputra · Raditya · [BK001](https://github.com/CHARIRAbdelhamid) · Brian Wahyu · budi · ALZEA · [Pavan Baile](https://www.linkedin.com/in/pavan-baile-0bb596244) · Widya Kuya · Ricki Ariadi · biasaajash · Bandreg · polabears · Danu Fandiyana (anmxx) · PapaCZ · WANZ · TOT · fortworun · KHIKHI · Garin · Luis_MZ · Agis Apriansyah · Joko · abyanraf · Juann · roosterxyz · frankyhd · Yudiasher · Sunfyre Kali · Caraxes / caraxestigo · Marshall Billy · Kahf · Haikal Jim · Aditya Singh (CyberBeast010) · Basa · Sierra Natya · Dimzy
 <!-- researchers:end -->
 
 Technical detail stays in the verified source and our private records, never on a credits page.
