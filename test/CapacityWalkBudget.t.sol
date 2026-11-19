@@ -434,11 +434,16 @@ contract CapacityWalkBudgetTest is Test {
     /// topology. A bisection on `burn` finds the longest search after which the walk still
     /// finishes - so there the derived budget, under WALK_CAP, decides the plan - and on both
     /// sides of it the plan is the same at the automatic door's gas and at 30M: the budget is
-    /// handed whole, its 1/64 off, whatever the caller brought (mutant [n1-5]).
+    /// handed whole, its 1/64 off, whatever the caller brought (mutant [n1-5]). The book is
+    /// shallow enough that its walk is long (about fourteen stretches): a budget asked for
+    /// without its 1/64 hands the walk W / 64 more at 30M, but only about 20,000 more at the
+    /// door, where EIP-150 keeps that 1/64. Only a walk well past 64 * 20,000 = 1.28M parts the
+    /// two doors. A walk of a few stretches (~1.6M) parted them by a few thousand gas, under
+    /// what the bisection resolves, and the mutant passed.
     function test_C1_LongSearch_TheDerivedWalkBudgetIsTheSameAtEveryGas() public {
         uint256 cap = BPC.mulDiv(HELD, 3_000, BPC.BPS);
         BurnBookPool d = new BurnBookPool(t0, t1, 500);
-        d.setState(SP, 10 * L);   // a short walk: a few stretches
+        d.setState(SP, 5 * L);   // a long walk: about fourteen stretches
         MockERC20(t0).mint(address(d), HELD);
         MockERC20(t1).mint(address(d), HELD);
         hub.seedPool(address(d), BPC.KIND_V3, 500, address(0), t0, t1);
