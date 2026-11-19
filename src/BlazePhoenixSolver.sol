@@ -254,44 +254,48 @@ contract BlazePhoenixSolver {
                 if (w > v) (plan.best, v) = (r, w);
             }
             if (v <= u) revert();
-            return plan;
-        }
-        for (uint256 k; k < TOPOLOGIES; ) {
-            uint256 u0 = m.bestU;
-            _planTopology(m, k, bs, tIn, tOut, amountIn);
-            if (m.bestU != u0) bk = k;
-            unchecked { ++k; }
-        }
-        if (m.bestU == 0) revert SolverE(5);
-        plan.fallbackRoute = m.secR;
-        plan.hasFallback = m.secU > 0;
+        } else {
+            for (uint256 k; k < TOPOLOGIES; ) {
+                uint256 u0 = m.bestU;
+                _planTopology(m, k, bs, tIn, tOut, amountIn);
+                if (m.bestU != u0) bk = k;
+                unchecked { ++k; }
+            }
+            if (m.bestU == 0) revert SolverE(5);
+            plan.fallbackRoute = m.secR;
+            plan.hasFallback = m.secU > 0;
 
-        // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's, ON ITS OWN BUDGET.
-        // When a capacity-held candidate of the leading build could pay more than what that
-        // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
-        // capacity-held candidates are ranked and promised what their own books pay. A walk
-        // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
-        // (GAS_CAP per read), so the rebuild runs in a static self-call on what SOLVE_GAS leaves
-        // after the search (`_walkOnItsOwnBudget`): a function of the state, never of the gas
-        // the caller brought, and the same at both doors. A rebuild that completes and ranks
-        // above what the build at the cap pays leads; otherwise the plan built at the cap stands.
-        // The fallback stays the runner-up read above. A solve that cannot hand the walk its
-        // whole budget stops with empty revert data (RouterE(17) at the automatic door) - never
-        // a different plan. The walk's assembly return is this
-        // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`.
-        //
-        // N1: THE LEADER ANSWERS FOR WHAT ITS BOOKS PAY. The plan built at the cap is promised what
-        // its books pay before the rebuild is decided, and `d` is what they do not pay of the rank
-        // it led on. A promise that fell means the build led on a figure no venue pays (a thick
-        // tick one step deep ranked over a pair that paid 3.5 times what the book did), so it is
-        // rebuilt then too, without the books that fell (`fl`), and the rebuild leads only above
-        // the leader's rank less `d`, on what its own books pay. No margin is added: both sides
-        // are the Router's own in-frame figures, and a leg more is the split gate's question,
-        // inside the build. One rebuild per solve, as before.
-        uint256 fl;
-        (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, m);
-        uint256 d = m.bestR.totalOut - plan.best.totalOut;
-        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);
+            // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's, ON ITS OWN BUDGET.
+            // When a capacity-held candidate of the leading build could pay more than what that
+            // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
+            // capacity-held candidates are ranked and promised what their own books pay. A walk
+            // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
+            // (GAS_CAP per read), so the rebuild runs in a static self-call on what SOLVE_GAS leaves
+            // after the search (`_walkOnItsOwnBudget`): a function of the state, never of the gas
+            // the caller brought, and the same at both doors. A rebuild that completes and ranks
+            // above what the build at the cap pays leads; otherwise the plan built at the cap stands.
+            // The fallback stays the runner-up read above. A solve that cannot hand the walk its
+            // whole budget stops with empty revert data (RouterE(17) at the automatic door) - never
+            // a different plan. The walk's assembly return is this
+            // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`.
+            //
+            // N1: THE LEADER ANSWERS FOR WHAT ITS BOOKS PAY. The plan built at the cap is promised what
+            // its books pay before the rebuild is decided, and `d` is what they do not pay of the rank
+            // it led on. A promise that fell means the build led on a figure no venue pays (a thick
+            // tick one step deep ranked over a pair that paid 3.5 times what the book did), so it is
+            // rebuilt then too, without the books that fell (`fl`), and the rebuild leads only above
+            // the leader's rank less `d`, on what its own books pay. No margin is added: both sides
+            // are the Router's own in-frame figures, and a leg more is the split gate's question,
+            // inside the build. One rebuild per solve, as before.
+            uint256 fl;
+            (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, m);
+            uint256 d = m.bestR.totalOut - plan.best.totalOut;
+            if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);
+        }
+        // THE PLAN OUT OF THE SEARCH PAYS SOMETHING. Every plan a door receives leaves here: the
+        // leader's (no rebuild, or none that led) and the rebuild's (the self-call ends here too, and
+        // `_walkOnItsOwnBudget` returns what it returned). A plan that pays 0 is no viable action.
+        if (plan.best.totalOut == 0) revert SolverE(5);
     }
 
     /// @dev The gas the dispatch spends before `findBestRoutePlan` reads `g0`, measured in the

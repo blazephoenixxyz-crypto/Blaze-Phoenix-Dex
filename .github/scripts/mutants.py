@@ -10403,6 +10403,19 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (m.judged > JUDGE_SOLVE_READS) return false; // a re-assembly keeps the build's verdict\n",
       new="        // MUTANT\n",
       teste="test_JudgedLeaderReassembledKeepsTheVerdict"),
+ dict(nome="M-JUDGE-10 [4746]: a plan that pays 0 leaves the search, and the doors hand out a route on a book that pays nothing",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (plan.best.totalOut == 0) revert SolverE(5);\n",
+      new="        // MUTANT\n",
+      teste="test_LeaderPayingNothingWithNoRebuildIsNotHandedOut"),
+ # M-JUDGE-9c [4746] has NO entry: `m.judged = j;` dropped after the re-assembly (_paysWhatItWalks)
+ # leaves the sentinel on the frame, so a later judge in that frame admits what the ceiling refuses.
+ # Treated as EQUIVALENT in effect, NOT proven: the only later judge in a frame is the self-call's
+ # second build (bit 8 of `bk`, then the books on `fl` sat out, one `m`), and two geometries did not
+ # observe it (2026-11-19, PR #139): direct (book [0, 60) at tick 0 beside a 5e16 pair, 1e18) and two
+ # hops via the bridge (that book on c/mid beside a 1e17 c/mid pair, a deep mid/d book, 1e18), each
+ # with the self-call called directly (u 0): both refuse with and without the mutant. Follow-up: a
+ # geometry whose second build reaches the gate.
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

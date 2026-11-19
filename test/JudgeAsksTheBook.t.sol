@@ -133,8 +133,8 @@ contract JudgeAsksTheBook is Test {
         plan = solver.findBestRoutePlan(address(c), address(d), amt);
         assertEq(plan.best.hops.length, 2, "the two-hop order keeps a route");
         assertGt(plan.best.singleOutFloor, 0, "premise: the Solver attested a floor");
+        // Settles: the Router already holds it to singleOutFloor (`_settle` passes it as minOut).
         got = _settle(plan, c, amt);
-        assertGe(got, plan.best.singleOutFloor, "the route settles at or above its floor");
     }
 
     // -- the oracle: what the book pays, from the specification's swap, not from the Core ------
@@ -394,8 +394,7 @@ contract JudgeAsksTheBook is Test {
             abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (address(c), address(d), ord)));
         if (okPlan) {
             RoutePlan memory plan = abi.decode(ret, (RoutePlan));
-            uint256 got = _settle(plan, c, ord);
-            assertGe(got, plan.best.singleOutFloor, "an admitted route settles at or above its floor");
+            _settle(plan, c, ord); // settles: the Router already holds it to singleOutFloor (minOut)
             return;
         }
         assertEq(ret, _refusal(), "a refusal is SolverE(5)");
@@ -678,8 +677,8 @@ contract JudgeAsksTheBook is Test {
                 "premise: the model refuses the plan's own amounts, only the judge admits the route");
             assertGt(plan.best.totalOut, 0, "a route that pays");
             (bool ok, bytes memory ret) = address(this).call(abi.encodeCall(this.settleExt, (plan, c, ord[i])));
-            if (ok) assertGe(abi.decode(ret, (uint256)), plan.best.singleOutFloor, "settles at or above its floor");
-            else assertEq(ret, abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)), "or the Router refuses it");
+            // Settles (the Router already holds it to singleOutFloor, `_settle`'s minOut) or is refused.
+            if (!ok) assertEq(ret, abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)), "or the Router refuses it");
             vm.revertToState(snap);
         }
     }
@@ -746,6 +745,24 @@ contract JudgeAsksTheBook is Test {
         assertEq(plan.best.hops.length, 2, "the route the judge admitted keeps its verdict");
         uint256 pair = amt * 9970 * 2e17 / (2e17 * 10_000 + amt * 9970);
         assertGt(_settle(plan, c, amt), pair, "and settles above the pair the model alone leaves");
+    }
+
+    /// A leader whose book pays 0 beside a pair the ceiling refuses: no route pays the order,
+    /// so the solve stops with SolverE(5) (no viable action reverts), never a plan of totalOut
+    /// 0. Red at 24959f0 and at 2c8cbbe (a plan on the book, totalOut 0, singleOutFloor 0).
+    function test_LeaderPayingNothingWithNoRebuildIsNotHandedOut() public {
+        MockERC20 c = new MockERC20("CCC", "CCC");
+        MockERC20 d = new MockERC20("DDD", "DDD");
+        if (address(d) < address(c)) (c, d) = (d, c);
+        MockV3TickPool q = new MockV3TickPool(address(c), address(d), FEE, TS);
+        q.initialize(0);
+        q.addPosition(0, 60, 1e24);
+        _fund(q, c, d, 1e26);
+        _pair(c, d, 5e16);
+        (uint256 walked, ) = _judgeWalk(q, true, 1e18);
+        assertEq(walked, 0, "premise: the book pays 0 on its walk");
+        vm.expectRevert(_refusal());
+        solver.findBestRoutePlan(address(c), address(d), 1e18);
     }
 
     function settleExt(RoutePlan memory plan, MockERC20 tin, uint256 amt) external returns (uint256) {

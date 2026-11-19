@@ -712,6 +712,14 @@
       "guard": "_paysWhatItWalks",
       "test": "test_JudgedLeaderReassembledKeepsTheVerdict",
       "note": "PR #139, 2026-11-19. Red at c54fd92 (SolverE(5)); at 2c8cbbe a one-hop pair. The re-assembly keeps the build's verdict: hop 0 keeps its amounts, later hops only fall, impact is monotone in the amount. Mutant M-JUDGE-9."
+    },
+    {
+      "id": "JUDGE-PLAN-PAYS-NOTHING",
+      "class": "A leader whose book pays 0 on its walk, with no route the rebuild ranks above it (the only other venue refused by the ceiling): the solve handed out a plan on that book with totalOut 0 and singleOutFloor 0, which every door passed on and the Router refused at settlement, where no viable action must revert",
+      "status": "blocked",
+      "guard": "findBestRoutePlan",
+      "test": "test_LeaderPayingNothingWithNoRebuildIsNotHandedOut",
+      "note": "PR #139, 2026-11-19. Red at 24959f0 and at 2c8cbbe (a one-hop plan, totalOut 0); pre-existing, not a regression, no funds at risk (the Router reverts). One check where every plan leaves the search (the self-call ends there too): a plan with totalOut 0 reverts SolverE(5). Mutant M-JUDGE-10."
     }
   ]
 }
