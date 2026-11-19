@@ -61,6 +61,9 @@ abstract contract LatencyDriftOps is TokenSweepBase {
     /// i.e. inside 7-10 s on every chain with blocks <= 3 s.
     uint256 internal constant TARGET_MS = 7_000;
     uint256 internal constant WINDOW_MS = 10_000;
+    uint256 private _driftPin;
+    uint256 private _driftK;
+    uint256 private _driftBt;
 
     /// HARD BOUND ON OVER-PROMISING, in hundredths of a basis point.
     /// MEASURED 2026-09-01 at the pinned blocks: the worst over-promise across
@@ -221,7 +224,11 @@ abstract contract LatencyDriftOps is TokenSweepBase {
         Quoted[] memory q = new Quoted[](ps.length);
         uint256 tsQuote = _now();
 
+        // The calibration rides in storage across phase 1: held as locals they share the
+        // try/catch frame (the inliner merges `_quoteAll` back) and the stack runs out.
+        (_driftPin, _driftK, _driftBt) = (pin, k, btMs);
         _quoteAll(ps, routes, q);
+        (pin, k, btMs) = (_driftPin, _driftK, _driftBt);
 
         // ── Phase 2: the landing delay, in this chain's own blocks ──
         // ROLL UNTIL THE WINDOW IS REACHED, then assert the WINDOW -- not the
