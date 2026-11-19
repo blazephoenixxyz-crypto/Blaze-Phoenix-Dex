@@ -4156,7 +4156,9 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='            if (v <= u) revert();\n',
       new='            // MUTANT [742]\n',
-      teste='test_3073_Solver_SingleLeg_UnreadableBook_PromiseIsTheCap'),
+      # The unreadable book's rebuild is the leader's own plan (v == u), so splicing it changes
+      # nothing there; the killer is a rebuild promised above the leader that pays under it.
+      teste='test_3073_Solver_SingleLeg_RebuildBelowTheLeader_LeaderStands'),
  dict(nome='3073-5 [743]: the walk\'s own budget shrunk under a live book\'s rebuild (DAI->USDC 10k on the fork)',
       f='src/BlazePhoenixSolver.sol',
       # C1 (c1-126): the fixed WALK_GAS is gone; the mutant fixes the walk's budget at 1.5M.
