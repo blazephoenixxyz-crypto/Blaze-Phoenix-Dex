@@ -50,6 +50,12 @@ keywords:
   - mev
 identifiers:
   - type: doi
+    value: 10.5281/zenodo.24372939
+    description: "Technical Whitepaper v2.3.1 — record version (2026-11-16), corrects v2.3"
+  - type: doi
+    value: 10.5281/zenodo.24372935
+    description: "Research papers v1.0: monoslot encoding, conservation-based solvency, transient callback context (EIP-1153), invariant-driven design, technical compendium (2026-11-19)"
+  - type: doi
     value: 10.5281/zenodo.23084091
     description: "Technical Whitepaper v2.3 — record version (2026-09-24)"
   - type: doi
@@ -70,9 +76,9 @@ preferred-citation:
   authors:
     - alias: Mitra
       affiliation: BlazePhoenix
-  version: "2.3"
-  doi: 10.5281/zenodo.23084091
-  date-released: "2026-09-24"
+  version: "2.3.1"
+  doi: 10.5281/zenodo.24372939
+  date-released: "2026-11-16"
   url: "https://blazephoenix.xyz/research/whitepaper/"
-  license: CC-BY-4.0
-  notes: "Full text in Markdown at https://blazephoenix.xyz/whitepaper.md; archived at https://doi.org/10.5281/zenodo.23084091"
+  license: CC-BY-NC-ND-4.0
+  notes: "Version 2.3.1 corrects three statements of Version 2.3 (doi:10.5281/zenodo.23084091). Full text in Markdown and PDF archived at https://doi.org/10.5281/zenodo.24372939"
