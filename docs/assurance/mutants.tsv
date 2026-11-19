@@ -1902,3 +1902,14 @@ src/BlazePhoenixCore.sol	test_SweepA_NoBookLostToTheRebuild	outV3 [1083]: the si
 src/BlazePhoenixCore.sol	test_MR2_OutV3_SplittingNeverGainsOnTheGrid	outV3 [1084]: the single-range figure loses a second ulp per call (two calls lose four, the split relation breaks)
 tools/g7-gas-campaign/G7Deploy.s.sol	test_G7Deploy_Robinhood_WiresTheV4DeriveRow	G7 rh midtail-1 [H4-1]: the G7 deploy writes no V4 derive row
 tools/g7-gas-campaign/G7Deploy.s.sol	test_G7Deploy_Robinhood_WiresTheV4DeriveRow	G7 rh midtail-1 [H4-2]: the Robinhood G7 deploy skips _v4Wire
+src/BlazePhoenixSolver.sol	test_TwoConcentratedHopsOverTheirEdgeKeepARoute	M-JUDGE-1 [4746]: the ceiling stops asking the book, and a route whose books pay ~1:1 is refused on the single-range model
+src/BlazePhoenixSolver.sol	test_WalkEndingOnItsLastReadCountsAsUnmeasured	M-JUDGE-2a [4746]: a walk that ran out of reads counts as a measurement
+src/BlazePhoenixSolver.sol	test_BookThatDoesNotAnswerStaysRefused	M-JUDGE-2b [4746]: a book that does not answer (the walk returns its cap) counts as a measurement
+src/BlazePhoenixSolver.sol	test_DenseBookOnTheFirstHopDoesNotStarveTheSecond	M-JUDGE-4 [4746]: the hop's reads are one budget for the whole route, so the first hop's book decides the second's verdict
+src/BlazePhoenixSolver.sol	test_TwoConcentratedLegsInOneHopShareTheHopsReads	M-JUDGE-5 [4746]: the reads restart on every leg, so two concentrated legs of one hop read twice the hop's books
+src/BlazePhoenixSolver.sol	test_SolveAllowanceExhaustedKeepsTheModel	M-JUDGE-6 [4746]: the hop ignores what the solve frame already spent, so the judge reads past JUDGE_SOLVE_READS
+src/BlazePhoenixSolver.sol	test_FloorFigureUnchangedByTheJudge	M-JUDGE-3 [4746]: a route the judge admits is floored at impact 0, not on the single-range figure the Router's arm reads
+src/BlazePhoenixSolver.sol	test_LeaderWhoseBookPaysNothingIsRebuiltWithoutIt	M-JUDGE-8 [4746]: a re-assembled leader whose walk pays 0 stops the solve instead of being rebuilt without its book
+src/BlazePhoenixSolver.sol	test_JudgedLeaderReassembledKeepsTheVerdict	M-JUDGE-9 [4746]: the re-assembly asks the judge again on the frame's spent reads and refuses the leader the build admitted
+src/BlazePhoenixSolver.sol	test_JudgedLeaderReassembledKeepsTheVerdict	M-JUDGE-9b [4746]: the judge ignores the re-assembly's sentinel and reads past JUDGE_SOLVE_READS
+src/BlazePhoenixSolver.sol	test_LeaderPayingNothingWithNoRebuildIsNotHandedOut	M-JUDGE-10 [4746]: a plan that pays 0 leaves the search, and the doors hand out a route on a book that pays nothing
