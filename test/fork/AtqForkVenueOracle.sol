@@ -345,8 +345,8 @@ abstract contract AtqForkVenueOracle is Test {
             " exact=", vm.toString(nExact), " above=", vm.toString(nAbove), " across=", vm.toString(nAcross),
             " corner=", vm.toString(nCorner), " cut=", vm.toString(nCut)));
         console2.log(string.concat(tag, ": settled=", vm.toString(nSettled), " broken=", vm.toString(nBroken),
-            " short=", vm.toString(nShort), " untyped=", vm.toString(nUntyped),
-            " kept=", vm.toString(nKept), " refunds=", vm.toString(nRefund),
+            " short=", vm.toString(nShort), " untyped=", vm.toString(nUntyped)));
+        console2.log(string.concat(tag, ": kept=", vm.toString(nKept), " refunds=", vm.toString(nRefund),
             " previewRefused=", vm.toString(nRefusedPreview)));
         console2.log(string.concat(tag, ": widest gap below the pool = ", vm.toString(worstGapNum), " of ", vm.toString(worstGapDen)));
         console2.log(string.concat(tag, ": widest quote above the pool across a range boundary = ", vm.toString(worstOverNum),
