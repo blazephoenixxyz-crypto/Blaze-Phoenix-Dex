@@ -696,6 +696,22 @@
       "guard": "_judgedOnTheBook",
       "test": "test_TwoConcentratedHopsOverTheirEdgeKeepARoute",
       "note": "4746/4755, 2026-11-18. Solver._assembleRouteMulti refused on _legImpactBps alone: two V3 hops on a 1e18 range beside a 1e22 book, 2e18 in, each settling near 1:1, were refused (and the 4755 geometry at 10,000e18). Red at 2c8cbbe in test/JudgeAsksTheBook.t.sol. Since then the worst leg is folded into the gate and, before refusing, each concentrated leg is judged on its own book walked (Core.v3PaysOnBudget, then Core.impactV3FromOut): only a walk that finished inside its reads is a measurement, a book that does not answer or a walk that ran out of reads keeps the model figure, which refuses; JUDGE_READS 12 per hop, JUDGE_SOLVE_READS 24 per frame (SHARED_QUANTITIES). The floor keeps the single-range figure the Router's arm reads. A leader the judge admitted whose re-assembly on what its books pay is refused on the frame's spent reads stops with SolverE(5), never an empty plan (test_LeaderAdmittedByTheJudgeDoesNotLeaveAnEmptyPlan, red at f96bf6c). Mutants M-JUDGE-1, -2a, -2b, -3, -4, -5, -6, -7. Two concentrated legs on one hop still share the hop's reads and stay refused (pinned, M-JUDGE-5)."
+    },
+    {
+      "id": "JUDGE-REASSEMBLY-WALK-PAYS-NOTHING",
+      "class": "The leader's concentrated book pays 0 on its walk (the price on its range's edge, nothing past it) while the single-range model ranks it first; the re-assembly on what the books pay returns totalOut 0 and the solve stopped with SolverE(5) instead of rebuilding without that book",
+      "status": "blocked",
+      "guard": "_paysWhatItWalks",
+      "test": "test_LeaderWhoseBookPaysNothingIsRebuiltWithoutIt",
+      "note": "PR #139, 2026-11-19. Red at c54fd92 (SolverE(5)); green at 2c8cbbe. The re-assembly stops the solve only on an assembly with no hops; a route paying 0 is returned with its books on fl and the leader is rebuilt without them (N1). Mutant M-JUDGE-8."
+    },
+    {
+      "id": "JUDGE-REASSEMBLY-ON-SPENT-READS",
+      "class": "The leader the build's judge admitted is re-assembled on what its books pay with the frame's judge reads already spent, so the ceiling falls back to the model figure the build overruled and refuses the route with SolverE(5), where the base returns another route",
+      "status": "blocked",
+      "guard": "_paysWhatItWalks",
+      "test": "test_JudgedLeaderReassembledKeepsTheVerdict",
+      "note": "PR #139, 2026-11-19. Red at c54fd92 (SolverE(5)); at 2c8cbbe a one-hop pair. The re-assembly keeps the build's verdict: hop 0 keeps its amounts, later hops only fall, impact is monotone in the amount. Mutant M-JUDGE-9."
     }
   ]
 }

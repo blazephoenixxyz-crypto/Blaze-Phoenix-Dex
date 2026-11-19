@@ -653,11 +653,14 @@ contract JudgeAsksTheBook is Test {
 
     /// The leader the judge admitted, re-assembled on what its books pay (`_paysWhatItWalks`)
     /// with the frame's reads already spent: hop 0 a dense book whose walk spends the hop's 12
-    /// reads and does not finish (model ~6,700), so its promise falls; hop 1 a 1e17 range that
-    /// only the judge keeps (model >= 9,000). The re-assembly is handed 4 reads, keeps hop 1's
-    /// model figure and refuses. The solve stops with SolverE(5), as at base 2c8cbbe, never an
-    /// empty plan returned as an answer. Red at f96bf6c (an empty `best`, no revert): three
-    /// stair sizes and orders, each one a geometry the review measured empty.
+    /// reads and does not finish, so its promise falls; hop 1 a 1e17 range whose model figure,
+    /// summed with hop 0's, crosses the line, so the route exists only because the build's judge
+    /// admitted it.
+    /// The re-assembly keeps that verdict: the answer is the two-hop route, never SolverE(5) on
+    /// the frame's spent reads and never an empty plan. Red at f96bf6c (an empty `best`) and at
+    /// c54fd92 (SolverE(5)). Hop 0's book ends 40 stairs past its edge, so the walk's remainder
+    /// is valued on the range it reached, above what the book pays: the Router then refuses the
+    /// settlement under the floor (RouterE(5)), the limit `What this does not do` names.
     function test_LeaderAdmittedByTheJudgeDoesNotLeaveAnEmptyPlan() public {
         uint128[3] memory per = [uint128(1e17), 5e17, 3e17];
         uint256[3] memory ord = [ORD, ORD, 15e17];
@@ -665,13 +668,98 @@ contract JudgeAsksTheBook is Test {
             uint256 snap = vm.snapshotState();
             (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
             MockV3TickPool q = _dense(c, mid, CUR, per[i], 40);
-            _book(mid, d, 1e17, DEEP);
+            MockV3TickPool q1 = _book(mid, d, 1e17, DEEP);
             (, uint256 left0) = _judgeWalk(q, address(c) < address(mid), ord[i]);
             assertEq(left0, 0, "premise: hop 0's walk spends every read and does not finish");
-            vm.expectRevert(_refusal());
-            solver.findBestRoutePlan(address(c), address(d), ord[i]);
+            RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), ord[i]);
+            assertEq(plan.best.hops.length, 2, "the leader the judge admitted is the answer, never an empty plan");
+            assertGe(_modelBps(q, ord[i], address(c) < address(mid))
+                + _modelBps(q1, plan.best.hops[1].amountIn, address(mid) < address(d)), 9_000,
+                "premise: the model refuses the plan's own amounts, only the judge admits the route");
+            assertGt(plan.best.totalOut, 0, "a route that pays");
+            (bool ok, bytes memory ret) = address(this).call(abi.encodeCall(this.settleExt, (plan, c, ord[i])));
+            if (ok) assertGe(abi.decode(ret, (uint256)), plan.best.singleOutFloor, "settles at or above its floor");
+            else assertEq(ret, abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)), "or the Router refuses it");
             vm.revertToState(snap);
         }
+    }
+
+    /// The leader's book pays nothing on its walk: the price sits on the lower edge of its only
+    /// range [0, 60) of 1e24 and nothing lies below, so the single-range model reads ~0.997 of the
+    /// order while the first crossing leaves the walk no liquidity. The re-assembly's output is 0;
+    /// the book is handed back on `fl` and the leader is rebuilt without it (N1), so the V2 pair
+    /// on the same two tokens takes the order. Red at c54fd92 (SolverE(5) on `totalOut == 0`).
+    function test_LeaderWhoseBookPaysNothingIsRebuiltWithoutIt() public {
+        MockERC20 c = new MockERC20("CCC", "CCC");
+        MockERC20 d = new MockERC20("DDD", "DDD");
+        if (address(d) < address(c)) (c, d) = (d, c);
+        MockV3TickPool q = new MockV3TickPool(address(c), address(d), FEE, TS);
+        q.initialize(0);
+        q.addPosition(0, 60, 1e24);
+        _fund(q, c, d, 1e26);
+        MockV2Pair p = new MockV2Pair(address(c), address(d));
+        c.mint(address(p), 1e20);
+        d.mint(address(p), 1e20);
+        p.setReserves(1e20, 1e20);
+        hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(c), address(d));
+        uint256 amt = 1e18;
+        (uint256 walked, ) = _judgeWalk(q, true, amt);
+        assertEq(walked, 0, "premise: the walk crosses the range's lower edge into an empty book");
+        assertGt(_modelOut(q, amt, true), amt * 9970 * 1e20 / (1e20 * 10_000 + amt * 9970),
+            "premise: the model ranks the book above the pair");
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), amt);
+        assertEq(plan.best.hops.length, 1, "the order keeps a route");
+        assertEq(plan.best.hops[0].legs.length, 1, "on one leg");
+        assertEq(plan.best.hops[0].legs[0].pool, address(p), "the pair, rebuilt without the book that pays 0");
+        assertGt(plan.best.totalOut, 0, "a route that pays");
+        assertGt(_settle(plan, c, amt), 0, "the rebuilt route settles");
+    }
+
+    /// The leader the judge admitted keeps that verdict on its re-assembly. Hop 0 a dense book
+    /// whose walk does not finish on its reads, so its promise falls; hop 1 a range whose model
+    /// figure, summed with hop 0's, crosses the line, and which the build's judge measured on
+    /// what was left of the frame's reads. The re-assembly hands hop 0 the same amounts and every
+    /// later hop less, and impact (model or walked) is monotone in the amount: asking the judge
+    /// again on the frame's spent reads can only answer with the model figure the build already
+    /// overruled. The route the judge admitted stays the answer. Red at c54fd92 (SolverE(5)).
+    function test_JudgedLeaderReassembledKeepsTheVerdict() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
+        MockV3TickPool q0 = _stairs(c, mid, 1e18, 9e17, 40, DEEP);
+        MockV3TickPool q1 = _book(mid, d, 5e17, DEEP);
+        _pair(c, d, 2e17);
+        uint256 amt = 82e16;
+        bool z0 = address(c) < address(mid);
+        bool z1 = address(mid) < address(d);
+        uint256 out0 = _modelOut(q0, amt, z0);
+        uint256 in1 = out0 - BPC.mulDivUp(out0, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        (uint256 w0, uint256 left0) = _judgeWalk(q0, z0, amt);
+        uint256 win1 = w0 - BPC.mulDivUp(w0, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 m0 = _modelBps(q0, amt, z0);
+        uint256 m1 = _modelBps(q1, in1, z1);
+        assertLt(m0, 9_000, "premise: no leg crosses the line on the model");
+        assertLt(m1, 9_000, "premise: no leg crosses the line on the model");
+        assertGe(m0 + m1, 9_000, "premise: the model sum refuses the route, only the judge admits it");
+        assertEq(left0, 0, "premise: hop 0's walk spends its reads and does not finish");
+        assertLt(w0, out0, "premise: hop 0's promise falls on the walk");
+        assertGe(m0 + _modelBps(q1, win1, z1), 9_000, "premise: the model still refuses after the fall");
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), amt);
+        assertEq(plan.best.hops.length, 2, "the route the judge admitted keeps its verdict");
+        uint256 pair = amt * 9970 * 2e17 / (2e17 * 10_000 + amt * 9970);
+        assertGt(_settle(plan, c, amt), pair, "and settles above the pair the model alone leaves");
+    }
+
+    function settleExt(RoutePlan memory plan, MockERC20 tin, uint256 amt) external returns (uint256) {
+        return _settle(plan, tin, amt);
+    }
+
+    function _modelOut(MockV3TickPool q, uint256 amt, bool z) internal view returns (uint256) {
+        (uint160 sp, , , , , , ) = q.slot0();
+        return BPC.outV3(amt, sp, BPC.getLiquidity(address(q)), FEE, z, 0);
+    }
+
+    function _modelBps(MockV3TickPool q, uint256 amt, bool z) internal view returns (uint256) {
+        (uint160 sp, , , , , , ) = q.slot0();
+        return BPC.impactV3Bps(amt, sp, BPC.getLiquidity(address(q)), FEE, z);
     }
 
     /// @dev Two V2 pairs in a row: the judge never runs (no concentrated leg), so the folded

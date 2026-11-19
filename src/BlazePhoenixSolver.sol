@@ -353,9 +353,14 @@ contract BlazePhoenixSolver {
     ///      the route is assembled again, one producer of the floor. The ranking is not changed
     ///      here: each book whose promise fell is handed back on `fl`, a chain of [next, tokenIn,
     ///      tokenOut, pool] in memory (0 is none), and the leader's build is rebuilt without them
-    ///      (N1, `findBestRoutePlan`). An assembly that now refuses the route (the judge's reads
-    ///      spent in this frame, `_judgedOnTheBook`) stops the solve with SolverE(5), as a refused
-    ///      build does, never an empty plan; inside the rebuild's self-call the cap's plan stands.
+    ///      (N1, `findBestRoutePlan`). The re-assembly keeps the build's verdict on the ceiling
+    ///      (`_judgedOnTheBook` is not asked again): hop 0 keeps its amounts and every later hop
+    ///      only falls, and impact, model or walked, is monotone in the amount, so the frame's
+    ///      spent reads could only answer with the model figure the build already overruled. A
+    ///      route whose walk pays 0 is returned as such, its books on `fl`, and the leader is
+    ///      rebuilt without them. The re-assembly returns no empty plan: its only refusals are
+    ///      a hooked leg before the last hop (the build's own topology, already assembled) and
+    ///      the ceiling (not asked again).
     function _paysWhatItWalks(Route memory r, address tIn, address tOut, Melhores memory m)
         private view returns (Route memory, uint256 fl)
     {
@@ -386,8 +391,10 @@ contract BlazePhoenixSolver {
             unchecked { ++h; }
         }
         if (!fell) return (r, fl);
+        uint256 j = m.judged;
+        m.judged = JUDGE_SOLVE_READS + 1; // the build's verdict stands (`_judgedOnTheBook`)
         r = _assembleRouteMulti(r.hops, tIn, tOut, m, num);
-        if (r.totalOut == 0) revert SolverE(5);
+        m.judged = j;
         return (r, fl);
     }
 
@@ -1732,6 +1739,7 @@ contract BlazePhoenixSolver {
     ///      Each hop is handed min(JUDGE_READS, what JUDGE_SOLVE_READS leaves of the frame) and
     ///      writes back what it spent (`m.judged`); none left, the model figure stands.
     function _judgedOnTheBook(Hop[] memory hops, Melhores memory m) private view returns (bool) {
+        if (m.judged > JUDGE_SOLVE_READS) return false; // a re-assembly keeps the build's verdict
         uint256 hopsSum;
         for (uint256 h; h < hops.length; ) {
             uint256 legs = hops[h].legs.length;
