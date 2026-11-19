@@ -6249,11 +6249,17 @@ M = [
       old='    function readDynamicFee(address pool, bool stable, uint256 cfgFee)\n        internal view returns (uint256 fee)\n',
       new='    function readDynamicFee(address pool, bool stable, uint256 cfgFee)\n        public view returns (uint256 fee) // MUTANT [morf-CBP2-S4]\n',
       teste='test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt'),
- dict(nome="morf-CBP2-S5: impactV3FromOut is a door of the Core again, and no contract calls it",
+ # morf-CBP2-S5 was paired with test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt until
+ # 2026-11-19: since 4746 the Solver calls impactV3FromOut (Solver._judgedOnTheBook), so a public
+ # impactV3FromOut is a door the Solver delegatecalls, which that test admits by design, and the
+ # mutant read DECORATIVE there. What it still changes is where the ratio is compiled (a row in
+ # the Core's dispatcher, a delegatecall in place of the Solver's inlined copy): the runtime
+ # ledger pins both contracts' exact sizes and kills it, as it kills SIZE-M4.
+ dict(nome="morf-CBP2-S5: impactV3FromOut is a door of the Core again, and the Solver delegatecalls it instead of inlining it",
       f='src/BlazePhoenixCore.sol',
       old='    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)\n        internal pure returns (uint256)\n',
       new='    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)\n        public pure returns (uint256) // MUTANT [morf-CBP2-S5]\n',
-      teste='test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt'),
+      teste='test_Size_RuntimeLedger'),
  dict(nome="morf-CBP2-S6: registryDepth18Dec is a door of the Core again, and no contract calls it since 53b04c0 (MAT-01)",
       f='src/BlazePhoenixCore.sol',
       old='        address pool, uint8 kind, address t0, uint8 dc0, address t1, uint8 dc1, address v4mgr, bytes32 pid\n    ) internal view returns (uint256 depth) {\n',
@@ -10408,6 +10414,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (plan.best.totalOut == 0) revert SolverE(5);\n",
       new="        // MUTANT\n",
       teste="test_LeaderPayingNothingWithNoRebuildIsNotHandedOut"),
+ dict(nome="M-JUDGE-6g [4746]: the hop ignores what the solve frame already spent, and the worst case's judge reads past JUDGE_SOLVE_READS (gas)",
+      f="src/BlazePhoenixSolver.sol",
+      old="            uint256 given = JUDGE_SOLVE_READS - m.judged;",
+      new="            uint256 given = JUDGE_SOLVE_READS; // MUTANT",
+      teste="test_Gas_JudgeCeiling_RefusedAndAdmitted"),
  # M-JUDGE-9c [4746] has NO entry: `m.judged = j;` dropped after the re-assembly (_paysWhatItWalks)
  # leaves the sentinel on the frame, so a later judge in that frame admits what the ceiling refuses.
  # Treated as EQUIVALENT in effect, NOT proven: the only later judge in a frame is the self-call's

@@ -1133,7 +1133,7 @@ src/BlazePhoenixCore.sol	test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt	m
 src/BlazePhoenixCore.sol	test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt	morf-CBP2-S2: outSolidly is a door of the Core again, and no contract calls it
 src/BlazePhoenixCore.sol	test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt	morf-CBP2-S3: solidlyCurveOut is a door of the Core again, and no contract calls it
 src/BlazePhoenixCore.sol	test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt	morf-CBP2-S4: readDynamicFee is a door of the Core again, and no contract calls it
-src/BlazePhoenixCore.sol	test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt	morf-CBP2-S5: impactV3FromOut is a door of the Core again, and no contract calls it
+src/BlazePhoenixCore.sol	test_Size_RuntimeLedger	morf-CBP2-S5: impactV3FromOut is a door of the Core again, and the Solver delegatecalls it instead of inlining it
 src/BlazePhoenixCore.sol	test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt	morf-CBP2-S6: registryDepth18Dec is a door of the Core again, and no contract calls it since 53b04c0 (MAT-01)
 src/BlazePhoenixCore.sol	testFuzz_impactV3FromOut_SameAnswer	morf-CBP2-E2: impactV3FromOut answers the share of the price that was paid, not the share that was lost
 src/BlazePhoenixCore.sol	test_Edges_EveryHelperAtItsBoundariesAnswersAsItDid	morf-CBP2-E3: readDynamicFee takes a factory fee of exactly 100% as a fee, one step past the boundary
@@ -1913,3 +1913,4 @@ src/BlazePhoenixSolver.sol	test_LeaderWhoseBookPaysNothingIsRebuiltWithoutIt	M-J
 src/BlazePhoenixSolver.sol	test_JudgedLeaderReassembledKeepsTheVerdict	M-JUDGE-9 [4746]: the re-assembly asks the judge again on the frame's spent reads and refuses the leader the build admitted
 src/BlazePhoenixSolver.sol	test_JudgedLeaderReassembledKeepsTheVerdict	M-JUDGE-9b [4746]: the judge ignores the re-assembly's sentinel and reads past JUDGE_SOLVE_READS
 src/BlazePhoenixSolver.sol	test_LeaderPayingNothingWithNoRebuildIsNotHandedOut	M-JUDGE-10 [4746]: a plan that pays 0 leaves the search, and the doors hand out a route on a book that pays nothing
+src/BlazePhoenixSolver.sol	test_Gas_JudgeCeiling_RefusedAndAdmitted	M-JUDGE-6g [4746]: the hop ignores what the solve frame already spent, and the worst case's judge reads past JUDGE_SOLVE_READS (gas)
