@@ -168,6 +168,34 @@ abstract contract LatencyDriftOps is TokenSweepBase {
         } catch {}
     }
 
+    /// Phase 1 of `_run`, split out so its try/catch does not share a stack frame
+    /// with the calibration locals (stack-too-deep under the release step sequence).
+    function _quoteAll(PairSpec[] memory ps, Route[] memory routes, Quoted[] memory q) internal {
+        // ── Phase 1: quote at block N, realize the net promise, freeze ──
+        for (uint256 i; i < ps.length; ++i) {
+            uint256 snap = vm.snapshotState();
+            try quoter.previewPlanExact(ps[i].tIn, ps[i].tOut, ps[i].amt) returns (
+                Route memory rt, uint256 xo
+            ) {
+                if (rt.hops.length == 0 || xo == 0) {
+                    vm.revertToState(snap);
+                    console2.log(string.concat("[NO ROUTE] ", ps[i].label));
+                    continue;
+                }
+                (bool okN, uint256 gotN) = _execRoute(ps[i], rt);
+                // Revert BOTH the quote residue and the probe execution:
+                // block N state is untouched when the roll happens.
+                vm.revertToState(snap);
+                assertTrue(okN, string.concat(ps[i].label, ": same-block execution of the exact route reverted"));
+                assertGt(gotN, 0, string.concat(ps[i].label, ": same-block execution delivered zero"));
+                routes[i] = rt;
+                q[i] = Quoted(true, xo, gotN, keccak256(abi.encode(rt)));
+            } catch {
+                console2.log(string.concat("[QUOTE REVERT] ", ps[i].label));
+            }
+        }
+    }
+
     function _run(PairSpec[] memory ps) internal {
         if (address(hub) == address(0)) return; // no DRPC_KEY: fixture skipped
         _persistStack();
@@ -193,29 +221,7 @@ abstract contract LatencyDriftOps is TokenSweepBase {
         Quoted[] memory q = new Quoted[](ps.length);
         uint256 tsQuote = _now();
 
-        // ── Phase 1: quote at block N, realize the net promise, freeze ──
-        for (uint256 i; i < ps.length; ++i) {
-            uint256 snap = vm.snapshotState();
-            try quoter.previewPlanExact(ps[i].tIn, ps[i].tOut, ps[i].amt) returns (
-                Route memory rt, uint256 xo
-            ) {
-                if (rt.hops.length == 0 || xo == 0) {
-                    vm.revertToState(snap);
-                    console2.log(string.concat("[NO ROUTE] ", ps[i].label));
-                    continue;
-                }
-                (bool okN, uint256 gotN) = _execRoute(ps[i], rt);
-                // Revert BOTH the quote residue and the probe execution:
-                // block N state is untouched when the roll happens.
-                vm.revertToState(snap);
-                assertTrue(okN, string.concat(ps[i].label, ": same-block execution of the exact route reverted"));
-                assertGt(gotN, 0, string.concat(ps[i].label, ": same-block execution delivered zero"));
-                routes[i] = rt;
-                q[i] = Quoted(true, xo, gotN, keccak256(abi.encode(rt)));
-            } catch {
-                console2.log(string.concat("[QUOTE REVERT] ", ps[i].label));
-            }
-        }
+        _quoteAll(ps, routes, q);
 
         // ── Phase 2: the landing delay, in this chain's own blocks ──
         // ROLL UNTIL THE WINDOW IS REACHED, then assert the WINDOW -- not the
