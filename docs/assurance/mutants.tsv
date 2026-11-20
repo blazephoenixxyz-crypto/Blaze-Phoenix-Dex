@@ -1311,14 +1311,14 @@ src/BlazePhoenixCore.sol	test_MAT02_ABookHoldingTheHonestShortSideCountOfTheChea
 src/BlazePhoenixCore.sol	test_HopMass_TheFunnelAndTheVoteReadOneFormula_18_6	massa MAT-02 Core._quoteArms: a V3/Algebra pool votes its short side again
 src/BlazePhoenixCore.sol	test_HopMass_TheFunnelAndTheVoteReadOneFormula_18_18	massa MAT-02 Core._quoteArms: a Solidly pair votes its short side again
 src/BlazePhoenixCore.sol	test_HopMass_TheFunnelAndTheVoteReadOneFormula_8_6	massa MAT-02 Core._v4Quote: a singleton book votes its short side again
-src/BlazePhoenixSolver.sol	test_Funnel_ASingletonBookHoldingNoneOfTheBoughtTokenDropsNoRow	massa MAT-01 Solver._heldBooks: a singleton book adds its declared side to the other rows' D, never what it holds
-src/BlazePhoenixSolver.sol	test_HD01_Liveness_OneQuietCutPerBridgeLeavesThePairRoutable	massa MAT-01 Solver._heldBooks: the sum keeps the declared side of a book whose walk holds less
+src/BlazePhoenixSolver.sol	test_Funnel_ASingletonBookHoldingNoneOfTheBoughtTokenDropsNoRow	massa MAT-01 Solver._heldBooks: a singleton book adds its declared side to the other rows' D, never what it holds (r and sum keep the declared side)
+src/BlazePhoenixSolver.sol	test_HD01_Liveness_OneQuietCutPerBridgeLeavesThePairRoutable	massa MAT-01 Solver._heldBooks: the sum keeps the declared side of a walked book
 src/BlazePhoenixSolver.sol	test_Funnel_DustBesideADeepSingletonBookIsStillDropped_18_18	massa MAT-01 Solver._heldBooks: the walk's answer is discarded and a deep book adds nothing to D
 src/BlazePhoenixSolver.sol	test_Funnel_DustBesideADeepSingletonBookIsStillDropped_18_6	massa MAT-01 Solver._heldBooks: what the walk holds is compared raw against masses in 18 decimals
-src/BlazePhoenixSolver.sol	test_Funnel_ASingletonBookWhoseWalkDustCutKeepsItsSeat	massa MAT-01 Solver._heldBooks: a book's own mass is cut to what sixteen stretches hold (dust on its ticks unseats it)
+src/BlazePhoenixSolver.sol	test_Funnel_ASingletonBookWhoseWalkDustCutKeepsItsSeat	massa MAT-01 Solver._heldBooks: a book's own mass is cut to what sixteen stretches hold (thin ticks unseat it)
 src/BlazePhoenixSolver.sol	test_Funnel_ASingletonBookHoldingNoneOfTheBoughtTokenDropsNoRow	massa MAT-01 Solver._heldBooks: the walk reads the side of the token being sold
 src/BlazePhoenixSolver.sol	test_HD01_Liveness_OneQuietCutPerBridgeLeavesThePairRoutable	massa MAT-01 Solver._dropDust: singleton mass is never counted, so no book is ever walked
-src/BlazePhoenixSolver.sol	test_Funnel_TwoSingletonBooksAloneOnAPairStillRoute	massa MAT-01 Solver._dropDust: the lower bound of a singleton row's rest subtracts its own mass twice
+src/BlazePhoenixSolver.sol	test_Funnel_TwoSingletonBooksAloneOnAPairStillRoute	massa MAT-01 Solver._dropDust: a singleton row under the bar no longer opens the walks by itself
 src/BlazePhoenixSolver.sol	test_Funnel_ABookHoldingOnlyTheSoldTokenDoesNotDropTheHonestPair_18_18	massa MAT-01 Solver._dropDust: a concentrated row is capped by what it holds of the token being sold
 src/BlazePhoenixCore.sol	test_HopMass_ABookAtTheTopOfTheRangeStopsNoPlan_18_2	massa Core.outSide18: the side a book declares is not capped at what a book can pay (2^128 - 1), so mass * 1e6 leaves uint256
 src/BlazePhoenixMath.sol	test_L1056c2_WeightedMedianWalksTheSortedPairs	massa Math._byPrice: the live rows stay in candidate order, so the weighted median walks unsorted prices
@@ -1914,3 +1914,16 @@ src/BlazePhoenixSolver.sol	test_JudgedLeaderReassembledKeepsTheVerdict	M-JUDGE-9
 src/BlazePhoenixSolver.sol	test_JudgedLeaderReassembledKeepsTheVerdict	M-JUDGE-9b [4746]: the judge ignores the re-assembly's sentinel and reads past JUDGE_SOLVE_READS
 src/BlazePhoenixSolver.sol	test_LeaderPayingNothingWithNoRebuildIsNotHandedOut	M-JUDGE-10 [4746]: a plan that pays 0 leaves the search, and the doors hand out a route on a book that pays nothing
 src/BlazePhoenixSolver.sol	test_Gas_JudgeCeiling_RefusedAndAdmitted	M-JUDGE-6g [4746]: the hop ignores what the solve frame already spent, and the worst case's judge reads past JUDGE_SOLVE_READS (gas)
+src/BlazePhoenixSolver.sol	test_ThinCurrentTickDeepNeighbourBookKeepsItsSeat	4660 Solver._heldBooks: a walked book is not raised to what it holds (a thin current tick unseats a deep book)
+src/BlazePhoenixSolver.sol	test_EachBookUnderTheBarIsWalkedOnce	4660 Solver._heldBooks: a walked book always keeps its seat (d = 2^128 - 1)
+src/BlazePhoenixSolver.sol	test_AWalkPastUint128IsCappedAndTheSearchStands	4660 Solver._heldBooks: the walk is not capped at 2^128 - 1
+src/BlazePhoenixSolver.sol	test_EachBookUnderTheBarIsWalkedOnce	4660 Solver._heldBooks: each book is walked twice
+src/BlazePhoenixSolver.sol	test_EmptyCurrentTickBookWeighsOnNobody	4660 Solver._heldBooks: a book declaring nothing (an empty current tick) is walked
+src/BlazePhoenixSolver.sol	test_ADeepBookOutDeclaredByDustBooksIsStillRead	4660 Solver._heldBooks: the walks stop at the first book holding under the bar (a dust book hides a deep one)
+src/BlazePhoenixSolver.sol	test_ADeepBookWeighsWhatItHoldsOnTheOtherRows	4660 Solver._heldBooks: lower-only, a book holding more than it declares adds only its declared side to the other rows
+src/BlazePhoenixSolver.sol	test_ThinCurrentTickDeepNeighbourBookKeepsItsSeat	4660 Solver._dropDust: no book is ever walked
+src/BlazePhoenixSolver.sol	test_TwoHops_SixDecimals_ThinTickBookKeepsItsSeatOnTheFirstHop	4660 Solver._heldBooks: the walk is compared raw against masses in 18 decimals (first of two hops, six-decimal bridge)
+src/BlazePhoenixSolver.sol	test_HookedThinCurrentTickDeepNeighbourBookKeepsItsSeat	4660 Solver._heldBooks: a hooked book is not walked
+src/BlazePhoenixSolver.sol	test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat	4660 E1 Solver._heldBooks: the funnel walks sixteen stretches (the horizon is the promise again)
+src/BlazePhoenixSolver.sol	test_FunnelHorizon_OneBookIsReadOnTwoStretches	4660 E1 Solver: the horizon is one stretch (the neighbour is not read)
+src/BlazePhoenixCore.sol	test_FunnelHorizon_CapitalPastTheNeighbourIsNotASeat	4660 E1 Core._v4Walk: the walk ignores its horizon n and stops at sixteen stretches
