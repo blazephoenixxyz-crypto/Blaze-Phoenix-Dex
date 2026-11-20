@@ -865,7 +865,10 @@ jobs:
         if: matrix.spec == 'EffV4FeeFormalSpec'
         run: |
           set -o pipefail
-          halmos --contract EffV4FeeFormalSpec -v 2>&1 | tee halmos-effv4fee.log
+          # check_staticKeyComposesProtocolFee takes ~35 s on main and hit the 60 s default solver
+          # timeout on a slower runner: a [TIMEOUT] still fails this step, so a wider limit only
+          # removes the runner-speed flake, it never turns an unproven check green.
+          halmos --contract EffV4FeeFormalSpec --solver-timeout-assertion 300s -v 2>&1 | tee halmos-effv4fee.log
           if grep -q 'not been fully explored due to the loop unrolling bound' halmos-effv4fee.log; then
             echo "::warning::EffV4FeeFormalSpec: a path was cut by the loop bound, so that check is not a proof"
             [ "$LOOP_BOUND_GATE" != 1 ]
