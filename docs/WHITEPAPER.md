@@ -5,7 +5,9 @@
 > Historical document. It describes the first reconstruction of this repository and is
 > kept for the record; its venue list, contract count and status no longer match the code.
 > The current design is in [papers/whitepaper-v2.2.md](papers/whitepaper-v2.2.md) and in the
-> Technical Whitepaper v2.3 (DOI [10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091)).
+> Technical Whitepaper v2.3.1 ([papers/whitepaper-v2.3.1.md](papers/whitepaper-v2.3.1.md), DOI [10.5281/zenodo.24372939](https://doi.org/10.5281/zenodo.24372939)), which corrects
+> three statements of v2.3 (DOI [10.5281/zenodo.23084091](https://doi.org/10.5281/zenodo.23084091)). The research papers
+> v1.0 are at DOI [10.5281/zenodo.24372935](https://doi.org/10.5281/zenodo.24372935).
 
 > Status: research/engineering preview. This document describes the
 > design as implemented and validated by the test campaign in `TESTING.md`. It is
