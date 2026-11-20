@@ -10697,6 +10697,34 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="    uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_000; // 20% absolute hard cap (floor ≥ 80%)",
       new="    uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_001; // MUTANTE",
       teste="test_LegFloorIsNeverAboveTheLeastRouteFloor"),
+ # A pair that pays under what it declares (test/FotLegRatioIsMeasured): the route floor reads the
+ # declared, the per-leg share reads what arrived, and the floor published shows the cut. The
+ # siblings below re-use MB1/MB5/MB12/MB14 against the pins of that vector.
+ dict(nome="fot-out-1116 MB1b: the route floors read the measured net again, watched by a pair paying under its word",
+      f="src/BlazePhoenixRouter.sol",
+      old="        if (outCap < effMin) revert RouterE(5);",
+      new="        if (amountOut < effMin) revert RouterE(5); // MUTANTE",
+      teste="test_PairPayingUnderItsWord_BetweenTheShareAndTheRouteFloor_Settles"),
+ dict(nome="fot-out-1116 MB5b: floorUsed not re-expressed by received over declared, watched by a pair paying under its word",
+      f="src/BlazePhoenixRouter.sol",
+      old="        protocolFloorOut = BPC.mulDiv(BPC.mulDiv(protocolFloorOut, amountOut, outCap), delivered, net);",
+      new="        protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net); // MUTANTE",
+      teste="test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_ToTheWei"),
+ dict(nome="fot-out-1116 MB12b: the measured floor takes one bps less, watched by a pair paying under its word",
+      f="src/BlazePhoenixRouter.sol",
+      old='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD',
+      new='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS - 1, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD // MUTANTE',
+      teste="test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_ToTheWei"),
+ dict(nome="fot-out-1116 MB14b: the measured floor ignores the input tax, watched by the fuzz of a pair paying under its word",
+      f="src/BlazePhoenixRouter.sol",
+      old='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD',
+      new='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), BPC.WAD, BPC.WAD // MUTANTE',
+      teste="testFuzz_PairPayingUnderItsWord_SettlesIffItClearsTheMeasuredShare"),
+ dict(nome="fot-out-1116 MB12c: the measured floor takes one bps less, watched on the second hop of a pair paying under its word",
+      f="src/BlazePhoenixRouter.sol",
+      old='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD',
+      new='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS - 1, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD // MUTANTE',
+      teste="test_PairPayingUnderItsWord_OnTheSecondHop_IsHeldAtTheMeasuredShare_ToTheWei"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
