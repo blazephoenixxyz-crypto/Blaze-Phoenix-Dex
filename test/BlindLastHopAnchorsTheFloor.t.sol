@@ -621,6 +621,29 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         assertTrue(_settles(r), "the re-priced share of the hop's figure settles");
     }
 
+    /// The measured floor asks the per-leg share of the hop's figure, and the route floor asks
+    /// `floorBps` of the same figure, re-priced alike. It refuses nothing the route floor settled
+    /// only while `LEG_FLOOR_BPS` is never above the least `floorBps` the Router can compute.
+    /// Read from Core's own producer (`ironFloorBpsShv`, the call the Router makes with no sigma)
+    /// at the impact edges: 0 gives 9_600, 1_599 the last floor above the cap, 1_600 the first
+    /// one on it, and past it the cap holds to any impact. A wider hard cap breaks the pin.
+    function test_LegFloorIsNeverAboveTheLeastRouteFloor() public pure {
+        uint256[7] memory impact = [uint256(0), 1, 1_599, 1_600, 1_601, 10_000, type(uint256).max];
+        uint256[7] memory want = [uint256(9_600), 9_599, 8_001, 8_000, 8_000, 8_000, 8_000];
+        for (uint256 i; i < 7; ++i) {
+            uint256 f = BPC.ironFloorBpsShv(impact[i], 0, 0);
+            assertEq(f, want[i], "the route floor at an impact edge");
+            assertGe(f, BPC.LEG_FLOOR_BPS, "the per-leg share is never above the route floor");
+        }
+    }
+
+    /// The same pin over any impact and any leg shave the Router can hand the floor.
+    function testFuzz_LegFloorIsNeverAboveTheRouteFloor(uint256 impactBps, uint256 legShv) public pure {
+        legShv = bound(legShv, 0, 1e9);
+        assertGe(BPC.ironFloorBpsShv(impactBps, legShv, 0), BPC.LEG_FLOOR_BPS,
+            "the per-leg share is never above the route floor");
+    }
+
     // --- no refusal the route floor on 969bcc6 did not make ---------------------
     // Each of these settles on 969bcc6, where the route floor read the measured output against
     // floorBps >= LEG_FLOOR_BPS of the same figure, and still settles with the whole last hop
