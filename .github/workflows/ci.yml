@@ -35,6 +35,10 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ github.event_name != 'pull_request' || steps.filter.outcome != 'success' || steps.filter.outputs.code == 'true' }}
+      # The Halmos specs prove properties of the contracts, so they run only when what they
+      # prove can change: src, its dependencies, the compiler config, the specs, this workflow.
+      # A pull request that touches only tests, scripts or generated snapshots skips them.
+      contracts: ${{ github.event_name != 'pull_request' || steps.filter.outcome != 'success' || steps.filter.outputs.contracts == 'true' }}
     steps:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
@@ -52,6 +56,13 @@ jobs:
               - 'remappings.txt'
               - 'snapshots/**'
               - '.sizes-snapshot'
+            contracts:
+              - 'src/**'
+              - 'lib/**'
+              - 'test/formal/**'
+              - 'foundry.toml'
+              - 'remappings.txt'
+              - '.github/workflows/ci.yml'
   test:
     name: build + test (fast profile)
     needs: changes
@@ -794,7 +805,7 @@ jobs:
     # runner at ~19-24 min (exit 143) before both specs had run. Each spec now gets its own clock;
     # the job below keeps the required check name and fails if any spec fails.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.contracts != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -882,7 +893,7 @@ jobs:
   formal-composition:
     name: formal composition spec (Halmos, report-only)
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.contracts != 'false' }}
     # Report-only until measured: test/formal/CompositionFormalSpec.t.sol has never been run by
     # Halmos (not on a runner, not locally). It becomes a hard gate in the formal job above only
     # after a run here measures every check discharging cleanly, the same path CoreFormalGateSpec
@@ -977,7 +988,7 @@ jobs:
 
   formal:
     # The required status check keeps this exact name; it is green only when every spec is.
-    # A run with no code change skips the specs (the `changes` filter) and passes here.
+    # A run with no contract change skips the specs (the `changes` filter) and passes here.
     name: formal verification (Halmos symbolic)
     needs: [changes, formal-spec]
     if: always()
@@ -987,11 +998,11 @@ jobs:
       - name: Every Halmos spec discharged
         env:
           SPEC_RESULT: ${{ needs.formal-spec.result }}
-          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+          CONTRACTS_CHANGED: ${{ needs.changes.outputs.contracts }}
         run: |
-          echo "formal-spec matrix result: $SPEC_RESULT (code changed: $CODE_CHANGED)"
+          echo "formal-spec matrix result: $SPEC_RESULT (contracts changed: $CONTRACTS_CHANGED)"
           if [ "$SPEC_RESULT" = "success" ]; then exit 0; fi
-          if [ "$SPEC_RESULT" = "skipped" ] && [ "$CODE_CHANGED" = "false" ]; then exit 0; fi
+          if [ "$SPEC_RESULT" = "skipped" ] && [ "$CONTRACTS_CHANGED" = "false" ]; then exit 0; fi
           echo "::error::formal: at least one Halmos spec did not succeed ($SPEC_RESULT)"
           exit 1
 
