@@ -584,9 +584,10 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
     }
 
     /// A taxed entry re-prices the measured floor by the measured input tax. Two taxed
-    /// transfers of 25 % (the pull and the push into the pair) compound to 5_625 bps. The last
-    /// hop is a venue that pays exactly what it is told; one wei under the re-priced share of
-    /// the hop's figure is refused, the share itself settles. Both roundings are up (R-C).
+    /// transfers of 25 % (the pull and the push into the pair) compound to 0.5625, a WAD ratio
+    /// (#137) the oracle derives from the token's own arithmetic, never from the Router. The
+    /// last hop is a venue that pays exactly what it is told; one wei under the re-priced share
+    /// of the hop's figure is refused, the share itself settles. Both roundings are up (R-C).
     function test_TaxedInput_MeasuredFloor_RePricedAndRoundedUp_ToTheWei() public {
         ShortPayingV3Pool liar = _liar(address(tokenB), address(tokenC));
         MockV2Pair pair = new MockV2Pair(address(tokenA), address(tokenB));
@@ -596,10 +597,17 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         uint256 b = BPC.outV2(AMT, 1_000_000e18, 1_000_000e18, 30);
         uint256 bNet = b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         uint256 h = _q(pBC, address(tokenB), bNet);
+        // The two cuts as MockERC20 takes them (fee = amount * bps / 10_000, rounded down): the
+        // pull lands `pulled` of AMT, and the push of all of it into the pair lands `pushed`. Each
+        // ratio is what was received over what was sent, in WAD, and they compound.
+        uint256 pulled = AMT - AMT * 2_500 / 10_000;
+        uint256 pushed = pulled - pulled * 2_500 / 10_000;
+        uint256 seen = (pulled * 1e18 / AMT) * (pushed * 1e18 / pulled) / 1e18;
+        assertEq(seen, 0.5625e18, "two 25 % cuts compound to 0.5625");
         uint256 share = _legShare(h);
-        if ((share * 5_625) % BPC.BPS == 0) { h -= 1; share = _legShare(h); }
-        assertTrue((share * 5_625) % BPC.BPS != 0, "non-vacuity: the re-priced share is fractional");
-        uint256 edge = (share * 5_625 + BPC.BPS - 1) / BPC.BPS;
+        if ((share * seen) % 1e18 == 0) { h -= 1; share = _legShare(h); }
+        assertTrue((share * seen) % 1e18 != 0, "non-vacuity: the re-priced share is fractional");
+        uint256 edge = (share * seen + 1e18 - 1) / 1e18;
         Hop[] memory hs = new Hop[](2);
         hs[0] = _hop(address(tokenA), address(tokenB), AMT, b, Leg({pool: address(pair), hooks: address(0),
             kind: BPC.KIND_V2, fee: 30, tickSpacing: 0, zeroForOne: address(tokenA) < address(tokenB), stable: false,
