@@ -902,7 +902,8 @@ jobs:
     # Sharded: run 44750735038 measured 2 checks passing in about 1 s and 3 checks ending as
     # [TIMEOUT] at the 300 s assertion limit with no counterexample; the band/fee/dust spec,
     # a second step after them, never ran because the first step failed. One shard per heavy
-    # check gives each its own solver budget, and the band/fee/dust spec its own job.
+    # check gives each its own solver budget; the band/fee/dust spec is split the same way, one
+    # shard per check, so one slow check cannot hide the result of the other three.
     runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
@@ -925,8 +926,18 @@ jobs:
             contract: CompositionFormalSpec
             match: '^check_slackNeverExceedsOneAverageLeg(\(|$)'
             assertion_timeout: 1200s
-          - shard: band-fee-dust
+          - shard: band
             contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandKeepsLiveBaseAndOnlyWidens(\(|$)'
+          - shard: hop-fee
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_hopFeeRoundsUpAndNetMatches(\(|$)'
+          - shard: dust-probe
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_dustProbeV2FloorsToZero(\(|$)'
+          - shard: split-floors
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_splitFloorsNeverOvershoot(\(|$)'
     # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion) plus setup.
     timeout-minutes: 60
     env:
@@ -960,11 +971,13 @@ jobs:
           wall=1500
           if [ "$ASSERTION_TIMEOUT" != "300s" ]; then wall=2700; fi
           timeout "$wall" halmos --contract CompositionFormalSpec --match-test "$MATCH" \
-            --solver bitwuzla-0.8.1 --solver-timeout-assertion "$ASSERTION_TIMEOUT" -v
+            --solver bitwuzla-0.8.1 --solver-timeout-assertion "$ASSERTION_TIMEOUT" -v 2>&1 | tee halmos.log
+          # A pattern that selects no check would end green; require at least one result line.
+          grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]' halmos.log
 
       - name: Symbolic - band, hop fee, dust probe, split (report-only)
         if: matrix.contract == 'SolverBandFeeDustFormalSpec'
-        # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
+        # test/formal/SolverBandFeeDustFormalSpec.t.sol, one of its four checks per shard, never measured. Halmos
         # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
         # a bound that was hit proves nothing, so this step fails on that warning too. A
         # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
@@ -974,6 +987,7 @@ jobs:
         env:
           SBFD_MEM_MAX: 12G
           SBFD_TIME_MAX: "1500"
+          MATCH: ${{ matrix.match }}
         run: |
           cg=/sys/fs/cgroup/halmos-sbfd
           grep -qw memory /sys/fs/cgroup/cgroup.subtree_control \
@@ -989,7 +1003,7 @@ jobs:
           mkfifo sbfd.gate
           (
             read -r _ < sbfd.gate
-            timeout "$SBFD_TIME_MAX" halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
+            timeout "$SBFD_TIME_MAX" halmos --contract SolverBandFeeDustFormalSpec --match-test "$MATCH" --loop 3 \
               --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
             exit "${PIPESTATUS[0]}"
           ) &
@@ -1015,6 +1029,7 @@ jobs:
             echo "::error::SolverBandFeeDustFormalSpec: halmos exited with $rc"
             exit 1
           fi
+          grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]' halmos-sbfd.log   # the pattern selected a check
           ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
 
   formal:
