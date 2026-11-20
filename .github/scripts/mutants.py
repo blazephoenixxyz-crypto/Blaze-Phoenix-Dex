@@ -10692,6 +10692,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD',
       new='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS - 1, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD // MUTANTE',
       teste="test_UnderAnOutputTaxPastTheSlack_TheEdgeIsTheMeasuredShare"),
+ dict(nome="fot-out-1116 MB22: a hard cap one bps wider puts the least route floor under the per-leg share",
+      f="src/BlazePhoenixCore.sol",
+      old="    uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_000; // 20% absolute hard cap (floor ≥ 80%)",
+      new="    uint16  internal constant FLOOR_HARD_MAX_LOSS_BPS = 2_001; // MUTANTE",
+      teste="test_LegFloorIsNeverAboveTheLeastRouteFloor"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
