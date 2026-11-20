@@ -973,7 +973,8 @@ jobs:
           timeout "$wall" halmos --contract CompositionFormalSpec --match-test "$MATCH" \
             --solver bitwuzla-0.8.1 --solver-timeout-assertion "$ASSERTION_TIMEOUT" -v 2>&1 | tee halmos.log
           # A pattern that selects no check would end green; require at least one result line.
-          grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]' halmos.log
+          # Halmos colours its result tags, so strip the ANSI codes before matching.
+          sed 's/\x1b\[[0-9;]*m//g' halmos.log | grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]'
 
       - name: Symbolic - band, hop fee, dust probe, split (report-only)
         if: matrix.contract == 'SolverBandFeeDustFormalSpec'
@@ -1029,7 +1030,7 @@ jobs:
             echo "::error::SolverBandFeeDustFormalSpec: halmos exited with $rc"
             exit 1
           fi
-          grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]' halmos-sbfd.log   # the pattern selected a check
+          sed 's/\x1b\[[0-9;]*m//g' halmos-sbfd.log | grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]'   # the pattern selected a check (tags are coloured)
           ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
 
   formal:
