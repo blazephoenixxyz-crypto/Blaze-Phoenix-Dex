@@ -891,18 +891,43 @@ jobs:
       # false positives faster than it finds defects.
 
   formal-composition:
-    name: formal composition spec (Halmos, report-only)
+    name: formal composition spec (Halmos ${{ matrix.shard }}, report-only)
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.contracts != 'false' }}
-    # Report-only until measured: test/formal/CompositionFormalSpec.t.sol has never been run by
-    # Halmos (not on a runner, not locally). It becomes a hard gate in the formal job above only
-    # after a run here measures every check discharging cleanly, the same path CoreFormalGateSpec
-    # took. Its own job, so a timeout here cannot eat the formal job's 30-minute budget, and
-    # continue-on-error so a red result reports without failing the workflow. Not a required check.
+    # Report-only until measured: test/formal/CompositionFormalSpec.t.sol has never discharged
+    # every check. It becomes a hard gate in the formal job above only after a run here measures
+    # every check discharging cleanly, the same path CoreFormalGateSpec took. Its own job, so a
+    # timeout here cannot eat the formal job's 30-minute budget, and continue-on-error so a red
+    # result reports without failing the workflow. Not a required check.
+    # Sharded: run 44750735038 measured 2 checks passing in about 1 s and 3 checks ending as
+    # [TIMEOUT] at the 300 s assertion limit with no counterexample; the band/fee/dust spec,
+    # a second step after them, never ran because the first step failed. One shard per heavy
+    # check gives each its own solver budget, and the band/fee/dust spec its own job.
     runs-on: ubuntu-latest
     continue-on-error: true
-    # Two steps bounded at 1500 s each plus setup: the job budget sits above their sum, so each
-    # step ends on its own bound with a readable message instead of a job cancellation.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: depth
+            contract: CompositionFormalSpec
+            match: '^check_depth'
+            assertion_timeout: 300s
+          - shard: hop-collapse
+            contract: CompositionFormalSpec
+            match: '^check_hopCollapsesToLegFloorAtN1(\(|$)'
+            assertion_timeout: 1200s
+          - shard: legs-budget
+            contract: CompositionFormalSpec
+            match: '^check_moreLegsNeverLoosensBudget(\(|$)'
+            assertion_timeout: 1200s
+          - shard: slack
+            contract: CompositionFormalSpec
+            match: '^check_slackNeverExceedsOneAverageLeg(\(|$)'
+            assertion_timeout: 1200s
+          - shard: band-fee-dust
+            contract: SolverBandFeeDustFormalSpec
+    # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion) plus setup.
     timeout-minutes: 60
     env:
       # Same narrowing as formal-spec: compile src + test/formal only, not the whole tree.
@@ -919,6 +944,7 @@ jobs:
         run: pip install halmos==0.3.3   # pinned: a proof is measured on one prover; bump by PR
 
       - name: Symbolic checks (report-only, bitwuzla)
+        if: matrix.contract == 'CompositionFormalSpec'
         # Bounded at the process, not with timeout-minutes: a cancelled step propagates to the job
         # even under continue-on-error (see formal-explore.yml).
         # Solver measurement: under the default yices, three checks hit the 300 s
@@ -928,11 +954,16 @@ jobs:
         # for bitwuzla-0.8.1 before installing it; a mismatch aborts the step.
         env:
           HALMOS_ALLOW_DOWNLOAD: "1"
+          MATCH: ${{ matrix.match }}
+          ASSERTION_TIMEOUT: ${{ matrix.assertion_timeout }}
         run: |
-          timeout 1500 halmos --contract CompositionFormalSpec --solver bitwuzla-0.8.1 \
-            --solver-timeout-assertion 300s -v
+          wall=1500
+          if [ "$ASSERTION_TIMEOUT" != "300s" ]; then wall=2700; fi
+          timeout "$wall" halmos --contract CompositionFormalSpec --match-test "$MATCH" \
+            --solver bitwuzla-0.8.1 --solver-timeout-assertion "$ASSERTION_TIMEOUT" -v
 
       - name: Symbolic - band, hop fee, dust probe, split (report-only)
+        if: matrix.contract == 'SolverBandFeeDustFormalSpec'
         # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
         # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
         # a bound that was hit proves nothing, so this step fails on that warning too. A
