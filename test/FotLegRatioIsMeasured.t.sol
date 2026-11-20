@@ -18,7 +18,8 @@ pragma solidity ^0.8.24;
 ///                     x push net {1 bp, 100, 9993, 9999 bps, fuzz 1..10000, none};
 ///                     the leg gate at its exact wei and one wei under it; the route floor
 ///                     at its exact wei and one wei under it, with every leg gate cleared
-///           vector    pool {honest, pays half, pays an exact amount}; venue {V2, Solidly, V3
+///           vector    pool {honest, pays half, pays an exact amount, declares an exact amount
+///                     under its quote}; venue {V2, Solidly, V3
 ///                     partial take}; tax on {pull, push, push to one pool of a split hop,
 ///                     second hop's push}
 ///           dimension unit, fuzz, boundary; 1 hop and 2 hops; 1 leg and 2 legs; ERC20.
@@ -362,6 +363,100 @@ contract FotLegRatioIsMeasuredTest is Test {
         assertEq(p1, floor, "the floor used is the re-priced one");
     }
 
+    // ── a pair that pays under its word: the cut sits between what it declares and what lands ──
+
+    /// @dev The route-floor fixture with a push that keeps `push` bps, by the test's own
+    ///      arithmetic: the compound, the hop's figure (the honest quote of what the leg sent), the
+    ///      per-leg share of it re-priced by the compound, rounded up twice (`m`), what an honest
+    ///      pair declares for what it took (`owed`), and the leg gate.
+    function _underItsWord(uint256 push)
+        private pure returns (uint256 compound, uint256 hq, uint256 m, uint256 owed, uint256 gate)
+    {
+        uint256 amt = _legIn(AMOUNT_IN);
+        uint256 took = amt * push / 10_000;
+        compound = BPC.mulDiv(took, 1e18, amt);
+        hq = _outV2(amt, R_IN, R_OUT);
+        m = BPC.mulDivUp(BPC.mulDivUp(hq, 8_000, 10_000), compound, 1e18);
+        owed = _outV2(took, R_IN, R_OUT);
+        gate = _gate(_outV2(AMOUNT_IN, R_IN, R_OUT), amt, took);
+    }
+
+    /// @dev The untaxed run of the fixture: the hop's figure and the protocol floor it published.
+    function _untaxedProof() private returns (uint256 q0, uint256 p0) {
+        _seed(R_IN, R_OUT);
+        uint256 snap = vm.snapshotState();
+        vm.recordLogs();
+        _swap();
+        (q0, p0) = _proof();
+        vm.revertToState(snap);
+    }
+
+    /// @notice A pair that pays under what it declares (an output cut, as the Router sees it) is
+    ///         held at the per-leg share of the hop's figure, re-priced by the compound, to the wei.
+    ///         The push keeps 99%. The route floor reads what the pair declared, which clears it;
+    ///         the leg gate sits below the share. One wei under the share is refused, the share
+    ///         itself settles, and the floor published is re-expressed by what arrived over what
+    ///         was declared.
+    function test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_ToTheWei() public {
+        (uint256 q0, uint256 p0) = _untaxedProof();
+        (uint256 compound, uint256 hq, uint256 m, uint256 owed, uint256 gate) = _underItsWord(9_900);
+        uint256 floor = BPC.mulDivUp(p0, compound, 1e18);
+        assertEq(q0, hq, "premise: the hop's figure is the honest quote of what the leg sent");
+        assertLt(gate, m, "premise: the leg gate is not the bound");
+        assertLt(m, floor, "premise: the route floor is above the share");
+        assertLt(floor, owed, "premise: what the pair declares clears the route floor");
+
+        tokenIn.set(10_000, 9_900, 0, address(router));
+        uint256 snap = vm.snapshotState();
+        pair.setPayWei(m - 1);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
+        _swap();
+        vm.revertToState(snap);
+        pair.setPayWei(m);
+        vm.recordLogs();
+        assertEq(_swap(), m, "the share itself settles");
+        (uint256 q1, uint256 p1) = _proof();
+        assertEq(q1, q0, "the push tax does not move the quote");
+        assertEq(p1, BPC.mulDiv(floor, m, owed), "the floor published is re-expressed by received over declared");
+    }
+
+    /// @notice Between the measured share and the route floor, a pair that pays under its word
+    ///         settles: the route floor prices gross and reads what the pair declared; the cut is
+    ///         the user's minimum's to refuse. The floor published shows the cut.
+    function test_PairPayingUnderItsWord_BetweenTheShareAndTheRouteFloor_Settles() public {
+        (, uint256 p0) = _untaxedProof();
+        (uint256 compound,, uint256 m, uint256 owed, uint256 gate) = _underItsWord(9_900);
+        uint256 floor = BPC.mulDivUp(p0, compound, 1e18);
+        assertLt(gate, floor - 1, "premise: the leg gate is not the bound");
+        assertLt(m, floor - 1, "premise: the measured share is not the bound");
+
+        tokenIn.set(10_000, 9_900, 0, address(router));
+        pair.setPayWei(floor - 1);
+        vm.recordLogs();
+        assertEq(_swap(), floor - 1, "one wei under the route floor, paid under the pair's word, settles");
+        (, uint256 p1) = _proof();
+        assertEq(p1, BPC.mulDiv(floor, floor - 1, owed), "the floor published is re-expressed by received over declared");
+        assertLt(p1, floor, "the floor published shows the cut");
+    }
+
+    /// @notice Across the push tax and what the pair pays of what it declares: the swap settles
+    ///         exactly when what arrived clears both the leg gate and the measured share.
+    function testFuzz_PairPayingUnderItsWord_SettlesIffItClearsTheMeasuredShare(uint256 push, uint256 pay) public {
+        push = bound(push, 5_000, 10_000);
+        pay = bound(pay, 5_000, 10_000);
+        (,, uint256 m, uint256 owed, uint256 gate) = _underItsWord(push);
+        _seed(R_IN, R_OUT);
+        tokenIn.set(10_000, push, 0, address(router));
+        pair.setPayBps(pay);
+        uint256 paid = owed * pay / 10_000;
+        if (paid < (m > gate ? m : gate)) {
+            vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
+            _swap();
+        } else {
+            assertEq(_swap(), paid, "at or above the measured share and the gate the swap settles");
+        }
+    }
+
     // ── split hop: two legs of one hop, the second one's ratio is not the first one's ──
 
     function _splitRoute(DialV2Pair b, uint256 q) private view returns (Route memory r) {
@@ -453,6 +548,38 @@ contract FotLegRatioIsMeasuredTest is Test {
         Route memory r = _twoHops(10_000);
         vm.prank(user);
         assertGt(router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1), 0, "the honest fill settles");
+    }
+
+    /// @notice The same edge on the second hop: the bridge's push keeps 99% and the second pair
+    ///         pays under what it declares. Held at the per-leg share of the last hop's figure,
+    ///         re-priced by the compound, to the wei; the second leg's gate sits below it.
+    function test_PairPayingUnderItsWord_OnTheSecondHop_IsHeldAtTheMeasuredShare_ToTheWei() public {
+        _hop2PushBps = 9_900;
+        Route memory r = _twoHops(10_000);
+        DialV2Pair p2 = DialV2Pair(r.hops[1].legs[0].pool);
+        // Neither token is a bridge coin: the door's fee comes out of each hop's input.
+        uint256 in2 = _legIn(_outV2(_legIn(AMOUNT_IN), R_IN, R_OUT)); // what the second leg is sent
+        uint256 took = in2 * 9_900 / 10_000;
+        uint256 compound = BPC.mulDiv(took, 1e18, in2);
+        uint256 hq = _outV2(in2, R_IN, R_OUT);
+        uint256 m = BPC.mulDivUp(BPC.mulDivUp(hq, 8_000, 10_000), compound, 1e18);
+        uint256 gate = BPC.mulDivUp(
+            BPC.mulDivUp(BPC.mulDiv(r.hops[1].legs[0].expectedOut, in2, r.hops[1].legs[0].amountIn), took, in2),
+            8_000, 10_000);
+        assertLt(gate, m, "premise: the second leg's gate is not the bound");
+
+        uint256 snap = vm.snapshotState();
+        p2.setPayWei(m - 1);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
+        router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1);
+        vm.revertToState(snap);
+        p2.setPayWei(m);
+        vm.recordLogs();
+        vm.prank(user);
+        assertEq(router.swapExactIn(r, AMOUNT_IN, 1, user, block.timestamp + 1), m, "the share itself settles");
+        (uint256 q,) = _proof();
+        assertEq(q, hq, "premise: the last hop's figure is the honest quote of the bridge it was sent");
     }
 
     /// @notice Two hops: the pull keeps 2 bps, the second hop's push 9999 bps, and the second
