@@ -89,7 +89,7 @@ contract DialV2Pair {
     function setReserves(uint112 r0, uint112 r1) external { reserve0 = r0; reserve1 = r1; }
     function setPayBps(uint256 b) external { payBps = b; }
     function setPayWei(uint256 w) external { payWei = w; }
-    /// @notice Reserves the pair reports once a push has landed and is not yet synced: the pool
+    /// @notice Reserves the pair reports once a push has landed and is not yet synced: the pair
     ///         moved inside the frame, between the quote and the fill. It still pays what it is asked.
     function setFillReserves(uint112 r0, uint112 r1) external { fill0 = r0; fill1 = r1; }
     function getReserves() external view returns (uint112, uint112, uint32) {
