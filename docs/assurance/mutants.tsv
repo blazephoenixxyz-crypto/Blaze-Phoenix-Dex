@@ -428,6 +428,9 @@ src/BlazePhoenixCore.sol	test_EntryB_OverBudgetRevertsCleanUnderTheTxCap	R1: the
 src/BlazePhoenixCore.sol	test_3073_HeldWalk_AtTheThreshold_TheWholeBudgetOrNothing	R1: the in-transaction search budget lowered under an honest two-bridge plan
 src/BlazePhoenixRouter.sol	test_EntryB_OverBudgetRevertsCleanUnderTheTxCap	R1: an exhausted search is swallowed into an empty plan (the stop loses its own code)
 src/BlazePhoenixRouter.sol	test_EntryB_SolverRevertPassesThroughIntact	R1: the Solver's own revert is rewritten into the budget stop
+src/BlazePhoenixRouter.sol	test_Guards_NoRoute_FailsClosed	R1: an unknown token's no-route refusal is rewritten into the budget stop
+src/BlazePhoenixRouter.sol	test_POSITIVE_TrustlessDoorRefusesInsteadOfFilling	R1: the impact ceiling's refusal is rewritten into the budget stop
+src/BlazePhoenixRouter.sol	invariant_conservationH	decorativos-1116 D3: the treasury2 cut is sent to 0xdead (hostile-token conservation)
 src/BlazePhoenixRouter.sol	test_V3Leg_ExecutesAndPaysOutMatchingPoolMath	V3 swap: the price limits are swapped (every swap aims the wrong way)
 src/BlazePhoenixQuoter.sol	test_Exact_Conc_RealDryRunMatchesPoolMath	V3 dry run: the Quoter's price limits are swapped (the simulation the pool would refuse)
 src/BlazePhoenixHub.sol	test_C4_S1_ZeroFirstAttestation_FreezesLikeAnyOther	T19: the first pin loses its post-renunciation gate (an already-admitted row attests after ossification)

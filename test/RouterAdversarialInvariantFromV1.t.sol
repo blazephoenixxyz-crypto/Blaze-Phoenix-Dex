@@ -156,6 +156,8 @@ contract Adversary {
     uint256 public mintedB;
     uint256 public mintedH;
     uint256 public settled;
+    // The total alone let the hostile-token arm never settle while the campaign stayed green.
+    uint256 public settledHostileToken;
 
     constructor(
         BlazePhoenixRouter _r, MockERC20 _a, MockERC20 _b,
@@ -247,6 +249,15 @@ contract Adversary {
         _mintB(address(hp), 1e27); // hp pays out B for H
 
         bool zfo = address(H) == hp.token0();
+        // The pair must hold the H it declares: the Core quotes a pair holding less than its
+        // reserves as dead (RouterE(8), bounty #85), and without this top-up this arm never
+        // settled, so invariant_conservationH only ever summed mints.
+        {
+            (uint112 r0, uint112 r1,) = hp.getReserves();
+            uint256 rH = zfo ? r0 : r1;
+            uint256 held = H.balanceOf(address(hp));
+            if (held < rH) _mintH(address(hp), rH - held);
+        }
         Leg memory leg = Leg({
             pool: address(hp), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
             zeroForOne: zfo, stable: false, amountIn: amt, expectedOut: amt, auxId: bytes32(0)
@@ -259,7 +270,7 @@ contract Adversary {
             expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false
         });
         try router.swapExactIn(r, amt, 1, address(this), block.timestamp + 1) returns (uint256) {
-            unchecked { ++settled; }
+            unchecked { ++settled; ++settledHostileToken; }
         } catch {}
     }
 }
@@ -334,5 +345,6 @@ contract RouterAdversarialInvariantFromV1Test is StdInvariant, Test {
     /// @dev Guards against a vacuous pass (see RouterMultiHopInvariantFromV1.t.sol).
     function afterInvariant() public view {
         assertGt(adv.settled(), 0, "no adversarial route ever settled across the whole campaign");
+        assertGt(adv.settledHostileToken(), 0, "the hostile-token arm never settled: conservationH sums only mints");
     }
 }
