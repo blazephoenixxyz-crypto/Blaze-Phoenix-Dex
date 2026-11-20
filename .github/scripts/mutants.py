@@ -7840,6 +7840,12 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                    if (j == 2) return y0;",
       new="                    if (j == 1) return y; // MUTANTE",
       teste="test_ThinInputSideExitsOnTheSafeSide"),
+# 2026-11-19: the converged exit steps down while the wei below still holds K.
+ dict(nome="Core:1872-descent: the converged exit never steps down: a last one-wei downward step stops one wei above the optimum",
+      f="src/BlazePhoenixCore.sol",
+      old="                for (uint256 j; j < 2 && _solK(x, y - 1) >= K; ++j) --y;",
+      new="                for (uint256 j; false; ++j) --y; // MUTANTE",
+      teste="test_LastDownwardStepThatStopsOneWeiEarlyIsWalkedDown"),
  dict(nome="Core:1844: the Newton derivative undercounts the y^2 term (2 instead of 3): the step overshoots and never settles",
       f="src/BlazePhoenixCore.sol",
       old="            uint256 fp = mulDiv(x, mulDiv(x, x, WAD) + 3 * mulDiv(y, y, WAD), WAD);",

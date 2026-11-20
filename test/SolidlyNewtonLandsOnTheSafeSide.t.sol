@@ -8,6 +8,7 @@ pragma solidity 0.8.36;
 //    _solY(x, K, y0): Newton seeded at the output reserve, at most 64 steps; on
 //    convergence (|step| <= 1) it climbs y by one wei while k(x, y) < K, at most
 //    twice, and otherwise refuses the pool (out = 0), so K_post >= K_pre.
+//    Then it steps y down one wei while k(x, y - 1) >= K, at most twice.
 //
 //  1. SAFE SIDE. For every pool of at least one normalised unit per side, the
 //     output the solver quotes leaves k(X + A', Y - out * sOut) >= k(X, Y), with A'
@@ -110,6 +111,33 @@ contract SolidlyNewtonLandsOnTheSafeSideTest is Test {
         if (more > c.Y) return; // one more wei would empty the side: trivially out of reach
         assertLt(_k(c.X + c.Anet, c.Y - more), _k(c.X, c.Y),
             "one more output wei still keeps the invariant: the solver stopped early");
+    }
+
+    /// The exit is the optimum to the wei, with both sides on either side of it.
+    function _assertOptimum(Case memory c, uint256 expected) internal view {
+        uint256 K = _k(c.X, c.Y);
+        assertGe(_k(c.X + c.Anet, c.Y - c.out * c.sOut), K, "exit on the unsafe side");
+        assertLt(_k(c.X + c.Anet, c.Y - (c.out + 1) * c.sOut), K,
+            "one more output wei still keeps the invariant: the solver stopped early");
+        assertEq(c.out, expected, "the exit is not the optimum");
+    }
+
+    /// The fuzz case (0, 0, 28673, 12295, 1, 14): both reserves at one normalised unit, 56 raw
+    /// units of a 6-decimal input at a 22.95% fee. The last Newton step goes down one wei with
+    /// k(x, y) - K = 8 at about 4 per wei and stops at k - K = +4, where the next wei down holds
+    /// K exactly (k - K = 0) and the one after breaks it (-4). The optimum, 43147999999998, is the
+    /// smallest y with k >= K found by bisection outside the solver.
+    /// Red at 62b4487: the exit was 43147999999997, one wei early.
+    function test_LastDownwardStepThatStopsOneWeiEarlyIsWalkedDown() public view {
+        _assertOptimum(_case(0, 0, 28673, 12295, 1, 14), 43147999999998);
+    }
+
+    /// The same early stop at the domain floor on 0-decimal and 6-decimal inputs, from one raw
+    /// unit up (seeds and optima found off-chain; each was one wei early at 62b4487).
+    function test_EarlyStopAtTheDomainFloorAcrossDecimals() public view {
+        _assertOptimum(_case(0, 0, 1, 29920, 75, 41), 7999997952001051);
+        _assertOptimum(_case(0, 0, 3, 18923, 201, 8), 107632815511668829);
+        _assertOptimum(_case(0, 0, 962572367, 17504, 61, 182), 7331998555027247);
     }
 
     function _assertExact(uint256 X, uint256 Y, uint256 A) internal view returns (uint256 out) {

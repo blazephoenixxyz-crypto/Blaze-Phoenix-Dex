@@ -1864,6 +1864,12 @@ library BlazePhoenixCore {
                     if (j == 2) return y0;
                     ++y;
                 }
+                // Then step down while the wei below still holds K: a last downward
+                // step of one wei can stop one wei above the optimum (k - K = 8 at ~4
+                // per wei leaves +4, and the wei below holds K exactly). At most twice,
+                // like the climb; a stop there is still on the safe side. y >= 1 here:
+                // k(x, 0) = 0 < K.
+                for (uint256 j; j < 2 && _solK(x, y - 1) >= K; ++j) --y;
                 return y;   // converged
             }
             unchecked { ++i; }

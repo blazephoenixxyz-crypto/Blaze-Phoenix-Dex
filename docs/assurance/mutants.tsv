@@ -1426,6 +1426,7 @@ src/BlazePhoenixCore.sol	test_FactoryFeeIsTheFeeTheAskCharges	Core:1546-factory:
 src/BlazePhoenixCore.sol	test_SkewedPoolConverges	Core:1840: the Solidly stable Newton is capped at 8 steps: a skewed pool reads as unpriceable
 src/BlazePhoenixCore.sol	testFuzz_ExitIsOnTheSafeSide	Core:1863: the converged Newton exit is not bumped to the safe side (K_post < K_pre)
 src/BlazePhoenixCore.sol	test_ThinInputSideExitsOnTheSafeSide	Core:1863-fix: the converged exit climbs one wei at most, as before the fix: a thin input side exits K-deficient
+src/BlazePhoenixCore.sol	test_LastDownwardStepThatStopsOneWeiEarlyIsWalkedDown	Core:1872-descent: the converged exit never steps down: a last one-wei downward step stops one wei above the optimum
 src/BlazePhoenixCore.sol	test_ShallowTradeOnADeepSideConverges	Core:1844: the Newton derivative undercounts the y^2 term (2 instead of 3): the step overshoots and never settles
 src/BlazePhoenixRouter.sol	test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote	Router:1855: the coverage of a zero attestation is the whole quote, not half of it: the leg paying its exact floor is refused
 src/BlazePhoenixRouter.sol	test_ZeroAttestationIsFlooredAtTheCoverageOfTheQuote	Router:1855-lo: the coverage sits one bps under half the quote: the leg paying one wei under its floor settles

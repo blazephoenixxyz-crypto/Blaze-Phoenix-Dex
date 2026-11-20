@@ -167,7 +167,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | Mutated file | Mutants | Distinct tests that must kill them | Target is exactly one line |
 |---|---:|---:|---:|
 | `src/BlazePhoenixRouter.sol` | 443 | 369 | 443 |
-| `src/BlazePhoenixCore.sol` | 412 | 334 | 412 |
+| `src/BlazePhoenixCore.sol` | 413 | 335 | 413 |
 | `src/BlazePhoenixSolver.sol` | 263 | 191 | 263 |
 | `src/BlazePhoenixHub.sol` | 218 | 190 | 218 |
 | `src/BlazePhoenixQuoter.sol` | 144 | 123 | 144 |
@@ -190,7 +190,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/ref/Frame4007.sol` | 2 | 2 | 2 |
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
-| **all** | 1,927 | 1,512 | 1,927 |
+| **all** | 1,928 | 1,513 | 1,928 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -244,12 +244,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,619 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test declarations | 3,621 | `function test*` / `invariant*` / `check*` under `test/` |
 | Test files | 521 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 20 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,927 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,928 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -278,7 +278,7 @@ declaration counts, not pass counts.
 | `BlazePhoenixAdapterInfinityBin` | 5,584 | 18,992 |
 | `BlazePhoenixAdapterInfinityCL` | 5,975 | 18,601 |
 | `BlazePhoenixAdapterLB` | 3,118 | 21,458 |
-| `BlazePhoenixCore` | 22,605 | 1,971 |
+| `BlazePhoenixCore` | 22,697 | 1,879 |
 | `BlazePhoenixGate` | 10,710 | 13,866 |
 | `BlazePhoenixGateWrapper` | 4,408 | 20,168 |
 | `BlazePhoenixHub` | 23,360 | 1,216 |
