@@ -68,8 +68,11 @@ interface IERC20Bal {
     function balanceOf(address a) external view returns (uint256);
 }
 
-/// @notice A V2-shaped pair that pays `payBps` of what it is asked, or exactly `payWei` when
-///         set: the observable effect of a sandwich, to the wei, without staging one.
+/// @notice A V2-shaped pair with two dials, to the wei, without staging the event behind either.
+///         `payBps` / `payWei`: a pair that pays under what it is asked, or exactly `payWei` when
+///         set (what an output cut looks like from the Router). `setFillReserves`: the observable
+///         effect of a sandwich inside the frame, to the wei: the reserves the pair reports once a
+///         push has landed differ from the ones the quote read, and it pays what it is asked.
 contract DialV2Pair {
     address public token0;
     address public token1;
@@ -77,13 +80,20 @@ contract DialV2Pair {
     uint112 public reserve1;
     uint256 public payBps = 10_000;
     uint256 public payWei;
+    uint112 public fill0;
+    uint112 public fill1;
 
     constructor(address a, address b) { (token0, token1) = a < b ? (a, b) : (b, a); }
 
     function setReserves(uint112 r0, uint112 r1) external { reserve0 = r0; reserve1 = r1; }
     function setPayBps(uint256 b) external { payBps = b; }
     function setPayWei(uint256 w) external { payWei = w; }
+    /// @notice Reserves the pair reports once a push has landed and is not yet synced: the pool
+    ///         moved inside the frame, between the quote and the fill. It still pays what it is asked.
+    function setFillReserves(uint112 r0, uint112 r1) external { fill0 = r0; fill1 = r1; }
     function getReserves() external view returns (uint112, uint112, uint32) {
+        if ((fill0 | fill1) != 0 && (IERC20Bal(token0).balanceOf(address(this)) > reserve0
+            || IERC20Bal(token1).balanceOf(address(this)) > reserve1)) return (fill0, fill1, uint32(block.timestamp));
         return (reserve0, reserve1, uint32(block.timestamp));
     }
     function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata) external {
@@ -289,6 +299,13 @@ contract FotLegRatioIsMeasuredTest is Test {
         }
     }
 
+    /// @dev The least rOut whose V2 output for `took` is exactly `target`: the output is
+    ///      floor(rOut * s) with s < 1, so every wei is reachable.
+    function _rOutFor(uint256 took, uint256 target) private pure returns (uint112) {
+        uint256 n = took * 9970;
+        return uint112((target * (uint256(R_IN) * 10_000 + n) + n - 1) / n);
+    }
+
     /// @dev The protocol floor and the quote the swap just used, read off its `ExecutionProof`.
     function _proof() private returns (uint256 quoted, uint256 floorUsed) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -307,7 +324,8 @@ contract FotLegRatioIsMeasuredTest is Test {
     ///         `compound = took * WAD / amt`; one wei under it is refused, the floor itself
     ///         settles, and the leg gate sits far below both. Reading the slot at any other unit
     ///         (a belt that caps it at `BPS`) drops this floor to about nothing and the wei under
-    ///         it settles.
+    ///         it settles. The under-fill is in what the pair declares (reserves moved between the
+    ///         quote and the fill): that is what the route floor reads.
     function test_RouteFloor_ToTheWei_IsTheOnlyRefuser() public {
         _seed(R_IN, R_OUT);
         uint256 snap = vm.snapshotState();
@@ -326,12 +344,17 @@ contract FotLegRatioIsMeasuredTest is Test {
         assertLt(floor, BPC.outV2(took, R_IN, R_OUT, BPC.effV2Fee(30)), "an honest pool clears the floor");
 
         tokenIn.set(10_000, 9_900, 0, address(router));
+        bool inIs0 = address(tokenIn) < address(tokenOut);
         snap = vm.snapshotState();
-        pair.setPayWei(floor - 1);
+        uint112 x = _rOutFor(took, floor - 1);
+        assertEq(BPC.outV2(took, R_IN, x, BPC.effV2Fee(30)), floor - 1, "premise: the pair declares one wei under the floor");
+        pair.setFillReserves(inIs0 ? R_IN : x, inIs0 ? x : R_IN);
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5)));
         _swap();
         vm.revertToState(snap);
-        pair.setPayWei(floor);
+        x = _rOutFor(took, floor);
+        assertEq(BPC.outV2(took, R_IN, x, BPC.effV2Fee(30)), floor, "premise: the pair declares the floor");
+        pair.setFillReserves(inIs0 ? R_IN : x, inIs0 ? x : R_IN);
         vm.recordLogs();
         assertEq(_swap(), floor, "the floor itself settles");
         (uint256 q1, uint256 p1) = _proof();
