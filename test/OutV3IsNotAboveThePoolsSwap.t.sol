@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.24;
+pragma solidity 0.8.36;
 
 // The single-range figure of a concentrated pool (`Core.outV3`) against the pool's own swap.
 // RED at 33b5f94 (gas52-main-1106), the commit before the fix.
@@ -69,6 +69,38 @@ contract OutV3IsNotAboveThePoolsSwapTest is Test {
         uint256 walked = BPC.v4WalkOut(address(p), bytes32(0), ain, 0, 0, zeroForOne);
         if (zeroForOne) assertEq(figure, walked, "token0 in: the figure is not the pool's swap");
         else assertLe(figure, walked, "token1 in: the figure is above the pool's swap");
+    }
+
+    /// The same ranges against an integer reference that shares nothing with the Core: Uniswap
+    /// V3 SwapMath for one exact-in step on a flat book at sqrt price Q96, written out in plain
+    /// uint256 arithmetic. outV3 and the walk both take `_nextSqrtFromInput`; a defect there moves
+    /// both and the equality above stays green. This one does not.
+    ///   fee:     a = floor(ain * (1e6 - fee) / 1e6)
+    ///   token0:  sqrtNew = ceil(L * Q96 / (L + a))     (getNextSqrtPriceFromAmount0RoundingUp)
+    ///            out = floor(L * (Q96 - sqrtNew) / Q96) (getAmount1Delta, rounded down)
+    ///   token1:  d = floor(a * Q96 / L), sqrtNew = Q96 + d (getNextSqrtPriceFromAmount1RoundingDown)
+    ///            out = floor(L * d / sqrtNew)          (getAmount0Delta, rounded down, sqrtA = Q96)
+    /// Every product is below 2^256 on this domain: L <= 1e30, Q96 < 8e28.
+    function testFuzz_TheFigureIsTheIndependentStep(uint256 ain, uint128 liq, uint24 fee, bool zeroForOne) public pure {
+        liq = uint128(bound(liq, 1e12, 1e30));
+        fee = uint24(bound(fee, 0, 100_000));
+        ain = bound(ain, 1, uint256(liq) / (zeroForOne ? 8 : 10));
+        uint256 figure = BPC.outV3(ain, uint160(BPC.Q96), liq, fee, zeroForOne, 0);
+        uint256 ref = _refStep(ain, liq, fee, zeroForOne);
+        if (zeroForOne) assertEq(figure, ref, "token0 in: the figure is not the reference step");
+        else assertLe(figure, ref, "token1 in: the figure is above the reference step");
+    }
+
+    function _refStep(uint256 ain, uint256 l, uint256 fee, bool zeroForOne) internal pure returns (uint256) {
+        uint256 q96 = 2 ** 96;
+        uint256 a = ain * (1_000_000 - fee) / 1_000_000;
+        if (a == 0) return 0;
+        if (zeroForOne) {
+            uint256 sqrtNew = (l * q96 + (l + a) - 1) / (l + a);
+            return l * (q96 - sqrtNew) / q96;
+        }
+        uint256 d = a * q96 / l;
+        return l * d / (q96 + d);
     }
 
     /// One wei either side of the order that fell.

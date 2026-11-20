@@ -23,8 +23,11 @@ pragma solidity 0.8.36;
 //      smaller than an item the batch could pay for turns this one red);
 //    - a healthy item AHEAD of the starved one is answered as alone on every
 //      rung, and the starved item's slot is empty (its failure is its own).
-//  The mirror sentence (the healthy item BEHIND the starved one) lives in
-//  RedBatchQuoteGasLadder.t.sol.
+//  The mirror sentence (the healthy item BEHIND the starved one) is not on
+//  this ladder: removing the per-item share only changes the gas handed to the
+//  first item, which a light healthy item hands back unused. It is pinned by
+//  test_ExhaustedFirstItem_LeavesTheNextQuoted in BatchQuoteItemGasShare.t.sol
+//  (mutant [QS-6], batchQuote forwards all the gas that is left to one item).
 //
 //  Matrix: heavy shape direct / bridged; healthy item V2 / four V4 books;
 //  rungs 1/8 .. 7/8 of the heavy cost + 2^24 + ample; order healthy first /

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.24;
+pragma solidity 0.8.36;
 
 // Differential, the rebuild's question: does the single-range figure of `Core.outV3`
 // (token0 in) make an honest flat book "fall" (`Solver._paysWhatItWalks`: the walk of its own

@@ -41,14 +41,30 @@ abstract contract HostileRowsCells is HostileRowsHarness {
             || r == Row.IN_PULL_GASBURN || r == Row.IN_PULL_OVERSIZED)
             return d == Door.PERMIT2 ? "TRANSFER_FROM_FAILED" : "BPC:transferFrom";
         if (r == Row.IN_VENUE_BLOCKED && k != Kind.V4) return "BPC:transfer";
-        if (r == Row.IN_VENUE_TRUE_NOMOVE) return _pair(k) ? "RouterE(8)" : _callback(k) ? "RouterE(13)" : "";
+        if (r == Row.IN_VENUE_TRUE_NOMOVE) return _pair(k) ? "RouterE(8)" : _callback(k) ? "RouterE(13)" : "unlock: callback reverted";
         if (r == Row.IN_FOT30 && _callback(k)) return "RouterE(13)";
         if (r == Row.OUT_RECIP_BLOCKED || r == Row.OUT_RECIP_FALSE_NOMOVE || r == Row.OUT_RECIP_FALSE_MOVES
             || r == Row.OUT_RECIP_OVERSIZED || r == Row.OUT_RECIP_GASBURN) return "BPC:transfer";
         if (r == Row.OUT_RECIP_TRUE_NOMOVE) return "RouterE(5)";
         if (r == Row.OUT_ROUTER_REB_UP && k != Kind.EXT) return "RouterE(20)";
+        // V4 settles inside unlock: a refusal there surfaces as the mock manager's own require
+        if (k == Kind.V4 && (r == Row.IN_VENUE_BLOCKED || r == Row.IN_FOT30 || r == Row.IN_VENUE_SHORT2 || r == Row.IN_VENUE_REB_DN || r == Row.OUT_ROUTER_BLOCKED))
+            return "unlock: callback reverted";
+        // a callback venue owed an exact amount that did not arrive
+        if ((r == Row.IN_VENUE_SHORT2 && _callback(k)) || (r == Row.IN_VENUE_REB_DN && k == Kind.EXT)) return "RouterE(13)";
+        // the 10% rebase down (HostileERC20 REBASE_DN) shrinks a balance read before the move: checked underflow
+        if (r == Row.IN_VENUE_REB_DN || r == Row.OUT_RECIP_REB_DN) return "Panic(17)";
+        // the token's own refusal (HostileERC20 Mode.REVERT) when the Router pays out
+        if (r == Row.OUT_ROUTER_BLOCKED) return "Hostile: blocked";
+        // a payout that reports success and moves nothing: the delivery check, or the EXT zero-output
+        // check (totalReceived == 0 after the outCap clamp)
+        if (r == Row.OUT_ROUTER_TRUE_NOMOVE) return k == Kind.EXT ? "RouterE(8)" : "RouterE(5)";
         return "";
     }
+
+    /// @dev the fee ceiling, written down here and not read from the Core: a larger
+    ///      PROTOCOL_FEE_BPS must not raise the bar it is measured against.
+    uint256 internal constant FEE_CEIL_BPS = 28;
 
     // per-test overrides (the guards file drives single cells with them)
     uint8 forceWant = 255;
@@ -125,6 +141,7 @@ abstract contract HostileRowsCells is HostileRowsHarness {
             (bool ours, string memory what) = Outcomes.classify(ret);
             lastWhat = what;
             string memory ww = forceWant != 255 ? "" : _wantWhat(r, k, d);
+            if (want == REFUSE && forceWant == 255) _chk(bytes(ww).length != 0, string.concat("a refusal cell names no reason; it refused with ", what));
             if (bytes(ww).length != 0) _chk(keccak256(bytes(ww)) == keccak256(bytes(what)), string.concat("refused with ", what, ", expected ", ww));
             ++nRefused;
             _chk(tIn.sharesOf(user) == s.userSh && user.balance == s.userEth, "a refusal leaves the user untouched");
@@ -168,7 +185,7 @@ abstract contract HostileRowsCells is HostileRowsHarness {
             uint256 dust = (_m(r) == HostileERC20.Mode.SHORT && _at(r) == AT_RECIP) ? 1 : 0;
             _chk(tIn.sharesOf(address(router)) == s.fShIn + o0 + o1, "tokenIn residue on the Router");
             _chk(tOut.sharesOf(address(router)) == s.fShOut + dust, "tokenOut residue on the Router");
-            _chk(f1 + f2 <= BPC.mulDivUp(amt, BPC.PROTOCOL_FEE_BPS, BPC.BPS), "the fee exceeds 28 bps of the ask");
+            _chk(f1 + f2 <= (amt * FEE_CEIL_BPS + 9_999) / 10_000, "the fee exceeds 28 bps of the ask");
             if (d != Door.NATIVE) _chk(s.userBal - tIn.balanceOf(user) <= amt, "the user paid more than the ask");
         }
         if (d == Door.NATIVE) _chk(address(router).balance == 0, "ETH left on the Router");

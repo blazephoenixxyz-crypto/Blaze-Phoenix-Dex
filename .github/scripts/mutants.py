@@ -10544,6 +10544,37 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
  # EQUIVALENT, not registered: Core._v4Walk `if (i < n) lo = out;` -> `if (i < V4_WALK_MAX_STEPS)`.
  # Every caller but `v4Held` passes n = V4_WALK_MAX_STEPS (same line), and `v4Held` drops `lo`
  # (`(, held, ) = _v4Walk(...)`), so no caller can tell the two apart.
+ # cr-1116 (2026-11-16, CodeRabbit #125): the reviews that asked for an oracle outside the code under test.
+ dict(nome='cr1116 [CR-1]: the shared sqrt step rounds token0-in down, outV3 and the walk move together',
+      f='src/BlazePhoenixCore.sol',
+      old='if (den >= num1) return uint160(mulDivUp(num1, sp, den));',
+      new='if (den >= num1) return uint160(mulDiv(num1, sp, den)); // MUTANT [CR-1]',
+      teste='testFuzz_TheFigureIsTheIndependentStep'),
+ dict(nome='cr1116 [CR-2]: the protocol fee rises to 29 bps, past the ceiling the hostile rows write down',
+      f='src/BlazePhoenixCore.sol',
+      old='PROTOCOL_FEE_BPS        = 28;',
+      new='PROTOCOL_FEE_BPS        = 29; // MUTANT [CR-2]',
+      teste='test_HostileRows_In_V2_Exact'),
+ dict(nome='cr1116 [CR-3]: the fork oracle asks for DRPC_KEY even with an explicit archive URL',
+      f='test/fork/AtqForkVenueOracle.sol', inl='test/AtqForkUrlGuard.t.sol',
+      old='        bytes memory u = bytes(aliasOrUrl);\n',
+      new='        bytes memory u = bytes(aliasOrUrl);\n        if (u.length != type(uint256).max) return true; // MUTANT [CR-3]\n',
+      teste='test_AnExplicitUrlRunsWithoutTheKey'),
+ dict(nome='cr1116 [CR-4]: claimFee refuses a blocked holder with RouterE(1), not the transfer guard',
+      f='src/BlazePhoenixRouter.sol',
+      old='        BPC.safeTransfer(token, msg.sender, a);\n    }\n    function setPermit2',
+      new='        if (!BPC.tryTransfer(token, msg.sender, a, gasleft())) revert RouterE(1); // MUTANT [CR-4]\n    }\n    function setPermit2',
+      teste='test_AtqBlockedTreasury_OwedBookedClaimExact'),
+ dict(nome='cr1116 [CR-5]: a dust tick stamps the row, tau intact, so the next interval is measured short',
+      f='src/BlazePhoenixCore.sol',
+      old='        if (!anchored || (lastTs != 0 && currentTs <= lastTs)) return s;\n',
+      new='        if (!anchored) return (s & ~(uint256(0xFFFFFFFF) << 64)) | (uint256(currentTs) << 64); // MUTANT [CR-5]\n        if (lastTs != 0 && currentTs <= lastTs) return s;\n',
+      teste='test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger'),
+ dict(nome='cr1116 [CR-6]: an EXT route that delivers nothing refuses with RouterE(5) instead of RouterE(8)',
+      f='src/BlazePhoenixRouter.sol',
+      old='if (totalReceived == 0) revert RouterE(8);',
+      new='if (totalReceived == 0) revert RouterE(5); // MUTANT [CR-6]',
+      teste='test_HostileRows_Out_Ext_Exact'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
@@ -10697,6 +10728,14 @@ M_FORK = [
       old='            if staticcall(w, address(), p, sub(q, p), 0, 0) {',
       new='            if staticcall(1500000, address(), p, sub(q, p), 0, 0) { // MUTANT [c1-m2o]',
       testes=['test_oracle_withoutV4Row_quotesEncodesAndSettlesAboveTheFloor']),
+ # cr1116 (PR #125 review): the closed-direction cells name SolverE(5); before this the typed
+ # verdict accepted any typed refusal, so this mutant stayed green (m7_old 2/2 pass, m7_new 0/2).
+ dict(nome='cr1116 [CR-7]: no route refuses with SolverE(4), a typed refusal the closed cells do not name',
+      f='src/BlazePhoenixSolver.sol',
+      old='        if (m.bestU == 0) revert SolverE(5);',
+      new='        if (m.bestU == 0) revert SolverE(4); // MUTANT [CR-7]',
+      testes=['test_AtqFork_BaseUniV3Thin_PoolLeftAtMinSqrtRatio_EveryPreviewRefusesTyped',
+              'test_AtqFork_BaseUniV3Thin_PoolLeftAtMaxSqrtRatio_EveryPreviewRefusesTyped']),
 ]
 
 def run(t):

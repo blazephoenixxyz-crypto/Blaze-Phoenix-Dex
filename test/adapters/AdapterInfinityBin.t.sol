@@ -233,6 +233,7 @@ contract AdapterInfinityBinTest is AdapterHarness {
         assertEq(t0.balanceOf(address(adapter)), 1e18, "the bait stayed where it was");
     }
 
+    /// `_requireWrapper` (SHARED_QUANTITIES): exec and quoteCall from a non-wrapper are refused.
     function test_InfBin_ExecFromNonWrapper_Refused() public {
         t0.mint(address(adapter), 1e18);
         vm.expectRevert(_aerr(1));
