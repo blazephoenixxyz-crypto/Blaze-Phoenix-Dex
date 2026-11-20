@@ -277,10 +277,11 @@ M = [
  # watches what IS reachable: that the ceiling stays wired and keeps refusing.
  dict(nome="impact: the Solver ceiling stops refusing (mean or maximum)",
       f="src/BlazePhoenixSolver.sol",
-      old='        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;',
+      old='        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS && _judgedOnTheBook(hops, m)) return route;',
       # Retargeted 2026-10-23: dropping the branch left via_ir one slot too deep (a
       # COMPILE, not a verdict). The branch stays and no reachable impact meets it.
-      new='        if (maxLegImpactBps >= type(uint256).max || gateImpactBps >= type(uint256).max) return route; // MUTANTE',
+      # Re-anchored 2026-11-18 (4746): the worst leg is folded into the gate, one figure.
+      new='        if (gateImpactBps >= type(uint256).max && _judgedOnTheBook(hops, m)) return route; // MUTANTE',
       teste="test_ShallowPool_RouteIsRefused"),
  dict(nome="psi: bucketWeight stops doubling, and the hysteresis silently disappears",
       f="src/BlazePhoenixCore.sol",
@@ -905,13 +906,15 @@ M = [
       teste="test_RuntimeMutatedFactoryStopsBeingADiscoverySource"),
  dict(nome="R-B ceiling, multi-hop: the worst-leg arm is dropped (only the mean gates)",
       f="src/BlazePhoenixSolver.sol",
-      old="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;",
-      new="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route; // MUTANTE",
+      # Re-anchored 2026-11-18 (4746): the worst-leg arm is the fold line (gate + CAP per leg >= CAP).
+      old="                if (li >= MAX_ROUTE_IMPACT_BPS) gateImpactBps += MAX_ROUTE_IMPACT_BPS;",
+      new="                // MUTANTE",
       teste="test_L1498c1_WorstLegArmAloneRefusesTheDilutedDestroyer"),
  dict(nome="R-B ceiling, multi-hop: the aggregate arm is dropped (only the worst leg gates)",
       f="src/BlazePhoenixSolver.sol",
-      old="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;",
-      new="        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS) return route; // MUTANTE",
+      # Re-anchored 2026-11-18 (4746): the aggregate arm is the per-hop sum into the gate.
+      old="            gateImpactBps += hopImpact;  // linear sum: safe over-estimate, for the gate only",
+      new="            // MUTANTE",
       teste="test_L1498c2_AggregateArmAloneRefusesTwoHalfImpactHops"),
  dict(nome="balanceOf: an empty return becomes a refusal instead of zero (the unset token)",
       f="src/BlazePhoenixCore.sol",
@@ -4153,7 +4156,9 @@ M = [
       f='src/BlazePhoenixSolver.sol',
       old='            if (v <= u) revert();\n',
       new='            // MUTANT [742]\n',
-      teste='test_3073_Solver_SingleLeg_UnreadableBook_PromiseIsTheCap'),
+      # The unreadable book's rebuild is the leader's own plan (v == u), so splicing it changes
+      # nothing there; the killer is a rebuild promised above the leader that pays under it.
+      teste='test_3073_Solver_SingleLeg_RebuildBelowTheLeader_LeaderStands'),
  dict(nome='3073-5 [743]: the walk\'s own budget shrunk under a live book\'s rebuild (DAI->USDC 10k on the fork)',
       f='src/BlazePhoenixSolver.sol',
       # C1 (c1-126): the fixed WALK_GAS is gone; the mutant fixes the walk's budget at 1.5M.
@@ -5609,12 +5614,12 @@ M = [
       teste='test_V3_TheLegAttestsWhatThePoolPays'),
  dict(nome='DEX-01 cap plan [993]: the plan built at the cap is not promised what its books pay',
       f='src/BlazePhoenixSolver.sol',
-      old='        (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);\n',
+      old='        (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, m);\n',
       new='        plan.best = m.bestR; // MUTANT DEX-01: the plan built at the cap keeps its single-range promises\n',
       teste='test_V3_ThePublishedFloorNeverExceedsWhatTheVenueCanPay'),
  dict(nome="DEX-01 rebuild [994]: the rebuild's plan leaves through the assembly return unwalked",
       f='src/BlazePhoenixSolver.sol',
-      old='        (a, ) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);\n',
+      old='        (a, ) = _paysWhatItWalks(m.bestR, tIn, tOut, m);\n',
       new='        a = m.bestR; // MUTANT\n',
       teste='test_TheRebuildsOwnReturnPromisesWhatTheBookPays'),
  dict(nome='DEX-01 bounds [995]: a tick past the price bounds is walked, and the int24 overflow reverts the solve',
@@ -6246,11 +6251,17 @@ M = [
       old='    function readDynamicFee(address pool, bool stable, uint256 cfgFee)\n        internal view returns (uint256 fee)\n',
       new='    function readDynamicFee(address pool, bool stable, uint256 cfgFee)\n        public view returns (uint256 fee) // MUTANT [morf-CBP2-S4]\n',
       teste='test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt'),
- dict(nome="morf-CBP2-S5: impactV3FromOut is a door of the Core again, and no contract calls it",
+ # morf-CBP2-S5 was paired with test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt until
+ # 2026-11-19: since 4746 the Solver calls impactV3FromOut (Solver._judgedOnTheBook), so a public
+ # impactV3FromOut is a door the Solver delegatecalls, which that test admits by design, and the
+ # mutant read DECORATIVE there. What it still changes is where the ratio is compiled (a row in
+ # the Core's dispatcher, a delegatecall in place of the Solver's inlined copy): the runtime
+ # ledger pins both contracts' exact sizes and kills it, as it kills SIZE-M4.
+ dict(nome="morf-CBP2-S5: impactV3FromOut is a door of the Core again, and the Solver delegatecalls it instead of inlining it",
       f='src/BlazePhoenixCore.sol',
       old='    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)\n        internal pure returns (uint256)\n',
       new='    function impactV3FromOut(uint256 out, uint256 amountIn, uint160 sqrtP, bool zeroForOne)\n        public pure returns (uint256) // MUTANT [morf-CBP2-S5]\n',
-      teste='test_EveryDoorOfTheCoreIsCalledByAContractThatLinksIt'),
+      teste='test_Size_RuntimeLedger'),
  dict(nome="morf-CBP2-S6: registryDepth18Dec is a door of the Core again, and no contract calls it since 53b04c0 (MAT-01)",
       f='src/BlazePhoenixCore.sol',
       old='        address pool, uint8 kind, address t0, uint8 dc0, address t1, uint8 dc1, address v4mgr, bytes32 pid\n    ) internal view returns (uint256 depth) {\n',
@@ -7106,11 +7117,20 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='cands, MAX_LEGS_PER_HOP, m.walk | CUT | dec << 8);\n',
       new='cands, MAX_LEGS_PER_HOP - 1, m.walk | CUT | dec << 8); // MUTANT\n',
       teste='test_FunnelCut_KeepsDeepestFiveOfSeven'),
- dict(nome='hops2 [1066]: Solver: a solve with no route returns an empty plan instead of refusing (SolverE(5))',
+ # [1066] is EQUIVALENT in the revert data since PR #139 (2026-11-19), and paired with the judge's gas
+ # ledger. `plan.best.totalOut == 0` (M-JUDGE-10) refuses every plan leaving the search with the same
+ # SolverE(5), and with bestU == 0 nothing was ever considered: `_considera` is the one writer of bestU,
+ # bestR and bestHeld in this frame and writes them only on u > bestU, so bestHeld is false and bestR is
+ # empty, `_paysWhatItWalks` returns it with totalOut 0 (d = 0), no walk runs and the plan's check
+ # refuses. test_TwoBridgeChain_IsRefused_OneBridgeAnalogueIsPlanned (its pair until then) passes
+ # mutated. What the guard keeps is the early exit, and the ledger pins it (release, 2026-11-19): the
+ # refused rows move by +872 to +884 gas (b1, b2, c, and n: nothing seeded, 59,641 -> 60,525), the
+ # admitted rows by +174 (the layout alone).
+ dict(nome='hops2 [1066]: Solver: a solve with no route is refused at the plan check, after re-assembling an empty leader (gas: same SolverE(5))',
       f='src/BlazePhoenixSolver.sol',
       old='        if (m.bestU == 0) revert SolverE(5);',
       new='        // MUTANT',
-      teste='test_TwoBridgeChain_IsRefused_OneBridgeAnalogueIsPlanned'),
+      teste='test_Gas_JudgeCeiling_RefusedAndAdmitted'),
  dict(nome='hops2 [1067]: Solver: the direct topology is never planned (every solve routes through a bridge)',
       f='src/BlazePhoenixSolver.sol',
       old='        if (k == 0) return _planDirect(m, tIn, tOut, amountIn);',
@@ -10346,6 +10366,78 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='        _v4Wire(PM, WETH, USDG);\n',
       new='        // MUTANT H4-2: _v4Wire dropped\n',
       teste='test_G7Deploy_Robinhood_WiresTheV4DeriveRow'),
+ # -- 4746 (2026-11-18): the ceiling asks the leg's own book before refusing (Solver._judgedOnTheBook) --
+ dict(nome="M-JUDGE-1 [4746]: the ceiling stops asking the book, and a route whose books pay ~1:1 is refused on the single-range model",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS && _judgedOnTheBook(hops, m)) return route;",
+      new="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route; // MUTANT",
+      teste="test_TwoConcentratedHopsOverTheirEdgeKeepARoute"),
+ dict(nome="M-JUDGE-2a [4746]: a walk that ran out of reads counts as a measurement",
+      f="src/BlazePhoenixSolver.sol",
+      old="                    if (out != type(uint256).max && reads != 0) {",
+      new="                    if (out != type(uint256).max) { // MUTANT",
+      teste="test_WalkEndingOnItsLastReadCountsAsUnmeasured"),
+ dict(nome="M-JUDGE-2b [4746]: a book that does not answer (the walk returns its cap) counts as a measurement",
+      f="src/BlazePhoenixSolver.sol",
+      old="                    if (out != type(uint256).max && reads != 0) {",
+      new="                    if (reads != 0) { // MUTANT",
+      teste="test_BookThatDoesNotAnswerStaysRefused"),
+ dict(nome="M-JUDGE-4 [4746]: the hop's reads are one budget for the whole route, so the first hop's book decides the second's verdict",
+      f="src/BlazePhoenixSolver.sol",
+      old="        for (uint256 h; h < hops.length; ) {\n            uint256 legs = hops[h].legs.length;\n            uint256 hopImpact;\n"
+          "            uint256 given = JUDGE_SOLVE_READS - m.judged;\n            if (given > JUDGE_READS) given = JUDGE_READS;\n"
+          "            uint256 reads = given;\n",
+      new="        uint256 reads = JUDGE_READS; // MUTANT\n        for (uint256 h; h < hops.length; ) {\n"
+          "            uint256 legs = hops[h].legs.length;\n            uint256 hopImpact;\n            uint256 given = reads;\n",
+      teste="test_DenseBookOnTheFirstHopDoesNotStarveTheSecond"),
+ dict(nome="M-JUDGE-5 [4746]: the reads restart on every leg, so two concentrated legs of one hop read twice the hop's books",
+      f="src/BlazePhoenixSolver.sol",
+      old="                uint256 li = _legImpactBps(L);\n                if (reads > 5",
+      new="                uint256 li = _legImpactBps(L);\n                reads = given; // MUTANT\n                if (reads > 5",
+      teste="test_TwoConcentratedLegsInOneHopShareTheHopsReads"),
+ dict(nome="M-JUDGE-6 [4746]: the hop ignores what the solve frame already spent, so the judge reads past JUDGE_SOLVE_READS",
+      f="src/BlazePhoenixSolver.sol",
+      old="            uint256 given = JUDGE_SOLVE_READS - m.judged;",
+      new="            uint256 given = JUDGE_SOLVE_READS; // MUTANT",
+      teste="test_SolveAllowanceExhaustedKeepsTheModel"),
+ dict(nome="M-JUDGE-3 [4746]: a route the judge admits is floored at impact 0, not on the single-range figure the Router's arm reads",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS && _judgedOnTheBook(hops, m)) return route;",
+      new="        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS) { if (_judgedOnTheBook(hops, m)) return route; weightedAcc = 0; } // MUTANT",
+      teste="test_FloorFigureUnchangedByTheJudge"),
+ dict(nome="M-JUDGE-8 [4746]: a re-assembled leader whose walk pays 0 stops the solve instead of being rebuilt without its book",
+      f="src/BlazePhoenixSolver.sol",
+      old="        m.judged = j;\n",
+      new="        m.judged = j;\n        if (r.totalOut == 0) revert SolverE(5); // MUTANT\n",
+      teste="test_LeaderWhoseBookPaysNothingIsRebuiltWithoutIt"),
+ dict(nome="M-JUDGE-9 [4746]: the re-assembly asks the judge again on the frame's spent reads and refuses the leader the build admitted",
+      f="src/BlazePhoenixSolver.sol",
+      old="        m.judged = JUDGE_SOLVE_READS + 1; // the build's verdict stands (`_judgedOnTheBook`)\n",
+      new="        // MUTANT\n",
+      teste="test_JudgedLeaderReassembledKeepsTheVerdict"),
+ dict(nome="M-JUDGE-9b [4746]: the judge ignores the re-assembly's sentinel and reads past JUDGE_SOLVE_READS",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (m.judged > JUDGE_SOLVE_READS) return false; // a re-assembly keeps the build's verdict\n",
+      new="        // MUTANT\n",
+      teste="test_JudgedLeaderReassembledKeepsTheVerdict"),
+ dict(nome="M-JUDGE-10 [4746]: a plan that pays 0 leaves the search, and the doors hand out a route on a book that pays nothing",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (plan.best.totalOut == 0) revert SolverE(5);\n",
+      new="        // MUTANT\n",
+      teste="test_LeaderPayingNothingWithNoRebuildIsNotHandedOut"),
+ dict(nome="M-JUDGE-6g [4746]: the hop ignores what the solve frame already spent, and the worst case's judge reads past JUDGE_SOLVE_READS (gas)",
+      f="src/BlazePhoenixSolver.sol",
+      old="            uint256 given = JUDGE_SOLVE_READS - m.judged;",
+      new="            uint256 given = JUDGE_SOLVE_READS; // MUTANT",
+      teste="test_Gas_JudgeCeiling_RefusedAndAdmitted"),
+ # M-JUDGE-9c [4746] has NO entry: `m.judged = j;` dropped after the re-assembly (_paysWhatItWalks)
+ # leaves the sentinel on the frame, so a later judge in that frame admits what the ceiling refuses.
+ # Treated as EQUIVALENT in effect, NOT proven: the only later judge in a frame is the self-call's
+ # second build (bit 8 of `bk`, then the books on `fl` sat out, one `m`), and two geometries did not
+ # observe it (2026-11-19, PR #139): direct (book [0, 60) at tick 0 beside a 5e16 pair, 1e18) and two
+ # hops via the bridge (that book on c/mid beside a 1e17 c/mid pair, a deep mid/d book, 1e18), each
+ # with the self-call called directly (u 0): both refuse with and without the mutant. Follow-up: a
+ # geometry whose second build reaches the gate.
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

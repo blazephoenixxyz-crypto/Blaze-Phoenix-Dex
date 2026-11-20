@@ -44,6 +44,7 @@ import {BlazePhoenixCore as BPC, RoutePlan, Route, Leg} from "../src/BlazePhoeni
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV3BookPool} from "./mocks/MockV3BookPool.sol";
+import {MockV3TickPool} from "./mocks/MockV3TickPool.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 /// A V3-shaped book whose ticks() reads four storage words per tick, as UniswapV3Pool's does.
@@ -949,5 +950,163 @@ contract CapacityWalkBudgetTest is Test {
         assertGt(plan.best.hops[0].legs[0].expectedOut, BPC.mulDiv(1.469e18, 3_000, BPC.BPS), "promised past its cap");
         assertGt(plan.best.totalOut, BPC.mulDiv(sPays, 1_000_025, 1_000_000), "and the split beats the single by the gate");
         assertGe(_settles(amt, plan), _net(sPays), "it settles");
+    }
+
+    // ─── 4746: the ceiling's judge inside SOLVE_GAS ─────────────────────
+    //
+    // A route the single-range model reads at or past MAX_ROUTE_IMPACT_BPS is re-judged on its
+    // concentrated legs' own books (Solver._judgedOnTheBook), at most JUDGE_READS (12) a hop and
+    // JUDGE_SOLVE_READS (24) a solve frame (`Melhores.judged`). The rebuild's self-call is a
+    // second frame with a counter of its own, so a solve judges on at most 2 x 24 book reads.
+    // Books here are MockV3TickPool with burnOnRead: every slot0() and ticks() read burns
+    // JBURN gas, so each read the judge spends costs what a hostile venue can make it cost.
+
+    uint128 constant JCUR  = 1e18;     // the thin range [0, 60) the price sits in
+    uint128 constant JDEEP = 1e22;     // the book past its edge, over 6,000 ticks
+    uint256 constant JORD  = 1e19;     // the model reads >= 9,000 bps on JCUR; the book pays ~1:1
+    uint256 constant JBURN = 90_000;   // under GAS_CAP (100,000) less the read's own work: it answers
+    uint256 constant JCAP  = 9_000;    // Mirrors `BlazePhoenixSolver.MAX_ROUTE_IMPACT_BPS`
+
+    /// A V3 book, the price one tick inside [0, 60) on the side an order of `a` moves toward;
+    /// `deep` over 6,000 ticks past that edge (`stairs` == 0), or `stairs` adjacent 60-tick
+    /// positions of `deep` each, every tick initialized, so a walk runs out of reads first.
+    function _jBook(address a, address b, uint128 cur, uint128 deep, uint256 stairs) internal returns (MockV3TickPool q) {
+        q = _jBook(a, b, cur, deep, stairs, FEE);
+    }
+
+    function _jBook(address a, address b, uint128 cur, uint128 deep, uint256 stairs, uint24 fee)
+        internal returns (MockV3TickPool q)
+    {
+        q = new MockV3TickPool(a, b, fee, TS);
+        bool z = a < b;
+        q.initialize(z ? int24(1) : int24(59));
+        q.addPosition(0, 60, cur);
+        if (stairs == 0) {
+            if (z) q.addPosition(-6000, 0, deep);
+            else q.addPosition(60, 6060, deep);
+        }
+        for (uint256 k; k < stairs; ++k) {
+            int24 s = int24(int256(k)) * 60;
+            if (z) q.addPosition(-s - 60, -s, deep);
+            else q.addPosition(60 + s, 120 + s, deep);
+        }
+        MockERC20(a).mint(address(q), 1e26);
+        MockERC20(b).mint(address(q), 1e26);
+        hub.seedPool(address(q), BPC.KIND_V3, fee, address(0), a, b);
+        touched.push(address(q));
+    }
+
+    /// The single-range model's impact for `amt` of `a` on `q` (the figure the ceiling reads).
+    function _modelBps(MockV3TickPool q, address a, uint256 amt) internal view returns (uint256) {
+        bool z = a == q.token0();
+        (uint160 sp, , , , , , ) = q.slot0();
+        return BPC.impactV3FromOut(BPC.outV3(amt, sp, q.liquidity(), q.fee(), z, 0), amt, sp, z);
+    }
+
+    /// Direct t0 -> t1 and three bridges, every hop one book of `deep` past a thin range
+    /// (`stairs` as `_jBook`), each read burning JBURN; the third bridge's books at fee 500, so
+    /// that route pays more than the other two. Returns the seven books, direct first.
+    function _fourTopologies(uint128 deep, uint256 stairs) internal returns (MockV3TickPool[7] memory ps) {
+        ps[0] = _jBook(t0, t1, JCUR, deep, stairs);
+        for (uint256 i; i < 3; ++i) {
+            address b = _token();
+            hub.addBridge(b);
+            uint24 f = i == 2 ? 500 : FEE;
+            ps[1 + 2 * i] = _jBook(t0, b, JCUR, deep, stairs, f);
+            ps[2 + 2 * i] = _jBook(b, t1, JCUR, deep, stairs, f);
+        }
+        // Premise: the model refuses every route at its first hop, on JORD.
+        for (uint256 i; i < 7; ++i) {
+            if (i == 0 || i % 2 == 1) assertGe(_modelBps(ps[i], t0, JORD), JCAP, "premise: the model refuses every first hop");
+            ps[i].burnOnRead(JBURN);
+        }
+    }
+
+    /// The solve's gas, by a low-level call (so a refusal is measured too); `g` 0 is uncapped.
+    function _solveGas(address a, address b, uint256 amt, uint256 g)
+        internal returns (uint256 used, bool ok, bytes memory ret)
+    {
+        bytes memory cd = abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (a, b, amt));
+        _cool();
+        uint256 g0 = gasleft();
+        if (g == 0) (ok, ret) = address(solver).call(cd);
+        else (ok, ret) = address(solver).call{gas: g}(cd);
+        used = g0 - gasleft();
+    }
+
+    /// 4746 (F2 sec 5, designer): the judge cannot starve the solve. Every one of the four
+    /// topologies is refused by the model on concentrated books whose every read burns JBURN,
+    /// and the leader (direct) is admitted by its book. The solve finishes inside SOLVE_GAS with
+    /// the plan of the uncapped solve, and the automatic door settles it. The judge's reads are
+    /// the frame's: the direct route spends 8 (5 + step + crossing + step), bridge 1's first hop
+    /// 8 (measured: admitted, its second hop being under the ceiling on the model) and its second
+    /// hop the 8 left, so bridges 2 and 3 are handed none and stand on the model, refused - also
+    /// the third, at fee 500, which alone is admitted and pays more than the first (premise).
+    /// The fallback is therefore the first bridge. Mutant M-JUDGE-6 (drop the write-back
+    /// `m.judged += given - reads`): every hop is handed 12 again, the third bridge is measured
+    /// and admitted, and it becomes the fallback (red by the plan, at every gas). Red at 2c8cbbe
+    /// by the premise (base has no judge: the leader is refused and the solve has no route).
+    function test_JudgeCannotStarveTheSolve() public {
+        // Premise: one bridge route alone, on the same books, is admitted by the judge (16 reads).
+        uint256 third;
+        uint256 st = vm.snapshotState();
+        {
+            address x = _token();
+            address y = _token();
+            address m = _token();
+            MockV3TickPool p0 = _jBook(x, m, JCUR, JDEEP, 0, 500);
+            MockV3TickPool p1 = _jBook(m, y, JCUR, JDEEP, 0, 500);
+            p0.burnOnRead(JBURN);
+            p1.burnOnRead(JBURN);
+            hub.addBridge(m);
+            RoutePlan memory alone = solver.findBestRoutePlan(x, y, JORD);
+            assertEq(alone.best.hops.length, 2, "premise: the third bridge's route alone is admitted on its books");
+            third = alone.best.totalOut;
+        }
+        vm.revertToState(st);
+        MockV3TickPool[7] memory ps = _fourTopologies(JDEEP, 0);
+        (uint256 used, bool ok, bytes memory ret) = _solveGas(t0, t1, JORD, 0);
+        assertTrue(ok, "the leader the books pay keeps a route");
+        RoutePlan memory plan = abi.decode(ret, (RoutePlan));
+        emit log_named_uint("solve gas, uncapped, cold (mock pools)", used);
+        emit log_named_int("SOLVE_GAS slack", int256(SOLVE_GAS) - int256(used));
+        assertEq(plan.best.hops.length, 1, "the direct route leads, admitted on its book");
+        // Bridge 1 is judged on the 16 reads the direct route left; bridges 2 and 3 on none.
+        assertTrue(plan.hasFallback, "premise: the first bridge is admitted on what the frame left");
+        assertEq(plan.fallbackRoute.hops[0].tokenOut, plan.fallbackRoute.hops[1].tokenIn, "premise: a bridge route");
+        assertLt(plan.fallbackRoute.totalOut, third, "premise: the third bridge pays more than the fallback");
+        assertEq(plan.fallbackRoute.hops[0].legs[0].pool, address(ps[1]),
+            "the frame's reads ran out: the third bridge, which pays more, is judged on the model");
+        // The automatic door's budget: the same plan, not a stop.
+        (uint256 usedAtDoor, bool okAtDoor, bytes memory retAtDoor) = _solveGas(t0, t1, JORD, SOLVE_GAS);
+        assertTrue(okAtDoor, "the solve finishes inside SOLVE_GAS");
+        assertEq(keccak256(retAtDoor), keccak256(ret), "the door's budget chose another plan");
+        assertLe(usedAtDoor, SOLVE_GAS + 10_000, "measured inside the door's budget");
+        // The automatic door settles it.
+        _cool();
+        uint256 b1 = MockERC20(t1).balanceOf(user);
+        vm.prank(user);
+        (bool sOk, ) = address(router).call{gas: 30_000_000}(
+            abi.encodeCall(BlazePhoenixRouter.swapBestExactIn, (t0, t1, JORD, 1, user, block.timestamp + 1))
+        );
+        assertTrue(sOk, "the automatic door settles the plan");
+        assertGe(MockERC20(t1).balanceOf(user) - b1, plan.best.singleOutFloor, "it delivers at least the floor");
+    }
+
+    /// 4746, the worst case: four topologies of stair books whose every read burns JBURN, every
+    /// walk running out of reads (24 judged reads in the frame), so the model stands and the
+    /// solve refuses with SolverE(5) inside SOLVE_GAS, never out of gas. Its gas, and the other
+    /// rows', are recorded by test/gas/JudgeCeilingGas.t.sol (one world, one figure each).
+    function test_JudgeWorstCaseRefusesInsideSolveGas() public {
+        _fourTopologies(1e18, 20);
+        (uint256 g, bool ok, ) = _solveGas(t0, t1, JORD, 0);
+        assertFalse(ok, "premise: (c) is refused");
+        emit log_named_uint("(c) refused, 4 topologies, burnOnRead, uncapped (mock pools)", g);
+        bytes memory ret;
+        (g, ok, ret) = _solveGas(t0, t1, JORD, SOLVE_GAS);
+        assertFalse(ok, "premise: (c) is refused at the door too");
+        assertEq(ret, abi.encodeWithSelector(BlazePhoenixSolver.SolverE.selector, uint16(5)),
+            "refused by the gate inside SOLVE_GAS, not out of gas");
+        emit log_named_int("(c) SOLVE_GAS slack", int256(SOLVE_GAS) - int256(g));
     }
 }

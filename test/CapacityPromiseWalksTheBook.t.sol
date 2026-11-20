@@ -233,6 +233,43 @@ contract CapacityPromiseWalksTheBookTest is Test {
         assertEq(plan.best.hops[0].legs[0].expectedOut, _cap(HELD), "no book: the old promise");
     }
 
+    /// [742]: a rebuild that ranks no higher than the leader is never spliced in. The leader `a` is
+    /// not held (cap 300e18 > F) but its book empties at -600, so its promise falls from F to
+    /// PAYS_600 and it sits the rebuild out (N1). Without it the pair has only `c`: a book as deep
+    /// as `a` at price 1 but on a 35% fee, quoted L * x / (L + x) on x = 0.65 * IN, 115.04e18, which
+    /// ranks the rebuild above the leader's PAYS_600. Its book empties at its first crossing (-60),
+    /// so it pays the stretch to it, L * (Q96 - sqrtAt(-60)) / Q96, 2.99e18, and the rebuild ranks
+    /// on that: under PAYS_600. It completes, pays something, and does not beat the leader, so it
+    /// reverts and the leader's plan stands: `a` alone, promised PAYS_600. Spliced in anyway
+    /// (mutants.py [742]), the plan is `c` alone at 2.99e18. At its first unit `c` pays 0.65, under
+    /// the leader's last (~0.69 after the fee), so no split takes a share of it.
+    function test_3073_Solver_SingleLeg_RebuildBelowTheLeader_LeaderStands() public {
+        uint256 held = 1_000e18;               // cap 300e18 > F (~166e18): the leader is not held
+        MockV3BookPool a = _seed(held);
+        a.setTick(-600, int128(L));            // crossing down removes all liquidity: the promise falls
+        uint24 feeC = 350_000;
+        MockV3BookPool c = new MockV3BookPool(address(tokenA), address(tokenB), feeC, TS);
+        c.setState(SP, L);
+        c.setTick(-TS, int128(L));             // empties at its first crossing
+        MockERC20(_tOut()).mint(address(c), 1e30);
+        hub.seedPool(address(c), BPC.KIND_V3, feeC, address(0), address(tokenA), address(tokenB));
+        // Oracles by hand (constant product on the virtual reserves at price 1; the stretch to -60
+        // on the certified tick price), not by the Solver under test.
+        uint256 x = IN * (1_000_000 - feeC) / 1_000_000;
+        uint256 quoteC = uint256(L) * x / (uint256(L) + x);
+        uint256 paysC = BPC.mulDiv(L, SP - BPC.sqrtPriceAtTick(-TS), BPC.Q96);
+        assertGt(quoteC, PAYS_600, "precondition: c's quote ranks the rebuild above the leader's rank");
+        assertLt(paysC, PAYS_600, "precondition: c's book pays under the leader's");
+        assertGt(paysC, 0, "precondition: the rebuild pays something (not refused as an empty plan)");
+        RoutePlan memory plan = solver.findBestRoutePlan(_tIn(), _tOut(), IN);
+        Leg[] memory legs = plan.best.hops[0].legs;
+        assertEq(legs.length, 1, "one leg");
+        assertEq(legs[0].pool, address(a), "the leader's book, not the rebuild's");
+        assertEq(legs[0].amountIn, IN, "the whole input commits");
+        assertEq(legs[0].expectedOut, PAYS_600, "promised what its book pays (by hand)");
+        assertEq(plan.best.totalOut, PAYS_600, "the plan pays the leader's figure, never c's 2.99e18");
+    }
+
     /// The same unreadable book beside a booked one (held 250e18 each: cap 75e18 per leg). At
     /// the cap the two split (150e18); walked, the booked book alone pays more. The book that
     /// does not answer is refused on its own, before the walk steps, so the rebuild completes

@@ -53,7 +53,9 @@ pragma solidity 0.8.36;
 //
 //  RED BEFORE GREEN. Red at cb1d7d9: five doors nobody calls. Green once they
 //  are internal. The five mutants beside it in .github/scripts/mutants.py put
-//  each one back as `public`, alone, and each turns this red.
+//  each one back as `public`, alone, and each turns this red - but for
+//  `impactV3FromOut` since 4746 (2026-11-19): the Solver calls it, so as a door
+//  it is a called one, and its mutant is paired with the runtime size ledger.
 // =============================================================================
 import {Test, Vm} from "forge-std/Test.sol";
 // Not called: imported so that a build of this test is a build of the artefacts it reads.

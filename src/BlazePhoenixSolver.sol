@@ -254,44 +254,48 @@ contract BlazePhoenixSolver {
                 if (w > v) (plan.best, v) = (r, w);
             }
             if (v <= u) revert();
-            return plan;
-        }
-        for (uint256 k; k < TOPOLOGIES; ) {
-            uint256 u0 = m.bestU;
-            _planTopology(m, k, bs, tIn, tOut, amountIn);
-            if (m.bestU != u0) bk = k;
-            unchecked { ++k; }
-        }
-        if (m.bestU == 0) revert SolverE(5);
-        plan.fallbackRoute = m.secR;
-        plan.hasFallback = m.secU > 0;
+        } else {
+            for (uint256 k; k < TOPOLOGIES; ) {
+                uint256 u0 = m.bestU;
+                _planTopology(m, k, bs, tIn, tOut, amountIn);
+                if (m.bestU != u0) bk = k;
+                unchecked { ++k; }
+            }
+            if (m.bestU == 0) revert SolverE(5);
+            plan.fallbackRoute = m.secR;
+            plan.hasFallback = m.secU > 0;
 
-        // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's, ON ITS OWN BUDGET.
-        // When a capacity-held candidate of the leading build could pay more than what that
-        // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
-        // capacity-held candidates are ranked and promised what their own books pay. A walk
-        // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
-        // (GAS_CAP per read), so the rebuild runs in a static self-call on what SOLVE_GAS leaves
-        // after the search (`_walkOnItsOwnBudget`): a function of the state, never of the gas
-        // the caller brought, and the same at both doors. A rebuild that completes and ranks
-        // above what the build at the cap pays leads; otherwise the plan built at the cap stands.
-        // The fallback stays the runner-up read above. A solve that cannot hand the walk its
-        // whole budget stops with empty revert data (RouterE(17) at the automatic door) - never
-        // a different plan. The walk's assembly return is this
-        // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`.
-        //
-        // N1: THE LEADER ANSWERS FOR WHAT ITS BOOKS PAY. The plan built at the cap is promised what
-        // its books pay before the rebuild is decided, and `d` is what they do not pay of the rank
-        // it led on. A promise that fell means the build led on a figure no venue pays (a thick
-        // tick one step deep ranked over a pair that paid 3.5 times what the book did), so it is
-        // rebuilt then too, without the books that fell (`fl`), and the rebuild leads only above
-        // the leader's rank less `d`, on what its own books pay. No margin is added: both sides
-        // are the Router's own in-frame figures, and a leg more is the split gate's question,
-        // inside the build. One rebuild per solve, as before.
-        uint256 fl;
-        (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
-        uint256 d = m.bestR.totalOut - plan.best.totalOut;
-        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);
+            // THE CAPACITY WALK RUNS ON ONE TOPOLOGY PER SOLVE, the winner's, ON ITS OWN BUDGET.
+            // When a capacity-held candidate of the leading build could pay more than what that
+            // build chose (`_buildHop`'s `held`), the topology is built once more with WALK, so its
+            // capacity-held candidates are ranked and promised what their own books pay. A walk
+            // reads up to sixteen stretches cold, and what a stretch costs is the venue's choice
+            // (GAS_CAP per read), so the rebuild runs in a static self-call on what SOLVE_GAS leaves
+            // after the search (`_walkOnItsOwnBudget`): a function of the state, never of the gas
+            // the caller brought, and the same at both doors. A rebuild that completes and ranks
+            // above what the build at the cap pays leads; otherwise the plan built at the cap stands.
+            // The fallback stays the runner-up read above. A solve that cannot hand the walk its
+            // whole budget stops with empty revert data (RouterE(17) at the automatic door) - never
+            // a different plan. The walk's assembly return is this
+            // external function's own return: the rebuild's plan has had its own `_paysWhatItWalks`.
+            //
+            // N1: THE LEADER ANSWERS FOR WHAT ITS BOOKS PAY. The plan built at the cap is promised what
+            // its books pay before the rebuild is decided, and `d` is what they do not pay of the rank
+            // it led on. A promise that fell means the build led on a figure no venue pays (a thick
+            // tick one step deep ranked over a pair that paid 3.5 times what the book did), so it is
+            // rebuilt then too, without the books that fell (`fl`), and the rebuild leads only above
+            // the leader's rank less `d`, on what its own books pay. No margin is added: both sides
+            // are the Router's own in-frame figures, and a leg more is the split gate's question,
+            // inside the build. One rebuild per solve, as before.
+            uint256 fl;
+            (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, m);
+            uint256 d = m.bestR.totalOut - plan.best.totalOut;
+            if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);
+        }
+        // THE PLAN OUT OF THE SEARCH PAYS SOMETHING. Every plan a door receives leaves here: the
+        // leader's (no rebuild, or none that led) and the rebuild's (the self-call ends here too, and
+        // `_walkOnItsOwnBudget` returns what it returned). A plan that pays 0 is no viable action.
+        if (plan.best.totalOut == 0) revert SolverE(5);
     }
 
     /// @dev The gas the dispatch spends before `findBestRoutePlan` reads `g0`, measured in the
@@ -353,8 +357,15 @@ contract BlazePhoenixSolver {
     ///      the route is assembled again, one producer of the floor. The ranking is not changed
     ///      here: each book whose promise fell is handed back on `fl`, a chain of [next, tokenIn,
     ///      tokenOut, pool] in memory (0 is none), and the leader's build is rebuilt without them
-    ///      (N1, `findBestRoutePlan`).
-    function _paysWhatItWalks(Route memory r, address tIn, address tOut, uint256 amountIn)
+    ///      (N1, `findBestRoutePlan`). The re-assembly keeps the build's verdict on the ceiling
+    ///      (`_judgedOnTheBook` is not asked again): hop 0 keeps its amounts and every later hop
+    ///      only falls, and impact, model or walked, is monotone in the amount, so the frame's
+    ///      spent reads could only answer with the model figure the build already overruled. A
+    ///      route whose walk pays 0 is returned as such, its books on `fl`, and the leader is
+    ///      rebuilt without them. The re-assembly returns no empty plan: its only refusals are
+    ///      a hooked leg before the last hop (the build's own topology, already assembled) and
+    ///      the ceiling (not asked again).
+    function _paysWhatItWalks(Route memory r, address tIn, address tOut, Melhores memory m)
         private view returns (Route memory, uint256 fl)
     {
         uint256 reads = BPC.V3_PAY_READS;
@@ -384,7 +395,11 @@ contract BlazePhoenixSolver {
             unchecked { ++h; }
         }
         if (!fell) return (r, fl);
-        return (_assembleRouteMulti(r.hops, tIn, tOut, amountIn, num), fl);
+        uint256 j = m.judged;
+        m.judged = JUDGE_SOLVE_READS + 1; // the build's verdict stands (`_judgedOnTheBook`)
+        r = _assembleRouteMulti(r.hops, tIn, tOut, m, num);
+        m.judged = j;
+        return (r, fl);
     }
 
     /// @dev One build of the leading topology on the rebuild (`findBestRoutePlan`), and its rank on
@@ -395,7 +410,7 @@ contract BlazePhoenixSolver {
         m.bestU = u;
         _planTopology(m, k, bs, tIn, tOut, amountIn);
         if (m.bestU == u) return (a, 0);
-        (a, ) = _paysWhatItWalks(m.bestR, tIn, tOut, amountIn);
+        (a, ) = _paysWhatItWalks(m.bestR, tIn, tOut, m);
         v = m.bestU - (m.bestR.totalOut - a.totalOut);
     }
 
@@ -477,6 +492,7 @@ contract BlazePhoenixSolver {
         uint256    walk;   // `_capacity` mode: WALK on the winner's own build
         bool       bestHeld;   // the leader's build left a capacity-held candidate unsettled
         uint256    lists;  // the solve's candidate lists, one per ordered pair (`_candsOf`)
+        uint256    judged; // reads the ceiling's judge spent in this frame (JUDGE_SOLVE_READS)
     }
 
     /// @dev S2 (V4 fragmentation, reported by Seavia Resources): the judgement is by `u`, the
@@ -511,7 +527,7 @@ contract BlazePhoenixSolver {
         // One assembly for every route, one hop or two: one producer of the impact and the floor.
         Hop[] memory hops = new Hop[](1);
         hops[0] = hop;
-        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, hop.expectedOut);
+        Route memory route = _assembleRouteMulti(hops, tIn, tOut, m, hop.expectedOut);
         _considera(m, route, up, held);
     }
 
@@ -575,7 +591,7 @@ contract BlazePhoenixSolver {
             p = hops[i].expectedOut;
             unchecked { ++i; }
         }
-        Route memory route = _assembleRouteMulti(hops, tIn, tOut, amountIn, p);
+        Route memory route = _assembleRouteMulti(hops, tIn, tOut, m, p);
         _considera(m, route, r - p, held);
     }
 
@@ -1698,6 +1714,65 @@ contract BlazePhoenixSolver {
         }
     }
 
+    /// @dev The reads the ceiling's re-judge may spend on ONE HOP's concentrated books, shared by
+    ///      that hop's legs in `_orderLegs` order and restarted on the next hop, so no hop's
+    ///      verdict is decided by another hop's book. At most 5 + V4_WALK_MAX_STEPS
+    ///      (JUDGE_READS_FIT), so a walk that stops short of its input always stops with no read
+    ///      left (`left == 0`).
+    uint256 private constant JUDGE_READS = 12;
+    /// @dev Does not compile if JUDGE_READS exceeds 5 + V4_WALK_MAX_STEPS: the premise of the
+    ///      judge's "unfinished => no read left" rule. No runtime bytes.
+    uint256 private constant JUDGE_READS_FIT = 5 + BPC.V4_WALK_MAX_STEPS - JUDGE_READS;
+    /// @dev The reads the judge may spend in one solve frame, over every assembly it judges
+    ///      (`Melhores.judged`). Spent, the model figure stands: the route is refused as before
+    ///      the judge, so the judge can only admit, and costs at most this many reads a frame.
+    uint256 private constant JUDGE_SOLVE_READS = 24;
+
+    /// @dev 4746: the ceiling asks "which leg is a destroyer?" of what each leg's own book pays,
+    ///      not of the single-range model, which on a thin range at the price beside a deep book
+    ///      past its edge reads a leg that pays almost 1:1 as one that destroys the order. Run only
+    ///      when the model figures already reach MAX_ROUTE_IMPACT_BPS, so an admitted route pays
+    ///      nothing for it. A concentrated leg is judged on its walked output
+    ///      (`Core.v3PaysOnBudget` with no cap, then `impactV3FromOut`, the one ratio producer)
+    ///      ONLY when the walk finished inside the reads; a book that does not answer (the walk
+    ///      returns the cap it was handed) or a walk that ran out of reads keeps the model figure,
+    ///      which already refuses: absence of a measurement is not a value. The other arms keep
+    ///      `_legImpactBps`. Refuses with the same two reductions as the caller: the worst leg, and
+    ///      the per-hop mean summed over the hops. The floor never reads this figure: it keeps the
+    ///      single-range one the Router's in-frame arm reads (Core.legQuoteImpact).
+    ///      Each hop is handed min(JUDGE_READS, what JUDGE_SOLVE_READS leaves of the frame) and
+    ///      writes back what it spent (`m.judged`); none left, the model figure stands.
+    function _judgedOnTheBook(Hop[] memory hops, Melhores memory m) private view returns (bool) {
+        if (m.judged > JUDGE_SOLVE_READS) return false; // a re-assembly keeps the build's verdict
+        uint256 hopsSum;
+        for (uint256 h; h < hops.length; ) {
+            uint256 legs = hops[h].legs.length;
+            uint256 hopImpact;
+            uint256 given = JUDGE_SOLVE_READS - m.judged;
+            if (given > JUDGE_READS) given = JUDGE_READS;
+            uint256 reads = given;
+            for (uint256 i; i < legs; ) {
+                Leg memory L = hops[h].legs[i];
+                uint256 li = _legImpactBps(L);
+                if (reads > 5 && BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
+                    uint256 out;
+                    (out, reads) = BPC.v3PaysOnBudget(L.pool, L.amountIn, L.zeroForOne, type(uint256).max, reads);
+                    if (out != type(uint256).max && reads != 0) {
+                        (uint160 sp, , ) = BPC.v3StateAndDynFee(L.pool);
+                        li = BPC.impactV3FromOut(out, L.amountIn, sp, L.zeroForOne);
+                    }
+                }
+                if (li >= MAX_ROUTE_IMPACT_BPS) { m.judged += given - reads; return true; }
+                hopImpact += li;
+                unchecked { ++i; }
+            }
+            m.judged += given - reads;
+            if (legs > 0) hopsSum += hopImpact / legs;
+            unchecked { ++h; }
+        }
+        return hopsSum >= MAX_ROUTE_IMPACT_BPS;
+    }
+
 
     /// @notice Assemble a route of one hop (direct) or more (bridges). Aggregates impact across
     ///         the stages and derives the output floor from the FINAL
@@ -1706,9 +1781,9 @@ contract BlazePhoenixSolver {
     ///         against the real bridge balance produced by stage A.
     function _assembleRouteMulti(
         Hop[] memory hops, address tIn, address tOut,
-        uint256 amountIn, uint256 finalOut
+        Melhores memory m, uint256 finalOut
     ) private view returns (Route memory route) {
-        tIn; amountIn;   // retained for signature clarity
+        tIn;   // retained for signature clarity
         for (uint256 i; i < hops.length; ) { _orderLegs(hops[i]); unchecked { ++i; } }
         // LAYER 2 IS ROUTE-WIDE (review 2026-09-02). The Router refuses a
         // hookless leg after a hooked one anywhere in the route, not only
@@ -1760,7 +1835,6 @@ contract BlazePhoenixSolver {
         uint256 gateImpactBps;
         uint256 weightedAcc;
         uint256 totalLegs;
-        uint256 maxLegImpactBps;
         uint256 legShv;      // concentration-based, summed per hop - the Router's own arithmetic
         for (uint256 h; h < hops.length; ) {
             uint256 legs = hops[h].legs.length;
@@ -1773,7 +1847,9 @@ contract BlazePhoenixSolver {
                 uint256 a  = hops[h].legs[i].amountIn;
                 hopImpact += li;
                 weightedAcc += hopIn == 0 ? li : BPC.mulDiv(li * legs, a, hopIn);
-                if (li > maxLegImpactBps) maxLegImpactBps = li;
+                // The worst leg folded into the gate: gate + CAP x #{li >= CAP} >= CAP
+                // <=> max li >= CAP or gate >= CAP, one figure live instead of two.
+                if (li >= MAX_ROUTE_IMPACT_BPS) gateImpactBps += MAX_ROUTE_IMPACT_BPS;
                 sA += a;
                 sA2 += a * a;
                 unchecked { ++i; }
@@ -1787,7 +1863,9 @@ contract BlazePhoenixSolver {
 
         // A destroyer leg is refused wherever it sits, and the compounded
         // per-hop figure still gates too — whichever binds first.
-        if (maxLegImpactBps >= MAX_ROUTE_IMPACT_BPS || gateImpactBps >= MAX_ROUTE_IMPACT_BPS) return route;
+        // Before refusing, the judge asks the concentrated legs' own books (`_judgedOnTheBook`);
+        // the figures above stay the floor's, unchanged.
+        if (gateImpactBps >= MAX_ROUTE_IMPACT_BPS && _judgedOnTheBook(hops, m)) return route;
 
         uint256 totalImpactBps = totalLegs > 0 ? weightedAcc / totalLegs : 0;
         uint256 floorBps = BPC.ironFloorBpsShv(totalImpactBps, legShv, 0);
