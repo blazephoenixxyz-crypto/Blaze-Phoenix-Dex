@@ -17,8 +17,12 @@ pragma solidity 0.8.36;
 //     per solve, in a static self-call on what SOLVE_GAS leaves after the search.
 //     Honest V3 grids whose cap binds on every pair keep the margins
 //     test/EntryBSolveBudget.t.sol sets for V4 books (a tenth of the search's
-//     12M for one or two bridges, a fifth for three), and the automatic door
-//     settles them, up to three bridges with six books on every pair.
+//     12M for two bridges, a fifth for three), and the automatic door settles
+//     them, up to three bridges with six books on every pair. The direct grid
+//     of three books has its own ceiling, 1,300,000: the release Yul step
+//     sequence without the FunctionSpecializer put it past a tenth (1,233,445
+//     on the default profile, 2026-11-21), and the ceiling is a design margin,
+//     not liveness (that is the search inside 12M and the solve inside SOLVE_GAS).
 //   - Liveness and R1 with held legs: where the search fits its 12M, the solve
 //     fits SOLVE_GAS with the walk's budget derived from it, and the solve the door runs
 //     returns the plan quoted without a cap - on a held grid of three bridges
@@ -118,6 +122,9 @@ contract CapacityWalkBudgetTest is Test {
     /// The search's share, on which the rows below were sized: SOLVE_GAS grew by the walk's
     /// budget only, so a row's bound does not grow with it.
     uint256 constant SEARCH_GAS = 12_000_000;
+    /// The direct grid's share, above a tenth of SEARCH_GAS since the release Yul step sequence
+    /// dropped the FunctionSpecializer (1,233,445 measured against it, default profile).
+    uint256 constant DIRECT_THREE_BOOKS_GAS = 1_300_000;
     uint160 constant SP   = uint160(1 << 96);   // price 1, tick 0
     uint128 constant L    = 1_000e18;
     uint24  constant FEE  = 3_000;
@@ -216,7 +223,7 @@ contract CapacityWalkBudgetTest is Test {
 
     // ─── SOLVE_GAS with the cap binding on every pair ──────────────────
 
-    function test_3073_WalkBudget_DirectThreeBooks_FitsATenth() public { _grid(0, 3); _fits("direct, 3 books", SEARCH_GAS / 10); }
+    function test_3073_WalkBudget_DirectThreeBooks_FitsItsCeiling() public { _grid(0, 3); _fits("direct, 3 books", DIRECT_THREE_BOOKS_GAS); }
     function test_3073_WalkBudget_TwoBridges_FitsATenth() public { _grid(2, 1); _fits("2 bridges, 1 book per pair", SEARCH_GAS / 10); }
     function test_3073_WalkBudget_ThreeBridges_FitsAFifth() public { _grid(3, 1); _fits("3 bridges, 1 book per pair", SEARCH_GAS / 5); }
     function test_3073_WalkBudget_ThreeBridgesThreeBooks_Settles() public { _grid(3, 3); _fits("3 bridges, 3 books per pair", SEARCH_GAS * 3 / 4); }
@@ -264,7 +271,7 @@ contract CapacityWalkBudgetTest is Test {
         assertEq(g.expectedOut, BPC.mulDiv(HELD, 3_000, BPC.BPS), "precondition: the cap binds on a book of this shape");
     }
 
-    /// The direct grid of `DirectThreeBooks_FitsATenth`, by count. Each book alone would be held
+    /// The direct grid of `DirectThreeBooks_FitsItsCeiling`, by count. Each book alone would be held
     /// at its cap on the whole order, and is ranked there without a read of its book; the three
     /// split the order and no leg of the winner is left at its cap. `_paysWhatItWalks` spends the
     /// route's reads on its first leg, three on that book, and a walk the reads cut on a book

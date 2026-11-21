@@ -3949,7 +3949,7 @@ M = [
  dict(nome='3073-2 [716d] = [716] on a second row: every candidate walks its held legs, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [716], held by a count on the direct grid, where the
-      # ceiling of `DirectThreeBooks_FitsATenth` does not tell it from the source.
+      # ceiling of `DirectThreeBooks_FitsItsCeiling` does not tell it from the source.
       old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
       new='        // MUTANT [716d] = [716]',
       teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
@@ -4032,15 +4032,15 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl, g0); // MUTANT [723]\n',
       teste='test_3073_WalkBudget_ThreeBridgesSixBooks_OnlyTheWinningTopologyIsRead'),
- dict(nome='3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass a tenth of the search',
+ dict(nome='3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass their ceiling',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [723], held by a second test. `bestHeld` is
       # written in `_considera` and read on this line alone, so marking every leader held there
-      # is this same edit. A ceiling, not a count: 1,482,531 against 1,200,000 (449,742 unmutated,
-      # where this grid's winner is not rebuilt at all; release, 2026-11-10).
+      # is this same edit. A ceiling, not a count: 2,014,343 against 1,300,000 (1,233,445
+      # unmutated; release, without the FunctionSpecializer, 2026-11-21).
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl, g0); // MUTANT [723m] = [723]\n',
-      teste='test_3073_WalkBudget_DirectThreeBooks_FitsATenth'),
+      teste='test_3073_WalkBudget_DirectThreeBooks_FitsItsCeiling'),
  dict(nome='3073-3 [723d] = [723] on a third row: the winner is rebuilt with WALK on every solve, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [723], held by a count. A count does not move with
