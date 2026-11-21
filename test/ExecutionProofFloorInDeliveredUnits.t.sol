@@ -4,13 +4,15 @@ pragma solidity 0.8.36;
 // =============================================================================
 //  EXECUTIONPROOF PUBLISHES THE FLOOR IN THE UNITS OF WHAT WAS DELIVERED.
 //
-//  The protocol floor is checked against `amountOut`, the Router's own balance
-//  delta, before any output-side cut. `realized` is measured at the recipient,
-//  after it. Red at f909422: for a tokenOut that taxes transfers, the proof
-//  published `floorUsed` in the first unit and `realized` in the second, so a
-//  correct settlement emitted floorUsed > realized, a proof that the floor was
-//  not met (thomas, bug bounty). The floor is now published net of the tax, by
-//  the ratio delivered / amount sent measured at the recipient: the identity on
+//  The protocol floor is checked against `outCap`, the gross the venues declared
+//  paying (since 2026-11-16; before, `amountOut`, the Router's own balance
+//  delta), ahead of any output-side cut. `realized` is measured at the
+//  recipient, after it. Red at f909422: for a tokenOut that taxes transfers,
+//  the proof published `floorUsed` in the first unit and `realized` in the
+//  second, so a correct settlement emitted floorUsed > realized, a proof that
+//  the floor was not met (thomas, bug bounty). The floor is now published net
+//  of the tax, by the ratios measured at the Router (received / declared) and
+//  at the recipient (delivered / amount sent): the identity on
 //  an untaxed token, so the published floor stays the one the Solver attests
 //  (FloorParitySolverRouter), and never above `realized` on a taxed one. The
 //  check itself, and every revert, are unchanged.
@@ -114,14 +116,39 @@ contract ExecutionProofFloorInDeliveredUnitsTest is Test {
             (uint256 quoted, uint256 realized, uint256 floorUsed) = _proof();
             assertEq(realized, got, "realized is what the recipient received");
             assertLe(floorUsed, realized, "a settled swap must publish a floor it met");
-            // Delivered is the post-check amount taxed once more, so the
-            // published floor is at least the hard floor of the quote, taxed once.
-            uint256 lower = BPC.mulDiv(BPC.mulDiv(quoted, HARD_FLOOR_BPS, BPC.BPS), BPC.BPS - taxBps, BPC.BPS);
-            assertGe(floorUsed + 1, lower, "the published floor must not collapse");
+            // The floor is checked on the declared gross; delivered is that gross
+            // taxed twice (pair to Router, Router to recipient), so the published
+            // floor is at least the hard floor of the quote, taxed twice (two
+            // round-downs).
+            uint256 lower = BPC.mulDiv(quoted, HARD_FLOOR_BPS, BPC.BPS);
+            lower = BPC.mulDiv(BPC.mulDiv(lower, BPC.BPS - taxBps, BPC.BPS), BPC.BPS - taxBps, BPC.BPS);
+            assertGe(floorUsed + 2, lower, "the published floor must not collapse");
         } catch (bytes memory err) {
             assertEq(keccak256(err), keccak256(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(5))),
                 "a refusal must be the floor's");
         }
+    }
+
+    /// RED at 9fbb4ce: the route floors read the declared gross, so a swap whose
+    /// amount at the Router (the gross less the pair->Router tax) is already under
+    /// the protocol floor now settles. The proof re-expressed the floor by the
+    /// Router->recipient cut alone and published it above what landed. 1900 bps:
+    /// under the per-leg floor, over the protocol floor's slack.
+    function test_TaxedTokenOut_UnderTheFloorAtTheRouter_ExecutionProof_FloorUsedNeverAboveRealized() public {
+        uint256 snap = vm.snapshotState();
+        (uint256 gross,) = _swap();
+        (,, uint256 floor0) = _proof();
+        vm.revertToState(snap);
+        uint256 atRouter = gross - gross * 1900 / BPC.BPS;
+        assertLt(atRouter, floor0, "premise: the amount at the Router is under the untaxed floor");
+        tokenOut.setFeeOnTransferBps(1900);
+        (uint256 out, uint256 got) = _swap();
+        (, uint256 realized, uint256 floorUsed) = _proof();
+        assertEq(got, atRouter - atRouter * 1900 / BPC.BPS, "delivered, by the token's arithmetic");
+        assertEq(realized, got, "realized is what the recipient received");
+        assertEq(out, got, "the return value is what the recipient received");
+        assertGt(floorUsed, 0, "the floor is published");
+        assertLe(floorUsed, realized, "a settled swap must publish a floor it met");
     }
 
     /// The neighbouring untaxed route: nothing is cut after the check, so the

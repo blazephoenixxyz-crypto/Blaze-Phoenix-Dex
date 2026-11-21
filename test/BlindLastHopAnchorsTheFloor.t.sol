@@ -44,7 +44,8 @@ import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
 import {BlazePhoenixCore as BPC, Route, Hop, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockV3Pool} from "./mocks/MockV3Pool.sol";
+import {MockV3Pool, IERC20V3, IV3SwapCallback} from "./mocks/MockV3Pool.sol";
+import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 
 contract BlindLastHopAnchorsTheFloorTest is Test {
     BlazePhoenixHub hub;
@@ -375,11 +376,13 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
     /// Fee-on-transfer neighbour: an output tax treats the blind last hop
     /// exactly as the same hop priced in frame, so the anchor adds no refusal
     /// of its own. Red at f909422 at the heavy tax, where only the blind route
-    /// settled.
+    /// settled. The route floors read the declared gross (`outCap`), which an
+    /// output tax does not move, so a tax inside the per-leg floor settles on
+    /// both; a tax past `LEG_FLOOR_BPS` is refused on both.
     function test_TaxedOutput_BlindLastHop_AgreesWithItsQuotedSibling() public {
-        uint16[3] memory taxes = [uint16(50), 300, 1_000];
-        bool[3] memory got;
-        for (uint256 i; i < 3; ++i) {
+        uint16[4] memory taxes = [uint16(50), 300, 1_000, 2_500];
+        bool[4] memory got;
+        for (uint256 i; i < 4; ++i) {
             tokenC.setFeeOnTransferBps(taxes[i]);
             (Route memory rb,) = _twoHop(pBCblind, 0, true);
             (Route memory rq, uint256 honest) = _twoHop(pBC, 0, true);
@@ -388,7 +391,8 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
             assertEq(_settles(rb), got[i], "an output tax must treat the blind last hop as its quoted sibling");
         }
         assertTrue(got[0], "a light tax settles on both");
-        assertFalse(got[2], "a heavy tax is refused on both");
+        assertTrue(got[2], "a tax inside the per-leg floor settles on both");
+        assertFalse(got[3], "a tax past the per-leg floor is refused on both");
     }
 
     /// A blind last hop that declares nothing, with no earlier anchor, has no figure to
@@ -401,5 +405,345 @@ contract BlindLastHopAnchorsTheFloorTest is Test {
         router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
         (, uint256 floorUsed) = _proof();
         assertEq(floorUsed, 0, "no declared figure and no earlier anchor: the caller's minimum governs");
+    }
+
+    // --- a blind last hop is held on what was measured --------------------------
+    //
+    // Red at 814d617 (except the entry-tax pin, green before and after): the route floor
+    // read only the venues' declared gross (`outCap`), and a blind leg is the one leg
+    // `_execScaled` does not measure, so on a blind last hop nothing read the delivery
+    // against the hop's figure but the caller's minimum. The fix reads the same share of
+    // the same figure as the per-leg floor, BPC.LEG_FLOOR_BPS of `finalHopQuote`, against
+    // the route's measured output. Oracle: the per-leg floor's share computed here by hand
+    // (rounded up), and the quoted sibling of the same route; never the Router's floor code.
+
+    function _bothSettle(uint16 tax) private returns (bool blind, bool quoted) {
+        tokenC.setFeeOnTransferBps(tax);
+        (Route memory rb,) = _twoHop(pBCblind, 0, true);
+        (Route memory rq, uint256 honest) = _twoHop(pBC, 0, true);
+        rq.hops[1].legs[0].expectedOut = honest;
+        quoted = _settles(rq);
+        blind = _settles(rb);
+    }
+
+    /// The per-leg share (`LEG_FLOOR_BPS`), rounded up. Literal on purpose: the oracle does not
+    /// read the constant under test.
+    function _legShare(uint256 x) private pure returns (uint256) {
+        return (x * 8_000 + 9_999) / 10_000;
+    }
+
+    function _liar(address tIn, address tOut) private returns (ShortPayingV3Pool v) {
+        v = new ShortPayingV3Pool(tIn, tOut, 3000, LIQ);
+        tokenC.mint(address(v), 1_000_000e18);
+    }
+
+    /// The edge of the per-leg floor: an output tax of exactly BPS - LEG_FLOOR_BPS leaves
+    /// the attested sibling at its floor to the wei, and one bps more is refused. The blind
+    /// route settles and refuses at the same two points.
+    function test_TaxedOutput_BlindLastHop_AgreesAtTheLegFloorEdge() public {
+        uint16[3] memory taxes = [uint16(1_999), 2_000, 2_001];
+        bool[3] memory got;
+        for (uint256 i; i < 3; ++i) {
+            bool blind;
+            (blind, got[i]) = _bothSettle(taxes[i]);
+            assertEq(blind, got[i], "at the per-leg floor's edge the blind last hop agrees with its quoted sibling");
+        }
+        assertTrue(got[1], "at exactly the per-leg floor both settle");
+        assertFalse(got[2], "one bps past the per-leg floor both are refused");
+    }
+
+    function testFuzz_TaxedOutput_BlindLastHop_AgreesWithItsQuotedSibling(uint16 tax) public {
+        tax = uint16(bound(tax, 0, 5_000));
+        (bool blind, bool quoted) = _bothSettle(tax);
+        assertEq(blind, quoted, "an output tax must treat the blind last hop as its quoted sibling");
+    }
+
+    /// A blind venue declares the hop's full figure and pays less. One wei under the
+    /// per-leg share of the hop's figure is refused by the floor; the share itself settles.
+    /// The figure is chosen so that share is not a whole number: the rounding shows.
+    function test_ABlindVenueDeclaringMoreThanItPays_IsHeldByTheHopsAnchor() public {
+        ShortPayingV3Pool liar = _liar(address(tokenB), address(tokenC));
+        (Route memory r, uint256 honest) = _twoHop(pBCblind, 0, true);
+        uint256 h = honest % 5 == 0 ? honest - 1 : honest;
+        r.hops[1].legs[0].pool = address(liar);
+        r.hops[1].expectedOut = h;
+        uint256 edge = _legShare(h);
+        assertTrue((h * 8_000) % 10_000 != 0, "non-vacuity: the share is fractional");
+        liar.set(edge - 1);
+        assertFalse(_settles(r), "a blind venue paying under the per-leg share of the hop's figure is refused");
+        liar.set(edge);
+        assertTrue(_settles(r), "a blind venue paying the per-leg share of the hop's figure settles");
+    }
+
+    /// A heavy ENTRY tax shrinks every delivery in plan units; the hop's figure is not
+    /// rescaled, so the measured floor is re-priced by the measured input tax, as the route
+    /// floor is. A -> B on a pair (a V3 venue refuses a taxed input, RouterE(13)), then a
+    /// blind B -> C declaring its plan figure. Green before and after the fix: no refusal
+    /// the route floor did not make.
+    function test_TaxedInput_BlindLastHop_HeavyEntryTax_StillSettles() public {
+        MockV2Pair pair = new MockV2Pair(address(tokenA), address(tokenB));
+        tokenA.mint(address(pair), 1_000_000e18);
+        tokenB.mint(address(pair), 1_000_000e18);
+        pair.setReserves(1_000_000e18, 1_000_000e18);
+        uint256 b = BPC.outV2(AMT, 1_000_000e18, 1_000_000e18, 30);
+        uint256 bNet = b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 honest = _q(pBC, address(tokenB), bNet);
+        Hop[] memory hs = new Hop[](2);
+        hs[0] = _hop(address(tokenA), address(tokenB), AMT, b, Leg({pool: address(pair), hooks: address(0),
+            kind: BPC.KIND_V2, fee: 30, tickSpacing: 0, zeroForOne: address(tokenA) < address(tokenB), stable: false,
+            amountIn: AMT, expectedOut: b, auxId: bytes32(0)}));
+        hs[1] = _hop(address(tokenB), address(tokenC), bNet, honest, _leg(pBCblind, address(tokenB), bNet, 0));
+        Route memory r = _route(hs, honest);
+        tokenA.setFeeOnTransferBps(2_500);
+        vm.prank(user);
+        uint256 out = router.swapExactIn(r, AMT, 1, user, block.timestamp + 1);
+        assertLt(out, _legShare(honest), "non-vacuity: the delivery is under the per-leg share of the unscaled figure");
+        assertGt(out, 0, "the honest blind hop settles under a heavy entry tax");
+    }
+
+    /// A last hop split between a leg priced in frame and a blind leg: the blind leg declares
+    /// its honest share and pays a wei. The hop's figure is the honest sum; the measured hop
+    /// delivers about half of it and is refused. The same hop paying in full settles.
+    function test_MixedLastHop_ShortPayingBlindLeg_IsRefusedOnTheMeasuredDelivery() public {
+        ShortPayingV3Pool liar = _liar(address(tokenB), address(tokenC));
+        (Route memory r, uint256 q,) = _mixed(0);
+        r.hops[1].legs[1].pool = address(liar);
+        r.hops[1].expectedOut = q + _q(pBC, address(tokenB), r.hops[1].legs[1].amountIn);
+        liar.set(1);
+        assertFalse(_settles(r), "a blind leg paying a wei beside a priced leg is held by the hop's figure");
+        liar.set(0);
+        assertTrue(_settles(r), "the same hop paying what it declares settles");
+    }
+
+    function test_OneHop_TaxedOutput_BlindAgreesWithItsQuotedSibling() public {
+        uint16[2] memory taxes = [uint16(300), 2_500];
+        bool[2] memory got;
+        for (uint256 i; i < 2; ++i) {
+            tokenC.setFeeOnTransferBps(taxes[i]);
+            (Route memory rb, uint256 honest) = _oneHop();
+            (Route memory rq,) = _oneHop();
+            rq.hops[0].legs[0].pool = address(pAC);
+            rq.hops[0].legs[0].expectedOut = honest;
+            got[i] = _settles(rq);
+            assertEq(_settles(rb), got[i], "one hop: an output tax must treat the blind hop as its quoted sibling");
+        }
+        assertTrue(got[0], "a light tax settles on both");
+        assertFalse(got[1], "a tax past the per-leg floor is refused on both");
+    }
+
+    // --- the whole last hop is held on what was measured ------------------------
+
+    /// A last leg priced in frame that attests nothing. Its own floor is LEG_FLOOR_BPS of
+    /// MIN_QUOTE_COVERAGE_BPS of the in-frame quote, and the route floors read the declared
+    /// gross, which an output tax does not move. Red at 64aa218, where the measured read was
+    /// the blind hop's alone: an output tax of 25 % settled. The whole last hop is now held by
+    /// LEG_FLOOR_BPS of its figure on the measured output, the edge its attested sibling has.
+    function test_TaxedOutput_QuotedUnattestedLastLeg_IsHeldLikeItsAttestedSibling() public {
+        uint16[4] memory taxes = [uint16(2_000), 2_001, 2_500, 5_000];
+        bool[4] memory got;
+        for (uint256 i; i < 4; ++i) {
+            tokenC.setFeeOnTransferBps(taxes[i]);
+            (Route memory rq,) = _twoHop(pBC, 0, true);
+            (Route memory ra, uint256 honest) = _twoHop(pBC, 0, true);
+            ra.hops[1].legs[0].expectedOut = honest;
+            got[i] = _settles(rq);
+            assertEq(_settles(ra), got[i], "an unattested quoted leg must agree with its attested sibling");
+        }
+        assertTrue(got[0], "at exactly the per-leg floor the unattested quoted leg settles");
+        assertFalse(got[1], "one bps past the per-leg floor the unattested quoted leg is refused");
+        assertFalse(got[2], "an output tax of 25% on an unattested quoted leg is refused");
+        assertFalse(got[3], "an output tax of 50% on an unattested quoted leg is refused");
+    }
+
+    /// The same leg, with no figure declared for the hop: the in-frame quote is the figure.
+    function test_TaxedOutput_QuotedUnattestedLastLeg_NoHopFigure_IsRefusedPastTheLegFloor() public {
+        tokenC.setFeeOnTransferBps(2_500);
+        (Route memory r,) = _twoHop(pBC, 0, false);
+        assertFalse(_settles(r), "the in-frame quote anchors the measured floor");
+        tokenC.setFeeOnTransferBps(1_000);
+        assertTrue(_settles(r), "a tax inside the per-leg floor settles");
+    }
+
+    /// F5 on a quoted route: an attested venue that declares the hop's full figure (so the
+    /// route floors, which read the declared gross, are met) and pays less. One wei under the
+    /// per-leg share of its attestation is refused; the share itself settles.
+    function test_AnAttestedVenueDeclaringMoreThanItPays_IsRefusedAtTheLegShare() public {
+        ShortPayingV3Pool liar = _liar(address(tokenB), address(tokenC));
+        (Route memory r, uint256 honest) = _twoHop(pBC, 0, true);
+        uint256 h = honest % 5 == 0 ? honest - 1 : honest;
+        r.hops[1].legs[0].pool = address(liar);
+        r.hops[1].legs[0].expectedOut = h;
+        r.hops[1].expectedOut = h;
+        uint256 edge = _legShare(h);
+        assertTrue((h * 8_000) % 10_000 != 0, "non-vacuity: the share is fractional");
+        assertGe(_q(pBC, address(tokenB), r.hops[1].legs[0].amountIn), h, "non-vacuity: the venue declares at least the figure");
+        liar.set(edge - 1);
+        assertFalse(_settles(r), "an attested venue paying under the per-leg share of its attestation is refused");
+        liar.set(edge);
+        assertTrue(_settles(r), "an attested venue paying the per-leg share of its attestation settles");
+    }
+
+    /// A taxed entry re-prices the measured floor by the measured input tax. Two taxed
+    /// transfers of 25 % (the pull and the push into the pair) compound to 0.5625, a WAD ratio
+    /// (#137) the oracle derives from the token's own arithmetic, never from the Router. The
+    /// last hop is a venue that pays exactly what it is told; one wei under the re-priced share
+    /// of the hop's figure is refused, the share itself settles. Both roundings are up (R-C).
+    function test_TaxedInput_MeasuredFloor_RePricedAndRoundedUp_ToTheWei() public {
+        ShortPayingV3Pool liar = _liar(address(tokenB), address(tokenC));
+        MockV2Pair pair = new MockV2Pair(address(tokenA), address(tokenB));
+        tokenA.mint(address(pair), 1_000_000e18);
+        tokenB.mint(address(pair), 1_000_000e18);
+        pair.setReserves(1_000_000e18, 1_000_000e18);
+        uint256 b = BPC.outV2(AMT, 1_000_000e18, 1_000_000e18, 30);
+        uint256 bNet = b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 h = _q(pBC, address(tokenB), bNet);
+        // The two cuts as MockERC20 takes them (fee = amount * bps / 10_000, rounded down): the
+        // pull lands `pulled` of AMT, and the push of all of it into the pair lands `pushed`. Each
+        // ratio is what was received over what was sent, in WAD, and they compound.
+        uint256 pulled = AMT - AMT * 2_500 / 10_000;
+        uint256 pushed = pulled - pulled * 2_500 / 10_000;
+        uint256 seen = (pulled * 1e18 / AMT) * (pushed * 1e18 / pulled) / 1e18;
+        assertEq(seen, 0.5625e18, "two 25 % cuts compound to 0.5625");
+        uint256 share = _legShare(h);
+        if ((share * seen) % 1e18 == 0) { h -= 1; share = _legShare(h); }
+        assertTrue((share * seen) % 1e18 != 0, "non-vacuity: the re-priced share is fractional");
+        uint256 edge = (share * seen + 1e18 - 1) / 1e18;
+        Hop[] memory hs = new Hop[](2);
+        hs[0] = _hop(address(tokenA), address(tokenB), AMT, b, Leg({pool: address(pair), hooks: address(0),
+            kind: BPC.KIND_V2, fee: 30, tickSpacing: 0, zeroForOne: address(tokenA) < address(tokenB), stable: false,
+            amountIn: AMT, expectedOut: b, auxId: bytes32(0)}));
+        hs[1] = _hop(address(tokenB), address(tokenC), bNet, h, _leg(MockV3Pool(address(liar)), address(tokenB), bNet, 0));
+        Route memory r = _route(hs, h);
+        tokenA.setFeeOnTransferBps(2_500);
+        liar.set(edge - 1);
+        assertFalse(_settles(r), "one wei under the re-priced share of the hop's figure is refused");
+        liar.set(edge);
+        assertTrue(_settles(r), "the re-priced share of the hop's figure settles");
+    }
+
+    /// The measured floor asks the per-leg share of the hop's figure, and the route floor asks
+    /// `floorBps` of the same figure, re-priced alike. It refuses nothing the route floor settled
+    /// only while `LEG_FLOOR_BPS` is never above the least `floorBps` the Router can compute.
+    /// Read from Core's own producer (`ironFloorBpsShv`, the call the Router makes with no sigma)
+    /// at the impact edges: 0 gives 9_600, 1_599 the last floor above the cap, 1_600 the first
+    /// one on it, and past it the cap holds to any impact. A wider hard cap breaks the pin.
+    function test_LegFloorIsNeverAboveTheLeastRouteFloor() public pure {
+        uint256[7] memory impact = [uint256(0), 1, 1_599, 1_600, 1_601, 10_000, type(uint256).max];
+        uint256[7] memory want = [uint256(9_600), 9_599, 8_001, 8_000, 8_000, 8_000, 8_000];
+        for (uint256 i; i < 7; ++i) {
+            uint256 f = BPC.ironFloorBpsShv(impact[i], 0, 0);
+            assertEq(f, want[i], "the route floor at an impact edge");
+            assertGe(f, BPC.LEG_FLOOR_BPS, "the per-leg share is never above the route floor");
+        }
+    }
+
+    /// The same pin over any impact and any leg shave the Router can hand the floor.
+    function testFuzz_LegFloorIsNeverAboveTheRouteFloor(uint256 impactBps, uint256 legShv) public pure {
+        legShv = bound(legShv, 0, 1e9);
+        assertGe(BPC.ironFloorBpsShv(impactBps, legShv, 0), BPC.LEG_FLOOR_BPS,
+            "the per-leg share is never above the route floor");
+    }
+
+    // --- no refusal the route floor on 969bcc6 did not make ---------------------
+    // Each of these settles on 969bcc6, where the route floor read the measured output against
+    // floorBps >= LEG_FLOOR_BPS of the same figure, and still settles with the whole last hop
+    // held on what was measured: the new read is never above the floor 969bcc6 applied.
+
+    /// A last hop of two legs priced in frame, attested and unattested, untaxed and under a
+    /// light output tax.
+    function test_NoNewRefusal_TwoLegLastHop_SettlesUnderAnOutputTax() public {
+        MockV3Pool p2 = new MockV3Pool(address(tokenB), address(tokenC), 3000);
+        p2.setState(Q96, LIQ);
+        tokenC.mint(address(p2), 1_000_000e18);
+        uint16[2] memory taxes = [uint16(0), 50];
+        for (uint256 i; i < 2; ++i) {
+            tokenC.setFeeOnTransferBps(taxes[i]);
+            for (uint256 att; att < 2; ++att) {
+                (Route memory r, uint256 q,) = _mixed(0);
+                r.hops[1].legs[1].pool = address(p2);
+                uint256 q2 = _q(p2, address(tokenB), r.hops[1].legs[1].amountIn);
+                if (att == 1) { r.hops[1].legs[0].expectedOut = q; r.hops[1].legs[1].expectedOut = q2; }
+                r.hops[1].expectedOut = q + q2;
+                r.totalOut = q + q2;
+                r.singleOut = q + q2;
+                assertTrue(_settles(r), "a two-leg last hop settles");
+            }
+        }
+    }
+
+    /// An attestation below the in-frame quote: the leg's own floor is on the attestation,
+    /// the measured floor on the quote. Settles untaxed and under a light output tax.
+    function test_NoNewRefusal_AttestationBelowTheQuote_Settles() public {
+        uint16[2] memory taxes = [uint16(0), 50];
+        for (uint256 i; i < 2; ++i) {
+            tokenC.setFeeOnTransferBps(taxes[i]);
+            (Route memory r, uint256 honest) = _twoHop(pBC, 0, true);
+            r.hops[1].legs[0].expectedOut = BPC.mulDiv(honest, 7_000, BPC.BPS);
+            r.hops[1].expectedOut = BPC.mulDiv(honest, 7_000, BPC.BPS);
+            assertTrue(_settles(r), "an attestation below the quote settles");
+        }
+    }
+
+    /// A scaled route: a taxed entry shrinks what the last hop spends below its plan, and the
+    /// last hop is priced in frame, attested or not.
+    function test_NoNewRefusal_ScaledRoute_QuotedLastHop_Settles() public {
+        MockV2Pair pair = new MockV2Pair(address(tokenA), address(tokenB));
+        tokenA.mint(address(pair), 1_000_000e18);
+        tokenB.mint(address(pair), 1_000_000e18);
+        pair.setReserves(1_000_000e18, 1_000_000e18);
+        uint256 b = BPC.outV2(AMT, 1_000_000e18, 1_000_000e18, 30);
+        uint256 bNet = b - BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        uint256 honest = _q(pBC, address(tokenB), bNet);
+        uint16[2] memory taxes = [uint16(500), 2_500];
+        for (uint256 i; i < 2; ++i) {
+            tokenA.setFeeOnTransferBps(taxes[i]);
+            for (uint256 att; att < 2; ++att) {
+                Hop[] memory hs = new Hop[](2);
+                hs[0] = _hop(address(tokenA), address(tokenB), AMT, b, Leg({pool: address(pair), hooks: address(0),
+                    kind: BPC.KIND_V2, fee: 30, tickSpacing: 0, zeroForOne: address(tokenA) < address(tokenB),
+                    stable: false, amountIn: AMT, expectedOut: b, auxId: bytes32(0)}));
+                hs[1] = _hop(address(tokenB), address(tokenC), bNet, honest,
+                    _leg(pBC, address(tokenB), bNet, att == 1 ? honest : 0));
+                assertTrue(_settles(_route(hs, honest)), "a scaled route with a quoted last hop settles");
+            }
+        }
+    }
+}
+
+/// @notice A V3-ABI venue unpriceable in frame (`liquidity() == 0`) that DECLARES, as the
+///         swap's return, the venue's own figure at `execL`, and TRANSFERS `pays` (0 = what it
+///         declares).
+contract ShortPayingV3Pool {
+    address public token0;
+    address public token1;
+    uint24 public immutable fee;
+    uint160 public constant sqrtPriceX96 = uint160(uint256(1) << 96);
+    uint128 public constant liquidity = 0;
+    uint128 public immutable execL;
+    uint256 public pays;
+
+    constructor(address a, address b, uint24 f, uint128 l) {
+        (token0, token1) = a < b ? (a, b) : (b, a);
+        fee = f;
+        execL = l;
+    }
+
+    function set(uint256 p) external { pays = p; }
+
+    function slot0() external pure returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
+        return (sqrtPriceX96, 0, 0, 0, 0, 0, true);
+    }
+
+    function swap(address recipient, bool zeroForOne, int256 amountSpecified, uint160, bytes calldata data)
+        external returns (int256 amount0, int256 amount1)
+    {
+        uint256 amtIn = uint256(amountSpecified);
+        address tIn = zeroForOne ? token0 : token1;
+        uint256 declared = BPC.outV3(amtIn, sqrtPriceX96, execL, fee, zeroForOne, 0);
+        IERC20V3(zeroForOne ? token1 : token0).transfer(recipient, pays == 0 ? declared : pays);
+        (amount0, amount1) = zeroForOne ? (int256(amtIn), -int256(declared)) : (-int256(declared), int256(amtIn));
+        uint256 before = IERC20V3(tIn).balanceOf(address(this));
+        IV3SwapCallback(msg.sender).uniswapV3SwapCallback(amount0, amount1, data);
+        require(IERC20V3(tIn).balanceOf(address(this)) - before >= amtIn, "ShortPayingV3Pool: insufficient input");
     }
 }

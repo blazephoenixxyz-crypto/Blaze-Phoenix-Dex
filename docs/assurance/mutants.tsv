@@ -120,7 +120,7 @@ src/BlazePhoenixRouter.sol	test_FeeOnOut_OneWeiOutputWhollyConsumedIsRefused	fee
 src/BlazePhoenixCore.sol	test_G8_FiveLegs_BoundaryPasses	constant: MAX_LEGS_PER_HOP pushed from 5 to 4 (the boundary, not the removal)
 src/BlazePhoenixCore.sol	test_SixLegsInOneHop_PreviewRefusedAndRefused	constant: MAX_LEGS_PER_HOP pushed from 5 to 6, one leg past the ceiling, and a six-leg hop previews and settles
 src/BlazePhoenixRouter.sol	test_HopBudget_ExactBoundaryDelivers	per-hop budget: < becomes <= (the exact boundary, not the doubled slack)
-src/BlazePhoenixRouter.sol	test_AggregateFloor_ExactBoundaryDelivers	aggregate floor: < becomes <= in the amountOut/effMin comparison
+src/BlazePhoenixRouter.sol	test_AggregateFloor_ExactBoundaryDelivers	aggregate floor: < becomes <= in the outCap/effMin comparison
 src/BlazePhoenixRouter.sol	test_W1_FireB_MutatedHookCode_Reverts9	hook: the codehash pin at EXECUTION (Layer 3) stops pausing
 src/BlazePhoenixRouter.sol	test_W2_Permit2Door_DeadlinePassed_Reverts4	deadline: the check on the pre-pulled doors is dropped
 src/BlazePhoenixRouter.sol	test_W3_FireB_TokenInMismatchPlan_Reverts3_BeforeAnyPull	hostile solver: the fail-closed before the pull is dropped
@@ -1937,3 +1937,31 @@ test/fork/AtqForkVenueOracle.sol	test_AnExplicitUrlRunsWithoutTheKey	cr1116 [CR-
 src/BlazePhoenixRouter.sol	test_AtqBlockedTreasury_OwedBookedClaimExact	cr1116 [CR-4]: claimFee refuses a blocked holder with RouterE(1), not the transfer guard
 src/BlazePhoenixCore.sol	test_AtqClock_WalkSeatAnchoredDustZeroPausedStranger	cr1116 [CR-5]: a dust tick stamps the row, tau intact, so the next interval is measured short
 src/BlazePhoenixRouter.sol	test_HostileRows_Out_Ext_Exact	cr1116 [CR-6]: an EXT route that delivers nothing refuses with RouterE(5) instead of RouterE(8)
+src/BlazePhoenixRouter.sol	test_UnderAnOutputTax_TheRoutersEdgeIsTheUntaxedEdge	fot-out-1116 MB1: the route floors read the measured net again (amountOut, not outCap)
+src/BlazePhoenixRouter.sol	test_AnUntaxedOutputSettlesAsBefore	fot-out-1116 MB2: the route floors switched off
+src/BlazePhoenixRouter.sol	test_ParallelTaxedLegsAreNotOverDiscounted	fot-out-1116 MB3: variant A, an output shortfall at the leg is noted as a FoT ratio
+src/BlazePhoenixRouter.sol	test_AOneWeiShortfallKeepsTheCallersSingleOutFloor	fot-out-1116 MB3b: variant A, as MB3, watched by the singleOutFloor arm
+src/BlazePhoenixRouter.sol	test_AShortLegAmongHonestLegs_IsRefusedAtItsOwnLegFloor	fot-out-1116 MB4: the leg's bound rescaled by the venue's word (got / declared)
+src/BlazePhoenixRouter.sol	test_TaxedTokenOut_UnderTheFloorAtTheRouter_ExecutionProof_FloorUsedNeverAboveRealized	fot-out-1116 MB5: floorUsed re-expressed by the Router->recipient cut alone (the venue->Router cut dropped)
+src/BlazePhoenixRouter.sol	testFuzz_TheOutputTaxMovesNoRouteFloor	fot-out-1116 MB6: the route floors read the measured net again, watched by the tax fuzz
+src/BlazePhoenixRouter.sol	test_OutputTaxAboveTheHopBudgetIsStillRefused	fot-out-1116 MB7: the hop budget switched off (each leg still clears its own floor)
+src/BlazePhoenixRouter.sol	test_TheUsersMinimumIsReadOnWhatLands	fot-out-1116 MB8: userMinOut read on the amount sent, not on what lands
+src/BlazePhoenixCore.sol	test_TaxedOutput_BlindLastHop_AgreesWithItsQuotedSibling	fot-out-1116 MB9: a looser per-leg floor lets an output tax past LEG_FLOOR_BPS settle
+src/BlazePhoenixRouter.sol	test_OneHop_TaxedOutput_BlindAgreesWithItsQuotedSibling	fot-out-1116 MB10: the last hop's measured floor never fires
+src/BlazePhoenixRouter.sol	testFuzz_TaxedOutput_BlindLastHop_AgreesWithItsQuotedSibling	fot-out-1116 MB11: the last hop's measured floor reads the venues' declared gross, not the measured output
+src/BlazePhoenixRouter.sol	test_TaxedOutput_BlindLastHop_AgreesAtTheLegFloorEdge	fot-out-1116 MB12: the last hop's measured floor takes one bps less than the per-leg share
+src/BlazePhoenixRouter.sol	test_ABlindVenueDeclaringMoreThanItPays_IsHeldByTheHopsAnchor	fot-out-1116 MB13: the last hop's share of its figure rounds down
+src/BlazePhoenixRouter.sol	test_TaxedInput_BlindLastHop_HeavyEntryTax_StillSettles	fot-out-1116 MB14: the last hop's measured floor ignores the measured input tax
+src/BlazePhoenixRouter.sol	test_TaxedOutput_QuotedUnattestedLastLeg_NoHopFigure_IsRefusedPastTheLegFloor	fot-out-1116 MB15: only a last hop anchored on its declared figure is held, an in-frame quote escapes
+src/BlazePhoenixRouter.sol	test_TaxedInput_MeasuredFloor_RePricedAndRoundedUp_ToTheWei	fot-out-1116 MB16: the last hop's measured floor lets its own edge through one wei short (< -> <=)
+src/BlazePhoenixRouter.sol	test_TaxedInput_MeasuredFloor_RePricedAndRoundedUp_ToTheWei	fot-out-1116 MB17: the last hop's measured floor rounds the input-tax re-pricing down
+src/BlazePhoenixCore.sol	test_AnAttestedVenueDeclaringMoreThanItPays_IsRefusedAtTheLegShare	fot-out-1116 MB18: a per-leg share one bps looser lets an attested venue pay under it on a quoted route
+src/BlazePhoenixRouter.sol	test_TaxedOutput_QuotedUnattestedLastLeg_IsHeldLikeItsAttestedSibling	fot-out-1116 MB19: the measured floor switched off, watched by the unattested quoted leg (B1)
+src/BlazePhoenixRouter.sol	test_UnderAnOutputTaxPastTheSlack_TheEdgeIsTheMeasuredShare	fot-out-1116 MB20: the measured floor switched off, watched on an attested quoted route under an output tax
+src/BlazePhoenixRouter.sol	test_UnderAnOutputTaxPastTheSlack_TheEdgeIsTheMeasuredShare	fot-out-1116 MB21: the measured floor takes one bps less, watched at the taxed edge of a quoted route
+src/BlazePhoenixCore.sol	test_LegFloorIsNeverAboveTheLeastRouteFloor	fot-out-1116 MB22: a hard cap one bps wider puts the least route floor under the per-leg share
+src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_BetweenTheShareAndTheRouteFloor_Settles	fot-out-1116 MB1b: the route floors read the measured net again, watched by a pair paying under its word
+src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB5b: floorUsed not re-expressed by received over declared, watched by a pair paying under its word
+src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB12b: the measured floor takes one bps less, watched by a pair paying under its word
+src/BlazePhoenixRouter.sol	testFuzz_PairPayingUnderItsWord_SettlesIffItClearsTheMeasuredShare	fot-out-1116 MB14b: the measured floor ignores the input tax, watched by the fuzz of a pair paying under its word
+src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_OnTheSecondHop_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB12c: the measured floor takes one bps less, watched on the second hop of a pair paying under its word
