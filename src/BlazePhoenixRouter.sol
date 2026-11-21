@@ -855,34 +855,6 @@ contract BlazePhoenixRouter {
         assembly { let k := tload(s) b := mul(gt(b, k), sub(b, k)) }
     }
 
-    /// @dev A leg's impact, weighted by its SHARE of the hop.
-    ///
-    ///      Impact is a RATIO — amountIn/(reserveIn+amountIn) — so it is blind to
-    ///      how much value a leg actually carries. A one-wei leg against a
-    ///      dust-reserve pool scores near 100%. The route's floor then averaged
-    ///      those ratios UNWEIGHTED, and `ironFloorBps` SUBTRACTS impact, so
-    ///      padding a route with such legs walked the floor down from 96% toward
-    ///      its 80% clamp while the real trade sat in one honest deep leg. The
-    ///      caller writes the Route, so that lever was theirs.
-    ///
-    ///      Weighting by `leg.amountIn / scaleDen` (the leg's share of the hop's
-    ///      declared input) is self-consistent: the same field decides how much
-    ///      the leg actually spends, so a caller cannot buy weight without
-    ///      routing the value. The `* legs` normalisation makes equal-sized legs
-    ///      reproduce the previous unweighted sum EXACTLY — the shares are then
-    ///      1/legs each — so honest routes do not move, and the division by
-    ///      `declaredLegs` downstream is left untouched.
-    ///
-    ///      The clamp mirrors `ironFloorBps`, which caps impact at BPS anyway;
-    ///      doing it here keeps `imp * legs` small enough that only `mulDiv`'s
-    ///      512-bit intermediate has to carry the amount.
-    function _wImp(uint256 imp, uint256 legAmountIn, uint256 legs, uint256 scaleDen)
-        private pure returns (uint256)
-    {
-        if (imp > BPC.BPS) imp = BPC.BPS;
-        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);
-    }
-
     /// @notice Per-hop real-balance-ratio scaling AND price impact (BPS) AND
     ///         the on-chain quote for the legs as actually executed, all
     ///         computed in one pass so V2/Solidly reserves and V3/Algebra
@@ -974,14 +946,14 @@ contract BlazePhoenixRouter {
                 // (`legQuoteImpact`), same reads and numbers; their history is written there.
                 (uint256 q_, uint256 imp, bool held) = BPC.legQuoteImpact(leg, hop.tokenIn, hop.tokenOut, legAmt);
                 if (!held) revert RouterE(8);
-                impactAcc += _wImp(imp, leg.amountIn, legs, scaleDen);
+                impactAcc += BPC.wImp(imp, leg.amountIn, legs, scaleDen);
                 legQuotes[l] = q_; quoteAcc += q_;
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
                 legQuotes[l] = q_; quoteAcc += q_;
-                impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen);
-            } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
+                impactAcc += BPC.wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen);
+            } else { impactAcc += BPC.wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             unchecked { ++l; }
         }
     }
@@ -1538,7 +1510,7 @@ contract BlazePhoenixRouter {
         // exactly where it is consumed. Readability improves too: the loop above executes, this
         // one counts.
         // THE FLOOR'S TWO INPUTS, each from the object that decides it. The impact term is the
-        // share-weighted mean over the route's legs: `_wImp` pre-multiplies each leg's impact by
+        // share-weighted mean over the route's legs: `BPC.wImp` pre-multiplies each leg's impact by
         // its hop's leg count so that dividing by the route's leg count here yields the weighted
         // mean, and a leg with no share carries no weight. The leg shave is computed from the
         // CONCENTRATION of the trade across legs - `(Σa)² / Σa²` per hop, the effective number
@@ -1562,8 +1534,7 @@ contract BlazePhoenixRouter {
             legShv += BPC.legShaveBps(sA, sA2);
             unchecked { ++th; }
         }
-        uint256 avgImpact = declaredLegs > 0 ? impactAcc / declaredLegs : 0;
-        uint256 floorBps  = BPC.ironFloorBpsShv(avgImpact, legShv, 0);
+        uint256 floorBps  = BPC.routeFloorBps(impactAcc, declaredLegs, legShv);
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.

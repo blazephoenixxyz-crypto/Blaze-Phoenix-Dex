@@ -54,7 +54,7 @@ src/BlazePhoenixCore.sol	test_ReservesInsideTheWindow_MustNotRevert	solidly: the
 src/BlazePhoenixQuoter.sol	test_RED_SolidlyLeg_UpscaledQuoteExceedsPoolTruth	quoter: the Solidly leg rescales again instead of measuring on the pool
 src/BlazePhoenixQuoter.sol	test_RED_ConcFallback_NeverScalesAbovePlan	quoter: the concentrated fallback clamp extrapolates along the tangent again
 src/BlazePhoenixQuoter.sol	test_RED_V4Fallback_NeverScalesAbovePlan	quoter: the V4 fallback clamp extrapolates along the tangent again
-src/BlazePhoenixRouter.sol	test_DustPadding_MustNotCollapseTheFloor	impact: the term stops being weighted by leg size (dust votes again)
+src/BlazePhoenixCore.sol	test_DustPadding_MustNotCollapseTheFloor	impact: the term stops being weighted by leg size (dust votes again)
 src/BlazePhoenixRouter.sol	test_ImpostorCallingTheCallbackMidSwapIsNeverPaid	callback: the v3 authentication door accepts a caller that is not the expected pool
 src/BlazePhoenixRouter.sol	test_V4ImpostorCallingUnlockCallbackMidSwapIsNeverPaid	callback: the V4 unlockCallback accepts a caller that is not the PoolManager
 src/BlazePhoenixRouter.sol	test_Composition_PauseThenRenounce_IsRefused	renounce: the Router can ossify while paused again (terminal state)
@@ -263,7 +263,7 @@ src/BlazePhoenixRouter.sol	test_RouteHopCountHasACeiling	MAX_HOPS Router: a rout
 src/BlazePhoenixRouter.sol	test_TwoHopRoute_StillRoutes	MAX_HOPS Router: the hop ceiling is lowered by one and the two-hop chain, the deepest route the Solver builds, is refused
 src/BlazePhoenixRouter.sol	test_Seam2_RouterCap_BoundaryProbe	PIN-01 Router: a hop of exactly MAX_LEGS_PER_HOP legs is refused at the seam probe
 src/BlazePhoenixRouter.sol	test_Seam3_NoRouteWideLegCount_TheWidestRouteExecutes	PIN-01 Router: the per-hop ceiling counts the route so far, and the widest route (two hops of five) is refused at the seam
-src/BlazePhoenixRouter.sol	test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor	FLOOR-02: the leg shave counts DECLARED legs again instead of their concentration
+src/BlazePhoenixCore.sol	test_PaddedZeroAmountLegsCannotLowerTheProtocolFloor	FLOOR-02: the leg shave counts DECLARED legs again instead of their concentration
 src/BlazePhoenixRouter.sol	test_DivergentLegIn_DrainsStrandedBalance	OX-05 (High): the leg-token gate stops checking the leg's INPUT token
 src/BlazePhoenixRouter.sol	test_Router_ExecutesCutRoute_WithoutForceFeeding	P1 NetGakarot (High): hop 0 stops capping the measured input to the committed sum
 src/BlazePhoenixQuoter.sol	test_ReturnedExactRouteMustExecute	REC-A (High): the exact pass stops clamping hop 0's carry to the planned input
@@ -895,6 +895,23 @@ src/BlazePhoenixQuoter.sol	test_Control_OverTheLiftedFloor_TheBytesSettle	G7 bas
 src/BlazePhoenixQuoter.sol	test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt	G7 base midtail-3:4 M12: the covered share rounds up, the Router rounds it down
 src/BlazePhoenixQuoter.sol	test_TheHopBudget_IsAskedAtTheDoor_AsTheRouterAsksIt	G7 base midtail-3:4 M13: the door reads no frame quote of a pair-shaped leg
 src/BlazePhoenixQuoter.sol	test_UnderTheLiftedFloor_TheDoorsBytesSettleOrAreNotEncoded	G7 base midtail-3:4 M14: the door reads no frame quote of a concentrated leg
+src/BlazePhoenixQuoter.sol	test_TheHopBudget_RestsAV4LegAttestedUnderHalfItsWalk_OnItsWalk_AsTheRouters	G7 base midtail-3:4 M15: the door reads no frame quote of a single-tick V4 leg
+src/BlazePhoenixQuoter.sol	test_UnderTheProtocolFloor_TheDoorsBytesSettleOrAreNotEncoded	G7 base midtail-3:4 M16: the encode door asks no protocol floor
+src/BlazePhoenixQuoter.sol	test_Control_OverTheProtocolFloor_TheBytesSettle	G7 base midtail-3:4 M17: the door asks the whole base, not the protocol floor's share of it
+src/BlazePhoenixQuoter.sol	test_AtTheProtocolFloorsEdge_DoorAndRouterAgreeToTheWei	G7 base midtail-3:4 M18: the protocol floor rounds down at the door, the Router rounds it up
+src/BlazePhoenixQuoter.sol	test_AtTheProtocolFloorsEdge_DoorAndRouterAgreeToTheWei	G7 base midtail-3:4 M19: the door takes the output fee before the protocol floor, the Router after
+src/BlazePhoenixQuoter.sol	test_TheFloorLoosensWithTheMeasuredImpact_AsTheRouters	G7 base midtail-3:4 M20: the door's protocol floor ignores the measured impact
+src/BlazePhoenixQuoter.sol	test_TheLegShaveIsTheRoutersConcentration	G7 base midtail-3:4 M21: the door's protocol floor takes no leg shave
+src/BlazePhoenixQuoter.sol	test_TwoHops_TheBaseIsTheLastHopsQuote_TheImpactIsTheRoutes	G7 base midtail-3:4 M22: the door's floor base sums every hop, the Router's is the last hop's
+src/BlazePhoenixQuoter.sol	test_TwoHops_TheBaseIsTheLastHopsQuote_TheImpactIsTheRoutes	G7 base midtail-3:4 M22b: the door's floor impact is the last hop's, the Router's is the route's
+src/BlazePhoenixQuoter.sol	test_ALegTheFrameCannotPriceEntersTheBaseAtItsBound	G7 base midtail-3:4 M23: a leg the frame cannot price enters the door's base at 0, not at its bound
+src/BlazePhoenixQuoter.sol	test_AV4LegEntersTheFloorsBaseAtItsWalk	G7 base midtail-3:4 M25: the door maps a native V4 leg on no wrapped native, so its walk is not quoted
+src/BlazePhoenixQuoter.sol	test_ABlindLastHopDeclaredAboveTheFill_IsNotEncoded	G7 base midtail-3:4 M29: the door's floor base ignores a blind hop's declared figure
+src/BlazePhoenixQuoter.sol	test_ABlindLastHopDeclaredAboveTheFill_IsNotEncoded	G7 base midtail-3:4 M30: the door sees no blind leg
+src/BlazePhoenixQuoter.sol	test_ABlindLegOffTheLastHop_IsNotEncoded	G7 base midtail-3:4 M31: the door encodes a blind leg off the last hop
+src/BlazePhoenixQuoter.sol	test_OnAMixedBlindHopTheDeclaredFigureOnlyRaisesTheBase	G7 base midtail-3:4 M32: a blind hop's declared figure replaces the door's base instead of raising it
+src/BlazePhoenixRouter.sol	test_OnAMixedBlindHopTheDeclaredFigureOnlyRaisesTheBase	G7 base midtail-3:4 M32r: a blind hop's declared figure replaces the Router's base instead of raising it
+src/BlazePhoenixQuoter.sol	test_AZeroFundedLegIsNotBlind	G7 base midtail-3:4 M33: the door calls an unfunded leg blind
 src/BlazePhoenixRouter.sol	test_ARestatementBeforeTheLastHopStaysWithTheStrandedBalance	3310 cap [887]: the output delta is not capped, a restatement fired by the hop-0 input is paid out
 src/BlazePhoenixRouter.sol	test_ABlindLegIsPaidNoMoreThanItsVenueDeclared	3310 cap [888]: the output delta is not capped, a blind leg is paid a restatement its venue never declared
 src/BlazePhoenixRouter.sol	test_ARestatementBeforeTheLastHopStaysWithTheStrandedBalance	3310 cap [889]: the output delta is not capped, the loose shape pays a restatement inside an earlier hop

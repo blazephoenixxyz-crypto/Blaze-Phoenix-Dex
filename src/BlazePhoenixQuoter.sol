@@ -1009,11 +1009,20 @@ contract BlazePhoenixQuoter {
     ///      floor and `_execute`'s hop budget, same constants, same referent: 0 at the first it
     ///      would refuse, as a walk the Router stops delivers nothing. The bound is the bytes'
     ///      attestation, read before `write` replaces it, lifted as `_execScaled` lifts it to the
-    ///      covered share of the frame's quote (`_frameQuote`).
+    ///      covered share of the frame's quote (`_frameQuote`). `ask` asks the route a third, the
+    ///      protocol floor (`Router._execute`, before the fee on the output): the last hop's gross
+    ///      output against `BPC.routeFloorBps` of that hop's base, each leg's frame quote or,
+    ///      where the frame prices none, its bound. The share is the Router's, from its own
+    ///      producers (`BPC.wImp` on the impact the frame measures, `BPC.legShaveBps` on the
+    ///      bytes' amounts), over every hop: the door holds no floor constant of its own.
     function _walk(
         Route memory route, uint256 amountIn, uint256 feeHop, bool feeOnOut, bool write, bool ask
     ) private returns (uint256 carry) {
         carry = amountIn;
+        // The protocol floor's accumulators, in memory for the stack: [0] the route's impact
+        // (`BPC.wImp` summed over every leg), [1] the hop's base (the last hop's stays), [2] the
+        // hop holds a blind leg (`Router._execute`'s `hopBlind`), reset with [1].
+        uint256[3] memory acc;
         for (uint256 h; h < route.hops.length; h++) {
             Hop memory hop = route.hops[h];
             uint256 legSum;
@@ -1030,30 +1039,46 @@ contract BlazePhoenixQuoter {
             uint256 hopOut;
             uint256 hopBound;
             uint256 bounded;
+            (acc[1], acc[2]) = (0, 0);
             for (uint256 l; l < hop.legs.length; l++) {
                 Leg memory leg = hop.legs[l];
                 uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
-                uint256 legOut = _priceLeg(leg, hop.tokenIn, hop.tokenOut, legIn);
-                if (ask) {
-                    uint256 bound = (leg.expectedOut != 0 && leg.amountIn != 0)
-                        ? BPC.mulDiv(leg.expectedOut, legIn, leg.amountIn) : 0;
-                    uint256 covered = BPC.mulDiv(
-                        _frameQuote(leg, hop.tokenIn, hop.tokenOut, legIn), BPC.MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
-                    if (bound < covered) bound = covered;
-                    if (bound != 0) {
-                        if (legOut < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) return 0;
-                        hopBound += bound;
-                        ++bounded;
-                    }
+                (uint256 legOut, uint256 bound) = _walkLeg(acc, leg, hop, legIn, write, ask);
+                if (bound == type(uint256).max) return 0;
+                if (bound != 0) {
+                    hopBound += bound;
+                    ++bounded;
                 }
-                if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);
                 hopOut += legOut;
             }
             if (hopBound != 0
                 && hopOut + BPC.mulDiv(hopBound / bounded, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS) < hopBound) return 0;
+            // A BLIND LEG, as the Router reads it: off the last hop it is refused; on it the
+            // hop's declared figure anchors the floor when it is the larger. Read before
+            // `write` replaces it: the Router reads the bytes' figure.
+            if (acc[2] != 0) {
+                if (h + 1 != route.hops.length) return 0;
+                if (hop.expectedOut > acc[1]) acc[1] = hop.expectedOut;
+            }
             if (write) (hop.amountIn, hop.expectedOut) = (carry, hopOut);
             carry = hopOut;
         }
+        if (ask && carry < BPC.mulDivUp(
+            acc[1], _routeFloorBps(route.hops, acc[0]), BPC.BPS)) return 0;
+    }
+
+    /// @dev One leg of `_walk` at `legIn`, out of the walk's frame for the stack: priced, asked
+    ///      where `ask` (`bound` is `_askLeg`'s, 0 where not asked) and written where `write`,
+    ///      never once the bound refuses it.
+    function _walkLeg(uint256[3] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, bool write, bool ask)
+        private returns (uint256 legOut, uint256 bound)
+    {
+        legOut = _priceLeg(leg, hop.tokenIn, hop.tokenOut, legIn);
+        if (ask) {
+            bound = _askLeg(acc, leg, hop, legIn, legOut);
+            if (bound == type(uint256).max) return (legOut, bound);
+        }
+        if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);
     }
 
     /// @dev The hops from `h` on, which a fee that ate the carry left unfunded: every
@@ -1067,16 +1092,79 @@ contract BlazePhoenixQuoter {
         }
     }
 
-    /// @dev The quote the Router measures in-frame for a leg at `legIn`, from the Router's own
-    ///      producers, kind by kind as `Router._hopScaleImpactAndQuote` asks them:
-    ///      `BPC.legQuoteImpact` for the pair-shaped and concentrated kinds, nothing for a kind
-    ///      the frame does not price here. `Router._execScaled` never lets a leg's bound rest
-    ///      under MIN_QUOTE_COVERAGE_BPS of it, whatever the bytes attest.
-    function _frameQuote(Leg memory leg, address tIn, address tOut, uint256 legIn)
-        private view returns (uint256 q)
+    /// @dev One leg under `ask`, as the Router asks it. The bound `Router._execScaled` holds it
+    ///      to: the attestation at `legIn`, never under MIN_QUOTE_COVERAGE_BPS of the frame's
+    ///      quote (`_frameQuote`); a venue paying under its LEG_FLOOR_BPS share is refused (max:
+    ///      a bound that large is refused as well). And the leg's protocol-floor terms into
+    ///      `_walk`'s accumulators: its `BPC.wImp` share of the route's impact, its share of the
+    ///      hop's base (the frame quote, or the bound where the frame prices none: there no lift
+    ///      moves the bound, the covered share of 0 being 0) and its squared amount; and into
+    ///      acc[2] whether it is blind as `Router._execute` reads it (`hopBlind`: funded, with
+    ///      no attestation and no frame quote).
+    function _askLeg(uint256[3] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, uint256 legOut)
+        private view returns (uint256 bound)
     {
+        bound = (leg.expectedOut != 0 && leg.amountIn != 0)
+            ? BPC.mulDiv(leg.expectedOut, legIn, leg.amountIn) : 0;
+        (uint256 q, uint256 imp) = _frameQuote(leg, hop.tokenIn, hop.tokenOut, legIn);
+        uint256 legSum;
+        for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
+        acc[0] += BPC.wImp(imp, leg.amountIn, hop.legs.length, legSum == 0 ? 1 : legSum);
+        acc[1] += q != 0 ? q : bound;
+        if (legIn != 0 && leg.expectedOut == 0 && q == 0) acc[2] = 1;
+        uint256 covered = BPC.mulDiv(
+            q, BPC.MIN_QUOTE_COVERAGE_BPS, BPC.BPS);
+        if (bound < covered) bound = covered;
+        if (bound != 0) {
+            if (legOut < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) return type(uint256).max;
+        }
+    }
+
+    /// @dev The protocol floor's share of the route, as `Router._execute` composes it: over every
+    ///      hop, `BPC.legShaveBps` of the bytes' leg amounts and the declared legs, with the
+    ///      route's impact `impactAcc`, into `BPC.routeFloorBps`.
+    function _routeFloorBps(Hop[] memory hops, uint256 impactAcc) private pure returns (uint256) {
+        uint256 legShv;
+        uint256 declaredLegs;
+        for (uint256 h; h < hops.length; h++) {
+            Leg[] memory legs = hops[h].legs;
+            uint256 sA;
+            uint256 sA2;
+            for (uint256 l; l < legs.length; l++) {
+                sA += legs[l].amountIn;
+                sA2 += legs[l].amountIn * legs[l].amountIn;
+            }
+            legShv += BPC.legShaveBps(sA, sA2);
+            declaredLegs += legs.length;
+        }
+        return BPC.routeFloorBps(impactAcc, declaredLegs, legShv);
+    }
+
+    /// @dev The quote and the raw impact the Router measures in-frame for a leg at `legIn`, from
+    ///      the Router's own producers, kind by kind as `Router._hopScaleImpactAndQuote` asks
+    ///      them: `BPC.legQuoteImpact` for the pair-shaped and concentrated kinds; `BPC.v4LegOut`
+    ///      on the key `Router._v4LegQuote` derives for a single-tick leg, at the default impact;
+    ///      no quote and the default impact for a kind the frame does not price.
+    ///      `Router._execScaled` never lets a leg's bound rest under MIN_QUOTE_COVERAGE_BPS of
+    ///      the quote, whatever the bytes attest, and `Router._execute` anchors the protocol
+    ///      floor on it.
+    function _frameQuote(Leg memory leg, address tIn, address tOut, uint256 legIn)
+        private view returns (uint256 q, uint256 imp)
+    {
+        imp = BPC.DEFAULT_IMPACT_BPS;
         if (BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {
-            (q, , ) = BPC.legQuoteImpact(leg, tIn, tOut, legIn);
+            (q, imp, ) = BPC.legQuoteImpact(leg, tIn, tOut, legIn);
+        } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
+            address other = address(uint160(uint256(leg.auxId)));
+            if (other == address(0)) return (0, imp);
+            if (leg.kind == BPC.KIND_V4_NATIVE) {
+                (tIn, other) = BPC.nativeMapVerified(tIn, other, hub.weth());
+                if (tIn == address(0) && other == address(0)) return (0, imp);
+            }
+            (address t0, address t1) = BPC.sortTokens(tIn, other);
+            q = BPC.v4LegOut(hub.v4PoolManager(),
+                BPC.computeV4PoolId(t0, t1, leg.fee, leg.tickSpacing, leg.hooks),
+                legIn, leg.fee, leg.tickSpacing, leg.zeroForOne);
         }
     }
 
