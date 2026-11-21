@@ -941,7 +941,53 @@ jobs:
           - shard: split-floors
             contract: SolverBandFeeDustFormalSpec
             match: '^check_splitFloorsNeverOvershoot(\(|$)'
-    # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion) plus setup.
+          # The four band/fee/dust/split checks assume arithmetic facts on the src's own terms
+          # (assume-guarantee); each fact is proved by its own lemma, one shard per lemma. A
+          # check counts as green only with every lemma it assumes green.
+          - shard: lemma-mulmod-fits
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulmodFits(\(|$)'
+          - shard: lemma-muldiv-exact
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulDivExact(\(|$)'
+          - shard: lemma-mul-mono-r
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulMonoR(\(|$)'
+          - shard: lemma-mul-mono-l
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulMonoL(\(|$)'
+          - shard: lemma-mul-assoc-l
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulAssocL(\(|$)'
+          - shard: lemma-mul-assoc-r
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulAssocR(\(|$)'
+          - shard: lemma-mul-dist
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulDist(\(|$)'
+          - shard: lemma-div-mono
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivMono(\(|$)'
+          - shard: lemma-div-mono-const
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivMonoConst(\(|$)'
+          - shard: lemma-div-anti
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivAnti(\(|$)'
+          - shard: lemma-div-floor
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivFloor(\(|$)'
+          - shard: lemma-div-zero
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivZero(\(|$)'
+          - shard: lemma-floor-superadd
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaFloorSuperadd(\(|$)'
+          - shard: lemma-hop-fee-ceiling
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaHopFeeIsCeiling(\(|$)'
+    # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion and for the
+    # band/fee/dust shards) plus setup.
     timeout-minutes: 60
     env:
       # Same narrowing as formal-spec: compile src + test/formal only, not the whole tree.
@@ -985,12 +1031,22 @@ jobs:
         # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
         # a bound that was hit proves nothing, so this step fails on that warning too. A
         # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
-        # Explicit bounds: 1500 s of wall time and 12 GiB of memory (no swap) for halmos and its
+        # Explicit bounds: 2700 s of wall time and 12 GiB of memory (no swap) for halmos and its
         # solver processes together, enforced by a dedicated cgroup. An out-of-memory kill stays
         # inside that cgroup and ends this step with a readable error, not the runner.
+        # Solver measurement (run 44835193106, default yices, one solver per CPU): band, hop-fee
+        # and split-floors hit the 12 GiB cap with several solvers alive while re-checking
+        # refined paths (256-bit multiply and divide); dust-probe ended [TIMEOUT] at 1202 s.
+        # None reported a counterexample. This step runs bitwuzla, pinned to 0.8.1 and verified
+        # against the sha256 Halmos 0.3.3 pins for it, like the step above, with at most two
+        # solver processes alive at once (--solver-threads 2; each Halmos solver thread waits on
+        # its own solver process). Fewer solvers at once means fewer paths solved per second,
+        # hence the longer wall time. PYTHONUNBUFFERED keeps the log when the group is killed.
         env:
+          HALMOS_ALLOW_DOWNLOAD: "1"
+          PYTHONUNBUFFERED: "1"
           SBFD_MEM_MAX: 12G
-          SBFD_TIME_MAX: "1500"
+          SBFD_TIME_MAX: "2700"
           MATCH: ${{ matrix.match }}
         run: |
           cg=/sys/fs/cgroup/halmos-sbfd
@@ -1008,7 +1064,8 @@ jobs:
           (
             read -r _ < sbfd.gate
             timeout "$SBFD_TIME_MAX" halmos --contract SolverBandFeeDustFormalSpec --match-test "$MATCH" --loop 3 \
-              --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
+              --solver bitwuzla-0.8.1 --solver-threads 2 --solver-timeout-assertion 300s -v 2>&1 \
+              | tee halmos-sbfd.log
             exit "${PIPESTATUS[0]}"
           ) &
           pid=$!
