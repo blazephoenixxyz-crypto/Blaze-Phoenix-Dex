@@ -3356,6 +3356,46 @@ library BlazePhoenixCore {
         }
     }
 
+    /// @notice A leg's impact, weighted by its SHARE of the hop. One producer for the Router,
+    ///         which refuses on it, and for the Quoter's encode doors, which ask it.
+    ///
+    ///         Impact is a RATIO — amountIn/(reserveIn+amountIn) — so it is blind to
+    ///         how much value a leg actually carries. A one-wei leg against a
+    ///         dust-reserve pool scores near 100%. The route's floor then averaged
+    ///         those ratios UNWEIGHTED, and `ironFloorBps` SUBTRACTS impact, so
+    ///         padding a route with such legs walked the floor down from 96% toward
+    ///         its 80% clamp while the real trade sat in one honest deep leg. The
+    ///         caller writes the Route, so that lever was theirs.
+    ///
+    ///         Weighting by `leg.amountIn / scaleDen` (the leg's share of the hop's
+    ///         declared input) is self-consistent: the same field decides how much
+    ///         the leg actually spends, so a caller cannot buy weight without
+    ///         routing the value. The `* legs` normalisation makes equal-sized legs
+    ///         reproduce the previous unweighted sum EXACTLY — the shares are then
+    ///         1/legs each — so honest routes do not move, and the division by
+    ///         `declaredLegs` downstream is left untouched.
+    ///
+    ///         The clamp mirrors `ironFloorBps`, which caps impact at BPS anyway;
+    ///         doing it here keeps `imp * legs` small enough that only `mulDiv`'s
+    ///         512-bit intermediate has to carry the amount.
+    function wImp(uint256 imp, uint256 legAmountIn, uint256 legs, uint256 scaleDen)
+        internal pure returns (uint256)
+    {
+        if (imp > BPS) imp = BPS;
+        return mulDiv(imp * legs, legAmountIn, scaleDen);
+    }
+
+    /// @notice The protocol floor's share of a route, in bps: `ironFloorBpsShv` of the route's
+    ///         share-weighted mean impact (`impactAcc`, the sum of `wImp` over every leg, over
+    ///         `declaredLegs`) and of `legShv`, the sum over the hops of `legShaveBps`. Scalar on
+    ///         purpose: the Router reads its hops from calldata and the Quoter from memory.
+    function routeFloorBps(uint256 impactAcc, uint256 declaredLegs, uint256 legShv)
+        internal pure returns (uint256)
+    {
+        uint256 avgImpact = declaredLegs > 0 ? impactAcc / declaredLegs : 0;
+        return ironFloorBpsShv(avgImpact, legShv, 0);
+    }
+
     /// @notice The count-based form, kept for callers that reason in whole legs. Equivalent to
     ///         `ironFloorBpsShv` with `(legCount − 1) × FLOOR_PER_LEG_BPS`; the shipped producers
     ///         use the concentration form above.
