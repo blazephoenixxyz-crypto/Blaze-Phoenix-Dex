@@ -931,25 +931,94 @@ jobs:
             contract: CompositionFormalSpec
             match: '^check_slackNeverExceedsOneAverageLeg(\(|$)'
             assertion_timeout: 1200s
-          - shard: band
+          # Solver measurement (round after run 45023643995): each band/fee/dust check runs
+          # once per solver, bitwuzla-0.8.1, bitwuzla-abs (the same binary with lazy lemmas
+          # for multiply and divide) and cvc5-int (cvc5-1.2.1 solving bit-vectors as integers);
+          # the next round keeps the best solver per check and drops the others.
+          - shard: band-own-bitwuzla
             contract: SolverBandFeeDustFormalSpec
-            match: '^check_bandKeepsLiveBaseAndOnlyWidens(\(|$)'
-          - shard: hop-fee
+            match: '^check_bandKeepsLiveBase(\(|$)'
+            solver: bitwuzla-0.8.1
+          - shard: band-own-bitwuzla-abs
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandKeepsLiveBase(\(|$)'
+            solver: bitwuzla-abs
+          - shard: band-own-cvc5-int
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandKeepsLiveBase(\(|$)'
+            solver: cvc5-int
+          - shard: band-widen-bitwuzla
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandOnlyWidens(\(|$)'
+            solver: bitwuzla-0.8.1
+          - shard: band-widen-bitwuzla-abs
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandOnlyWidens(\(|$)'
+            solver: bitwuzla-abs
+          - shard: band-widen-cvc5-int
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandOnlyWidens(\(|$)'
+            solver: cvc5-int
+          - shard: hop-fee-bitwuzla
             contract: SolverBandFeeDustFormalSpec
             match: '^check_hopFeeRoundsUpAndNetMatches(\(|$)'
-          - shard: dust-probe
+            solver: bitwuzla-0.8.1
+          - shard: hop-fee-bitwuzla-abs
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_hopFeeRoundsUpAndNetMatches(\(|$)'
+            solver: bitwuzla-abs
+          - shard: hop-fee-cvc5-int
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_hopFeeRoundsUpAndNetMatches(\(|$)'
+            solver: cvc5-int
+          - shard: dust-zero-bitwuzla
             contract: SolverBandFeeDustFormalSpec
             match: '^check_dustProbeV2FloorsToZero(\(|$)'
+            solver: bitwuzla-0.8.1
+          - shard: dust-zero-bitwuzla-abs
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_dustProbeV2FloorsToZero(\(|$)'
+            solver: bitwuzla-abs
+          - shard: dust-zero-cvc5-int
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_dustProbeV2FloorsToZero(\(|$)'
+            solver: cvc5-int
+          - shard: dust-spot-bitwuzla
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_dustProbeNeverAboveSpot(\(|$)'
+            solver: bitwuzla-0.8.1
+          - shard: dust-spot-bitwuzla-abs
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_dustProbeNeverAboveSpot(\(|$)'
+            solver: bitwuzla-abs
+          - shard: dust-spot-cvc5-int
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_dustProbeNeverAboveSpot(\(|$)'
+            solver: cvc5-int
+          - shard: band-dead-bitwuzla
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandNoBaseAndDeadRow(\(|$)'
+            solver: bitwuzla-0.8.1
           # Every check above calls the src. The hop fee assumes two facts on the src's own
           # terms, each proved by its own lemma shard below; it counts as green only with both
           # green. Lemmas about integer arithmetic alone, calling no src code, are not run here.
-          - shard: lemma-mulmod-fits
+          - shard: lemma-mulmod-fits-bitwuzla
             contract: SolverBandFeeDustFormalSpec
             match: '^check_lemmaMulmodFits(\(|$)'
-          - shard: lemma-hop-fee-ceiling
+            solver: bitwuzla-0.8.1
+          - shard: lemma-hop-fee-ceiling-bitwuzla
             contract: SolverBandFeeDustFormalSpec
             match: '^check_lemmaHopFeeIsCeiling(\(|$)'
-    # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion and for the
+            solver: bitwuzla-0.8.1
+          - shard: lemma-hop-fee-ceiling-bitwuzla-abs
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaHopFeeIsCeiling(\(|$)'
+            solver: bitwuzla-abs
+          - shard: lemma-hop-fee-ceiling-cvc5-int
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaHopFeeIsCeiling(\(|$)'
+            solver: cvc5-int
+    # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion, 3300 s for the
     # band/fee/dust shards) plus setup.
     timeout-minutes: 60
     env:
@@ -994,23 +1063,28 @@ jobs:
         # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
         # a bound that was hit proves nothing, so this step fails on that warning too. A
         # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
-        # Explicit bounds: 2700 s of wall time and 12 GiB of memory (no swap) for halmos and its
+        # Explicit bounds: 3300 s of wall time and 12 GiB of memory (no swap) for halmos and its
         # solver processes together, enforced by a dedicated cgroup. An out-of-memory kill stays
         # inside that cgroup and ends this step with a readable error, not the runner.
         # Solver measurement (run 44835193106, default yices, one solver per CPU): band, hop-fee
         # and split-floors hit the 12 GiB cap with several solvers alive while re-checking
         # refined paths (256-bit multiply and divide); dust-probe ended [TIMEOUT] at 1202 s.
-        # None reported a counterexample. This step runs bitwuzla, pinned to 0.8.1 and verified
-        # against the sha256 Halmos 0.3.3 pins for it, like the step above, with at most two
-        # solver processes alive at once (--solver-threads 2; each Halmos solver thread waits on
-        # its own solver process). Fewer solvers at once means fewer paths solved per second,
-        # hence the longer wall time. PYTHONUNBUFFERED keeps the log when the group is killed.
+        # None reported a counterexample. Run 45023643995 (bitwuzla-0.8.1, 300 s assertion): band
+        # hit the 2700 s wall cap; hop-fee (23 paths, 305 s), dust-probe (168 paths, 1512 s) and
+        # the CEIL lemma (7 paths, 300 s) ended [TIMEOUT] on one query, no counterexample. This
+        # step runs the shard's solver (matrix.solver), each verified against the sha256 Halmos
+        # 0.3.3 pins for its binary, like the step above, with at most two solver processes alive
+        # at once (--solver-threads 2; each Halmos solver thread waits on its own solver process).
+        # A 1200 s assertion budget; a 1 s branching budget (default 1 ms) so the solver can cut
+        # an infeasible branch, such as mulDiv's 512-bit one, instead of exploring it.
+        # PYTHONUNBUFFERED keeps the log when the group is killed.
         env:
           HALMOS_ALLOW_DOWNLOAD: "1"
           PYTHONUNBUFFERED: "1"
           SBFD_MEM_MAX: 12G
-          SBFD_TIME_MAX: "2700"
+          SBFD_TIME_MAX: "3300"
           MATCH: ${{ matrix.match }}
+          SOLVER: ${{ matrix.solver }}
         run: |
           cg=/sys/fs/cgroup/halmos-sbfd
           grep -qw memory /sys/fs/cgroup/cgroup.subtree_control \
@@ -1027,7 +1101,8 @@ jobs:
           (
             read -r _ < sbfd.gate
             timeout "$SBFD_TIME_MAX" halmos --contract SolverBandFeeDustFormalSpec --match-test "$MATCH" --loop 3 \
-              --solver bitwuzla-0.8.1 --solver-threads 2 --solver-timeout-assertion 300s -v 2>&1 \
+              --solver "$SOLVER" --solver-threads 2 --solver-timeout-assertion 1200s \
+              --solver-timeout-branching 1s -v 2>&1 \
               | tee halmos-sbfd.log
             exit "${PIPESTATUS[0]}"
           ) &

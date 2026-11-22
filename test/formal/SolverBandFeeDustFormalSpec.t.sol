@@ -78,21 +78,48 @@ contract SolverBandFeeDustFormalSpec is Test {
         return uint256(f) | uint256(e) << 24 | uint256(eo) << 88;
     }
 
-    function check_bandKeepsLiveBaseAndOnlyWidens(
-        uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0, uint64 e1w
-    ) public pure {
-        vm.assume(p0 > 0 && f0 < PIPS && f1 < PIPS && eo0 >= e0 && e1w >= e1);
-        uint256[] memory prices = new uint256[](2);
-        uint256[] memory fe = new uint256[](2);
+    // (a), (b) and (c) are three checks over the same domain (same arguments, same
+    // assumptions, same rows): forall x: a and b and c holds iff each holds on its own,
+    // and _inBand is pure. Split so each check makes one or two _inBand calls instead of
+    // four (the solver's paths multiply per call). Mutant H1 is killed by (a).
+    function _bandRows(uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0)
+        internal
+        pure
+        returns (uint256[] memory prices, uint256[] memory fe)
+    {
+        prices = new uint256[](2);
+        fe = new uint256[](2);
         prices[0] = p0;
         prices[1] = p1;
         fe[0] = _fe(f0, e0, eo0);
         fe[1] = _fe(f1, e1, e1);
+    }
+
+    function check_bandKeepsLiveBase(
+        uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0, uint64 e1w
+    ) public pure {
+        vm.assume(p0 > 0 && f0 < PIPS && f1 < PIPS && eo0 >= e0 && e1w >= e1);
+        (uint256[] memory prices, uint256[] memory fe) = _bandRows(p0, p1, f0, f1, e0, e1, eo0);
+        assertEq(M._inBand(prices, fe, 2, 0) & 1, 1, "live base dropped from its own band");
+    }
+
+    function check_bandOnlyWidens(
+        uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0, uint64 e1w
+    ) public pure {
+        vm.assume(p0 > 0 && f0 < PIPS && f1 < PIPS && eo0 >= e0 && e1w >= e1);
+        (uint256[] memory prices, uint256[] memory fe) = _bandRows(p0, p1, f0, f1, e0, e1, eo0);
         uint256 set = M._inBand(prices, fe, 2, 0);
-        assertEq(set & 1, 1, "live base dropped from its own band");
         fe[1] = _fe(f1, e1w, e1w);
         uint256 wider = M._inBand(prices, fe, 2, 0);
         assertEq(set & ~wider, 0, "a wider bound dropped a row");
+    }
+
+    function check_bandNoBaseAndDeadRow(
+        uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0, uint64 e1w
+    ) public pure {
+        vm.assume(p0 > 0 && f0 < PIPS && f1 < PIPS && eo0 >= e0 && e1w >= e1);
+        (uint256[] memory prices, uint256[] memory fe) = _bandRows(p0, p1, f0, f1, e0, e1, eo0);
+        fe[1] = _fe(f1, e1w, e1w);
         assertEq(M._inBand(prices, fe, 2, 2), 0, "b >= n kept a row");
         prices[1] = 0;
         assertEq(M._inBand(prices, fe, 2, 0) & 2, 0, "a dead row was kept");
@@ -133,11 +160,20 @@ contract SolverBandFeeDustFormalSpec is Test {
     //     `return (amtFee * rOut) / (rIn * BPS + amtFee);`
     //  -> `return (amtFee * rOut + rIn * BPS + amtFee - 1) / (rIn * BPS + amtFee);`
     //     (a ceiling: the dead dust row quotes 1 and votes).
+    // (i) and (ii) in one check, (iii) in another, over the same domain and the same
+    // probe: forall x: a and b holds iff each holds on its own (outV2 is pure). Split so
+    // the floor at 1 wei and the spot bound at the probe each get the solver's whole
+    // budget. Mutant H3 is killed by (ii).
     function check_dustProbeV2FloorsToZero(uint112 rIn, uint112 rOut, uint64 m) public pure {
         vm.assume(rIn > 0 && rOut > 0);
         uint256 probe = m / 100 == 0 ? m : m / 100;   // mirrors the Solver's probe
         if (m >= 1900) assertGe(probe, 19, "dust probe above m = 1900");
         if (rOut <= rIn) assertEq(BPC.outV2(1, rIn, rOut, 30), 0, "1 wei quoted at price <= 1");
+    }
+
+    function check_dustProbeNeverAboveSpot(uint112 rIn, uint112 rOut, uint64 m) public pure {
+        vm.assume(rIn > 0 && rOut > 0);
+        uint256 probe = m / 100 == 0 ? m : m / 100;   // mirrors the Solver's probe
         assertLe(BPC.outV2(probe, rIn, rOut, 30) * uint256(rIn), probe * uint256(rOut), "quote above spot");
     }
 }
