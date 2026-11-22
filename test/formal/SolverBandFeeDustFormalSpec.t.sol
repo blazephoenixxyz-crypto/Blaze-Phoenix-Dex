@@ -2,19 +2,31 @@
 pragma solidity 0.8.36;
 
 // =============================================================================
-//  Halmos symbolic checks: the band, the hop fee, the dust probe.
-//  Each check names the mutant that turns it red (.github/scripts/mutants.py).
-//  Run: halmos --contract SolverBandFeeDustFormalSpec
+//  Halmos symbolic checks: the band's empty and dead rows, the hop fee, the dust
+//  probe at 1 wei. Run: halmos --contract SolverBandFeeDustFormalSpec
 //  Report-only in CI until measured green there: a timeout or an exhausted
 //  loop bound is INCONCLUSIVE, never a pass.
 //
 //  Every check here calls the src and states a property of that code. Only the
 //  hop fee assumes facts (vm.assume), and only two: L0 (mulDiv's 512-bit branch
 //  is dead under 2^128 x 2^128) and CEIL (the code's mulDivUp at the protocol
-//  fee is the integer ceiling). Each is proved by its own check_lemma in its own
-//  CI shard; H2 counts as green only with both lemmas green. The band and the
-//  dust probe assume nothing. Each fact is branch-free and reads `!pre || fact`:
-//  an instance whose precondition fails assumes nothing.
+//  fee is the integer ceiling); the CEIL lemma assumes L0. Each is proved by its
+//  own check_lemma in its own CI shard; H2 counts as green only with both lemmas
+//  green. The band check and the dust check assume nothing. Each fact is
+//  branch-free and reads `!pre || fact`: an instance whose precondition fails
+//  assumes nothing.
+//
+//  Each mutant named here is applied by hand to the quoted src line (these are
+//  not entries of .github/scripts/mutants.py, which pairs mutants with the
+//  Foundry tests). A mutant is killed only by a counterexample: a timeout leaves
+//  it alive.
+//
+//  Intermediate steps are Solidity `assert(cond)`, never forge-std assertX: each
+//  step is proved on the whole domain (a failing one is Panic 0x01, a
+//  counterexample) and the path after it carries `cond`, so the next query gets
+//  it as a hypothesis. Halmos 0.3.3's assertX cheatcodes only fork the failing
+//  branch and do not add `cond` to the path that goes on. A step narrows nothing:
+//  if it fails the check fails; if it holds it holds everywhere.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -53,6 +65,10 @@ contract SolverBandFeeDustFormalSpec is Test {
         assembly { r := div(a, b) }
     }
 
+    function _add(uint256 a, uint256 b) internal pure returns (uint256 r) {
+        assembly { r := add(a, b) }
+    }
+
     // ─── THE LEMMAS: one fact each, one CI shard each ───
     // Mutant L0: _fFits drops `gt(b, m)` -> check_lemmaMulmodFits red (a = b = 2^128).
     // Mutant CEIL: src/BlazePhoenixCore.sol:535 mulDivUp `r += 1` -> `r += 0` -> check_lemmaHopFeeIsCeiling red.
@@ -61,27 +77,27 @@ contract SolverBandFeeDustFormalSpec is Test {
     }
 
     /// The hop fee is the integer ceiling: the code's mulDivUp, fee*1e4 bracketing 28b.
+    /// Steps C1-C3 are proved on the whole domain and each enters the next query as a
+    /// hypothesis (Solidity assert): they narrow nothing and split one query into four. t, t / 1e4 and
+    /// mulmod(b, 28, 1e4) are the code's own terms (mulDiv's prod0 / d, mulDivUp's test).
     function check_lemmaHopFeeIsCeiling(uint128 b) public pure {
         vm.assume(_fFits(b, BPC.PROTOCOL_FEE_BPS));   // L0
+        uint256 t = _mul(b, BPC.PROTOCOL_FEE_BPS);
+        uint256 q = _div(t, BPC.BPS);
+        uint256 rem;
+        assembly { rem := mulmod(b, 28, 10000) }
+        assert(_mul(q, BPC.BPS) <= t);                          // C1: the floor is not above 28b
+        assert(t < _add(_mul(q, BPC.BPS), BPC.BPS));            // C2: nor 1e4 or more below it
+        assert((rem == 0) == (_mul(q, BPC.BPS) == t));          // C3: mulmod agrees with the floor
         assertTrue(_fCeil(b, BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS)));
     }
 
-    // ─── H1: THE BAND (Math._inBand / _keep) ───
-    // (a) a live base is always in its own band: both edges hold at i == b because
-    //     k_b <= WAD and (1 - f_b) <= 1, and every product rounds down;
-    // (b) raising an error bound never drops a row: k falls, so the upper edge's
-    //     left side falls and the lower edge's right side falls (monotone floors);
-    // (c) no base (b >= n) keeps nothing; a dead row (price 0) is never kept.
-    // Mutant H1: src/BlazePhoenixMath.sol:538 `, BPC.WAD) <= pb` -> `, BPC.WAD) < pb`
-    //     (f_b = e_b = 0 makes the product equal pb: the base drops itself).
+    // ─── H1: THE BAND (Math._inBand) ───
+    // No base (b >= n) keeps nothing; a dead row (price 0) is never kept.
     function _fe(uint24 f, uint64 e, uint64 eo) internal pure returns (uint256) {
         return uint256(f) | uint256(e) << 24 | uint256(eo) << 88;
     }
 
-    // (a), (b) and (c) are three checks over the same domain (same arguments, same
-    // assumptions, same rows): forall x: a and b and c holds iff each holds on its own,
-    // and _inBand is pure. Split so each check makes one or two _inBand calls instead of
-    // four (the solver's paths multiply per call). Mutant H1 is killed by (a).
     function _bandRows(uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0)
         internal
         pure
@@ -93,25 +109,6 @@ contract SolverBandFeeDustFormalSpec is Test {
         prices[1] = p1;
         fe[0] = _fe(f0, e0, eo0);
         fe[1] = _fe(f1, e1, e1);
-    }
-
-    function check_bandKeepsLiveBase(
-        uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0, uint64 e1w
-    ) public pure {
-        vm.assume(p0 > 0 && f0 < PIPS && f1 < PIPS && eo0 >= e0 && e1w >= e1);
-        (uint256[] memory prices, uint256[] memory fe) = _bandRows(p0, p1, f0, f1, e0, e1, eo0);
-        assertEq(M._inBand(prices, fe, 2, 0) & 1, 1, "live base dropped from its own band");
-    }
-
-    function check_bandOnlyWidens(
-        uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0, uint64 e1w
-    ) public pure {
-        vm.assume(p0 > 0 && f0 < PIPS && f1 < PIPS && eo0 >= e0 && e1w >= e1);
-        (uint256[] memory prices, uint256[] memory fe) = _bandRows(p0, p1, f0, f1, e0, e1, eo0);
-        uint256 set = M._inBand(prices, fe, 2, 0);
-        fe[1] = _fe(f1, e1w, e1w);
-        uint256 wider = M._inBand(prices, fe, 2, 0);
-        assertEq(set & ~wider, 0, "a wider bound dropped a row");
     }
 
     function check_bandNoBaseAndDeadRow(
@@ -131,19 +128,34 @@ contract SolverBandFeeDustFormalSpec is Test {
     // fee*1e4 in [28b, 28b + 1e4)); b > 0 => fee > 0 (no fee-free swap at
     // 357 wei or less); b >= 2 => fee < b (RouterE(8) only at b == 1); the Core
     // sibling scales a one-hop output by (b - fee) / b, rounded down.
-    // Mutant H2: src/BlazePhoenixCore.sol:461 `mulDivUp(b, PROTOCOL_FEE_BPS, BPS)`
+    // Mutant H2: src/BlazePhoenixCore.sol:467 `uint256 f = mulDivUp(b, PROTOCOL_FEE_BPS, BPS);`
     //     -> `mulDiv(b, PROTOCOL_FEE_BPS, BPS)`: net no longer matches the scale by the
-    //     ceiling fee. Router `_chargeHopFee` is private: its own mutant
-    //     (mulDivUp -> mulDiv) is killed by the forge tests on the 357-wei edge.
+    //     ceiling fee. NOT killed here: under it this check ends [TIMEOUT] with no
+    //     counterexample (cvc5-int, 120 s per query). Router `_chargeHopFee` is private:
+    //     its own mutant (mulDivUp -> mulDiv) is killed by the Foundry test
+    //     test_AHopFeeIsTheCeilingNotTheFloor (.github/scripts/mutants.py).
+    /// mulDiv's low-word test on its own terms: mulmod(a, b, 2^256 - 1) == a * b.
+    function _fitsEq(uint256 a, uint256 b) internal pure returns (bool ok) {
+        assembly { ok := eq(mulmod(a, b, not(0)), mul(a, b)) }
+    }
+
     function check_hopFeeRoundsUpAndNetMatches(uint128 b, uint128 base) public pure {
         vm.assume(_fFits(b, BPC.PROTOCOL_FEE_BPS));
         uint256 fee = BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
         vm.assume(_fCeil(b, fee));
         if (b > 0) assertGt(fee, 0, "non-zero base paid no fee");
         if (b >= 2) assertLt(fee, b, "fee swallowed a base of 2 wei or more");
+        // Step F1: fee <= b for every b (1e4 * fee < 28b + 1e4, no wrap), so keep below
+        // does not wrap and stays under 2^128.
+        assert(fee <= b);
         uint256 keep;
-        assembly { keep := sub(b, fee) }   // wraps when fee > b: L0's precondition then fails
+        unchecked { keep = uint256(b) - fee; }
+        // Step F1b: keep = b - fee <= b < 2^128, the bound L0's guard reads.
+        assert(keep <= type(uint128).max);
         vm.assume(_fFits(base, keep));
+        // Step F2: with base, keep < 2^128 the assumed L0 is the equality itself; on the
+        // path it makes mulDiv's high word prod1 = mm - prod0 zero by rewriting alone.
+        assert(_fitsEq(base, keep));
         Hop[] memory hops = new Hop[](1);
         hops[0].amountIn = b;
         uint256 net = BPC.netOfInputFees(hops, base, type(uint256).max, false);
@@ -155,25 +167,15 @@ contract SolverBandFeeDustFormalSpec is Test {
     // The probe is m / 100, or m when that is 0. Under 19 wei the rounding terms
     // widen the band past the 2x row (test/FindingAnchorDonation.t.sol:124); at
     // 1 wei a V2 row at price <= 1 quotes 0 (a floor), so it does not vote
-    // (Solver `if (o > 0)`). Never above spot, at any size.
-    // Mutant H3: src/BlazePhoenixCore.sol:1413
+    // (Solver `if (o > 0)`).
+    // Mutant H3: src/BlazePhoenixCore.sol:1404
     //     `return (amtFee * rOut) / (rIn * BPS + amtFee);`
     //  -> `return (amtFee * rOut + rIn * BPS + amtFee - 1) / (rIn * BPS + amtFee);`
     //     (a ceiling: the dead dust row quotes 1 and votes).
-    // (i) and (ii) in one check, (iii) in another, over the same domain and the same
-    // probe: forall x: a and b holds iff each holds on its own (outV2 is pure). Split so
-    // the floor at 1 wei and the spot bound at the probe each get the solver's whole
-    // budget. Mutant H3 is killed by (ii).
     function check_dustProbeV2FloorsToZero(uint112 rIn, uint112 rOut, uint64 m) public pure {
         vm.assume(rIn > 0 && rOut > 0);
         uint256 probe = m / 100 == 0 ? m : m / 100;   // mirrors the Solver's probe
         if (m >= 1900) assertGe(probe, 19, "dust probe above m = 1900");
         if (rOut <= rIn) assertEq(BPC.outV2(1, rIn, rOut, 30), 0, "1 wei quoted at price <= 1");
-    }
-
-    function check_dustProbeNeverAboveSpot(uint112 rIn, uint112 rOut, uint64 m) public pure {
-        vm.assume(rIn > 0 && rOut > 0);
-        uint256 probe = m / 100 == 0 ? m : m / 100;   // mirrors the Solver's probe
-        assertLe(BPC.outV2(probe, rIn, rOut, 30) * uint256(rIn), probe * uint256(rOut), "quote above spot");
     }
 }

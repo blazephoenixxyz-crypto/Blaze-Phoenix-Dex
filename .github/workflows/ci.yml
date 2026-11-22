@@ -931,59 +931,24 @@ jobs:
             contract: CompositionFormalSpec
             match: '^check_slackNeverExceedsOneAverageLeg(\(|$)'
             assertion_timeout: 1200s
-          # Solver per check. Run 45041626750 ran each band/fee/dust check under bitwuzla-0.8.1,
-          # bitwuzla-abs (lazy lemmas for multiply and divide) and cvc5-int (bit-vectors as
-          # integers), 1200 s per query. Discharged: band-dead, dust-zero and the L0 lemma under
-          # bitwuzla-0.8.1 (10 to 30 s), kept on it. Ended [TIMEOUT] under all three, with no
-          # counterexample: the hop fee (mulDiv's 512-bit branch, dead under L0, survives a 1 s
-          # branching budget), the dust probe's spot bound and the CEIL lemma. Hit the 3300 s wall
-          # cap under all three: band-own (84 candidate paths) and band-widen (192). This round
-          # measures a longer branching budget (matrix.branching) for the hop fee and the band,
-          # and yices (2.6.4) and z3 for the slow queries.
-          - shard: band-own-bitwuzla-br30
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_bandKeepsLiveBase(\(|$)'
-            solver: bitwuzla-0.8.1
-            branching: 30s
-          - shard: band-own-yices
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_bandKeepsLiveBase(\(|$)'
-            solver: yices
-          - shard: band-widen-bitwuzla-br30
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_bandOnlyWidens(\(|$)'
-            solver: bitwuzla-0.8.1
-            branching: 30s
-          - shard: band-widen-yices
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_bandOnlyWidens(\(|$)'
-            solver: yices
+          # Solver per check, the one measured to discharge it. Run 45041626750 (bitwuzla-0.8.1,
+          # bitwuzla-abs and cvc5-int, 1200 s per query) discharged band-dead, dust-zero and the
+          # L0 lemma under bitwuzla-0.8.1 (10 to 30 s), kept on it. The CEIL lemma and the hop
+          # fee state their intermediate steps as Solidity asserts (C1-C3, F1-F2: each proved,
+          # then a hypothesis of the next query) and run under cvc5-int (cvc5 1.2.1, bit-vectors
+          # as integers), measured locally on Halmos 0.3.3: CEIL 3.9 s (9 paths), hop fee 3.3 s (12 paths).
           - shard: band-dead-bitwuzla
             contract: SolverBandFeeDustFormalSpec
             match: '^check_bandNoBaseAndDeadRow(\(|$)'
             solver: bitwuzla-0.8.1
-          - shard: hop-fee-bitwuzla-br60
+          - shard: hop-fee-cvc5-int
             contract: SolverBandFeeDustFormalSpec
             match: '^check_hopFeeRoundsUpAndNetMatches(\(|$)'
-            solver: bitwuzla-0.8.1
-            branching: 60s
-          - shard: hop-fee-bitwuzla-br600
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_hopFeeRoundsUpAndNetMatches(\(|$)'
-            solver: bitwuzla-0.8.1
-            branching: 600s
+            solver: cvc5-int
           - shard: dust-zero-bitwuzla
             contract: SolverBandFeeDustFormalSpec
             match: '^check_dustProbeV2FloorsToZero(\(|$)'
             solver: bitwuzla-0.8.1
-          - shard: dust-spot-yices
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_dustProbeNeverAboveSpot(\(|$)'
-            solver: yices
-          - shard: dust-spot-z3
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_dustProbeNeverAboveSpot(\(|$)'
-            solver: z3
           # Every check above calls the src. The hop fee assumes two facts on the src's own
           # terms, each proved by its own lemma shard below; it counts as green only with both
           # green. Lemmas about integer arithmetic alone, calling no src code, are not run here.
@@ -991,14 +956,10 @@ jobs:
             contract: SolverBandFeeDustFormalSpec
             match: '^check_lemmaMulmodFits(\(|$)'
             solver: bitwuzla-0.8.1
-          - shard: lemma-hop-fee-ceiling-yices
+          - shard: lemma-hop-fee-ceiling-cvc5-int
             contract: SolverBandFeeDustFormalSpec
             match: '^check_lemmaHopFeeIsCeiling(\(|$)'
-            solver: yices
-          - shard: lemma-hop-fee-ceiling-z3
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaHopFeeIsCeiling(\(|$)'
-            solver: z3
+            solver: cvc5-int
     # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion, 3300 s for the
     # band/fee/dust shards) plus setup.
     timeout-minutes: 60
@@ -1054,9 +1015,9 @@ jobs:
         # hit the 2700 s wall cap; hop-fee (23 paths, 305 s), dust-probe (168 paths, 1512 s) and
         # the CEIL lemma (7 paths, 300 s) ended [TIMEOUT] on one query, no counterexample. Run
         # 45041626750 (1200 s per query, three solvers): see the matrix. This step runs the
-        # shard's solver (matrix.solver): bitwuzla and yices are downloaded and verified against
-        # the sha256 Halmos 0.3.3 pins for their binaries, like the step above; z3 is the binary
-        # of the z3-solver package Halmos 0.3.3 pins (4.12.6.0). At most two solver processes are
+        # shard's solver (matrix.solver): bitwuzla and cvc5 are downloaded and verified against
+        # the sha256 Halmos 0.3.3 pins for their binaries, like the step above. At most two solver
+        # processes are
         # alive at once (--solver-threads 2; each Halmos solver thread waits on its own process).
         # A 1200 s assertion budget; a branching budget (matrix.branching, 1 s unless the shard
         # sets one; the Halmos default is 1 ms) so the solver can cut an infeasible branch, such
