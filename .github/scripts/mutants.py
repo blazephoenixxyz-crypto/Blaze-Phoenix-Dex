@@ -4431,9 +4431,14 @@ M = [
       teste="test_TheRebuildStartsFromTheListAsBuilt"),
  dict(nome='gas51 [825]: the bridge stages build their pairs again',
       # hops2 (2026-11-06): re-pointed; the entry's sixth word went with M10, the list is built again.
+      # 2026-11-22: the second build names the stage's pair by its tokens and drops the list it
+      # returns. Read from `path` (`_rankedPools(path[i], path[i + 1])`, assigned or not), the
+      # Solver stops compiling under the release Yul sequence (no FunctionSpecializer): "too deep
+      # in the stack by 1 slots" between `m` and `rk` (measured on main e45a979). The solve is a
+      # static call, so the second list is the first one: the build is what the census counts.
       f='src/BlazePhoenixSolver.sol',
       old='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n',
-      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            (cands, dec) = _rankedPools(path[i], path[i + 1]); // MUTANT [825]\n',
+      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            _rankedPools(i == 0 ? tIn : b, i == 0 ? b : tOut); // MUTANT [825]\n',
       teste='test_EachOrderedPairIsBuiltOnce'),
  dict(nome='D10 G1: the hop enters the library twice',
       f='src/BlazePhoenixSolver.sol',
