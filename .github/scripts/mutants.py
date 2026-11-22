@@ -100,10 +100,16 @@ M = [
       old="                if (bound < covered) bound = covered;",
       new="                covered; // MUTANTE",
       teste="test_BleedingLegHiddenInAHealthyTotalIsCaught"),
- dict(nome="coverage-gate: the per-leg floor",
+ # The floor asks 0 bps of the bound instead of the line being deleted. With the line gone
+ # (`bound;`), and with only its refusal gone (`{}`), the Router stops compiling under the release
+ # Yul sequence (no FunctionSpecializer): "too deep in the stack by 1 slots" at the pair executor's
+ # balanceOf (measured 2026-11-22 on main 0760c4d). A mutant that does not build leaves the pristine
+ # artefact in out/, so it read INERT. At 0 bps `got < 0` never fires: the same guard, switched off,
+ # in a Router that builds (22,715 B against 22,717).
+ dict(nome="coverage-gate: the per-leg floor asks 0 bps of the bound, so it never refuses",
       f="src/BlazePhoenixRouter.sol",
       old="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);",
-      new="            bound; // MUTANTE",
+      new="            if (bound != 0 && got < BPC.mulDivUp(bound, 0, BPC.BPS)) revert RouterE(5); // MUTANT",
       teste="test_BleedingLegHiddenInAHealthyTotalIsCaught"),
  dict(nome="FoT: rescaling the floor by the measurement",
       f="src/BlazePhoenixRouter.sol",

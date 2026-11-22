@@ -16,7 +16,7 @@ src/BlazePhoenixCore.sol	test_RangeExit_PromiseIsTruncatedAtTheBoundary	V4 promi
 src/BlazePhoenixCore.sol	test_StaticFee_ComposesProtocolFee_PerDirection	V4: a static key composes the manager protocol fee per direction
 src/BlazePhoenixRouter.sol	test_Native_DeliveryBelowInFrameFloorIsRefused	V4: the Router quotes the leg by the Core promise it is bound to
 src/BlazePhoenixRouter.sol	test_BleedingLegHiddenInAHealthyTotalIsCaught	coverage-gate: lift to the measured quote
-src/BlazePhoenixRouter.sol	test_BleedingLegHiddenInAHealthyTotalIsCaught	coverage-gate: the per-leg floor
+src/BlazePhoenixRouter.sol	test_BleedingLegHiddenInAHealthyTotalIsCaught	coverage-gate: the per-leg floor asks 0 bps of the bound, so it never refuses
 src/BlazePhoenixRouter.sol	test_EntryTax25_OneLeg_MustSettle	FoT: rescaling the floor by the measurement
 src/BlazePhoenixRouter.sol	test_FotIsNotAnExcuseToBleed	FoT: the hole-patch fix (zeroing the floor instead of re-pricing it)
 src/BlazePhoenixRouter.sol	test_RatioWithNoRepresentation_IsRefused	FU-3 [fu3-1]: a ratio the slot cannot represent is written as 1 again instead of refused
