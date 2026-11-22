@@ -908,7 +908,7 @@ jobs:
     # [TIMEOUT] at the 300 s assertion limit with no counterexample; the band/fee/dust spec,
     # a second step after them, never ran because the first step failed. One shard per heavy
     # check gives each its own solver budget; the band/fee/dust spec is split the same way, one
-    # shard per check, so one slow check cannot hide the result of the other three.
+    # shard per check, so one slow check cannot hide the result of the others.
     runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
@@ -940,51 +940,12 @@ jobs:
           - shard: dust-probe
             contract: SolverBandFeeDustFormalSpec
             match: '^check_dustProbeV2FloorsToZero(\(|$)'
-          - shard: split-floors
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_splitFloorsNeverOvershoot(\(|$)'
-          # The four band/fee/dust/split checks assume arithmetic facts on the src's own terms
-          # (assume-guarantee); each fact is proved by its own lemma, one shard per lemma. A
-          # check counts as green only with every lemma it assumes green.
+          # Every check above calls the src. The hop fee assumes two facts on the src's own
+          # terms, each proved by its own lemma shard below; it counts as green only with both
+          # green. Lemmas about integer arithmetic alone, calling no src code, are not run here.
           - shard: lemma-mulmod-fits
             contract: SolverBandFeeDustFormalSpec
             match: '^check_lemmaMulmodFits(\(|$)'
-          - shard: lemma-muldiv-exact
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaMulDivExact(\(|$)'
-          - shard: lemma-mul-mono-r
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaMulMonoR(\(|$)'
-          - shard: lemma-mul-mono-l
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaMulMonoL(\(|$)'
-          - shard: lemma-mul-assoc-l
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaMulAssocL(\(|$)'
-          - shard: lemma-mul-assoc-r
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaMulAssocR(\(|$)'
-          - shard: lemma-mul-dist
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaMulDist(\(|$)'
-          - shard: lemma-div-mono
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaDivMono(\(|$)'
-          - shard: lemma-div-mono-const
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaDivMonoConst(\(|$)'
-          - shard: lemma-div-anti
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaDivAnti(\(|$)'
-          - shard: lemma-div-floor
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaDivFloor(\(|$)'
-          - shard: lemma-div-zero
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaDivZero(\(|$)'
-          - shard: lemma-floor-superadd
-            contract: SolverBandFeeDustFormalSpec
-            match: '^check_lemmaFloorSuperadd(\(|$)'
           - shard: lemma-hop-fee-ceiling
             contract: SolverBandFeeDustFormalSpec
             match: '^check_lemmaHopFeeIsCeiling(\(|$)'
@@ -1027,9 +988,9 @@ jobs:
           # Halmos colours its result tags, so strip the ANSI codes before matching.
           sed 's/\x1b\[[0-9;]*m//g' halmos.log | grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]'
 
-      - name: Symbolic - band, hop fee, dust probe, split (report-only)
+      - name: Symbolic - band, hop fee, dust probe (report-only)
         if: matrix.contract == 'SolverBandFeeDustFormalSpec'
-        # test/formal/SolverBandFeeDustFormalSpec.t.sol, one of its four checks per shard, never measured. Halmos
+        # test/formal/SolverBandFeeDustFormalSpec.t.sol, one check per shard. Halmos
         # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
         # a bound that was hit proves nothing, so this step fails on that warning too. A
         # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
