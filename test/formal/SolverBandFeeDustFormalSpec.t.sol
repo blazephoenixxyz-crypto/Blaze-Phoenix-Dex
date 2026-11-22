@@ -15,6 +15,13 @@ pragma solidity 0.8.36;
 //  CI shard; H2 counts as green only with both lemmas green. The band and the
 //  dust probe assume nothing. Each fact is branch-free and reads `!pre || fact`:
 //  an instance whose precondition fails assumes nothing.
+//
+//  Intermediate steps are Solidity `assert(cond)`, never forge-std assertX: each
+//  step is proved on the whole domain (a failing one is Panic 0x01, a
+//  counterexample) and the path after it carries `cond`, so the next query gets
+//  it as a hypothesis. Halmos 0.3.3's assertX cheatcodes only fork the failing
+//  branch and do not add `cond` to the path that goes on. A step narrows nothing:
+//  if it fails the check fails; if it holds it holds everywhere.
 // =============================================================================
 
 import {Test} from "forge-std/Test.sol";
@@ -53,6 +60,10 @@ contract SolverBandFeeDustFormalSpec is Test {
         assembly { r := div(a, b) }
     }
 
+    function _add(uint256 a, uint256 b) internal pure returns (uint256 r) {
+        assembly { r := add(a, b) }
+    }
+
     // ─── THE LEMMAS: one fact each, one CI shard each ───
     // Mutant L0: _fFits drops `gt(b, m)` -> check_lemmaMulmodFits red (a = b = 2^128).
     // Mutant CEIL: src/BlazePhoenixCore.sol:535 mulDivUp `r += 1` -> `r += 0` -> check_lemmaHopFeeIsCeiling red.
@@ -61,8 +72,18 @@ contract SolverBandFeeDustFormalSpec is Test {
     }
 
     /// The hop fee is the integer ceiling: the code's mulDivUp, fee*1e4 bracketing 28b.
+    /// Steps C1-C3 are proved on the whole domain and each enters the next query as a
+    /// hypothesis (Solidity assert): they narrow nothing and split one query into four. t, t / 1e4 and
+    /// mulmod(b, 28, 1e4) are the code's own terms (mulDiv's prod0 / d, mulDivUp's test).
     function check_lemmaHopFeeIsCeiling(uint128 b) public pure {
         vm.assume(_fFits(b, BPC.PROTOCOL_FEE_BPS));   // L0
+        uint256 t = _mul(b, BPC.PROTOCOL_FEE_BPS);
+        uint256 q = _div(t, BPC.BPS);
+        uint256 rem;
+        assembly { rem := mulmod(b, 28, 10000) }
+        assert(_mul(q, BPC.BPS) <= t);                          // C1: the floor is not above 28b
+        assert(t < _add(_mul(q, BPC.BPS), BPC.BPS));            // C2: nor 1e4 or more below it
+        assert((rem == 0) == (_mul(q, BPC.BPS) == t));          // C3: mulmod agrees with the floor
         assertTrue(_fCeil(b, BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS)));
     }
 
@@ -95,11 +116,39 @@ contract SolverBandFeeDustFormalSpec is Test {
         fe[1] = _fe(f1, e1, e1);
     }
 
+    /// The base's k, its k at the hop's size and 1 - f, read from fe the way _inBand does.
+    function _baseTerms(uint256[] memory fe) internal pure returns (uint256 kb, uint256 kbLo, uint256 up) {
+        uint256 fb = fe[0] & 0xFFFFFF;
+        kb = M._keep(fb, (fe[0] >> 24) & 0xFFFFFFFFFFFFFFFF);
+        kbLo = M._keep(fb, fe[0] >> 88);
+        up = PIPS - fb;
+    }
+
+    /// mulDiv's low-word test on its own terms: mulmod(a, b, 2^256 - 1) == a * b.
+    function _fitsEq(uint256 a, uint256 b) internal pure returns (bool ok) {
+        assembly { ok := eq(mulmod(a, b, not(0)), mul(a, b)) }
+    }
+
     function check_bandKeepsLiveBase(
         uint128 p0, uint128 p1, uint24 f0, uint24 f1, uint64 e0, uint64 e1, uint64 eo0, uint64 e1w
     ) public pure {
         vm.assume(p0 > 0 && f0 < PIPS && f1 < PIPS && eo0 >= e0 && e1w >= e1);
         (uint256[] memory prices, uint256[] memory fe) = _bandRows(p0, p1, f0, f1, e0, e1, eo0);
+        // Steps B1-B8 (Solidity assert, like C1-C3): the base row's own terms, read the way
+        // _inBand reads them. At i == b the row's k is the base's k, so both edges are
+        // products of factors at most 1; B5-B6 are mulDiv's low-word test (its 512-bit
+        // branch is dead), B7-B8 the two edges themselves.
+        (uint256 kb, uint256 kbLo, uint256 up) = _baseTerms(fe);
+        assert(kb <= BPC.WAD);                                          // B1
+        assert(kbLo <= BPC.WAD);                                        // B2
+        uint256 x = kb * kb / BPC.WAD * up / PIPS;
+        uint256 y = kb * kbLo / BPC.WAD;
+        assert(x <= BPC.WAD);                                           // B3
+        assert(y <= BPC.WAD);                                           // B4
+        assert(_fitsEq(prices[0], x));                                  // B5
+        assert(_fitsEq(prices[0], y));                                  // B6
+        assert(BPC.mulDiv(prices[0], x, BPC.WAD) <= prices[0]);         // B7: the upper edge
+        assert(prices[0] >= BPC.mulDiv(prices[0], y, BPC.WAD));         // B8: the lower edge
         assertEq(M._inBand(prices, fe, 2, 0) & 1, 1, "live base dropped from its own band");
     }
 
@@ -141,9 +190,17 @@ contract SolverBandFeeDustFormalSpec is Test {
         vm.assume(_fCeil(b, fee));
         if (b > 0) assertGt(fee, 0, "non-zero base paid no fee");
         if (b >= 2) assertLt(fee, b, "fee swallowed a base of 2 wei or more");
+        // Step F1: fee <= b for every b (1e4 * fee < 28b + 1e4, no wrap), so keep below
+        // does not wrap and stays under 2^128.
+        assert(fee <= b);
         uint256 keep;
-        assembly { keep := sub(b, fee) }   // wraps when fee > b: L0's precondition then fails
+        unchecked { keep = uint256(b) - fee; }
+        // Step F1b: keep = b - fee <= b < 2^128, the bound L0's guard reads.
+        assert(keep <= type(uint128).max);
         vm.assume(_fFits(base, keep));
+        // Step F2: with base, keep < 2^128 the assumed L0 is the equality itself; on the
+        // path it makes mulDiv's high word prod1 = mm - prod0 zero by rewriting alone.
+        assert(_fitsEq(base, keep));
         Hop[] memory hops = new Hop[](1);
         hops[0].amountIn = b;
         uint256 net = BPC.netOfInputFees(hops, base, type(uint256).max, false);
@@ -171,9 +228,21 @@ contract SolverBandFeeDustFormalSpec is Test {
         if (rOut <= rIn) assertEq(BPC.outV2(1, rIn, rOut, 30), 0, "1 wei quoted at price <= 1");
     }
 
+    /// Steps D0-D4 read like the CEIL lemma's C1-C3 (Solidity assert: proved, then a
+    /// hypothesis of the next query). a, n and d are outV2's own terms: amtFee,
+    /// amtFee * rOut and rIn * BPS + amtFee.
     function check_dustProbeNeverAboveSpot(uint112 rIn, uint112 rOut, uint64 m) public pure {
         vm.assume(rIn > 0 && rOut > 0);
         uint256 probe = m / 100 == 0 ? m : m / 100;   // mirrors the Solver's probe
-        assertLe(BPC.outV2(probe, rIn, rOut, 30) * uint256(rIn), probe * uint256(rOut), "quote above spot");
+        uint256 q = BPC.outV2(probe, rIn, rOut, 30);
+        uint256 a = _mul(probe, BPC.BPS - 30);
+        uint256 n = _mul(a, rOut);
+        uint256 d = _add(_mul(rIn, BPC.BPS), a);
+        assert(q == _div(n, d));                                // D0: outV2 is floor(n / d)
+        assert(q <= uint256(rOut));                             // D1: not above the out reserve
+        assert(_mul(q, d) <= n);                                // D2: the floor is not above n
+        assert(_mul(_mul(q, rIn), BPC.BPS) <= n);               // D3: q * rIn * 1e4 <= n
+        assert(n <= _mul(_mul(probe, rOut), BPC.BPS));          // D4: n <= 1e4 * probe * rOut
+        assertLe(q * uint256(rIn), probe * uint256(rOut), "quote above spot");
     }
 }
