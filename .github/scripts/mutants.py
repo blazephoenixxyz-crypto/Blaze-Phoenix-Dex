@@ -100,10 +100,16 @@ M = [
       old="                if (bound < covered) bound = covered;",
       new="                covered; // MUTANTE",
       teste="test_BleedingLegHiddenInAHealthyTotalIsCaught"),
- dict(nome="coverage-gate: the per-leg floor",
+ # The floor asks 0 bps of the bound instead of the line being deleted. With the line gone
+ # (`bound;`), and with only its refusal gone (`{}`), the Router stops compiling under the release
+ # Yul sequence (no FunctionSpecializer): "too deep in the stack by 1 slots" at the pair executor's
+ # balanceOf (measured 2026-11-22 on main 0760c4d). A mutant that does not build leaves the pristine
+ # artefact in out/, so it read INERT. At 0 bps `got < 0` never fires: the same guard, switched off,
+ # in a Router that builds (22,715 B against 22,717).
+ dict(nome="coverage-gate: the per-leg floor asks 0 bps of the bound, so it never refuses",
       f="src/BlazePhoenixRouter.sol",
       old="            if (bound != 0 && got < BPC.mulDivUp(bound, BPC.LEG_FLOOR_BPS, BPC.BPS)) revert RouterE(5);",
-      new="            bound; // MUTANTE",
+      new="            if (bound != 0 && got < BPC.mulDivUp(bound, 0, BPC.BPS)) revert RouterE(5); // MUTANT",
       teste="test_BleedingLegHiddenInAHealthyTotalIsCaught"),
  dict(nome="FoT: rescaling the floor by the measurement",
       f="src/BlazePhoenixRouter.sol",
@@ -3949,7 +3955,7 @@ M = [
  dict(nome='3073-2 [716d] = [716] on a second row: every candidate walks its held legs, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [716], held by a count on the direct grid, where the
-      # ceiling of `DirectThreeBooks_FitsATenth` does not tell it from the source.
+      # ceiling of `DirectThreeBooks_FitsItsCeiling` does not tell it from the source.
       old='        if (mode & WALK == 0) return (amountIn, cap, quote);',
       new='        // MUTANT [716d] = [716]',
       teste='test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook'),
@@ -4032,15 +4038,15 @@ M = [
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl, g0); // MUTANT [723]\n',
       teste='test_3073_WalkBudget_ThreeBridgesSixBooks_OnlyTheWinningTopologyIsRead'),
- dict(nome='3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass a tenth of the search',
+ dict(nome='3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass their ceiling',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [723], held by a second test. `bestHeld` is
       # written in `_considera` and read on this line alone, so marking every leader held there
-      # is this same edit. A ceiling, not a count: 1,482,531 against 1,200,000 (449,742 unmutated,
-      # where this grid's winner is not rebuilt at all; release, 2026-11-10).
+      # is this same edit. A ceiling, not a count: 2,014,343 against 1,300,000 (1,233,445
+      # unmutated; release, without the FunctionSpecializer, 2026-11-21).
       old='        if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);\n',
       new='        _walkOnItsOwnBudget(plan, bk | 1 << 8, m.bestU - d, fl, g0); // MUTANT [723m] = [723]\n',
-      teste='test_3073_WalkBudget_DirectThreeBooks_FitsATenth'),
+      teste='test_3073_WalkBudget_DirectThreeBooks_FitsItsCeiling'),
  dict(nome='3073-3 [723d] = [723] on a third row: the winner is rebuilt with WALK on every solve, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)',
       f='src/BlazePhoenixSolver.sol',
       # Not a mutant of its own: the old -> new of [723], held by a count. A count does not move with
@@ -4425,9 +4431,14 @@ M = [
       teste="test_TheRebuildStartsFromTheListAsBuilt"),
  dict(nome='gas51 [825]: the bridge stages build their pairs again',
       # hops2 (2026-11-06): re-pointed; the entry's sixth word went with M10, the list is built again.
+      # 2026-11-22: the second build names the stage's pair by its tokens and drops the list it
+      # returns. Read from `path` (`_rankedPools(path[i], path[i + 1])`, assigned or not), the
+      # Solver stops compiling under the release Yul sequence (no FunctionSpecializer): "too deep
+      # in the stack by 1 slots" between `m` and `rk` (measured on main e45a979). The solve is a
+      # static call, so the second list is the first one: the build is what the census counts.
       f='src/BlazePhoenixSolver.sol',
       old='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n',
-      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            (cands, dec) = _rankedPools(path[i], path[i + 1]); // MUTANT [825]\n',
+      new='            (PoolInfo[] memory cands, uint256 dec, ) = _candsOf(m, path[i], path[i + 1]);\n            _rankedPools(i == 0 ? tIn : b, i == 0 ? b : tOut); // MUTANT [825]\n',
       teste='test_EachOrderedPairIsBuiltOnce'),
  dict(nome='D10 G1: the hop enters the library twice',
       f='src/BlazePhoenixSolver.sol',
@@ -4777,10 +4788,15 @@ M = [
       old="        if (t0 == address(0) || t0 == t1 || venueKey == 0) revert GateE(3);",
       new='        if (t0 == address(0) || t0 == t1 || venueKey == 0) revert("BlazePhoenixGate: bad pair or venue key"); // MUTANT SIZE-M1',
       teste="test_Size_RuntimeLedger"),
+ # Sized again on 2026-11-22: nine more string reverts in the same entry point. The release Yul
+ # sequence without the FunctionSpecializer took the Router from 23,839 B to 22,717 B, and the
+ # entry point with its two reverts (+415 B, 23,132 B) no longer reached the 24,000 B gate: the
+ # paired test passed and the mutant read DECORATIVE. With eleven reverts the mutated Router
+ # measures 24,337 B: over the gate, under EIP-170, so the test fails on the gate's own message.
  dict(nome="gas-1106 G7 SIZE-M2: a dedicated 7702 entry point with string reverts added to the Router",
       f="src/BlazePhoenixRouter.sol",
       old="    // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates\n",
-      new='    function swapExactInWith7702( // MUTANT SIZE-M2\n        Route calldata route, uint256 amountIn, uint256 userMinOut,\n        address recipient, uint256 deadline\n    ) external whenLive nrEntrant returns (uint256) {\n        if (recipient == address(0)) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a recipient");\n        if (userMinOut == 0) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a non-zero minimum output");\n        return _checkedSwap(route, amountIn, userMinOut, recipient, deadline);\n    }\n\n    // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates\n',
+      new='    function swapExactInWith7702( // MUTANT SIZE-M2\n        Route calldata route, uint256 amountIn, uint256 userMinOut,\n        address recipient, uint256 deadline\n    ) external whenLive nrEntrant returns (uint256) {\n        if (recipient == address(0)) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a recipient");\n        if (userMinOut == 0) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a non-zero minimum output");\n        if (amountIn == 0) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a non-zero input amount");\n        if (deadline < block.timestamp) revert("BlazePhoenixRouter: the deadline of this EIP-7702 delegated swap has passed");\n        if (recipient == address(this)) revert("BlazePhoenixRouter: an EIP-7702 delegated swap cannot pay the Router itself");\n        if (msg.sender.code.length == 0) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a delegated account");\n        if (route.hops.length == 0) revert("BlazePhoenixRouter: an EIP-7702 delegated swap needs a route of one hop or more");\n        if (msg.sender == recipient) revert("BlazePhoenixRouter: an EIP-7702 delegated swap pays an account other than the caller");\n        if (userMinOut > type(uint128).max) revert("BlazePhoenixRouter: the minimum output of an EIP-7702 delegated swap is out of range");\n        if (amountIn > type(uint128).max) revert("BlazePhoenixRouter: the input amount of an EIP-7702 delegated swap is out of range");\n        if (deadline > block.timestamp + 1 days) revert("BlazePhoenixRouter: the deadline of an EIP-7702 delegated swap is more than a day ahead");\n        return _checkedSwap(route, amountIn, userMinOut, recipient, deadline);\n    }\n\n    // EIP-7702 needs no dedicated entry point: under 7702 the EOA delegates\n',
       teste="test_EveryShippedContractIsUnderTheSizeGate"),
  dict(nome="gas-1106 G7 SIZE-M3: a Gate constructor error turned into a string (initcode only)",
       f="src/BlazePhoenixGate.sol",

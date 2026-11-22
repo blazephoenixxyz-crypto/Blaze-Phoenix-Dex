@@ -61,6 +61,9 @@ abstract contract LatencyDriftOps is TokenSweepBase {
     /// i.e. inside 7-10 s on every chain with blocks <= 3 s.
     uint256 internal constant TARGET_MS = 7_000;
     uint256 internal constant WINDOW_MS = 10_000;
+    uint256 private _driftPin;
+    uint256 private _driftK;
+    uint256 private _driftBt;
 
     /// HARD BOUND ON OVER-PROMISING, in hundredths of a basis point.
     /// MEASURED 2026-09-01 at the pinned blocks: the worst over-promise across
@@ -168,6 +171,34 @@ abstract contract LatencyDriftOps is TokenSweepBase {
         } catch {}
     }
 
+    /// Phase 1 of `_run`, split out so its try/catch does not share a stack frame
+    /// with the calibration locals (stack-too-deep under the release step sequence).
+    function _quoteAll(PairSpec[] memory ps, Route[] memory routes, Quoted[] memory q) internal {
+        // ── Phase 1: quote at block N, realize the net promise, freeze ──
+        for (uint256 i; i < ps.length; ++i) {
+            uint256 snap = vm.snapshotState();
+            try quoter.previewPlanExact(ps[i].tIn, ps[i].tOut, ps[i].amt) returns (
+                Route memory rt, uint256 xo
+            ) {
+                if (rt.hops.length == 0 || xo == 0) {
+                    vm.revertToState(snap);
+                    console2.log(string.concat("[NO ROUTE] ", ps[i].label));
+                    continue;
+                }
+                (bool okN, uint256 gotN) = _execRoute(ps[i], rt);
+                // Revert BOTH the quote residue and the probe execution:
+                // block N state is untouched when the roll happens.
+                vm.revertToState(snap);
+                assertTrue(okN, string.concat(ps[i].label, ": same-block execution of the exact route reverted"));
+                assertGt(gotN, 0, string.concat(ps[i].label, ": same-block execution delivered zero"));
+                routes[i] = rt;
+                q[i] = Quoted(true, xo, gotN, keccak256(abi.encode(rt)));
+            } catch {
+                console2.log(string.concat("[QUOTE REVERT] ", ps[i].label));
+            }
+        }
+    }
+
     function _run(PairSpec[] memory ps) internal {
         if (address(hub) == address(0)) return; // no DRPC_KEY: fixture skipped
         _persistStack();
@@ -193,29 +224,11 @@ abstract contract LatencyDriftOps is TokenSweepBase {
         Quoted[] memory q = new Quoted[](ps.length);
         uint256 tsQuote = _now();
 
-        // ── Phase 1: quote at block N, realize the net promise, freeze ──
-        for (uint256 i; i < ps.length; ++i) {
-            uint256 snap = vm.snapshotState();
-            try quoter.previewPlanExact(ps[i].tIn, ps[i].tOut, ps[i].amt) returns (
-                Route memory rt, uint256 xo
-            ) {
-                if (rt.hops.length == 0 || xo == 0) {
-                    vm.revertToState(snap);
-                    console2.log(string.concat("[NO ROUTE] ", ps[i].label));
-                    continue;
-                }
-                (bool okN, uint256 gotN) = _execRoute(ps[i], rt);
-                // Revert BOTH the quote residue and the probe execution:
-                // block N state is untouched when the roll happens.
-                vm.revertToState(snap);
-                assertTrue(okN, string.concat(ps[i].label, ": same-block execution of the exact route reverted"));
-                assertGt(gotN, 0, string.concat(ps[i].label, ": same-block execution delivered zero"));
-                routes[i] = rt;
-                q[i] = Quoted(true, xo, gotN, keccak256(abi.encode(rt)));
-            } catch {
-                console2.log(string.concat("[QUOTE REVERT] ", ps[i].label));
-            }
-        }
+        // The calibration rides in storage across phase 1: held as locals they share the
+        // try/catch frame (the inliner merges `_quoteAll` back) and the stack runs out.
+        (_driftPin, _driftK, _driftBt) = (pin, k, btMs);
+        _quoteAll(ps, routes, q);
+        (pin, k, btMs) = (_driftPin, _driftK, _driftBt);
 
         // ── Phase 2: the landing delay, in this chain's own blocks ──
         // ROLL UNTIL THE WINDOW IS REACHED, then assert the WINDOW -- not the

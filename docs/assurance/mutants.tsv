@@ -16,7 +16,7 @@ src/BlazePhoenixCore.sol	test_RangeExit_PromiseIsTruncatedAtTheBoundary	V4 promi
 src/BlazePhoenixCore.sol	test_StaticFee_ComposesProtocolFee_PerDirection	V4: a static key composes the manager protocol fee per direction
 src/BlazePhoenixRouter.sol	test_Native_DeliveryBelowInFrameFloorIsRefused	V4: the Router quotes the leg by the Core promise it is bound to
 src/BlazePhoenixRouter.sol	test_BleedingLegHiddenInAHealthyTotalIsCaught	coverage-gate: lift to the measured quote
-src/BlazePhoenixRouter.sol	test_BleedingLegHiddenInAHealthyTotalIsCaught	coverage-gate: the per-leg floor
+src/BlazePhoenixRouter.sol	test_BleedingLegHiddenInAHealthyTotalIsCaught	coverage-gate: the per-leg floor asks 0 bps of the bound, so it never refuses
 src/BlazePhoenixRouter.sol	test_EntryTax25_OneLeg_MustSettle	FoT: rescaling the floor by the measurement
 src/BlazePhoenixRouter.sol	test_FotIsNotAnExcuseToBleed	FoT: the hole-patch fix (zeroing the floor instead of re-pricing it)
 src/BlazePhoenixRouter.sol	test_RatioWithNoRepresentation_IsRefused	FU-3 [fu3-1]: a ratio the slot cannot represent is written as 1 again instead of refused
@@ -727,7 +727,7 @@ src/BlazePhoenixSolver.sol	test_3073_Solver_SingleLeg_FlatBook_PromiseIsTheWalk	
 src/BlazePhoenixSolver.sol	test_3073_OneBasis_BridgeLeadsAndIsPromisedItsBook	3073-3 [722]: the leading build is never settled by the walk
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked	3073-3 [722h]: a leader held at its cap is rebuilt only when a promise fell, its book is read by the pays-walk alone
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_ThreeBridgesSixBooks_OnlyTheWinningTopologyIsRead	3073-3 [723]: the winner is rebuilt with WALK on every solve and three bridges with six books pass the search's budget (re-pointed 11-14: on f7e4d55 TOPOLOGIES = 4 and the ceiling row passes mutated; a count on the same grid)
-src/BlazePhoenixSolver.sol	test_3073_WalkBudget_DirectThreeBooks_FitsATenth	3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass a tenth of the search
+src/BlazePhoenixSolver.sol	test_3073_WalkBudget_DirectThreeBooks_FitsItsCeiling	3073-3 [723m] = [723] on a second row: the winner is rebuilt with WALK on every solve, one that left no book at its cap too, and three direct books pass their ceiling
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_DirectThreeBooks_AFallenPromiseRebuildsWithoutItsBook	3073-3 [723d] = [723] on a third row: the winner is rebuilt with WALK on every solve, and a direct book the pays-walk does not reach has its ticks read twice (32, 16 unmutated)
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_ThreeBridgesThreeBooks_OnlyTheWinningTopologyIsRead	3073-3 [723t]: the rebuild walks every topology, not the winner's alone, and three bridges pass a fifth of the search (re-pointed 11-14: on f7e4d55 TOPOLOGIES = 4 and the ceiling row passes mutated; a count on the grid of three bridges with three books, which rebuilds)
 src/BlazePhoenixSolver.sol	test_3073_WalkBudget_ThreeBridges_OnlyTheLeaderIsWalked	3073-3 [723tl] = [723t] on a second row: the rebuild walks every topology, not the winner's alone, and a bridge that does not lead has its ticks read

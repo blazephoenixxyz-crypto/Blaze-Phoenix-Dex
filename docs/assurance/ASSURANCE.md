@@ -684,7 +684,9 @@ to mean under one setting, is invisible to a suite that runs under that setting 
 `test/nversion/` compiles the Core's quote maths (`CoreProbe.sol`, an external surface over the
 internal library) and the Math's band selection (`MathProbe.sol`, `select`) under three more
 profiles — `nver1` at `optimizer_runs = 1`, `nver2` at `20000`, `nver3` at the release's runs
-under a Yul step sequence with no FunctionSpecializer, everything else identical to `release` —
+under solc's built-in Yul step sequence, the one with the FunctionSpecializer the release drops,
+everything else identical to `release` (`nver2` keeps that built-in sequence too: at `20000` runs
+the release's sequence runs out of stack in a test mock) —
 and `NVersionCore.t.sol` deploys the four binaries side by side and asserts equality on fuzzed
 inputs: `outV2`, `outV3`, `outSolidly`, `outSolidlyStable`, `mulDiv`, `mulDivUp`, 3,000 runs
 each, over the whole input domain, and the whole answer of `select`, return or revert, byte for
@@ -727,7 +729,11 @@ by the order. `_register` now takes only runtime values (the born slot from `_bo
 read back from it), so there is nothing to specialise and its four callers keep one body. The Hub
 measures 22,668 B in all seven variants. `tools/hub-lottery.sh` builds the variants and fails on
 the wall or on a spread across them. It is the instrument that kills the mutant handing
-`_register` a literal again (956 B of spread).
+`_register` a literal again (956 B of spread). Since 2026-11-18 the release step sequence omits
+`FunctionSpecializer`, so the release build no longer makes those copies; `_register` keeps its
+runtime-only arguments because the `nver2` and `nver3` binaries still run the step.
+`tools/hub-lottery.sh` builds the release profile, so the 956 B spread of that mutant was measured
+with the step on and has not been re-measured without it.
 
 ## 4o. The fee rule, both regimes named — and the contract asserting the count
 
