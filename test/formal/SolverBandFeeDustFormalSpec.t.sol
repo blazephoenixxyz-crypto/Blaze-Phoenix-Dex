@@ -7,12 +7,15 @@ pragma solidity 0.8.36;
 //  Report-only in CI until measured green there: a timeout or an exhausted
 //  loop bound is INCONCLUSIVE, never a pass.
 //
-//  Every check here calls the src and states a property of that code. Only the
+//  Every check here calls the src and states a property of that code, except the
+//  L0 lemma, which is integer arithmetic on the hop fee's own guard. Only the
 //  hop fee assumes facts (vm.assume), and only two: L0 (mulDiv's 512-bit branch
 //  is dead under 2^128 x 2^128) and CEIL (the code's mulDivUp at the protocol
 //  fee is the integer ceiling); the CEIL lemma assumes L0. Each is proved by its
 //  own check_lemma in its own CI shard; H2 counts as green only with both lemmas
-//  green. The band check and the dust check assume nothing. Each fact is
+//  green. The band check and the dust check assume no facts: their only
+//  vm.assume are domain preconditions (a live base price, fees below PIPS,
+//  nonzero reserves), not properties of the code. Each fact is
 //  branch-free and reads `!pre || fact`: an instance whose precondition fails
 //  assumes nothing.
 //
@@ -70,7 +73,7 @@ contract SolverBandFeeDustFormalSpec is Test {
     }
 
     // ─── THE LEMMAS: one fact each, one CI shard each ───
-    // Mutant L0: _fFits drops `gt(b, m)` -> check_lemmaMulmodFits red (a = b = 2^128).
+    // Mutant L0: _fFits drops `gt(b, m)` -> check_lemmaMulmodFits red (a = 2, b = 2^255).
     // Mutant CEIL: src/BlazePhoenixCore.sol:535 mulDivUp `r += 1` -> `r += 0` -> check_lemmaHopFeeIsCeiling red.
     function check_lemmaMulmodFits(uint256 a, uint256 b) public pure {
         assertTrue(_fFits(a, b));
@@ -94,6 +97,10 @@ contract SolverBandFeeDustFormalSpec is Test {
 
     // ─── H1: THE BAND (Math._inBand) ───
     // No base (b >= n) keeps nothing; a dead row (price 0) is never kept.
+    // Mutant H1B: src/BlazePhoenixMath.sol:514 `b >= n` -> `b > n`: red, every path
+    //     reverts (the out-of-range base row is read); not a counterexample.
+    // Mutant H1P: src/BlazePhoenixMath.sol:527 `if (p > 0)` -> `if (true)`: no
+    //     verdict in about 35 min locally (bitwuzla-0.8.1); NOT killed.
     function _fe(uint24 f, uint64 e, uint64 eo) internal pure returns (uint256) {
         return uint256(f) | uint256(e) << 24 | uint256(eo) << 88;
     }

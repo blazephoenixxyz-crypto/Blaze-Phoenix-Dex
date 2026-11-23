@@ -950,8 +950,8 @@ jobs:
             match: '^check_dustProbeV2FloorsToZero(\(|$)'
             solver: bitwuzla-0.8.1
           # Every check above calls the src. The hop fee assumes two facts on the src's own
-          # terms, each proved by its own lemma shard below; it counts as green only with both
-          # green. Lemmas about integer arithmetic alone, calling no src code, are not run here.
+          # terms, each proved by its own lemma shard below; read it as green only with both
+          # green. The L0 lemma is integer arithmetic on the hop fee's guard and calls no src.
           - shard: lemma-mulmod-fits-bitwuzla
             contract: SolverBandFeeDustFormalSpec
             match: '^check_lemmaMulmodFits(\(|$)'
