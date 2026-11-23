@@ -62,6 +62,7 @@ contract BatchQuoteItemGasShareTest is Test {
         solver = new BlazePhoenixSolver(address(hub), address(0));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         hub.setRoles(address(0xD0D0), address(solver), address(0xC0FFEE));
+        vm.mockCall(address(0xD0D0), abi.encodeWithSignature("paused()"), abi.encode(false)); // the seated Router answers: live
         fac = new MockV2Factory();
         hub.addFactory(address(fac), BPC.KIND_V2, MODE_ASK, bytes32(0), new uint24[](0), new int24[](0));
         touched.push(address(mgr));

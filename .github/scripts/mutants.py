@@ -10859,6 +10859,27 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='                    uint256 held = ok ? to18(balanceOf(c.tokenOther, address(uint160(vp))), _decOther(c)) : depthWad;',
       new='                    uint256 held = ok ? to18(balanceOf(c.tokenOther, address(uint160(vp))), _decIn(c)) : depthWad; // MUTANT [GM-3]',
       teste='test_Mass_TheCapReadsTheTokenOutAtItsOwnDecimals'),
+ # caixa-1123 dex:quoter-doors-ask-router-paused
+ dict(nome="caixa-1123 quoter-doors Q1: _hookRefusedIn does not ask whether the Router is live, watched by a paused Router",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        if (!_routerLive()) return true;                          // Router: whenLive, RouterE(2)",
+      new="        // MUTANTE",
+      teste="test_PausedRouter_NoDoorSaysExecutable"),
+ dict(nome="caixa-1123 quoter-doors Q2: a call that succeeds with no answer reads as live, watched by a Hub with no code",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                live := and(iszero(lt(returndatasize(), 32)), eq(mload(m), 1))",
+      new="                live := 1 // MUTANTE",
+      teste="test_HubWithNoCode_NotExecutable_AndThePreviewDoesNotRevert"),
+ dict(nome="caixa-1123 quoter-doors H1: no Router seated reads as live, watched by a Hub with no Router seated",
+      f="src/BlazePhoenixHub.sol",
+      old="        return rt != address(0) && !IRouterWeth(rt).paused();",
+      new="        return rt == address(0) || !IRouterWeth(rt).paused(); // MUTANTE",
+      teste="test_HubWithNoRouterSeated_NotExecutable"),
+ dict(nome="caixa-1123 quoter-doors H2: routerLive ignores the Router's paused flag, watched by the flag itself",
+      f="src/BlazePhoenixHub.sol",
+      old="        return rt != address(0) && !IRouterWeth(rt).paused();",
+      new="        return rt != address(0); // MUTANTE",
+      teste="test_routerLive_FollowsTheRoutersFlag"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

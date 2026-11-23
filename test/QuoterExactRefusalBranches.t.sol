@@ -96,6 +96,8 @@ contract MockHubQ {
     /// The Router's WETH, asked by the Quoter for a native V4 leg (#52 seal: nativeMapVerified).
     address public weth;
     function setWeth(address w) external { weth = w; }
+    /// The Router is live: the Quoter asks it before any door says executable.
+    function routerLive() external pure returns (bool) { return true; }
     function bridgeCount() external pure returns (uint8) { return 0; }
     function bridge(uint8) external pure returns (address) { return address(0); }
     /// The one bridge is the routes' OUTPUT token (set in `setUp`): a direct route into a

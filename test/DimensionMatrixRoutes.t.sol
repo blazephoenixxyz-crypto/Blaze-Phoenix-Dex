@@ -53,6 +53,7 @@ contract DimensionMatrixRoutesTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         router = new BlazePhoenixRouter(address(hub), address(0xD0D0), address(this), address(0xFEE1), address(0xFEE2));
+        hub.setRoles(address(router), address(0), address(0)); // seat the Router: the preview asks it whether it takes swaps
         quoter = new BlazePhoenixQuoter(address(hub), address(0xD0D0));
         for (uint256 i; i < 4; ++i) tk[i] = new MockERC20("T", "T");
         tk[0].mint(user, 100 * AMT);

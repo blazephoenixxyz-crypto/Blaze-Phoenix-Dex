@@ -151,6 +151,7 @@ contract RouteIntegrityV4Test is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
         router = new BlazePhoenixRouter(address(hub), address(0xBEEF), address(this), address(0xFEE1), address(0xFEE2));
+        hub.setRoles(address(router), address(0), address(0)); // seat the Router: the preview asks it whether it takes swaps
         tokA = new MockERC20("A", "A"); tokB = new MockERC20("B", "B");
         (c0, c1) = address(tokA) < address(tokB) ? (address(tokA), address(tokB)) : (address(tokB), address(tokA));
         hookB = new HookDeployer().deploy();

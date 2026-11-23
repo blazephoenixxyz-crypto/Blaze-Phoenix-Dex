@@ -128,6 +128,7 @@ interface IHubQ {
     function isBridgeToken(address t) external view returns (bool);
     function hookPaused(address h) external view returns (bool);
     function weth() external view returns (address);
+    function routerLive() external view returns (bool);
 }
 
 /// @dev The Router's primary door, declared here only so `abi.encodeCall` type-checks the
@@ -473,6 +474,23 @@ contract BlazePhoenixQuoter {
         (pv.topology, pv.bridgeUsed) = _classify(route, feeHop);
     }
 
+    /// @dev The Router's first entry refusal, `whenLive` (RouterE(2) while paused), asked of
+    ///      the Hub, which seats the Router and asks it (`Hub.routerLive`). Read tolerantly:
+    ///      live only on success with a 32-byte answer of exactly 1. A Hub with no code (the call
+    ///      succeeds with no data), one that reverts, or no Router seated reads as not live, and
+    ///      the preview still returns its numbers.
+    function _routerLive() private view returns (bool live) {
+        address h = address(hub);
+        bytes4 sel = IHubQ.routerLive.selector;
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, sel)
+            if staticcall(gas(), h, m, 4, m, 32) {
+                live := and(iszero(lt(returndatasize(), 32)), eq(mload(m), 1))
+            }
+        }
+    }
+
     /// @dev True when the Router refuses `route` before it moves a token. Its SHAPE first,
     ///      the RouterE(3) checks of `Router._swap` and `Router._execute` in their order: at
     ///      least one hop (until 2026-10-27 the loop below never ran on zero hops and an empty
@@ -497,6 +515,7 @@ contract BlazePhoenixQuoter {
     ///      WETH (BPC.nativeMapVerified), and a native leg naming no WETH side is
     ///      refused, as the Router refuses it with RouterE(8) (seal 2026-10-21).
     function _hookRefusedIn(Route memory route) private view returns (bool) {
+        if (!_routerLive()) return true;                          // Router: whenLive, RouterE(2)
         uint256 n = route.hops.length;
         if (n == 0 || n > MAX_HOPS) return true;                  // Router: no hops, MAX_HOPS
         bool sawHooked;

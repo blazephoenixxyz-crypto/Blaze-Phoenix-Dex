@@ -81,8 +81,12 @@ import {
 /// @dev The Router is the SINGLE PRODUCER of "which WETH is canonical on this chain".
 ///      The Hub asks it instead of keeping a second copy — a constant duplicated
 ///      here could diverge from the one the Router uses to validate the unwrap,
-///      and the divergence would be exploited from the wrap side.
-interface IRouterWeth { function weth() external view returns (address); }
+///      and the divergence would be exploited from the wrap side. The same holds for
+///      "may a swap settle now?": the Router's own `paused` flag, asked, never copied.
+interface IRouterWeth {
+    function weth() external view returns (address);
+    function paused() external view returns (bool);
+}
 
 contract BlazePhoenixHub {
 
@@ -1728,6 +1732,13 @@ contract BlazePhoenixHub {
     function weth() public view returns (address) {
         address rt = _store().router;
         return rt == address(0) ? address(0) : IRouterWeth(rt).weth();
+    }
+    /// @notice Whether the seated Router takes swaps now (`whenLive`, RouterE(2) while paused),
+    ///         asked of the Router like `weth()`, so it follows `setRoles`. No Router seated is
+    ///         not live: an absent answer is not a value. The Quoter's `_hookRefusedIn` reads it.
+    function routerLive() external view returns (bool) {
+        address rt = _store().router;
+        return rt != address(0) && !IRouterWeth(rt).paused();
     }
     function v4EntryCount() external view returns (uint256) { return _store().v4Entries.length; }
     /// @notice Learned V4 pattern code of a token: packed

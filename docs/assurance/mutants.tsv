@@ -1987,3 +1987,7 @@ src/BlazePhoenixQuoter.sol	test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt	caixa-
 src/BlazePhoenixCore.sol	test_Mass_AWrapperBuyingTheCheapTokenIsNeverAboveTheTokenOutItsVenueHolds	caixa-1123 gate-mass [GM-1]: the raised wrapper mass is not capped by the tokenOut its venue holds
 src/BlazePhoenixCore.sol	test_Mass_AWrapperWeighsTheTokenOutSideLikeANativePair	caixa-1123 gate-mass [GM-2]: the cap reads the tokenIn the venue holds instead of the tokenOut
 src/BlazePhoenixCore.sol	test_Mass_TheCapReadsTheTokenOutAtItsOwnDecimals	caixa-1123 gate-mass [GM-3]: the tokenOut held is scaled by the tokenIn decimals
+src/BlazePhoenixQuoter.sol	test_PausedRouter_NoDoorSaysExecutable	caixa-1123 quoter-doors Q1: _hookRefusedIn does not ask whether the Router is live, watched by a paused Router
+src/BlazePhoenixQuoter.sol	test_HubWithNoCode_NotExecutable_AndThePreviewDoesNotRevert	caixa-1123 quoter-doors Q2: a call that succeeds with no answer reads as live, watched by a Hub with no code
+src/BlazePhoenixHub.sol	test_HubWithNoRouterSeated_NotExecutable	caixa-1123 quoter-doors H1: no Router seated reads as live, watched by a Hub with no Router seated
+src/BlazePhoenixHub.sol	test_routerLive_FollowsTheRoutersFlag	caixa-1123 quoter-doors H2: routerLive ignores the Router's paused flag, watched by the flag itself

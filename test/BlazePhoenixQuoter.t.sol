@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
+import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {
     BlazePhoenixCore as BPC,
     Route, Hop, Leg, RoutePlan
@@ -33,6 +34,8 @@ contract BlazePhoenixQuoterTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0));
         solver = new BlazePhoenixSolver(address(hub), address(0));
+        // Seat a Router: the preview asks it whether it takes swaps.
+        hub.setRoles(address(new BlazePhoenixRouter(address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2))), address(0), address(0));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
 
         tokenA = new MockERC20("A", "A");

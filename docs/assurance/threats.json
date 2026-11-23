@@ -277,6 +277,14 @@
       "note": "revisao-total 2026-10-23, the V3 twin of BPX-2026-009. _hookRefusedIn asked only the V4 refusals (RouterE(9), (11), (8)); it now asks the RouterE(3) shape of Router._execute first, reading each pair leg's tokens as _legTokens does. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Cold-quote gas +1 832 (QuoteFidelity, measured)."
     },
     {
+      "id": "SOK-QUOTER-ROUTER-PAUSED",
+      "class": "The preview's canExecute and exact scalar promise a swap while the Router is paused and refuses every swap entry with RouterE(2)",
+      "status": "blocked",
+      "guard": "routerLive",
+      "test": "test_PausedRouter_NoDoorSaysExecutable",
+      "note": "2026-11-23. _hookRefusedIn now asks Hub.routerLive first, which asks the seated Router's own paused flag (never a copy, so it follows setRoles); no Router seated, a Hub with no code, or no answer reads as not live, and the preview still returns its numbers. No funds at risk: the Router fails closed; the preview promised a swap that reverts. Gas, measured on the snapshots: +8 932 on the first quote of a call, +2 432 per further batch item."
+    },
+    {
       "id": "SOK-HUB-SEED-V4-FOREIGN-ID",
       "class": "The seed door writes a V4 row keyed to one pool whose depth is read at another pool's id (a declared hook the pool's id does not derive)",
       "status": "blocked",

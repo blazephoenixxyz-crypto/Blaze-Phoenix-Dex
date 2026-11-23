@@ -40,6 +40,7 @@ contract RouteHopCeilingIsTwoTest is Test {
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
+        hub.setRoles(address(router), address(0), address(0)); // seat the Router: the preview asks it whether it takes swaps
         for (uint256 i; i < 4; ++i) t[i] = new MockERC20("T", "T");
         for (uint256 i; i < 3; ++i) {
             p[i] = new MockV2Pair(address(t[i]), address(t[i + 1]));

@@ -40,6 +40,7 @@ contract EncodeDoorsAskTheRoutersRefusalsTest is Test {
         solver = new BlazePhoenixSolver(address(hub), address(0));
         router = new BlazePhoenixRouter(
             address(hub), address(solver), address(this), makeAddr("treasury1"), makeAddr("treasury2"));
+        hub.setRoles(address(router), address(0), address(0)); // seat the Router: the preview asks it whether it takes swaps
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         pool = new MockV3Pool(address(tA), address(tB), 100);
         pool.setState(uint160(BPC.Q96), 1e30);

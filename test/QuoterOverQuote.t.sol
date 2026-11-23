@@ -51,6 +51,7 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
+import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {
     BlazePhoenixCore as BPC,
     Route, Hop, Leg, RoutePlan
@@ -133,6 +134,8 @@ contract QuoterOverQuoteTest is Test {
         // fallback site (Quoter.sol:518) is the code that runs.
         hub.initialize(address(this), address(0));
         stub   = new PlanStubSolver();
+        // Seat a Router: the preview asks it whether it takes swaps.
+        hub.setRoles(address(new BlazePhoenixRouter(address(hub), address(stub), address(this), address(0xFEE1), address(0xFEE2))), address(0), address(0));
         quoter = new BlazePhoenixQuoter(address(hub), address(stub));
 
         tokenA = new MockERC20("A", "A");
