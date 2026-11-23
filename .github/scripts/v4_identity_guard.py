@@ -50,12 +50,16 @@ CENSUS = {
     ("BlazePhoenixQuoter.sol", "_simV4"):
         "the dry-run's key: the same producer on the same WETH, so the pool priced is the pool the "
         "Router settles; a native leg naming no WETH side is unquotable (#52 seal).",
+    ("BlazePhoenixQuoter.sol", "_frameQuote"):
+        "the preview's in-frame quote of a walk leg: the producer Router._v4LegQuote asks, on the "
+        "Router's WETH (Hub.weth), so the floor the preview reports is the floor the Router anchors.",
     ("BlazePhoenixHub.sol", "recordSwap"):
         "registration, not a leg: the swap does not carry which hop token is the wrapped one, so "
         "both orientations are tried and the 160-bit poolId truncation authenticates the match.",
 }
 MAP_CALLERS = {("BlazePhoenixRouter.sol", "_v4LegQuote"), ("BlazePhoenixRouter.sol", "_execV4Amt"),
-               ("BlazePhoenixQuoter.sol", "_hookRefusedIn"), ("BlazePhoenixQuoter.sol", "_simV4")}
+               ("BlazePhoenixQuoter.sol", "_hookRefusedIn"), ("BlazePhoenixQuoter.sol", "_simV4"),
+               ("BlazePhoenixQuoter.sol", "_frameQuote")}
 
 FUNC = re.compile(r"\bfunction\s+([A-Za-z_0-9]+)\s*\(")
 NATIVE = re.compile(r"\bKIND_V4_NATIVE\b")

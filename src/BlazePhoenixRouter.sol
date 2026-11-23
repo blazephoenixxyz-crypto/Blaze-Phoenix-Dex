@@ -265,7 +265,8 @@ contract BlazePhoenixRouter {
     ///         · `realized` is what was delivered, MEASURED at the recipient, after anything cut
     ///           on the way out (the output-side fee where it applies, a transfer tax).
     ///         · `floorUsed` is the floor that had to be beaten, checked before those cuts and
-    ///           published net of a transfer tax on tokenOut (scaled by realized / amount sent).
+    ///           published net of a transfer tax on tokenOut (scaled by amount received / amount
+    ///           declared at the Router, and by realized / amount sent).
     ///           With no output-side fee it never exceeds `realized` on a settled swap; where
     ///           that fee applies it stays in the units the Solver attests the floor in.
     event ExecutionProof(
@@ -854,34 +855,6 @@ contract BlazePhoenixRouter {
         assembly { let k := tload(s) b := mul(gt(b, k), sub(b, k)) }
     }
 
-    /// @dev A leg's impact, weighted by its SHARE of the hop.
-    ///
-    ///      Impact is a RATIO — amountIn/(reserveIn+amountIn) — so it is blind to
-    ///      how much value a leg actually carries. A one-wei leg against a
-    ///      dust-reserve pool scores near 100%. The route's floor then averaged
-    ///      those ratios UNWEIGHTED, and `ironFloorBps` SUBTRACTS impact, so
-    ///      padding a route with such legs walked the floor down from 96% toward
-    ///      its 80% clamp while the real trade sat in one honest deep leg. The
-    ///      caller writes the Route, so that lever was theirs.
-    ///
-    ///      Weighting by `leg.amountIn / scaleDen` (the leg's share of the hop's
-    ///      declared input) is self-consistent: the same field decides how much
-    ///      the leg actually spends, so a caller cannot buy weight without
-    ///      routing the value. The `* legs` normalisation makes equal-sized legs
-    ///      reproduce the previous unweighted sum EXACTLY — the shares are then
-    ///      1/legs each — so honest routes do not move, and the division by
-    ///      `declaredLegs` downstream is left untouched.
-    ///
-    ///      The clamp mirrors `ironFloorBps`, which caps impact at BPS anyway;
-    ///      doing it here keeps `imp * legs` small enough that only `mulDiv`'s
-    ///      512-bit intermediate has to carry the amount.
-    function _wImp(uint256 imp, uint256 legAmountIn, uint256 legs, uint256 scaleDen)
-        private pure returns (uint256)
-    {
-        if (imp > BPC.BPS) imp = BPC.BPS;
-        return BPC.mulDiv(imp * legs, legAmountIn, scaleDen);
-    }
-
     /// @notice Per-hop real-balance-ratio scaling AND price impact (BPS) AND
     ///         the on-chain quote for the legs as actually executed, all
     ///         computed in one pass so V2/Solidly reserves and V3/Algebra
@@ -973,14 +946,14 @@ contract BlazePhoenixRouter {
                 // (`legQuoteImpact`), same reads and numbers; their history is written there.
                 (uint256 q_, uint256 imp, bool held) = BPC.legQuoteImpact(leg, hop.tokenIn, hop.tokenOut, legAmt);
                 if (!held) revert RouterE(8);
-                impactAcc += _wImp(imp, leg.amountIn, legs, scaleDen);
+                impactAcc += BPC.wImp(imp, leg.amountIn, legs, scaleDen);
                 legQuotes[l] = q_; quoteAcc += q_;
             } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
                 if (v4mgr == address(0)) v4mgr = hub.v4PoolManager();
                 uint256 q_ = _v4LegQuote(leg, hop.tokenIn, legAmt, v4mgr);
                 legQuotes[l] = q_; quoteAcc += q_;
-                impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen);
-            } else { impactAcc += _wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
+                impactAcc += BPC.wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen);
+            } else { impactAcc += BPC.wImp(BPC.DEFAULT_IMPACT_BPS, leg.amountIn, legs, scaleDen); }
             unchecked { ++l; }
         }
     }
@@ -1537,7 +1510,7 @@ contract BlazePhoenixRouter {
         // exactly where it is consumed. Readability improves too: the loop above executes, this
         // one counts.
         // THE FLOOR'S TWO INPUTS, each from the object that decides it. The impact term is the
-        // share-weighted mean over the route's legs: `_wImp` pre-multiplies each leg's impact by
+        // share-weighted mean over the route's legs: `BPC.wImp` pre-multiplies each leg's impact by
         // its hop's leg count so that dividing by the route's leg count here yields the weighted
         // mean, and a leg with no share carries no weight. The leg shave is computed from the
         // CONCENTRATION of the trade across legs - `(Σa)² / Σa²` per hop, the effective number
@@ -1561,8 +1534,7 @@ contract BlazePhoenixRouter {
             legShv += BPC.legShaveBps(sA, sA2);
             unchecked { ++th; }
         }
-        uint256 avgImpact = declaredLegs > 0 ? impactAcc / declaredLegs : 0;
-        uint256 floorBps  = BPC.ironFloorBpsShv(avgImpact, legShv, 0);
+        uint256 floorBps  = BPC.routeFloorBps(impactAcc, declaredLegs, legShv);
 
         // The caller's singleOutFloor and userMinOut may TIGHTEN the floor
         // (user wants more protection) but can never RELAX the protocol floor.
@@ -1619,7 +1591,25 @@ contract BlazePhoenixRouter {
             protocolFloorOut = BPC.mulDivUp(protocolFloorOut, fotSeen, BPC.WAD);
         }
         if (protocolFloorOut    > effMin) effMin = protocolFloorOut;
-        if (amountOut < effMin) revert RouterE(5);
+        // THE ROUTE FLOORS PRICE GROSS, SO THEY ARE READ AGAINST GROSS. `outCap` is what the
+        // venues declared they paid in tokenOut, net of what the route took back out; after the
+        // cap above it is never below `amountOut`, and on an untaxed token it IS `amountOut`.
+        // The NET is the user's and is checked where it lands (`delivered < userMinOut`).
+        // The per-leg floor and the hop budget stay on the measured delta against the
+        // attestation: those are the checks a venue's own word never reaches.
+        if (outCap < effMin) revert RouterE(5);
+        // THE LAST HOP IS HELD ON WHAT WAS MEASURED. The route floors above read the venues'
+        // word (`outCap`). A leg's own floor is its delta against BPC.LEG_FLOOR_BPS of its bound,
+        // and that bound is not the hop's figure everywhere: a blind leg has none, and a leg
+        // priced in frame that attests nothing is bounded by MIN_QUOTE_COVERAGE_BPS of its quote.
+        // So the per-leg share of the hop's figure (`finalHopQuote`, NM-002) is read here against
+        // the route's measured output, re-priced by the measured input tax as the floor above is:
+        // the whole last hop settles where the same hop attested leg by leg at its figure does.
+        // Never above the route floor this replaced (floorBps >= LEG_FLOOR_BPS, same figure, same
+        // re-pricing), so it refuses nothing that floor did not. Rounds up (R-C).
+        if (amountOut < BPC.mulDivUp(
+            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD
+        )) revert RouterE(5);
 
         // ─── THE FEE, WHEN IT COMES OUT OF THE OUTPUT ─────────────────────
         // A DIRECT route whose destination is already a bridge coin (TOKEN -> WETH):
@@ -1672,13 +1662,14 @@ contract BlazePhoenixRouter {
             assembly { tstore(sFee, 0) }
         }
 
-        // The floor was checked against `amountOut`, before the transfer to the recipient; a
-        // token that taxes that transfer delivers less than `net`. The floor is published net
-        // of that tax, by the ratio measured at the recipient, so a taxed tokenOut never shows
-        // a met floor the tax already took. Identity on an untaxed token, so the published floor
+        // The floor was checked against `outCap`, the gross the venues declared; a token that
+        // taxes the venue->Router transfer lands `amountOut`, and one that taxes the transfer to
+        // the recipient delivers less than `net`. The floor is published net of both cuts, by the
+        // ratios measured at the Router and at the recipient, so a taxed tokenOut never shows a
+        // met floor the tax already took. Identity on an untaxed token, so the published floor
         // stays the floor the Solver attests (the output-side fee is a known cut and is not
-        // re-expressed); rounds down. `net` is non-zero: amountOut >= effMin > 0 and fOut < amountOut.
-        protocolFloorOut = BPC.mulDiv(protocolFloorOut, delivered, net);
+        // re-expressed); rounds down. Divisors non-zero: outCap >= amountOut > 0, fOut < amountOut.
+        protocolFloorOut = BPC.mulDiv(BPC.mulDiv(protocolFloorOut, amountOut, outCap), delivered, net);
         amountOut = delivered;
         _recordHits(route, executedMask, legTook, legOut);
         // ─── ATTRIBUTION: `payer`, NEVER `msg.sender` ───
@@ -1889,8 +1880,9 @@ contract BlazePhoenixRouter {
             //
             // HONEST SCOPE: `_noteFot` is called on the entry pull of tokenIn (`_received`) and
             // on the V2 and SOLIDLY arms (`_execPairAmt`), and measures only the INPUT side.
-            // A V3/V4 leg with a FoT token records nothing past that pull, and an OUTPUT-side tax
-            // is not measured anywhere. This closes what is measurable.
+            // A V3/V4 leg with a FoT token records nothing past that pull. An OUTPUT-side tax is
+            // not noted in the slot: the route floors read the declared gross (`outCap`), which
+            // the tax does not move, and the net is checked where it lands (`userMinOut`).
             if (bound != 0 && took < amt && BPC.kindHas(k, BPC.A_RESERVES)) bound = BPC.mulDivUp(bound, took, amt);
 
             // R-C: a protective threshold never rounds DOWN. floor(1 * 0.8) is 0,

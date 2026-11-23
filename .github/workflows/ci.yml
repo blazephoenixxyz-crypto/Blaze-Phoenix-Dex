@@ -35,6 +35,10 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ github.event_name != 'pull_request' || steps.filter.outcome != 'success' || steps.filter.outputs.code == 'true' }}
+      # The Halmos specs prove properties of the contracts, so they run only when what they
+      # prove can change: src, its dependencies, the compiler config, the specs, this workflow.
+      # A pull request that touches only tests, scripts or generated snapshots skips them.
+      contracts: ${{ github.event_name != 'pull_request' || steps.filter.outcome != 'success' || steps.filter.outputs.contracts == 'true' }}
     steps:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
@@ -52,6 +56,13 @@ jobs:
               - 'remappings.txt'
               - 'snapshots/**'
               - '.sizes-snapshot'
+            contracts:
+              - 'src/**'
+              - 'lib/**'
+              - 'test/formal/**'
+              - 'foundry.toml'
+              - 'remappings.txt'
+              - '.github/workflows/ci.yml'
   test:
     name: build + test (fast profile)
     needs: changes
@@ -389,7 +400,7 @@ jobs:
         run: python3 .github/scripts/check_targets.py
 
   mutation-guard:
-    name: mutation guard (shard ${{ matrix.shard }} of 40)
+    name: mutation guard (shard ${{ matrix.shard }} of 80)
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -414,13 +425,15 @@ jobs:
     # cancelled at 75 (run 43509365862); 23.3 + 0.49 * 1368 / 17 = 62.7, on twenty 56.8.
     # Forty since 2026-11-14 (owner's order): on twenty shards the jobs ran out of their 75
     # minutes. 1,482 mutants give 23.3 + 0.49 * 1482 / 40 = 41.5, under 60 up to ~2,990 mutants.
-    # Branch protection requires these forty names; the aggregator `mutation guard` below runs
-    # in addition to them, not in their place.
+    # Eighty since 2026-11-20 (owner's order: no job over 40-50 min): at 1,912 mutants on forty
+    # shards (48 each) the jobs took 50-75 min and one was cancelled at 75 (run 44782324162),
+    # about 15 + 1.25 min per mutant. Eighty shards hold 24 each: ~45 min on the slowest.
+    # Branch protection requires only the aggregator `mutation guard` below, not shard names.
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79]
     steps:
       - uses: actions/checkout@v7
         if: needs.changes.outputs.code != 'false'
@@ -464,7 +477,7 @@ jobs:
         # falha — e isso e desejado: significa que o codigo mudou por baixo de uma verificacao.
         env:
           MUTANTS_SHARD: ${{ matrix.shard }}
-          MUTANTS_SHARDS: 40
+          MUTANTS_SHARDS: 80
           # Two test threads: the long shards lost their runner to memory at 65-67 min with four.
           FOUNDRY_THREADS: "2"
           PYTHONUNBUFFERED: "1"
@@ -627,10 +640,10 @@ jobs:
       - name: Build the Core and Math probes under three other code generations
         # test/nversion: the suite executes one binary (the release settings). This lane
         # compiles the same quote maths and band selection at optimizer_runs = 1 and 20000,
-        # and under a Yul step sequence with no FunctionSpecializer (nver3), and asserts the
-        # four binaries agree on fuzzed inputs. A disagreement is a compiler-setting
-        # dependence in the source, and would be invisible to a suite that runs under one
-        # setting alone.
+        # and under solc's built-in Yul step sequence, with the FunctionSpecializer the release
+        # drops (nver3), and asserts the four binaries agree on fuzzed inputs. A disagreement
+        # is a compiler-setting dependence in the source, and would be invisible to a suite
+        # that runs under one setting alone.
         run: |
           FOUNDRY_PROFILE=nver1 forge build --skip '*.t.sol'
           FOUNDRY_PROFILE=nver2 forge build --skip '*.t.sol'
@@ -794,7 +807,7 @@ jobs:
     # runner at ~19-24 min (exit 143) before both specs had run. Each spec now gets its own clock;
     # the job below keeps the required check name and fails if any spec fails.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.contracts != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -854,7 +867,10 @@ jobs:
         if: matrix.spec == 'EffV4FeeFormalSpec'
         run: |
           set -o pipefail
-          halmos --contract EffV4FeeFormalSpec -v 2>&1 | tee halmos-effv4fee.log
+          # check_staticKeyComposesProtocolFee takes ~35 s on main and hit the 60 s default solver
+          # timeout on a slower runner: a [TIMEOUT] still fails this step, so a wider limit only
+          # removes the runner-speed flake, it never turns an unproven check green.
+          halmos --contract EffV4FeeFormalSpec --solver-timeout-assertion 300s -v 2>&1 | tee halmos-effv4fee.log
           if grep -q 'not been fully explored due to the loop unrolling bound' halmos-effv4fee.log; then
             echo "::warning::EffV4FeeFormalSpec: a path was cut by the loop bound, so that check is not a proof"
             [ "$LOOP_BOUND_GATE" != 1 ]
@@ -880,18 +896,100 @@ jobs:
       # false positives faster than it finds defects.
 
   formal-composition:
-    name: formal composition spec (Halmos, report-only)
+    name: formal composition spec (Halmos ${{ matrix.shard }}, report-only)
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
-    # Report-only until measured: test/formal/CompositionFormalSpec.t.sol has never been run by
-    # Halmos (not on a runner, not locally). It becomes a hard gate in the formal job above only
-    # after a run here measures every check discharging cleanly, the same path CoreFormalGateSpec
-    # took. Its own job, so a timeout here cannot eat the formal job's 30-minute budget, and
-    # continue-on-error so a red result reports without failing the workflow. Not a required check.
+    if: ${{ !cancelled() && needs.changes.outputs.contracts != 'false' }}
+    # Report-only until measured: test/formal/CompositionFormalSpec.t.sol has never discharged
+    # every check. It becomes a hard gate in the formal job above only after a run here measures
+    # every check discharging cleanly, the same path CoreFormalGateSpec took. Its own job, so a
+    # timeout here cannot eat the formal job's 30-minute budget, and continue-on-error so a red
+    # result reports without failing the workflow. Not a required check.
+    # Sharded: run 44750735038 measured 2 checks passing in about 1 s and 3 checks ending as
+    # [TIMEOUT] at the 300 s assertion limit with no counterexample; the band/fee/dust spec,
+    # a second step after them, never ran because the first step failed. One shard per heavy
+    # check gives each its own solver budget; the band/fee/dust spec is split the same way, one
+    # shard per check, so one slow check cannot hide the result of the other three.
     runs-on: ubuntu-latest
     continue-on-error: true
-    # Two steps bounded at 1500 s each plus setup: the job budget sits above their sum, so each
-    # step ends on its own bound with a readable message instead of a job cancellation.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: depth
+            contract: CompositionFormalSpec
+            match: '^check_depth'
+            assertion_timeout: 300s
+          - shard: hop-collapse
+            contract: CompositionFormalSpec
+            match: '^check_hopCollapsesToLegFloorAtN1(\(|$)'
+            assertion_timeout: 1200s
+          - shard: legs-budget
+            contract: CompositionFormalSpec
+            match: '^check_moreLegsNeverLoosensBudget(\(|$)'
+            assertion_timeout: 1200s
+          - shard: slack
+            contract: CompositionFormalSpec
+            match: '^check_slackNeverExceedsOneAverageLeg(\(|$)'
+            assertion_timeout: 1200s
+          - shard: band
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_bandKeepsLiveBaseAndOnlyWidens(\(|$)'
+          - shard: hop-fee
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_hopFeeRoundsUpAndNetMatches(\(|$)'
+          - shard: dust-probe
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_dustProbeV2FloorsToZero(\(|$)'
+          - shard: split-floors
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_splitFloorsNeverOvershoot(\(|$)'
+          # The four band/fee/dust/split checks assume arithmetic facts on the src's own terms
+          # (assume-guarantee); each fact is proved by its own lemma, one shard per lemma. A
+          # check counts as green only with every lemma it assumes green.
+          - shard: lemma-mulmod-fits
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulmodFits(\(|$)'
+          - shard: lemma-muldiv-exact
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulDivExact(\(|$)'
+          - shard: lemma-mul-mono-r
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulMonoR(\(|$)'
+          - shard: lemma-mul-mono-l
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulMonoL(\(|$)'
+          - shard: lemma-mul-assoc-l
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulAssocL(\(|$)'
+          - shard: lemma-mul-assoc-r
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulAssocR(\(|$)'
+          - shard: lemma-mul-dist
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaMulDist(\(|$)'
+          - shard: lemma-div-mono
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivMono(\(|$)'
+          - shard: lemma-div-mono-const
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivMonoConst(\(|$)'
+          - shard: lemma-div-anti
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivAnti(\(|$)'
+          - shard: lemma-div-floor
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivFloor(\(|$)'
+          - shard: lemma-div-zero
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaDivZero(\(|$)'
+          - shard: lemma-floor-superadd
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaFloorSuperadd(\(|$)'
+          - shard: lemma-hop-fee-ceiling
+            contract: SolverBandFeeDustFormalSpec
+            match: '^check_lemmaHopFeeIsCeiling(\(|$)'
+    # Each shard runs one step bounded at 1500 s (2700 s for a 1200 s assertion and for the
+    # band/fee/dust shards) plus setup.
     timeout-minutes: 60
     env:
       # Same narrowing as formal-spec: compile src + test/formal only, not the whole tree.
@@ -908,6 +1006,7 @@ jobs:
         run: pip install halmos==0.3.3   # pinned: a proof is measured on one prover; bump by PR
 
       - name: Symbolic checks (report-only, bitwuzla)
+        if: matrix.contract == 'CompositionFormalSpec'
         # Bounded at the process, not with timeout-minutes: a cancelled step propagates to the job
         # even under continue-on-error (see formal-explore.yml).
         # Solver measurement: under the default yices, three checks hit the 300 s
@@ -917,21 +1016,40 @@ jobs:
         # for bitwuzla-0.8.1 before installing it; a mismatch aborts the step.
         env:
           HALMOS_ALLOW_DOWNLOAD: "1"
+          MATCH: ${{ matrix.match }}
+          ASSERTION_TIMEOUT: ${{ matrix.assertion_timeout }}
         run: |
-          timeout 1500 halmos --contract CompositionFormalSpec --solver bitwuzla-0.8.1 \
-            --solver-timeout-assertion 300s -v
+          wall=1500
+          if [ "$ASSERTION_TIMEOUT" != "300s" ]; then wall=2700; fi
+          timeout "$wall" halmos --contract CompositionFormalSpec --match-test "$MATCH" \
+            --solver bitwuzla-0.8.1 --solver-timeout-assertion "$ASSERTION_TIMEOUT" -v 2>&1 | tee halmos.log
+          # A pattern that selects no check would end green; require at least one result line.
+          # Halmos colours its result tags, so strip the ANSI codes before matching.
+          sed 's/\x1b\[[0-9;]*m//g' halmos.log | grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]'
 
       - name: Symbolic - band, hop fee, dust probe, split (report-only)
-        # test/formal/SolverBandFeeDustFormalSpec.t.sol, four checks, never measured. Halmos
+        if: matrix.contract == 'SolverBandFeeDustFormalSpec'
+        # test/formal/SolverBandFeeDustFormalSpec.t.sol, one of its four checks per shard, never measured. Halmos
         # 0.3.3 marks a path cut by the loop bound as a WARNING and the check still PASSES;
         # a bound that was hit proves nothing, so this step fails on that warning too. A
         # solver timeout is already a failure in 0.3.3 ([TIMEOUT] counts as failed).
-        # Explicit bounds: 1500 s of wall time and 12 GiB of memory (no swap) for halmos and its
+        # Explicit bounds: 2700 s of wall time and 12 GiB of memory (no swap) for halmos and its
         # solver processes together, enforced by a dedicated cgroup. An out-of-memory kill stays
         # inside that cgroup and ends this step with a readable error, not the runner.
+        # Solver measurement (run 44835193106, default yices, one solver per CPU): band, hop-fee
+        # and split-floors hit the 12 GiB cap with several solvers alive while re-checking
+        # refined paths (256-bit multiply and divide); dust-probe ended [TIMEOUT] at 1202 s.
+        # None reported a counterexample. This step runs bitwuzla, pinned to 0.8.1 and verified
+        # against the sha256 Halmos 0.3.3 pins for it, like the step above, with at most two
+        # solver processes alive at once (--solver-threads 2; each Halmos solver thread waits on
+        # its own solver process). Fewer solvers at once means fewer paths solved per second,
+        # hence the longer wall time. PYTHONUNBUFFERED keeps the log when the group is killed.
         env:
+          HALMOS_ALLOW_DOWNLOAD: "1"
+          PYTHONUNBUFFERED: "1"
           SBFD_MEM_MAX: 12G
-          SBFD_TIME_MAX: "1500"
+          SBFD_TIME_MAX: "2700"
+          MATCH: ${{ matrix.match }}
         run: |
           cg=/sys/fs/cgroup/halmos-sbfd
           grep -qw memory /sys/fs/cgroup/cgroup.subtree_control \
@@ -947,8 +1065,9 @@ jobs:
           mkfifo sbfd.gate
           (
             read -r _ < sbfd.gate
-            timeout "$SBFD_TIME_MAX" halmos --contract SolverBandFeeDustFormalSpec --loop 3 \
-              --solver-timeout-assertion 300s -v 2>&1 | tee halmos-sbfd.log
+            timeout "$SBFD_TIME_MAX" halmos --contract SolverBandFeeDustFormalSpec --match-test "$MATCH" --loop 3 \
+              --solver bitwuzla-0.8.1 --solver-threads 2 --solver-timeout-assertion 300s -v 2>&1 \
+              | tee halmos-sbfd.log
             exit "${PIPESTATUS[0]}"
           ) &
           pid=$!
@@ -973,11 +1092,12 @@ jobs:
             echo "::error::SolverBandFeeDustFormalSpec: halmos exited with $rc"
             exit 1
           fi
+          sed 's/\x1b\[[0-9;]*m//g' halmos-sbfd.log | grep -qE '^\[(PASS|FAIL|TIMEOUT|ERROR)\]'   # the pattern selected a check (tags are coloured)
           ! grep -q 'not been fully explored due to the loop unrolling bound' halmos-sbfd.log
 
   formal:
     # The required status check keeps this exact name; it is green only when every spec is.
-    # A run with no code change skips the specs (the `changes` filter) and passes here.
+    # A run with no contract change skips the specs (the `changes` filter) and passes here.
     name: formal verification (Halmos symbolic)
     needs: [changes, formal-spec]
     if: always()
@@ -987,11 +1107,11 @@ jobs:
       - name: Every Halmos spec discharged
         env:
           SPEC_RESULT: ${{ needs.formal-spec.result }}
-          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+          CONTRACTS_CHANGED: ${{ needs.changes.outputs.contracts }}
         run: |
-          echo "formal-spec matrix result: $SPEC_RESULT (code changed: $CODE_CHANGED)"
+          echo "formal-spec matrix result: $SPEC_RESULT (contracts changed: $CONTRACTS_CHANGED)"
           if [ "$SPEC_RESULT" = "success" ]; then exit 0; fi
-          if [ "$SPEC_RESULT" = "skipped" ] && [ "$CODE_CHANGED" = "false" ]; then exit 0; fi
+          if [ "$SPEC_RESULT" = "skipped" ] && [ "$CONTRACTS_CHANGED" = "false" ]; then exit 0; fi
           echo "::error::formal: at least one Halmos spec did not succeed ($SPEC_RESULT)"
           exit 1
 

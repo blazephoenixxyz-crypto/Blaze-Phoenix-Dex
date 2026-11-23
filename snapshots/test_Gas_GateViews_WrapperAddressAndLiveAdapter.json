@@ -1,11 +1,11 @@
 {
-  "liveAdapter_balancerV2": "8140",
-  "liveAdapter_balancerV3": "8140",
-  "liveAdapter_curveCryptoNG": "8140",
-  "liveAdapter_curveNG": "8140",
-  "wrapperAddress_balancerV2": "1704",
-  "wrapperAddress_balancerV3": "1704",
-  "wrapperAddress_curveCryptoNG": "1704",
-  "wrapperAddress_curveNG": "1704",
-  "wrappersOf": "10750"
+  "liveAdapter_balancerV2": "8116",
+  "liveAdapter_balancerV3": "8116",
+  "liveAdapter_curveCryptoNG": "8116",
+  "liveAdapter_curveNG": "8116",
+  "wrapperAddress_balancerV2": "1626",
+  "wrapperAddress_balancerV3": "1626",
+  "wrapperAddress_curveCryptoNG": "1626",
+  "wrapperAddress_curveNG": "1626",
+  "wrappersOf": "10693"
 }

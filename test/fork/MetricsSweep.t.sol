@@ -170,13 +170,13 @@ abstract contract MetricsSweepBase is Test {
             console2.log("---------------------------------------");
             console2.log("amountIn:", amountIn);
 
-            // SEMENTE DO RELOGIO, uma unica vez por tamanho.
-            // Este build do forge (1.7.1-dev) devolve um block.timestamp OBSOLETO
-            // num segundo call site dentro da mesma funcao. Reler depois do warp
-            // faz o passo do TTL virar um no-op SILENCIOSO: o REFRESH mede o mesmo
-            // que o WARM e parece resultado legitimo. Foi o que aconteceu na 1a
-            // corrida (REFRESH 2.089.802 vs WARM 2.093.565, frio 2.168.368).
-            uint256 t0 = block.timestamp;
+            // SEMENTE DO RELOGIO, uma unica vez por tamanho, via cheatcode.
+            // Para o otimizador Yul, timestamp() e constante na transacao: pode
+            // re-materializar `t0` como timestamp() e tirar `t0 + 600` do ciclo.
+            // Com vm.warp entre tamanhos isso dava panic 0x11 no 2o tamanho (sem
+            // FunctionSpecializer) ou um REFRESH que mede o mesmo que o WARM.
+            // vm.getBlockTimestamp() e uma chamada opaca: o valor fica fixo.
+            uint256 t0 = vm.getBlockTimestamp();
 
             // DISCOVERY (frio): registo vazio, o discoverFor corre.
             uint256 g = gasleft();

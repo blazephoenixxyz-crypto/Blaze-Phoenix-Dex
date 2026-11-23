@@ -241,10 +241,17 @@ contract DiscoveryProbesEachDerivationOnceTest is Test {
         if (p == address(0) || p.code.length == 0) return k;
         if (w.mode < 4 && (MockV2Pair(p).token0() != t0 || MockV2Pair(p).token1() != t1)) return k;
         for (uint256 d; d < k; ++d) if (out[d].pool == p) return k;
-        out[k] = PoolInfo({
-            active: true, stable: st, kind: w.kind, fee: fee, tickSpacing: sp,
-            token0: t0, token1: t1, pool: p, hooks: address(0)
-        });
+        // Field by field into the zeroed cell `new PoolInfo[]` allocated: a struct literal keeps
+        // all nine fields live at once, one slot past the stack without the FunctionSpecializer.
+        PoolInfo memory c = out[k];
+        c.active = true;
+        c.stable = st;
+        c.kind = w.kind;
+        c.fee = fee;
+        c.tickSpacing = sp;
+        c.token0 = t0;
+        c.token1 = t1;
+        c.pool = p; // hooks stays address(0)
         return k + 1;
     }
 
