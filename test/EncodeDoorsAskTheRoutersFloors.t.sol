@@ -151,6 +151,43 @@ contract EncodeDoorsAskTheRoutersFloorsTest is Test {
         assertEq(hub.isBridgeToken(address(tB)), feeOnOut, "premise: the calendar");
     }
 
+    // ---------------------------------------------------------------- the surplus leg
+
+    /// @notice Hop 1 (the last hop) planned at P = 10e18 while hop 0 delivers about 1.6 P: the
+    ///         leg spends the whole delivery, and the door and the Router both hold it to
+    ///         floor(E * m / P), the attested rate carried past the attested point, not to E. On
+    ///         a 12e18 pool the rate fell more than a fifth and the Router refuses; on a 32e18
+    ///         pool it settles. The door hands back bytes in exactly the second case.
+    function test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt() public {
+        hub.addBridge(address(tB));
+        MockERC20 tC = new MockERC20("C", "C");
+        uint256 a0 = 162e17;
+        uint256 plan = 10e18;
+        uint256[2] memory res = [uint256(12e18), 32e18];
+        for (uint256 j; j < res.length; ++j) {
+            MockV2Pair p1 = new MockV2Pair(address(tB), address(tC));
+            p1.setReserves(uint112(res[j]), uint112(res[j]));
+            tB.mint(address(p1), res[j]);
+            tC.mint(address(p1), res[j]);
+            hub.seedPool(address(p1), BPC.KIND_V2, 30, address(0), address(tB), address(tC));
+            uint256 e = BPC.outV2(plan, res[j], res[j], 30);
+            Leg[] memory l0 = new Leg[](1);
+            l0[0] = Leg({pool: address(pairs[0]), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
+                zeroForOne: pairs[0].token0() == address(tA), stable: false, amountIn: a0, expectedOut: 0,
+                auxId: bytes32(0)});
+            Leg[] memory l1 = new Leg[](1);
+            l1[0] = Leg({pool: address(p1), hooks: address(0), kind: BPC.KIND_V2, fee: 30, tickSpacing: 0,
+                zeroForOne: p1.token0() == address(tB), stable: false, amountIn: plan, expectedOut: e,
+                auxId: bytes32(0)});
+            Hop[] memory hops = new Hop[](2);
+            hops[0] = Hop({tokenIn: address(tA), tokenOut: address(tB), amountIn: a0, expectedOut: 0, legs: l0});
+            hops[1] = Hop({tokenIn: address(tB), tokenOut: address(tC), amountIn: plan, expectedOut: e, legs: l1});
+            Route memory r = Route({hops: hops, totalOut: e, singleOut: 0, singleOutFloor: 1,
+                expectedImpactBps: 0, confidenceWad: 0, estGas: 0, hasSurplus: false, isV4Bundle: false});
+            _arm(r, a0, j == 1, j == 0 ? "surplus leg, 12e18 pool" : "surplus leg, 32e18 pool");
+        }
+    }
+
     // ---------------------------------------------------------------- T3: the per-leg floor
 
     /// @notice A small leg paid at its floor (`ceil(bound * LEG_FLOOR_BPS / BPS)`), one wei of

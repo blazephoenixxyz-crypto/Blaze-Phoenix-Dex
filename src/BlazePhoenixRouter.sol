@@ -1829,6 +1829,13 @@ contract BlazePhoenixRouter {
             // amount, because the quote curve is concave. Understating the floor fails OPEN: it
             // never invents a limit that honest execution cannot meet.
             //
+            // THE OTHER DIRECTION, `amt > leg.amountIn`, EXISTS ON HOP 1 AND IS DELIBERATE. Hop 0 is
+            // capped at its plan; hop 1 is the last hop and the Router keeps nothing, so a bridge
+            // that delivered more than hop 1 planned feeds all of it in. The bound then carries the
+            // attested RATE past the attested point: the leg floor asks whether the rate fell more
+            // than a fifth, and a thin pool force-fed the surplus is refused (RouterE(5), the caller
+            // keeps the input). Capped at the plan, the surplus could be lost on the curve unasked.
+            //
             // FAILS OPEN when THERE IS NO MEASUREMENT — never when the caller asks for it. A venue
             // with no quote (dead pool, unreadable fee) gives `legQuote == 0` and the gate does not
             // run; the absence of a measurement does not become a value.

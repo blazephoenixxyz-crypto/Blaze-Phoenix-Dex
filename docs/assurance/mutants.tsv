@@ -1982,3 +1982,5 @@ src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_
 src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB12b: the measured floor takes one bps less, watched by a pair paying under its word
 src/BlazePhoenixRouter.sol	testFuzz_PairPayingUnderItsWord_SettlesIffItClearsTheMeasuredShare	fot-out-1116 MB14b: the measured floor ignores the input tax, watched by the fuzz of a pair paying under its word
 src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_OnTheSecondHop_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB12c: the measured floor takes one bps less, watched on the second hop of a pair paying under its word
+src/BlazePhoenixRouter.sol	test_ALegGivenMoreInputIsHeldToTheAttestedRate	caixa-1123 leg-bound-rescale: the attested bound is capped at the plan, so a last-hop leg fed more than its plan is held to the attested point
+src/BlazePhoenixQuoter.sol	test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt	caixa-1123 leg-bound-rescale: the door caps the attested bound at the plan, so it encodes a surplus leg the Router refuses

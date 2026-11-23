@@ -10830,6 +10830,18 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD',
       new='            BPC.mulDivUp(finalHopQuote, BPC.LEG_FLOOR_BPS - 1, BPC.BPS), fotSeen == 0 ? BPC.WAD : fotSeen, BPC.WAD // MUTANTE',
       teste="test_PairPayingUnderItsWord_OnTheSecondHop_IsHeldAtTheMeasuredShare_ToTheWei"),
+# caixa-1123 dex:leg-bound-rescale-ratio-capped (2026-11-23): a last-hop leg fed more than its plan is
+# held to the attested rate, not the attested point; the cap is the shape the watchers refuse.
+ dict(nome="caixa-1123 leg-bound-rescale: the attested bound is capped at the plan, so a last-hop leg fed more than its plan is held to the attested point",
+      f="src/BlazePhoenixRouter.sol",
+      old="                ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn)",
+      new="                ? BPC.mulDiv(leg.expectedOut, amt > leg.amountIn ? leg.amountIn : amt, leg.amountIn) // MUTANT",
+      teste="test_ALegGivenMoreInputIsHeldToTheAttestedRate"),
+ dict(nome="caixa-1123 leg-bound-rescale: the door caps the attested bound at the plan, so it encodes a surplus leg the Router refuses",
+      f="src/BlazePhoenixQuoter.sol",
+      old="            ? BPC.mulDiv(leg.expectedOut, legIn, leg.amountIn) : 0;",
+      new="            ? BPC.mulDiv(leg.expectedOut, legIn > leg.amountIn ? leg.amountIn : legIn, leg.amountIn) : 0; // MUTANT",
+      teste="test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

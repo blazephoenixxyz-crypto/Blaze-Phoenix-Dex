@@ -28,6 +28,12 @@ pragma solidity 0.8.36;
 //     Two vectors feed a leg less than its plan: a two-hop route whose hop 1 plans more
 //     than hop 0 delivers (and the fee leaves on the bridge), and a caller who executes
 //     a one-hop route below the plan it signed.
+//  3. In the other direction too: hop 1 is the last hop and the Router keeps nothing, so a
+//     bridge that delivered m > P feeds it all, and the leg is held to floor(E * m / P), the
+//     attested RATE, not the attested point E. Refused only where the rate fell more than a
+//     fifth (a thin pool force-fed the surplus). Red only under the mutant "caixa-1123
+//     leg-bound-rescale: the attested bound is capped at the plan ..." (Router and Quoter).
+//     Not covered here: a leg the frame does not quote (Gate, native unquoted) and n > 1 legs.
 //
 //  Oracle: the honest pool's delivery is MEASURED in a control settlement (balanceOf
 //  deltas, inside a snapshot), and the boundaries are plain integer arithmetic on it.
@@ -131,6 +137,99 @@ contract LegFloorFollowsTheSpentInputTest is Test {
             _belowPlanBoundary(plan, ins[i]);
             vm.revertToState(snap);
         }
+    }
+
+    // ── 3. A leg given MORE than its plan is held to the attested RATE ────────
+    //
+    // Hop 1 is always the last hop (MAX_HOPS = 2) and the Router keeps nothing, so a bridge
+    // that delivered m > P, the input hop 1 planned, feeds all of it to hop 1: the leg is
+    // held to floor(E * m / P), the attested rate carried past the attested point, not to E.
+    // On an honest V2 pool the leg is refused only once the rate it fills at has fallen more
+    // than a fifth below the attested one (r = m / P, fee f): 0.2 R < f x (0.8 r - 1), a thin
+    // pool force-fed the surplus. That refusal is the floor working (RouterE(5), the caller
+    // keeps the input); capping the rescale at the plan would hold the surplus to the attested
+    // point and let it be lost on the curve without one.
+
+    /// r = m / P in {1, 1.25, 1.6} x hop-1 reserve {12e18, 32e18}, P about 10e18. Settles iff
+    /// the measured delivery clears ceil(floor(E * m / P) * 0.8); the 1.6 cell on the 12e18
+    /// pool is refused, every other cell settles.
+    function test_ALegGivenMoreInputIsHeldToTheAttestedRate() public {
+        uint256[3] memory rNum = [uint256(100), 125, 160];
+        uint256[2] memory res = [uint256(12e18), 32e18];
+        for (uint256 i; i < rNum.length; ++i) {
+            for (uint256 j; j < res.length; ++j) {
+                uint256 snap = vm.snapshotState();
+                bool settled = _surplusCell(10e18, rNum[i], 100, res[j]);
+                assertEq(settled, !(i == 2 && j == 0), "grid: only r = 1.6 on the 12e18 pool is refused");
+                vm.revertToState(snap);
+            }
+        }
+    }
+
+    /// r in [1, 3], x / R in [1e-6, 2], hop-1 reserve from 1e18 to 1e23.
+    function testFuzz_ALegGivenMoreInputIsHeldToTheAttestedRate(uint256 rSeed, uint256 xSeed, uint256 rRes)
+        public
+    {
+        uint256 res = bound(rRes, 1e18, 1e23);
+        uint256 x = (res * bound(xSeed, 1, 2_000_000)) / 1_000_000;
+        _surplusCell(x, bound(rSeed, 1_000, 3_000), 1_000, res);
+    }
+
+    /// The exact boundary on the surplus leg (r = 1.6, 12e18 pool): the largest attestation
+    /// E* whose rate-carried bound the delivery clears settles, E* + 1 is refused. Held to the
+    /// point instead (bound = E), E* + 1 would settle.
+    function test_SurplusLeg_BoundaryPlusMinusOneWei() public {
+        (MockV2Pair p0, MockV2Pair p1, uint256 amt0, uint256 m, uint256 g1, uint256 paid) = _surplusControl(10e18, 160, 100, 12e18);
+        uint256 plan = (m * 100) / 160;
+        uint256 beta = (g1 * 10_000) / 8_000;
+        uint256 e = ((beta + 1) * plan + m - 1) / m - 1;
+        assertLe((e * m) / plan, beta, "oracle: the bound of E* is at most beta");
+        assertGt(((e + 1) * m) / plan, beta, "oracle: the bound of E* + 1 is above beta");
+        assertLe(((e + 1) * 8_000 + 9_999) / 10_000, g1, "fixture: held to the point, E* + 1 would settle");
+
+        uint256 snap = vm.snapshotState();
+        _swap(_twoHop(p0, p1, amt0, 0, plan, e), amt0);
+        assertEq(tc.balanceOf(user), paid, "the user is paid what the honest legs made");
+        vm.revertToState(snap);
+
+        _refuse(_twoHop(p0, p1, amt0, 0, plan, e + 1), amt0);
+    }
+
+    /// Hop 0 (deep pool) delivers m, about r * x; hop 1 plans P = m * rDen / rNum on a pool of
+    /// reserve `res`, attested at the honest V2 output at P. Measured in a control settlement,
+    /// then settled or refused as the rate-carried bound says.
+    function _surplusCell(uint256 x, uint256 rNum, uint256 rDen, uint256 res) private returns (bool settled) {
+        (MockV2Pair p0, MockV2Pair p1, uint256 amt0, uint256 m, uint256 g1, uint256 paid) = _surplusControl(x, rNum, rDen, res);
+        uint256 plan = (m * rDen) / rNum;
+        vm.assume(plan != 0);
+        assertGe(m, plan, "fixture: the leg is fed at least its plan");
+        uint256 e = (plan * 9_970 * res) / (res * 10_000 + plan * 9_970);
+        uint256 bound_ = (e * m) / plan;
+        settled = g1 >= (bound_ * 8_000 + 9_999) / 10_000;
+        Route memory r = _twoHop(p0, p1, amt0, 0, plan, e);
+        if (settled) {
+            _swap(r, amt0);
+            assertEq(tc.balanceOf(user), paid, "the user is paid what the honest legs made");
+        } else {
+            _refuse(r, amt0);
+        }
+    }
+
+    function _surplusControl(uint256 x, uint256 rNum, uint256 rDen, uint256 res)
+        private
+        returns (MockV2Pair p0, MockV2Pair p1, uint256 amt0, uint256 m, uint256 g1, uint256 paid)
+    {
+        p0 = _pools(1, tb)[0];
+        p1 = _pairAt(tb, tc, res);
+        amt0 = (x * rNum * 10_031) / (rDen * 10_000) + 1;
+        uint256 snap = vm.snapshotState();
+        uint256 p1b = tb.balanceOf(address(p1));
+        uint256 p1c = tc.balanceOf(address(p1));
+        _swap(_twoHop(p0, p1, amt0, 0, amt0, 0), amt0);
+        m = tb.balanceOf(address(p1)) - p1b;
+        g1 = p1c - tc.balanceOf(address(p1));
+        paid = tc.balanceOf(user);
+        vm.revertToState(snap);
     }
 
     // ── boundaries ──────────────────────────────────────────────────────────
@@ -360,6 +459,14 @@ contract LegFloorFollowsTheSpentInputTest is Test {
         x.mint(address(p), R);
         y.mint(address(p), R);
         p.setReserves(R, R);
+        hub.seedPool(address(p), BPC.KIND_V2, FEE, address(0), address(x), address(y));
+    }
+
+    function _pairAt(MockERC20 x, MockERC20 y, uint256 res) private returns (MockV2Pair p) {
+        p = new MockV2Pair(address(x), address(y));
+        x.mint(address(p), res);
+        y.mint(address(p), res);
+        p.setReserves(uint112(res), uint112(res));
         hub.seedPool(address(p), BPC.KIND_V2, FEE, address(0), address(x), address(y));
     }
 

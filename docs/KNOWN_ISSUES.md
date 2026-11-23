@@ -120,6 +120,11 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   and that declares no figure has none to hold: the protocol floor is not armed and `userMinOut`
   is the only bound. `userMinOut` is read on what reaches the recipient and no declaration moves
   it, so it is the caller's bound inside the band as well.
+  A leg of the last hop fed more than its plan (the bridge delivered more than hop 1 planned,
+  and the Router keeps nothing) is held to its attested rate on all of it: when the rate it fills
+  at falls more than a fifth below the attested one (a thin pool force-fed the surplus) it is
+  refused with `RouterE(5)`, fail-closed; the caller keeps the input and a fresh quote sizes the
+  leg on what arrives.
   Documented in `docs/assurance/threats.json` (`SOK-FOT`).
 - **A buy of a token that taxes the venue-to-Router transfer settles only under the per-leg floor,
   the hop budget and the last hop's measured floor.** The first two take their base from the
