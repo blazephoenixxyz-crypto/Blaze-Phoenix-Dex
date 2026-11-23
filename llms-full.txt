@@ -294,7 +294,7 @@ declaration counts, not pass counts.
 | `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
 | `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
 | `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
-| `BlazePhoenixCore` | 19,303 | 5,273 |
+| `BlazePhoenixCore` | 19,450 | 5,126 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
 | `BlazePhoenixHub` | 21,956 | 2,620 |
@@ -922,7 +922,7 @@ above is the place for it.
 | `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
 | `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
 | `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
-| `BlazePhoenixCore` | 19,303 | 5,273 |
+| `BlazePhoenixCore` | 19,450 | 5,126 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
 | `BlazePhoenixHub` | 21,956 | 2,620 |
