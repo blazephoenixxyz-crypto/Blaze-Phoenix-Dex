@@ -38,14 +38,18 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
 - **A fee-on-transfer or rebasing token's own cut is the token's.** Every amount that matters is a
   measured balance delta, and the caller's minimum is checked against what the recipient actually
   received, so a transfer tax cannot take a swap below it. A taxing token that delivers less than
-  the quote but at least the signed minimum is not a finding. A rebasing bridge token whose
-  restatement fires inside the swap, over a balance the Router already held, cuts that balance in
-  the swapper's delivery: to the Router it is a short delivery, bounded by the same minimum, and
-  the Router keeps the balance it held in the units it measures. The route floors (the protocol
+  the quote but at least the signed minimum is not a finding. A rebasing bridge or input token
+  whose restatement fires inside the swap, over a balance the Router already held, cuts that
+  balance in the swapper's delivery: to the Router it is a short delivery, bounded by the same
+  minimum, and the Router keeps the balance it held in the units it measures. Known residual: a
+  restatement fired inside the legs' window of a hop split over two or more legs reaches the held
+  balance by the cut on the later legs' amounts, which were sized before it; measuring every leg
+  would cost one more balance read per leg on every swap. The route floors (the protocol
   floor and the caller's single-output floor) price gross output, so they are read against the
   gross the venues declared paying; a tax on the output token neither trips them nor relaxes them,
   and the net is checked against the caller's minimum where it lands. Documented in
-  `docs/assurance/threats.json` (`SOK-FOT`, `BRIDGE-DELTA-NEGATIVE-RESTATEMENT`),
+  `docs/assurance/threats.json` (`SOK-FOT`, `BRIDGE-DELTA-NEGATIVE-RESTATEMENT`,
+  `INPUT-DELTA-NEGATIVE-RESTATEMENT`),
   `docs/WHITEPAPER.md` §5 (Fee-on-transfer) and the `ExecutionProof` NatSpec in
   `src/BlazePhoenixRouter.sol`.
 - **Token metadata is data, not instructions.** The MCP server strips invisible, control,

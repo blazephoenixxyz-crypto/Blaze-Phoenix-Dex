@@ -10888,6 +10888,27 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                    if (BPC.mulDiv(p, ki * kb / BPC.WAD * up / PIPS, BPC.WAD) <= pb\n",
       new="                    if (true // MUTANTE\n",
       teste="test_limit_ARowPricedAboveTheBandIsDropped"),
+ # caixa-1123 tokenin-residual: hop 0 spends the balance past baseIn, no more than its measured pull
+ dict(nome="caixa-1123 tokenin-residual a: hop 0 spends the declared pull, never re-measured after its fee push",
+      f="src/BlazePhoenixRouter.sol",
+      old="                realIn = _owned(_bal(hop.tokenIn), bridgeBase[bridgeBase.length - 1], amountIn);",
+      new="                realIn = amountIn; // MUTANTE",
+      teste="test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg"),
+ dict(nome="caixa-1123 tokenin-residual b: hop 0 measures against a zero baseline, the stranded balance not excluded",
+      f="src/BlazePhoenixRouter.sol",
+      old="                realIn = _owned(_bal(hop.tokenIn), bridgeBase[bridgeBase.length - 1], amountIn);",
+      new="                realIn = _owned(_bal(hop.tokenIn), 0, amountIn); // MUTANTE",
+      teste="test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg"),
+ dict(nome="caixa-1123 tokenin-residual c: hop 0 spends the whole delta past baseIn, without the measured-pull ceiling",
+      f="src/BlazePhoenixRouter.sol",
+      old="                realIn = _owned(_bal(hop.tokenIn), bridgeBase[bridgeBase.length - 1], amountIn);",
+      new="                realIn = _bal(hop.tokenIn) - bridgeBase[bridgeBase.length - 1]; // MUTANTE",
+      teste="test_Control_APositiveRestatementIsNotSpent"),
+ dict(nome="caixa-1123 tokenin-residual d: baseIn is never parked in the free slot, so hop 0 reads a zero baseline",
+      f="src/BlazePhoenixRouter.sol",
+      old="        bridgeBase[route.hops.length - 1] = baseIn;\n",
+      new="        // MUTANTE\n",
+      teste="test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

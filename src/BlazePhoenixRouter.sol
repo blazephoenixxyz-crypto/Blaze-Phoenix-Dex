@@ -907,7 +907,7 @@ contract BlazePhoenixRouter {
             // attacker sizes scaleDen to that balance); only excluding the pre-swap
             // balance does. Mirrors the bridge residual sweep, which baselines the
             // same amount.
-            uint256 realIn = amountIn;
+            uint256 realIn;
             if (h != 0) {
                 uint256 bal = _bal(hop.tokenIn);
                 // 4111: and no more than the previous hop's legs were measured to deliver
@@ -918,6 +918,12 @@ contract BlazePhoenixRouter {
                 // handing it to the payer.
                 realIn = _owned(bal, bridgeBase[h - 1], amountIn);
                 bridgeBase[h - 1] = bal - realIn;
+            } else {
+                // Hop 0 asks the same question against baseIn (the balance held before the
+                // pull, parked in the last slot, which no bridge uses): the fee push in
+                // tokenIn ran since the pull was measured, and a restatement it fired is not
+                // this swap's to spend out of the balance the input sweep leaves untouched.
+                realIn = _owned(_bal(hop.tokenIn), bridgeBase[bridgeBase.length - 1], amountIn);
             }
             uint256 quotedIn = _legSum(hop);
             // SECURITY (issue #1 cap × BP-02 floor seam): the hop-0 cap is
@@ -1051,6 +1057,7 @@ contract BlazePhoenixRouter {
             if (bt != tokenIn && bt != tokenOut) bridgeBase[bh] = _bal(bt);
             unchecked { ++bh; }
         }
+        bridgeBase[route.hops.length - 1] = baseIn;
 
         // ─── WHERE THE FEE LANDS ───────────────────────────────────────
         // ANCHOR BY VALUE, NOT BY INDEX. The previous version anchored on the
