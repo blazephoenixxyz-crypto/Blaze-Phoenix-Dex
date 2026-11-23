@@ -13,7 +13,9 @@ network	base	cat	wf,an
 network	mainnet	cat	wf,an
 network	optimism	cat	wf,an
 network	arbitrum	cat	wf,an
-decimals	6	min	fz
+decimals	0	min	fz
+decimals	2	mid	fz
+decimals	6	mid	fz
 decimals	18	max	fz
 restatement	fee-push-restatement	cat	input-baseline
 restatement	leg-window-restatement	cat	input-baseline

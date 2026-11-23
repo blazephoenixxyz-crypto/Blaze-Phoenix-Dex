@@ -207,7 +207,7 @@ contract BlazePhoenixQuoter {
         uint256 grossOut;          // U(route)
         uint256 protocolFee;       // o EFEITO da fee sobre a saida, em tokenOut (ver cabecalho)
         uint256 safetyBuffer;      // safety(n) × afterFee
-        uint256 netOut;            // grossOut · (1 − fee)^c · (1 − safety), c as in the header
+        uint256 netOut;            // grossOut · Π (b − fee(b)) / b over the charged hops · (1 − safety)
         uint256 ironFloor;         // output floor supplied by the Solver
         uint256 userMinOut;        // user-supplied tighter floor (optional)
         uint256 effectiveMinOut;   // max(userMinOut, ironFloor)
@@ -402,12 +402,28 @@ contract BlazePhoenixQuoter {
             (feeHop, ) = this.feeCalendarOf(route.hops, route.hops[route.hops.length - 1].tokenOut);
             if (feeHop == type(uint256).max) charges = route.hops.length;
         }
-        for (uint256 c; c < charges; ) {
-            // Round the fee UP here too, matching both Router sites. Rounding the
-            // deduction up makes the preview understate netOut by at most 1 wei,
-            // which is the safe direction: a preview must never promise more than
-            // execution delivers.
-            afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        // THE FEE IS THE ROUTER'S, IN THE UNITS IT IS CHARGED IN (5630). `_chargeHopFee` takes
+        // `mulDivUp(b, PROTOCOL_FEE_BPS, BPS)` from the charged hop's committed input `b` (its
+        // `_legSum`), so in coarse units the fee is more than 28 bps of `b` (b = 100 pays 1:
+        // 100 bps). Taking a fixed 28 bps off the OUTPUT promised more than the Router delivers.
+        // Each charge (the anchor hop; every hop on exhaustion; hop 0 of a single hop) scales the
+        // output by what the fee leaves of that hop's input, rounded down: a venue's output is
+        // concave in its input, so the proportional scale understates the delivery. `f >= b`
+        // previews 0, as the Router refuses it (RouterE(8)). NO `min` WITH THE OUTPUT-SIDE FIGURE:
+        // f = ceil(28 b / 1e4) >= 28 b / 1e4, so (b - f) / b <= 9_972 / 1e4 and this arm,
+        // floor(A (b - f) / b), is never above A - mulDivUp(A, 28, 1e4) = floor(9_972 A / 1e4),
+        // the deduction a single hop into a bridge takes off its output (`Router` feeOnOut). A
+        // `min(inSide, outSide)` would always pick this arm and its other arm could never fire,
+        // so it is not written. It is also why the registry need not be asked on one hop.
+        // A route with no hop has no input to charge (the Router refuses it, RouterE(3)): it keeps
+        // the 28 bps off the output it always previewed.
+        if (route.hops.length == 0) afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        else for (uint256 c; c < charges; ) {
+            Leg[] memory ls = route.hops[charges == 1 && feeHop != type(uint256).max ? feeHop : c].legs;
+            uint256 b;
+            for (uint256 i; i < ls.length; ) { b += ls[i].amountIn; unchecked { ++i; } }
+            uint256 f = BPC.mulDivUp(b, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+            afterFee = f >= b ? 0 : BPC.mulDiv(afterFee, b - f, b);
             unchecked { ++c; }
         }
         // The EFFECT of the fee on the output, in tokenOut. It is not what the

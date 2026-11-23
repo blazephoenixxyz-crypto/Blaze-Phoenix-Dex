@@ -2016,3 +2016,6 @@ src/BlazePhoenixHub.sol	test_ADeadConcentratedRow_IsMeasuredAsConcentrated	caixa
 src/BlazePhoenixHub.sol	test_AShortAnswer_IsNotADepth	caixa-1123 hub-insert short: an answer under one word is read as a depth
 src/BlazePhoenixHub.sol	test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer	caixa-1123 hub-insert cap1: the producer's ceiling drops to one GAS_CAP for the whole read
 src/BlazePhoenixHub.sol	test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer	caixa-1123 hub-insert cap50: the producer's ceiling rises to 50 GAS_CAP
+src/BlazePhoenixQuoter.sol	test_Pack_CoarseInput_NetOutNeverAboveDelivery	caixa-1123 pack-fee a: _pack takes a fixed 28 bps off the output again, so a coarse charged input previews above the delivery
+src/BlazePhoenixQuoter.sol	test_Pack_CoarseInput_NetOutNeverAboveDelivery	caixa-1123 pack-fee b: _pack rounds the Router's fee down, so every base under 358 is charged nothing in the preview
+src/BlazePhoenixQuoter.sol	test_Classify_EmptyRouteDoesNotPanic	caixa-1123 pack-fee c: _pack indexes a hop on a route with none (Panic 0x32 instead of the preview)
