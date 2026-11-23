@@ -11026,6 +11026,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (route.hops.length == 0) afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS);",
       new="        if (false) afterFee -= BPC.mulDivUp(afterFee, BPC.PROTOCOL_FEE_BPS, BPC.BPS); // MUTANTE",
       teste="test_Classify_EmptyRouteDoesNotPanic"),
+ dict(nome="caixa-1123 pack-fee d: the anchored charge is read off hop 0, not off the hop the calendar anchors",
+      f="src/BlazePhoenixQuoter.sol",
+      old="            Leg[] memory ls = route.hops[charges == 1 && feeHop != type(uint256).max ? feeHop : c].legs;",
+      new="            Leg[] memory ls = route.hops[c].legs; // MUTANTE",
+      teste="test_Parity_PackAndNetOfInputFees_OnASolverPlanOfTwoHops"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
