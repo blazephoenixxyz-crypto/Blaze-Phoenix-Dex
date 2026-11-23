@@ -130,6 +130,7 @@ contract GateQuoteCallLeavesTheVenueAsItFoundItTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0xBEEF));
         hub.setRoles(address(this), address(this), address(this));
+        vm.mockCall(address(this), abi.encodeWithSignature("paused()"), abi.encode(false)); // the seated Router (this test) answers: live
         gate.proposeAdapter(FAM, address(adapter));
         vm.warp(block.timestamp + gate.ADAPTER_DELAY());
         gate.acceptAdapter(FAM);

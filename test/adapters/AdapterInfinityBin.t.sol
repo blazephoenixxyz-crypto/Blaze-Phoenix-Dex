@@ -519,6 +519,7 @@ contract AdapterInfinityBinTest is AdapterHarness {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(0xBEEF));
         hub.setRoles(address(this), address(this), address(this));
+        vm.mockCall(address(this), abi.encodeWithSignature("paused()"), abi.encode(false)); // the seated Router (this test) answers: live
         uint24[] memory fees = new uint24[](1);
         fees[0] = KEY;
         hub.addFactory(address(gate), BPC.KIND_EXTERNAL, 5, gate.WRAPPER_INIT_HASH(), fees, new int24[](0)); // 5: MODE_CREATE2_V3
