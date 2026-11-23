@@ -39,3 +39,5 @@ fz	-	-	hop1-hop2	testFuzz_ALegGivenMoreInputIsHeldToTheAttestedRate	covered
 fz	-	-	quote-ABI-execution	test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt	covered
 input-baseline	restatement	fee-push-restatement	-	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	covered
 input-baseline	restatement	leg-window-restatement	-	-	gap
+fz	decimals	0	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
+fz	decimals	2	-	test_Pack_CoarseInput_NetOutNeverAboveDelivery	covered

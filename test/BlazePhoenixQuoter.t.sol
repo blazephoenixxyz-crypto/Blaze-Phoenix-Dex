@@ -82,12 +82,15 @@ contract BlazePhoenixQuoterTest is Test {
     function _buildRouteWithNLegs(uint256 legCount, uint256 totalOut)
         internal pure returns (Route memory route)
     {
+        // 1e18 per leg: the Router charges mulDivUp(Σ legs, 28, 1e4) of the hop's input, exactly
+        // 28 bps here; at 1 wei per leg it would take 1 wei of 5 (a fifth) and the 28 bps oracle
+        // below would not be the Router's fee.
         Leg[] memory legs = new Leg[](legCount);
         for (uint256 i; i < legCount; ++i) {
             legs[i] = Leg({
                 pool: address(uint160(i + 1)), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
                 tickSpacing: 0, zeroForOne: true, stable: false,
-                amountIn: 1, expectedOut: 1, auxId: bytes32(0)
+                amountIn: 1e18, expectedOut: 1, auxId: bytes32(0)
             });
         }
         Hop[] memory hops = new Hop[](1);
