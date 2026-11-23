@@ -1999,3 +1999,4 @@ src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_L
 src/BlazePhoenixQuoter.sol	test_Pack_CoarseInput_NetOutNeverAboveDelivery	caixa-1123 pack-fee a: _pack takes a fixed 28 bps off the output again, so a coarse charged input previews above the delivery
 src/BlazePhoenixQuoter.sol	test_Pack_CoarseInput_NetOutNeverAboveDelivery	caixa-1123 pack-fee b: _pack rounds the Router's fee down, so every base under 358 is charged nothing in the preview
 src/BlazePhoenixQuoter.sol	test_Classify_EmptyRouteDoesNotPanic	caixa-1123 pack-fee c: _pack indexes a hop on a route with none (Panic 0x32 instead of the preview)
+src/BlazePhoenixQuoter.sol	test_Parity_PackAndNetOfInputFees_OnASolverPlanOfTwoHops	caixa-1123 pack-fee d: the anchored charge is read off hop 0, not off the hop the calendar anchors

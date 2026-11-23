@@ -161,4 +161,40 @@ contract QuoterPackFeeAtTheRoutersUnitsTest is Test {
         vm.expectRevert(abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8)));
         router.swapExactIn(route, 1, 1, recipient, dl);
     }
+
+    /// PARITY PIN: two producers answer with the same scale. `_pack` asks "what does the fee leave
+    /// of the quoted output, over the charged hop's committed legs"; `BPC.netOfInputFees` asks the
+    /// floor's frame, "the quoted output on the input the Router executes with, over the hop's
+    /// declared amountIn". On a Solver plan of two hops through a bridge the two bases are one
+    /// number (each hop declares what its legs commit) and the calendar charges hop 1 alone, so the
+    /// two figures agree to the wei. Pinned on the anchored plan only: where every hop pays, the
+    /// later hop's base is what arrives, and the two frames are not held equal there.
+    function test_Parity_PackAndNetOfInputFees_OnASolverPlanOfTwoHops() public {
+        uint8[3] memory decs = [uint8(0), 2, 18];
+        uint256[4] memory sizes = [uint256(100), 357, 358, 1e6];
+        for (uint256 d; d < decs.length; d++) {
+            for (uint256 i; i < sizes.length; i++) {
+                uint256 snap = vm.snapshotState();
+                (, address tOut) = _build(TWO_HOP_ANCHORED, decs[d]);
+                BlazePhoenixQuoter.Preview memory pv = _preview(TWO_HOP_ANCHORED, tOut, sizes[i]);
+                assertEq(pv.route.hops.length, 2, "the Solver planned the two hops");
+                for (uint256 h; h < 2; h++) {
+                    uint256 sum;
+                    for (uint256 l; l < pv.route.hops[h].legs.length; l++) sum += pv.route.hops[h].legs[l].amountIn;
+                    assertEq(pv.route.hops[h].amountIn, sum, "premise: the hop declares what its legs commit");
+                }
+                (uint256 feeHop, bool feeOnOut) = quoter.feeCalendarOf(pv.route.hops, tOut);
+                assertEq(feeHop, 1, "premise: the calendar anchors the fee on hop 1, whose input is the bridge");
+                assertFalse(feeOnOut, "premise: two hops are never charged on the output");
+                assertEq(pv.grossOut, pv.route.totalOut, "premise: the preview's gross figure is the plan's");
+                assertGt(pv.protocolFee, 0, "the fee takes something");
+                assertEq(
+                    pv.grossOut - pv.protocolFee,
+                    BPC.netOfInputFees(pv.route.hops, pv.route.totalOut, feeHop, feeOnOut),
+                    "_pack's after-fee figure == netOfInputFees on the same plan"
+                );
+                vm.revertToState(snap);
+            }
+        }
+    }
 }
