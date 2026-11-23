@@ -1817,7 +1817,12 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   over it, as long as an attested leg clears its own floor. A last hop whose legs are all blind
   and that declares no figure has none to hold: the protocol floor is not armed and `userMinOut`
   is the only bound. `userMinOut` is read on what reaches the recipient and no declaration moves
-  it, so it is the caller's bound inside the band as well.
+  it, so it is the caller's bound inside the band as well. Where a leg of the last hop could not
+  be quoted in frame, the figure the protocol floor is a fraction of carries that leg's attested
+  figure, and where a leg is blind (neither quoted nor attested) the hop's declared figure when
+  that is larger; `ExecutionProof.quoted` publishes the same figure, so that part of it is the
+  caller's word, not a measurement, and is not reproducible by `eth_call` (the `ExecutionProof`
+  NatSpec in `src/BlazePhoenixRouter.sol`).
   A leg of the last hop fed more than its plan (the bridge delivered more than hop 1 planned,
   and the Router keeps nothing) is held to its attested rate on all of it: when the rate it fills
   at falls more than a fifth below the attested one (a thin pool force-fed the surplus) it is
