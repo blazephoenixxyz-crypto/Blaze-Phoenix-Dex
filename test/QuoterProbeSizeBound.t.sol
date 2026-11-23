@@ -63,6 +63,7 @@ contract QuoterProbeSizeBoundTest is Test {
         BlazePhoenixSolver solver = new BlazePhoenixSolver(address(hub), address(0));
         quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         hub.setRoles(address(0x7001), address(solver), address(quoter));
+        vm.mockCall(address(0x7001), abi.encodeWithSignature("paused()"), abi.encode(false)); // the seated Router answers: live
         tA = new MockERC20("A", "A");
         tB = new MockERC20("B", "B");
         pool = new NegativeSizeTaxedPool(address(tA), address(tB));
