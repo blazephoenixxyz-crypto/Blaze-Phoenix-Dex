@@ -42,7 +42,17 @@ contract MockSolidlyPair {
         (uint256 rIn, uint256 rOut) = tokenIn == token0
             ? (uint256(reserve0), uint256(reserve1))
             : (uint256(reserve1), uint256(reserve0));
-        return BPC.outSolidly(amountIn, rIn, rOut, feeBps, stable);
+        if (!stable) return BPC.outSolidly(amountIn, rIn, rOut, feeBps, false);
+        // A Solidly pair scales each side of the stable curve by its token's decimals, so a 6/18
+        // pair quotes on comparable reserves; the equal-decimals formula would misprice it.
+        address tokenOut = tokenIn == token0 ? token1 : token0;
+        return BPC.outSolidlyStable(amountIn, rIn, rOut, feeBps, _decimals(tokenIn), _decimals(tokenOut));
+    }
+
+    /// @notice The token's decimals, 18 when it does not answer one word (as Core reads them).
+    function _decimals(address t) internal view returns (uint8) {
+        (bool ok, bytes memory r) = t.staticcall(abi.encodeWithSignature("decimals()"));
+        return ok && r.length == 32 ? uint8(abi.decode(r, (uint256))) : 18;
     }
 
     function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata) external {
