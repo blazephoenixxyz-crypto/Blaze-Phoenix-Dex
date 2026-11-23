@@ -158,6 +158,13 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   Two honest venues away from rest (a stable pair skewed before arbitrage) therefore route
   through the deeper one alone. Pinned by `test_limit_ARowPricedAboveTheBandIsDropped`. The base
   is the depth-weighted median (`Math._wMedian`): moving it takes at least half of the rows' mass.
+  A base that holds that mass and drops an honest venue h over the top leaves a round trip G open
+  between h and itself, with 1 + G > 1 / (1 - f*) (f* the base's fee, counted twice at the upper
+  edge), and the user's loss against h stays under 1 - (1 + G)^-3 <= 3G: hurting the user by L
+  leaves at least L/3 to whoever closes the gap. A row dropped below loses nothing: its measured
+  rate is under the base's. Derivation in `Math` (THE BAND); pinned by
+  `testFuzz_ADropCostsTheUserUnderThreeTimesTheArbitrageAtTheBase`. Not bounded: the
+  arbitrageur's gas.
 - **A wrapper leg is priced only by its adapter's `quote` view** (`Core.gateQuote`). A wrapper
   without that view, or one whose walk cannot fill the whole input (the Liquidity Book and Algebra
   Integral adapters then answer 0), is quoted at 0 and gets no share of the order. This fails
