@@ -667,6 +667,14 @@
       "note": "MAT-02, audit 2026-11-06. Math._depthWeightedMedian walks the live rows by price to half of the summed votes and its premise is that the votes count one token. They counted two: a pair voted its short side (away from price 1, the count of the dear token) and a concentrated row was then capped by the tokenOut it holds (PROV-01). Red at e2c52e0 in test/Mat02BandVoteIsOneUnit.t.sol, 4 of 7: beside an honest pair of 1,000 A + 3,000,000 B, a V3 book at 1 B per A holding 1,000 B (1/3,000 of the honest short side's value) took the base, the band dropped the honest pool, and a swap whose minOut came from the preview settled 994208400000000000 where the honest pair pays 2949866166278610009188; restating B in a unit 1,000 times bigger changed the plan. Since 2026-11-10 every row votes the tokenOut it can pay: the sixth return of Core._quoteArms (a pair's reserve of tokenOut; Core.outSide18 for a concentrated pool or a singleton book), handed to the vote by Core.universalProbe and capped afterwards as before. The plan no longer depends on the unit of account (test_MAT02_RestatingTheOutputTokenInABiggerUnitLeavesThePlanAsItWas and its fuzz). Not covered: a Gate wrapper votes the Gate's word (depthWad); Math._weights reads a singleton book's mass without the walk's cap; the probe's error bound still reads the short side."
     },
     {
+      "id": "GATE-WRAPPER-MASS-ABOVE-TOKENOUT-HELD",
+      "class": "A Gate wrapper whose venue holds only the tokenIn is weighed in the band's vote and the split weights at a tokenOut count it does not hold",
+      "status": "blocked",
+      "guard": "_quoteArms",
+      "test": "test_Mass_AWrapperBuyingTheCheapTokenIsNeverAboveTheTokenOutItsVenueHolds",
+      "note": "Since 2026-11-11 (R4) Core._quoteArms raises a Gate wrapper's mass from the Gate's short side to the tokenOut side when the quote's own price is above one. The raise was not capped by what the venue holds: a venue holding the tokenIn alone and half a unit of the tokenOut voted 24925 units of tokenOut (test/WrapperMassUnit.t.sol, red at 6387350, also with the decimals the other way and in the fuzz). Since 2026-11-23 the raised mass is capped by the tokenOut held at the Gate's venuePool, read in the same call with the decimals the funnel reads; the side that is not raised is already below it. Not covered: for a Vault-custody family (Balancer, Infinity) venuePool is the whole Vault and the cap is looser; the wrapper's quote itself is the adapter's word and is not capped by the tokenOut held."
+    },
+    {
       "id": "HOP-ONE-CUT-PER-BRIDGE-UNIT-GAP",
       "class": "With two hops and no three-hop rescue, one cheap singleton book per bridge drops the honest rows of each bridge pair and takes, or stops, the whole route",
       "status": "blocked",

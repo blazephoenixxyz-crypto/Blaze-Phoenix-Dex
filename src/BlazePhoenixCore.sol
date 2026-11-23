@@ -1934,6 +1934,16 @@ library BlazePhoenixCore {
                 uint256 i18 = to18(amountIn, _decIn(c));
                 uint256 o18 = to18(out, _decOther(c));
                 if (i18 != 0 && o18 > i18 && o18 / i18 < type(uint256).max / depthWad) mass = mulDiv(depthWad, o18, i18);
+                // The raise models a venue holding both sides at its price; the tokenOut it
+                // holds at its `venuePool` address is measured, and the measurement wins
+                // (min(modelled, measured)). A venue whose short side is already the tokenOut
+                // is weighed at what it holds, never at that side times the price. No answer
+                // from `venuePool()` is no measurement: the mass falls back to the Gate's word.
+                if (mass != depthWad) {
+                    (bool ok, uint256 vp) = _askWord(c.pool, abi.encodeWithSignature("venuePool()"));
+                    uint256 held = ok ? to18(balanceOf(c.tokenOther, address(uint160(vp))), _decOther(c)) : depthWad;
+                    if (held < mass) mass = held;
+                }
             }
             return (out, depthWad, out, out, FEE_UNKNOWN, mass);
         }

@@ -10842,6 +10842,23 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            ? BPC.mulDiv(leg.expectedOut, legIn, leg.amountIn) : 0;",
       new="            ? BPC.mulDiv(leg.expectedOut, legIn > leg.amountIn ? leg.amountIn : legIn, leg.amountIn) : 0; // MUTANT",
       teste="test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt"),
+ # caixa-1123 dex:core-gate-mass-cap-by-tokenout-held: the raised wrapper mass is capped by the
+ # tokenOut held at its venuePool address (Core._quoteArms, KIND_EXTERNAL arm).
+ dict(nome='caixa-1123 gate-mass [GM-1]: the raised wrapper mass is not capped by the tokenOut its venue holds',
+      f='src/BlazePhoenixCore.sol',
+      old='                    if (held < mass) mass = held;',
+      new='                    if (false) mass = held; // MUTANT [GM-1]',
+      teste='test_Mass_AWrapperBuyingTheCheapTokenIsNeverAboveTheTokenOutItsVenueHolds'),
+ dict(nome='caixa-1123 gate-mass [GM-2]: the cap reads the tokenIn the venue holds instead of the tokenOut',
+      f='src/BlazePhoenixCore.sol',
+      old='                    uint256 held = ok ? to18(balanceOf(c.tokenOther, address(uint160(vp))), _decOther(c)) : depthWad;',
+      new='                    uint256 held = ok ? to18(balanceOf(c.tokenIn, address(uint160(vp))), _decIn(c)) : depthWad; // MUTANT [GM-2]',
+      teste='test_Mass_AWrapperWeighsTheTokenOutSideLikeANativePair'),
+ dict(nome='caixa-1123 gate-mass [GM-3]: the tokenOut held is scaled by the tokenIn decimals',
+      f='src/BlazePhoenixCore.sol',
+      old='                    uint256 held = ok ? to18(balanceOf(c.tokenOther, address(uint160(vp))), _decOther(c)) : depthWad;',
+      new='                    uint256 held = ok ? to18(balanceOf(c.tokenOther, address(uint160(vp))), _decIn(c)) : depthWad; // MUTANT [GM-3]',
+      teste='test_Mass_TheCapReadsTheTokenOutAtItsOwnDecimals'),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

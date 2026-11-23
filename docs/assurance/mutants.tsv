@@ -1984,3 +1984,6 @@ src/BlazePhoenixRouter.sol	testFuzz_PairPayingUnderItsWord_SettlesIffItClearsThe
 src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_OnTheSecondHop_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB12c: the measured floor takes one bps less, watched on the second hop of a pair paying under its word
 src/BlazePhoenixRouter.sol	test_ALegGivenMoreInputIsHeldToTheAttestedRate	caixa-1123 leg-bound-rescale: the attested bound is capped at the plan, so a last-hop leg fed more than its plan is held to the attested point
 src/BlazePhoenixQuoter.sol	test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt	caixa-1123 leg-bound-rescale: the door caps the attested bound at the plan, so it encodes a surplus leg the Router refuses
+src/BlazePhoenixCore.sol	test_Mass_AWrapperBuyingTheCheapTokenIsNeverAboveTheTokenOutItsVenueHolds	caixa-1123 gate-mass [GM-1]: the raised wrapper mass is not capped by the tokenOut its venue holds
+src/BlazePhoenixCore.sol	test_Mass_AWrapperWeighsTheTokenOutSideLikeANativePair	caixa-1123 gate-mass [GM-2]: the cap reads the tokenIn the venue holds instead of the tokenOut
+src/BlazePhoenixCore.sol	test_Mass_TheCapReadsTheTokenOutAtItsOwnDecimals	caixa-1123 gate-mass [GM-3]: the tokenOut held is scaled by the tokenIn decimals
