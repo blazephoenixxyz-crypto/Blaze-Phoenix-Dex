@@ -143,6 +143,11 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   for such a token is refused; derive it from a simulated delivery instead (the swap entry points
   return the amount delivered, so an `eth_call` of the swap gives it). Documented in
   `docs/assurance/threats.json` (`SOK-FOT`).
+- **The median band has two edges.** A venue priced above the base by more than the band's width
+  (the fees and the probes' error bounds) is dropped like one priced below, even when it would pay
+  more: that edge keeps a shallow venue with a marginal price that is too good out of the plan.
+  Two honest venues away from rest (a stable pair skewed before arbitrage) therefore route
+  through the deeper one alone. Pinned by `test_limit_ARowPricedAboveTheBandIsDropped`.
 
 ## Out of scope
 

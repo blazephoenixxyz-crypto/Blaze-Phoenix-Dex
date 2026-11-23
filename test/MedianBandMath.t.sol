@@ -157,6 +157,25 @@ contract MedianBandMathTest is Test {
         assertEq(_kept(r), 1, "a base 20% past the edge kept the venue above it");
     }
 
+    /// LIMIT (characterization): the band has two edges, and a row priced ABOVE the base by more
+    /// than the width is dropped like one priced below, even though it pays the user more. The
+    /// upper edge is what keeps a shallow venue whose marginal price is too good out of the plan.
+    /// Two voters: the deeper is the base; the other stays only within the width. Base: a 0.3%
+    /// venue at price 1 (rate 0.997), three quarters of the mass; row 1: a fee-free venue, so its
+    /// price is its rate, errors 0. [derivado] Upper edge: floor(p * (1-f_b)^2 (1-f_1)) <= p_b,
+    /// with (1-f_b)^2 = 0.994009 and f_1 = 0: the last price kept is
+    /// ceil((1e18 + 1) * 1e18 / 994009e12) - 1 = 1006027108406463121; one unit more is dropped.
+    /// Red under the mutant that removes the upper edge in `Math._inBand`.
+    function test_limit_ARowPricedAboveTheBandIsDropped() public view {
+        uint256 edge = 1006027108406463121;
+        Row[] memory r = new Row[](2);
+        r[0] = _row(997e15, 3000, 0, 3e18, false);
+        r[1] = _row(edge, 0, 0, 1e18, false);
+        assertEq(_kept(r), 3, "a row at the band's upper edge fell out");
+        r[1] = _row(edge + 1, 0, 0, 1e18, false);
+        assertEq(_kept(r), 1, "a row one unit past the band's upper edge was kept");
+    }
+
     // ─── a fee nobody knows ─────────────────────────────────────────────────────────────────
 
     /// A Gate row's price is read as its rate (its fee is unknown), under the truth, so its mass

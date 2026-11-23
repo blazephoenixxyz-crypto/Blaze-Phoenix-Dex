@@ -1991,3 +1991,4 @@ src/BlazePhoenixQuoter.sol	test_PausedRouter_NoDoorSaysExecutable	caixa-1123 quo
 src/BlazePhoenixQuoter.sol	test_HubWithNoCode_NotExecutable_AndThePreviewDoesNotRevert	caixa-1123 quoter-doors Q2: a call that succeeds with no answer reads as live, watched by a Hub with no code
 src/BlazePhoenixHub.sol	test_HubWithNoRouterSeated_NotExecutable	caixa-1123 quoter-doors H1: no Router seated reads as live, watched by a Hub with no Router seated
 src/BlazePhoenixHub.sol	test_routerLive_FollowsTheRoutersFlag	caixa-1123 quoter-doors H2: routerLive ignores the Router's paused flag, watched by the flag itself
+src/BlazePhoenixMath.sol	test_limit_ARowPricedAboveTheBandIsDropped	caixa-1123 MAT-02: the band loses its upper edge, so a row priced above the base by more than the width is kept

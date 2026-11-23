@@ -10880,6 +10880,14 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        return rt != address(0) && !IRouterWeth(rt).paused();",
       new="        return rt != address(0); // MUTANTE",
       teste="test_routerLive_FollowsTheRoutersFlag"),
+ # caixa-1123 MAT-02 (band limit): the band has two edges; a row priced above the base by more
+ # than the width is dropped like one priced below (test/MedianBandMath.t.sol, a limit pin at the
+ # edge, one unit inside kept and one unit past dropped).
+ dict(nome="caixa-1123 MAT-02: the band loses its upper edge, so a row priced above the base by more than the width is kept",
+      f="src/BlazePhoenixMath.sol",
+      old="                    if (BPC.mulDiv(p, ki * kb / BPC.WAD * up / PIPS, BPC.WAD) <= pb\n",
+      new="                    if (true // MUTANTE\n",
+      teste="test_limit_ARowPricedAboveTheBandIsDropped"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
