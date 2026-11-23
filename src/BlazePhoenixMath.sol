@@ -50,7 +50,7 @@ library BlazePhoenixMath {
     ///
     ///         WHY A MEDIAN AND NOT THE BEST: the best venue's figure may itself be forged (a
     ///         thin pool with a stale price pretending to offer the world). To move a median an
-    ///         attacker has to move more than HALF of the depth mass, not one pool (the history
+    ///         attacker has to move at least HALF of the depth mass, not one pool (the history
     ///         of that claim is in `_depthWeightedMedian`).
     ///
     ///         WHY PRICES, NOT RATES. A probe measures the rate AFTER the venue's fee. The band on
@@ -399,7 +399,7 @@ library BlazePhoenixMath {
     ///
     ///      WHAT THIS RESTORES: exactly the property that comment claimed, and with the weights
     ///      that the T2 fix made unforgeable. To capture the base the attacker no longer needs
-    ///      to out-depth ONE pool and now needs more than HALF the depth mass of the whole
+    ///      to out-depth ONE pool and now needs at least HALF the depth mass of the whole
     ///      set. Breakdown point: 0 -> 50%.
     ///
     ///      WHY SUMMING MASS IS LEGITIMATE: the mass of a row is a count of tokenOut in ALL
@@ -503,9 +503,10 @@ library BlazePhoenixMath {
     ///      up, `BPC.universalProbe`'s `errOrder`). Both edges read e; the lower edge reads the
     ///      base's e_o in place of its e: impact only lowers a rate, so the base's fill of the whole
     ///      order may sit e_o under its price, and a row priced between the two is not dropped
-    ///      (ROUTEQ). e_o >= e, so the lower edge only widens. b >= n (no base) keeps nothing. n < 256: the
-    ///      funnel is bounded by the pair's table, sixteen registry slots, the wired rows' cells
-    ///      and four wrappers. One producer for the filter in `_select` and for the S2 check
+    ///      (ROUTEQ). e_o >= e, so the lower edge only widens. b >= n (no base) keeps nothing. n < 256 is not
+    ///      checked here: the funnel is bounded by the pair's table (the fee tiers the admin's
+    ///      factory list sets, not capped by `addFactory`), sixteen registry slots, the wired rows'
+    ///      cells and four wrappers. One producer for the filter in `_select` and for the S2 check
     ///      above. Every product rounds down, which only widens the band: rounding never drops an
     ///      honest row.
     function _inBand(uint256[] memory prices, uint256[] memory fe, uint256 n, uint256 b)

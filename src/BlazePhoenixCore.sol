@@ -109,6 +109,10 @@ struct Route {
     uint256 totalOut;
     uint256 singleOut;
     uint256 singleOutFloor;
+    /// @dev Each leg's `_legImpactBps` weighted by its share of its hop's input, averaged over the
+    ///      hops by their leg counts (not compounded). Measured on the reserve and concentrated arms;
+    ///      nominal (`DEFAULT_IMPACT_BPS`) on the V4, V4-native and wrapper arms. The Solver prices
+    ///      the floor it attests from it; the Router never reads this field (it measures `impactAcc`).
     uint256 expectedImpactBps;
     uint256 confidenceWad;
     uint256 estGas;
@@ -2646,7 +2650,8 @@ library BlazePhoenixCore {
         return _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, bar, V4_WALK_MAX_STEPS);
     }
 
-    /// @notice What a singleton book HOLDS of tokenOut over its first `n` stretches (n <= 16):
+    /// @notice What a singleton book HOLDS of tokenOut over its first `n` stretches (n is in
+    ///         1..16; its one caller passes a constant, the Solver's FUNNEL_STRETCHES):
     ///         the output of an unbounded, fee-free walk, raw units of tokenOut. The Solver's
     ///         funnel (`_heldBooks`) reads it on a fixed horizon of two stretches a book, so what
     ///         it reads of a book is never a figure the book declares (I-FUNNEL-STRETCHES).

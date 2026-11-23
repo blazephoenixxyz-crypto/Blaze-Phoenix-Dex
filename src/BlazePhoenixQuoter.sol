@@ -217,7 +217,8 @@ contract BlazePhoenixQuoter {
         uint8   topology;          // 0 = direct, 1 = one bridge (MAX_HOPS caps the depth)
         //                            (= hops - 1; was ALWAYS 0 until 2026-08-22)
         address bridgeUsed;
-        bool    canExecute;
+        bool    canExecute;        // for the venues' and the Router's state in this block; a token
+        //                            that pauses or blocks transfers is met only by the Router
     }
 
     struct BatchEntry {
@@ -229,6 +230,8 @@ contract BlazePhoenixQuoter {
 
     /// @notice Primary preview entry. Asks the Solver for the U-maximiser and
     ///         returns the full 𝒬(route) breakdown plus the fallback route.
+    ///         The fallback route comes without a verdict: ask `previewRoute` of it
+    ///         before sending it (here and in `previewPlanWithMinOut`).
     function previewPlan(address tIn, address tOut, uint256 amountIn)
         external view returns (Preview memory pv, Route memory fallbackRoute, bool hasFallback)
     {
@@ -240,7 +243,10 @@ contract BlazePhoenixQuoter {
 
     /// @notice Same as previewPlan but accepts a user-tightened minOut.
     ///         effectiveMinOut = max(userMinOut, ironFloor) — the user can
-    ///         only tighten the floor, never weaken it.
+    ///         only tighten the floor, never weaken it. It floors the NET delivery: the
+    ///         encode doors carry it as the call's minOut, so where a single hop into a
+    ///         bridge takes the fee off the output, a gross output less than one fee above
+    ///         ironFloor is refused (SHARED_QUANTITIES, `effectiveMinOut` at the encode doors).
     function previewPlanWithMinOut(
         address tIn, address tOut, uint256 amountIn, uint256 userMinOut
     ) external view returns (Preview memory pv, Route memory fallbackRoute, bool hasFallback) {
