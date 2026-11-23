@@ -144,7 +144,7 @@ flowchart TD
     S -->|"quote each leg via one evaluator"| C[Core · measured math]
     R -->|"execute + measure delta at the seam"| V{{Live venues}}
     C -.->|"same evaluator prices the floor"| R
-    R -->|"delivered ≥ max(protocol floor, userMinOut)"| U
+    R -->|"declared ≥ protocol floor · delivered ≥ userMinOut"| U
 ```
 
 | Contract | Role |
@@ -244,7 +244,7 @@ holding. Nothing here asks to be taken on trust.
 | Guarantee | Enforced by | Check it yourself |
 |---|---|---|
 | No swap without the caller's own floor | `RouterE(10)` on every value door when `userMinOut == 0` | `forge test --match-path test/A1EveryValueDoorRefusesZeroMinOut.t.sol` |
-| Delivered output ≥ max(protocol floor, `userMinOut`), or the swap reverts | the Router's settlement check, priced by the Core evaluator | `halmos --contract CoreFormalGateSpec` |
+| The route floors read the output the venues declared (gross); `userMinOut` reads the delivery measured at the recipient; else the swap reverts | the Router's settlement check, priced by the Core evaluator | `halmos --contract CoreFormalGateSpec` |
 | The quote and the enforced floor agree | one evaluator for preview and execution | `forge test --match-path test/PreviewExecutionParity.t.sol` |
 | No reentry during a swap, pool callbacks and the output transfer included | a transient (`tstore`) lock spanning the swap | `forge test --match-path test/ReentryFromTheOutputTransfer.t.sol` |
 | The Router ends a swap holding nothing of what it moved, with the single rounding bound for share tokens stated and pinned | balance-delta settlement | `forge test --match-path test/RouterBalanceAfterSettlement.t.sol` |

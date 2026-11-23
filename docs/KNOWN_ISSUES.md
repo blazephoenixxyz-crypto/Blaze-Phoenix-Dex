@@ -151,7 +151,15 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   (the fees and the probes' error bounds) is dropped like one priced below, even when it would pay
   more: that edge keeps a shallow venue with a marginal price that is too good out of the plan.
   Two honest venues away from rest (a stable pair skewed before arbitrage) therefore route
-  through the deeper one alone. Pinned by `test_limit_ARowPricedAboveTheBandIsDropped`.
+  through the deeper one alone. Pinned by `test_limit_ARowPricedAboveTheBandIsDropped`. The base
+  is the depth-weighted median (`Math._wMedian`): moving it takes at least half of the rows' mass.
+- **A wrapper leg is priced only by its adapter's `quote` view** (`Core.gateQuote`). A wrapper
+  without that view, or one whose walk cannot fill the whole input (the Liquidity Book and Algebra
+  Integral adapters then answer 0), is quoted at 0 and gets no share of the order. This fails
+  closed: a venue is never priced above what it fills.
+- **A token's `balanceOf` is read as the token answers it** (`Core.heldBy`, the Router's
+  concentrated-liquidity callback). A token that misreports its balances deceives the
+  measurements of the legs that trade it; what it can take is from that token's own pairs.
 
 ## Out of scope
 

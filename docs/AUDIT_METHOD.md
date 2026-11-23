@@ -51,9 +51,10 @@ Three properties make it a guard rather than a score:
 Since 2026-09-05 the register also aims at the **stateful invariants**: eleven entries pair a
 source mutation with the `invariant_*` function that must go red under it, measured by running
 every mutant against all 40 invariants (`docs/assurance/invariant-mutants.json`). Before that,
-no mutant named an invariant, and the campaigns were properties nobody had tried to break. Four
-of the fifteen mutants tried survived every invariant; two of those guards have no watcher of
-any kind, and are published as such rather than folded into the killed count.
+no mutant named an invariant, and the campaigns were properties nobody had tried to break. How
+many survived, and which guard a survivor leaves without a watcher, is read in that file and in
+[ASSURANCE §4l](assurance/ASSURANCE.md#4l-mutants-aimed-at-the-invariants), not restated here; a
+guard without a watcher is published as such rather than folded into the killed count.
 
 **Every mutant names the test that must kill it.** `check_targets.py` confirms on every change
 that each one still points at exactly one source line; a killed count is published only from a
