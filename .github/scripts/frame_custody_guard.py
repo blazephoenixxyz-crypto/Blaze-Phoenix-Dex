@@ -46,7 +46,9 @@ CENSUS = {
     "_received": (1, "received = after - balBefore, the baseline its caller took before its pull "
                      "(the one producer of the measured pull since 2026-10-28)"),
     "_chargeHopFee": (1, "bal - foreignBase (foreignBase = this call's baseline)"),
-    "_hopScaleImpactAndQuote": (1, "bal - foreignBase"),
+    "_hopScaleImpactAndQuote": (2, "hop 1+: _owned(bal, bridgeBase[h-1], amountIn); hop 0: "
+                                  "_owned(bal, baseIn, amountIn), baseIn parked in the last "
+                                  "bridgeBase slot before the pull (6da7c23)"),
     "_execute": (8, "tinStart/toutStart/bridgeBase are the baselines; refunds pay resid - baseIn "
                     "and rb - bridgeBase; output is total - toutStart; the last-leg read is a "
                     "min() clamp, never a payout"),
