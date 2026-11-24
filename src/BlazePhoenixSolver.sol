@@ -381,6 +381,8 @@ contract BlazePhoenixSolver {
             Hop memory hop = r.hops[h];
             uint256 was = hop.expectedOut;
             uint256 sum;
+            // A price-limited first leg promises its rank pro rata, not whole (`BPC.limitedHopOut`).
+            (bool lim, ) = BPC.v4Limit(hop.legs.length == 0 ? bytes32(0) : hop.legs[0].auxId);
             if (num != den) hop.amountIn = BPC.mulDiv(hop.amountIn, num, den);
             for (uint256 l; l < hop.legs.length; ) {
                 Leg memory g = hop.legs[l];
@@ -390,9 +392,10 @@ contract BlazePhoenixSolver {
                     (g.expectedOut, reads) = BPC.v3PaysOnBudget(g.pool, g.amountIn, g.zeroForOne, p, reads);
                     if (g.expectedOut < p) fl = _fell(fl, hop.tokenIn, hop.tokenOut, g.pool);
                 }
-                sum += g.expectedOut;
+                if (l != 0 || !lim) sum += g.expectedOut;
                 unchecked { ++l; }
             }
+            if (lim) sum = BPC.limitedHopOut(hop.legs[0].expectedOut, hop.legs[0].amountIn, sum, hop.amountIn);
             hop.expectedOut = sum;
             if (sum != was) fell = true;
             (num, den) = (sum, was);
@@ -686,7 +689,7 @@ contract BlazePhoenixSolver {
         uint256 a = s.used < xE ? s.used : xE;
         hop = Hop({
             tokenIn: e.tokenIn, tokenOut: e.tokenOut, amountIn: xE,
-            expectedOut: BPC.mulDiv(s.rank, a, s.used) + BPC.mulDiv(e.expectedOut, xE - a, xE),
+            expectedOut: BPC.limitedHopOut(s.rank, s.used, e.expectedOut, xE),
             legs: legs
         });
         up = BPC.mulDiv(upE, xE - a, xE);

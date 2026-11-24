@@ -2702,6 +2702,16 @@ library BlazePhoenixCore {
         return (true, int24(lo));
     }
 
+    /// @notice What a hop whose first leg is price-limited promises: that leg's verified `rank`
+    ///         pro rata to the part of the hop's input `xE` its verified input `used` covers,
+    ///         plus `eOut`, what the exact legs promise for all of `xE`, pro rata to the rest.
+    ///         The Solver builds the hop on it and reads it again when it rewrites its legs'
+    ///         quotes, so the hop's figure and its legs' never part.
+    function limitedHopOut(uint256 rank, uint256 used, uint256 eOut, uint256 xE) internal pure returns (uint256) {
+        uint256 a = used < xE ? used : xE;
+        return (a == 0 ? 0 : mulDiv(rank, a, used)) + (xE == 0 ? 0 : mulDiv(eOut, xE - a, xE));
+    }
+
     /// @notice The next window of a price-limited V4 leg: the sqrt price where it stops, the
     ///         nearer of the leg's limit tick and V4_WALK_DEEP_STEPS spacings past the pool's
     ///         current tick (initialized ticks sit on spacing multiples, so one window crosses
