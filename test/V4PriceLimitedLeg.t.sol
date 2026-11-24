@@ -218,6 +218,25 @@ contract V4PriceLimitedLegTest is Test {
         assertEq(MockERC20(lo).balanceOf(address(router)), 0, "router holds tokenIn");
     }
 
+    /// Past its floor a window must pay the hop's bar above what its input is worth at the
+    /// limit price. Two thick windows carry the leg past its floor; the book thins out at tick
+    /// -512, the first thin window pays less than the bar, and the leg stops there, far short
+    /// of its limit.
+    function test_LimitedLegStopsWhereAWindowNoLongerPaysTheBar() public {
+        Route memory route = _three(-3000);
+        uint256 got = _swap(route);
+        uint256 took = mgr.spentIn(pidLim);
+        uint256 left = _realIn() - took;
+        assertGt(took, BPC.mulDiv(LIM_IN, _realIn(), AMT), "the limited leg must run past its floor");
+        (uint160 sp, ) = mgr.slot0(pidLim);
+        assertEq(sp, BPC.sqrtPriceAtTick(-768), "the limited leg must stop after its first thin window");
+        assertEq(mgr.swapCount(), 5, "three windows for the limited leg, one swap per exact leg");
+        assertEq(mgr.spentIn(pidA), BPC.mulDiv(A_IN, left, AMT), "leg A: its share of what is left");
+        assertEq(mgr.spentIn(pidB), BPC.mulDiv(B_IN, left, AMT), "leg B: its share of what is left");
+        assertEq(MockERC20(hi).balanceOf(user), 100e18 + got, "user did not receive tokenOut");
+        assertEq(MockERC20(lo).balanceOf(address(router)), 0, "router holds tokenIn");
+    }
+
     // ── the shape a limited leg may ride in ──────────────────────────────────
 
     /// The limit bits on a pair-shaped leg: refused before anything moves.
