@@ -308,7 +308,7 @@ above is the place for it.
 | `BlazePhoenixMath` | 9,768 | 14,808 |
 | `BlazePhoenixQuoter` | 20,002 | 4,574 |
 | `BlazePhoenixRouter` | 22,818 | 1,758 |
-| `BlazePhoenixSolver` | 21,349 | 3,227 |
+| `BlazePhoenixSolver` | 21,422 | 3,154 |
 <!-- protocol-constants:end -->
 
 ### Gas case studies (measured; linked as they are published)
