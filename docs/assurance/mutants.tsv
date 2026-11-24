@@ -1941,7 +1941,12 @@ src/BlazePhoenixSolver.sol	test_ThinCurrentTickDeepNeighbourBookKeepsItsSeat	466
 src/BlazePhoenixSolver.sol	test_EachBookUnderTheBarIsWalkedOnce	4660 Solver._heldBooks: a walked book always keeps its seat (d = 2^128 - 1)
 src/BlazePhoenixSolver.sol	test_AWalkPastUint128IsCappedAndTheSearchStands	4660 Solver._heldBooks: the walk is not capped at 2^128 - 1
 src/BlazePhoenixSolver.sol	test_EachBookUnderTheBarIsWalkedOnce	4660 Solver._heldBooks: each book is walked twice
-src/BlazePhoenixSolver.sol	test_EmptyCurrentTickBookWeighsOnNobody	4660 Solver._heldBooks: a book declaring nothing (an empty current tick) is walked
+src/BlazePhoenixCore.sol	test_DustRule_ZeroQuotingPairWeighsNothing	funnel: the probe's zero: a pair reporting none of the token sold weighs its out reserve
+src/BlazePhoenixCore.sol	test_Control_PairReportingOneUnitOfTheSoldTokenKeepsItsMass	funnel: the probe's zero: a pair reporting one unit of the token sold weighs zero
+src/BlazePhoenixCore.sol	test_DustRule_BookWithLiquidityOneIsWalked	funnel: the probe's zero: a book whose declared side rounds to zero declares nothing
+src/BlazePhoenixCore.sol	test_DustRule_EmptyTickBookHoldingTheNextStretchIsWalkedAndKept	funnel: the probe's zero: a book declares on its current liquidity, not on slot0 (an empty tick is dropped unread)
+src/BlazePhoenixCore.sol	test_Control_UninitialisedBookWeighsNothing	funnel: the probe's zero: an uninitialised book declares
+src/BlazePhoenixSolver.sol	test_FunnelHorizon_EmptyTickBooksAreWalkedOnTwoStretches	funnel: the probe's zero: the funnel walks only books declaring more than the least mass (an empty-tick book is not walked)
 src/BlazePhoenixSolver.sol	test_ADeepBookOutDeclaredByDustBooksIsStillRead	4660 Solver._heldBooks: the walks stop at the first book holding under the bar (a dust book hides a deep one)
 src/BlazePhoenixSolver.sol	test_ADeepBookWeighsWhatItHoldsOnTheOtherRows	4660 Solver._heldBooks: lower-only, a book holding more than it declares adds only its declared side to the other rows
 src/BlazePhoenixSolver.sol	test_ThinCurrentTickDeepNeighbourBookKeepsItsSeat	4660 Solver._dropDust: no book is ever walked

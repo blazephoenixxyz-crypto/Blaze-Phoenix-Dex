@@ -34,3 +34,12 @@ empty-tick	gap-book	cat	v4walk
 empty-tick	empty-initialized-book	cat	v4walk
 empty-tick	past-the-horizon	cat	v4walk
 empty-tick	dust-in-the-gap	cat	v4walk
+mass	zero-quoting-pair	cat	funnel
+mass	one-unit-pair	cat	funnel
+mass	rounding-liquidity	cat	funnel
+mass	empty-tick-book	cat	funnel
+mass	uninitialised-book	cat	funnel
+mass	past-the-funnel-horizon	cat	funnel
+mass	two-hop-plan	cat	funnel
+mass	probe-parity	cat	funnel
+mass	initialised-book-floor	cat	funnel

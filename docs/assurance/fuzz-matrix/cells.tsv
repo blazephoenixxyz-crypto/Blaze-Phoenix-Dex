@@ -58,3 +58,12 @@ v4walk	empty-tick	empty-initialized-book	-	test_V4Arm_NothingWithinSixteenStretc
 v4walk	empty-tick	past-the-horizon	-	test_V4Arm_LiquidityPastThePromiseHorizon_QuotesNothing	covered
 v4walk	empty-tick	dust-in-the-gap	-	test_Attacker_DustInTheGap_SilencesNoMoreThanToday	covered
 fz	-	-	quote-ABI-execution	testFuzz_SolveRevertsOnlyWhenNoMeasuredRoutePays	covered
+funnel	mass	zero-quoting-pair	-	test_DustRule_ZeroQuotingPairWeighsNothing	covered
+funnel	mass	one-unit-pair	-	test_Control_PairReportingOneUnitOfTheSoldTokenKeepsItsMass	covered
+funnel	mass	rounding-liquidity	-	test_DustRule_BookWithLiquidityOneIsWalked	covered
+funnel	mass	empty-tick-book	-	test_DustRule_EmptyTickBookHoldingTheNextStretchIsWalkedAndKept	covered
+funnel	mass	uninitialised-book	-	test_Control_UninitialisedBookWeighsNothing	covered
+funnel	mass	past-the-funnel-horizon	-	test_Control_EmptyTickBook_LiquidityPastTheFunnelHorizon_IsDroppedUnlessAlone	covered
+funnel	mass	two-hop-plan	-	test_Plan_ABookSittingInAGapIsNotLeftOutOfATwoHopRoute	covered
+funnel	mass	probe-parity	-	testFuzz_FunnelNeverDropsUnreadWhatTheProbeQuotes	covered
+funnel	mass	initialised-book-floor	-	test_DustRule_AnInitialisedBookDeclaresTheLeastMass	covered
