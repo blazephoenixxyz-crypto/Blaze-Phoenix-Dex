@@ -835,7 +835,8 @@ contract BlazePhoenixSolver {
         Leg[] memory legs;
         uint256 totalOut;
         uint256 committedIn;
-        (legs, totalOut, committedIn, up, held) = _placed(tIn, amountIn, cands, balsOut, rates, xs, psis, sumPsi, n, mode);
+        uint256 upH;   // the split's ceiling above its promise, each leg at its share
+        (legs, totalOut, committedIn, up, held, upH) = _placed(tIn, amountIn, cands, balsOut, rates, xs, psis, sumPsi, n, mode);
         if (legs.length == 0) return (hop, 0, false);
 
         // REMOVED: the per-leg conservatism haircut (it was `legCount * 5 bps`
@@ -902,20 +903,16 @@ contract BlazePhoenixSolver {
             // One call site for every single, the first included (its bar is the empty `sR`, 0).
             Hop memory single;
             uint256 sR;
-            uint256 hMax;
             uint256 hF;   // the highest quote among the capacity-held singles ranked at the cap
             for (uint256 i; i < nBand; ) {
-                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, xs[i], balsOut, i);
+                (Hop memory alt, uint256 aR, , uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, xs[i], balsOut, i);
                 aR += alt.expectedOut;
-                aH += alt.expectedOut;
-                if (aH > hMax) hMax = aH;
                 if (aF > hF) hF = aF;
                 if (aR > sR) { single = alt; sR = aR; }   // an empty single ranks 0
                 unchecked { ++i; }
             }
             if (
-                hMax <= sR &&   // no single chosen: sR == 0 and the bound below fails
-                totalOut + up < BPC.mulDiv(
+                totalOut + upH < BPC.mulDiv(
                     sR, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000
                 )
             ) {
@@ -964,19 +961,19 @@ contract BlazePhoenixSolver {
     function _placed(
         address tIn, uint256 amountIn, PoolInfo[] memory cands, uint256[] memory balsOut,
         uint256[] memory rates, QuoteCtx[] memory xs, uint256[] memory psis, uint256 sumPsi, uint256 n, uint256 mode
-    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held) {
-        (legs, totalOut, committedIn, up, held) = _split(tIn, amountIn, cands, balsOut, xs, psis, sumPsi, n, mode);
+    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held, uint256 upH) {
+        (legs, totalOut, committedIn, up, held, upH) = _split(tIn, amountIn, cands, balsOut, xs, psis, sumPsi, n, mode);
         while (legs.length > 2) {
             uint256 j = _onTrial(legs, cands, rates, n);
             if (j == n) break;
             sumPsi -= psis[j];
             _leave(cands, balsOut, psis, rates, xs, j, n);
             unchecked { --n; }
-            (Leg[] memory l2, uint256 o2, uint256 c2, uint256 u2, bool h2) =
+            (Leg[] memory l2, uint256 o2, uint256 c2, uint256 u2, bool h2, uint256 g2) =
                 _split(tIn, amountIn, cands, balsOut, xs, psis, sumPsi, n, mode);
             if (h2) held = true;   // a held leg leaves the choice unsettled, whichever split is kept
             if (totalOut + up >= BPC.mulDiv(o2 + u2, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000)) break;
-            (legs, totalOut, committedIn, up) = (l2, o2, c2, u2);
+            (legs, totalOut, committedIn, up, upH) = (l2, o2, c2, u2, g2);
         }
     }
 
@@ -1043,7 +1040,7 @@ contract BlazePhoenixSolver {
     function _split(
         address tIn, uint256 amountIn, PoolInfo[] memory cands, uint256[] memory balsOut,
         QuoteCtx[] memory xs, uint256[] memory psis, uint256 sumPsi, uint256 n, uint256 mode
-    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held) {
+    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held, uint256 upH) {
         Leg[] memory tmpLegs = new Leg[](n);
         uint256 legCount;
         uint256 allocated;
@@ -1063,8 +1060,8 @@ contract BlazePhoenixSolver {
             // S2: bar 0 resolves a truncated V4 walk; `rL - outL` is what it found above the
             // promise, summed into the hop's rank (`up`) at once - only a V4 leg has any, and a
             // V4 leg is dropped below only when `outL` is zero. `outL` stays the promise.
-            (uint256 outL, uint256 rL, ) = _quote(xs[i], share, 0);
-            if (outL != 0) up += rL - outL;
+            (uint256 outL, uint256 rL, uint256 hL) = _quote(xs[i], share, 0);
+            if (outL != 0) { up += rL - outL; upH += hL - outL; }
             // A reserve-shaped pool can never pay more than it holds (out < reserveOut <=
             // balance on an honest pair), so a promise above its tokenOut holdings comes
             // from forged reserves: the leg is dropped (balsOut is already read above).
