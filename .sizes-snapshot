@@ -9,7 +9,7 @@ BlazePhoenixAdapterLB runtime=3124 initcode=3437
 BlazePhoenixCore runtime=19450 initcode=19480
 BlazePhoenixGate runtime=10758 initcode=15919
 BlazePhoenixGateWrapper runtime=4414 initcode=4929
-BlazePhoenixHub runtime=21956 initcode=22190
+BlazePhoenixHub runtime=22235 initcode=22469
 BlazePhoenixMath runtime=9768 initcode=9798
 BlazePhoenixQuoter runtime=20002 initcode=20377
 BlazePhoenixRouter runtime=22818 initcode=23337

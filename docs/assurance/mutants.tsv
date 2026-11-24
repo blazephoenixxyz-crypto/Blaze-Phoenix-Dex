@@ -2003,3 +2003,16 @@ src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_ICL_Hooks_CodeChangedAfterCr
 src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_IBin_Hooks_CodeChangedAfterCreate_QuoteDeclaresNoDepth	caixa-1123 adapter-hook [AH-2]: Infinity Bin quote reads depth behind a hook whose code moved
 src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Hooks_PinnedHookCodeChanged_Refused	caixa-1123 adapter-hook [AH-3]: LB hooks check admits the pinned address with other code
 src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Hooks_SameCodeAtAnotherAddress_Refused	caixa-1123 adapter-hook [AH-4]: LB hooks check admits the pinned code at another address
+src/BlazePhoenixHub.sol	test_DustClaim_CannotEvictADeepRowThatWentQuiet	caixa-1123 hub-insert a: a full pair whose worst row is at psi 0 admits any newcomer again (no depth read)
+src/BlazePhoenixHub.sol	test_AnEmptiedDeadRow_StillLeaves	caixa-1123 hub-insert b: the quiet row is measured by its sealed bucket, not by what it holds now
+src/BlazePhoenixHub.sol	test_ASameBucketNewcomer_DoesNotEvictADeadRow	caixa-1123 hub-insert c: a same-bucket newcomer takes the quiet row's seat (strict > becomes >=)
+src/BlazePhoenixHub.sol	test_AFailedDepthRead_IsNotADepth	caixa-1123 hub-insert d: a failed depth read counts as the deepest depth
+src/BlazePhoenixHub.sol	test_TheRowAdmissionMeasures_IsTheRowEvictionRemoves	caixa-1123 hub-insert e: admission measures the first row, not the row eviction removes
+src/BlazePhoenixHub.sol	test_ADeadSingletonRow_IsMeasuredUnderItsOwnPoolId	caixa-1123 hub-insert f: a quiet V4 singleton row is read under pool id 0
+src/BlazePhoenixHub.sol	test_ADeadNativeRow_IsMeasuredInItsOwnCurrencyOrder	caixa-1123 hub-insert g: a quiet native row is read in the pair's order, not its pool's currency order
+src/BlazePhoenixHub.sol	test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer	caixa-1123 hub-insert frame: the depth read runs on 1/8 of the frame instead of its ceiling
+src/BlazePhoenixHub.sol	test_ADeadHookedRow_IsMeasuredUnderItsHookedPoolId	caixa-1123 hub-insert hook: a quiet hooked V4 row is read under the hookless pool id
+src/BlazePhoenixHub.sol	test_ADeadConcentratedRow_IsMeasuredAsConcentrated	caixa-1123 hub-insert V3: a quiet concentrated row is read as a V2 pair
+src/BlazePhoenixHub.sol	test_AShortAnswer_IsNotADepth	caixa-1123 hub-insert short: an answer under one word is read as a depth
+src/BlazePhoenixHub.sol	test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer	caixa-1123 hub-insert cap1: the producer's ceiling drops to one GAS_CAP for the whole read
+src/BlazePhoenixHub.sol	test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer	caixa-1123 hub-insert cap50: the producer's ceiling rises to 50 GAS_CAP
