@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import {BlazePhoenixCore as BPC} from "../../src/BlazePhoenixCore.sol";
+import {MockExactOut} from "./MockV3Pool.sol";
 
 interface IERC20Alg {
     function transfer(address to, uint256 amt) external returns (bool);
@@ -114,10 +115,18 @@ contract MockAlgebraPool {
             shiftArmed = false;
         }
 
-        require(amountSpecified > 0, "MockAlgebraPool: exact-out unsupported");
-        uint256 amtIn = uint256(amountSpecified);
+        require(amountSpecified != 0, "MockAlgebraPool: zero amount");
+        uint256 amtIn;
+        uint256 amtOut;
         // The fee is the pool's own MEASURED dynamic fee — never calldata.
-        uint256 amtOut = BPC.outV3(amtIn, sqrtPriceX96, liquidity, dynFee, zeroForOne, 0);
+        if (amountSpecified > 0) {
+            amtIn = uint256(amountSpecified);
+            amtOut = BPC.outV3(amtIn, sqrtPriceX96, liquidity, dynFee, zeroForOne, 0);
+        } else {
+            // Exact output (a negative amount), as AlgebraPool.swap reads it (see MockV3Pool).
+            (amtOut, amtIn) =
+                MockExactOut.inFor(uint256(-amountSpecified), sqrtPriceX96, liquidity, dynFee, zeroForOne);
+        }
         require(amtOut > 0, "MockAlgebraPool: zero out");
 
         address tokenIn  = zeroForOne ? token0 : token1;

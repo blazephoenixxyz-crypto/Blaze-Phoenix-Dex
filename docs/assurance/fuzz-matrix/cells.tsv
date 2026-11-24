@@ -39,3 +39,5 @@ fz	-	-	hop1-hop2	testFuzz_ALegGivenMoreInputIsHeldToTheAttestedRate	covered
 fz	-	-	quote-ABI-execution	test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt	covered
 input-baseline	restatement	fee-push-restatement	-	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	covered
 input-baseline	restatement	leg-window-restatement	-	-	gap
+quoter	range	quantum-tax	-	test_HopZero_V3_SweepAcrossTheQuantum_PromisedMeansFilled	covered
+quoter	range	int256-max	-	test_AnInputOneWeiPastInt256MaxIsNotProbed	covered

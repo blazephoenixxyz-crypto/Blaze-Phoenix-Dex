@@ -17,3 +17,5 @@ decimals	6	min	fz
 decimals	18	max	fz
 restatement	fee-push-restatement	cat	input-baseline
 restatement	leg-window-restatement	cat	input-baseline
+range	quantum-tax	cat	quoter
+range	int256-max	max	quoter

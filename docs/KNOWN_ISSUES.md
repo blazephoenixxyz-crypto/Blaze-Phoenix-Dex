@@ -172,6 +172,15 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
 - **A token's `balanceOf` is read as the token answers it** (`Core.heldBy`, the Router's
   concentrated-liquidity callback). A token that misreports its balances deceives the
   measurements of the legs that trade it; what it can take is from that token's own pairs.
+- **An input tax that also takes the pool's payment back is promised for about one quantum**
+  (`Quoter._inputTaxed`). The exact doors ask a concentrated pool for exactly the leg's input,
+  backwards, and measure what it receives when paid back. A token that taxes the pool's payment
+  to the Quoter as well hands it the input less the tax, and the probe pays and measures that
+  smaller size: a tax charged per quantum (floor(x * bps / 1e4)) can round to zero there and not
+  at the Router's payment, a window of about one quantum [Q, Q + tax(Q)). There the preview
+  promises and the Router refuses: RouterE(13), or RouterE(5) when the payer's own transfer is
+  taxed too. This fails closed: the swap reverts and the payer keeps its input. Pinned by
+  `test_Residual_TaxBothWays_TheRouterRefusesAndThePayerIsWhole`.
 
 ## Out of scope
 
