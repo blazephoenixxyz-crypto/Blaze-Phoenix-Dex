@@ -1081,7 +1081,7 @@ contract BlazePhoenixHub {
         // deep pool and the dust pool project the same psi. From the registry's one depth
         // producer, which the swap door and the operator's door call too.
         uint256 depthTok = BPC.registryDepth18(poolAddr, BPC.KIND_V4, s0, s1, $.v4PoolManager, pid);
-        if (!_canInsert($.pairKeys[s0][s1], depthTok, _pairBridged($, s0, s1))) return key;
+        if (!_canInsert(s0, s1, depthTok)) return key;
         $.v4Entries.push(V4Entry({
             currency0: s0, currency1: s1, fee: fee,
             tickSpacing: tickSpacing, hooks: address(0)
@@ -1833,7 +1833,7 @@ contract BlazePhoenixHub {
             return;
         }
         // unknown — attempt insert
-        if (!_canInsert($.pairKeys[t0][t1], depthWad, _pairBridged($, t0, t1))) return;
+        if (!_canInsert(t0, t1, depthWad)) return;
         // Pair-shaped kinds: PROVE the pool really trades (t0, t1) before it
         // enters the registry. Every argument here is caller-controlled
         // calldata carried in the Router's Route — pool, kind AND depth — so
@@ -2045,7 +2045,17 @@ contract BlazePhoenixHub {
         return BPC.getV3Fee(pool) == idFee ? idFee : 0;
     }
 
-    function _canInsert(bytes32[] storage ks, uint256 newDepth, bool bridged) private view returns (bool) {
+    /// @dev A ROW AT PSI 0 IS QUIET, NOT EMPTY (dex:hub-insert-margin-zero-psi). Vitality decays
+    ///      to 0 in about nine days, and against a worst psi of 0 the margin below admitted any
+    ///      newcomer of depth >= 1: one dust claim, or one dust leg, took the seat of a 3M row
+    ///      nobody had traded that week (measured). Psi 0 says the row is not being used; what
+    ///      it holds is a measurement, so the row eviction would remove (`_worstRow`, the one
+    ///      producer both sides ask) is read now (`_rowDepth18`) and the newcomer seats only on
+    ///      a strictly deeper bucket. A row that emptied itself measures shallow and leaves, as
+    ///      before (INV-16). Above psi 0 nothing changes.
+    function _canInsert(address t0, address t1, uint256 newDepth) private view returns (bool) {
+        HubStore storage $ = _store();
+        bytes32[] storage ks = $.pairKeys[t0][t1];
         if (ks.length < MAX_SLOTS) return true;
         // ─── Insertion ranking ───
         // Rank incumbents by full fitness (vitality × depth-bucket weight × bonuses),
@@ -2055,12 +2065,12 @@ contract BlazePhoenixHub {
         // and an attacker can no longer keep a deep pool out merely by sending
         // dust through 16 shallow slots to hold their vitality at 1.
         if (newDepth == 0) return false;
-        HubStore storage $ = _store();
-        uint256 worstPsi = type(uint256).max;
-        for (uint256 i; i < ks.length; ) {
-            uint256 p = _psiOfSlot($.slot[ks[i]], bridged);
-            if (p < worstPsi) worstPsi = p;
-            unchecked { ++i; }
+        bool bridged = _pairBridged($, t0, t1);
+        // Psi is the high part of the composite key, so the worst row carries the lowest psi.
+        (uint256 worstIdx, uint256 worstPsi) = _worstRow($, ks, bridged);
+        worstPsi >>= 4;
+        if (worstPsi == 0) {
+            return BPC.depthBucket(newDepth) > BPC.depthBucket(_rowDepth18($, ks[worstIdx], t0, t1));
         }
         // Newcomer's projected fitness: vitality starts at 1, weighted by the depth
         // bucket it will occupy. The bridge term is the PAIR's, not the pool's
@@ -2095,6 +2105,64 @@ contract BlazePhoenixHub {
         // admission policy — an owner decision, not a rounding tweak. Recorded
         // in the assumptions ledger rather than papered over here.
         return newcomerPsi > worstPsi + (worstPsi / 4);
+    }
+
+    /// @dev THE ONLY producer of "which row of a full pair leaves, and on what score": admission
+    ///      (`_canInsert`) measures the row this names and eviction (`_register`) removes it, so
+    ///      the two cannot disagree about whose seat is at stake.
+    ///      TIES BREAK BY DEPTH, NOT BY INDEX (rizki-3107). When every row has aged to psi 0 the
+    ///      fitness says nothing, and a strict `<` over psi alone evicted the lowest index
+    ///      whatever its depth: a 3M pool left before fifteen 1k rows (measured). The 4-bit
+    ///      depth bucket rides under psi, so equal psi names the shallowest row; unequal psi
+    ///      still decides alone. Runtime arguments only (hubcura-1022, see `_register`).
+    function _worstRow(
+        HubStore storage $, bytes32[] storage ks, bool bridged
+    ) private view returns (uint256 idx, uint256 v) {
+        v = type(uint256).max;
+        for (uint256 i; i < ks.length; ) {
+            uint256 sv = $.slot[ks[i]];
+            uint256 w = (_psiOfSlot(sv, bridged) << 4) | BPC.decodeBucket(sv);
+            if (w < v) { v = w; idx = i; }
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev WHAT A ROW HOLDS NOW, from the registry's one depth producer
+    ///      (`Core.registryDepth18`), for the pair's registry order `(t0, t1)`. A V4 row is
+    ///      read under its own pool id, recomputed from its `V4Entry` (the registry keeps the
+    ///      id truncated), and a native row in its pool's currency order, WETH standing for
+    ///      the coin, as the door that sealed it read it (`addV4`).
+    ///      A READ THAT FAILS IS NOT A DEPTH, AND NO DOOR GAINS A REVERT. The producer runs
+    ///      as a static call into the library under a gas ceiling: one that reverts (a token
+    ///      refusing `balanceOf`), answers under one word or runs past the ceiling measures 0,
+    ///      and the row nobody can measure leaves to any newcomer above bucket 0.
+    ///      DECLARED LIMIT: the ceiling is 5 x GAS_CAP for the WHOLE producer - its five
+    ///      reads on a pair (`getReserves`, two `balanceOf`, two `decimals`), each held to
+    ///      GAS_CAP's own meaning of one bounded read - and not GAS_CAP for each. A quiet row
+    ///      whose whole read does not fit in it measures 0 and leaves.
+    ///      A frame too short to pay for the read cannot turn that into an eviction: the call
+    ///      keeps at most 1/64 of the frame, under 5 x GAS_CAP / 63 gas, and seating the
+    ///      newcomer writes a fresh slot.
+    function _rowDepth18(
+        HubStore storage $, bytes32 key, address t0, address t1
+    ) private view returns (uint256 d) {
+        bytes32 pid;
+        uint256 ep = $.v4EntryOf[key];
+        if (ep != 0) {
+            V4Entry storage e = $.v4Entries[ep - 1];
+            pid = BPC.computeV4PoolId(e.currency0, e.currency1, e.fee, e.tickSpacing, e.hooks);
+            if (e.currency0 == address(0) && e.currency1 == t0) (t0, t1) = (t1, t0);
+        }
+        bytes memory cd = abi.encodeWithSelector(
+            BPC.registryDepth18.selector,
+            $.poolOf[key], BPC.decodeKind($.slot[key]), t0, t1, $.v4PoolManager, pid
+        );
+        address lib = address(BPC);
+        uint256 cap = BPC.GAS_CAP * 5;
+        assembly ("memory-safe") {
+            let ok := staticcall(cap, lib, add(cd, 0x20), mload(cd), 0x00, 0x20)
+            if and(ok, gt(returndatasize(), 31)) { d := mload(0x00) }
+        }
     }
 
     /// @notice Fitness of a slot using the pair's live bridge flag (`_pairBridged`, passed in)
@@ -2158,23 +2226,10 @@ contract BlazePhoenixHub {
         // so this only closes the operator entry-points.
         if ($.poolOf[key] == address(0)) {
             if (ks.length >= MAX_SLOTS) {
-                // Evict the lowest-scoring slot (rank by fitness, not vitality,
-                // consistent with _canInsert so the pool we admit is the pool we
-                // chose to make room for).
-                // TIES BREAK BY DEPTH, NOT BY INDEX (rizki-3107). When every row has
-                // aged to psi 0 the fitness says nothing, and the strict `<` below
-                // used to evict the lowest index whatever its depth: a 3M pool left
-                // before fifteen 1k rows (measured). The 4-bit depth bucket rides under psi, so equal
-                // psi evicts the shallowest row; unequal psi still decides alone.
-                uint256 worstIdx;
-                uint256 worst = type(uint256).max;
-                bool bridged = _pairBridged($, t0, t1);
-                for (uint256 i; i < ks.length; ) {
-                    uint256 sv = $.slot[ks[i]];
-                    uint256 v = (_psiOfSlot(sv, bridged) << 4) | BPC.decodeBucket(sv);
-                    if (v < worst) { worst = v; worstIdx = i; }
-                    unchecked { ++i; }
-                }
+                // Evict the lowest-scoring slot (rank by fitness, not vitality): the row
+                // `_canInsert` measured the newcomer against, named by the same producer
+                // (`_worstRow`), so the pool we admit is the pool we chose to make room for.
+                (uint256 worstIdx, ) = _worstRow($, ks, _pairBridged($, t0, t1));
                 bytes32 evictKey = ks[worstIdx];
                 address evictPool = $.poolOf[evictKey];
                 $.slot[evictKey] = 0;

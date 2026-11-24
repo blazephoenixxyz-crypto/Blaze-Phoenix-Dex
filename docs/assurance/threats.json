@@ -333,6 +333,14 @@
       "note": "rizki-3107 (Rizki Armando), 2026-10-20. Admission requires proof of origin: the swap door seats a pair-shaped or concentrated pool only if Hub.discoverFor (the derivation from the wired factories) lists it; the pool's own token0()/token1() check stays beside it, because a CREATE2 hit proves the deployer and salt, not the tokens (test_Create2HitOnOtherTokens_IsRefusedByThePairCheck). An unproven pool stays tradable on a caller-built route, at the caller's risk."
     },
     {
+      "id": "REG-QUIET-ROW-DUST-EVICTION",
+      "class": "A deep registry row nobody traded for about nine days ages to psi 0, and on a full pair one dust claim (claimV4) or one dust swap leg (recordSwap) takes its seat, because admission against a worst psi of 0 asked nothing of what the row holds",
+      "status": "blocked",
+      "guard": "_rowDepth18",
+      "test": "test_DustClaim_CannotEvictADeepRowThatWentQuiet",
+      "note": "caixa-1123 hub-insert, 2026-11-24. Psi 0 says a row is not being used, not that it is empty. Admission and eviction now ask one producer which row is at stake (Hub._worstRow, SHARED_QUANTITIES `_worstRow`); at psi 0 _canInsert reads what that row holds now (Hub._rowDepth18, Core.registryDepth18 under a 5 x GAS_CAP ceiling for the whole producer) and seats the newcomer only on a strictly deeper bucket, so a full pair of dead rows of bucket 0 yields only to a newcomer of bucket >= 1. A read that reverts, answers under one word or runs past the ceiling measures 0 and the row leaves; no door gains a revert. A row that emptied itself measures shallow and leaves, as before (INV-16). Above psi 0 nothing changes. Test: test/DeadRowKeepsItsMeasuredDepth.t.sol, red on 833c3b1."
+    },
+    {
       "id": "GATE-DUST-USE",
       "class": "Dust swaps through a Gate wrapper buy vitality: each swap counts once whatever its size, so a wrapper's use (and psi) is pumped for the price of gas",
       "status": "blocked",

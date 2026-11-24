@@ -17,3 +17,8 @@ decimals	6	min	fz
 decimals	18	max	fz
 restatement	fee-push-restatement	cat	input-baseline
 restatement	leg-window-restatement	cat	input-baseline
+door	claimV4	cat	hub-insert
+door	recordSwap	cat	hub-insert
+row-read	reverts	cat	hub-insert
+row-read	short-answer	cat	hub-insert
+row-read	past-ceiling	cat	hub-insert

@@ -165,10 +165,10 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- entry-gas:begin -->
 | Router entry | Gas | Snapshot (the test's own fixture) |
 |---|---:|---|
-| `swapExactIn`, plan quoted off-chain, 1 hop | 368,075 | `snapshots/test_Gas_SwapExactIn_Quoted_OneHop.json` (`swapExactIn_tx`) |
-| `swapExactIn`, plan quoted off-chain, 2 hops | 569,592 | `snapshots/test_Gas_SwapExactIn_Quoted_TwoHops.json` (`swapExactIn_tx`) |
-| `swapBestExactIn`, plan solved on-chain, 1 hop | 443,989 | `snapshots/test_Gas_SwapBestExactIn_Solve_OneHop.json` (`swapBestExactIn_tx`) |
-| `swapBestExactIn`, plan solved on-chain, 2 hops | 721,040 | `snapshots/test_Gas_SwapBestExactIn_Solve_TwoHops.json` (`swapBestExactIn_tx`) |
+| `swapExactIn`, plan quoted off-chain, 1 hop | 365,483 | `snapshots/test_Gas_SwapExactIn_Quoted_OneHop.json` (`swapExactIn_tx`) |
+| `swapExactIn`, plan quoted off-chain, 2 hops | 564,408 | `snapshots/test_Gas_SwapExactIn_Quoted_TwoHops.json` (`swapExactIn_tx`) |
+| `swapBestExactIn`, plan solved on-chain, 1 hop | 443,397 | `snapshots/test_Gas_SwapBestExactIn_Solve_OneHop.json` (`swapBestExactIn_tx`) |
+| `swapBestExactIn`, plan solved on-chain, 2 hops | 719,856 | `snapshots/test_Gas_SwapBestExactIn_Solve_TwoHops.json` (`swapBestExactIn_tx`) |
 | `swapExactInNative`, ETH in, 1 hop | 254,346 | `snapshots/test_Gas_SwapExactInNative_EthIn_OneHop.json` (`swapExactInNative_tx`) |
 | `swapExactInNative`, ETH in, 2 hops | 346,508 | `snapshots/test_Gas_SwapExactInNative_EthIn_TwoHops.json` (`swapExactInNative_tx`) |
 | `swapExactInWithPermit2`, 1 hop | 253,875 | `snapshots/test_Gas_SwapExactInWithPermit2_OneHop.json` (`swapExactInWithPermit2_tx`) |
@@ -184,7 +184,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `src/BlazePhoenixRouter.sol` | 477 | 396 | 477 |
 | `src/BlazePhoenixCore.sol` | 424 | 343 | 424 |
 | `src/BlazePhoenixSolver.sol` | 263 | 191 | 263 |
-| `src/BlazePhoenixHub.sol` | 220 | 192 | 220 |
+| `src/BlazePhoenixHub.sol` | 233 | 203 | 233 |
 | `src/BlazePhoenixQuoter.sol` | 163 | 139 | 163 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
 | `src/BlazePhoenixMath.sol` | 57 | 44 | 57 |
@@ -206,7 +206,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
 | `test/fork/AtqForkVenueOracle.sol` | 1 | 1 | 1 |
-| **all** | 1,996 | 1,567 | 1,996 |
+| **all** | 2,009 | 1,578 | 2,009 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -260,12 +260,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,704 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 528 | `test/**/*.t.sol` |
+| Test declarations | 3,720 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 529 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,996 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,009 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -297,7 +297,7 @@ declaration counts, not pass counts.
 | `BlazePhoenixCore` | 19,450 | 5,126 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
-| `BlazePhoenixHub` | 21,956 | 2,620 |
+| `BlazePhoenixHub` | 22,235 | 2,341 |
 | `BlazePhoenixMath` | 9,768 | 14,808 |
 | `BlazePhoenixQuoter` | 20,002 | 4,574 |
 | `BlazePhoenixRouter` | 22,818 | 1,758 |
@@ -888,12 +888,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,704 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 528 | `test/**/*.t.sol` |
+| Test declarations | 3,720 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 529 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,996 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,009 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -925,7 +925,7 @@ above is the place for it.
 | `BlazePhoenixCore` | 19,450 | 5,126 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
-| `BlazePhoenixHub` | 21,956 | 2,620 |
+| `BlazePhoenixHub` | 22,235 | 2,341 |
 | `BlazePhoenixMath` | 9,768 | 14,808 |
 | `BlazePhoenixQuoter` | 20,002 | 4,574 |
 | `BlazePhoenixRouter` | 22,818 | 1,758 |
@@ -2639,6 +2639,7 @@ hop count.
 | `depthWad` (via `depthFromL18`) | "How deep is this pool?" | `Core` ×3 - the two arms of the quote body (`_quoteArms`, behind `universalQuoteRank` and `universalProbe`), and `registryDepth18`, the registry's one producer since 2026-09-23, called by `Router._recordHits`, `Hub.claimV4`, `Hub.seedPool` (which sealed bucket 0 until then: dex-17) and `Hub.addV4` (which sealed bucket 0 until 2026-10-07: Seavia Resources). Since 2026-10-07 `Hub._register` takes the measured depth as an argument and writes the bucket itself, so a door that skips the depth does not compile; `test/RegistryDoorsMeasureWhatTheyWrite.t.sol` walks all four doors | `WEAK` | CI job *Depth producer guard* covers the **source** (never calldata); `test/DepthUnitParity.t.sol` covers the **units** — but it exercises `depthFromL`, the inner primitive, **not** `depthFromL18`, which is where decimal normalisation lives and where a defect has already escaped once **Mass, 2026-09-23 (ninth wave, Binod Bk):** a concentrated pool's depth is capped by the tokens it holds at both producers - the Solver's candidate depth and the Router's registry write - and a zero holding is zero capacity at the Solver's two clamps; one held side keeps its mass, none is zero. Pinned by `test/ConcentratedMassCap.t.sol` (`ConcentratedEmptyBookTest`). **Median mass, 2026-10-11:** the singleton arm has no per-pool balance, so in the band's depth-weighted median (`Math._heldShare`) its depth is scaled by held/virtual on the output side: `held` is the output its book holds over the stretches `Core.v4WalkOut` walks - the real reserves L·(√P − √Pa) / L·(1/√P − 1/√Pb) of whitepaper §6.2 - and `virtual` is L·√P / L/√P at the current price, both raw units of tokenOut, so the vote keeps the unit of the depth it scales: the short-side `depthWad` until 2026-11-10, the tokenOut side since (the `hopMass18` row), which makes the vote the held tokenOut itself. It can only lower a vote; the allocation keeps the unscaled depth. Pinned by `test/V4MedianMassIsHeld.t.sol`, both directions (a narrow range holding little loses the vote, also at a price far from one; one holding more than the wide mass keeps it). `test/SeedDoorMeasuresWhatItWrites.t.sol` - `test_ASecondSeededDeepPoolOutranksWarmDustWithoutTheGuaranteedSeat` (2026-10-27, mutant [270]; re-armed the same day, after poda-1027 removed the funnel's count cut and `_seatDeepest`, when eight warm dust rows no longer made the bucket decide who is quoted): a seeded row ranks by its measured bucket in the pair's sixteen seats - `_register` evicts the lowest psi (vitality x 2^bucket; a seeded row's vitality is 1) and `_canInsert` admits a newcomer only above the weakest psi plus a quarter - so two seeded deep rows among fourteen warm dust rows keep their seats against two bucket-1 swap-door newcomers; born at bucket 0, the first of them is evicted. |
 | `bridged` (Monoslot bit 7) | "Is this pool anchored on a routable bridge?" | written frozen at registration (`Hub._register`), read live by `_psiOfSlot` — and the **live** predicate `_isRoutableBridge` answers the same question elsewhere | `SINGLE` (fixed 2026-09-02) | `Hub._pairBridged` is the only producer: read live at every psi site (`getPsi`, `psisOf`, `_canInsert`, `_register`), bit 7 no longer written. Pins: `test/FrozenAtWriteProbes.t.sol` `test_probe_bridgedBit_*` (both directions, red on the frozen bit: 6400 ≠ 5120 and 4096 ≠ 5120), mutants 93-94. CI guard: *Producer copy guard* forbids `_isBridged`. Was finding **BRIDGE-01**. Note: read live the bonus is uniform within a pair, so no within-pair ranking can turn on it - except where one side of a comparison is scored without it: until 2026-09-23 `_canInsert` gave it to every incumbent and not to the newcomer (dex-12, ninth wave); both sides carry it now (`test/SeedDoorMeasuresWhatItWrites.t.sol`) |
 | `2_500`, the bridge term (+25 %) | "How much does a bridged pair add to a row's score?" | two producers, pinned by parity: `Core.psi` scores each incumbent (through `Hub._psiOfSlot`), and `Hub._canInsert` projects the newcomer's score before the quarter margin. They stay separate because the Core scores a slot that exists, while the Hub projects a depth that has no slot yet | `PINNED` (2026-11-09: two producers, pinned by parity, not fused) | `test/BridgeTermOneMagnitude.t.sol`. Core side: a literal pin (bucket 15, 4 swaps: 131072 bare, 163840 bridged; every other magnitude in [0, 10_000] reads differently) and a fuzz over buckets and counts. Hub side, alone: two worlds whose bar sits at the newcomer's projected score. `test_BridgeTerm_HubSeatsTheNewcomerTwoOverTheBar` kills every magnitude <= 2_499; `test_BridgeTerm_HubRefusesTheNewcomerExactlyAtTheBar` kills every magnitude >= 2_501. Mutants MT6-1..3. dex-12's guard catches the removal of the term, but a magnitude one unit off survives it. Rounding (2026-11-10): `test/BridgeTermBelowOnePoint.t.sol` reads the two producers where a quarter of the score is not a whole point (a newcomer at bucket 0 or 1, an incumbent under four points): both floor the term, so a newcomer that only equals the bar takes no seat. Mutants MT6-11, MT6-12 (the Hub term rounded up, rounded half up), MT6-13 (the Core term rounded up) |
+| `_worstRow` (the row of a full pair that leaves, and its score) | "Which row of a full pair is at stake, and on what score?" | `Hub._worstRow`, the one producer (the lowest `(psi << 4) | bucket`, ties to the shallowest, rizki-3107), for two consumers: `Hub._canInsert` (admission: the newcomer is measured against this row) and `Hub._register` (eviction: this row leaves). Until 2026-11-24 each ran its own loop, and against a worst psi of 0 admission asked nothing of the row: one dust claim or dust leg took the seat of a deep row that had only gone quiet (caixa-1123 hub-insert). At psi 0 admission now reads what the row holds (`Hub._rowDepth18`, through `Core.registryDepth18` under a 5 x GAS_CAP ceiling; a read that fails, answers short or runs past it measures 0) and seats the newcomer only on a strictly deeper bucket | `PINNED` | `test/DeadRowKeepsItsMeasuredDepth.t.sol` - `test_TheRowAdmissionMeasures_IsTheRowEvictionRemoves` (admission and eviction name the same row), `test_ASameBucketNewcomer_DoesNotEvictADeadRow`, `test_ADeeperNewcomer_EvictsADeadRow`, `testFuzz_DeadRowEviction_NewcomerBucketMustExceedTheLiveBucket`, `test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer`. Mutants caixa-1123 hub-insert a-g, frame, hook, V3, short, cap1, cap50 |
 | `stable` | "Is this a stable-curve pool?" | the pool's own `stable()`, read once by `Core.solidlyStable` at the registration door (`Hub._register`) into Monoslot **bit 5**; `_readPoolInfo` reads the bit; the factory-derived path keeps the factory's value. Since aero-nova (2026-10-26) the read goes through `Core._askWord` and holds `ASK_GAS_FLOOR` (a starved ask reverts empty instead of writing a stable pair volatile, mutant 856), and only a pair that answers `stable()` has a replicated curve: for a pair without the getter (the 2026 Aerodrome V2) the bit is nobody's word and the fallback quotes 0 | `SINGLE` (fixed 2026-09-02) | Pins: `test/FrozenAtWriteProbes.t.sol` `test_probe_stableField_*` (registry field, and the fallback curve at −0.99 % on the frozen `false`), mutants 95-96. CI guard: *Producer copy guard* forbids `p.stable = false`. Was finding **SLOT-01**. Blast radius was the replicated-curve fallback and the impact model only — every quote channel asks `getAmountOut` first (`test_control_stableField_standardPoolIsPricedByItsOwnGetter`) |
 | pool depth **source** | "Who says how deep this pool is?" | `Router._recordHits` reads `getReserves` from the pool — an adversary-controlled contract for a synthetic pair | `PINNED` | `test/RouterPhysicalMassCap.t.sol` — on the pair arm a pair declaring more than it holds has registry depth 0 and its leg is refused (bounty #85; until then the bucket was capped side by side to the physical holdings); `test/ConcentratedMassCap.t.sol` — the same on the concentrated arm, conditional on the pool holding both tokens; mutants pair each. Since 2026-09-23 the measurement is `Core.registryDepth18`, and the operator's door seals with it too: `test/SeedDoorMeasuresWhatItWrites.t.sol` |
 | reserve-shaped leg promise vs `Holdings` | "Can this pair pay what its leg promises?" | the promise is `outV2`/Solidly on the pair's own `getReserves` (adversary-controlled); the bound is `balanceOf(tokenOut, pair)`, read by `Solver` once per candidate per build, in the probe pass (`balsOut`), for the split path and, since 2026-11-09 (SQ2), for the single-leg gate as well, which asked the token a second time before (a lone candidate sees no probe pass: `_singleLeg` reads its holdings itself, past the quote); a forged pair is cut there before the single-leg gate can pick it | `PINNED` | `test/ForgedReservesCannotOutquoteHoldings.t.sol` - `test_ForgedReservesVenue_IsNeverQuotedAboveItsHoldings`: a pair proving its tokens with forged reserves is never routed, and no leg promises above its holdings; `test/SplitLegOfAReserveShapedVenueIsBoundedByItsHoldings.t.sol` - `test_ASplitLegOnAReserveShapedVenueIsNeverPromisedAboveItsHoldings` (2026-10-27, mutant [333]): a Solidly pair holding what it declares, asked one wei above its holdings at a split share, is dropped at the split; since bounty #85 a V2 pair with forged reserves dies at `Core.heldBy` before it reaches `balsOut`; `test/SqSameAnswer.t.sol` - `test_Sq_SameAnswer_PromiseAtTheEdgeOfTheHoldings` and `testFuzz_Sq_SameAnswer` (2026-11-09, mutants [morf-SQ2-6], [morf-SQ2-7]): the single's refusal falls on the same side of the edge as with a reading of its own, one wei under, at and one wei over the holdings; `test/SingleLegPromiseAtItsHoldings.t.sol` (2026-11-10, mutants [morf-SQ2-15], [morf-SQ2-16]): a Solidly pair holding what it declares, whose answer for the order is told by hand, stands on the edge itself: a promise equal to its Holdings is kept, one wei more is dropped (SolverE(5) where the row is the only one) |
