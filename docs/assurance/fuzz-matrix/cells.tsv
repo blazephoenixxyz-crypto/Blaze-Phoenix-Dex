@@ -39,3 +39,8 @@ fz	-	-	hop1-hop2	testFuzz_ALegGivenMoreInputIsHeldToTheAttestedRate	covered
 fz	-	-	quote-ABI-execution	test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt	covered
 input-baseline	restatement	fee-push-restatement	-	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	covered
 input-baseline	restatement	leg-window-restatement	-	-	gap
+hub-insert	door	claimV4	-	test_DustClaim_CannotEvictADeepRowThatWentQuiet	covered
+hub-insert	door	recordSwap	-	test_SwapDoor_DustLeg_CannotEvictADeepQuietRow	covered
+hub-insert	row-read	reverts	-	test_AFailedDepthRead_IsNotADepth	covered
+hub-insert	row-read	short-answer	-	test_AShortAnswer_IsNotADepth	covered
+hub-insert	row-read	past-ceiling	-	test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer	covered
