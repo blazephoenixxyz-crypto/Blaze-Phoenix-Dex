@@ -2186,7 +2186,7 @@ library BlazePhoenixCore {
             // and liquidity beyond the current range is counted where it is. V2 has no ticks
             // to walk and needs none: its curve is its whole book.
             fee = effV4Fee(c.fee, lpF, pF, c.zeroForOne);
-            (out, rank, hi) = _v4Walk(c.v4Manager, pid, amountIn, uint24(fee), c.tickSpacing, c.zeroForOne, bar, V4_WALK_MAX_STEPS);
+            (out, rank, hi, , ) = _v4Walk(c.v4Manager, pid, amountIn, uint24(fee), c.tickSpacing, c.zeroForOne, bar, V4_WALK_MAX_STEPS);
             // Same token-denomination as the V3 branch above: the band anchor
             // compares depths[] ACROSS families, so a V4 pool reporting raw L
             // (sqrt scale) would out-anchor an equally-deep V2 pool by
@@ -2511,7 +2511,7 @@ library BlazePhoenixCore {
         address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne
     ) public view returns (uint256 out) {
         if (poolId == bytes32(0)) (fee, tickSpacing) = (getV3Fee(manager), int24(int256(_v3Get(manager, 0xd0c93a7c, 0, 0))));
-        (out, , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, type(uint256).max, V4_WALK_MAX_STEPS);
+        (out, , , , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, type(uint256).max, V4_WALK_MAX_STEPS);
     }
 
     /// @dev The gas `swapBestExactIn` (Router) hands the Solver for the in-transaction
@@ -2647,7 +2647,39 @@ library BlazePhoenixCore {
         address manager, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
         uint256 bar
     ) public view returns (uint256 lo, uint256 rank, uint256 hi) {
-        return _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, bar, V4_WALK_MAX_STEPS);
+        (lo, rank, hi, , ) = _v4Walk(manager, poolId, amountIn, fee, tickSpacing, zeroForOne, bar, V4_WALK_MAX_STEPS);
+    }
+
+    /// @notice Where the deep walk of a hookless V4 book stops for `amountIn`, every truncated
+    ///         quote resolved (bar 0): its ranking figure, the input its V4_WALK_DEEP_STEPS
+    ///         stretches spent, the sqrt price they reached and the fee they charged
+    ///         (`effV4Fee`). `sStop == 0` when the walk finished (exact), the book ended or could
+    ///         not be read: no tail past it to bound. A hooked key answers zeros.
+    function v4Stop(QuoteCtx memory c, uint256 amountIn)
+        public view returns (uint256 rank, uint256 used, uint160 sStop, uint24 fee)
+    {
+        if (c.hooks != address(0)) return (0, 0, 0, 0);
+        (address s0, address s1) = sortTokens(c.tokenIn, c.tokenOther);
+        bytes32 pid = computeV4PoolId(s0, s1, c.fee, c.tickSpacing, c.hooks);
+        (, , uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(c.v4Manager, pid);
+        fee = effV4Fee(c.fee, lpF, pF, c.zeroForOne);
+        (, rank, , used, sStop) = _v4Walk(c.v4Manager, pid, amountIn, fee, c.tickSpacing, c.zeroForOne, 0, V4_WALK_MAX_STEPS);
+    }
+
+    /// @notice The price limit a V4 leg carries in the high bits of its `auxId`: bit 184 set,
+    ///         the limit tick (int24) in bits 160..183. Every reader masks `auxId` to its low 160
+    ///         bits (the other token), so an unlimited leg is the leg it always was.
+    function v4Limit(bytes32 auxId) internal pure returns (bool on, int24 tick) {
+        uint256 a = uint256(auxId);
+        on = (a >> 184) & 1 != 0;
+        tick = int24(uint24(a >> 160));
+    }
+
+    /// @notice What `x` of input pays at sqrt price `sp` after `fee` (ppm), rounded UP: the
+    ///         most any unit of a swap that ends at or before `sp` can pay (see `_v4Ceil`).
+    ///         Saturates at 2^128 - 1, the most a V4 swap settles.
+    function v4ValueAt(uint256 x, uint24 fee, uint160 sp, bool zeroForOne) internal pure returns (uint256) {
+        return _v4Ceil(0, x, fee, sp, zeroForOne);
     }
 
     /// @notice What a singleton book HOLDS of tokenOut over its first `n` stretches (n is in
@@ -2658,7 +2690,7 @@ library BlazePhoenixCore {
     function v4Held(address manager, bytes32 poolId, int24 tickSpacing, bool zeroForOne, uint256 n)
         public view returns (uint256 held)
     {
-        (, held, ) = _v4Walk(manager, poolId, type(uint256).max, 0, tickSpacing, zeroForOne, type(uint256).max, n);
+        (, held, , , ) = _v4Walk(manager, poolId, type(uint256).max, 0, tickSpacing, zeroForOne, type(uint256).max, n);
     }
 
     /// @notice A singleton book's vote in the Solver's depth-weighted median (`Solver._heldShare`
@@ -2674,7 +2706,7 @@ library BlazePhoenixCore {
     ) internal view returns (uint256) {
         (uint160 sp, uint128 liq, , , ) = v4SqrtAndLiq(manager, poolId);
         uint256 vOut = mulDiv(liq, zeroForOne ? sp : Q96, zeroForOne ? Q96 : sp);
-        (, uint256 held, ) = _v4Walk(manager, poolId, type(uint256).max, 0, tickSpacing, zeroForOne, bar, V4_WALK_MAX_STEPS);
+        (, uint256 held, , , ) = _v4Walk(manager, poolId, type(uint256).max, 0, tickSpacing, zeroForOne, bar, V4_WALK_MAX_STEPS);
         if (held >= vOut) return d;
         d = mulDiv(d, held, vOut);
         return d == 0 ? 1 : d;
@@ -2714,13 +2746,13 @@ library BlazePhoenixCore {
     function _v4Walk(
         address src, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
         uint256 bar, uint256 n
-    ) private view returns (uint256 lo, uint256 out, uint256 hi) {
-        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || src == address(0)) return (0, 0, 0);
+    ) private view returns (uint256 lo, uint256 out, uint256 hi, uint256 used, uint160 sStop) {
+        if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || src == address(0)) return (0, 0, 0, 0, 0);
         // `src` is the V4 singleton (state read through extsload), or, with a zero poolId, a
         // V3-shaped pool walked through its own getters (slot0, liquidity, tickBitmap, ticks).
         uint256 base = poolId == bytes32(0) ? 0 : uint256(keccak256(abi.encode(poolId, uint256(6))));
         uint160 sp = uint160(_book(src, base, 0, 0));
-        if (sp == 0) return (0, 0, 0);
+        if (sp == 0) return (0, 0, 0, 0, 0);
         int24 tick = int24(uint24(_book(src, base, 1, 0)));
         uint128 liq = uint128(_book(src, base, 2, 0));
         uint256 rem = amountIn;
@@ -2753,9 +2785,9 @@ library BlazePhoenixCore {
             // carry the quote above `bar` (see `_v4Ceil`).
             if (i == n - 1) {
                 lo = out;
-                if (bar == type(uint256).max) return (lo, out, out > type(uint128).max ? out : type(uint128).max);
+                if (bar == type(uint256).max) return (lo, out, out > type(uint128).max ? out : type(uint128).max, amountIn - rem, target);
                 hi = _v4Ceil(out, rem, fee, target, zeroForOne);
-                if (hi <= bar) return (lo, out, hi);
+                if (hi <= bar) return (lo, out, hi, amountIn - rem, target);
             }
             tick = zeroForOne ? nt - 1 : nt;
             sp = target;
@@ -2766,6 +2798,8 @@ library BlazePhoenixCore {
         // input is still unspent, and the ranking figure is only a lower bound under `hi`.
         if (i < n) lo = out;
         hi = i == V4_WALK_DEEP_STEPS ? _v4Ceil(out, rem, fee, sp, zeroForOne) : out;
+        // Truncated (input left at the deep limit): what it spent and the price it stopped at.
+        if (i == V4_WALK_DEEP_STEPS) (used, sStop) = (amountIn - rem, sp);
     }
 
     /// @notice Batch slot0 read for many V4 poolIds in ONE staticcall via the
