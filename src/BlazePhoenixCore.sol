@@ -2678,8 +2678,30 @@ library BlazePhoenixCore {
     /// @notice What `x` of input pays at sqrt price `sp` after `fee` (ppm), rounded UP: the
     ///         most any unit of a swap that ends at or before `sp` can pay (see `_v4Ceil`).
     ///         Saturates at 2^128 - 1, the most a V4 swap settles.
-    function v4ValueAt(uint256 x, uint24 fee, uint160 sp, bool zeroForOne) internal pure returns (uint256) {
+    function v4ValueAt(uint256 x, uint24 fee, uint160 sp, bool zeroForOne) public pure returns (uint256) {
         return _v4Ceil(0, x, fee, sp, zeroForOne);
+    }
+
+    /// @notice The next window of a price-limited V4 leg: the sqrt price where it stops, the
+    ///         nearer of the leg's limit tick and V4_WALK_DEEP_STEPS spacings past the pool's
+    ///         current tick (initialized ticks sit on spacing multiples, so one window crosses
+    ///         at most V4_WALK_DEEP_STEPS stretches), the limit's sqrt price and the fee the leg
+    ///         pays (`effV4Fee`). `stop == 0` when the price already sits at or past the stop:
+    ///         nothing is left to fill on this side of the limit.
+    function v4Window(address mgr, bytes32 pid, uint24 keyFee, int24 spacing, bool zeroForOne, int24 limTick)
+        public view returns (uint160 stop, uint160 limSqrt, uint24 fee)
+    {
+        (uint160 sp, , uint24 lpF, uint24 pF, int24 tick) = v4SqrtAndLiq(mgr, pid);
+        fee = effV4Fee(keyFee, lpF, pF, zeroForOne);
+        if (limTick < V4_MIN_TICK) limTick = V4_MIN_TICK;
+        if (limTick > V4_MAX_TICK) limTick = V4_MAX_TICK;
+        limSqrt = sqrtPriceAtTick(limTick);
+        if (limSqrt < MIN_SQRT_PRICE_PLUS_ONE) limSqrt = MIN_SQRT_PRICE_PLUS_ONE;
+        if (limSqrt > MAX_SQRT_PRICE_MINUS_ONE) limSqrt = MAX_SQRT_PRICE_MINUS_ONE;
+        int256 w = int256(spacing) * int256(V4_WALK_DEEP_STEPS);
+        int256 t = zeroForOne ? int256(tick) - w : int256(tick) + w;
+        stop = (zeroForOne ? t > limTick : t < limTick) ? sqrtPriceAtTick(int24(t)) : limSqrt;
+        if (sp == 0 || (zeroForOne ? sp <= stop : sp >= stop)) stop = 0;
     }
 
     /// @notice What a singleton book HOLDS of tokenOut over its first `n` stretches (n is in
