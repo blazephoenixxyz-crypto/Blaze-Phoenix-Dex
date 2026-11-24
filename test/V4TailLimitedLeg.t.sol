@@ -143,14 +143,15 @@ contract V4TailLimitedLegTest is Test {
     }
 
     /// H: a hookless book at the market, fee 100, spacing 1, holding about 2 units of tokenOut
-    /// over +-20000 ticks, with a row of 300 one-wei positions on the order's side so its
-    /// deep walk stops short of the order.
-    function _bookH() internal {
+    /// over +-20000 ticks, with a row of 300 one-wei positions on the order's side, `gap` ticks
+    /// from the price, so its deep walk stops short of the order: at once with no gap, after
+    /// the real fill of `gap` + 255 ticks otherwise.
+    function _bookH(int24 gap) internal {
         pidH = BPC.computeV4PoolId(x0, x1, 100, 1, address(0));
         mgr.initialize(pidH, sp0, p0, 100);
         uint256 l = zfo ? BPC.mulDiv(2e18, Q96, sp0) : BPC.mulDiv(2e18, sp0, Q96);
         mgr.addPosition(pidH, p0 - 20000, p0 + 20000, 1, uint128(l));
-        int24 f = zfo ? p0 - 300 : p0;
+        int24 f = zfo ? p0 - gap - 300 : p0 + gap;
         for (int24 t = f; t < f + 300; ++t) mgr.addPosition(pidH, t, t + 1, 1, 1);
         hub.addV4(x0, x1, 100, 1, address(0));
     }
@@ -171,6 +172,28 @@ contract V4TailLimitedLegTest is Test {
         hub.addV4(x0, x1, 500, 1, address(0));
     }
 
+    /// D: `delta` ticks better than the market, fee 500, about 5 units of tokenOut of real
+    /// liquidity that all sits behind the price but for about `probe` of tokenIn, and ahead of
+    /// it a row of 300 one-wei positions: a book that weighs as much as E and whose walk
+    /// verifies dust.
+    function _bookD(int24 delta, uint256 probe) internal returns (bytes32 pid) {
+        int24 pt = zfo ? p0 + delta : p0 - delta;
+        pid = BPC.computeV4PoolId(x0, x1, 500, 1, address(0));
+        uint160 sl = mgr.sqrtAt(pt);
+        uint160 su = mgr.sqrtAt(pt + 1);
+        uint256 l = zfo ? BPC.mulDiv(5e18, Q96, sl) : BPC.mulDiv(5e18, sl, Q96);
+        if (zfo) {
+            mgr.initialize(pid, sl + uint160(BPC.mulDiv(BPC.mulDiv(probe, sl, Q96), sl, l)), pt, 500);
+            mgr.addPosition(pid, pt, pt + 20000, 1, uint128(l));
+        } else {
+            mgr.initialize(pid, su - uint160(BPC.mulDiv(probe, Q96, l)), pt, 500);
+            mgr.addPosition(pid, pt - 19999, pt + 1, 1, uint128(l));
+        }
+        int24 f = zfo ? pt - 299 : pt;
+        for (int24 t = f; t < f + 300; ++t) mgr.addPosition(pid, t, t + 1, 1, 1);
+        hub.addV4(x0, x1, 500, 1, address(0));
+    }
+
     function _v2Out(uint256 amt) internal view returns (uint256) {
         uint256 rIn = PathologicalERC20(tIn).balanceOf(pairE);
         uint256 rOut = PathologicalERC20(tOut).balanceOf(pairE);
@@ -188,10 +211,10 @@ contract V4TailLimitedLegTest is Test {
     /// One hop, H and E: H rides once, first and price-limited; every unit it may fill pays the
     /// exact plan's average rate; the order spends exactly X and settles at least what H alone
     /// or E alone would.
-    function _seated(uint8 dIn, bool wantZfo) internal {
+    function _seated(uint8 dIn, bool wantZfo, int24 gap) internal {
         _cfg(dIn, wantZfo);
         _pairE(5, 300);
-        _bookH();
+        _bookH(gap);
         uint256 x = mIn / 10;
         Route memory r = solver.findBestRoutePlan(tIn, tOut, x).best;
         assertEq(r.hops.length, 1, "one hop");
@@ -225,18 +248,49 @@ contract V4TailLimitedLegTest is Test {
         assertGe(got, twinE, "the hop settles less than the exact plan alone");
     }
 
-    function test_StoppedBookRidesLimitedFirst_18_18_ZeroForOne() public { _seated(18, true); }
-    function test_StoppedBookRidesLimitedFirst_18_18_OneForZero() public { _seated(18, false); }
-    function test_StoppedBookRidesLimitedFirst_6_18_ZeroForOne() public { _seated(6, true); }
-    function test_StoppedBookRidesLimitedFirst_6_18_OneForZero() public { _seated(6, false); }
+    function test_StoppedBookRidesLimitedFirst_18_18_ZeroForOne() public { _seated(18, true, 0); }
+    function test_StoppedBookRidesLimitedFirst_18_18_OneForZero() public { _seated(18, false, 0); }
+    function test_StoppedBookRidesLimitedFirst_6_18_ZeroForOne() public { _seated(6, true, 0); }
+    function test_StoppedBookRidesLimitedFirst_6_18_OneForZero() public { _seated(6, false, 0); }
+
+    // The row starts 250 ticks from the price: the walk verifies about half the order before
+    // it stops, a quote the exact plan would seat as a leg of its own. The book rides once.
+    function test_HalfVerifiedBookRidesOnlyAsTheLimitedLeg_18_18_ZeroForOne() public { _seated(18, true, 250); }
+    function test_HalfVerifiedBookRidesOnlyAsTheLimitedLeg_18_18_OneForZero() public { _seated(18, false, 250); }
+    function test_HalfVerifiedBookRidesOnlyAsTheLimitedLeg_6_18_ZeroForOne() public { _seated(6, true, 250); }
+    function test_HalfVerifiedBookRidesOnlyAsTheLimitedLeg_6_18_OneForZero() public { _seated(6, false, 250); }
+
+    /// H with no exact plan beside it: there is no average rate to limit it by, so it rides as
+    /// the one leg it always was, once and with no limit.
+    function _alone(bool wantZfo) internal {
+        _cfg(18, wantZfo);
+        _bookH(250);
+        uint256 x = mIn / 10;
+        Route memory r = solver.findBestRoutePlan(tIn, tOut, x).best;
+        assertEq(r.hops.length, 1, "one hop");
+        Leg[] memory legs = r.hops[0].legs;
+        assertEq(legs.length, 1, "the stopped book rides twice");
+        assertEq(legs[0].pool, address(uint160(uint256(pidH))), "the stopped book is not the leg");
+        assertFalse(_limited(legs[0]), "a limit with no exact plan to set it");
+        uint256 twinH;
+        (, twinH, , , ) = mgr.specSwap(pidH, _realIn(x), 100, 1, zfo,
+            zfo ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE);
+        vm.prank(user);
+        uint256 got = router.swapExactIn(r, x, 1, user, block.timestamp + 1);
+        assertGe(got, twinH, "the hop settles less than the book alone");
+    }
+
+    function test_StoppedBookAloneRidesOnceUnlimited_ZeroForOne() public { _alone(true); }
+    function test_StoppedBookAloneRidesOnceUnlimited_OneForZero() public { _alone(false); }
 
     /// T verified only dust (its probe and a row of one-wei positions): its verified rank does
     /// not pay the bar over the input it verified, so no leg rides with a limit, although the
     /// rate where its walk stopped is far above the bar.
-    function _dustStaysOut(bool wantZfo) internal {
+    function _dustStaysOut(bool wantZfo, bool deep) internal {
         _cfg(18, wantZfo);
         _pairE(5, 0);
-        _bookT(1000, 10);
+        if (deep) _bookD(1000, 1000);
+        else _bookT(1000, 10);
         uint256 x = mIn / 10;
         Route memory r = solver.findBestRoutePlan(tIn, tOut, x).best;
         for (uint256 a; a < r.hops.length; ++a)
@@ -247,6 +301,11 @@ contract V4TailLimitedLegTest is Test {
         assertGe(got, _v2Out(_realIn(x)), "the hop settles less than the exact plan alone");
     }
 
-    function test_DustVerifiedBookRidesNoLimit_ZeroForOne() public { _dustStaysOut(true); }
-    function test_DustVerifiedBookRidesNoLimit_OneForZero() public { _dustStaysOut(false); }
+    function test_DustVerifiedBookRidesNoLimit_ZeroForOne() public { _dustStaysOut(true, false); }
+    function test_DustVerifiedBookRidesNoLimit_OneForZero() public { _dustStaysOut(false, false); }
+
+    // The same dust, verified by a book as heavy as E: nothing drops it before the hop is
+    // built, and its verified rank alone keeps it from riding with a limit.
+    function test_HeavyBookThatVerifiedDustRidesNoLimit_ZeroForOne() public { _dustStaysOut(true, true); }
+    function test_HeavyBookThatVerifiedDustRidesNoLimit_OneForZero() public { _dustStaysOut(false, true); }
 }
