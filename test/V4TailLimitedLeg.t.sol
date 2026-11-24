@@ -31,6 +31,7 @@ contract V4TailLimitedLegTest is Test {
     BlazePhoenixHub hub;
     BlazePhoenixSolver solver;
     BlazePhoenixRouter router;
+    BlazePhoenixQuoter quoter;
     address user = address(0xB0B);
 
     address tIn;
@@ -49,9 +50,9 @@ contract V4TailLimitedLegTest is Test {
         hub = new BlazePhoenixHub(address(this));
         hub.initialize(address(this), address(mgr));
         solver = new BlazePhoenixSolver(address(hub), address(0));
-        BlazePhoenixQuoter q = new BlazePhoenixQuoter(address(hub), address(solver));
+        quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         router = new BlazePhoenixRouter(address(hub), address(solver), address(this), address(0xFEE1), address(0xFEE2));
-        hub.setRoles(address(router), address(solver), address(q));
+        hub.setRoles(address(router), address(solver), address(quoter));
     }
 
     // ── v4LimitTick ──────────────────────────────────────────────────────────
@@ -308,4 +309,65 @@ contract V4TailLimitedLegTest is Test {
     // built, and its verified rank alone keeps it from riding with a limit.
     function test_HeavyBookThatVerifiedDustRidesNoLimit_ZeroForOne() public { _dustStaysOut(true, true); }
     function test_HeavyBookThatVerifiedDustRidesNoLimit_OneForZero() public { _dustStaysOut(false, true); }
+
+    // ── the exact door funds a price-limited hop as the Router funds its bytes ──
+
+    /// The Solver's plan for `s` = 0.1 unit over H and E, re-priced by the exact door at
+    /// `x` = s * num / den, then settled by the Router on the bytes the door wrote, in the
+    /// same state. Shape: the exact legs are written at their shares of the hop's input, the
+    /// limited leg at its own, never above the input. Promise: never above what settles, and
+    /// within `tol` of it.
+    function _promise(uint8 dIn, bool wantZfo, int24 gap, uint256 num, uint256 den, uint256 tol) internal {
+        _cfg(dIn, wantZfo);
+        _pairE(5, 300);
+        _bookH(gap);
+        Route memory r = solver.findBestRoutePlan(tIn, tOut, mIn / 10).best;
+        _held(r, mIn / 10 * num / den, tol);
+    }
+
+    function _held(Route memory r, uint256 x, uint256 tol) internal returns (uint256 out, uint256 got) {
+        Leg[] memory legs = r.hops[0].legs;
+        assertTrue(legs.length > 1 && _limited(legs[0]), "no price-limited hop to fund");
+        uint256 a0 = legs[0].amountIn;
+        uint256 s;
+        for (uint256 k = 1; k < legs.length; ++k) s += legs[k].amountIn;
+        Route memory w;
+        (w, out) = quoter.previewRouteExact(r, x);
+        {
+            uint256 c = w.hops[0].amountIn;
+            Leg[] memory wl = w.hops[0].legs;
+            uint256 sw;
+            for (uint256 k = 1; k < wl.length; ++k) sw += wl[k].amountIn;
+            assertLe(sw, c, "the exact legs are written above the hop's input");
+            assertGe(sw + (wl.length - 1), c, "the exact legs are written short of the hop's input");
+            uint256 share = BPC.mulDiv(a0, c, s);
+            assertEq(wl[0].amountIn, share > c ? c : share, "the limited leg is not written at its share");
+        }
+        uint256 b0 = PathologicalERC20(tIn).balanceOf(user);
+        vm.prank(user);
+        got = router.swapExactIn(w, x, 1, user, block.timestamp + 1);
+        emit log_named_uint("promised", out);
+        emit log_named_uint("settled", got);
+        emit log_named_uint("spent", b0 - PathologicalERC20(tIn).balanceOf(user));
+        assertLe(out, got, "the exact door promised more than the Router settled");
+        assertLe(got - out, tol, "the exact door's promise is slack");
+    }
+
+    function test_ExactDoorPromisesWhatALimitedHopSettles_AtThePlan_ZeroForOne() public { _promise(18, true, 0, 1, 1, 0); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_AtThePlan_OneForZero() public { _promise(18, false, 0, 1, 1, 0); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_AtThePlan_6_18() public { _promise(6, true, 250, 1, 1, 0); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_ATenthOfThePlan() public { _promise(18, true, 0, 1, 10, 0); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_TwiceThePlan() public { _promise(18, false, 250, 2, 1, 0); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_AWeiUnderThePlan() public {
+        _cfg(18, true);
+        _pairE(5, 300);
+        _bookH(250);
+        _held(solver.findBestRoutePlan(tIn, tOut, mIn / 10).best, mIn / 10 - 1, 0);
+    }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_AWeiOverThePlan() public {
+        _cfg(18, false);
+        _pairE(5, 300);
+        _bookH(0);
+        _held(solver.findBestRoutePlan(tIn, tOut, mIn / 10).best, mIn / 10 + 1, 0);
+    }
 }
