@@ -1089,7 +1089,7 @@ src/BlazePhoenixSolver.sol	testFuzz_AVenueBehindATenPercentFeeNeverLowersTheSpli
 src/BlazePhoenixSolver.sol	test_D10_SameAnswer_BandAgainstAnOutlier	PLACE [986]: the leg that left keeps its weight in the sum, and the seat takes its share (second witness: the band against an outlier, same answer as the reference)
 src/BlazePhoenixSolver.sol	test_AMinorityVenueBehindATenPercentFeeNeverLowersTheSplit	PLACE [987]: the leg whose probe paid most is tried, and the 10% venue is never on trial
 src/BlazePhoenixSolver.sol	test_D10_SameAnswer_BandAgainstAnOutlier	PLACE [987]: the leg whose probe paid most is tried, and the 10% venue is never on trial (second witness: the band against an outlier, same answer as the reference)
-src/BlazePhoenixSolver.sol	test_ATrialRefusedAtTheCapIsSettledByTheWalk	PLACE [1080]: a trial whose split without the leg is held leaves the build unheld, and a split refused at the caps is never walked
+src/BlazePhoenixSolver.sol	test_ATrialKeptWithAHeldLegLeavesTheBuildHeld	PLACE [1080]: a kept trial whose split is held leaves the build unheld, and a split it holds is never walked
 src/BlazePhoenixCore.sol	test_Decision2_AnHourlyCadenceSettlesTheCountAtTwoM	fix1102-A [965]: _decay drops the chord, so the count falls only at the end of a step (the stair)
 src/BlazePhoenixHub.sol	test_3537NewRow_AnUnanchoredSwapThatRegistersAV4RowLeavesTheLearnedCodeUnchanged	fix1102-A [966]: an unanchored swap that registers a V4 row teaches its tier (3537)
 src/BlazePhoenixSolver.sol	test_control_SealedDoor_TheDeepPoolIsRouted	fix1102-oog-1: the dust drop measures a V4 row at the zero pool id, so a deep V4 row weighs 0 and is dropped
@@ -1724,7 +1724,7 @@ src/BlazePhoenixSolver.sol	test_TwoDearVenuesBothLeave_EveryDepthTies	PLACE [ATQ
 src/BlazePhoenixSolver.sol	test_TwoDearVenuesBothLeave_TheFirstHoldsLessThanAnHonestLegPays	PLACE [ATQ-mutacao-14]: the holdings do not move with their candidates
 src/BlazePhoenixSolver.sol	test_TwoDearVenuesBothLeave_TheDeepestOfThemHeldTheSeat	PLACE [ATQ-mutacao-15]: the weights do not move with their candidates
 src/BlazePhoenixSolver.sol	test_TwoDearVenuesBothLeave_TheDeepestListedFirst	PLACE [ATQ-mutacao-16]: the probe rates do not move with their candidates
-src/BlazePhoenixSolver.sol	test_AHeldBuildStaysHeldThroughATrialThatIsNot	PLACE [ATQ-mutacao-17]: a trial that is not held clears the held mark of the build before it
+src/BlazePhoenixSolver.sol	test_AHeldBuildStaysHeldThroughATrialKeptWithNoHeldLeg	PLACE [ATQ-mutacao-17]: a trial that is not held clears the held mark of the build before it
 src/BlazePhoenixMath.sol	test_Pin_TheOddWeiGoesToTheLowerAddressOfATie	PLACE [ATQ-mutacao-18]: the seat goes to the shallowest venue
 src/BlazePhoenixMath.sol	test_Pin_TheOddWeiGoesToTheLowerAddressOfATie	PLACE [ATQ-mutacao-19]: the seat of a tie goes to the higher address
 src/BlazePhoenixSolver.sol	test_TwoHops_ADearVenueOnEachHopLeavesIt	PLACE [ATQ-mutacao-20]: only the first stage of a route tries its legs
@@ -2019,6 +2019,11 @@ src/BlazePhoenixMath.sol	test_ABaseFarPastTheEdgeDropsTheRowAbove	caixa-1123 mea
 src/BlazePhoenixSolver.sol	test_Macro_FarOneSidedBookNeverLowersTheOrder	caixa-1123 measured rival [MV-4]: the split's gate runs from two legs up again, a split of one leg is not measured against the band
 src/BlazePhoenixMath.sol	test_Leaves_AnUnvouchedPairAboveTheBase_WithAndWithoutAVoter	caixa-1123 measured rival [MV-5a]: the pair's attestation is not read, an unvouched pair above the base stays
 src/BlazePhoenixMath.sol	test_Leaves_AHookedBookAboveTheBase	caixa-1123 measured rival [MV-5b]: the book's hook is not read, a hooked book above the base stays
+src/BlazePhoenixMath.sol	test_Leaves_AStableCurvePairAboveTheBase	caixa-1123 measured rival [MV-6a]: the pair's curve is not read, a stable pair above the base stays and is quoted on x*y=k
+src/BlazePhoenixCore.sol	test_Leaves_AStableCurvePairAboveTheBase	caixa-1123 measured rival [MV-6b]: Camelot's name for the curve is not asked, its stable pair above the base stays
+src/BlazePhoenixCore.sol	test_Stays_AVolatileCurvePairAboveTheBase	caixa-1123 measured rival [MV-6c]: any answer to Camelot's name reads as stable, a volatile pair above the base is dropped
+src/BlazePhoenixSolver.sol	test_ATrialThatLosesEvenAtItsCeilingLeavesTheBuildSettled	caixa-1123 v4 band [MV-7]: a trial refused at the caps leaves the build held even when it loses at its ceiling, the solve goes to the walk it cannot pay
+src/BlazePhoenixSolver.sol	test_ATrialRefusedAtTheCapIsSettledByTheWalk	caixa-1123 v4 band [MV-7b]: the ceiling of a trial refused at the caps is not counted, a trial its books could win leaves the build settled and unwalked
 src/BlazePhoenixMath.sol	test_aNarrowRangeVoteKeepsTheDepthUnit_awayFromAPriceOfOne	caixa-1123 measured rival [MV-5b]: the book's hook is not read, a hooked book above the base stays (second witness: a hooked narrow range above the base, away from a price of one)
 src/BlazePhoenixMath.sol	test_aMeasuredNarrowRangeAboveTheBaseIsKept_awayFromAPriceOfOne	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again (second witness: a measured narrow range above the base, away from a price of one)
 src/BlazePhoenixMath.sol	test_aMeasuredNarrowRangeAboveTheBaseIsKept_tokenOneIn	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again (second witness: a measured narrow range above the base, token one in)

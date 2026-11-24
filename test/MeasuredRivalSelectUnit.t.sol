@@ -17,6 +17,11 @@ pragma solidity 0.8.36;
 ///         MV-3 (a concentrated pool joins)    -> test_Leaves_AConcentratedPoolAboveTheBase
 ///         MV-5a (the attestation is not read) -> test_Leaves_AnUnvouchedPairAboveTheBase_WithAndWithoutAVoter
 ///         MV-5b (the hook is not read)        -> test_Leaves_AHookedBookAboveTheBase
+///         MV-6a (the curve is not read)       -> test_Leaves_AStableCurvePairAboveTheBase
+///         MV-6b (Camelot's name is not asked) -> test_Leaves_AStableCurvePairAboveTheBase
+///         MV-6c (any answer reads as stable)  -> test_Stays_AVolatileCurvePairAboveTheBase
+///         The two curve tests were red at 2e4d2df (a stable pair above the base stayed:
+///         Camelot 0x5201f648 on Arbitrum, quoted x*y=k at 30 bps, reverted on its K).
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixMath, IHubMath} from "../src/BlazePhoenixMath.sol";
@@ -28,6 +33,21 @@ contract TierBook {
     mapping(bytes32 => uint256) public getSlot;
     function setTier(bytes32 key, uint8 tier) external { getSlot[key] = uint256(tier) << 40; }
     function v4PoolManager() external pure returns (address) { return address(0); }
+}
+
+/// A pair that states its curve under one of the two names pairs answer it by (the two names
+/// `BlazePhoenixCore.statesStableCurve` asks): Solidly's `stable()` or Camelot's `stableSwap()`.
+/// The word is an immutable, so the code can be etched.
+contract CurveFlag {
+    uint256 private immutable word;
+    bool private immutable camelot;
+    constructor(uint256 w, bool c) { word = w; camelot = c; }
+    fallback() external {
+        bytes4 sel = camelot ? bytes4(0x9e548b7f) : bytes4(0x22be3de1);
+        if (msg.sig != sel) revert();
+        uint256 w = word;
+        assembly { mstore(0, w) return(0, 32) }
+    }
 }
 
 contract MeasuredRivalSelectUnitTest is Test {
@@ -172,5 +192,50 @@ contract MeasuredRivalSelectUnitTest is Test {
         uint8 kind = kinds[pick % 4];
         bool book4 = kind == BPC.KIND_V4 || kind == BPC.KIND_V4_NATIVE;
         assertFalse(_rivalStays(kind, active, uint8(bound(tier, 0, 3)), address(0), pct, book4 ? 0 : LIGHT, false), "under the edge");
+    }
+
+    // ------------------------------------------------------------- the curve the quote models
+
+    /// The rival's pair states its curve (`word`, under Solidly's or Camelot's name).
+    function _curve(uint256 word, bool camelot) private {
+        vm.etch(address(uint160(0x1000 + RIVAL)), address(new CurveFlag(word, camelot)).code);
+    }
+
+    /// A reserves row is quoted on x*y=k (a V2 row) or asked of the pair; a pair that states a
+    /// stable curve pays on another curve than the row's formula, so the hypothesis the rule
+    /// rests on ("only the fee is modelled") is false and the edge judges it. Camelot's stable
+    /// pair 0x5201f648 (Arbitrum, block 498000000) stated `stableSwap() = true`, did not answer
+    /// `stable()`, was kept at 2.2x the base and reverted on its K. 1 % over is the first whole
+    /// percent past the edge.
+    function test_Leaves_AStableCurvePairAboveTheBase() public {
+        _curve(1, true);
+        assertFalse(_rivalStays(BPC.KIND_V2, true, 1, address(0), 220, LIGHT, false), "Camelot stable, vouched, 2.2x");
+        assertFalse(_rivalStays(BPC.KIND_V2, false, 0, address(0), 101, LIGHT, false), "Camelot stable, curated, 1 % over");
+        _curve(1, false);
+        assertFalse(_rivalStays(BPC.KIND_SOLIDLY, true, 1, address(0), 220, LIGHT, false), "Solidly stable, vouched, 2.2x");
+        assertFalse(_rivalStays(BPC.KIND_V2, true, 1, address(0), 1e12, LIGHT, false), "stable, vouched, 1e10 x");
+    }
+
+    /// The word is read, not the name: a pair that answers the curve question with 0 (volatile),
+    /// or with a word that is not a bool, is the x*y=k pair the rule keeps.
+    function test_Stays_AVolatileCurvePairAboveTheBase() public {
+        _curve(0, true);
+        assertTrue(_rivalStays(BPC.KIND_V2, true, 1, address(0), 220, LIGHT, false), "Camelot volatile, 2.2x");
+        _curve(2, false);
+        assertTrue(_rivalStays(BPC.KIND_V2, true, 1, address(0), 101, LIGHT, false), "a word above 1, 1 % over");
+        _curve(0, false);
+        assertTrue(_rivalStays(BPC.KIND_SOLIDLY, false, 0, address(0), 1e12, LIGHT, false), "Solidly volatile, curated, 1e10 x");
+    }
+
+    /// Any rate past the edge, either name, any word: an attested pair above the base stays
+    /// exactly when it does not state a stable curve.
+    function testFuzz_AboveTheBase_APairStaysExactlyWhenItsCurveIsTheRows(
+        uint256 pct, uint256 word, bool camelot, bool solidly, bool active
+    ) public {
+        pct = bound(pct, 101, 1e12);
+        word = bound(word, 0, 3);
+        _curve(word, camelot);
+        bool kept = _rivalStays(solidly ? BPC.KIND_SOLIDLY : BPC.KIND_V2, active, active ? 1 : 0, address(0), pct, LIGHT, false);
+        assertEq(kept, word != 1, "stays iff not stable");
     }
 }

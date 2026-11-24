@@ -738,6 +738,16 @@ library BlazePhoenixCore {
         return ok && w == 1;
     }
 
+    /// @dev Does the pair state a stable curve, under either name a pair answers it by: Solidly's
+    ///      `stable()` (0x22be3de1) or Camelot's `stableSwap()` (0x9e548b7f)? Only the word 1 is
+    ///      stable; no answer is the x*y=k pair. Read by the band's measured rival
+    ///      (`BlazePhoenixMath._measuredAbove`): Camelot's stable pairs answer only the second name.
+    function statesStableCurve(address pool) internal view returns (bool) {
+        if (solidlyStable(pool)) return true;
+        (bool ok, uint256 w) = _askWord(pool, abi.encodeWithSelector(0x9e548b7f));
+        return ok && w == 1;
+    }
+
     /// @dev Factory staticcall dispatcher. Each AMM family exposes its lookup
     ///      under a different selector; we cover the four canonical shapes.
     function _factoryLookup(

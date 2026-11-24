@@ -6,9 +6,10 @@ pragma solidity 0.8.36;
 // lockstep (`_leave`, `_swap`) and builds the split again. test/SplitLegPaysForItsPlace.t.sol holds
 // the cases the rule was written for: one venue behind 10% beside honest ones, one trial. The lines
 // a single trial never reads had no mutant: the second trial of a build, the build no leg is tried
-// in, the held mark of a build whose trial is not held, the lockstep of the holdings and of the
-// probe rates, the tie of the seat, and a trial on each hop of a two-hop route. Each test below
-// names the mutant that turns it red (.github/scripts/mutants.py, [ATQ-mutacao-n]).
+// in, the held mark of a build whose trial is not held (refused, or kept with no held leg), the
+// held mark of a trial kept with a held leg, the lockstep of the holdings and of the probe rates,
+// the tie of the seat, and a trial on each hop of a two-hop route. Each test below names the
+// mutant that turns it red (.github/scripts/mutants.py, [ATQ-mutacao-n] and [1080]).
 //
 // The fixtures are those of SplitLegPaysForItsPlace: full-range V3 venues at price 1 whose factory
 // tier is the fee they charge, and concentrated books that declare more than they hold.
@@ -251,6 +252,125 @@ contract SplitPlaceEveryLineTest is SplitPlaceFixture {
 
     function testFuzz_AHeldBuildStaysHeldThroughATrialThatIsNot(uint256 held) public {
         _heldThroughATrial(bound(held, 5e18, 40e18));
+    }
+
+    /// A TRIAL KEPT WITH A HELD LEG LEAVES THE BUILD HELD (`_placed`, the mark of the split kept,
+    /// mutant [1080]). H is an honest venue holding ten times its liquidity, so no order here asks
+    /// it past its cap. K, a book behind the honest fee, holds 40e18 (cap 12e18) and is weighed by
+    /// it. D, behind 60%, is shallow. The split of three asks K inside its cap, so it is not held;
+    /// D's probe pays least, so D is tried. Without D its input goes to H and K in their weights'
+    /// ratio: K is asked past its cap and inside what it holds, and even with K at its cap the
+    /// split of two pays more than the split of three (D pays 40% of its input before its curve),
+    /// so the trial is kept. That split holds a leg, and only it marks the build held: the walk
+    /// settles it and K is promised what its walk pays, above its cap. Without the mark K is
+    /// promised its cap. No single is held: K alone is asked more than it holds. The oracle is the
+    /// venues' own curves (H on x*y = L^2 at price 1, K flat at its fee), not the Solver.
+    function _keptWithAHeldLeg(uint256 amt) internal {
+        _market();
+        // token1 -> token0, where a flat book's walk pays its single-range quote to the wei.
+        if (address(tA) < address(tB)) (tA, tB) = (tB, tA);
+        uint128 lD = 15e18;
+        uint256 heldK = 40e18;
+        MockV3Pool h = _venueOn(tA, tB, HONEST_FEE, HONEST_L, 9 * uint256(HONEST_L));
+        MockV3Pool d = _venueOn(tA, tB, 600_000, lD, 9 * uint256(lD));
+        hub.addBridge(address(tB));
+        MockV3BookPool k = _book(HONEST_FEE, heldK);
+        uint256 cap = heldK * 3_000 / BPC.BPS;
+        uint256 sum = uint256(HONEST_L) + heldK + lD;
+        assertLe(amt * heldK / sum * 997 / 1000, cap, "precondition: the split of three asks K inside its cap");
+        uint256 tK = amt * heldK / (uint256(HONEST_L) + heldK);
+        assertGt(tK * 997 / 1000, cap + cap / 100, "precondition: the trial asks K past its cap");
+        assertGt(amt * 997 / 1000, heldK, "precondition: K alone is asked more than it holds");
+        uint256 three = _curve(HONEST_L, amt * HONEST_L / sum, HONEST_FEE) + amt * heldK / sum * 997 / 1000
+            + _curve(lD, amt * lD / sum, 600_000);
+        uint256 twoAtCap = _curve(HONEST_L, amt - tK, HONEST_FEE) + cap;
+        emit log_named_uint("split of three", three);
+        emit log_named_uint("split of two, K at its cap", twoAtCap);
+        assertGt(twoAtCap, three + three / 200, "precondition: the trial is kept even with K at its cap");
+        BlazePhoenixQuoter.Preview memory pv = _preview(amt);
+        uint256 inK = _inOf(pv, address(k));
+        uint256 outK = _outOf(pv, address(k));
+        emit log_named_uint("input routed to K", inK);
+        emit log_named_uint("output promised by K", outK);
+        assertEq(_inOf(pv, address(d)), 0, "precondition: D left on its trial");
+        assertGt(_inOf(pv, address(h)), 0, "precondition: H keeps its leg");
+        assertGt(inK * 997 / 1000, cap + cap / 100, "precondition: K keeps its leg past its cap");
+        assertApproxEqRel(outK, inK * 997 / 1000, 1e14, "a trial kept with a held leg was not walked: K is promised its cap");
+    }
+
+    /// What a full-range venue at price 1 with liquidity `l` pays for `x` behind `fee` pips.
+    function _curve(uint128 l, uint256 x, uint24 fee) internal pure returns (uint256) {
+        x = x * (1_000_000 - fee) / 1_000_000;
+        return uint256(l) * x / (uint256(l) + x);
+    }
+
+    function test_ATrialKeptWithAHeldLegLeavesTheBuildHeld() public {
+        _keptWithAHeldLeg(45e18);
+    }
+
+    function testFuzz_ATrialKeptWithAHeldLegLeavesTheBuildHeld(uint256 amt) public {
+        _keptWithAHeldLeg(bound(amt, 44.5e18, 46e18));
+    }
+
+    /// A HELD BUILD STAYS HELD THROUGH A TRIAL KEPT WITH NO HELD LEG (`_placed`, the mark of the
+    /// build before its trial, mutant [ATQ-mutacao-17]). H is an honest venue holding ten times
+    /// its liquidity; G, a book behind the honest fee, holds 40e18 (cap 12e18) and is weighed by
+    /// it; D, behind 60%, is shallow. The split of three asks G past its cap and inside what it
+    /// holds, so the build is held; D's probe pays least, so D is tried. Without D its input goes
+    /// to H and G in their weights' ratio and G is asked more than it holds: its promise is its
+    /// cap, its input is cut to what the cap pays and the rest flows to H (`_capacity`, CUT), and
+    /// a leg past its holdings is not held, so the split of two holds no leg. At the cap the
+    /// split of two pays more than the split of three, so the trial is kept; walked, G pays its
+    /// quote in the split of three, which then pays more than the split of two. The mark of the
+    /// build before the trial leaves the choice unsettled: the walk settles it, D keeps its leg
+    /// and G is promised what its walk pays. A mark overwritten by the trial's leaves D out and G
+    /// at its cap. The oracle is the venues' own curves (H on x*y = L^2 at price 1, G flat at its
+    /// fee), not the Solver.
+    function _heldThroughAKeptTrial(uint256 amt) internal {
+        _market();
+        // token1 -> token0, where a flat book's walk pays its single-range quote to the wei.
+        if (address(tA) < address(tB)) (tA, tB) = (tB, tA);
+        uint128 lD = 15e18;
+        uint256 heldG = 40e18;
+        MockV3Pool h = _venueOn(tA, tB, HONEST_FEE, HONEST_L, 9 * uint256(HONEST_L));
+        MockV3Pool d = _venueOn(tA, tB, 600_000, lD, 9 * uint256(lD));
+        hub.addBridge(address(tB));
+        MockV3BookPool g = _book(HONEST_FEE, heldG);
+        uint256 cap = heldG * 3_000 / BPC.BPS;
+        uint256 sum = uint256(HONEST_L) + heldG + lD;
+        uint256 g3 = amt * heldG / sum;
+        assertGt(g3 * 997 / 1000, cap + cap / 100, "precondition: the split of three asks G past its cap");
+        assertLe(g3 * 997 / 1000, heldG, "precondition: the split of three asks G inside what it holds");
+        uint256 g2 = amt * heldG / (uint256(HONEST_L) + heldG);
+        assertGt(g2 * 997 / 1000, heldG, "precondition: the split of two asks G more than it holds");
+        uint256 rest = _curve(HONEST_L, amt * HONEST_L / sum, HONEST_FEE) + _curve(lD, amt * lD / sum, 600_000);
+        uint256 threeAtCap = rest + cap;
+        uint256 threeWalked = rest + g3 * 997 / 1000;
+        uint256 two = _curve(HONEST_L, amt - cap * 1000 / 997, HONEST_FEE) + cap;
+        emit log_named_uint("split of three, G at its cap", threeAtCap);
+        emit log_named_uint("split of three, G walked", threeWalked);
+        emit log_named_uint("split of two, G at its cap", two);
+        assertGt(two, threeAtCap + threeAtCap / 200, "precondition: at the cap the trial is kept");
+        assertGt(threeWalked, two + two / 200, "precondition: walked, the split of three pays more");
+        assertGt(two, _curve(HONEST_L, amt, HONEST_FEE) + two / 200, "precondition: the split of two beats H alone");
+        BlazePhoenixQuoter.Preview memory pv = _preview(amt);
+        uint256 inG = _inOf(pv, address(g));
+        uint256 outG = _outOf(pv, address(g));
+        emit log_named_uint("input routed to D", _inOf(pv, address(d)));
+        emit log_named_uint("input routed to G", inG);
+        emit log_named_uint("output promised by G", outG);
+        assertGt(_inOf(pv, address(h)), 0, "precondition: H keeps its leg");
+        assertGt(_inOf(pv, address(d)), 0, "a held build was unmarked by a trial kept with no held leg: D left");
+        assertGt(outG, cap + cap / 100, "a held build was unmarked by a trial kept with no held leg: G is promised its cap");
+        assertApproxEqRel(outG, inG * 997 / 1000, 1e14, "G is not promised what its walk pays");
+    }
+
+    function test_AHeldBuildStaysHeldThroughATrialKeptWithNoHeldLeg() public {
+        _heldThroughAKeptTrial(150e18);
+    }
+
+    function testFuzz_AHeldBuildStaysHeldThroughATrialKeptWithNoHeldLeg(uint256 amt) public {
+        _heldThroughAKeptTrial(bound(amt, 141e18, 155e18));
     }
 
     // ───────────────────────── the committed input of the split kept ─────────────────────────

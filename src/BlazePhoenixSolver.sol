@@ -969,17 +969,27 @@ contract BlazePhoenixSolver {
         address tIn, uint256 amountIn, PoolInfo[] memory cands, uint256[] memory balsOut,
         uint256[] memory rates, QuoteCtx[] memory xs, uint256[] memory psis, uint256 sumPsi, uint256 n, uint256 mode
     ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held) {
-        (legs, totalOut, committedIn, up, held) = _split(tIn, amountIn, cands, balsOut, xs, psis, sumPsi, n, mode);
+        {
+            uint256 f;
+            (legs, totalOut, committedIn, up, f) = _split(tIn, amountIn, cands, balsOut, xs, psis, sumPsi, n, mode);
+            held = f != 0;
+        }
         while (legs.length > 2) {
             uint256 j = _onTrial(legs, cands, rates, n);
             if (j == n) break;
             sumPsi -= psis[j];
             _leave(cands, balsOut, psis, rates, xs, j, n);
             unchecked { --n; }
-            (Leg[] memory l2, uint256 o2, uint256 c2, uint256 u2, bool h2) =
+            (Leg[] memory l2, uint256 o2, uint256 c2, uint256 u2, uint256 f2) =
                 _split(tIn, amountIn, cands, balsOut, xs, psis, sumPsi, n, mode);
-            if (h2) held = true;   // a held leg leaves the choice unsettled, whichever split is kept
-            if (totalOut + up >= BPC.mulDiv(o2 + u2, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000)) break;
+            if (totalOut + up >= BPC.mulDiv(o2 + u2, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000)) {
+                // A trial refused at the caps leaves the choice unsettled only if its books could
+                // still win it: walked, a leg ranked at its cap pays at most its quote (`_capacity`),
+                // so the trial pays at most `o2 + f2`, and the split kept pays no less walked.
+                if (totalOut + up < BPC.mulDiv(o2 + f2 + u2, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000)) held = true;
+                break;
+            }
+            if (f2 != 0) held = true;   // a held leg leaves the choice unsettled once its split is kept
             (legs, totalOut, committedIn, up) = (l2, o2, c2, u2);
         }
     }
@@ -1043,11 +1053,13 @@ contract BlazePhoenixSolver {
 
     /// @dev THE SPLIT ON THE WEIGHTS: the first `n` candidates share `amountIn` by `psis` (of sum
     ///      `sumPsi`), the last takes the remainder. Moved unchanged from `_buildHop`, which runs it
-    ///      again for each leg it tries (`_placed`).
+    ///      again for each leg it tries (`_placed`). `held`: the most its legs ranked at the cap
+    ///      may still pay above it, walked, their quotes less their caps (`_capacity`); zero when
+    ///      no leg is held.
     function _split(
         address tIn, uint256 amountIn, PoolInfo[] memory cands, uint256[] memory balsOut,
         QuoteCtx[] memory xs, uint256[] memory psis, uint256 sumPsi, uint256 n, uint256 mode
-    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held) {
+    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, uint256 held) {
         Leg[] memory tmpLegs = new Leg[](n);
         uint256 legCount;
         uint256 allocated;
@@ -1113,7 +1125,7 @@ contract BlazePhoenixSolver {
                 uint256 keep;
                 uint256 f;
                 (keep, outL, f) = _capacity(cands[i], tIn, share, outL, balsOut[i], mode);
-                if (f != 0) held = true;
+                if (f != 0) held += f - outL;   // held: what the walk may still pay above the caps
                 allocated -= share - keep;
                 share = keep;
                 if (share == 0 || outL == 0) { unchecked { ++i; } continue; }

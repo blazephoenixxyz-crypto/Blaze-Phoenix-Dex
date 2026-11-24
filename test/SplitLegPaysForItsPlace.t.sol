@@ -25,12 +25,19 @@ pragma solidity 0.8.36;
 // only the split without the leg on trial asks a book past its cap, the trial marks the build held,
 // whichever split is kept, and the walk settles it (`findBestRoutePlan`). Without that mark a trial
 // refused at the caps keeps a 10% venue whose books would pay more without it (mutant [1080]).
+// A trial refused at the caps that loses even at its ceiling leaves the build settled (caixa-1123,
+// MV-7): walked, a leg ranked at its cap pays at most its quote (`Solver._capacity`), so a trial
+// that loses with every such leg at its whole quote cannot win walked, and a mark there only sent
+// the solve to a walk whose budget the search had already spent (Base 49800000, USDC->DAI 1e10: the
+// trial lost by 12836.87e18 against 13088.47e18 at its ceiling, and the solve reverted at the walk's
+// budget). Red at 2e4d2df: the solve below the walk's budget reverted. The ceiling itself is
+// pinned by the trial above (MV-7b: without it a trial that could win walked is never marked).
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixRouter} from "../src/BlazePhoenixRouter.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixQuoter} from "../src/BlazePhoenixQuoter.sol";
-import {BlazePhoenixCore as BPC} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, RoutePlan, Leg} from "../src/BlazePhoenixCore.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV3BookPool} from "./mocks/MockV3BookPool.sol";
@@ -249,5 +256,57 @@ contract SplitLegPaysForItsPlaceTest is Test {
         (uint256 without, uint256 with_, uint256 inC) = _heldTrial(amt, uint128(lC));
         assertEq(inC, 0, "a 10% venue kept its leg where the books pay more without it");
         assertGe(with_, without, "a trial refused at the caps lowered the split");
+    }
+
+    /// A TRIAL THAT LOSES EVEN AT ITS CEILING LEAVES THE BUILD SETTLED (`_placed`, MV-7). X behind
+    /// 0.5% and Y behind 0.3% are honest venues; K, a book behind 0.3%, holds BOOK_HELD (cap 18e18)
+    /// and declares far more. The order splits three ways, every leg inside its cap; X's probe pays
+    /// least, so X is tried. Without X, K is asked past its cap and inside what it holds: the trial
+    /// is judged at the caps and refused. Walked, K pays at most its quote; with that whole quote
+    /// the trial still pays less than the split kept, because Y takes the rest of X's input deep in
+    /// its own curve. The oracle of that ceiling is the venues' own curves, not the Solver: Y on
+    /// x*y = L^2 at price 1, K flat at its fee. No single is held (K alone is asked more than it
+    /// holds). So the build is settled: the solve answers below the walk's budget, with the plan it
+    /// gives on the whole budget. Marked held, it asked for the walk and reverted there (MV-7).
+    function test_ATrialThatLosesEvenAtItsCeilingLeavesTheBuildSettled() public {
+        if (address(tA) < address(tB)) (tA, tB) = (tB, tA);
+        MockV3Pool x = _venue(5_000, HONEST_L);
+        MockV3Pool y = _venue(3_000, HONEST_L);
+        MockV3BookPool k = _book(BOOK_HELD);
+        hub.addBridge(address(tB));
+        uint256 amt = 75e18;
+        vm.roll(block.number + 1);
+        RoutePlan memory whole = solver.findBestRoutePlan(address(tA), address(tB), amt);
+        Leg[] memory legs = whole.best.hops[0].legs;
+        assertEq(whole.best.hops.length, 1, "precondition: one hop");
+        assertEq(legs.length, 3, "precondition: the split keeps its three legs");
+        uint256 sX;
+        uint256 sY;
+        uint256 sK;
+        for (uint256 i; i < 3; ++i) {
+            if (legs[i].pool == address(x)) sX = legs[i].amountIn;
+            if (legs[i].pool == address(y)) sY = legs[i].amountIn;
+            if (legs[i].pool == address(k)) sK = legs[i].amountIn;
+        }
+        assertGt(sX * sY * sK, 0, "precondition: X, Y and K each keep a leg");
+        // Without X its input goes to Y and K in their weights' ratio, the shares they hold now.
+        uint256 tY = sY + sX * sY / (sY + sK);
+        uint256 tK = amt - tY;
+        uint256 kQuote = tK * 997 / 1000;
+        uint256 cap = BOOK_HELD * 3_000 / BPC.BPS;
+        assertGt(kQuote, cap + cap / 100, "precondition: the trial asks K past its cap");
+        assertLt(kQuote, BOOK_HELD, "precondition: and inside what K holds");
+        uint256 yIn = tY * 997 / 1000;
+        uint256 ceiling = uint256(HONEST_L) * yIn / (uint256(HONEST_L) + yIn) + kQuote;
+        emit log_named_uint("split kept, three legs", whole.best.totalOut);
+        emit log_named_uint("trial without X, at its ceiling", ceiling);
+        assertLt(ceiling + ceiling / 100, whole.best.totalOut, "precondition: the trial loses even at its ceiling");
+        vm.roll(block.number + 1);
+        try solver.findBestRoutePlan{gas: 10_000_000}(address(tA), address(tB), amt) returns (RoutePlan memory p) {
+            assertEq(p.best.totalOut, whole.best.totalOut, "the walk changed a choice it cannot change");
+            assertEq(keccak256(abi.encode(p.best.hops)), keccak256(abi.encode(whole.best.hops)), "another plan below the walk's budget");
+        } catch {
+            fail("a trial that loses even at its ceiling sent the solve to the walk");
+        }
     }
 }

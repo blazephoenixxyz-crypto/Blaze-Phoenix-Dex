@@ -561,6 +561,9 @@ library BlazePhoenixMath {
     ///      a registry row, the factory row's declared fee on a row only discovery found). A pair
     ///      that charges more than its row says promises more than it pays, and the swap reverts:
     ///      the order loses that route, never part of its fill (docs/KNOWN_ISSUES.md).
+    ///      CURVE: that holds only for a pair on the row's curve. A pair that states a stable curve
+    ///      (`BPC.statesStableCurve`) pays on another one: Camelot's stable pair 0x5201f648 was
+    ///      quoted x*y=k at 2.2x the base, kept, and reverted on its K. The edge judges it.
     ///      Such a row stays, and the split's gate (`BlazePhoenixSolver._buildHop`,
     ///      MR-R1) quotes every survivor at the whole order, so the best measured row is the hop's
     ///      floor. The attestation is read at the source, not from `_mutedVotes`' answer: that
@@ -575,7 +578,8 @@ library BlazePhoenixMath {
         for (uint256 i; i < n; ) {
             if (prices[i] > pb) {
                 PoolInfo memory p = cands[i];
-                if (BPC.kindHas(p.kind, BPC.A_RESERVES)
+                // A pair that states a stable curve is not on the row's formula: the edge judges it.
+                if (BPC.kindHas(p.kind, BPC.A_RESERVES) && !BPC.statesStableCurve(p.pool)
                     ? p.active || BPC.decodeTier(hub.getSlot(BPC.pairKey(p.pool, p.token0, p.token1))) == 0
                     : BPC.kindHas(p.kind, BPC.A_CONC_SING) && p.hooks == address(0)) over |= 1 << i;
             }
