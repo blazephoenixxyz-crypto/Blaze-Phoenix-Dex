@@ -10909,6 +10909,21 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        bridgeBase[route.hops.length - 1] = baseIn;\n",
       new="        // MUTANTE\n",
       teste="test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg"),
+ dict(nome="caixa-1123 solidly-depth a: the split gate never collapses a split, so a stable and a volatile pair of equal reserves are split below the best single leg",
+      f="src/BlazePhoenixSolver.sol",
+      old="        if (legs.length >= 2) {",
+      new="        if (false) { // MUTANTE",
+      teste="test_Split_AStableAndAVolatilePairOfEqualReserves_PlanIsNeverBelowTheBestSingleLeg"),
+ dict(nome="caixa-1123 solidly-depth b: the Solidly arm declares the sold token's reserve as its mass, not the bought token it holds",
+      f="src/BlazePhoenixCore.sol",
+      old="            return (out, depthWad, out, out, fee, to18(rO, _decOther(c)));",
+      new="            return (out, depthWad, out, out, fee, to18(rI, _decOther(c))); // MUTANTE",
+      teste="test_Mass_AStablePairDeclaresTheTokenOutItHolds_LikeAVolatilePair"),
+ dict(nome="caixa-1123 solidly-depth c: the funnel stops dropping a row under the dust share, so a stable pair at 13.96 ppm is quoted (MR-R1d)",
+      f="src/BlazePhoenixSolver.sol",
+      old="            if (rows[i].kind == BPC.KIND_EXTERNAL || d[i] * 1e6 >= MIN_SPLIT_IMPROVEMENT_PPM * (sum - r[i])) {\n",
+      new="            if (rows[i].kind == BPC.KIND_EXTERNAL || true) { // MUTANTE\n",
+      teste="test_Split_AStablePairUnderTheDustShare_PlanIsTheDeepPairAlone"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
