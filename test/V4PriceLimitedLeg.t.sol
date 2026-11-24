@@ -216,17 +216,22 @@ contract V4PriceLimitedLegTest is Test {
         _expectShape(_route(legs));
     }
 
-    /// A limited leg on a hooked pool (a hook with no swap bit, so no other hook rule applies):
-    /// refused.
+    /// A limited leg on a hooked pool: refused. The hook has no swap bit, so no other hook rule
+    /// applies, and the exact leg behind it is hooked too, so the hooked-legs-last order holds:
+    /// the hook on the limited leg is the only thing wrong with this route.
     function test_LimitedLegOnAHookedPoolIsRefused() public {
         address hooks = address(uint160(1) << 20);
-        bytes32 pidH = BPC.computeV4PoolId(lo, hi, FEE_LIM, TS_LIM, hooks);
+        bytes32 pidH  = BPC.computeV4PoolId(lo, hi, FEE_LIM, TS_LIM, hooks);
+        bytes32 pidAH = BPC.computeV4PoolId(lo, hi, FEE_A, TS_A, hooks);
         mgr.initialize(pidH, uint160(BPC.Q96), 0, FEE_LIM);
+        mgr.initialize(pidAH, uint160(BPC.Q96), 0, FEE_A);
         mgr.addPosition(pidH, -512, 256, TS_LIM, L_THICK);
+        mgr.addPosition(pidAH, -887220, 887220, TS_A, L_WIDE);
         Leg[] memory legs = new Leg[](2);
         legs[0] = _v4Leg(pidH, FEE_LIM, TS_LIM, LIM_IN, _aux(true, -400));
         legs[0].hooks = hooks;
-        legs[1] = _exA(A_IN);
+        legs[1] = _v4Leg(pidAH, FEE_A, TS_A, A_IN, _aux(false, 0));
+        legs[1].hooks = hooks;
         _expectShape(_route(legs));
     }
 }
