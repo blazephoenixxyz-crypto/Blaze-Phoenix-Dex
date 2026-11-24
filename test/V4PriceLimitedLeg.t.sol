@@ -125,8 +125,7 @@ contract V4PriceLimitedLegTest is Test {
         uint256 outSum;
         for (uint256 i; i < legs.length; ++i) {
             outSum += legs[i].expectedOut;
-            (bool on, ) = BPC.v4Limit(legs[i].auxId);
-            if (!on) inSum += legs[i].amountIn;
+            if ((uint256(legs[i].auxId) >> 184) & 1 == 0) inSum += legs[i].amountIn;
         }
         Hop[] memory hops = new Hop[](1);
         hops[0] = Hop({tokenIn: lo, tokenOut: hi, amountIn: inSum, expectedOut: outSum, legs: legs});
