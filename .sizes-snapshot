@@ -13,4 +13,4 @@ BlazePhoenixHub runtime=21956 initcode=22190
 BlazePhoenixMath runtime=9768 initcode=9798
 BlazePhoenixQuoter runtime=20002 initcode=20377
 BlazePhoenixRouter runtime=22818 initcode=23337
-BlazePhoenixSolver runtime=21349 initcode=31508
+BlazePhoenixSolver runtime=21473 initcode=31632

@@ -36,6 +36,7 @@ import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {MockSolidlyPair} from "./mocks/MockSolidlyPair.sol";
 import {MockAlgebraPool} from "./mocks/MockAlgebraPool.sol";
+import {MockWETH} from "./RouterNativeEntry.t.sol";
 
 contract JudgeAsksTheBook is Test {
     BlazePhoenixHub    hub;
@@ -877,5 +878,263 @@ contract JudgeAsksTheBook is Test {
         b.mint(address(p), r);
         p.setReserves(uint112(r), uint112(r));
         hub.seedPool(address(p), BPC.KIND_V2, 30, address(0), address(a), address(b));
+    }
+
+    // =========================================================================================
+    //  (m) The leader's books pay nothing (caixa-1123, solver-zero-leader-promotes-fallback):
+    //      the runner-up, asked what its own books pay, takes the lead when it pays. Red at
+    //      6e5067b where noted: there the runner-up was never asked, and the solve stopped.
+    // =========================================================================================
+
+    /// @dev Three tokens in address order, c < mid < d, `mid` a bridge: a book on c/d or
+    ///      mid/d is walked zeroForOne.
+    function _sorted3() internal returns (MockERC20 c, MockERC20 mid, MockERC20 d) {
+        MockERC20[3] memory t =
+            [new MockERC20("CCC", "CCC"), new MockERC20("MMM", "MMM"), new MockERC20("DDD", "DDD")];
+        for (uint256 i; i < 2; ++i) {
+            for (uint256 j; j < 2 - i; ++j) {
+                if (address(t[j + 1]) < address(t[j])) (t[j], t[j + 1]) = (t[j + 1], t[j]);
+            }
+        }
+        (c, mid, d) = (t[0], t[1], t[2]);
+        hub.addBridge(address(mid));
+    }
+
+    /// @dev All of the book's liquidity on [0, 60) at tick 0 (a < b): walked zeroForOne it
+    ///      crosses the range's lower edge into an empty book and pays 0, while the model reads
+    ///      the current range at ~0.997x.
+    function _edgeBook(MockERC20 a, MockERC20 b, uint128 liq) internal returns (MockV3TickPool q) {
+        q = new MockV3TickPool(address(a), address(b), FEE, TS);
+        q.initialize(0);
+        q.addPosition(0, 60, liq);
+        _fund(q, a, b, 1e26);
+    }
+
+    /// @dev What a fee-30 pair of reserves r/r pays for x.
+    function _v2Out(uint256 x, uint256 r) internal pure returns (uint256) {
+        return x * 9970 * r / (r * 10_000 + x * 9970);
+    }
+
+    /// @dev The leader whose books pay nothing: the edge book on c/d, beside a 5e16 pair the
+    ///      ceiling refuses at 1e18, so the rebuild of the leader's topology has no route.
+    function _zeroLeader() internal returns (MockERC20 c, MockERC20 mid, MockERC20 d) {
+        (c, mid, d) = _sorted3();
+        MockV3TickPool q = _edgeBook(c, d, 1e24);
+        _pair(c, d, 5e16);
+        (uint256 walked, ) = _judgeWalk(q, true, 1e18);
+        assertEq(walked, 0, "premise: the leader's book pays 0 on its walk");
+    }
+
+    /// The runner-up through the bridge pays and takes the lead, promised what its pairs pay, and
+    /// settles the same at the Solver's plan and at the Router's automatic door. Red at 6e5067b
+    /// (SolverE(5)).
+    function test_LeaderPayingNothingHandsTheLeadToTheRunnerUpThatPays() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _zeroLeader();
+        _pair(c, mid, 1e22);
+        _pair(mid, d, 1e22);
+        uint256 amt = 1e18;
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), amt);
+        assertEq(plan.best.hops.length, 2, "the runner-up through the bridge leads");
+        assertEq(plan.best.totalOut, _v2Out(_v2Out(amt, 1e22), 1e22), "promised what its pairs pay");
+        uint256 snap = vm.snapshotState();
+        uint256 got = _settle(plan, c, amt);
+        assertGe(got, plan.best.singleOutFloor, "settles at or above its floor");
+        vm.revertToState(snap);
+        c.mint(user, amt);
+        vm.startPrank(user);
+        c.approve(address(router), type(uint256).max);
+        uint256 viaDoor = router.swapBestExactIn(address(c), address(d), amt, 1, user, block.timestamp + 1);
+        vm.stopPrank();
+        assertEq(viaDoor, got, "the automatic door settles the same route");
+    }
+
+    /// The same promotion with ETH in: WETH is the leader's tokenIn. Red at 6e5067b (SolverE(5)).
+    function test_LeaderPayingNothingHandsTheLeadToTheRunnerUpThatPays_NativeIn() public {
+        MockWETH w = new MockWETH();
+        MockERC20 c = MockERC20(address(w));
+        MockERC20 mid = new MockERC20("MMM", "MMM");
+        MockERC20 d = new MockERC20("DDD", "DDD");
+        while (address(d) < address(c)) d = new MockERC20("DDD", "DDD");
+        hub.addBridge(address(mid));
+        router.setWeth(address(w));
+        _edgeBook(c, d, 1e24);
+        _pair(c, d, 5e16);
+        _pair(c, mid, 1e22);
+        _pair(mid, d, 1e22);
+        uint256 amt = 1e18;
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), amt);
+        assertEq(plan.best.hops.length, 2, "the runner-up through the bridge leads");
+        vm.deal(user, amt);
+        vm.prank(user);
+        uint256 got = router.swapExactInNative{value: amt}(plan.best, plan.best.singleOutFloor, user, block.timestamp + 1);
+        assertGe(got, plan.best.singleOutFloor, "settles at or above its floor");
+        assertEq(d.balanceOf(user), got, "the recipient holds what the door reported");
+    }
+
+    /// The runner-up's book past its edge pays less than its model: the promoted route is
+    /// promised what that book pays on its walk, never the model it ranked on. Red at 6e5067b
+    /// (SolverE(5)).
+    function test_RunnerUpTakingTheLeadIsPromisedWhatItsBooksPay() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _zeroLeader();
+        _pair(c, mid, 1e22);
+        MockV3TickPool q1 = _book(mid, d, 1e22, 1e21);
+        uint256 amt = 1e18;
+        uint256 in1 = _v2Out(amt, 1e22);
+        (uint256 paid, ) = BPC.v3PaysOnBudget(address(q1), in1, true, type(uint256).max, BPC.V3_PAY_READS);
+        assertGt(paid, 0, "premise: the runner-up's book pays");
+        assertLt(paid, _modelOut(q1, in1, true), "premise: and pays less than its model");
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), amt);
+        assertEq(plan.best.hops.length, 2, "the runner-up through the bridge leads");
+        assertEq(plan.best.totalOut, paid, "promised what its book pays on its walk");
+        assertGe(_settle(plan, c, amt), plan.best.singleOutFloor, "settles at or above its floor");
+    }
+
+    /// The rebuild of the leader's topology leads only above what the runner-up pays. A: the
+    /// rebuild's pair pays more than the runner-up, leads, and the runner-up stays the fallback.
+    /// B: the rebuild's pair pays less, and the runner-up leads. B is red at 6e5067b (the pair
+    /// led on the rank of a leader that paid nothing). Both pairs hold at least the dust bar of
+    /// the book's declared side (25 ppm of 1e24 = 2.5e19): under it the pair never enters the
+    /// rebuild, which then has no route either way (test_Limit_ADustPairDroppedBesideABookThatPaysNothingIsNotReadmitted).
+    function test_RebuildLeadsOnlyAboveTheRunnerUpThatPays() public {
+        uint256 amt = 1e18;
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _sorted3();
+        _edgeBook(c, d, 1e24);
+        _pair(c, d, 1e20);
+        _pair(c, mid, 1e19);
+        _pair(mid, d, 1e19);
+        uint256 x = _v2Out(amt, 1e20);
+        uint256 y = _v2Out(_v2Out(amt, 1e19), 1e19);
+        assertGt(x, y, "premise A: the rebuild pays more than the runner-up");
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), amt);
+        assertEq(plan.best.hops.length, 1, "A: the rebuild leads");
+        assertEq(plan.best.totalOut, x, "A: on what its pair pays");
+        assertTrue(plan.hasFallback, "A: the runner-up stays the fallback");
+        assertEq(plan.fallbackRoute.hops.length, 2, "A: through the bridge");
+
+        (c, mid, d) = _sorted3();
+        _edgeBook(c, d, 1e24);
+        _pair(c, d, 5e19);
+        _pair(c, mid, 1e22);
+        _pair(mid, d, 1e22);
+        x = _v2Out(amt, 5e19);
+        y = _v2Out(_v2Out(amt, 1e22), 1e22);
+        assertLt(x, y, "premise B: the rebuild pays less than the runner-up");
+        plan = solver.findBestRoutePlan(address(c), address(d), amt);
+        assertEq(plan.best.hops.length, 2, "B: the runner-up leads");
+        assertEq(plan.best.totalOut, y, "B: on what its pairs pay");
+    }
+
+    /// The runner-up that took the lead is not also handed out as its own fallback. Red at
+    /// 6e5067b (SolverE(5)).
+    function test_RunnerUpTakingTheLeadIsNotItsOwnFallback() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _zeroLeader();
+        _pair(c, mid, 1e22);
+        _pair(mid, d, 1e22);
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), 1e18);
+        assertEq(plan.best.hops.length, 2, "premise: the runner-up leads");
+        assertFalse(plan.hasFallback, "no fallback");
+        assertEq(plan.fallbackRoute.hops.length, 0, "and an empty one");
+    }
+
+    /// The plan the promotion hands out is the same at the automatic door's gas (SOLVE_GAS) and
+    /// uncapped. Red at 6e5067b (SolverE(5) at both).
+    function test_ZeroLeaderPlanIsTheSameAtBothDoors() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _zeroLeader();
+        _pair(c, mid, 1e22);
+        _pair(mid, d, 1e22);
+        bytes memory cd = abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (address(c), address(d), 1e18));
+        (bool ok, bytes memory atDoor) = address(solver).call{gas: BPC.SOLVE_GAS}(cd);
+        assertTrue(ok, "the automatic door's budget plans it");
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), 1e18);
+        assertEq(plan.best.hops.length, 2, "premise: the runner-up leads");
+        assertEq(atDoor, abi.encode(plan), "the caller's gas chose another plan");
+    }
+
+    /// The runner-up's own book pays nothing too: no route pays, and the solve stops.
+    function test_LeaderAndRunnerUpPayingNothingRevert() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _zeroLeader();
+        _pair(c, mid, 1e22);
+        _edgeBook(mid, d, 1e24);
+        vm.expectRevert(_refusal());
+        solver.findBestRoutePlan(address(c), address(d), 1e18);
+    }
+
+    /// Pinned limit (pre-existing at 6e5067b, outside this fix): a pair under the dust bar of a
+    /// book's declared side is dropped from the pair's list before any build (`_dropDust`: kept iff
+    /// mass * 1e6 >= MIN_SPLIT_IMPROVEMENT_PPM (25) * the other rows' mass; the book's is
+    /// min(L * sqrtP, held) = 1e24, so the bar is 2.5e19). When the book then pays nothing on its
+    /// walk, the rebuild sits the book out of that list, the dropped pair is not read again, and
+    /// the solve stops with SolverE(5), though the pair alone pays. Fail closed: no plan is handed
+    /// out, so no funds move; liveness only. At the bar the pair is kept and leads; one wei under
+    /// it the solve stops.
+    function test_Limit_ADustPairDroppedBesideABookThatPaysNothingIsNotReadmitted() public {
+        uint256 ord = 1e12 + 2;
+        uint256 r = ord * 310_008;
+        (MockERC20 c, , MockERC20 d) = _sorted3();
+        _pair(c, d, r);
+        uint256 snap = vm.snapshotState();
+        RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), ord);
+        assertEq(plan.best.totalOut, _v2Out(ord, r), "premise: the pair alone pays");
+        vm.revertToState(snap);
+        assertLt(r * 1e6, 25 * uint256(1e24), "premise: under the dust bar of the book's declared side");
+        _edgeBook(c, d, 1e24);
+        vm.expectRevert(_refusal());
+        solver.findBestRoutePlan(address(c), address(d), ord);
+
+        (c, , d) = _sorted3();
+        _edgeBook(c, d, 1e24);
+        _pair(c, d, 2.5e19);
+        plan = solver.findBestRoutePlan(address(c), address(d), ord);
+        assertEq(plan.best.totalOut, _v2Out(ord, 2.5e19), "at the bar the pair is kept and leads");
+
+        (c, , d) = _sorted3();
+        _edgeBook(c, d, 1e24);
+        _pair(c, d, 2.5e19 - 1);
+        vm.expectRevert(_refusal());
+        solver.findBestRoutePlan(address(c), address(d), ord);
+    }
+
+    /// Over orders from dust to 1e24 and a runner-up of one or two hops, on a pair of any depth
+    /// or on a book that pays nothing: the solve hands out a route only when a measured route
+    /// pays, promised what it pays, settled at or above its floor; otherwise it stops with
+    /// SolverE(5) and no other revert. A pair 100 times the order deep is never refused, unless it
+    /// is alone on its hop beside the book and under the book's dust bar (the limit pinned above).
+    function testFuzz_SolveRevertsOnlyWhenNoMeasuredRoutePays(uint256 ord, uint256 depth, bool twoHops, bool v2)
+        public
+    {
+        ord = bound(ord, 1e12, 1e24);
+        depth = bound(depth, 1, 1e6);
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _sorted3();
+        _edgeBook(c, d, 1e24);
+        uint256 r = ord * depth;
+        uint256 expect;
+        if (twoHops) {
+            _pair(c, mid, 1e30);
+            if (v2) _pair(mid, d, r);
+            else _edgeBook(mid, d, 1e24);
+            expect = _v2Out(_v2Out(ord, 1e30), r);
+        } else {
+            if (v2) _pair(c, d, r);
+            expect = _v2Out(ord, r);
+        }
+        try solver.findBestRoutePlan(address(c), address(d), ord) returns (RoutePlan memory plan) {
+            assertTrue(v2, "a route through a book that pays nothing is never handed out");
+            assertGt(plan.best.totalOut, 0, "a route handed out pays");
+            if (depth >= 100) assertEq(plan.best.totalOut, expect, "promised what the measured route pays");
+            assertGe(this.settleExt(plan, c, ord), plan.best.singleOutFloor, "settles at or above its floor");
+        } catch (bytes memory e) {
+            assertEq(e, _refusal(), "only the no-viable-route refusal");
+            // One carve-out, pinned: a lone pair under the book's dust bar (test_Limit_ADustPair...).
+            assertTrue(!v2 || depth < 100 || (!twoHops && r * 1e6 < 25 * uint256(1e24)), "a pair that pays is never refused");
+        }
+    }
+
+    function test_Gas_LeaderPayingNothingHandsTheLeadToTheRunnerUp() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _zeroLeader();
+        _pair(c, mid, 1e22);
+        _pair(mid, d, 1e22);
+        (uint256 g, bool ok) = _planGas(address(c), address(d), 1e18);
+        assertTrue(ok, "premise: the runner-up is promoted");
+        emit log_named_uint("gas: zero leader, the runner-up promoted (2 V2 hops)", g);
     }
 }

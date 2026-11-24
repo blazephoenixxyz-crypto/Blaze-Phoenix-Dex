@@ -761,6 +761,22 @@
       "guard": "findBestRoutePlan",
       "test": "test_LeaderPayingNothingWithNoRebuildIsNotHandedOut",
       "note": "PR #139, 2026-11-19. Red at 24959f0 and at 2c8cbbe (a one-hop plan, totalOut 0); pre-existing, not a regression, no funds at risk (the Router reverts). One check where every plan leaves the search (the self-call ends there too): a plan with totalOut 0 reverts SolverE(5). Mutant M-JUDGE-10."
+    },
+    {
+      "id": "JUDGE-RUNNER-UP-THAT-PAYS-REFUSED",
+      "class": "A leader every book of which pays 0 on its walk, beside a runner-up whose own books pay and no rebuild that leads: the solve stopped with SolverE(5), refusing a viable route, and the runner-up promoted on its build-time rank would be promised the model instead of what its books pay",
+      "status": "blocked",
+      "guard": "findBestRoutePlan",
+      "test": "test_LeaderPayingNothingHandsTheLeadToTheRunnerUpThatPays",
+      "note": "caixa-1123 solver-zero-leader, 2026-11-24. Red at 6e5067b (SolverE(5)). When the leader pays 0, the runner-up is walked by the same _paysWhatItWalks and leads if it pays; the rebuild leads only above the larger of the two ranks, each less what its books do not pay; the plan then carries no fallback. Mutants [caixa-1123 solver-zero-leader a]-[e]."
+    },
+    {
+      "id": "DUST-PAIR-BESIDE-A-BOOK-THAT-PAYS-NOTHING",
+      "class": "A pair under the dust bar of a book's declared mass (_dropDust: 25 ppm of the other rows' mass) is dropped from its hop's list before any build; when the book then pays 0 on its walk, the rebuild sits the book out of the already filtered list and the pair is not read again, so a solve whose one paying venue is that pair stops with SolverE(5)",
+      "status": "out-of-scope",
+      "rationale": "Liveness only and fail closed: no plan is handed out, so no funds move. Pre-existing at 6e5067b, outside the zero-leader fix. Readmitting the dropped rows in the rebuild is a follow-up of the dust-filter family (the same _dropDust that weighs undercollateralised declared mass).",
+      "test": "test_Limit_ADustPairDroppedBesideABookThatPaysNothingIsNotReadmitted",
+      "note": "caixa-1123 solver-zero-leader, 2026-11-24. Pinned: a 1e12+2 order on a 310008-times pair beside a 1e24 book stops; at 2.5e19 deep the pair is kept and leads; one wei under it the solve stops."
     }
   ]
 }
