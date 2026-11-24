@@ -1717,7 +1717,7 @@ contract BlazePhoenixSolver {
             d = BPC.impactV2Bps(L.amountIn, rIn);
         } else if (BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
             uint128 liq = BPC.getLiquidity(L.pool);
-            (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(L.pool);
+            (uint160 sp, uint24 dynFee, bool dyn) = BPC.v3StateAndDynFee(L.pool, L.zeroForOne);
             d = BPC.impactV3Bps(
                     L.amountIn, sp, liq,
                     BPC.quoteV3Fee(L.pool, uint24(L.fee), dynFee, dyn),

@@ -1264,6 +1264,19 @@ library BlazePhoenixCore {
     function v3StateAndDynFee(address pool)
         internal view returns (uint160 sp, uint24 f, bool dyn)
     {
+        return v3StateAndDynFee(pool, true); // readers of the price or the shape: no direction
+    }
+
+    /// @dev    THE FEE OF THE DIRECTION SWAPPED (hydrex-1124, 2026-11-24). Algebra 1.9
+    ///         (Camelot) keeps one fee per direction and answers globalState() in EIGHT
+    ///         words: word 2 = feeZto (token0 in), word 3 = feeOtz (token1 in). Word 2
+    ///         priced both directions, so a one-for-zero leg was quoted at the other
+    ///         direction's fee. The answer's own size names the layout: Algebra v1 answers
+    ///         seven words (word 3 = timepointIndex) and Integral six (word 3 =
+    ///         pluginConfig), and both keep word 2 either way.
+    function v3StateAndDynFee(address pool, bool zeroForOne)
+        internal view returns (uint160 sp, uint24 f, bool dyn)
+    {
         assembly ("memory-safe") {
             let m := mload(0x40)
             // Uniswap V3 slot0() (0x3850c7bd): sqrtPriceX96 is word 0.
@@ -1287,11 +1300,12 @@ library BlazePhoenixCore {
             // fail-closed fee path exactly as before.
             if iszero(sp) {
                 mstore(m, 0xe76c01e400000000000000000000000000000000000000000000000000000000)
-                let ok2 := staticcall(GAS_CAP, pool, m, 4, m, 96)
+                let ok2 := staticcall(GAS_CAP, pool, m, 4, m, 128)
                 if ok2 {
                     if iszero(lt(returndatasize(), 32)) { sp := mload(m) }
                     if iszero(lt(returndatasize(), 96)) {
-                        f   := and(mload(add(m, 0x40)), 0xffffff)
+                        // word 3 for one-for-zero on the eight-word answer, else word 2
+                        f   := and(mload(add(m, add(0x40, shl(5, and(iszero(zeroForOne), eq(returndatasize(), 256)))))), 0xffffff)
                         dyn := 1
                     }
                 }
@@ -1976,7 +1990,7 @@ library BlazePhoenixCore {
             // same dispatcher. Every pool is asked its own fee() first
             // (`quoteV3Fee`); the key's fee, then Algebra's word 2, answer
             // only when fee() does not.
-            (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
+            (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool, c.zeroForOne);
             uint128 liq = getLiquidity(c.pool);
             // NO boundary clamp, for now: `v3StateAndDynFee` does not yet return
             // the tick, and the per-crossing cost in V3 is ~2x that of V4 (the
@@ -3125,7 +3139,7 @@ library BlazePhoenixCore {
             // 0% is legal). The curve runs ONCE: the impact is derived from the quote. An
             // unquotable leg charges DEFAULT_IMPACT_BPS, like its sibling arms: the floor
             // SUBTRACTS impact, so BPS here would be the permissive direction (review 2026-09-02).
-            (uint160 sp, uint24 dynFee, bool dyn) = v3StateAndDynFee(leg.pool);
+            (uint160 sp, uint24 dynFee, bool dyn) = v3StateAndDynFee(leg.pool, leg.zeroForOne);
             uint128 lq = getLiquidity(leg.pool);
             if (legAmt != 0 && sp != 0 && lq != 0) {
                 q = outV3(legAmt, sp, lq, quoteV3Fee(leg.pool, 0, dynFee, dyn), leg.zeroForOne, 0);

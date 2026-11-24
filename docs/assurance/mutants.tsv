@@ -884,6 +884,13 @@ src/BlazePhoenixCore.sol	test_AFeeAboveTheStaleWordIsTheFeePriced	hydrex-1124 D1
 src/BlazePhoenixCore.sol	test_AFeeBelowTheStaleWordIsTheFeePriced	hydrex-1124 D1: an Algebra-shaped pool is not asked its fee(): the quote prices the stale word 2 of globalState() over the fee the pool charges
 src/BlazePhoenixCore.sol	test_TheLegFloorReadsTheSameFee	hydrex-1124 D1: an Algebra-shaped pool is not asked its fee(): the leg floor reads the stale word 2 as well
 src/BlazePhoenixCore.sol	test_AStarvedFrameRevertsEmptyAndNeverPricesTheWord	hydrex-1124 D1: an Algebra-shaped pool is not asked its fee(): a starved frame prices the word instead of reverting empty
+src/BlazePhoenixCore.sol	test_OneForZeroPricesFeeOtz	hydrex-1124 C9 M1: the producer prices word 2 (feeZto) for a one-for-zero swap on an eight-word Algebra 1.9 answer
+src/BlazePhoenixCore.sol	test_SevenWordAnswerKeepsWord2OneForZero	hydrex-1124 C9 M2: the direction is read without the identity: a seven-word Algebra v1 answer prices timepointIndex one-for-zero
+src/BlazePhoenixCore.sol	test_SixWordAnswerKeepsWord2OneForZero	hydrex-1124 C9 M2: the direction is read without the identity: a six-word Integral answer prices pluginConfig one-for-zero
+src/BlazePhoenixCore.sol	test_ZeroForOnePricesFeeZto	hydrex-1124 C9 M3: the direction is inverted: zero-for-one prices feeOtz
+src/BlazePhoenixCore.sol	test_OneForZeroPricesFeeOtzWhenItIsTheLowerFee	hydrex-1124 C9 M4: the rank door drops the direction and prices feeZto one-for-zero
+src/BlazePhoenixCore.sol	test_TheLegDoorPricesFeeOtzOneForZero	hydrex-1124 C9 M5: the Router's leg door drops the direction and prices feeZto one-for-zero
+src/BlazePhoenixSolver.sol	test_AlgebraParity_OneForZero_DirectionalFeeEightWords	hydrex-1124 C9 M6: the Solver's attested impact drops the direction: its floor prices feeZto where the Router's frame prices feeOtz
 src/BlazePhoenixQuoter.sol	test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands	C-f2 3330 [885]: the Gate quoteCall is asked outside the reverting frame, so the venue keeps what its simulation wrote
 src/BlazePhoenixQuoter.sol	test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded	C-f2 3336 [886]: the encode doors do not ask the floor of the venues as the Router funds the route
 src/BlazePhoenixQuoter.sol	test_ADirectRouteIntoABridge_UnderItsFloor_IsNotEncoded	G7 base midtail-3:4 M1: a direct route into a bridge asks no venue at the encode door

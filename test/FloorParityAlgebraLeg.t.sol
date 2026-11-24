@@ -167,6 +167,15 @@ contract FloorParityAlgebraLegTest is Test {
         _oneHopParity(tokenC, tokenB, algBC, 10_000, AMT);
     }
 
+    /// Algebra 1.9 (Camelot) answers globalState() in eight words, one fee per direction:
+    /// word 2 = feeZto (100), word 3 = feeOtz (10_000, the fee this one-for-zero leg pays).
+    /// The Solver's attested impact must price word 3, as the Router's frame does.
+    function test_AlgebraParity_OneForZero_DirectionalFeeEightWords() public {
+        vm.mockCall(address(algBC), abi.encodeWithSelector(bytes4(0xe76c01e4)),
+            abi.encode(uint160(Q96 / 2), int24(0), uint16(100), uint16(10_000), uint16(0), uint8(0), uint8(0), true));
+        _oneHopParity(tokenC, tokenB, algBC, 10_000, AMT);
+    }
+
     /// A lying caller: `leg.fee` is calldata, no door of the Router checks it on an Algebra
     /// leg, and the frame must not read it. Lower, higher and absurd: the impact the frame
     /// computes and the floor the Router enforces stay the attested ones.
