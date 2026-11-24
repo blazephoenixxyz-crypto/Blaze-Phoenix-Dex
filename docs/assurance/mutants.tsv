@@ -1928,6 +1928,8 @@ src/BlazePhoenixSolver.sol	test_WalkEndingOnItsLastReadCountsAsUnmeasured	M-JUDG
 src/BlazePhoenixSolver.sol	test_BookThatDoesNotAnswerStaysRefused	M-JUDGE-2b [4746]: a book that does not answer (the walk returns its cap) counts as a measurement
 src/BlazePhoenixSolver.sol	test_DenseBookOnTheFirstHopDoesNotStarveTheSecond	M-JUDGE-4 [4746]: the hop's reads are one budget for the whole route, so the first hop's book decides the second's verdict
 src/BlazePhoenixSolver.sol	test_TwoConcentratedLegsInOneHopShareTheHopsReads	M-JUDGE-5 [4746]: the reads restart on every leg, so two concentrated legs of one hop read twice the hop's books
+src/BlazePhoenixSolver.sol	test_UnfinishedWalkBesideAMeasuredHopStaysRefused	M-JUDGE-11 [5408/5608]: a concentrated leg whose walk did not finish keeps its model figure, so the judge admits on a sum of walked and model figures
+src/BlazePhoenixSolver.sol	test_LegLeftWithoutReadsInItsHopStaysRefused	M-JUDGE-12 [5408/5608]: a concentrated leg left without reads in its hop keeps its model figure
 src/BlazePhoenixSolver.sol	test_SolveAllowanceExhaustedKeepsTheModel	M-JUDGE-6 [4746]: the hop ignores what the solve frame already spent, so the judge reads past JUDGE_SOLVE_READS
 src/BlazePhoenixSolver.sol	test_FloorFigureUnchangedByTheJudge	M-JUDGE-3 [4746]: a route the judge admits is floored at impact 0, not on the single-range figure the Router's arm reads
 src/BlazePhoenixSolver.sol	test_LeaderWhoseBookPaysNothingIsRebuiltWithoutIt	M-JUDGE-8 [4746]: a re-assembled leader whose walk pays 0 stops the solve instead of being rebuilt without its book

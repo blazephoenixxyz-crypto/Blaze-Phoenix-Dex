@@ -364,7 +364,7 @@ contract BlazePhoenixSolver {
     ///      (N1, `findBestRoutePlan`). The re-assembly keeps the build's verdict on the ceiling
     ///      (`_judgedOnTheBook` is not asked again): hop 0 keeps its amounts and every later hop
     ///      only falls, and impact, model or walked, is monotone in the amount, so the frame's
-    ///      spent reads could only answer with the model figure the build already overruled. A
+    ///      spent reads could only refuse (a leg left without reads has no verdict). A
     ///      route whose walk pays 0 is returned as such, its books on `fl`, and the leader is
     ///      rebuilt without them. The re-assembly returns no empty plan: its only refusals are
     ///      a hooked leg before the last hop (the build's own topology, already assembled) and
@@ -1738,8 +1738,9 @@ contract BlazePhoenixSolver {
     ///      judge's "unfinished => no read left" rule. No runtime bytes.
     uint256 private constant JUDGE_READS_FIT = 5 + BPC.V4_WALK_MAX_STEPS - JUDGE_READS;
     /// @dev The reads the judge may spend in one solve frame, over every assembly it judges
-    ///      (`Melhores.judged`). Spent, the model figure stands: the route is refused as before
-    ///      the judge, so the judge can only admit, and costs at most this many reads a frame.
+    ///      (`Melhores.judged`). Spent, a concentrated leg gets no walk and so no verdict: the
+    ///      route stays refused as before the judge, so the judge can only admit, and costs at
+    ///      most this many reads a frame.
     uint256 private constant JUDGE_SOLVE_READS = 24;
 
     /// @dev 4746: the ceiling asks "which leg is a destroyer?" of what each leg's own book pays,
@@ -1748,14 +1749,17 @@ contract BlazePhoenixSolver {
     ///      when the model figures already reach MAX_ROUTE_IMPACT_BPS, so an admitted route pays
     ///      nothing for it. A concentrated leg is judged on its walked output
     ///      (`Core.v3PaysOnBudget` with no cap, then `impactV3FromOut`, the one ratio producer)
-    ///      ONLY when the walk finished inside the reads; a book that does not answer (the walk
-    ///      returns the cap it was handed) or a walk that ran out of reads keeps the model figure,
-    ///      which already refuses: absence of a measurement is not a value. The other arms keep
+    ///      ONLY when the walk finished inside the reads. A concentrated leg whose walk did not
+    ///      finish (the book does not answer: the walk returns the cap it was handed; the reads ran
+    ///      out; or its hop had 5 or fewer left) has no verdict and stands at MAX_ROUTE_IMPACT_BPS,
+    ///      which refuses the route: absence of a measurement is not a value, and the model figure
+    ///      is not one either, since it is the figure on trial. The other arms keep
     ///      `_legImpactBps`. Refuses with the same two reductions as the caller: the worst leg, and
     ///      the per-hop mean summed over the hops. The floor never reads this figure: it keeps the
     ///      single-range one the Router's in-frame arm reads (Core.legQuoteImpact).
     ///      Each hop is handed min(JUDGE_READS, what JUDGE_SOLVE_READS leaves of the frame) and
-    ///      writes back what it spent (`m.judged`); none left, the model figure stands.
+    ///      writes back what it spent (`m.judged`); none left, its concentrated legs have no
+    ///      verdict and the route stays refused.
     function _judgedOnTheBook(Hop[] memory hops, Melhores memory m) private view returns (bool) {
         if (m.judged > JUDGE_SOLVE_READS) return false; // a re-assembly keeps the build's verdict
         uint256 hopsSum;
@@ -1767,8 +1771,9 @@ contract BlazePhoenixSolver {
             uint256 reads = given;
             for (uint256 i; i < legs; ) {
                 Leg memory L = hops[h].legs[i];
-                uint256 li = _legImpactBps(L);
-                if (reads > 5 && BPC.kindHas(L.kind, BPC.A_CONC_POOL)) {
+                uint256 li = MAX_ROUTE_IMPACT_BPS; // a concentrated leg not walked to its end has no verdict
+                if (!BPC.kindHas(L.kind, BPC.A_CONC_POOL)) li = _legImpactBps(L);
+                else if (reads > 5) {
                     uint256 out;
                     (out, reads) = BPC.v3PaysOnBudget(L.pool, L.amountIn, L.zeroForOne, type(uint256).max, reads);
                     if (out != type(uint256).max && reads != 0) {

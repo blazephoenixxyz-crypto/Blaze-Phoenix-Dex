@@ -36,6 +36,7 @@ fz	-	-	registry-moonslot-expiry	-	gap
 mc	-	-	hop1-hop2	testMC_ExtremesNeverOverpromise	covered
 fz	-	-	hop1-hop2	test_DoisHops_PreviewBateComAEntrega	covered
 fz	-	-	hop1-hop2	testFuzz_ALegGivenMoreInputIsHeldToTheAttestedRate	covered
+fz	-	-	hop1-hop2	testFuzz_AdmittedByTheJudgeMeansEveryConcentratedLegFinishedItsWalk	covered
 fz	-	-	quote-ABI-execution	test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt	covered
 input-baseline	restatement	fee-push-restatement	-	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	covered
 input-baseline	restatement	leg-window-restatement	-	-	gap
