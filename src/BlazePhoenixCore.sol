@@ -2746,7 +2746,7 @@ library BlazePhoenixCore {
     function _v4Walk(
         address src, bytes32 poolId, uint256 amountIn, uint24 fee, int24 tickSpacing, bool zeroForOne,
         uint256 bar, uint256 n
-    ) private view returns (uint256 lo, uint256 out, uint256 hi, uint256 used, uint160 sStop) {
+    ) private view returns (uint256 lo, uint256 out, uint256 hi, uint256 spent, uint160 sStop) {
         if (amountIn == 0 || fee >= 1_000_000 || tickSpacing <= 0 || src == address(0)) return (0, 0, 0, 0, 0);
         // `src` is the V4 singleton (state read through extsload), or, with a zero poolId, a
         // V3-shaped pool walked through its own getters (slot0, liquidity, tickBitmap, ticks).
@@ -2799,7 +2799,7 @@ library BlazePhoenixCore {
         if (i < n) lo = out;
         hi = i == V4_WALK_DEEP_STEPS ? _v4Ceil(out, rem, fee, sp, zeroForOne) : out;
         // Truncated (input left at the deep limit): what it spent and the price it stopped at.
-        if (i == V4_WALK_DEEP_STEPS) (used, sStop) = (amountIn - rem, sp);
+        if (i == V4_WALK_DEEP_STEPS) (spent, sStop) = (amountIn - rem, sp);
     }
 
     /// @notice Batch slot0 read for many V4 poolIds in ONE staticcall via the
