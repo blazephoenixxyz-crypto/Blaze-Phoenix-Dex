@@ -89,6 +89,7 @@ import {
     BlazePhoenixCore as BPC,
     Route, Hop, Leg, RoutePlan, QuoteCtx, MAX_HOPS, MAX_LEGS_PER_HOP
 } from "./BlazePhoenixCore.sol";
+import {MIN_SPLIT_IMPROVEMENT_PPM} from "./BlazePhoenixSolver.sol";
 
 interface ISolverQ {
     function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
@@ -749,18 +750,51 @@ contract BlazePhoenixQuoter {
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         address mgr = hub.v4PoolManager();
         if (msg.sender != mgr) revert QuoterE(6);
-        (IV4Q.V4PoolKey memory key, bool zfo, uint256 amt)
-            = abi.decode(data, (IV4Q.V4PoolKey, bool, uint256));
+        // `lim` is zero for every leg but a price-limited one (`BPC.v4Limit`): its tick with bit
+        // 255 set, as `Router._execV4Amt` encodes it, with the hop's window bar and the leg's floor.
+        (IV4Q.V4PoolKey memory key, bool zfo, uint256 amt, uint256 lim, uint256 bar, uint256 floor)
+            = abi.decode(data, (IV4Q.V4PoolKey, bool, uint256, uint256, uint256, uint256));
+        (int256 ow, int256 rc) = lim == 0
+            ? _v4Swap(mgr, key, zfo, amt, zfo ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE)
+            : _v4Rounds(mgr, key, zfo, amt, int24(uint24(lim)), bar, floor);
+        if (zfo) revert QuoteDeltas(ow, rc);
+        revert QuoteDeltas(rc, ow);
+    }
+
+    /// @dev One exact-input V4 swap of `amt` up to the sqrt price `limit`, inside the unlock:
+    ///      the pool's deltas, the side the swap owes (negative) and the side it receives.
+    function _v4Swap(address mgr, IV4Q.V4PoolKey memory key, bool zfo, uint256 amt, uint160 limit)
+        private returns (int256 ow, int256 rc)
+    {
         IV4Q.SwapParams memory p = IV4Q.SwapParams({
             zeroForOne:        zfo,
             amountSpecified:   -int256(amt),   // negative = exact input (V4)
-            sqrtPriceLimitX96: zfo ? BPC.MIN_SQRT_PRICE_PLUS_ONE
-                                   : BPC.MAX_SQRT_PRICE_MINUS_ONE
+            sqrtPriceLimitX96: limit
         });
         int256 bd = IV4Q(mgr).swap(key, p, "");
         int256 d0 = int256(int128(bd >> 128));
         int256 d1 = int256(int128(bd));
-        revert QuoteDeltas(d0, d1);
+        (ow, rc) = zfo ? (d0, d1) : (d1, d0);
+    }
+
+    /// @dev Where a price-limited leg stops, as the Router stops it: the quote-side text of
+    ///      `Router._v4Rounds`, window by window on the same reads (`BPC.v4Window`,
+    ///      `BPC.v4ValueAt`). Up to `floor` the leg always goes on; past it a window must pay at
+    ///      least `bar` above what its input is worth at the limit price. Returns the summed
+    ///      deltas: what the leg owes (negative) and what it receives.
+    function _v4Rounds(
+        address mgr, IV4Q.V4PoolKey memory key, bool zfo, uint256 amt, int24 limTick, uint256 bar, uint256 floor
+    ) private returns (int256 owe, int256 recv) {
+        bytes32 pid = BPC.computeV4PoolId(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks);
+        while (true) {
+            (uint160 stop, uint160 limSqrt, uint24 fee) = BPC.v4Window(mgr, pid, key.fee, key.tickSpacing, zfo, limTick);
+            if (stop == 0) break;
+            (int256 t, int256 o) = _v4Swap(mgr, key, zfo, amt - uint256(-owe), stop);
+            owe += t;
+            recv += o;
+            if (uint256(-owe) >= amt || stop == limSqrt) break;
+            if (uint256(-owe) >= floor && (o <= 0 || uint256(o) < BPC.v4ValueAt(uint256(-t), fee, limSqrt, zfo) + bar)) break;
+        }
     }
 
     /// @notice Exact-in dry-run on a V4 pool via unlock+revert. Mirrors the
@@ -769,7 +803,10 @@ contract BlazePhoenixQuoter {
     ///         for delta-altering hooks and for paused hooks that run in the
     ///         swap. Returns 0 when the dry-run cannot
     ///         speak (caller falls back to the plan-time approximation).
-    function _simV4(Leg memory leg, address tokenIn, uint256 amtIn)
+    ///         `w` carries a price-limited fill's terms in and its input out: [0] the limit
+    ///         (zero: one swap to the extreme price, `w` unread past it), [1] the window bar,
+    ///         [2] the floor, [3] written with what the fill took.
+    function _simV4(Leg memory leg, address tokenIn, uint256 amtIn, uint256[4] memory w)
         internal returns (uint256 out)
     {
         if (amtIn == 0 || amtIn > uint256(uint128(type(int128).max))) return 0;
@@ -801,12 +838,14 @@ contract BlazePhoenixQuoter {
             currency0: c0, currency1: c1, fee: leg.fee,
             tickSpacing: leg.tickSpacing, hooks: leg.hooks
         });
-        try IV4Q(mgr).unlock(abi.encode(key, leg.zeroForOne, amtIn))
+        try IV4Q(mgr).unlock(abi.encode(key, leg.zeroForOne, amtIn, w[0], w[1], w[2]))
             returns (bytes memory)
         {
             return 0;
         } catch (bytes memory reason) {
             (int256 d0, int256 d1) = _ownDeltas(reason);
+            int256 ow = leg.zeroForOne ? d0 : d1;
+            if (ow < 0) w[3] = uint256(-ow);
             int256 rv = leg.zeroForOne ? d1 : d0;
             if (rv <= 0) return 0;
             out = uint256(rv);
@@ -1047,11 +1086,11 @@ contract BlazePhoenixQuoter {
         // The protocol floor's accumulators, in memory for the stack: [0] the route's impact
         // (`BPC.wImp` summed over every leg), [1] the hop's base (the last hop's stays), [2] the
         // hop holds a blind leg (`Router._execute`'s `hopBlind`), reset with [1].
-        uint256[3] memory acc;
+        // [3..5] the frame referents of a price-limited hop's leg under `ask` (`_askLeg`).
+        uint256[6] memory acc;
         for (uint256 h; h < route.hops.length; h++) {
             Hop memory hop = route.hops[h];
-            uint256 legSum;
-            for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
+            uint256 legSum = _legSum(hop);
             if (BPC.paysOnInput(h, feeHop, feeOnOut)) {
                 uint256 fee = BPC.mulDivUp(h == 0 && carry > legSum ? legSum : carry, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
                 if (fee >= carry) {
@@ -1065,6 +1104,16 @@ contract BlazePhoenixQuoter {
             uint256 hopBound;
             uint256 bounded;
             (acc[1], acc[2]) = (0, 0);
+            // A PRICE-LIMITED HOP (first leg carries `BPC.v4Limit`, exact legs behind it) is
+            // funded as the Router funds its bytes (`_fundLimited`): the limited leg fills by
+            // windows out of the hop's whole input and the exact legs share what it leaves.
+            // Under `write` the legs are first written at their shares (`_writeShares`), and
+            // the funding reads the written bytes, the ones the Router will be handed.
+            if (hop.legs.length >= 2 && _limited(hop.legs[0])) {
+                if (write) _writeShares(acc, hop, carry, legSum);
+                (hopOut, hopBound, bounded) = _fundLimited(acc, hop, carry, h == 0, ask);
+                if (hopOut == type(uint256).max) return 0;
+            } else
             for (uint256 l; l < hop.legs.length; l++) {
                 Leg memory leg = hop.legs[l];
                 uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
@@ -1095,7 +1144,7 @@ contract BlazePhoenixQuoter {
     /// @dev One leg of `_walk` at `legIn`, out of the walk's frame for the stack: priced, asked
     ///      where `ask` (`bound` is `_askLeg`'s, 0 where not asked) and written where `write`,
     ///      never once the bound refuses it.
-    function _walkLeg(uint256[3] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, bool write, bool ask)
+    function _walkLeg(uint256[6] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, bool write, bool ask)
         private returns (uint256 legOut, uint256 bound)
     {
         legOut = _priceLeg(leg, hop.tokenIn, hop.tokenOut, legIn);
@@ -1104,6 +1153,69 @@ contract BlazePhoenixQuoter {
             if (bound == type(uint256).max) return (legOut, bound);
         }
         if (write) (leg.amountIn, leg.expectedOut) = (legIn, legOut);
+    }
+
+    /// @dev A hop's commitment, as `Router._legSum` reads it: the sum of its exact legs' inputs.
+    ///      A price-limited leg fills out of the hop's whole input and is left out.
+    function _legSum(Hop memory hop) private pure returns (uint256 c) {
+        for (uint256 l; l < hop.legs.length; l++) if (!_limited(hop.legs[l])) c += hop.legs[l].amountIn;
+    }
+
+    /// @dev Whether `leg` carries a price limit (`BPC.v4Limit`).
+    function _limited(Leg memory leg) private pure returns (bool on) {
+        (on, ) = BPC.v4Limit(leg.auxId);
+    }
+
+    /// @dev A price-limited hop as `_walk` writes it: every leg at its share of `carry` over the
+    ///      exact legs' sum, the limited first leg's never above `carry`, each with the venue's
+    ///      dry-run at that share. The exact legs still sum to `carry`, less at most a wei per
+    ///      leg, so the hop's commitment is what any hop's is.
+    function _writeShares(uint256[6] memory acc, Hop memory hop, uint256 carry, uint256 legSum) private {
+        for (uint256 l; l < hop.legs.length; l++) {
+            uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(hop.legs[l].amountIn, carry, legSum);
+            if (l == 0 && legIn > carry) legIn = carry;
+            _walkLeg(acc, hop.legs[l], hop, legIn, true, false);
+        }
+    }
+
+    /// @dev A price-limited hop funded from `carry` as the Router funds its bytes, term by term:
+    ///      the commitment (`_legSum`) and, at the first hop, its cap; the limited leg's floor,
+    ///      its share of the input; the window bar, MIN_SPLIT_IMPROVEMENT_PPM of what the exact
+    ///      legs declare (`Router._v4Bar`); the fill by windows on the pool itself (`_simV4`,
+    ///      `_v4Rounds`); and the exact legs on what is left, each at its share
+    ///      (`Router._carry`). Under `ask` each leg is asked on the Router's referents
+    ///      (`_askLeg`). Returns the hop's output and `_walk`'s bound sums, the output
+    ///      `type(uint256).max` at the first leg the Router would refuse.
+    function _fundLimited(uint256[6] memory acc, Hop memory hop, uint256 carry, bool first, bool ask)
+        private returns (uint256 hopOut, uint256 hopBound, uint256 bounded)
+    {
+        Leg[] memory legs = hop.legs;
+        uint256 s = _legSum(hop);
+        if (first && carry > s) carry = s;
+        if (s == 0) s = 1;
+        uint256[4] memory w;
+        (, int24 tick) = BPC.v4Limit(legs[0].auxId);
+        w[0] = (uint256(1) << 255) | uint256(uint24(tick));
+        for (uint256 i = 1; i < legs.length; i++) w[1] += legs[i].expectedOut;
+        w[1] = BPC.mulDiv(w[1], MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000);
+        w[2] = BPC.mulDiv(legs[0].amountIn, carry, s);
+        hopOut = _simV4(legs[0], hop.tokenIn, carry, w);
+        uint256 rest = carry - w[3];
+        uint256 bound;
+        if (ask) {
+            (acc[3], acc[4], acc[5]) = (w[2], w[3] < w[2] ? w[3] : w[2], w[2] == 0 ? 1 : w[2]);
+            bound = _askLeg(acc, legs[0], hop, w[3], hopOut);
+        }
+        for (uint256 i = 1; ; i++) {
+            if (bound == type(uint256).max) return (bound, 0, 0);
+            if (bound != 0) { hopBound += bound; ++bounded; }
+            if (i == legs.length) break;
+            if (ask) (acc[3], acc[4], acc[5]) = (BPC.mulDiv(legs[i].amountIn, carry, s), rest, carry);
+            uint256 legOut;
+            (legOut, bound) = _walkLeg(acc, legs[i], hop, BPC.mulDiv(legs[i].amountIn, rest, s), false, ask);
+            hopOut += legOut;
+        }
+        acc[5] = 0;
     }
 
     /// @dev The hops from `h` on, which a fee that ate the carry left unfunded: every
@@ -1126,14 +1238,24 @@ contract BlazePhoenixQuoter {
     ///      moves the bound, the covered share of 0 being 0) and its squared amount; and into
     ///      acc[2] whether it is blind as `Router._execute` reads it (`hopBlind`: funded, with
     ///      no attestation and no frame quote).
-    function _askLeg(uint256[3] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, uint256 legOut)
+    ///      In a price-limited hop (`acc[5] != 0`) the referents are the Router's: the frame is
+    ///      measured at `acc[3]` (the limited leg's floor, an exact leg's share of the hop's
+    ///      whole input) and its quote carried to what the leg is funded with, `acc[4]` over
+    ///      `acc[5]` (`Router._carry`); the attestation reads `legIn`, never past `acc[3]`.
+    function _askLeg(uint256[6] memory acc, Leg memory leg, Hop memory hop, uint256 legIn, uint256 legOut)
         private view returns (uint256 bound)
     {
+        uint256 at = legIn;
+        uint256 amt = legIn;
+        if (acc[5] != 0) {
+            at = acc[3];
+            if (amt > at) amt = at;
+        }
         bound = (leg.expectedOut != 0 && leg.amountIn != 0)
-            ? BPC.mulDiv(leg.expectedOut, legIn, leg.amountIn) : 0;
-        (uint256 q, uint256 imp) = _frameQuote(leg, hop.tokenIn, hop.tokenOut, legIn);
-        uint256 legSum;
-        for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;
+            ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn) : 0;
+        (uint256 q, uint256 imp) = _frameQuote(leg, hop.tokenIn, hop.tokenOut, at);
+        if (acc[5] != 0) q = BPC.mulDiv(q, acc[4], acc[5]);
+        uint256 legSum = _legSum(hop);
         acc[0] += BPC.wImp(imp, leg.amountIn, hop.legs.length, legSum == 0 ? 1 : legSum);
         acc[1] += q != 0 ? q : bound;
         if (legIn != 0 && leg.expectedOut == 0 && q == 0) acc[2] = 1;
@@ -1235,7 +1357,8 @@ contract BlazePhoenixQuoter {
             qc.tokenOther = tOut;
             (legOut, , , ) = BPC.universalQuoteRank(qc, legIn, type(uint256).max, false);
         } else if (BPC.kindHas(leg.kind, BPC.A_CONC_SING)) {
-            legOut = _simV4(leg, tIn, legIn);
+            uint256[4] memory w;
+            legOut = _simV4(leg, tIn, legIn, w);
             // Same clamp as the A_CONC_POOL fallback above: the
             // singleton could not price the leg (no manager, hook
             // fail-closed, oversize amount), so never extrapolate the
