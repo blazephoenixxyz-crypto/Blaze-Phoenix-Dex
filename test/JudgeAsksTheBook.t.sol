@@ -14,8 +14,9 @@ pragma solidity 0.8.36;
 //  The fix (`Solver._judgedOnTheBook`) re-judges the route on the refusal path only: each
 //  concentrated leg is priced by its own book walked (`Core.v3PaysOnBudget`, JUDGE_READS reads
 //  shared across the route), and only a walk that finished inside its reads counts as a
-//  measurement. A book that does not answer, or a walk that ran out of reads, keeps the model
-//  figure, which already refuses. The floor never reads the walked figure: it keeps the
+//  measurement. A concentrated leg whose walk did not finish (a book that does not answer, a
+//  walk that ran out of reads, a leg handed 5 or fewer) has no verdict and refuses the route:
+//  the model figure on trial is not a stand-in. The floor never reads the walked figure: it keeps the
 //  single-range one the Router's in-frame arm reads (`Core.legQuoteImpact`).
 //
 //  Red at 2c8cbbe: the two-hop routes below (the 4746 geometry and the 4755 one at
@@ -200,7 +201,7 @@ contract JudgeAsksTheBook is Test {
 
     /// The 4746 geometry with both books' slot0 tick lying (100 ticks off the price, against the
     /// order): the walk does not read a book whose tick disagrees with its price (it answers the
-    /// cap it was handed), so the model figure stands and the route stays refused.
+    /// cap it was handed), so the leg has no verdict and the route stays refused.
     function test_BookThatDoesNotAnswerStaysRefused() public {
         (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
         MockV3TickPool q = _book(c, mid, CUR, DEEP);
@@ -311,14 +312,21 @@ contract JudgeAsksTheBook is Test {
         assertGt(got, BIG * 9 / 10, "the two hops lose under 10%");
     }
 
-    /// Algebra at hop 0 is concentrated, but its book is not read (no tickSpacing): the walk answers
-    /// the cap, the model figure of a deep single range stands, and hop 1 is still walked.
-    function test_AlgebraDeepThenV3OverItsEdgeKeepsARoute() public {
+    /// Algebra at hop 0 is concentrated, but its book is not read (no tickSpacing): the walk
+    /// answers the cap, so the leg has no verdict and the model's refusal stands, however deep
+    /// its single range and whatever hop 1's book pays. Admitted at 9b2855e on the unwalked
+    /// leg's model figure summed with hop 1's walked one; red under M-JUDGE-11.
+    function test_AlgebraDeepThenV3OverItsEdgeStaysRefused() public {
         (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
         _algebra(c, mid, 1e24);
-        _book(mid, d, CUR, DEEP);
-        (uint256 got, ) = _keepsARoute(c, d, BIG);
-        assertGt(got, BIG * 9 / 10, "the two hops lose under 10%");
+        MockV3TickPool q1 = _book(mid, d, CUR, DEEP);
+        bool z1 = address(mid) < address(d);
+        (uint256 out1, uint256 left1) = _judgeWalk(q1, z1, BIG);
+        assertTrue(out1 != type(uint256).max && left1 != 0, "premise: hop 1 is measured, up to the whole order");
+        (uint160 sp1, , , , , , ) = q1.slot0();
+        assertLt(BPC.impactV3FromOut(out1, BIG, sp1, z1), 1_000, "premise: hop 1's book pays near 1:1");
+        vm.expectRevert(_refusal());
+        solver.findBestRoutePlan(address(c), address(d), BIG);
     }
 
     /// A thin Algebra single range at hop 0 cannot be walked: its model figure (>= 9,000 bps)
@@ -536,29 +544,32 @@ contract JudgeAsksTheBook is Test {
         assertGt(got, ORD * 9 / 10, "the two hops, walked, lose under 10%");
     }
 
-    /// Hop 0's book is dense past its edge (every 60 ticks initialized): its walk spends all 12
-    /// reads and is not a measurement, so hop 0 keeps its model figure. Hop 1 is still handed its
-    /// own 12 and measured. The verdict follows the figures, both ways:
-    ///  - hop 0 model ~6,700 (1e18 range) + hop 1 measured: under 9,000, the route is kept;
-    ///  - hop 0 model >= 9,000 (1e17 range): refused, whatever hop 1 measures.
+    /// Hop 0's book has a stair past its edge: its walk finishes on 10 of the hop's 12 reads.
+    /// Hop 1 (model >= 9,000) is still handed its own 12, is measured, and the route is kept: red
+    /// under M-JUDGE-4 (hop 1 left 2 reads, not walked). The same hop 0 dense past its edge (every
+    /// 60 ticks initialized) spends all 12 reads and does not finish: it has no verdict and the
+    /// route is refused, whatever hop 1 measures (admitted at 9b2855e on hop 0's model figure,
+    /// ~6,700; red under M-JUDGE-11).
     function test_DenseBookOnTheFirstHopDoesNotStarveTheSecond() public {
         (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
         uint256 snap = vm.snapshotState();
-        MockV3TickPool q = _dense(c, mid, CUR, 1e20, 40);
+        MockV3TickPool q = _stairs(c, mid, CUR, 1e15, 1, DEEP);
         _book(mid, d, 1e17, DEEP);
-        (, uint256 left0) = _judgeWalk(q, address(c) < address(mid), ORD);
-        assertEq(left0, 0, "premise: hop 0's walk spends every read and does not finish");
+        (uint256 out0, uint256 left0) = _judgeWalk(q, address(c) < address(mid), ORD);
+        assertTrue(out0 != type(uint256).max && left0 == 2, "premise: hop 0's walk finishes on 10 of its 12 reads");
         _keepsARoute(c, d, ORD);
         vm.revertToState(snap);
-        _dense(c, mid, 1e17, 1e20, 40);
+        q = _dense(c, mid, CUR, 1e20, 40);
         _book(mid, d, 1e17, DEEP);
+        (, left0) = _judgeWalk(q, address(c) < address(mid), ORD);
+        assertEq(left0, 0, "premise: hop 0's walk spends every read and does not finish");
         vm.expectRevert(_refusal());
         solver.findBestRoutePlan(address(c), address(d), ORD);
     }
 
     /// Two equal concentrated books at hop 0 (1e17 range, deep past the edge), 4e18 in, split
     /// across both: the first leg's walk spends 8 of the hop's 12 reads, the second is handed 4,
-    /// is not walked, keeps its model figure (>= 9,000) and the route stays refused. The same
+    /// is not walked, has no verdict and the route stays refused. The same
     /// book alone, one leg, is measured and kept. Green at base 2c8cbbe (a guard); red under M-JUDGE-5
     /// (reads restarted per leg).
     function test_TwoConcentratedLegsInOneHopShareTheHopsReads() public {
@@ -590,7 +601,7 @@ contract JudgeAsksTheBook is Test {
     }
 
     /// +-1 read: two stairs, three initialized crossings, the walk finishes on its 12th read:
-    /// counted unmeasured (fail closed), the model figure (>= 9,000) stands, refused. Green
+    /// counted unmeasured (fail closed): no verdict, refused. Green
     /// at base 2c8cbbe (a guard); red under M-JUDGE-2a (`reads != 0` dropped).
     function test_WalkEndingOnItsLastReadCountsAsUnmeasured() public {
         (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
@@ -623,8 +634,9 @@ contract JudgeAsksTheBook is Test {
 
     /// Three bridges, three refused topologies in order: the first two spend the solve's 24 reads
     /// on dense books that do not finish (model >= 9,000), the third (hop 1 alone >= 9,000 on the
-    /// model, kept when measured, shown first on its own) is handed none: model figure, refused,
-    /// SolverE(5) as at base 2c8cbbe. Red under M-JUDGE-6 (the leftover not written back).
+    /// model, kept when measured, shown first on its own) is handed none: its concentrated legs
+    /// are not walked and have no verdict, refused, SolverE(5) as at base 2c8cbbe. Red under
+    /// M-JUDGE-6 (the leftover not written back).
     function test_SolveAllowanceExhaustedKeepsTheModel() public {
         MockERC20 c = new MockERC20("CCC", "CCC");
         MockERC20 d = new MockERC20("DDD", "DDD");
@@ -651,25 +663,32 @@ contract JudgeAsksTheBook is Test {
     }
 
     /// The leader the judge admitted, re-assembled on what its books pay (`_paysWhatItWalks`)
-    /// with the frame's reads already spent: hop 0 a dense book whose walk spends the hop's 12
-    /// reads and does not finish, so its promise falls; hop 1 a 1e17 range whose model figure,
-    /// summed with hop 0's, crosses the line, so the route exists only because the build's judge
-    /// admitted it.
+    /// with the frame's reads already spent: hop 0 a deep range at the price over a shallow book
+    /// past its edge, whose walk finishes inside the hop's reads (a measured leg) and pays less
+    /// than the single-range model promised, so its promise falls; hop 1 a 1e17 range whose model
+    /// figure, summed with hop 0's, crosses the line, so the route exists only because the build's
+    /// judge admitted it on both legs' walks. Three (range, shallow book, order) vectors.
     /// The re-assembly keeps that verdict: the answer is the two-hop route, never SolverE(5) on
     /// the frame's spent reads and never an empty plan. Red at f96bf6c (an empty `best`) and at
-    /// c54fd92 (SolverE(5)). Hop 0's book ends 40 stairs past its edge, so the walk's remainder
-    /// is valued on the range it reached, above what the book pays: the Router then refuses the
-    /// settlement under the floor (RouterE(5)), the limit `What this does not do` names.
+    /// c54fd92 (SolverE(5)), on a hop 0 that did not finish its walk; since the judge admits only
+    /// on finished walks (5408/5608), hop 0 is measured. Settles (the Router holds it to
+    /// singleOutFloor), or the Router refuses it under the floor (RouterE(5)), the limit
+    /// `What this does not do` names.
     function test_LeaderAdmittedByTheJudgeDoesNotLeaveAnEmptyPlan() public {
-        uint128[3] memory per = [uint128(1e17), 5e17, 3e17];
+        uint128[3] memory cur = [uint128(1e19), 3e18, 3e19];
+        uint128[3] memory sh = [uint128(3e18), 1e18, 1e18];
         uint256[3] memory ord = [ORD, ORD, 15e17];
         for (uint256 i; i < 3; ++i) {
             uint256 snap = vm.snapshotState();
             (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
-            MockV3TickPool q = _dense(c, mid, CUR, per[i], 40);
+            MockV3TickPool q = _shallow(c, mid, cur[i], sh[i]);
             MockV3TickPool q1 = _book(mid, d, 1e17, DEEP);
-            (, uint256 left0) = _judgeWalk(q, address(c) < address(mid), ord[i]);
-            assertEq(left0, 0, "premise: hop 0's walk spends every read and does not finish");
+            bool z0 = address(c) < address(mid);
+            (uint256 w0, uint256 left0) = _judgeWalk(q, z0, ord[i]);
+            assertGt(left0, 0, "premise: hop 0's walk finishes inside the hop's reads");
+            assertLt(w0, _modelOut(q, ord[i], z0), "premise: hop 0's promise falls on the walk");
+            (uint256 wb0, ) = _walkedBps(q, z0, ord[i]);
+            assertLt(wb0, 9_000, "premise: what hop 0's book pays does not cross the line");
             RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), ord[i]);
             assertEq(plan.best.hops.length, 2, "the leader the judge admitted is the answer, never an empty plan");
             assertGe(_modelBps(q, ord[i], address(c) < address(mid))
@@ -714,19 +733,22 @@ contract JudgeAsksTheBook is Test {
         assertGt(_settle(plan, c, amt), 0, "the rebuilt route settles");
     }
 
-    /// The leader the judge admitted keeps that verdict on its re-assembly. Hop 0 a dense book
-    /// whose walk does not finish on its reads, so its promise falls; hop 1 a range whose model
+    /// The leader the judge admitted keeps that verdict on its re-assembly. Hop 0 a deep range
+    /// over a shallow book past its edge, whose walk finishes inside the hop's reads (measured)
+    /// and pays less than the model promised, so its promise falls; hop 1 a range whose model
     /// figure, summed with hop 0's, crosses the line, and which the build's judge measured on
     /// what was left of the frame's reads. The re-assembly hands hop 0 the same amounts and every
     /// later hop less, and impact (model or walked) is monotone in the amount: asking the judge
-    /// again on the frame's spent reads can only answer with the model figure the build already
-    /// overruled. The route the judge admitted stays the answer. Red at c54fd92 (SolverE(5)).
+    /// again on the frame's spent reads can only refuse (a leg left without reads has no verdict
+    /// and refuses). The route the judge admitted stays the
+    /// answer. Red at c54fd92 (SolverE(5)), on a hop 0 that did not finish its walk; since the
+    /// judge admits only on finished walks (5408/5608), hop 0 is measured.
     function test_JudgedLeaderReassembledKeepsTheVerdict() public {
         (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
-        MockV3TickPool q0 = _stairs(c, mid, 1e18, 9e17, 40, DEEP);
-        MockV3TickPool q1 = _book(mid, d, 5e17, DEEP);
+        MockV3TickPool q0 = _shallow(c, mid, 3e18, 1e18);
+        MockV3TickPool q1 = _book(mid, d, 3e17, DEEP);
         _pair(c, d, 2e17);
-        uint256 amt = 82e16;
+        uint256 amt = ORD;
         bool z0 = address(c) < address(mid);
         bool z1 = address(mid) < address(d);
         uint256 out0 = _modelOut(q0, amt, z0);
@@ -738,8 +760,10 @@ contract JudgeAsksTheBook is Test {
         assertLt(m0, 9_000, "premise: no leg crosses the line on the model");
         assertLt(m1, 9_000, "premise: no leg crosses the line on the model");
         assertGe(m0 + m1, 9_000, "premise: the model sum refuses the route, only the judge admits it");
-        assertEq(left0, 0, "premise: hop 0's walk spends its reads and does not finish");
+        assertGt(left0, 0, "premise: hop 0's walk finishes inside the hop's reads");
         assertLt(w0, out0, "premise: hop 0's promise falls on the walk");
+        (uint256 wb0, ) = _walkedBps(q0, z0, amt);
+        assertLt(wb0, 9_000, "premise: what hop 0's book pays does not cross the line");
         assertGe(m0 + _modelBps(q1, win1, z1), 9_000, "premise: the model still refuses after the fall");
         RoutePlan memory plan = solver.findBestRoutePlan(address(c), address(d), amt);
         assertEq(plan.best.hops.length, 2, "the route the judge admitted keeps its verdict");
@@ -763,6 +787,183 @@ contract JudgeAsksTheBook is Test {
         assertEq(walked, 0, "premise: the book pays 0 on its walk");
         vm.expectRevert(_refusal());
         solver.findBestRoutePlan(address(c), address(d), 1e18);
+    }
+
+    // =========================================================================================
+    //  (l) The judge admits only on measured legs (5408/5608): a concentrated leg whose book
+    //  was not walked to its end inside the reads has no verdict, and the model's refusal stands.
+    //  Red at 9b2855e: each route below was admitted on a sum of walked and model figures.
+    // =========================================================================================
+
+    /// @dev A deep range [0, 60) at the price and almost nothing past it: `n` adjacent 60-tick
+    ///      stairs of `per`. The single-range model reads the leg as near 1:1; the book pays
+    ///      about one tick of `cur` and cannot take the rest of the order.
+    function _cliff(MockERC20 a, MockERC20 b, uint128 cur, uint128 per, uint256 n) internal returns (MockV3TickPool q) {
+        q = _dense(a, b, cur, per, n);
+    }
+
+    /// Hop 0 is a cliff whose stairs spend the hop's 12 reads: its walk does not finish, its model
+    /// figure is low, and its own book cannot take the order. Hop 1 (a thin range over a deep
+    /// book, model >= 9,000) is measured near 1:1. No instrument gave the sum that admitted this
+    /// route: hop 0 has no verdict, the route stays refused. Red under M-JUDGE-11.
+    function test_UnfinishedWalkBesideAMeasuredHopStaysRefused() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
+        MockV3TickPool q0 = _cliff(c, mid, 1e20, 1e13, 40);
+        MockV3TickPool q1 = _book(mid, d, 1e14, DEEP);
+        bool z0 = address(c) < address(mid);
+        bool z1 = address(mid) < address(d);
+        (uint256 out0, uint256 left0) = _judgeWalk(q0, z0, ORD);
+        assertTrue(out0 != type(uint256).max && left0 == 0, "premise: hop 0's walk answers, spends every read and does not finish");
+        assertLt(_modelBps(q0, ORD, z0), 1_000, "premise: hop 0's model figure is low");
+        (uint256 w0, ) = _walkedBps(q0, z0, ORD);
+        assertGe(w0, 9_000, "premise: hop 0's own book destroys the order");
+        uint256 in1 = out0 - BPC.mulDivUp(out0, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        assertGe(_modelBps(q1, in1, z1), 9_000, "premise: hop 1's model alone reaches the ceiling, so the judge runs");
+        (uint256 out1, uint256 left1) = _judgeWalk(q1, z1, in1);
+        assertTrue(out1 != type(uint256).max && left1 != 0, "premise: hop 1 is measured");
+        (uint160 sp1, , , , , , ) = q1.slot0();
+        assertLt(BPC.impactV3FromOut(out1, in1, sp1, z1), 1_000, "premise: hop 1's book pays near 1:1");
+        vm.expectRevert(_refusal());
+        solver.findBestRoutePlan(address(c), address(d), ORD);
+    }
+
+    /// 5608: two concentrated legs in hop 0, split by their current liquidity, so the model
+    /// reads both alike (~6,700). The first (thin range, deep book) spends 8 of the hop's 12
+    /// reads and is measured near 1:1; the second, a cliff, is handed 4, under the 6 a walk
+    /// needs, and is not walked: its own book cannot take its share. Hop 1 (model ~6,700, the
+    /// sum reaches the ceiling) is measured near 1:1. A leg left without reads has no verdict:
+    /// the route stays refused. Red under M-JUDGE-12.
+    function test_LegLeftWithoutReadsInItsHopStaysRefused() public {
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
+        MockV3TickPool qa = _book(c, mid, 1e18, DEEP);
+        MockV3TickPool qb = _cliff(c, mid, 3e18, 1e13, 40);
+        MockV3TickPool q1 = _book(mid, d, 1e18, DEEP);
+        bool z0 = address(c) < address(mid);
+        bool z1 = address(mid) < address(d);
+        uint256 ina = ORD;      // the split follows the current liquidity, 1 : 3 of 4 * ORD
+        uint256 inb = 3 * ORD;
+        (uint256 outa, uint256 lefta) = _judgeWalk(qa, z0, ina);
+        assertTrue(outa != type(uint256).max && lefta == 4, "premise: the first leg is measured on 8 reads and leaves 4");
+        (uint160 spa, , , , , , ) = qa.slot0();
+        assertLt(BPC.impactV3FromOut(outa, ina, spa, z0), 1_000, "premise: the first leg's book pays near 1:1");
+        uint256 ma = _modelBps(qa, ina, z0);
+        uint256 mb = _modelBps(qb, inb, z0);
+        assertTrue(ma < 9_000 && mb < 9_000, "premise: neither leg is a destroyer on the model");
+        (uint256 wb, ) = _walkedBps(qb, z0, inb);
+        assertGe(wb, 9_000, "premise: the second leg's own book cannot take its share");
+        uint256 in1 = outa - BPC.mulDivUp(outa, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        assertGe((ma + mb) / 2 + _modelBps(q1, in1, z1), 9_000, "premise: the model figures reach the ceiling, so the judge runs");
+        (uint256 out1, uint256 left1) = _judgeWalk(q1, z1, 4 * ORD);
+        assertTrue(out1 != type(uint256).max && left1 != 0, "premise: hop 1 is measured, up to the whole order");
+        (uint160 sp1, , , , , , ) = q1.slot0();
+        assertLt(BPC.impactV3FromOut(out1, 4 * ORD, sp1, z1), 1_000, "premise: hop 1's book pays near 1:1");
+        (bool okS, bytes memory retS) = address(solver).call(
+            abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (address(c), address(d), ORD / 25)));
+        assertTrue(okS, "premise: a size the model admits keeps a route");
+        Leg[] memory ls = abi.decode(retS, (RoutePlan)).best.hops[0].legs;
+        assertTrue(ls.length == 2 && ls[0].pool == address(qa) && ls[1].pool == address(qb),
+            "premise: the plan lists the measured book first, the cliff second");
+        assertEq(ls[1].amountIn / ls[0].amountIn, 3, "premise: the split follows the current liquidity");
+        (bool ok, bytes memory ret) = address(solver).call(
+            abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (address(c), address(d), 4 * ORD)));
+        assertFalse(ok, "a leg left without reads has no verdict");
+        assertEq(ret, _refusal(), "a refusal is SolverE(5)");
+    }
+
+    /// 5408: the frame's reads are spent before hop 1 is asked. The first topology (a dense book
+    /// that does not finish, model >= 9,000) spends 12; the second's hop 0 (thin range, deep
+    /// book) spends 8 and is measured near 1:1, so its hop 1 is handed the 4 left and is not
+    /// walked. Hop 1 is a deep range at the price with nothing past it: low on the model, and
+    /// on its own reads (shown first, the second topology alone) measured a destroyer and
+    /// refused. A hop the frame hands no walk has no verdict: refused. Red under M-JUDGE-11.
+    function test_HopHandedNoReadsByTheFrameStaysRefused() public {
+        MockERC20 c = new MockERC20("CCC", "CCC");
+        MockERC20 d = new MockERC20("DDD", "DDD");
+        MockERC20 m1 = new MockERC20("M1", "M1");
+        MockERC20 m2 = new MockERC20("M2", "M2");
+        hub.addBridge(address(m1));
+        hub.addBridge(address(m2));
+        MockV3TickPool q0 = _book(c, m2, 1e17, DEEP);
+        MockV3TickPool q1 = _endsAtTheBound(m2, d, 1e20);
+        bool z0 = address(c) < address(m2);
+        bool z1 = address(m2) < address(d);
+        (uint256 out0, uint256 left0) = _judgeWalk(q0, z0, ORD);
+        assertEq(HOP_READS - left0, 8, "premise: hop 0 spends 8 reads and is measured");
+        uint256 in1 = out0 - BPC.mulDivUp(out0, BPC.PROTOCOL_FEE_BPS, BPC.BPS);
+        assertLt(_modelBps(q1, in1, z1), 1_000, "premise: hop 1's model figure is low");
+        (uint256 out1, uint256 left1) = _judgeWalk(q1, z1, in1);
+        assertTrue(out1 != type(uint256).max && left1 != 0, "premise: hop 1, on its own 12 reads, is measured");
+        (uint160 sp1, , , , , , ) = q1.slot0();
+        assertGe(BPC.impactV3FromOut(out1, in1, sp1, z1), 9_000, "premise: what hop 1's book pays destroys the order");
+        bytes memory ask = abi.encodeCall(BlazePhoenixSolver.findBestRoutePlan, (address(c), address(d), ORD));
+        (bool ok, bytes memory ret) = address(solver).call(ask);
+        assertFalse(ok, "premise: handed its own reads, hop 1 is measured and the route refused");
+        assertEq(ret, _refusal(), "premise: that refusal is SolverE(5)");
+        MockV3TickPool qd = _dense(c, m1, 1e17, 1e20, 40);
+        _deepV2(m1, d);
+        (, uint256 ld) = _judgeWalk(qd, address(c) < address(m1), ORD);
+        assertEq(ld, 0, "premise: the first topology spends its hop's 12 reads");
+        (ok, ret) = address(solver).call(ask);
+        assertFalse(ok, "a hop the frame hands no walk has no verdict");
+        assertEq(ret, _refusal(), "a refusal is SolverE(5)");
+    }
+
+    /// @dev The route's gate on Core's model figures, recomputed on the plan's legs; when it
+    ///      reaches the ceiling the route exists only by the judge, and every concentrated leg
+    ///      must then finish its walk on what its hop's 12 reads leave it, in the plan's order.
+    function _admittedOnlyOnFinishedWalks(RoutePlan memory p) internal view returns (bool judged) {
+        uint256 gate;
+        for (uint256 h; h < p.best.hops.length; ++h) {
+            Leg[] memory ls = p.best.hops[h].legs;
+            uint256 hop;
+            for (uint256 i; i < ls.length; ++i) {
+                uint256 li = _modelFigure(ls[i]);
+                hop += li;
+                if (li >= 9_000) gate += 9_000;
+            }
+            if (ls.length > 0) gate += hop / ls.length;
+        }
+        if (gate < 9_000) return false;
+        for (uint256 h; h < p.best.hops.length; ++h) {
+            Leg[] memory ls = p.best.hops[h].legs;
+            uint256 reads = HOP_READS;
+            for (uint256 i; i < ls.length; ++i) {
+                if (!BPC.kindHas(ls[i].kind, BPC.A_CONC_POOL)) continue;
+                uint256 out;
+                (out, reads) = BPC.v3PaysOnBudget(ls[i].pool, ls[i].amountIn, ls[i].zeroForOne, type(uint256).max, reads);
+                assertTrue(out != type(uint256).max && reads != 0,
+                    "a route the model refuses is admitted only when every concentrated leg finished its walk");
+            }
+        }
+        return true;
+    }
+
+    /// Any route handed out whose model figures reach the ceiling was admitted by the judge, so
+    /// each of its concentrated legs finishes its walk inside its hop's reads. Thin range `cur`,
+    /// `s0` / `s1` stairs past the edge of hop 0 / hop 1 (0 or 1: the walk finishes; 2: it ends
+    /// on its last read; 3 and up: it does not finish), one or two books at hop 0, one or two
+    /// hops. Half the runs sit on the 0..3 boundary. Red at 9b2855e and under M-JUDGE-11.
+    function testFuzz_AdmittedByTheJudgeMeansEveryConcentratedLegFinishedItsWalk(
+        uint256 ord, uint256 cur, uint256 s0, uint256 s1, uint8 shape
+    ) public {
+        ord = bound(ord, 1e15, 1e24);
+        cur = bound(cur, ord / 8, ord * 2);
+        s0 = bound(s0, 0, 81);
+        s1 = bound(s1, 0, 81);
+        if (s0 > 40) s0 = (s0 - 41) % 4;
+        if (s1 > 40) s1 = (s1 - 41) % 4;
+        (MockERC20 c, MockERC20 mid, MockERC20 d) = _three();
+        _stairs(c, mid, uint128(cur), uint128(cur / 100 + 1), s0, DEEP);
+        if (shape & 1 != 0) _stairs(c, mid, uint128(cur), uint128(cur / 100 + 1), s1, DEEP);
+        bool twoHops = shape & 2 != 0;
+        if (twoHops) _stairs(mid, d, uint128(cur / 10 + 1), uint128(cur / 1000 + 1), s1, DEEP);
+        (bool okPlan, bytes memory ret) = address(solver).call(abi.encodeCall(
+            BlazePhoenixSolver.findBestRoutePlan, (address(c), address(twoHops ? d : mid), ord)));
+        if (!okPlan) {
+            assertEq(ret, _refusal(), "a refusal is SolverE(5)");
+            return;
+        }
+        _admittedOnlyOnFinishedWalks(abi.decode(ret, (RoutePlan)));
     }
 
     function settleExt(RoutePlan memory plan, MockERC20 tin, uint256 amt) external returns (uint256) {
@@ -812,7 +1013,7 @@ contract JudgeAsksTheBook is Test {
     ///      phantom book cut to dust by what it holds and a destroyer that takes the remainder, so
     ///      the hop's mean stays under the line while its worst leg may cross it, the case only
     ///      the fold's per-leg CAP term refuses. Neither book answers the judge's walk (no ticks),
-    ///      so the Solver judges on its model figure. Oracle: an admitted route has every leg under
+    ///      so the judge cannot admit and the model's verdict stands. Oracle: an admitted route has every leg under
     ///      9,000 and the hops' means summed under 9,000, by Core's own figures recomputed on the
     ///      plan's legs (the reductions' admission); a refusal is SolverE(5). One hop or two.
     function testFuzz_FoldedCeilingRefusesWhatTheTwoReductionsRefuseOnATwoLegHop(
@@ -848,7 +1049,7 @@ contract JudgeAsksTheBook is Test {
     }
 
     /// @dev A single-range book (state decoupled from holdings, no ticks): the judge's walk gets
-    ///      no answer from it, so the model figure is the one judged.
+    ///      no answer from it, so the leg has no verdict and the model's verdict stands.
     function _modelBook(MockERC20 a, MockERC20 b, uint160 sp, uint128 liq, uint256 holdsB) internal {
         MockV3Pool q = new MockV3Pool(address(a), address(b), FEE);
         q.setState(sp, liq);
