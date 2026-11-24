@@ -237,6 +237,30 @@ contract V4PriceLimitedLegTest is Test {
         assertEq(MockERC20(lo).balanceOf(address(router)), 0, "router holds tokenIn");
     }
 
+    /// An empty first window between two tokens that refuse a zero transfer: the limited leg
+    /// owes and receives nothing, so it settles and takes nothing, and the swap goes through.
+    function test_EmptyWindowMovesNoZeroTransfer() public {
+        HostileERC20 hA = new HostileERC20(18);
+        HostileERC20 hB = new HostileERC20(18);
+        _tokens(address(hA), address(hB));
+        hA.mint(address(mgr), 1_000e18);
+        hB.mint(address(mgr), 1_000e18);
+        hA.mint(user, 100e18);
+        hB.mint(user, 100e18);
+        vm.startPrank(user);
+        hA.approve(address(router), type(uint256).max);
+        hB.approve(address(router), type(uint256).max);
+        vm.stopPrank();
+        hA.setRevertOnZero(true);
+        hB.setRevertOnZero(true);
+        uint256 got = _swap(_three(10));
+        assertEq(mgr.spentIn(pidLim), 0, "the limited leg must fill nothing");
+        assertEq(mgr.spentIn(pidA), BPC.mulDiv(A_IN, _realIn(), AMT), "leg A: its share of the whole input");
+        assertEq(mgr.spentIn(pidB), BPC.mulDiv(B_IN, _realIn(), AMT), "leg B: its share of the whole input");
+        assertEq(HostileERC20(hi).balanceOf(user), 100e18 + got, "user did not receive tokenOut");
+        assertEq(HostileERC20(lo).balanceOf(address(router)), 0, "router holds tokenIn");
+    }
+
     // ── the shape a limited leg may ride in ──────────────────────────────────
 
     /// The limit bits on a pair-shaped leg: refused before anything moves.
