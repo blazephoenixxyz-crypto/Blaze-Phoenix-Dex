@@ -17,6 +17,9 @@ pragma solidity 0.8.36;
 //       the chosen single; its split leg, at its share, settles. Red at 6e5067b (the gate vetoed
 //       the collapse on the whole-order row's ceiling `hMax > sR`); green with the split's own
 //       ceiling `upH` in the gate.
+//   leg left out three V4 books at one price; the split of three leaves the 10% book out, whose
+//       leg was cut, and the two left pay under the best of them alone, both settled: the gate
+//       weighs the ceiling of the split it kept, not of the one it replaced.
 //
 // The property every cell asserts: the route, executed, is never under the
 // best single row whose rank SETTLED on the whole order, executed alone, by more than
@@ -349,6 +352,121 @@ contract SplitGateTwinTest is Test {
     function testFuzz_TruncatedLegNeverBeatsTheSingleRow(uint256 k, uint256 amt) public {
         (, Seen memory s) = _fuzzCell(k, amt);
         assertTrue(_within(s.got, _settledBest(s)), "under the best settled row alone");
+    }
+
+    // ---- a leg the split left out takes its ceiling with it ---------------------------------
+
+    /// Three V4 books at one price, each built only if its bit of `which` is set.
+    /// 1: X, the 10% tier - base liquidity `lx` plus `dust` one-wei positions on one-tick ranges
+    ///    from tick -30 down: past the probe's reach, inside the path of X's share of the order,
+    ///    so the promise of X's leg is cut and its ceiling stands above it.
+    /// 2: Y, the 0.01% tier, liquidity `l`.   4: Z, the 3% tier, liquidity `l`.
+    function _three(uint128 lx, uint256 dust, uint128 l, uint256 which) internal {
+        if (which & 1 != 0) {
+            bytes32 x = _pidOf(HI_FEE);
+            mgr.initialize(x, BPC.sqrtPriceAtTick(0), 0, HI_FEE);
+            mgr.addPosition(x, -20_000, 20_000, TS, lx);
+            vm.startPrank(lp);
+            for (uint256 j; j < dust; ++j) {
+                int24 t = -30 - int24(int256(j)) - 1;
+                mgr.addPosition(x, t, t + 1, TS, 1);
+            }
+            vm.stopPrank();
+            hub.addV4(t0, t1, HI_FEE, TS, address(0));
+        }
+        if (which & 2 != 0) _book(Cell(l, 0, 0, 0, 0, 0, M));
+        if (which & 4 != 0) _rival(Cell(0, 0, 0, 0, MID_FEE, l, M));
+    }
+
+    /// One cell of the three books. `s.v4` is Y alone and `s.rv` the better of X alone and Z
+    /// alone, each executed; `s.lo` and `s.hi` are X's promise and ceiling at its depth's share
+    /// of the order; `s.v4In` is what the plan sends to Y.
+    function _threeRun(uint128 lx, uint256 dust, uint128 l, uint256 amt) internal returns (Seen memory s) {
+        lx = _sc(lx, amt);
+        l = _sc(l, amt);
+        uint256 snap = vm.snapshotState();
+        _three(lx, dust, l, 2);
+        s.v4 = _swap(amt);
+        vm.revertToState(snap);
+        _three(lx, dust, l, 4);
+        s.rv = _swap(amt);
+        vm.revertToState(snap);
+        _three(lx, dust, l, 1);
+        uint256 xAlone = _swap(amt);
+        if (xAlone > s.rv) s.rv = xAlone;
+        vm.revertToState(snap);
+        _three(lx, dust, l, 7);
+        uint256 share = amt * lx / (uint256(lx) + 2 * uint256(l));
+        (s.lo, s.rank, s.hi) = BPC.v4WalkRank(address(mgr), _pidOf(HI_FEE), share, HI_FEE, TS, true, 0);
+        RoutePlan memory p = solver.findBestRoutePlan(t0, t1, amt);
+        Leg[] memory legs = p.best.hops[0].legs;
+        s.legs = legs.length;
+        for (uint256 i; i < legs.length; ++i) {
+            if (legs[i].pool == address(uint160(uint256(_pid())))) s.v4In += legs[i].amountIn;
+        }
+        s.got = _swap(amt);
+        vm.revertToState(snap);
+        emit log_named_uint("cell order           ", amt);
+        emit log_named_uint("cell X liquidity     ", lx);
+        emit log_named_uint("delivered            ", s.got);
+        emit log_named_uint("twin Y alone         ", s.v4);
+        emit log_named_uint("twin best of X, Z    ", s.rv);
+        emit log_named_uint("X promise at share   ", s.lo);
+        emit log_named_uint("X ceiling at share   ", s.hi);
+        emit log_named_uint("legs                 ", s.legs);
+        emit log_named_uint("Y leg input          ", s.v4In);
+    }
+
+    /// The route is Y alone: one leg, the whole order, and never under the best book alone.
+    function _threeHolds(Seen memory s, uint256 amt) internal pure {
+        assertGt(s.v4, s.rv, "precondition: Y alone is the best single book");
+        assertEq(s.legs, 1, "a split that pays under its best leg alone was kept");
+        assertEq(s.v4In, amt, "the single leg is not the best book");
+        assertTrue(_within(s.got, _twin(s)), "the route pays under the best book alone");
+    }
+
+    /// A leg left out of the split takes its ceiling out of the gate. The split of three leaves
+    /// X out (it pays 10% on its share); what is left, Y + Z by depth, pays about 1% under Y
+    /// alone, both legs settled. The gate must weigh THAT split's ceiling, which is zero, and
+    /// collapse onto Y. Weighing the ceiling of the split it replaced (X's cut leg, far above
+    /// its promise) would keep Y + Z on a ceiling no leg of it has.
+    /// Cells: X at 0.2x, 0.5x and 1x the depth of Y, orders M / 10 and M (the books scaled with
+    /// the order), each order also at +-1 wei.
+    function test_LegLeftOutTakesItsCeilingWithIt() public {
+        uint128[3] memory lxs = [uint128(2e23), 5e23, 1e24];
+        for (uint256 o; o < 2; ++o) {
+            uint256 amt = o == 0 ? M / 10 : M;
+            for (uint256 i; i < 3; ++i) {
+                Seen memory s = _threeRun(lxs[i], 300, 1e24, amt);
+                assertGt(s.hi, s.lo, "non-vacuity: X's leg has no ceiling above its promise");
+                assertGt((s.hi - s.lo) * 100, amt, "non-vacuity: X's ceiling is under the split's deficit");
+                _threeHolds(s, amt);
+            }
+        }
+        for (uint256 d; d < 3; d += 2) {
+            uint256 amt = M - 1 + d;
+            _threeHolds(_threeRun(5e23, 300, 1e24, amt), amt);
+        }
+    }
+
+    /// Control: the same cells without the one-wei positions. X's leg settles on its promise,
+    /// no ceiling is left anywhere, and the route is Y alone all the same: the cell above turns
+    /// on X's ceiling and on nothing else.
+    function test_Control_LegLeftOutWithNoCeiling() public {
+        uint128[3] memory lxs = [uint128(2e23), 5e23, 1e24];
+        for (uint256 i; i < 3; ++i) {
+            Seen memory s = _threeRun(lxs[i], 0, 1e24, M);
+            assertEq(s.hi, s.lo, "precondition: X's leg settles on its promise");
+            _threeHolds(s, M);
+        }
+    }
+
+    /// Fuzz over the order (1e18..M, the books scaled with it) and X's depth (0.2x..1x of Y).
+    function testFuzz_LegLeftOutNeverKeepsASplitUnderItsBestLeg(uint256 amt, uint256 lx) public {
+        amt = bound(amt, 1e18, M);
+        lx = bound(lx, 2e23, 1e24);
+        Seen memory s = _threeRun(uint128(lx), 300, 1e24, amt);
+        assertTrue(_within(s.got, _twin(s)), "the route pays under the best book alone");
     }
 
     // ---- two hops, ETH in -------------------------------------------------------------------
