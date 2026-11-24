@@ -686,7 +686,13 @@ contract BlazePhoenixRouter {
     ///      2026-09-05 each summed the legs in its own loop, which is two producers of one number
     ///      and the defect signature this codebase names first.
     function _legSum(Hop calldata hop) private pure returns (uint256 c) {
-        for (uint256 i; i < hop.legs.length; ) { c += hop.legs[i].amountIn; unchecked { ++i; } }
+        for (uint256 i; i < hop.legs.length; ) {
+            // A price-limited V4 leg fills out of the hop's whole input up to its limit; the
+            // hop's commitment, and so its fee base and its scale, is its exact legs'.
+            (bool on, ) = BPC.v4Limit(hop.legs[i].auxId);
+            if (!on) c += hop.legs[i].amountIn;
+            unchecked { ++i; }
+        }
     }
 
     /// @notice The fee for hop `h`, charged in THAT hop's token.
