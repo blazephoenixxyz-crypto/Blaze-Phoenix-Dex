@@ -118,7 +118,9 @@ contract V4TailLimitedLegTest is Test {
         mIn = 10 ** dIn;
         // raw price token1/token0 = 10^(d1-d0); log_1.0001(1e12) = 276324 -> 276400
         p0 = dIn == 18 ? int24(0) : zfo ? int24(276400) : int24(-276400);
-        sp0 = mgr.sqrtAt(p0);
+        // The book's price is the Core's own price at p0: the mock's power-series sqrt sits
+        // below TickMath at large ticks, which reads as a book whose tick disagrees with its price.
+        sp0 = BPC.sqrtPriceAtTick(p0);
         i.mint(address(mgr), 1e30);
         o.mint(address(mgr), 1e30);
         i.mint(user, 1e30);
