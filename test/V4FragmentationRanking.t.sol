@@ -503,22 +503,80 @@ contract V4FragmentationRankingTest is Test {
     }
 
 
+    /// A listed hook whose address bits enter no swap callback and alter no delta (bit 12,
+    /// after-initialize). Codeless: its live codehash is zero and the pin records zero.
+    address constant HOOK = address(uint160(0x1000));
+    int24   constant RIVAL_TICK = 545;          // 1.0001^545 ~ 1.056: the rival sits ~5.6% above par
+    uint128 constant RIVAL_L    = 2.055e24;     // virtual side ~2.112e24 at RIVAL_TICK
+
+    /// The honest book (L = 1e26 at par, no hook) and, when `hooked`, the rival: a hooked book
+    /// ~5.6% above it. The rival is a row the contract only models (a hooked book), so the band's
+    /// upper edge still judges it whatever the base is (`BlazePhoenixMath._measuredAbove`).
+    function _q2pBooks(bool dust) internal returns (bytes32 pid, bytes32 rid) {
+        pid = _pid(FEE);
+        rid = BPC.computeV4PoolId(t0, t1, FEE, TS, HOOK);
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
+        mgr.addPosition(pid, -20_000, 20_000, TS, 1e26);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        hub.allowHook(HOOK, true);
+        mgr.initialize(rid, BPC.sqrtPriceAtTick(RIVAL_TICK), RIVAL_TICK, FEE);
+        mgr.addPosition(rid, -20_000, 20_000, TS, RIVAL_L);
+        hub.addV4(t0, t1, FEE, TS, HOOK);
+        if (dust) _fragment(pid, -20, 0);
+    }
+
     /// Q2p. The deep re-read moves the band (S2, mutants [396] [397]). Q2h's pair is thin: it
     /// holds 1e22 a side against a 1e22 order, so its error at the order's size opens the band
     /// wide under either base, both bases keep the same pools, and the re-read never changes the
-    /// outcome there. Here the pair is deep (2e24 a side, the order 0.5% of it) and still priced
-    /// ~5.6% above an honest book fifty times deeper (L = 1e26 at par). Clean, the book's depth
-    /// sets the base and the pair falls out of the band. With one-wei dust on the twenty ticks
-    /// under the current tick, the book's sixteen-stretch held vote drops under the pair's depth
-    /// while its deep walk (bar 0) does not (both preconditions), so the first median sits on the
-    /// pair, whose band leaves the book out, and only the deep re-read puts the base back on the
-    /// book. The oracle is the clean plan: the dust may not move it. Red when the cut is never
-    /// recorded ([396]) or the median keeps the first votes when the bands differ ([397]): the
-    /// order leaves the book for the pair.
+    /// outcome there. Here the rival is deep (the order ~0.5% of it) and still priced ~5.6% above
+    /// an honest book fifty times deeper (L = 1e26 at par). The rival is a hooked book: a row the
+    /// contract only models, so the band's upper edge judges it (a measured rival stays above
+    /// any base, see the twin below, and the base would no longer decide the plan). Clean, the
+    /// book's depth sets the base and the rival falls out of the band. With one-wei dust on the
+    /// twenty ticks under the current tick, the book's sixteen-stretch held vote drops under the
+    /// rival's while its deep walk (bar 0) does not (both preconditions), so the first median
+    /// sits on the rival, whose band leaves the book out, and only the deep re-read puts the
+    /// base back on the book. The oracle is the clean plan: the dust may not move it. Red when
+    /// the cut is never recorded ([396]) or the median keeps the first votes when the bands
+    /// differ ([397]): the order leaves the book for the rival.
     function test_Q2p_TheDeepReReadPutsTheBaseBackOnTheHonestBook() public {
+        uint256 snap = vm.snapshotState();
+        _q2pBooks(false);
+        uint256 clean = _swap();
+        vm.revertToState(snap);
+        (bytes32 pid, bytes32 rid) = _q2pBooks(true);
+        uint256 vOut = BPC.mulDiv(1e26, BPC.sqrtPriceAtTick(0), uint256(1) << 96);
+        uint256 rOut = BPC.mulDiv(RIVAL_L, BPC.sqrtPriceAtTick(RIVAL_TICK), uint256(1) << 96);
+        uint256 held16 = BPC.v4HeldShare(address(mgr), pid, TS, true, vOut, type(uint256).max);
+        uint256 heldDeep = BPC.v4HeldShare(address(mgr), pid, TS, true, vOut, 0);
+        uint256 rival16 = BPC.v4HeldShare(address(mgr), rid, TS, true, rOut, type(uint256).max);
+        uint256 dirty = _swap();
+        emit log_named_uint("delivered, clean     ", clean);
+        emit log_named_uint("delivered, attacked  ", dirty);
+        emit log_named_uint("book held, 16 stretch", held16);
+        emit log_named_uint("book held, deep      ", heldDeep);
+        emit log_named_uint("rival held, 16       ", rival16);
+        assertLt(held16, rival16, "precondition: the sixteen-stretch vote is under the rival's");
+        assertGt(heldDeep, 2 * rival16, "precondition: the deep vote outweighs the rival");
+        assertLt(clean, ORDER, "control: clean, the band keeps the book at par and leaves the rival out");
+        assertLe(clean > dirty ? clean - dirty : dirty - clean, 1e18, "the dust moved the plan: the first median kept the rival's band");
+    }
+
+    /// Q2p, measured twin. The same book with Q2p's former rival: a deep pair a registered
+    /// factory found (2e24 / 2.112e24, ~5.6% above). Its figure is measured, so it stays above
+    /// any base (`_measuredAbove`) and the order reaches it, clean and under the dust alike.
+    /// The oracle is the book alone through the same door: with the pair the order gets more.
+    /// Red when the measured rival is judged by the upper edge again (`kept |= _measuredAbove`
+    /// deleted): the pair is dropped and the order fills on the book alone.
+    function test_Q2p_AMeasuredPairAboveTheBookStays_CleanAndUnderTheDust() public {
         bytes32 pid = _pid(FEE);
         uint128 deepL = 1e26;
         uint256 snap = vm.snapshotState();
+        mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
+        mgr.addPosition(pid, -20_000, 20_000, TS, deepL);
+        hub.addV4(t0, t1, FEE, TS, address(0));
+        uint256 bookAlone = _swap();
+        vm.revertToState(snap);
         mgr.initialize(pid, BPC.sqrtPriceAtTick(0), 0, FEE);
         mgr.addPosition(pid, -20_000, 20_000, TS, deepL);
         hub.addV4(t0, t1, FEE, TS, address(0));
@@ -530,18 +588,12 @@ contract V4FragmentationRankingTest is Test {
         hub.addV4(t0, t1, FEE, TS, address(0));
         _v2(t0, t1, 2e24, 2.112e24);
         _fragment(pid, -20, 0);
-        uint256 vOut = BPC.mulDiv(deepL, BPC.sqrtPriceAtTick(0), uint256(1) << 96);
-        uint256 held16 = BPC.v4HeldShare(address(mgr), pid, TS, true, vOut, type(uint256).max);
-        uint256 heldDeep = BPC.v4HeldShare(address(mgr), pid, TS, true, vOut, 0);
         uint256 dirty = _swap();
+        emit log_named_uint("delivered, book alone", bookAlone);
         emit log_named_uint("delivered, clean     ", clean);
         emit log_named_uint("delivered, attacked  ", dirty);
-        emit log_named_uint("book held, 16 stretch", held16);
-        emit log_named_uint("book held, deep      ", heldDeep);
-        assertLt(held16, 2e24, "precondition: the sixteen-stretch vote is under the pair's depth");
-        assertGt(heldDeep, 2 * 2.112e24, "precondition: the deep vote outweighs the pair");
-        assertLt(clean, ORDER, "control: clean, the band keeps the book at par and leaves the pair out");
-        assertLe(clean > dirty ? clean - dirty : dirty - clean, 1e18, "the dust moved the plan: the first median kept the pair's band");
+        assertGt(clean, bookAlone, "the measured pair above the base was dropped: the order filled on the book alone");
+        assertLe(clean > dirty ? clean - dirty : dirty - clean, 1e18, "the dust moved the plan");
     }
 
     /// The amount the plan's first hop sends to the V4 book `pid` (0 when it has no leg there).

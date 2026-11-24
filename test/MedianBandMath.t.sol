@@ -9,7 +9,11 @@ pragma solidity 0.8.36;
 // keeps row i iff
 //     p_i >= p_b * k_i               (from below; not asked where f_i is unknown)
 //     p_i * k_i * (1 - f_b) <= p_b   (from above; the base's fee counted twice)
-// with k_i = (1 - f_i)(1 - f_b)(1 - e_i)(1 - e_b) and e a probe's error bound.
+// with k_i = (1 - f_i)(1 - f_b)(1 - e_i)(1 - e_b) and e a probe's error bound. A row priced above
+// the base that the contract measures itself (an attested pair, a hook-free singleton book) is
+// kept whatever the upper edge says (`BlazePhoenixMath._measuredAbove`, 2026-11-24): the pins of
+// the upper edge and of the median below therefore put their rows above the base on a row the
+// contract only models (`Row.modelled`, a concentrated pool), each with a measured twin.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixMath, IHubMath} from "../src/BlazePhoenixMath.sol";
@@ -26,9 +30,12 @@ contract MedianBandMathTest is Test {
         uint256 err;    // the probe's error bound, WAD
         uint256 mass;   // its depth, the vote
         bool blind;     // a Gate wrapper (KIND_EXTERNAL); else a pair (KIND_V2)
+        bool modelled;  // a concentrated pool (KIND_V3): its price is modelled, not measured, so
+                        // the upper edge still judges it (`Math._measuredAbove`); else as `blind` says
     }
 
-    /// The rows `select` keeps (bit i = row i), every row active (vouched: no Hub read).
+    /// The rows `select` keeps (bit i = row i), every row active (vouched: no Hub read). An active
+    /// pair is a measured row; an active concentrated pool is not, and votes all the same.
     function _kept(Row[] memory rows) internal view returns (uint256 set) {
         uint256 n = rows.length;
         uint256[] memory rates = new uint256[](n);
@@ -42,7 +49,8 @@ contract MedianBandMathTest is Test {
             bals[i] = rows[i].mass;
             fe[i] = rows[i].fee | rows[i].err << 24;
             c[i] = PoolInfo({
-                active: true, stable: false, kind: rows[i].blind ? BPC.KIND_EXTERNAL : BPC.KIND_V2,
+                active: true, stable: false,
+                kind: rows[i].blind ? BPC.KIND_EXTERNAL : rows[i].modelled ? BPC.KIND_V3 : BPC.KIND_V2,
                 fee: 0, tickSpacing: 0, token0: address(0xA), token1: address(0xB),
                 pool: address(uint160(0x1000 + i)), hooks: address(0)
             });
@@ -53,7 +61,13 @@ contract MedianBandMathTest is Test {
     }
 
     function _row(uint256 rate, uint256 fee, uint256 err, uint256 mass, bool blind) internal pure returns (Row memory) {
-        return Row(rate, fee, err, mass, blind);
+        return Row(rate, fee, err, mass, blind, false);
+    }
+
+    /// The same row on a venue the contract only models (a concentrated pool, KIND_V3).
+    function _modelled(Row memory r) internal pure returns (Row memory) {
+        r.modelled = true;
+        return r;
     }
 
     /// The probe's reading of a true price `p` behind fee `f`, short of it by `d` (WAD): the rate,
@@ -149,12 +163,26 @@ contract MedianBandMathTest is Test {
     /// The non-empty case of the bound: a 0.3% base 20% past the edge drops the 0.3% venue above
     /// it (G = 20%, L = 1 - 0.997^2 / 1.2 = 17.2% < 3G). The band costs a lagging venue its seat
     /// (THE BAND, cost (1)); the bound says what that can cost.
+    /// History (2026-11-24): the venue above is a concentrated pool, whose price the contract
+    /// models. It was a pair, and a pair the contract measures is no longer dropped from above
+    /// (`Math._measuredAbove`): that case is `test_ABaseFarPastTheEdgeKeepsAMeasuredRowAbove`.
     function test_ABaseFarPastTheEdgeDropsTheRowAbove() public view {
         uint256 pb = uint256(997e15) * 997 / 1200;   // the base's price, 0.997^2 / 1.2, WAD
         Row[] memory r = new Row[](2);
         r[0] = _row(pb * 997 / 1000, 3000, 0, 3e18, false);
-        r[1] = _row(997e15, 3000, 0, 1e18, false);
+        r[1] = _modelled(_row(997e15, 3000, 0, 1e18, false));
         assertEq(_kept(r), 1, "a base 20% past the edge kept the venue above it");
+    }
+
+    /// The measured twin: the same venue as a pair the contract measures stays beside the same
+    /// base. Its rate is what the pair pays, and the split's gate quotes it at the whole order.
+    /// Mutant MV-1 (the union with the measured rows is gone): the pair is dropped, set 1.
+    function test_ABaseFarPastTheEdgeKeepsAMeasuredRowAbove() public view {
+        uint256 pb = uint256(997e15) * 997 / 1200;
+        Row[] memory r = new Row[](2);
+        r[0] = _row(pb * 997 / 1000, 3000, 0, 3e18, false);
+        r[1] = _row(997e15, 3000, 0, 1e18, false);
+        assertEq(_kept(r), 3, "a measured venue above a base a fifth past the edge was dropped");
     }
 
     /// LIMIT (characterization): the band has two edges, and a row priced ABOVE the base by more
@@ -166,14 +194,31 @@ contract MedianBandMathTest is Test {
     /// with (1-f_b)^2 = 0.994009 and f_1 = 0: the last price kept is
     /// ceil((1e18 + 1) * 1e18 / 994009e12) - 1 = 1006027108406463121; one unit more is dropped.
     /// Red under the mutant that removes the upper edge in `Math._inBand`.
+    /// History (2026-11-24): row 1 is a concentrated pool, whose price the contract models. It
+    /// was a pair, and a pair the contract measures is no longer dropped from above
+    /// (`Math._measuredAbove`): that case is `test_limit_AMeasuredRowPricedAboveTheBandIsKept`.
+    /// The edge and its two sides are the same numbers.
     function test_limit_ARowPricedAboveTheBandIsDropped() public view {
         uint256 edge = 1006027108406463121;
         Row[] memory r = new Row[](2);
         r[0] = _row(997e15, 3000, 0, 3e18, false);
-        r[1] = _row(edge, 0, 0, 1e18, false);
+        r[1] = _modelled(_row(edge, 0, 0, 1e18, false));
         assertEq(_kept(r), 3, "a row at the band's upper edge fell out");
-        r[1] = _row(edge + 1, 0, 0, 1e18, false);
+        r[1] = _modelled(_row(edge + 1, 0, 0, 1e18, false));
         assertEq(_kept(r), 1, "a row one unit past the band's upper edge was kept");
+    }
+
+    /// The measured twin: the same row as a pair the contract measures is kept one unit past the
+    /// edge and far past it (twice the edge): what it pays is measured, not modelled, and the
+    /// split's gate quotes it at the whole order. Mutant MV-1: both drop, set 1.
+    function test_limit_AMeasuredRowPricedAboveTheBandIsKept() public view {
+        uint256 edge = 1006027108406463121;
+        Row[] memory r = new Row[](2);
+        r[0] = _row(997e15, 3000, 0, 3e18, false);
+        r[1] = _row(edge + 1, 0, 0, 1e18, false);
+        assertEq(_kept(r), 3, "a measured row one unit past the band's upper edge was dropped");
+        r[1] = _row(2 * edge, 0, 0, 1e18, false);
+        assertEq(_kept(r), 3, "a measured row far past the band's upper edge was dropped");
     }
 
     // ─── a fee nobody knows ─────────────────────────────────────────────────────────────────
@@ -231,23 +276,41 @@ contract MedianBandMathTest is Test {
     /// Control: masses (1, 1, 2), total 4: the walk reaches exactly half at the middle row, so the
     /// inner loop returns before the last row. Mutant (the walk stops one row early, `i + 1 < last`):
     /// the middle row is never tested and the last row is read as the base.
+    /// History (2026-11-24): `_spread`'s rows are concentrated pools, whose prices the contract
+    /// models. They were pairs, and a measured pair above the base is no longer dropped
+    /// (`Math._measuredAbove`), so the kept set stopped naming the base. The measured twin: the
+    /// same rows as pairs keep the base and the measured row above it, {1, 2}; the row under the
+    /// base still falls, so the cheapest kept row is the base.
     function test_MedianCrossesBeforeTheLastRow_Control() public view {
         assertEq(_kept(_spread(1e18, 1e18, 2e18)), 1 << 1, "a median crossing at the middle row was not the base");
+        assertEq(_kept(_spreadAs(1e18, 1e18, 2e18, false)), 1 << 1 | 1 << 2,
+            "measured rows: a median crossing at the middle row was not the base, or the row above fell");
     }
 
     /// Twins (two rows, one mass each): half the mass is the first row's, so the base is the
     /// cheaper one - the walk's tie goes to the lower price.
+    /// History (2026-11-24): the dearer twin is a concentrated pool, whose price the contract
+    /// models. It was a pair, and a measured pair above the base is no longer dropped
+    /// (`Math._measuredAbove`), so the kept set stopped naming the base. The measured twin: both
+    /// pairs stay, {0, 1}; were the dearer row the base, the cheaper one would fall from below.
     function test_MedianOfTwinsIsTheCheaperRow() public view {
         Row[] memory r = new Row[](2);
-        r[0] = _row(9e17, 3000, 0, 1e18, false);
+        r[0] = _modelled(_row(9e17, 3000, 0, 1e18, false));
         r[1] = _row(5e17, 3000, 0, 1e18, false);
         assertEq(_kept(r), 1 << 1, "the twins' median was not the cheaper row");
+        r[0] = _row(9e17, 3000, 0, 1e18, false);
+        assertEq(_kept(r), 1 | 1 << 1, "measured twins: the median was not the cheaper row, or the dearer fell");
     }
 
     /// [derivado] Any masses, any arrival order: the base is the lowest-priced row at which the
     /// cumulative mass reaches half the total, read here as 2 * cum >= total (an oracle that is
     /// not `_wMedian`'s `(massa + 1) / 2`). Masses up to 1e30 each (no overflow in either form).
-    function testFuzz_TheBaseIsTheWeightedMedian(uint96 a, uint96 b, uint96 c, uint8 perm) public view {
+    /// History (2026-11-24): each row is measured (a pair) or modelled (a concentrated pool) as
+    /// bit k of `meas` says, and the oracle keeps, beside the base, every measured row priced above
+    /// it (`Math._measuredAbove`): kept_i = inBand_i || (p_i > p_b && measured_i), with inBand_i =
+    /// (i == base) at these prices. It read the base alone, which a measured row above it no
+    /// longer is; the old domain (every row a pair) is the case meas & 7 == 7.
+    function testFuzz_TheBaseIsTheWeightedMedian(uint96 a, uint96 b, uint96 c, uint8 perm, uint8 meas) public view {
         uint256[3] memory m = [uint256(bound(a, 1, 1e30)), uint256(bound(b, 1, 1e30)), uint256(bound(c, 1, 1e30))];
         uint256 total = m[0] + m[1] + m[2];
         uint256 want = 2;   // price rank 0, 1, 2 = 0.5, 0.7, 0.9
@@ -259,15 +322,27 @@ contract MedianBandMathTest is Test {
         uint256[3] memory pos = P[perm % 6];
         uint256[3] memory rate = [uint256(5e17), 7e17, 9e17];
         Row[] memory r = new Row[](3);
-        for (uint256 k; k < 3; ++k) r[pos[k]] = _row(rate[k], 3000, 0, m[k], false);
-        assertEq(_kept(r), 1 << pos[want], "the base was not the weighted median");
+        uint256 expect = 1 << pos[want];
+        for (uint256 k; k < 3; ++k) {
+            bool measured = meas & (1 << k) != 0;
+            r[pos[k]] = measured ? _row(rate[k], 3000, 0, m[k], false) : _modelled(_row(rate[k], 3000, 0, m[k], false));
+            if (measured && k > want) expect |= 1 << pos[k];
+        }
+        assertEq(_kept(r), expect, "the base was not the weighted median");
     }
 
-    /// Rows at 0.5, 0.7, 0.9 (0.3% each, exact probes) carrying the given masses, in price order.
+    /// Rows at 0.5, 0.7, 0.9 (0.3% each, exact probes) carrying the given masses, in price order,
+    /// on venues the contract only models: the band keeps the base alone.
     function _spread(uint256 m0, uint256 m1, uint256 m2) internal pure returns (Row[] memory r) {
+        r = _spreadAs(m0, m1, m2, true);
+    }
+
+    /// The same rows, modelled (concentrated pools) or measured (pairs).
+    function _spreadAs(uint256 m0, uint256 m1, uint256 m2, bool modelled) internal pure returns (Row[] memory r) {
         r = new Row[](3);
         r[0] = _row(5e17, 3000, 0, m0, false);
         r[1] = _row(7e17, 3000, 0, m1, false);
         r[2] = _row(9e17, 3000, 0, m2, false);
+        for (uint256 k; k < 3; ++k) r[k].modelled = modelled;
     }
 }

@@ -64,7 +64,14 @@ pragma solidity 0.8.36;
 // three or more legs, the leg whose probe paid least is tried when another leg pays at least
 // that rate on average, and it leaves unless the split with it pays MIN_SPLIT_IMPROVEMENT_PPM
 // more than the split without it, where the Solver of 8938b6a kept every leg its weight gave a
-// share. The two Solvers part wherever a leg leaves, so every row is drawn where none does. A
+// share. The reference carries that rule, marked `CARRY G52 (48ff261)` in
+// test/ref/SolverRefPoda1027.sol: `_carryG52`, written from the rule, not copied from the
+// Solver's `_placed`. Until 2026-11-24 it did not, and every row was drawn where no leg leaves;
+// with `CARRY v4band 11-24` a book the contract measures above the base stays in both bands, and
+// the two Solvers parted on the row one short of half the mass (30k tA->tB): the Solver split
+// on two legs (57449894682215070230708), the reference settled on one
+// (55886878723263942318260). Carried, the rule is the same on both sides, so a row may now hold a
+// leg that leaves. Where the rows were drawn before: a
 // book at the market of depth d pays phi * d / (d + phi * a) a unit on an input a (phi = 1 - its
 // fee), so leg i's average reaches book j's probe rate iff s_i / d_i <= p / d_j, s_i the share
 // of leg i and p = amountIn / 100 the probe; the weights give each leg about amountIn * d_i / D,

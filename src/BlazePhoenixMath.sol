@@ -190,6 +190,9 @@ library BlazePhoenixMath {
             // to answer, and the base falls back to the plain median's row, which is live.
             if (base == NONE) base = ord[m / 2];
             kept = _inBand(prices, fe, n, base);   // the band itself: one producer (S2 check too)
+            // THE MEASURED RIVAL: a row the contract measures itself is never dropped from above
+            // (`_measuredAbove`). The upper edge still judges every row it cannot measure.
+            kept |= _measuredAbove(prices, n, base, cands, hub);
         }
 
         // Band filter reuses the cached probe rates — no second probe quote.
@@ -533,6 +536,48 @@ library BlazePhoenixMath {
                     if (BPC.mulDiv(p, ki * kb / BPC.WAD * up / PIPS, BPC.WAD) <= pb
                         && (f >= PIPS || p >= BPC.mulDiv(pb, ki * kbLo / BPC.WAD, BPC.WAD))) set |= 1 << i;
                 }
+            }
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev THE MEASURED RIVAL (bit i set = row i is priced above the base `b` and its figure is
+    ///      measured). The band's upper edge drops a row on one hypothesis: it promises more than
+    ///      it pays. The base that judges it is elected by mass held on the selling side alone,
+    ///      and that mass only witnesses a LOWER bound on the price (it would be bought out if it
+    ///      sold too cheap); nothing the base holds is lost when the claim "this row lies upward"
+    ///      is false. A one-sided book parked far under the market therefore bought the base for
+    ///      capital it never risked, and the honest pair above it was dropped: the order filled
+    ///      at the parked price (test/V4BandMeasuredRival.t.sol, red at 6e5067b).
+    ///      For a row the contract quotes itself from state held by attested code the hypothesis
+    ///      can hold only in a term the quote still models, whatever the base is: a reserve-shaped
+    ///      pair a registered factory vouches for (`active`, the Solver's rewrite) or the curated
+    ///      tier wrote (tier 0), quoted from its reserves; a singleton book with no hook, walked
+    ///      in the PoolManager. For a pair that term is the fee, and it cannot become a short
+    ///      fill. PAYMENT: at execution the Router asks the pair for the amount the same formula
+    ///      gives, and the pair pays it whole or reverts on its own invariant
+    ///      (`BlazePhoenixRouter._execPairAmt`): a reserves row never fills under its promise.
+    ///      FEE: a V2 pair's fee is not read from the pair, it is the row's (`effV2Fee`: 30 bps on
+    ///      a registry row, the factory row's declared fee on a row only discovery found). A pair
+    ///      that charges more than its row says promises more than it pays, and the swap reverts:
+    ///      the order loses that route, never part of its fill (docs/KNOWN_ISSUES.md).
+    ///      Such a row stays, and the split's gate (`BlazePhoenixSolver._buildHop`,
+    ///      MR-R1) quotes every survivor at the whole order, so the best measured row is the hop's
+    ///      floor. The attestation is read at the source, not from `_mutedVotes`' answer: that
+    ///      mask is cleared when nobody may vote. A row the contract only models (a concentrated
+    ///      pool, a delegated adapter, a hooked book, an unvouched pair) is still judged by the
+    ///      edge. Rows under the base are not touched: the lower edge is bonded by the base's mass.
+    ///      DATA, not a branch (I13): a family joins by its attribute bit once its rate is walked.
+    function _measuredAbove(uint256[] memory prices, uint256 n, uint256 b, PoolInfo[] memory cands, IHubMath hub)
+        private view returns (uint256 over)
+    {
+        uint256 pb = prices[b];
+        for (uint256 i; i < n; ) {
+            if (prices[i] > pb) {
+                PoolInfo memory p = cands[i];
+                if (BPC.kindHas(p.kind, BPC.A_RESERVES)
+                    ? p.active || BPC.decodeTier(hub.getSlot(BPC.pairKey(p.pool, p.token0, p.token1))) == 0
+                    : BPC.kindHas(p.kind, BPC.A_CONC_SING) && p.hooks == address(0)) over |= 1 << i;
             }
             unchecked { ++i; }
         }

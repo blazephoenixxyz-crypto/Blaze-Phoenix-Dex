@@ -18,8 +18,11 @@
 // three-hop topologies over two bridges were planned). A third, marked `CARRY MAT-01 (53b04c0)`:
 // the funnel measures a row by the tokenOut it can pay (`_dropDust` reads `BPC.hopMass18` and
 // walks the singleton books, `_heldBooks`), not by the registry's short declared side; the band's
-// vote needs no carry, it reads the live Core's `universalProbe` (MAT-02). Every other line is
-// cb1d7d9's.
+// vote needs no carry, it reads the live Core's `universalProbe` (MAT-02). A fourth, marked
+// `CARRY v4band 11-24`: the split's gate also judges a split that came back with one leg (`{`
+// where cb1d7d9 had `if (legs.length >= 2) {`); the band's other half of that fix (a measured
+// row is never dropped from above, `_measuredAbove`) needs no carry, it lives in the live Math
+// this reference imports. Every other line is cb1d7d9's.
 //
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
@@ -889,7 +892,9 @@ contract SolverRefCb1d7d9 {
         // micro-splits whose marginal output gain is smaller than the real
         // gas cost of the extra legs. The single leg it must beat is the best
         // survivor at full size (post FUNNEL CUT), one full-size quote each.
-        if (legs.length >= 2) {
+        // CARRY v4band 11-24: A SPLIT OF ONE LEG IS GATED TOO (src/BlazePhoenixSolver.sol): its leg
+        // is the heaviest row, not the best paying one; the gate ran only from two legs up.
+        {
             // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
             // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
             // probe and are MARGINAL prices. Neither heuristic names the best single leg at

@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 // FROZEN REFERENCE for test/G52SameAnswer.t.sol: src/BlazePhoenixMath.sol of 653b1dc, literally,
 // except the library name (MathRef653), the interface name (IHubMathRef653) and the import path.
+//
+// CARRY v4band 11-24, THE MEASURED RIVAL (src/BlazePhoenixMath.sol `_measuredAbove`): a row the
+// contract measures itself (a reserves row a registered factory vouches for or the curated tier
+// wrote, a singleton book with no hook) is never dropped from above by the band; the upper edge
+// still judges every row it cannot measure. Carried literally, marked `CARRY v4band 11-24`, read
+// on this reference's own scale: the band here judges the rates around a base RATE (the live
+// Math judges prices around a base row), so "above the base" is `rates[i] > base`. Without it
+// the reference would hold the Solver to the rule the fix removed: test/G52SameAnswer.t.sol's
+// fuzz draws measured pairs at 120 % and 80 % of the market, and the comparison parted there.
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixMath
 //  Version    : 2.0.0
@@ -185,6 +194,8 @@ library MathRef653 {
             // non-zero here (the median==0 early-return above), so fall back to it.
             if (base == 0) base = median;
             kept = _inBand(rates, n, base);   // the band itself: one producer (S2 check too)
+            // CARRY v4band 11-24: a row the contract measures itself is never dropped from above.
+            kept |= _measuredAbove(rates, n, base, cands, hub);
         }
 
         // Band filter reuses the cached probe rates — no second probe quote.
@@ -473,6 +484,24 @@ library MathRef653 {
         for (uint256 i; i < n; ) {
             uint256 r = rates[i];
             if (r > 0 && r >= lo && r <= hi) set |= 1 << i;
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev CARRY v4band 11-24 (see the header): src/BlazePhoenixMath.sol `_measuredAbove`, on this
+    ///      reference's scale (bit i set = row i's rate is above the base rate `base` and its
+    ///      figure is measured: a reserves row `active` or of tier 0, or a singleton book with no
+    ///      hook). The live NatSpec says why.
+    function _measuredAbove(uint256[] memory rates, uint256 n, uint256 base, PoolInfo[] memory cands, IHubMathRef653 hub)
+        private view returns (uint256 over)
+    {
+        for (uint256 i; i < n; ) {
+            if (rates[i] > base) {
+                PoolInfo memory p = cands[i];
+                if (BPC.kindHas(p.kind, BPC.A_RESERVES)
+                    ? p.active || BPC.decodeTier(hub.getSlot(BPC.pairKey(p.pool, p.token0, p.token1))) == 0
+                    : BPC.kindHas(p.kind, BPC.A_CONC_SING) && p.hooks == address(0)) over |= 1 << i;
+            }
             unchecked { ++i; }
         }
     }

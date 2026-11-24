@@ -866,7 +866,11 @@ contract BlazePhoenixSolver {
         // gas cost of the extra legs. The single leg it must beat is the best
         // survivor of the BAND at full size (the funnel cut does not narrow the
         // rivals: [0, nBand)), one full-size quote each.
-        if (legs.length >= 2) {
+        // A SPLIT OF ONE LEG IS GATED TOO: the band kept two rows or more to reach this line, and
+        // a split that came back with one leg (a share rounded to nothing, a leg cut) is not the
+        // best single by construction - its leg is the heaviest row, not the best paying one.
+        // Gated only from two legs up, that leg stood unmeasured against the rows beside it.
+        {
             // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
             // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
             // probe and are MARGINAL prices. Neither heuristic names the best single leg at

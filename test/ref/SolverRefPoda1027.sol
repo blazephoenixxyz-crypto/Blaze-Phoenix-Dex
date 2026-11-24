@@ -54,6 +54,23 @@
 // out of gas here and the plan built at the cap stood (G52's held grid where a bridge leads,
 // 145.4e18 against 184.7e18). The search s is this reference's own, so where a walk needs
 // between the two Solvers' budgets the comparison would part; the rows drawn do not.
+//
+// CARRY v4band 11-24, THE MEASURED RIVAL. Two rules of the fix moved here, marked
+// `CARRY v4band 11-24`: (A) the band never drops from above a row the contract measures itself
+// (src/BlazePhoenixMath.sol `_measuredAbove`, carried inline as `_measuredAbove` beside
+// `_inBand`, read on this reference's scale: the band judges the rates around a base RATE, so
+// "above the base" is `rates[i] > base`), and (B) the split's gate also judges a split that came
+// back with one leg (`{` where this text had `if (legCount >= 2) {`). Without them the reference
+// held the library to the rule the fix removed. The rest is the text above.
+//
+// CARRY G52 (48ff261), EVERY LEG PAYS FOR ITS PLACE. The Solver keeps a leg of a split of three or
+// more only while the split with it pays MIN_SPLIT_IMPROVEMENT_PPM more than without it; 8938b6a
+// split by depth alone. With the v4band carry a measured row above the base stays in the band, and
+// such a row is often a dear one (the 4th row of test/MathBoundarySameAnswer.t.sol): the reference
+// then split onto a leg the Solver leaves out. Carried as `_carryG52`, written from that commit's
+// rule, not copied from the Solver's `_placed` (its seat, `_carrySeatOf`, from INV-7's rule: this
+// reference does not link the live Math), with the split of 8938b6a moved unchanged into
+// `_splitPoda1027`. The probe rates already move with the seats here. The rest is the text above.
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixSolver
 //  Version    : 2.0.0
@@ -826,6 +843,8 @@ contract SolverRefPoda1027 {
             // non-zero here (the median==0 early-return above), so fall back to it.
             if (base == 0) base = median;
             kept = _inBand(rates, n, base);   // the band itself: one producer (S2 check too)
+            // CARRY v4band 11-24: a row the contract measures itself is never dropped from above.
+            kept |= _measuredAbove(rates, n, base, cands);
         }
 
         // Band filter reuses the cached probe rates — no second probe quote.
@@ -898,9 +917,121 @@ contract SolverRefPoda1027 {
         uint256 nBand = n;
         if (n > budget) (n, sumPsi) = _cutByWeight(cands, psis, balsOut, rates, budget, n);
         sumPsi = _seatTheSplit(cands, psis, balsOut, rates, n, sumPsi);
+        // CARRY G52 (48ff261): the split of 8938b6a below is moved, unchanged, into `_splitPoda1027`,
+        // and `_carryG52` asks it again without a leg that does not pay for its place.
+        Leg[] memory legs;
+        uint256 totalOut;
+        uint256 committedIn;
+        (legs, totalOut, committedIn, up, held) = _carryG52(tIn, amountIn, cands, balsOut, rates, psis, sumPsi, n, mode);
+        if (legs.length == 0) return (hop, 0, false);
+
+        // REMOVED: the per-leg conservatism haircut (it was `legCount * 5 bps`
+        // above 3 legs), by the owner's decision on 2026-08-22.
+        //
+        // THE REASON IS MEASURED, not aesthetic. Quote-vs-execution fidelity in
+        // the same block was measured over 9 Base pairs: worst case **-2 bps**.
+        // The haircut took 5 bps PER LEG — 27x the observed error, and up to 55
+        // bps on an 11-leg route. By the asymmetry that governs this file,
+        // underestimating is not neutral: ranking is lost, and therefore routes
+        // that should win. It was the same pattern as the split gate, which
+        // sat 200-667x above the real break-even and was cut from 20 to 5.
+        //
+        // What still protects execution stands on its own and does not need it:
+        // the per-leg floor, the Layer 1 aggregate floor, and the mandatory
+        // `userMinOut` — those are checked against REALIZED output, not
+        // against an estimate shrunk a priori.
+        //
+        // The counter-argument, on the record: the -2 bps were measured in a
+        // CALM window (the price moved 0.05 bps over 3 blocks). The haircut
+        // also covered adversarial divergence, which that measurement does not
+        // exercise. If conservatism is ever restored, the right place is the
+        // floor (which is checked) and not the estimate (which only ranks).
+        // MIN-SPLIT IMPROVEMENT GATE. A multi-leg split must EARN its legs:
+        // unless it beats the best survivor's single-leg full-size quote
+        // by >= MIN_SPLIT_IMPROVEMENT_PPM (ppm), collapse to that single leg. Kills
+        // micro-splits whose marginal output gain is smaller than the real
+        // gas cost of the extra legs. The single leg it must beat is the best
+        // survivor at full size (post FUNNEL CUT), one full-size quote each.
+        // CARRY v4band 11-24: A SPLIT OF ONE LEG IS GATED TOO (src/BlazePhoenixSolver.sol): its leg
+        // is the heaviest row, not the best paying one; the gate ran only from two legs up.
+        {
+            // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
+            // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
+            // probe and are MARGINAL prices. Neither heuristic names the best single leg at
+            // full size, so neither is asked: every survivor is quoted at full size below.
+            // `n`, NOT `cands.length`. The survivors are compacted IN
+            // PLACE (see the compaction block above) but the memory array
+            // keeps its ORIGINAL length: positions >= n are junk from
+            // candidates the median band REJECTED or the funnel CUT.
+            // Walking `cands.length` resurrected them as the fallback single
+            // leg, voiding both filters - caught by
+            // test_UmaPoolFundaNaoCapturaABanda, which exists exactly to
+            // stop a deep badly-priced pool from entering the route.
+            // EVERY SURVIVOR, NOT TWO REPRESENTATIVES (ninth wave, Brian Wahyu). The deepest
+            // and the best marginal rate are two heuristics for "the best single leg at full
+            // size", and with three or more survivors that leg can be neither: a pool of middle
+            // depth and middle price. Measured: a split that beat both representatives kept an
+            // order 1.48% below the middle pool alone (test/SplitGateSeesEverySurvivor.t.sol).
+            // EVERY SURVIVOR OF THE BAND, NOT ONLY OF THE CUT (AnonSecure, bug bounty; found
+            // independently by our own economic review). The cut keeps the top `budget` by WEIGHT,
+            // which is depth; for a small order the best single leg is the best PRICED pool, which
+            // need not be deep, so MR-R1 ("split never worse than the best single pool") holds only
+            // if the gate measures every pool the band let through. The dropped survivors sit at
+            // [budget, nBand) - the cut permutes, it does not compact - so they are still here.
+            // S2 (Seavia Resources): the singles are compared by RANK, not by the sixteen-stretch
+            // promise - a fragmented book must not lose on a figure an outsider can cut. Each rival
+            // walks deep only while it could still beat the best so far (`bar = sR`). The
+            // collapse needs the judgement SETTLED: `hMax`, the highest ceiling among the singles
+            // (the chosen one included), must not exceed the chosen rank - no single can still
+            // beat it, and it is itself exact. A quote still truncated after the deep walk thus
+            // keeps the split (the honest pool kept by weight) instead of collapsing on a guess;
+            // a book that simply ends (a mirror pool with dust and nothing beyond) has a low
+            // ceiling and settles. Untruncated, `hMax == sR` and `up == 0`: the old gate exactly.
+            // One call site for every single, the first included (its bar is the empty `sR`, 0).
+            Hop memory single;
+            uint256 sR;
+            uint256 hMax;
+            uint256 hF;   // the highest quote among the capacity-held singles ranked at the cap
+            for (uint256 i; i < nBand; ) {
+                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, dIn1_, dOt1_);
+                aR += alt.expectedOut;
+                aH += alt.expectedOut;
+                if (aH > hMax) hMax = aH;
+                if (aF > hF) hF = aF;
+                if (aR > sR) { single = alt; sR = aR; }   // an empty single ranks 0
+                unchecked { ++i; }
+            }
+            if (
+                hMax <= sR &&   // no single chosen: sR == 0 and the bound below fails
+                totalOut + up < BPC.mulDiv(
+                    sR, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000
+                )
+            ) {
+                if (hF > sR) held = true;
+                return (single, sR - single.expectedOut, held);
+            }
+            // A held single whose own book could pay more than the split leaves this choice
+            // unsettled at the cap, as a held leg of the split does. (One that could pay at
+            // most the split would only take the hop for its gas, paying less.)
+            if (hF > totalOut + up) held = true;
+        }
+        hop = Hop({
+            tokenIn: tIn, tokenOut: tOut,
+            amountIn: committedIn, expectedOut: totalOut, legs: legs
+        });
+    }
+
+    /// @dev CARRY G52 (48ff261): the split of 8938b6a, moved out of `_buildHop` unchanged except
+    ///      for its exits (an empty `legs` where it returned an empty hop), so `_carryG52` can ask it
+    ///      again with one leg fewer.
+    function _splitPoda1027(
+        address tIn, uint256 amountIn, PoolInfo[] memory cands, uint256[] memory balsOut,
+        uint256[] memory psis, uint256 sumPsi, uint256 n, uint256 mode
+    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held) {
+        uint8 dIn1_ = uint8(mode >> 16);
+        uint8 dOt1_ = uint8(mode >> 8);
         Leg[] memory tmpLegs = new Leg[](n);
         uint256 legCount;
-        uint256 totalOut;
         uint256 allocated;
         for (uint256 i; i < n; ) {
             uint256 share;
@@ -986,109 +1117,99 @@ contract SolverRefPoda1027 {
             totalOut += outL;
             unchecked { ++legCount; ++i; }
         }
-        if (legCount == 0) return (hop, 0, false);
-
-        Leg[] memory legs = new Leg[](legCount);
+        legs = new Leg[](legCount);
         // Σ of the COMMITTED (post-clamp) leg inputs — the honest hop.amountIn.
         // Accumulated in the copy loop that already runs, so no extra pass and
         // no hot-loop local (issue #1): when a phantom cut freed capital that no
         // surviving venue could reabsorb, this is < the caller's amountIn and the
         // Router's residual sweep returns the difference.
-        uint256 committedIn;
         for (uint256 i; i < legCount; ) { legs[i] = tmpLegs[i]; committedIn += tmpLegs[i].amountIn; unchecked { ++i; } }
+    }
 
-        // REMOVED: the per-leg conservatism haircut (it was `legCount * 5 bps`
-        // above 3 legs), by the owner's decision on 2026-08-22.
-        //
-        // THE REASON IS MEASURED, not aesthetic. Quote-vs-execution fidelity in
-        // the same block was measured over 9 Base pairs: worst case **-2 bps**.
-        // The haircut took 5 bps PER LEG — 27x the observed error, and up to 55
-        // bps on an 11-leg route. By the asymmetry that governs this file,
-        // underestimating is not neutral: ranking is lost, and therefore routes
-        // that should win. It was the same pattern as the split gate, which
-        // sat 200-667x above the real break-even and was cut from 20 to 5.
-        //
-        // What still protects execution stands on its own and does not need it:
-        // the per-leg floor, the Layer 1 aggregate floor, and the mandatory
-        // `userMinOut` — those are checked against REALIZED output, not
-        // against an estimate shrunk a priori.
-        //
-        // The counter-argument, on the record: the -2 bps were measured in a
-        // CALM window (the price moved 0.05 bps over 3 blocks). The haircut
-        // also covered adversarial divergence, which that measurement does not
-        // exercise. If conservatism is ever restored, the right place is the
-        // floor (which is checked) and not the estimate (which only ranks).
-        // MIN-SPLIT IMPROVEMENT GATE. A multi-leg split must EARN its legs:
-        // unless it beats the best survivor's single-leg full-size quote
-        // by >= MIN_SPLIT_IMPROVEMENT_PPM (ppm), collapse to that single leg. Kills
-        // micro-splits whose marginal output gain is smaller than the real
-        // gas cost of the extra legs. The single leg it must beat is the best
-        // survivor at full size (post FUNNEL CUT), one full-size quote each.
-        if (legCount >= 2) {
-            // `cands[0]` is the highest WEIGHT, that is the DEEPEST - never the best priced -
-            // and `argmax(rates)` favours SHALLOW pools, because the rates come from a small
-            // probe and are MARGINAL prices. Neither heuristic names the best single leg at
-            // full size, so neither is asked: every survivor is quoted at full size below.
-            // `n`, NOT `cands.length`. The survivors are compacted IN
-            // PLACE (see the compaction block above) but the memory array
-            // keeps its ORIGINAL length: positions >= n are junk from
-            // candidates the median band REJECTED or the funnel CUT.
-            // Walking `cands.length` resurrected them as the fallback single
-            // leg, voiding both filters - caught by
-            // test_UmaPoolFundaNaoCapturaABanda, which exists exactly to
-            // stop a deep badly-priced pool from entering the route.
-            // EVERY SURVIVOR, NOT TWO REPRESENTATIVES (ninth wave, Brian Wahyu). The deepest
-            // and the best marginal rate are two heuristics for "the best single leg at full
-            // size", and with three or more survivors that leg can be neither: a pool of middle
-            // depth and middle price. Measured: a split that beat both representatives kept an
-            // order 1.48% below the middle pool alone (test/SplitGateSeesEverySurvivor.t.sol).
-            // EVERY SURVIVOR OF THE BAND, NOT ONLY OF THE CUT (AnonSecure, bug bounty; found
-            // independently by our own economic review). The cut keeps the top `budget` by WEIGHT,
-            // which is depth; for a small order the best single leg is the best PRICED pool, which
-            // need not be deep, so MR-R1 ("split never worse than the best single pool") holds only
-            // if the gate measures every pool the band let through. The dropped survivors sit at
-            // [budget, nBand) - the cut permutes, it does not compact - so they are still here.
-            // S2 (Seavia Resources): the singles are compared by RANK, not by the sixteen-stretch
-            // promise - a fragmented book must not lose on a figure an outsider can cut. Each rival
-            // walks deep only while it could still beat the best so far (`bar = sR`). The
-            // collapse needs the judgement SETTLED: `hMax`, the highest ceiling among the singles
-            // (the chosen one included), must not exceed the chosen rank - no single can still
-            // beat it, and it is itself exact. A quote still truncated after the deep walk thus
-            // keeps the split (the honest pool kept by weight) instead of collapsing on a guess;
-            // a book that simply ends (a mirror pool with dust and nothing beyond) has a low
-            // ceiling and settles. Untruncated, `hMax == sR` and `up == 0`: the old gate exactly.
-            // One call site for every single, the first included (its bar is the empty `sR`, 0).
-            Hop memory single;
-            uint256 sR;
-            uint256 hMax;
-            uint256 hF;   // the highest quote among the capacity-held singles ranked at the cap
-            for (uint256 i; i < nBand; ) {
-                (Hop memory alt, uint256 aR, uint256 aH, uint256 aF) = _singleLeg(tIn, tOut, amountIn, cands[i], mode, sR, dIn1_, dOt1_);
-                aR += alt.expectedOut;
-                aH += alt.expectedOut;
-                if (aH > hMax) hMax = aH;
-                if (aF > hF) hF = aF;
-                if (aR > sR) { single = alt; sR = aR; }   // an empty single ranks 0
-                unchecked { ++i; }
-            }
-            if (
-                hMax <= sR &&   // no single chosen: sR == 0 and the bound below fails
-                totalOut + up < BPC.mulDiv(
-                    sR, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000
-                )
-            ) {
-                if (hF > sR) held = true;
-                return (single, sR - single.expectedOut, held);
-            }
-            // A held single whose own book could pay more than the split leaves this choice
-            // unsettled at the cap, as a held leg of the split does. (One that could pay at
-            // most the split would only take the hop for its gas, paying less.)
-            if (hF > totalOut + up) held = true;
+    // ===== CARRY G52 (48ff261): EVERY LEG PAYS FOR ITS PLACE IN THE SPLIT =====================
+    // Not in 8938b6a. Written here from the rule of 48ff261, not copied from the Solver's `_placed`,
+    // so the same-answer rows keep comparing two implementations of one rule:
+    //   while three or more legs remain, the leg ON TRIAL is the split's leg whose probe rate is the
+    //   lowest (ties: the lower pool, then the earlier seat); it is tried only if another leg of the
+    //   split paid, on average, at least that rate. Without it the weights are reseated (it takes
+    //   the split's last seat; when it held the remainder seat, the heaviest of the others, ties to
+    //   the lower pool, takes that seat - `_carrySeatOf`, written from INV-7's rule, since this
+    //   reference does not link the live Math) and the split is asked again. The leg stays when the
+    //   split with it pays at least MIN_SPLIT_IMPROVEMENT_PPM more (output plus the walk's `up`)
+    //   than the split without it; a held leg in either split leaves the choice held. The seats
+    //   stay where the last trial left them, kept or not, as in the Solver.
+    function _carryG52(
+        address tIn, uint256 amountIn, PoolInfo[] memory cands, uint256[] memory balsOut,
+        uint256[] memory rates, uint256[] memory psis, uint256 sumPsi, uint256 n, uint256 mode
+    ) private view returns (Leg[] memory legs, uint256 totalOut, uint256 committedIn, uint256 up, bool held) {
+        (legs, totalOut, committedIn, up, held) = _splitPoda1027(tIn, amountIn, cands, balsOut, psis, sumPsi, n, mode);
+        uint256 m = n;
+        while (legs.length >= 3) {
+            uint256 j = _carryWorstPaid(legs, cands, rates, m);
+            if (j == m || !_carryAnotherPaysAtLeast(legs, cands[j].pool, rates[j])) return (legs, totalOut, committedIn, up, held);
+            sumPsi -= psis[j];
+            if (j + 1 == m) _carryCycle(cands, balsOut, psis, rates, _carrySeatOf(cands, psis, m - 1), m - 2, m - 2);
+            else _carryCycle(cands, balsOut, psis, rates, j, m - 2, m - 1);
+            m -= 1;
+            (Leg[] memory l2, uint256 o2, uint256 c2, uint256 u2, bool h2) =
+                _splitPoda1027(tIn, amountIn, cands, balsOut, psis, sumPsi, m, mode);
+            held = held || h2;
+            uint256 without = BPC.mulDiv(o2 + u2, 1_000_000 + MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000);   // G52 carry gate
+            if (totalOut + up >= without) return (legs, totalOut, committedIn, up, held);
+            legs = l2;
+            totalOut = o2;
+            committedIn = c2;
+            up = u2;
         }
-        hop = Hop({
-            tokenIn: tIn, tokenOut: tOut,
-            amountIn: committedIn, expectedOut: totalOut, legs: legs
-        });
+    }
+
+    /// @dev The seat in [0, m) of the split's worst-paid leg by probe rate, or `m` when no seat
+    ///      holds a leg of the split. Least (rate, pool, seat), visited leg by leg.
+    function _carryWorstPaid(Leg[] memory legs, PoolInfo[] memory cands, uint256[] memory rates, uint256 m)
+        private pure returns (uint256 j)
+    {
+        j = m;
+        for (uint256 l; l < legs.length; ++l) {
+            for (uint256 i; i < m; ++i) {
+                if (cands[i].pool != legs[l].pool) continue;
+                if (j == m) { j = i; continue; }
+                if (rates[i] != rates[j]) { if (rates[i] < rates[j]) j = i; continue; }
+                if (cands[i].pool != cands[j].pool) { if (cands[i].pool < cands[j].pool) j = i; continue; }
+                if (i < j) j = i;
+            }
+        }
+    }
+
+    /// @dev Whether a leg of the split other than `pool`'s paid on average at least `rate` (WAD).
+    function _carryAnotherPaysAtLeast(Leg[] memory legs, address pool, uint256 rate) private pure returns (bool) {
+        for (uint256 l; l < legs.length; ++l) {
+            if (legs[l].pool == pool) continue;
+            if (BPC.mulDiv(legs[l].expectedOut, 1e18, legs[l].amountIn) >= rate) return true;
+        }
+        return false;
+    }
+
+    /// @dev The remainder's seat among the first `m` (INV-7, as the split seats it): the heaviest
+    ///      by weight `w`, a tie to the lower pool; the last seat, `m - 1`, unless another beats it.
+    function _carrySeatOf(PoolInfo[] memory c, uint256[] memory w, uint256 m) private pure returns (uint256 s) {
+        s = m - 1;
+        for (uint256 i; i + 1 < m; ++i) {
+            bool heavier = w[i] > w[s];
+            bool tieLower = w[i] == w[s] && c[i].pool < c[s].pool;
+            if (heavier || tieLower) s = i;
+        }
+    }
+
+    /// @dev Moves seat y to x, z to y and x to z in the four seat-aligned arrays (y == z: x and y
+    ///      trade places).
+    function _carryCycle(
+        PoolInfo[] memory c, uint256[] memory b, uint256[] memory w, uint256[] memory r,
+        uint256 x, uint256 y, uint256 z
+    ) private pure {
+        PoolInfo memory tc = c[x]; c[x] = c[y]; c[y] = c[z]; c[z] = tc;
+        uint256 t = b[x]; b[x] = b[y]; b[y] = b[z]; b[z] = t;
+        t = w[x]; w[x] = w[y]; w[y] = w[z]; w[z] = t;
+        t = r[x]; r[x] = r[y]; r[y] = r[z]; r[z] = t;
     }
 
     /// @dev DUST IS MEASURED AGAINST THE PAIR, NOT COUNTED OUT (3317). The funnel kept the eight
@@ -1428,6 +1549,24 @@ contract SolverRefPoda1027 {
         for (uint256 i; i < n; ) {
             uint256 r = rates[i];
             if (r > 0 && r >= lo && r <= hi) set |= 1 << i;
+            unchecked { ++i; }
+        }
+    }
+
+    /// @dev CARRY v4band 11-24 (see the header): src/BlazePhoenixMath.sol `_measuredAbove`, on this
+    ///      reference's scale (bit i set = row i's rate is above the base rate `base` and its
+    ///      figure is measured: a reserves row `active` or of tier 0, or a singleton book with no
+    ///      hook). The live NatSpec says why.
+    function _measuredAbove(uint256[] memory rates, uint256 n, uint256 base, PoolInfo[] memory cands)
+        private view returns (uint256 over)
+    {
+        for (uint256 i; i < n; ) {
+            if (rates[i] > base) {
+                PoolInfo memory p = cands[i];
+                if (BPC.kindHas(p.kind, BPC.A_RESERVES)
+                    ? p.active || BPC.decodeTier(hub.getSlot(BPC.pairKey(p.pool, p.token0, p.token1))) == 0
+                    : BPC.kindHas(p.kind, BPC.A_CONC_SING) && p.hooks == address(0)) over |= 1 << i;
+            }
             unchecked { ++i; }
         }
     }

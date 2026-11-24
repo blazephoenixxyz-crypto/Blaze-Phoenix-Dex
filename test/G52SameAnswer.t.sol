@@ -360,10 +360,26 @@ contract G52SameAnswerTest is Test {
     /// order and rate order differ, and the
     /// heaviest one at the top rate. A median that walked the votes in row order, or summed
     /// the mass over the wrong rows, would centre the band on another book.
+    /// History (2026-11-24, the measured rival): until then the three books were V2 pairs,
+    /// (200_000e18, 216_000e18), (10_000e18, 9_300e18) and (100_000e18, 100_000e18). A row the
+    /// contract measures itself is never dropped from above the base
+    /// (`BlazePhoenixMath._measuredAbove`), so a median walked in row order ([933]) centred the
+    /// band on 0.93, kept the pairs at 1.00 and 1.08 above it, and the route did not change: the
+    /// row no longer tested the median. The books at 1.08 and 1.00 are now V4 books behind the
+    /// listed hook (0x1000), which vote (V4 is never muted) but which the contract only models,
+    /// so a band centred under them drops them. Their fee is 30, the pairs' fee; their tick
+    /// spacings differ so their keys differ; their votes are the deep held share of their
+    /// depth (`_hookedAt`), 20 : 10, and the pair at 0.93 holds 1/20 of the vote at 1.08.
     function test_G52_SameAnswer_MedianPicksTheBand() public {
-        _v2(tA, tB, 200_000e18, 216_000e18);   // rate 1.08, the heaviest
-        _v2(tA, tB, 10_000e18, 9_300e18);      // rate 0.93, light
-        _v2(tA, tB, 100_000e18, 100_000e18);   // rate 1.00
+        (, uint256 v108) = _hookedAt(tA, tB, TICK_108, TS, 200_000e18);   // rate 1.08, the heaviest
+        _v2(tA, tB, v108 / 20 * 100 / 93, v108 / 20);                      // rate 0.93, light
+        (, uint256 v100) = _hookedAt(tA, tB, 0, 10, uint128(v108 / 2));   // rate 1.00
+        // Premises, read on the votes and on the Solver of 653b1dc (the oracle): the book at
+        // 1.08 holds more than half the mass, and the band it centres keeps it alone.
+        assertGt(v108, v100 + v108 / 20, "precondition: the book at 1.08 holds the median");
+        RoutePlanRef memory p = ref.findBestRoutePlan(tA, tB, 100e18);
+        assertEq(p.best.hops[0].legs.length, 1, "precondition: the band keeps one book");
+        assertGt(p.best.totalOut, 105e18, "precondition: the book at 1.08 sets the base");
         _row("rates 1.08 / 0.93 / 1.00, mass 20:1:10", tA, tB, 100e18);
         _row("the other way", tB, tA, 100e18);
     }
@@ -473,18 +489,28 @@ contract G52SameAnswerTest is Test {
     /// a vote was the book's short side. A vote is the tokenOut the book holds (MAT-02), 330e18
     /// and 550e18 for the books at 1.10, so the books at 1.00 moved to keep the votes 1 : 1 and
     /// 1 : 0.7.
+    /// History (2026-11-24, the measured rival): a row the contract measures itself is never
+    /// dropped from above the base (`BlazePhoenixMath._measuredAbove`), so a found V2 pair at
+    /// 1.10 stayed in X's band beside the base at 1.00 and the route took it. The books at 1.10
+    /// are now V4 books behind a listed hook (0x1000), which still vote (V4 is never muted) but
+    /// which the contract only models, so the band's upper edge still judges them and drops them
+    /// under the base at 1.00. Their fee is 30, the pairs' fee, so the funnel keeps the seed
+    /// order; their vote is the deep held share of their depth (`_heldShare`, the vote the
+    /// median settles on when the sixteen-stretch read is cut), and the books at 1.00 hold that
+    /// vote, or 0.7 of it, so the votes stay 1 : 1 and 1 : 0.7. The dead rows are unchanged.
     function test_G52_SameAnswer_MedianWalksTheLiveRowsOnly() public {
+        (address hx, uint256 vx) = _hookedAt110(tA, tB, 315e18);
         address[3] memory x = [
-            _v2(tA, tB, 300e18, 330e18),   // ~1.10, vote 330e18
+            hx,                            // ~1.10, vote vx
             _v2(tA, tB, 5e33, 300e18),     // dead at the probe: 1e13 * 300e18 / 5e33 < 1
-            _v2(tA, tB, 330e18, 330e18)    // ~1.00, vote 330e18
+            _v2(tA, tB, vx, vx)            // ~1.00, vote vx: the votes are equal
         ];
-        address c = _token();
-        address d = _token();
+        (address c, address d) = _pair();
+        (address hy, uint256 vy) = _hookedAt110(c, d, 525e18);
         address[3] memory y = [
-            _v2(c, d, 500e18, 550e18),     // ~1.10, vote 550e18
+            hy,                            // ~1.10, vote vy
             _v2(c, d, 5e33, 300e18),       // dead
-            _v2(c, d, 385e18, 385e18)      // ~1.00, vote 385e18 = 0.7 x 550e18
+            _v2(c, d, vy * 7 / 10, vy * 7 / 10)   // ~1.00, vote 0.7 x vy
         ];
         // Premises, read on the Solver of 653b1dc (the oracle, so they hold whatever the Solver
         // under test does and a mutant of it fails the comparison): the funnel keeps the seed
@@ -502,8 +528,49 @@ contract G52SameAnswerTest is Test {
         _row("median, votes 1 : 0.7, a dead row in the middle", c, d, 1e15);
     }
 
-    /// The registry lists the pair's rows in seed order with one psi and one fee, so the
-    /// funnel's selection sort (psi descending, then fee) leaves them in that order.
+    /// A listed hook whose address bits enter no swap callback and alter no delta (bit 12,
+    /// after-initialize), codeless, as test/V4FragmentationRanking.t.sol lists it.
+    address constant HOOK = address(uint160(0x1000));
+    /// 1.0001^953 ~ 1.0999: the books at ~1.10.
+    int24 constant TICK_110 = 953;
+    /// 1.0001^770 ~ 1.0800: the book at ~1.08.
+    int24 constant TICK_108 = 770;
+
+    /// Two fresh tokens, sorted.
+    function _pair() internal returns (address c0, address c1) {
+        address c = _token();
+        address d = _token();
+        (c0, c1) = c < d ? (c, d) : (d, c);
+    }
+
+    /// A full-range V4 book on (c0, c1), c0 < c1, at ~1.10 behind the listed hook.
+    function _hookedAt110(address c0, address c1, uint128 liq) internal returns (address row, uint256 vote) {
+        return _hookedAt(c0, c1, TICK_110, TS, liq);
+    }
+
+    /// A full-range V4 book on (c0, c1), c0 < c1, at `tick` with spacing `ts` behind the listed
+    /// hook, fee 30 (the V2 rows' fee), and its vote selling c0: the deep held share of its
+    /// depth, as `BlazePhoenixMath._heldShare` reads it with `bar` 0.
+    function _hookedAt(address c0, address c1, int24 tick, int24 ts, uint128 liq)
+        internal returns (address row, uint256 vote)
+    {
+        MockERC20(c0).mint(address(mgr), 1e30);
+        MockERC20(c1).mint(address(mgr), 1e30);
+        hub.allowHook(HOOK, true);
+        bytes32 pid = BPC.computeV4PoolId(c0, c1, 30, ts, HOOK);
+        uint160 sp = mgr.sqrtAt(tick);
+        mgr.initialize(pid, sp, tick, 30);
+        mgr.addPosition(pid, -887220, 887220, ts, liq);
+        hub.addV4(c0, c1, 30, ts, HOOK);
+        row = address(uint160(uint256(pid)));
+        vote = BPC.v4HeldShare(address(mgr), pid, ts, true, BPC.outSide18(liq, sp, true, 18), 0);
+    }
+
+    /// The registry lists the pair's rows in seed order with one fee and a psi that does not
+    /// rise along it, so the funnel's selection sort (psi descending, then fee) leaves them in
+    /// that order. History (2026-11-24): the premise was one psi; a concentrated row scores 5%
+    /// over a pair-shaped one of its bucket (`BlazePhoenixCore.psi`), so the hooked book seeded
+    /// first scores above the two pairs and the sort keeps it first.
     function _seedOrder(address a, address b, address[3] memory seeded) internal view {
         (address t0, address t1) = a < b ? (a, b) : (b, a);
         PoolInfo[] memory rows = hub.getActivePools(t0, t1);
@@ -514,8 +581,10 @@ contract G52SameAnswerTest is Test {
         address[] memory t1s = new address[](3);
         for (uint256 i; i < 3; ++i) { pls[i] = rows[i].pool; t0s[i] = rows[i].token0; t1s[i] = rows[i].token1; }
         uint256[] memory ps = hub.psisOf(pls, t0s, t1s);
-        assertEq(ps[0], ps[1], "precondition: one psi");
-        assertEq(ps[1], ps[2], "precondition: one psi");
+        for (uint256 i; i < 2; ++i) {
+            assertGe(ps[i], ps[i + 1], "precondition: psi does not rise along the seed order");
+            assertEq(rows[i].fee, rows[i + 1].fee, "precondition: one fee");
+        }
     }
 
     /// A held first stage asks for the WALK rebuild. One bridge; tA -> b0 is a V3 book holding

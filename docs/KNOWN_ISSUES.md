@@ -165,6 +165,14 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   rate is under the base's. Derivation in `Math` (THE BAND); pinned by
   `testFuzz_ADropCostsTheUserUnderThreeTimesTheArbitrageAtTheBase`. Not bounded: the
   arbitrageur's gas.
+- **A registered V2 pair is quoted at the registry's fee.** The contract does not read a V2
+  pair's fee from the pair: a registry row is quoted and executed at 30 bps, and a row only
+  discovery found at the fee its factory row declares (30 bps when that is absent or above
+  100 bps; `Core.effV2Fee`). At execution the Router asks the pair for the amount that same
+  formula gives, and the pair pays it whole or reverts on its own invariant
+  (`Router._execPairAmt`). A pair that charges more than its row says therefore reverts the swap
+  routed through it and never fills short: the user's tokens do not move, and the cost is the
+  reverted transaction.
 - **A wrapper leg is priced only by its adapter's `quote` view** (`Core.gateQuote`). A wrapper
   without that view, or one whose walk cannot fill the whole input (the Liquidity Book and Algebra
   Integral adapters then answer 0), is quoted at 0 and gets no share of the order. This fails
