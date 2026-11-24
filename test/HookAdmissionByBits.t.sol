@@ -302,6 +302,7 @@ contract HookAdmissionByBitsTest is Test {
         address h = forge_.deploy(BEFORE_SWAP, SWAP_DELTAS);
         bytes32 pid = _pool(h);
         uint256 amt = 1e18;
+        hub.setRoles(address(router), address(0xBEEF), address(this)); // the preview asks the seated Router whether it is live
         FixedPlanSolver solver = new FixedPlanSolver();
         BlazePhoenixQuoter quoter = new BlazePhoenixQuoter(address(hub), address(solver));
         solver.setPlan(_route(pid, h, amt));
