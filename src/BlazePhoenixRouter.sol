@@ -71,6 +71,7 @@ import {
     BlazePhoenixCore as BPC,
     Route, Hop, Leg, RoutePlan, MAX_HOPS, MAX_LEGS_PER_HOP
 } from "./BlazePhoenixCore.sol";
+import {MIN_SPLIT_IMPROVEMENT_PPM} from "./BlazePhoenixSolver.sol";
 
 interface ISolverR {
     function findBestRoutePlan(address tIn, address tOut, uint256 amountIn)
@@ -689,10 +690,50 @@ contract BlazePhoenixRouter {
         for (uint256 i; i < hop.legs.length; ) {
             // A price-limited V4 leg fills out of the hop's whole input up to its limit; the
             // hop's commitment, and so its fee base and its scale, is its exact legs'.
-            (bool on, ) = BPC.v4Limit(hop.legs[i].auxId);
-            if (!on) c += hop.legs[i].amountIn;
+            if (!_limited(hop.legs[i])) c += hop.legs[i].amountIn;
             unchecked { ++i; }
         }
+    }
+
+    /// @dev Whether `leg` carries a price limit (`BPC.v4Limit`). Only a hop's first leg, V4 and
+    ///      hookless, ahead of at least one exact leg, may: `_hopScaleImpactAndQuote` refuses
+    ///      every other shape before anything is spent.
+    function _limited(Leg calldata leg) private pure returns (bool on) {
+        (on, ) = BPC.v4Limit(leg.auxId);
+    }
+
+    /// @dev The window bar of a hop whose first leg is price-limited: MIN_SPLIT_IMPROVEMENT_PPM
+    ///      of what its exact legs declare. Past its floor the limited leg goes on only while a
+    ///      window pays this much above what its input is worth at the limit (`_v4Rounds`).
+    ///      The bar prices one more window's gas: it moves where the leg stops, never the rate
+    ///      it fills at. `_carry` clears it once the leg has run.
+    function _v4Bar(Hop calldata hop) private {
+        uint256 e;
+        for (uint256 i = 1; i < hop.legs.length; ) { e += hop.legs[i].expectedOut; unchecked { ++i; } }
+        e = BPC.mulDiv(e, MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000);
+        uint256 sB = TSLOT_V4BAR;
+        assembly { tstore(sB, e) }
+    }
+
+    /// @dev After the price-limited leg filled `took` out of the hop's input `s`: what is left
+    ///      goes to the exact legs in their declared shares. Their quotes were measured on
+    ///      shares of `s` and scale to what is left; the limited leg's own quote scales to what
+    ///      it filled, never past `legAmt`, the amount it was measured at. Returns the input
+    ///      left and the hop's quote, the sum of the rewritten leg quotes.
+    function _carry(uint256[] memory q, uint256 s, uint256 took, uint256 legAmt)
+        private returns (uint256 s2, uint256 hq)
+    {
+        s2 = s - took;
+        hq = took < legAmt ? BPC.mulDiv(q[0], took, legAmt) : q[0];
+        q[0] = hq;
+        for (uint256 i = 1; i < q.length; ) {
+            uint256 v = s2 == s ? q[i] : BPC.mulDiv(q[i], s2, s);
+            q[i] = v;
+            hq += v;
+            unchecked { ++i; }
+        }
+        uint256 sB = TSLOT_V4BAR;
+        assembly { tstore(sB, 0) }
     }
 
     /// @notice The fee for hop `h`, charged in THAT hop's token.
@@ -901,7 +942,7 @@ contract BlazePhoenixRouter {
     function _hopScaleImpactAndQuote(
         Hop calldata hop, uint256 h, uint256 amountIn, uint256[] memory bridgeBase,
         uint256[] memory legQuotes
-    ) private view returns (uint256 scaleNum, uint256 scaleDen, uint256 impactAcc, uint256 quoteAcc) {
+    ) private returns (uint256 scaleNum, uint256 scaleDen, uint256 impactAcc, uint256 quoteAcc) {
         uint256 legs = hop.legs.length;
         {
             // R3 / BP-15 (invariant I1 — holds-nothing on the INPUT side): hop 0
@@ -953,6 +994,20 @@ contract BlazePhoenixRouter {
         for (uint256 l; l < legs; ) {
             Leg calldata leg = hop.legs[l];
             uint256 legAmt = BPC.mulDiv(leg.amountIn, scaleNum, scaleDen);
+            {
+                // A price limit (`BPC.v4Limit`, bits 160..184 of auxId) rides only on the hop's
+                // first leg, V4 and hookless, ahead of at least one exact leg: `_legSum` leaves
+                // it out of the scale and `_execute` hands it the hop's input, so on any other
+                // leg it would move money the route never committed.
+                uint256 hi = (uint256(leg.auxId) >> 160) & 0x1ffffff;
+                if (hi != 0) {
+                    if (!BPC.kindHas(leg.kind, BPC.A_CONC_SING)) revert RouterE(3);
+                    if (hi >> 24 != 0) {
+                        if (l != 0 || legs < 2 || leg.hooks != address(0)) revert RouterE(3);
+                        _v4Bar(hop);
+                    }
+                }
+            }
 
             if (BPC.kindHasAny(leg.kind, BPC.A_RESERVES | BPC.A_CONC_POOL)) {
                 // K2 (2026-10-21): the pair-shaped and concentrated arms are ONE Core call
@@ -1329,15 +1384,23 @@ contract BlazePhoenixRouter {
                     uint256 remaining = _bal(legIn);
                     if (remaining < scaledAmt) scaledAmt = remaining;
                 }
+                // The price-limited first leg spends out of the hop's whole input, `legAmt`
+                // (its verified share) being its floor; what it fills is its input from here
+                // on, and the exact legs share what is left (`_carry`).
+                if (_limited(leg)) scaledAmt = scaleNum;
+                (uint256 legGot, uint256 legBound, uint256 legDecl, uint256 took) = _execScaled(
+                    leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
+                );
+                if (_limited(leg)) {
+                    scaledAmt = took;
+                    (scaleNum, hopQuote) = _carry(legQuotes, scaleNum, took, legAmt);
+                }
                 // A leg with a zero scaled input never reaches the pool:
                 // `_execScaled` returns (0,0,0) before any transfer or swap. Record
                 // WHICH legs actually ran, so the registry credits execution and
                 // not calldata. The index runs across the whole route and both
                 // loops walk the same calldata in the same order.
                 if (scaledAmt != 0) executedMask |= (uint256(1) << legIdx);
-                (uint256 legGot, uint256 legBound, uint256 legDecl, uint256 took) = _execScaled(
-                    leg, legIn, legOutRaw, scaledAmt, legQuotes[l], legAmt
-                );
                 legOut[legIdx] = legGot;
                 legTook[legIdx] = took;
                 unchecked { ++legIdx; }
@@ -1787,6 +1850,9 @@ contract BlazePhoenixRouter {
             (declared, took) = _execV3Amt(leg, tokenIn, amt);
         } else if (BPC.kindHas(k, BPC.A_CONC_SING)) {
             (declared, took) = _execV4Amt(leg, tokenIn, amt, legAmt);
+            // A price-limited leg's `amt` is its budget, not its fill: its floor and its
+            // quote's coverage read what it filled, never past `legAmt`, where both were measured.
+            if (_limited(leg)) amt = took < legAmt ? took : legAmt;
         } else {
             revert RouterE(8);
         }
@@ -2111,12 +2177,11 @@ contract BlazePhoenixRouter {
         });
         // A price-limited leg (limit tick in the high bits of auxId) fills in windows up to its
         // limit; `lim` carries the tick with bit 255 set, zero for every other leg. The window
-        // bar was stored for this hop by `_execute`.
+        // bar was stored for this hop by `_hopScaleImpactAndQuote` (`_v4Bar`).
         (bool on, int24 limTick) = BPC.v4Limit(leg.auxId);
         uint256 lim;
         uint256 bar;
         if (on) {
-            if (leg.hooks != address(0)) revert RouterE(3);
             lim = (uint256(1) << 255) | uint256(uint24(limTick));
             uint256 sB = TSLOT_V4BAR;
             assembly { bar := tload(sB) }
