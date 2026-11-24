@@ -21,9 +21,15 @@ pragma solidity 0.8.36;
 // the honest rows of its pair is the pair's majority and takes the band's base (the 50 %
 // breakdown point, test/BandBaseBreakdownPoint.t.sol): the par fixture below pins that limit on
 // the thin side of each bridge, where the majority is cheapest.
+// MEASURED VS MODELLED THIN ROWS (2026-11-24). `BlazePhoenixMath._measuredAbove` keeps in the band
+// a row above the base whose rate the contract measures (attested V2 reserves, hook-free singleton
+// books). With the thin rows as V2 pairs the books' base no longer drops them and the plan pays the
+// clean price to the wei: HD-01 is closed for measured rows (the `MeasuredThinRows` test). The limit
+// stands where the thin rows are rows the contract only models (hooked V4 books of the same depth),
+// which the band's upper edge still drops.
 
 import {Test} from "forge-std/Test.sol";
-import {BlazePhoenixCore as BPC, RoutePlan} from "../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, RoutePlan, PoolInfo} from "../src/BlazePhoenixCore.sol";
 import {BlazePhoenixHub} from "../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../src/BlazePhoenixSolver.sol";
 import {PathologicalERC20} from "./mocks/PathologicalERC20.sol";
@@ -46,6 +52,8 @@ contract HD01OneCutPerBridgeTest is Test {
     int24 constant TLO = -69078;           // 1.0001^-69078 ~ 1.0003e-3
     uint256 constant THIN_XB2 = 5_000e18;  // the thin rows, in bridge tokens
     uint256 constant THIN_B1Y = 2_500e18;
+    address constant HOOK = address(uint160(0x1000)); // a listed hook: its rows are modelled
+    int24 constant HTS = 60;
 
     function setUp() public {
         mgr = new MockV4TickManager();
@@ -66,11 +74,52 @@ contract HD01OneCutPerBridgeTest is Test {
 
     /// The honest market, with one X worth `k` bridge tokens and one bridge token worth `k` Y.
     function _market(uint256 k) internal {
+        _deepRows(k);
+        _pair(X, B2, THIN_XB2 / k, THIN_XB2);
+        _pair(B1, Y, THIN_B1Y, THIN_B1Y * k);
+    }
+
+    /// The deep chain X/B1, B1/B2, B2/Y: V2 pairs, as in `_market`.
+    function _deepRows(uint256 k) internal {
         _pair(X, B1, 500_000e18 / k, 500_000e18);
         _pair(B1, B2, 5_000_000e18, 5_000_000e18);
         _pair(B2, Y, 500_000e18, 500_000e18 * k);
-        _pair(X, B2, THIN_XB2 / k, THIN_XB2);
-        _pair(B1, Y, THIN_B1Y, THIN_B1Y * k);
+    }
+
+    /// The par market with the thin rows as rows the contract only models: a full-range V4 book
+    /// at par behind a listed hook, fee 0.3 %, of the V2 pair's depth on each thin side. Above
+    /// the books' base it falls past the band's upper edge, as every row did before
+    /// `BlazePhoenixMath._measuredAbove`.
+    function _marketWithModelledThinRows() internal {
+        _deepRows(1);
+        _hooked(X, B2, uint128(THIN_XB2));
+        _hooked(B1, Y, uint128(THIN_B1Y));
+    }
+
+    function _hooked(address c0, address c1, uint128 liq) internal {
+        require(c0 < c1, "fixture: sorted pair");
+        PathologicalERC20(c0).mint(address(mgr), liq);
+        PathologicalERC20(c1).mint(address(mgr), liq);
+        hub.allowHook(HOOK, true);
+        bytes32 pid = BPC.computeV4PoolId(c0, c1, 3000, HTS, HOOK);
+        mgr.initialize(pid, mgr.sqrtAt(0), 0, 3000);
+        mgr.addPosition(pid, -887220, 887220, HTS, liq);
+        hub.addV4(c0, c1, 3000, HTS, HOOK);
+    }
+
+    /// Precondition: besides the book, the pair's rows are what `modelled` names: only the hooked
+    /// book (modelled), or only a V2 pair, whose reserves the contract reads (measured).
+    function _thinRowIs(address c0, address c1, bool modelled) internal view {
+        PoolInfo[] memory rows = hub.getActivePools(c0, c1);
+        uint256 seen;
+        for (uint256 i; i < rows.length; ++i) {
+            if (rows[i].hooks == address(0) && rows[i].fee == FEE) continue; // the book
+            ++seen;
+            if (modelled) assertEq(rows[i].hooks, HOOK, "precondition: a thin row the contract measures");
+            else assertTrue(rows[i].kind == BPC.KIND_V2 && rows[i].hooks == address(0),
+                "precondition: a thin row the contract does not measure");
+        }
+        assertEq(seen, 1, "precondition: one thin row beside the book");
     }
 
     function _pair(address a, address b, uint256 sideA, uint256 sideB) internal {
@@ -128,16 +177,50 @@ contract HD01OneCutPerBridgeTest is Test {
     /// THE DESIGNED LIMIT, pinned. At par each book holds ~1.58e22 of the bought token against
     /// the 5e21 and 2.5e21 of the honest thin rows: it is the majority of its pair's mass, and
     /// the majority is the market. With two hops and no direct pool there is no third route.
+    /// History (2026-11-24): the thin rows were V2 pairs. Since `BlazePhoenixMath._measuredAbove`
+    /// keeps a measured row above the base, those pairs stay beside the books and the plan pays
+    /// the clean price to the wei (97438603280857971576 against a limit of 974386032808579715):
+    /// HD-01 is closed for measured rows (test_HD01_MeasuredThinRows_ABookHoldingMost...). The
+    /// limit stands where the thin rows are modelled, so they are seated as hooked V4 books of
+    /// the same depth; every assertion and number is unchanged.
     function test_limit_HD01_ABookHoldingMostOfTheBoughtTokenOnEachThinSideTakesTheRoute() public {
+        _marketWithModelledThinRows();
+        uint256 clean = _plan(100e18);
+        assertGt(clean, 95e18, "control: the clean plan routes 100 X at > 95 Y");
+
+        (, uint256 h1) = _poison(X, B2, 1e28);
+        (, uint256 h2) = _poison(B1, Y, 1e28);
+        _thinRowIs(X, B2, true);
+        _thinRowIs(B1, Y, true);
+        assertLe(BPC.outSide18(uint128(THIN_XB2), mgr.sqrtAt(0), true, 18), THIN_XB2,
+            "fixture: the hooked X/B2 row holds no more B2 than the V2 pair did");
+        assertLe(BPC.outSide18(uint128(THIN_B1Y), mgr.sqrtAt(0), true, 18), THIN_B1Y,
+            "fixture: the hooked B1/Y row holds no more Y than the V2 pair did");
+        assertGt(h1, THIN_XB2, "fixture: the X/B2 book holds more B2 than the honest row");
+        assertGt(h2, THIN_B1Y, "fixture: the B1/Y book holds more Y than the honest row");
+
+        uint256 got = _plan(100e18);
+        assertGt(got, 0, "fixture: the plan routes through the books, it does not revert");
+        assertLt(got, clean / 100, "limit moved: a majority of held mass no longer takes the base");
+    }
+
+    /// HD-01 closed for measured rows. The same par market and the same books as the limit above,
+    /// with the thin rows as V2 pairs: the contract reads their reserves, so
+    /// `BlazePhoenixMath._measuredAbove` keeps them in the band above the books' base, and the
+    /// plan pays the clean price to the wei. Red when the band's union with the measured rows is
+    /// removed (MV-1): the upper edge drops the pairs and the route crosses the books at ~1e-3.
+    function test_HD01_MeasuredThinRows_ABookHoldingMostOfTheBoughtTokenOnEachThinSideDoesNotTakeTheRoute() public {
         _market(1);
         uint256 clean = _plan(100e18);
         assertGt(clean, 95e18, "control: the clean plan routes 100 X at > 95 Y");
 
         (, uint256 h1) = _poison(X, B2, 1e28);
         (, uint256 h2) = _poison(B1, Y, 1e28);
+        _thinRowIs(X, B2, false);
+        _thinRowIs(B1, Y, false);
         assertGt(h1, THIN_XB2, "fixture: the X/B2 book holds more B2 than the honest row");
         assertGt(h2, THIN_B1Y, "fixture: the B1/Y book holds more Y than the honest row");
 
-        assertLt(_plan(100e18), clean / 100, "limit moved: a majority of held mass no longer takes the base");
+        assertEq(_plan(100e18), clean, "a measured thin row above the books' base was dropped");
     }
 }

@@ -15,6 +15,11 @@ import {MockV4TickManager} from "./mocks/MockV4TickManager.sol";
 /// @dev    Oracle, independent of the Solver: the real reserves of a range (Uniswap v3
 ///         whitepaper, 6.2), y = L * (sqrtP - sqrtPa), against the virtual y = L * sqrtP,
 ///         read from the mock's own price table.
+///         Since the measured-rival rule (`BlazePhoenixMath._measuredAbove`) a singleton book
+///         with no hook priced above the base is kept by the band whatever the base is: its rate
+///         is walked in the PoolManager. Where a test reads the base through the band's upper
+///         edge, the narrow range sits behind a listed hook, which the contract only models; its
+///         vote (`_heldShare`) is the same for a hooked book.
 contract V4MedianMassIsHeldTest is Test {
     MockV4TickManager mgr;
     BlazePhoenixHub hub;
@@ -30,6 +35,7 @@ contract V4MedianMassIsHeldTest is Test {
     int24 constant N_LO = 580;
     int24 constant N_AT = 584; // ~6% above the wide book: outside the 5% band of either rate
     int24 constant N_HI = 588;
+    address constant HOOK = address(uint160(0x1000));
 
     function setUp() public {
         mgr = new MockV4TickManager();
@@ -64,6 +70,17 @@ contract V4MedianMassIsHeldTest is Test {
         mgr.initialize(pid, mgr.sqrtAt(base + N_AT), base + N_AT, FEE_N);
         mgr.addPosition(pid, base + N_LO, base + N_HI, TS_N, liq);
         hub.seedPool(address(uint160(uint256(pid))), BPC.KIND_V4, FEE_N, address(0), t0, t1);
+        return address(uint160(uint256(pid)));
+    }
+
+    /// The same range behind the listed hook HOOK: a row the contract models, not measures, so
+    /// the band's upper edge still judges it (`BlazePhoenixMath._measuredAbove`).
+    function _hookedNarrowAt(int24 base, uint128 liq) internal returns (address) {
+        hub.allowHook(HOOK, true);
+        bytes32 pid = BPC.computeV4PoolId(t0, t1, FEE_N, TS_N, HOOK);
+        mgr.initialize(pid, mgr.sqrtAt(base + N_AT), base + N_AT, FEE_N);
+        mgr.addPosition(pid, base + N_LO, base + N_HI, TS_N, liq);
+        hub.addV4(t0, t1, FEE_N, TS_N, HOOK);
         return address(uint160(uint256(pid)));
     }
 
@@ -124,11 +141,16 @@ contract V4MedianMassIsHeldTest is Test {
     /// depth. Its vote must stay in the unit of the depth it scales - the share of the
     /// virtual output side it holds - or a range holding a fraction of the wide book's
     /// value outvotes it by the price.
+    /// History (2026-11-24): the range had no hook, so it was measured and, priced above the
+    /// base, is now kept by the band whatever the base is (`_measuredAbove`): it took the order
+    /// and the split no longer read the base. It sits behind the listed hook, modelled, so the
+    /// upper edge reads the base again; its vote and every number are unchanged. The measured
+    /// twin: test_aMeasuredNarrowRangeAboveTheBaseIsKept_awayFromAPriceOfOne.
     function test_aNarrowRangeVoteKeepsTheDepthUnit_awayFromAPriceOfOne() public {
         int24 base = 80_000;
         address wide = _wideAt(base);
         uint128 lN = 300 * L_W;
-        address narrow = _narrowAt(base, lN);
+        address narrow = _hookedNarrowAt(base, lN);
         uint256 wideDepth = BPC.depthFromL18(L_W, mgr.sqrtAt(base), 18, 18);
         uint160 spN = mgr.sqrtAt(base + N_AT);
         uint256 held = _heldBelowAt(base, lN);
@@ -145,12 +167,16 @@ contract V4MedianMassIsHeldTest is Test {
     /// The mirror, token1 in: the range above its price holds token0,
     /// L * (1/sqrtP - 1/sqrtPb), against the virtual L / sqrtP. At ~1/2,980 token1 per token0
     /// the token0 it holds is again a far larger number than the depth it scales.
+    /// History (2026-11-24): as in the token0-in test, the range had no hook and is now kept
+    /// above the base as a measured row; it sits behind the listed hook, modelled, so the upper
+    /// edge reads the base again. Vote and numbers unchanged. The measured twin:
+    /// test_aMeasuredNarrowRangeAboveTheBaseIsKept_tokenOneIn.
     function test_aNarrowRangeVoteKeepsTheDepthUnit_tokenOneIn() public {
         int24 base = -80_000;
         address wide = _wideAt(base);
         uint128 lN = 300 * L_W;
         // Range [base - 588, base - 580] priced at base - 584: ~6% cheaper token0 than the wide book.
-        address narrow = _narrowAt(base - 1168, lN);
+        address narrow = _hookedNarrowAt(base - 1168, lN);
         uint256 wideDepth = BPC.depthFromL18(L_W, mgr.sqrtAt(base), 18, 18);
         uint256 s = mgr.sqrtAt(base - 584);
         uint256 sb = mgr.sqrtAt(base - 580);
@@ -161,5 +187,39 @@ contract V4MedianMassIsHeldTest is Test {
         (uint256 wIn, uint256 nIn) = _splitFrom(t1, t0, wide, narrow);
         assertEq(wIn, 1e21, "the wide book sets the base and takes the whole order");
         assertEq(nIn, 0, "the narrow range is outside the band");
+    }
+
+    /// The measured twin of test_aNarrowRangeVoteKeepsTheDepthUnit_awayFromAPriceOfOne: the same
+    /// range with no hook. The wide book still holds the vote, but the range is walked in the
+    /// PoolManager, so the band keeps it above the base (`_measuredAbove`), and at ~6% over the
+    /// wide book's rate it carries the order.
+    function test_aMeasuredNarrowRangeAboveTheBaseIsKept_awayFromAPriceOfOne() public {
+        int24 base = 80_000;
+        address wide = _wideAt(base);
+        uint128 lN = 300 * L_W;
+        address narrow = _narrowAt(base, lN);
+        uint160 spN = mgr.sqrtAt(base + N_AT);
+        uint256 held = _heldBelowAt(base, lN);
+        uint256 share = BPC.mulDiv(BPC.depthFromL18(lN, spN, 18, 18), held, BPC.mulDiv(lN, spN, 1 << 96));
+        assertLt(share * 10, BPC.depthFromL18(L_W, mgr.sqrtAt(base), 18, 18), "fixture: the range's vote is < 10% of the wide one");
+        (uint256 wIn, uint256 nIn) = _split(wide, narrow);
+        assertEq(nIn, 1e21, "a measured range above the base was dropped from above");
+        assertEq(wIn, 0, "the measured range at a better rate carries the order");
+    }
+
+    /// The measured twin of test_aNarrowRangeVoteKeepsTheDepthUnit_tokenOneIn.
+    function test_aMeasuredNarrowRangeAboveTheBaseIsKept_tokenOneIn() public {
+        int24 base = -80_000;
+        address wide = _wideAt(base);
+        uint128 lN = 300 * L_W;
+        address narrow = _narrowAt(base - 1168, lN);
+        uint256 s = mgr.sqrtAt(base - 584);
+        uint256 sb = mgr.sqrtAt(base - 580);
+        uint256 held = BPC.mulDiv(BPC.mulDiv(lN, 1 << 96, s), sb - s, sb);
+        uint256 share = BPC.mulDiv(BPC.depthFromL18(lN, uint160(s), 18, 18), held, BPC.mulDiv(lN, 1 << 96, s));
+        assertLt(share * 10, BPC.depthFromL18(L_W, mgr.sqrtAt(base), 18, 18), "fixture: the range's vote is < 10% of the wide one");
+        (uint256 wIn, uint256 nIn) = _splitFrom(t1, t0, wide, narrow);
+        assertEq(nIn, 1e21, "a measured range above the base was dropped from above");
+        assertEq(wIn, 0, "the measured range at a better rate carries the order");
     }
 }

@@ -46,7 +46,7 @@ import {QuoteWorld} from "../QuoteWorld.sol";
 import {BlazePhoenixHub} from "../../src/BlazePhoenixHub.sol";
 import {BlazePhoenixSolver} from "../../src/BlazePhoenixSolver.sol";
 import {BlazePhoenixRouter} from "../../src/BlazePhoenixRouter.sol";
-import {BlazePhoenixCore as BPC, Route, Hop, Leg, QuoteCtx, PoolInfo} from "../../src/BlazePhoenixCore.sol";
+import {BlazePhoenixCore as BPC, Route, Hop, Leg, QuoteCtx, PoolInfo, RoutePlan} from "../../src/BlazePhoenixCore.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockV2Pair} from "../mocks/MockV2Pair.sol";
 import {MockV2Factory} from "../mocks/MockV2Factory.sol";
@@ -689,6 +689,25 @@ contract RegistryV4WorldGasTest is GasBase {
         Route memory r2 = _v4Route(pool, 3000, 60, AMT);
         vm.revertToState(s);
         _twice(g, address(router), r1, r2, AMT, 5);
+    }
+
+    /// One solve whose rows are two V4 books (curated by addV4; two rows, so the hop is built by
+    /// the probe loop, not the one-row shortcut). A V4 pool's address is a truncated poolId that
+    /// holds no tokens (the manager custodies them), so the solver gives each book a zero balance
+    /// without reading one (BP-18): a balanceOf on that address would only spend gas. The
+    /// snapshot pins the solve with that read absent.
+    function test_Gas_FindBestRoutePlan_TwoV4Books_OneHop() public {
+        string memory g = "test_Gas_FindBestRoutePlan_TwoV4Books_OneHop";
+        address p0 = address(uint160(uint256(_v4Initialized(3000, 60))));
+        address p1 = address(uint160(uint256(_v4Initialized(500, 10))));
+        hub.addV4(tA, tB, 3000, 60, address(0));
+        hub.addV4(tA, tB, 500, 10, address(0));
+        RoutePlan memory plan = solver.findBestRoutePlan(tA, tB, AMT);
+        vm.snapshotGasLastFrame(g, "v4books");
+        assertGt(plan.best.totalOut, 0, "fixture: there is a plan");
+        assertEq(plan.best.hops.length, 1, "fixture: one hop");
+        address leg0 = plan.best.hops[0].legs[0].pool;
+        assertTrue(leg0 == p0 || leg0 == p1, "fixture: the plan rides a V4 book");
     }
 
     function _seedOne(string memory g, string memory name, uint8 kind, uint24 fee, address pool) internal {
