@@ -291,13 +291,35 @@ contract BlazePhoenixSolver {
             // the leader's rank less `d`, on what its own books pay. No margin is added: both sides
             // are the Router's own in-frame figures, and a leg more is the split gate's question,
             // inside the build. One rebuild per solve, as before.
+            //
+            // A LEADER THAT PAYS NOTHING HANDS THE LEAD TO THE RUNNER-UP THAT PAYS. When every book
+            // the leader walks pays 0, the runner-up read above is promised what its own books pay
+            // (the same `_paysWhatItWalks`) and, if that is not 0, it leads; the rebuild then leads
+            // only above the larger of the two ranks, each less what its books do not pay. The
+            // runner-up that took the lead is not its own fallback: the plan carries none.
             uint256 fl;
             (plan.best, fl) = _paysWhatItWalks(m.bestR, tIn, tOut, m);
             uint256 d = m.bestR.totalOut - plan.best.totalOut;
-            if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, m.bestU - d, fl, g0);
+            uint256 u = m.bestU - d;
+            bool up;
+            if (plan.best.totalOut == 0) {
+                (Route memory r, ) = _paysWhatItWalks(m.secR, tIn, tOut, m);
+                if (r.totalOut != 0) {
+                    uint256 w = m.secU - (m.secR.totalOut - r.totalOut);
+                    plan.best = r;
+                    if (w > u) u = w;
+                    up = true;
+                }
+            }
+            if (m.bestHeld || d != 0) _walkOnItsOwnBudget(plan, m.bestHeld ? bk | 1 << 8 : bk, u, fl, g0);
+            if (up) {
+                plan.hasFallback = false;
+                Route memory e;
+                plan.fallbackRoute = e;
+            }
         }
         // THE PLAN OUT OF THE SEARCH PAYS SOMETHING. Every plan a door receives leaves here: the
-        // leader's (no rebuild, or none that led) and the rebuild's (the self-call ends here too, and
+        // leader's (no rebuild, or none that led), the runner-up's that took the lead, and the rebuild's (the self-call ends here too, and
         // `_walkOnItsOwnBudget` returns what it returned). A plan that pays 0 is no viable action.
         if (plan.best.totalOut == 0) revert SolverE(5);
     }

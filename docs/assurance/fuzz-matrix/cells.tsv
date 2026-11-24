@@ -57,3 +57,4 @@ v4walk	empty-tick	gap-book	-	test_V4Arm_EmptyCurrentTick_LiquidityAtTheNextTick_
 v4walk	empty-tick	empty-initialized-book	-	test_V4Arm_NothingWithinSixteenStretches_QuotesNothing	covered
 v4walk	empty-tick	past-the-horizon	-	test_V4Arm_LiquidityPastThePromiseHorizon_QuotesNothing	covered
 v4walk	empty-tick	dust-in-the-gap	-	test_Attacker_DustInTheGap_SilencesNoMoreThanToday	covered
+fz	-	-	quote-ABI-execution	testFuzz_SolveRevertsOnlyWhenNoMeasuredRoutePays	covered

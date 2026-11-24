@@ -2042,3 +2042,8 @@ src/BlazePhoenixCore.sol	test_Measured_ToTheWei_Gap15	v4-band [VB5]: only err re
 src/BlazePhoenixCore.sol	test_Measured_ToTheWei_Gap8_Flipped	v4-band [VB6]: the shortfall is rounded down
 src/BlazePhoenixCore.sol	test_Limit_AProbePast128BitsKeepsTheModelledBound	v4-band [VB7]: a saturated ceiling is read as a spot
 src/BlazePhoenixCore.sol	test_ThinBookOverAVoid_Gap8_OneMass_Flipped	v4-band [VB8]: the measure reads the book under its unsorted currencies
+src/BlazePhoenixSolver.sol	test_LeaderPayingNothingHandsTheLeadToTheRunnerUpThatPays	caixa-1123 solver-zero-leader a: a leader whose books pay nothing is never handed to the runner-up, and the solve refuses a runner-up that pays
+src/BlazePhoenixSolver.sol	test_RunnerUpTakingTheLeadIsPromisedWhatItsBooksPay	caixa-1123 solver-zero-leader b: the runner-up takes the lead on its build-time promise, never asked what its own books pay
+src/BlazePhoenixSolver.sol	test_RebuildLeadsOnlyAboveTheRunnerUpThatPays	caixa-1123 solver-zero-leader c: the rebuild leads above the fallen leader's rank alone, not above the runner-up that pays
+src/BlazePhoenixSolver.sol	test_RunnerUpTakingTheLeadIsNotItsOwnFallback	caixa-1123 solver-zero-leader d: the runner-up that took the lead is still handed out as its own fallback
+src/BlazePhoenixSolver.sol	test_RebuildLeadsOnlyAboveTheRunnerUpThatPays	caixa-1123 solver-zero-leader e: the runner-up is promoted after the rebuild, which then leads on the fallen leader's rank alone
