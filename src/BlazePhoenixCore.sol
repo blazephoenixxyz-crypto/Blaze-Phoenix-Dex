@@ -3185,11 +3185,15 @@ library BlazePhoenixCore {
     }
 
     /// @notice THE MASS OF A ROW ON THE HOP tIn -> tOut, AS THE FUNNEL READS IT (MAT-01): the
-    ///         tokenOut the row can pay, 18 decimals. Pair shapes: the out reserve, 0 unless the
-    ///         pair holds its reserves (`heldBy`). Concentrated pools: the declared tokenOut
-    ///         side (`outSide18`) capped by the tokenOut the pool holds. Single-tick (V4): the
-    ///         declared side alone, the current tick's liquidity; the book's held mass is read
-    ///         only by walking it, and the walk can read more (4660) or less (`Solver._dropDust`).
+    ///         tokenOut the row can pay, 18 decimals: what the probe can make it pay, so a row the
+    ///         probe quotes zero weighs zero. Pair shapes: the out reserve, 0 unless the pair
+    ///         holds its reserves (`heldBy`) and reports some of the token sold (the probe's
+    ///         `rIn == 0 -> 0`). Concentrated pools: the declared tokenOut side (`outSide18`)
+    ///         capped by the tokenOut the pool holds. Single-tick (V4): the declared side, the
+    ///         current tick's liquidity, and at least 1 once slot0 is initialised (the book
+    ///         declares, so it is walked even when that side is empty or rounds to zero); an
+    ///         uninitialised book weighs 0. The book's held mass is read only by walking it, and
+    ///         the walk can read more (4660) or less (`Solver._dropDust`).
     ///         A Gate wrapper is not read here: 0. The same figures the probe's mass is made of
     ///         (`_quoteArms` and the Solver's cap), so the funnel and the vote measure one thing.
     /// @dev    Internal: it compiles into its one caller, the Solver. `dOut` is tokenOut's
@@ -3200,11 +3204,12 @@ library BlazePhoenixCore {
         if (kindHas(kind, A_RESERVES)) {
             (uint256 r0, uint256 r1) = getReserves(pool);
             (uint256 rI, uint256 rO) = zeroForOne ? (r0, r1) : (r1, r0);
-            return heldBy(pool, tIn, rI, tOut, rO) ? to18(rO, dOut) : 0;
+            return rI != 0 && heldBy(pool, tIn, rI, tOut, rO) ? to18(rO, dOut) : 0;
         }
         if (kindHas(kind, A_CONC_SING)) {
             (uint160 sp4, uint128 liq4, , , ) = v4SqrtAndLiq(v4mgr, pid);
-            return outSide18(liq4, sp4, zeroForOne, dOut);
+            m = outSide18(liq4, sp4, zeroForOne, dOut);
+            return m == 0 && sp4 != 0 ? 1 : m;
         }
         if (!kindHas(kind, A_CONC_POOL)) return 0;
         (uint160 sp, , ) = v3StateAndDynFee(pool);

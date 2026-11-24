@@ -833,6 +833,14 @@
       "rationale": "Liveness only and fail closed: no plan is handed out, so no funds move. Pre-existing at 6e5067b, outside the zero-leader fix. Readmitting the dropped rows in the rebuild is a follow-up of the dust-filter family (the same _dropDust that weighs undercollateralised declared mass).",
       "test": "test_Limit_ADustPairDroppedBesideABookThatPaysNothingIsNotReadmitted",
       "note": "caixa-1123 solver-zero-leader, 2026-11-24. Pinned: a 1e12+2 order on a 310008-times pair beside a 1e24 book stops; at 2.5e19 deep the pair is kept and leads; one wei under it the solve stops."
+    },
+    {
+      "id": "FUNNEL-WEIGHS-WHAT-THE-PROBE-CANNOT-QUOTE",
+      "class": "The funnel weighed a row by what it declares, not by what the probe can make it pay: a pair reporting none of the token sold (quoted 0 by the probe) weighed its out reserve and pushed an honest pair under the dust bar, leaving the hop to a row that pays nothing; a book whose declared side is zero or rounds to zero (liquidity 1, an empty current tick the probe quotes) declared nothing and was dropped unread",
+      "status": "blocked",
+      "guard": "hopMass18",
+      "test": "testFuzz_FunnelNeverDropsUnreadWhatTheProbeQuotes",
+      "note": "caixa-1123 solver-funnel, 2026-11-24. Red at 2934a93. One question for the funnel and the probe: a row's mass is what the probe can make it pay. A pair weighs its out reserve only when it holds its reserves and reports some of the token sold (the probe's rIn == 0 -> 0); a singleton book whose slot0 is initialised declares at least 1, the least nonzero mass, so it is walked over FUNNEL_STRETCHES before any drop; an uninitialised book weighs 0. Liquidity only past the funnel's two stretches stays outside the funnel by design (dropped unless alone on its pair, pinned). test/FunnelWeighsWhatTheProbeQuotes.t.sol; mutants «funnel: the probe's zero» by name."
     }
   ]
 }

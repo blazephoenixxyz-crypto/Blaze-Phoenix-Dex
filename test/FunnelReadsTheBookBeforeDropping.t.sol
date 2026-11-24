@@ -12,7 +12,7 @@ pragma solidity 0.8.36;
 // was read, a walk holding more than the declared side changed nothing.
 //
 // WHAT IS MEASURED NOW. A singleton row that fails the keep test on its declared side triggers
-// the walk (a book that declares mass is never dropped unread; an empty current tick is 4660-B), and the walk's figure is written in both
+// the walk (a book that declares mass is never dropped unread; an empty current tick is walked too: FunnelWeighsWhatTheProbeQuotes.t.sol), and the walk's figure is written in both
 // directions: what the book adds to the other rows' D is what it holds, and its own mass is
 // never under what it holds (it is never cut below its declared side either: a walk cut by
 // one-wei positions does not unseat an honest book, test_Funnel_ASingletonBookWhoseWalkDustCutKeepsItsSeat).
@@ -112,21 +112,9 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
         assertGt(settled, pairOnly, "the seated book settles above the pair alone");
     }
 
-    /// THE RESIDUAL, PINNED (follow-up 4660-B). The current tick holds NOTHING (the price sits
-    /// in a gap), the range under it holds 400,000 times the pair. The probe does not quote a
-    /// book with an empty current tick, so the funnel must not weigh it either: walked, it would
-    /// make the pair dust and then go unquoted itself, leaving the hop with no route. A one-wei
-    /// book beside it makes the walk of the hop happen. Green at 2c8cbbe.
-    function test_EmptyCurrentTickBookWeighsOnNobody() public {
-        (, uint256 pairOnly) = _plan(AMT);
-        bytes32 pid = _book(3000, 0, 1e30);
-        _book(500, 1, 1);
-        (, uint256 held, ) = BPC.v4WalkRank(address(mgr), pid, type(uint256).max, 0, TS, true, type(uint256).max);
-        assertGt(GAMMA_PPM * held, PAIR * 1e6, "fixture: against what the book holds the pair is dust");
-        (Route memory plan, uint256 out) = _plan(AMT);
-        assertGt(_legsAt(plan, address(pair)), 0, "a book the probe cannot quote unseated the pair");
-        assertEq(out, pairOnly, "the plan moved");
-    }
+    // An empty current tick (4660-B) is now quoted by the probe when its walk holds something, so
+    // the funnel walks it too (an initialised book declares at least 1): pinned the other way in
+    // test/FunnelWeighsWhatTheProbeQuotes.t.sol, test_DustRule_EmptyTickBookHoldingTheNextStretchIsWalkedAndKept.
 
     // ---- controls -----------------------------------------------------------------------
 
@@ -178,7 +166,7 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
 
     // ---- fuzz: the seat follows the measurement ------------------------------------------
 
-    /// liqNow 1 .. bar +- 1 region .. 1e20 (0, an empty current tick, is the probe's: 4660-B);
+    /// liqNow 1 .. bar +- 1 region .. 1e20 (0, an empty current tick: FunnelWeighsWhatTheProbeQuotes.t.sol);
     /// liqDeep 0 .. 1e24. Oracle: the walk (Core) and
     /// the declared side, both read outside the Solver. Held far over the bar => seated for an
     /// order that reaches it; both under the bar => the small order routes on the pair alone.
@@ -470,9 +458,10 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
     /// reads thirty stretches and not two hundred and forty.
     function test_FunnelHorizon_FifteenBooksReadTwoStretchesEach() public { _assertTwoStretches(15); }
 
-    /// Books whose current tick is empty declare nothing and are not walked: eight of them beside
-    /// two one-wei books leave the read at two declared sides and two walks of two stretches.
-    function test_FunnelHorizon_EmptyTickBooksAreNotWalked() public {
+    /// Books whose current tick is empty declare the least mass, 1, and are walked like any book
+    /// under the bar: eight of them beside two one-wei books read ten declared sides and ten
+    /// walks of two stretches, no more.
+    function test_FunnelHorizon_EmptyTickBooksAreWalkedOnTwoStretches() public {
         (uint256 r0, ) = _reads(AMT);
         bytes32 e;
         for (uint256 k; k < 8; ++k) e = _book(uint24(101 + 100 * k), 0, 1);
@@ -481,7 +470,10 @@ contract FunnelReadsTheBookBeforeDroppingTest is Test {
         (uint256 rn, ) = _reads(AMT);
         (uint256 massE, ) = _readsOfOneBook(e);
         (uint256 mass, ) = _readsOfOneBook(a);
-        assertEq(rn - r0, 8 * massE + 2 * (mass + _walkReads(a, 2)), "empty-tick books were walked");
+        uint256 wE = _walkReads(e, 2);
+        assertGt(wE, _walkReads(e, 1), "fixture: one stretch of an empty-tick book reads as much as two");
+        assertEq(rn - r0, 8 * (massE + wE) + 2 * (mass + _walkReads(a, 2)),
+            "the empty-tick books were not each walked on two stretches");
     }
 
     /// A book at tick 1: `liqNow` on [0, 60), one wei on [-120, 0), `liqDeep` on [-6000, -120):

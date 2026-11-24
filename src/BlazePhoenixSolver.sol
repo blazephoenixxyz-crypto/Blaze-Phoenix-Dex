@@ -1186,11 +1186,12 @@ contract BlazePhoenixSolver {
     ///      A book that declares mass is never dropped unread: a singleton row under the bar on
     ///      its declared side walks the books, every one of them, because a declared side is
     ///      virtual (L * sqrtP) and costs about two wei to raise: no order among unread books and
-    ///      no count of failed walks holds against a free number. A book whose current tick is
-    ///      empty declares nothing and is not walked: the probe does not quote it, so it must
-    ///      not weigh on the rows the probe can quote. Any other row is decided unread when it is
-    ///      dropped with the books at zero (D at its smallest); one kept against their declared
-    ///      sides is kept unread.
+    ///      no count of failed walks holds against a free number. A book whose slot0 is
+    ///      initialised declares at least 1 (`Core.hopMass18`), so an empty current tick or a side
+    ///      that rounds to zero is walked too; only an uninitialised book declares nothing and is
+    ///      not walked. A pair the probe quotes zero weighs zero. Any other row is decided
+    ///      unread when it is dropped with the books at zero (D at its smallest); one kept
+    ///      against their declared sides is kept unread.
     ///      For pools at one price and fee, the most a leg on j adds to what the others pay,
     ///      relative to it, is d_j / (D - d_j) at every size, so a dropped row cannot lift an
     ///      order by the improvement a split must show to be kept: no threshold of its own and no
@@ -1252,7 +1253,7 @@ contract BlazePhoenixSolver {
     ///      the other rows' D (`_dropDust`): the output of an unbounded, fee-free walk of
     ///      FUNNEL_STRETCHES (`Core.v4Held`), capped like a declared side (2^128 - 1).
     ///      `r` and `sum` take it in both directions; `d` is only raised to it, never cut (S2).
-    ///      A book that declares nothing (an empty current tick) is left at zero, unwalked.
+    ///      A book that declares nothing (slot0 not initialised) is left at zero, unwalked.
     function _heldBooks(
         PoolInfo[] memory rows, bytes32[] memory pids, uint256[] memory d, uint256[] memory r,
         uint256 n, address tA, uint8 dOut, address mgr, uint256 sum
