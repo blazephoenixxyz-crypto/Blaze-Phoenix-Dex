@@ -201,6 +201,23 @@ contract V4PriceLimitedLegTest is Test {
         assertEq(MockERC20(lo).balanceOf(address(router)), 0, "router holds tokenIn");
     }
 
+    /// A limit on the wrong side of the pool's price: the limited leg's first window is empty.
+    /// It never swaps, is not credited as run, and the exact legs share the whole input.
+    function test_LimitedLegWithAnEmptyWindowFillsNothing() public {
+        Route memory route = _three(10);
+        vm.expectCall(address(hub), abi.encodeWithSelector(BlazePhoenixHub.recordSwap.selector, address(uint160(uint256(pidLim)))), 0);
+        uint256 got = _swap(route);
+        assertEq(mgr.spentIn(pidLim), 0, "the limited leg must fill nothing");
+        (uint160 sp, int24 tick) = mgr.slot0(pidLim);
+        assertEq(tick, 0, "the limited pool must not move");
+        assertEq(sp, uint160(BPC.Q96), "the limited pool's price must not move");
+        assertEq(mgr.spentIn(pidA), BPC.mulDiv(A_IN, _realIn(), AMT), "leg A: its share of the whole input");
+        assertEq(mgr.spentIn(pidB), BPC.mulDiv(B_IN, _realIn(), AMT), "leg B: its share of the whole input");
+        assertEq(mgr.swapCount(), 2, "one swap per exact leg, none for the limited leg");
+        assertEq(MockERC20(hi).balanceOf(user), 100e18 + got, "user did not receive tokenOut");
+        assertEq(MockERC20(lo).balanceOf(address(router)), 0, "router holds tokenIn");
+    }
+
     // ── the shape a limited leg may ride in ──────────────────────────────────
 
     /// The limit bits on a pair-shaped leg: refused before anything moves.
