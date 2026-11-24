@@ -17,3 +17,7 @@ decimals	6	min	fz
 decimals	18	max	fz
 restatement	fee-push-restatement	cat	input-baseline
 restatement	leg-window-restatement	cat	input-baseline
+empty-tick	gap-book	cat	v4walk
+empty-tick	empty-initialized-book	cat	v4walk
+empty-tick	past-the-horizon	cat	v4walk
+empty-tick	dust-in-the-gap	cat	v4walk

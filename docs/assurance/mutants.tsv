@@ -1561,7 +1561,7 @@ src/BlazePhoenixMath.sol	test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnl
 src/BlazePhoenixMath.sol	test_ARowFeeOfExactlyOneMillionPipsIsJudgedFromAboveOnly	Math:539: a row fee of exactly 1e6 pips is asked the lower edge it cannot answer
 src/BlazePhoenixMath.sol	test_AHopWhoseRowsAllReadZeroSelectsNothing	Math:166: the all-dead exit of _select dropped, so a hop with no live row is based and weighed
 src/BlazePhoenixCore.sol	test_QuoteArmsZeroInput	Core:1909: a probe of zero input reads the venue, its mass and its fee
-src/BlazePhoenixCore.sol	test_ConcLiqZeroQuotesNothing	Core:2150: a V4 book with no liquidity in range is walked and quoted
+src/BlazePhoenixCore.sol	test_V4Arm_EmptyCurrentTick_LiquidityAtTheNextTick_IsQuotedForWhatItPays	caixa-1123 v4walk [VW-1]: the empty-tick cut reads the current tick alone again, so a book holding the next stretch is quoted as a dead pool
 src/BlazePhoenixRouter.sol	test_Control_AZeroInputLegIsNotBlindness	Router:1741: a leg scaled to zero input reaches the pool
 src/BlazePhoenixCore.sol	test_ZeroForOneCrossesBelowTheTick	Core:2551: the V3 walk going down restarts at the tick it crossed and applies its net twice
 src/BlazePhoenixQuoter.sol	test_OneWeiShort_IsMeasuredAndNotPromised	Quoter:600: a payment one wei short of what the pool paid back is read as untaxed
@@ -1996,3 +1996,6 @@ src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_L
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual b: hop 0 measures against a zero baseline, the stranded balance not excluded
 src/BlazePhoenixRouter.sol	test_Control_APositiveRestatementIsNotSpent	caixa-1123 tokenin-residual c: hop 0 spends the whole delta past baseIn, without the measured-pull ceiling
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual d: baseIn is never parked in the free slot, so hop 0 reads a zero baseline
+src/BlazePhoenixCore.sol	test_V4Arm_NothingWithinSixteenStretches_QuotesNothing	caixa-1123 v4walk [VW-2]: the empty-tick cut removed, so an initialized and empty book is walked the ranking's 256 stretches and answers a ceiling
+src/BlazePhoenixCore.sol	test_V4Arm_LiquidityPastThePromiseHorizon_QuotesNothing	caixa-1123 v4walk [VW-3]: the empty-tick cut asks the ranking's V4_WALK_DEEP_STEPS, so a book holding only past the promise's horizon is quoted
+src/BlazePhoenixCore.sol	test_Doors_EmptyTickBook_TheFramePromisesWhatTheArmQuoted	caixa-1123 v4walk [VW-4]: the frame's door reads the current tick alone again, so it promises 0 for the book the arm quoted
