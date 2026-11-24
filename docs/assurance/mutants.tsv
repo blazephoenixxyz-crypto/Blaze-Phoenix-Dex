@@ -33,6 +33,7 @@ src/BlazePhoenixRouter.sol	test_JUIZ_PrefixoSemValorEscapaAFee	fee: the per-hop 
 src/BlazePhoenixRouter.sol	test_JUIZ_PrefixoSemValorEscapaAFee	fee: hop 0 only (the leak the anchor at the entry had)
 src/BlazePhoenixRouter.sol	test_Refund_BestExactIn_ResidualGoesToPayer_NotRouter	fee: the sweep baseline recomputed late (holds-nothing)
 src/BlazePhoenixMath.sol	test_ADeepPoolAboveTheFairRate_CannotCaptureTheBand	solver: the band base is the WEIGHTED median (breakdown point 0 -> 50%)
+src/BlazePhoenixMath.sol	test_MaioriaDaMassaMandaMesmo	solver: the band base is the WEIGHTED median (breakdown point 0 -> 50%) (second witness: the mass majority still carries the order beside three hooked books)
 src/BlazePhoenixMath.sol	test_DoacaoNaoCompraFatiaDoSplit	solver: the split weight comes from depth, not from balance (T2)
 src/BlazePhoenixCore.sol	test_LadoDoOutro	router: the native/WETH bijection collapsed into one producer
 src/BlazePhoenixRouter.sol	test_SwapBest_EventosAtribuidosAoUtilizador	router: events attributed to the payer, not to msg.sender
@@ -1076,13 +1077,18 @@ src/BlazePhoenixCore.sol	test_AProbeWhoseFeeFloorsAWeiOfInputIsInsideItsBound	ME
 src/BlazePhoenixSolver.sol	test_AShallowVenueAtTheSamePriceKeepsItsShare	MED [979]: the Solver packs the probe's fee without its error bound, and a shallow venue at the market's price falls out below a deeper one
 src/BlazePhoenixMath.sol	test_GatedAuto_ADeeperCuratedAnchorKeepsTheLieOutOfTheBand	MED [980]: a row of unknown fee is not judged from above either, and a wrapper quoting twice what it trades beside a deeper curated pair is planned
 src/BlazePhoenixSolver.sol	test_AMajorityVenueBehindATenPercentFeeNeverLowersTheSplit	PLACE [981]: a leg on trial never leaves, and beside a 10% venue at 1.02x the honest depth the gate settles on one honest venue
+src/BlazePhoenixSolver.sol	test_D10_SameAnswer_BandAgainstAnOutlier	PLACE [981]: a leg on trial never leaves, and beside a 10% venue at 1.02x the honest depth the gate settles on one honest venue (second witness: the band against an outlier, same answer as the reference)
 src/BlazePhoenixSolver.sol	test_AMinorityVenueBehindATenPercentFeeNeverLowersTheSplit	PLACE [982]: the probe rates keep the funnel's order while the candidates follow the library's map, and the trial reads another venue's rate
+src/BlazePhoenixSolver.sol	test_D10_SameAnswer_BandAgainstAnOutlier	PLACE [982]: the probe rates keep the funnel's order while the candidates follow the library's map, and the trial reads another venue's rate (second witness: the band against an outlier, same answer as the reference)
 src/BlazePhoenixSolver.sol	test_Pin_TheSeatGoesToTheDeepestWhenItsLegLeaves	PLACE [983]: when the leg on trial held the seat, the seat goes to the leg before it, not to the deepest left
+src/BlazePhoenixSolver.sol	test_D10_SameAnswer_BandAgainstAnOutlier	PLACE [983]: when the leg on trial held the seat, the seat goes to the leg before it, not to the deepest left (second witness: the band against an outlier, same answer as the reference)
 src/BlazePhoenixSolver.sol	test_Pin_TheSeatStaysWhenAnotherLegLeaves	PLACE [984]: a leg leaves by one swap with the seat, and the seat moves to the leg before it
 src/BlazePhoenixSolver.sol	test_Pin_TheSeatStaysWhenAnotherLegLeaves	integ-g2-1: a leg leaves the split and its quote context stays in its seat, so the split quotes another venue in its place
 src/BlazePhoenixSolver.sol	test_AThirdVenueThatPaysForItsPlaceKeepsIt	PLACE [985]: a leg on trial always leaves, and a 5% venue that pays for its place is dropped
 src/BlazePhoenixSolver.sol	testFuzz_AVenueBehindATenPercentFeeNeverLowersTheSplit	PLACE [986]: the leg that left keeps its weight in the sum, and the seat takes its share
+src/BlazePhoenixSolver.sol	test_D10_SameAnswer_BandAgainstAnOutlier	PLACE [986]: the leg that left keeps its weight in the sum, and the seat takes its share (second witness: the band against an outlier, same answer as the reference)
 src/BlazePhoenixSolver.sol	test_AMinorityVenueBehindATenPercentFeeNeverLowersTheSplit	PLACE [987]: the leg whose probe paid most is tried, and the 10% venue is never on trial
+src/BlazePhoenixSolver.sol	test_D10_SameAnswer_BandAgainstAnOutlier	PLACE [987]: the leg whose probe paid most is tried, and the 10% venue is never on trial (second witness: the band against an outlier, same answer as the reference)
 src/BlazePhoenixSolver.sol	test_ATrialRefusedAtTheCapIsSettledByTheWalk	PLACE [1080]: a trial whose split without the leg is held leaves the build unheld, and a split refused at the caps is never walked
 src/BlazePhoenixCore.sol	test_Decision2_AnHourlyCadenceSettlesTheCountAtTwoM	fix1102-A [965]: _decay drops the chord, so the count falls only at the end of a step (the stair)
 src/BlazePhoenixHub.sol	test_3537NewRow_AnUnanchoredSwapThatRegistersAV4RowLeavesTheLearnedCodeUnchanged	fix1102-A [966]: an unanchored swap that registers a V4 row teaches its tier (3537)
@@ -1345,6 +1351,7 @@ src/BlazePhoenixMath.sol	test_L1056c2_WeightedMedianWalksTheSortedPairs	massa Ma
 src/BlazePhoenixCore.sol	test_Mass_AWrapperWeighsTheTokenOutSideLikeANativePair	mat Core._quoteArms: a Gate wrapper is weighed at the short side when the order buys the cheap token (R4)
 src/BlazePhoenixSolver.sol	test_AVenueBehindNinetyPercentLeavesTheOrderWithARoute	mat Solver funnel: a row whose fee alone reaches the route ceiling is quoted and seated, and the route refused (R3)
 src/BlazePhoenixRouter.sol	test_HD01_BooksAfterTheQuote_TheSolvingDoorIsRefusedAtTheCallersFloor	HD-01 at the doors: swapBestExactIn settles against a floor of 1 wei, not the caller's userMinOut
+src/BlazePhoenixRouter.sol	test_HD01_Grid_ACleanQuoteFloorIsNeverUndercutOnEitherDoor	HD-01 at the doors: swapBestExactIn settles against a floor of 1 wei, not the caller's userMinOut (second witness: the grid over modelled thin rows)
 src/BlazePhoenixCore.sol	test_TickMathCert_OutsideTheRangeIsRefusedByItsCode	TickMath cert: the domain guard admits MAX_TICK + 1 and MIN_TICK - 1
 src/BlazePhoenixCore.sol	test_TickMathCert_PinnedTicksAreTheCertificates	TickMath cert: the domain guard refuses the range ends themselves
 src/BlazePhoenixCore.sol	test_TickMathCert_Q0_FromMinTickThroughMinus443637	TickMath cert: the Q128 ratio is truncated to Q96, not rounded up
@@ -1992,7 +1999,22 @@ src/BlazePhoenixQuoter.sol	test_HubWithNoCode_NotExecutable_AndThePreviewDoesNot
 src/BlazePhoenixHub.sol	test_HubWithNoRouterSeated_NotExecutable	caixa-1123 quoter-doors H1: no Router seated reads as live, watched by a Hub with no Router seated
 src/BlazePhoenixHub.sol	test_routerLive_FollowsTheRoutersFlag	caixa-1123 quoter-doors H2: routerLive ignores the Router's paused flag, watched by the flag itself
 src/BlazePhoenixMath.sol	test_limit_ARowPricedAboveTheBandIsDropped	caixa-1123 MAT-02: the band loses its upper edge, so a row priced above the base by more than the width is kept
+src/BlazePhoenixMath.sol	test_MaioriaDaMassaMandaMesmo	caixa-1123 MAT-02: the band loses its upper edge, so a row priced above the base by more than the width is kept (second witness: the mass majority still carries the order beside three hooked books)
+src/BlazePhoenixMath.sol	test_limit_HD01_BooksBeforeTheQuote_TheQuoteIsTheBooksPriceAndDeliveryEqualsIt	caixa-1123 MAT-02: the band loses its upper edge, so a row priced above the base by more than the width is kept (second witness: modelled thin rows above the books)
+src/BlazePhoenixMath.sol	test_ABaseFarPastTheEdgeDropsTheRowAbove	caixa-1123 MAT-02: the band loses its upper edge, so a row priced above the base by more than the width is kept (second witness: a modelled row above a base far past the edge)
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual a: hop 0 spends the declared pull, never re-measured after its fee push
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual b: hop 0 measures against a zero baseline, the stranded balance not excluded
 src/BlazePhoenixRouter.sol	test_Control_APositiveRestatementIsNotSpent	caixa-1123 tokenin-residual c: hop 0 spends the whole delta past baseIn, without the measured-pull ceiling
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual d: baseIn is never parked in the free slot, so hop 0 reads a zero baseline
+src/BlazePhoenixMath.sol	test_Stays_AnAttestedPairAboveTheBase	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again
+src/BlazePhoenixMath.sol	test_HD01_MeasuredThinRows_BooksAfterTheQuote_TheSolvingDoorPaysTheCleanQuote	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again (second witness: measured thin rows above the books)
+src/BlazePhoenixMath.sol	test_HD01_MeasuredThinRows_BooksBeforeTheQuote_TheQuoteIsTheCleanMarkets	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again (second witness: measured thin rows above the books)
+src/BlazePhoenixMath.sol	test_HD01_MeasuredThinRows_Grid_EveryCellPaysTheCleanQuoteOnBothDoors	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again (second witness: measured thin rows above the books)
+src/BlazePhoenixMath.sol	test_ADeepMeasuredPairAboveTheFairRate_IsKeptBesideTheHonestPools	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again (second witness: a measured pair above the fair rate beside the honest pools)
+src/BlazePhoenixMath.sol	test_ABaseFarPastTheEdgeKeepsAMeasuredRowAbove	caixa-1123 measured rival [MV-1]: the union with the measured rows is gone, the upper edge drops them again (second witness: a measured row above a base far past the edge)
+src/BlazePhoenixMath.sol	test_Leaves_AMeasuredRowUnderTheBase	caixa-1123 measured rival [MV-2]: the rule reads the rows UNDER the base, the lower edge is opened and the upper one closed
+src/BlazePhoenixMath.sol	test_Leaves_AConcentratedPoolAboveTheBase	caixa-1123 measured rival [MV-3]: a concentrated pool, whose rate the contract only models, joins the measured rows
+src/BlazePhoenixMath.sol	test_ABaseFarPastTheEdgeDropsTheRowAbove	caixa-1123 measured rival [MV-3]: a concentrated pool, whose rate the contract only models, joins the measured rows (second witness: a modelled concentrated row above a base far past the edge)
+src/BlazePhoenixSolver.sol	test_Macro_FarOneSidedBookNeverLowersTheOrder	caixa-1123 measured rival [MV-4]: the split's gate runs from two legs up again, a split of one leg is not measured against the band
+src/BlazePhoenixMath.sol	test_Leaves_AnUnvouchedPairAboveTheBase_WithAndWithoutAVoter	caixa-1123 measured rival [MV-5a]: the pair's attestation is not read, an unvouched pair above the base stays
+src/BlazePhoenixMath.sol	test_Leaves_AHookedBookAboveTheBase	caixa-1123 measured rival [MV-5b]: the book's hook is not read, a hooked book above the base stays
