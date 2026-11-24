@@ -39,6 +39,7 @@ contract V4TailLimitedLegTest is Test {
     address x0;
     address x1;
     bool zfo;
+    uint256 gain1;
     uint256 mIn;   // one unit of tokenIn
     int24 p0;      // the market tick
     uint160 sp0;
@@ -340,6 +341,8 @@ contract V4TailLimitedLegTest is Test {
             for (uint256 k = 1; k < wl.length; ++k) sw += wl[k].amountIn;
             assertLe(sw, c, "the exact legs are written above the hop's input");
             assertGe(sw + (wl.length - 1), c, "the exact legs are written short of the hop's input");
+            emit log_named_uint("written_short", c - sw);
+            emit log_named_uint("written_total", w.totalOut);
             uint256 share = BPC.mulDiv(a0, c, s);
             assertEq(wl[0].amountIn, share > c ? c : share, "the limited leg is not written at its share");
         }
@@ -370,4 +373,168 @@ contract V4TailLimitedLegTest is Test {
         _bookH(0);
         _held(solver.findBestRoutePlan(tIn, tOut, mIn / 10).best, mIn / 10 + 1, 0);
     }
+
+    // ── where the floor and the bar decide the stop, not the limit ───────────
+
+    function _exactSum(Route memory r) internal pure returns (uint256 s) {
+        Leg[] memory legs = r.hops[0].legs;
+        for (uint256 k = 1; k < legs.length; ++k) s += legs[k].amountIn;
+    }
+
+    /// The fat order: 100 units over H and an E 5000 units deep. One window of H (256 ticks,
+    /// `t1` of input) gains less over its value at the limit than the bar, a share of what the
+    /// exact legs are written to pay, so the limited fill stops where its floor and its bar say
+    /// and not at its limit.
+    function _fat(bool wantZfo, int24 gap) internal returns (Route memory r, uint256 s, uint256 t1) {
+        _cfg(18, wantZfo);
+        _pairE(5000, 300);
+        _bookH(gap);
+        r = solver.findBestRoutePlan(tIn, tOut, 100 * mIn).best;
+        assertTrue(r.hops[0].legs.length > 1 && _limited(r.hops[0].legs[0]), "no price-limited hop to fund");
+        s = _exactSum(r);
+        uint256 o1;
+        (t1, o1, , , ) = mgr.specSwap(pidH, 100 * mIn, 100, 1, zfo, BPC.sqrtPriceAtTick(zfo ? p0 - 256 : p0 + 256));
+        (, int24 lim) = BPC.v4Limit(r.hops[0].legs[0].auxId);
+        uint256 atLimit = BPC.v4ValueAt(t1, 100, BPC.sqrtPriceAtTick(lim), zfo);
+        emit log_named_uint("plan_limited_in", r.hops[0].legs[0].amountIn);
+        emit log_named_uint("plan_exact_in", s);
+        emit log_named_uint("window_in", t1);
+        gain1 = o1 > atLimit ? o1 - atLimit : 0;
+        emit log_named_uint("window_gain", gain1);
+        emit log_named_int("limit_tick", lim);
+    }
+
+    /// The bar the Router reads from the bytes the door writes at `x`.
+    function _logBar(Route memory r, uint256 x) internal {
+        (Route memory w, ) = quoter.previewRouteExact(r, x);
+        uint256 e;
+        for (uint256 k = 1; k < w.hops[0].legs.length; ++k) e += w.hops[0].legs[k].expectedOut;
+        emit log_named_uint("written_exact_out", e);
+        emit log_named_uint("written_limited_out", w.hops[0].legs[0].expectedOut);
+        emit log_named_uint("written_limited_in", w.hops[0].legs[0].amountIn);
+        emit log_named_uint("written_hop_in", w.hops[0].amountIn);
+    }
+
+    function _fatAt(bool wantZfo, int24 gap, uint256 a0Num, uint256 a0Den, uint256 a0Extra, bool atExactSum) internal {
+        (Route memory r, uint256 s, uint256 t1) = _fat(wantZfo, gap);
+        r.hops[0].legs[0].amountIn = t1 * a0Num / a0Den + a0Extra;
+        uint256 x = atExactSum ? s : 100 * mIn;
+        _logBar(r, x);
+        _held(r, x, 0);
+    }
+
+    // A floor under one window: the fill stops at the first window that no longer pays the bar.
+    function test_ExactDoorStopsALimitedFillWhereAWindowNoLongerPaysTheBar_ZeroForOne() public { _fatAt(true, 0, 1, 2, 0, false); }
+    function test_ExactDoorStopsALimitedFillWhereAWindowNoLongerPaysTheBar_OneForZero() public { _fatAt(false, 0, 1, 2, 0, false); }
+
+    // A floor of two windows: the first window does not pay the bar and the fill goes on.
+    function test_ExactDoorFillsALimitedLegUpToItsFloor_ZeroForOne() public { _fatAt(true, 0, 2, 1, 0, false); }
+    function test_ExactDoorFillsALimitedLegUpToItsFloor_OneForZero() public { _fatAt(false, 0, 2, 1, 0, false); }
+
+    // The order is the plan's exact sum: the hop's input is that less the protocol fee, the
+    // floor scales down with it, and a share a thousandth over one window lands under it.
+    function test_ExactDoorScalesTheFloorWithTheHopInput_ZeroForOne() public { _fatAt(true, 0, 1001, 1000, 0, true); }
+    function test_ExactDoorScalesTheFloorWithTheHopInput_OneForZero() public { _fatAt(false, 0, 1001, 1000, 0, true); }
+
+    /// The bar the Router reads at `x` (a share of what the exact legs are written to pay) and
+    /// the one the limited leg's own written output would add to it.
+    function _barsAt(Route memory r, uint256 x) internal returns (uint256 bar, uint256 barAll) {
+        (Route memory w, ) = quoter.previewRouteExact(r, x);
+        uint256 e;
+        for (uint256 k = 1; k < w.hops[0].legs.length; ++k) e += w.hops[0].legs[k].expectedOut;
+        bar = BPC.mulDiv(e, 25, 1_000_000);
+        barAll = BPC.mulDiv(e + w.hops[0].legs[0].expectedOut, 25, 1_000_000);
+    }
+
+    /// The order where the first window's gain sits between the bar the exact legs set and the
+    /// bar with the limited leg's own output in it: a band of ~0.02 units, found by bisection.
+    function _barEdge(bool wantZfo) internal {
+        (Route memory r, , uint256 t1) = _fat(wantZfo, 0);
+        r.hops[0].legs[0].amountIn = 2 * t1;
+        uint256 lo = mIn;
+        uint256 hi = 100 * mIn;
+        (uint256 bLo, ) = _barsAt(r, lo);
+        (uint256 bHi, ) = _barsAt(r, hi);
+        assertLe(bLo, gain1, "the bar at one unit is over the first window's gain");
+        assertGt(bHi, gain1, "the bar at the plan is under the first window's gain");
+        while (hi - lo > mIn / 1000) {
+            uint256 mid = (lo + hi) / 2;
+            (uint256 b, ) = _barsAt(r, mid);
+            if (b <= gain1) lo = mid;
+            else hi = mid;
+        }
+        (uint256 bar, uint256 barAll) = _barsAt(r, lo);
+        emit log_named_uint("edge_x", lo);
+        emit log_named_uint("edge_bar", bar);
+        emit log_named_uint("edge_bar_all", barAll);
+        assertLe(bar, gain1, "the first window does not pay the exact legs' bar");
+        assertGt(barAll, gain1, "the limited leg's own output does not move the bar past the gain");
+        _held(r, lo, 0);
+    }
+
+    // The bar is read off the exact legs alone: at the edge the first window pays it, and would
+    // not if the limited leg's own output were in it.
+    function test_ExactDoorReadsTheWindowBarOffTheExactLegs_ZeroForOne() public { _barEdge(true); }
+    function test_ExactDoorReadsTheWindowBarOffTheExactLegs_OneForZero() public { _barEdge(false); }
+
+    // The limited leg written at twice the exact sum is funded at the hop's input, no more.
+    function _overHop(bool wantZfo, int24 gap) internal {
+        _cfg(18, wantZfo);
+        _pairE(5, 300);
+        _bookH(gap);
+        Route memory r = solver.findBestRoutePlan(tIn, tOut, mIn / 10).best;
+        assertTrue(r.hops[0].legs.length > 1 && _limited(r.hops[0].legs[0]), "no price-limited hop to fund");
+        r.hops[0].legs[0].amountIn = 2 * _exactSum(r);
+        _held(r, mIn / 10, 0);
+    }
+
+    function test_ExactDoorFundsALimitedLegNoHigherThanTheHopInput_ZeroForOne() public { _overHop(true, 0); }
+    function test_ExactDoorFundsALimitedLegNoHigherThanTheHopInput_OneForZero() public { _overHop(false, 250); }
+
+    // Two exact pairs whose shares do not divide the hop's input, a wei under the plan.
+    function _twoExact(bool wantZfo, uint256 under) internal { _twoExactInto(wantZfo, under, false); }
+
+    function _twoExactInto(bool wantZfo, uint256 under, bool intoBridge) internal {
+        _cfg(18, wantZfo);
+        if (intoBridge) hub.addBridge(tOut);
+        _pairE(3, 250);
+        _pairE(5, 300);
+        _bookH(0);
+        Route memory r = solver.findBestRoutePlan(tIn, tOut, mIn / 10).best;
+        emit log_named_uint("legs", r.hops[0].legs.length);
+        assertTrue(r.hops[0].legs.length > 2 && _limited(r.hops[0].legs[0]), "no price-limited hop over two exact legs");
+        _held(r, _exactSum(r) - under, 0);
+    }
+
+    function test_ExactDoorPromisesWhatALimitedHopSettles_TwoExactLegs_AWeiUnderTheirSum_ZeroForOne() public { _twoExact(true, 1); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_TwoExactLegs_AWeiUnderTheirSum_OneForZero() public { _twoExact(false, 1); }
+
+    // The same hop seven wei under, and into a bridge: the fee comes off the written output there.
+    function test_ExactDoorPromisesWhatALimitedHopSettles_TwoExactLegs_SevenWeiUnder_ZeroForOne() public { _twoExact(true, 7); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_TwoExactLegs_IntoABridge_ZeroForOne() public { _twoExactInto(true, 1, true); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_TwoExactLegs_IntoABridge_OneForZero() public { _twoExactInto(false, 1, true); }
+    function test_ExactDoorPromisesWhatALimitedHopSettles_TwoExactLegs_IntoABridgeSevenWeiUnder() public { _twoExactInto(true, 7, true); }
+    // The encode door over a price-limited hop: what it calls executable settles at its floor,
+    // and the floor it asks is the one the Router asks (a limited leg's frame at its floor).
+    function _asks(bool wantZfo, int24 gap, uint256 num, uint256 den) internal {
+        _cfg(18, wantZfo);
+        _pairE(5, 300);
+        _bookH(gap);
+        uint256 x = mIn / 10 * num / den;
+        (BlazePhoenixQuoter.Preview memory pv, bytes memory data) =
+            quoter.previewAndEncode(tIn, tOut, x, user, block.timestamp + 1);
+        emit log_named_uint("min_out", pv.effectiveMinOut);
+        assertTrue(pv.canExecute, "the encode door refuses a limited hop the Router settles");
+        uint256 b0 = PathologicalERC20(tOut).balanceOf(user);
+        vm.prank(user);
+        (bool ok, ) = address(router).call(data);
+        assertTrue(ok, "the encode door's bytes do not settle");
+        uint256 got = PathologicalERC20(tOut).balanceOf(user) - b0;
+        emit log_named_uint("settled", got);
+        assertGe(got, pv.effectiveMinOut, "the encode door's bytes settle under the floor they carry");
+    }
+
+    function test_EncodeDoorAsksALimitedHopAsTheRouterFundsIt_AtThePlan_ZeroForOne() public { _asks(true, 0, 1, 1); }
+    function test_EncodeDoorAsksALimitedHopAsTheRouterFundsIt_AtThePlan_OneForZero() public { _asks(false, 0, 1, 1); }
+    function test_EncodeDoorAsksALimitedHopAsTheRouterFundsIt_TwiceThePlan() public { _asks(false, 250, 2, 1); }
 }
