@@ -43,3 +43,5 @@ fz	decimals	0	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
 fz	decimals	2	-	test_Pack_CoarseInput_NetOutNeverAboveDelivery	covered
 fz	intermediate	fine	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
 fz	intermediate	coarse	-	test_Exhaustion_CoarseIntermediate_NetOutAboveDeliveryByUnderTwoIntermediateUnits	covered
+fz	batch-place	ahead	-	testFuzz_HeldItem_EmptyOrItsSolve	covered
+fz	batch-place	last	-	test_Control_HeldItemLast_ReadsItsSolve	covered

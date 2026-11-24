@@ -267,12 +267,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,710 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 530 | `test/**/*.t.sol` |
+| Test declarations | 3,717 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 531 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 2,001 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,007 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -306,7 +306,7 @@ above is the place for it.
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
 | `BlazePhoenixHub` | 21,956 | 2,620 |
 | `BlazePhoenixMath` | 9,768 | 14,808 |
-| `BlazePhoenixQuoter` | 20,178 | 4,398 |
+| `BlazePhoenixQuoter` | 20,386 | 4,190 |
 | `BlazePhoenixRouter` | 22,818 | 1,758 |
 | `BlazePhoenixSolver` | 21,349 | 3,227 |
 <!-- protocol-constants:end -->

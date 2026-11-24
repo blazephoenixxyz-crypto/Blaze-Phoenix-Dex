@@ -21,3 +21,5 @@ restatement	fee-push-restatement	cat	input-baseline
 restatement	leg-window-restatement	cat	input-baseline
 intermediate	fine	cat	fz
 intermediate	coarse	cat	fz
+batch-place	ahead	cat	fz
+batch-place	last	cat	fz

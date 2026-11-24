@@ -2001,3 +2001,9 @@ src/BlazePhoenixQuoter.sol	test_Pack_CoarseInput_NetOutNeverAboveDelivery	caixa-
 src/BlazePhoenixQuoter.sol	test_Classify_EmptyRouteDoesNotPanic	caixa-1123 pack-fee c: _pack indexes a hop on a route with none (Panic 0x32 instead of the preview)
 src/BlazePhoenixQuoter.sol	test_Parity_PackAndNetOfInputFees_OnASolverPlanOfTwoHops	caixa-1123 pack-fee d: the anchored charge is read off hop 0, not off the hop the calendar anchors
 src/BlazePhoenixQuoter.sol	test_Exhaustion_CoarseIntermediate_NetOutAboveDeliveryByUnderTwoIntermediateUnits	caixa-1123 pack-fee e: on exhaustion the preview charges once, so a coarse intermediate's overshoot grows past its two rounding units
+src/BlazePhoenixQuoter.sol	test_Floor_TheItemAskedAgainGetsSolveGasWhole_AndTheBatchAnswers	caixa-1123 batchquote a: the second pass asks an item again with no floor on the gas left
+src/BlazePhoenixQuoter.sol	test_NoRouteItem_IsAskedOnce	caixa-1123 batchquote b: an item that refused with data is asked again too
+src/BlazePhoenixQuoter.sol	test_ExhaustingItemFirst_TheHeldItemStillAnswers	caixa-1123 batchquote c: the item asked again is handed all the gas left, not SOLVE_GAS
+src/BlazePhoenixQuoter.sol	test_HeldItemAheadOfTheLast_ReadsItsSolve	caixa-1123 batchquote d: an item that stopped empty on its share is not marked to be asked again
+src/BlazePhoenixQuoter.sol	test_Floor_TheItemAskedAgainGetsSolveGasWhole_AndTheBatchAnswers	caixa-1123 batchquote e: PACK_RESERVE at the provisional 300,000, under what follows the solve
+src/BlazePhoenixQuoter.sol	test_Floor_TheItemAskedAgainGetsSolveGasWhole_AndTheBatchAnswers	caixa-1123 batchquote f: the floor leaves out what EIP-150 keeps back from the call
