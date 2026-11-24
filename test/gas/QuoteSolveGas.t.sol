@@ -168,7 +168,7 @@ contract QuoteModeGasTest is QuoteWorld {
     // -------------------------------------------------------------------------
 
     /// `_exact` asks the fee calendar only at two hops or more, prices every leg, then
-    /// `_fundedOut`, `_hookRefusedIn` and `_poolTwiceInAHop`.
+    /// `_fundedOut`, `_hookRefusedIn` and `_legsShareState`.
     function test_Gas_PreviewPlanExact_OneAndTwoHops() public {
         string memory g = "test_Gas_PreviewPlanExact_OneAndTwoHops";
         _world(true);
@@ -184,7 +184,7 @@ contract QuoteModeGasTest is QuoteWorld {
     }
 
     /// The same re-pricing on the plan's own route, handed in: no Solver. The hop is split,
-    /// so `_poolTwiceInAHop` compares legs (each unordered pair once).
+    /// so `_legsShareState` compares legs (each unordered pair once).
     function test_Gas_PreviewRouteExact_OneHop() public {
         string memory g = "test_Gas_PreviewRouteExact_OneHop";
         _world(true);

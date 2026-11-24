@@ -879,6 +879,9 @@ src/BlazePhoenixQuoter.sol	test_FiveLegsInOneHop_PreviewExecutableAndSettles	PIN
 src/BlazePhoenixQuoter.sol	test_SixLegsOnTheSecondHop_PreviewRefusedAndRefused	PIN-01 Quoter: only the first hop is held to the leg ceiling in the preview
 src/BlazePhoenixQuoter.sol	test_APassedDeadlineCannotExecute	OC-03 [882]: the encode doors do not ask the deadline the Router refuses with RouterE(4)
 src/BlazePhoenixQuoter.sol	test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery	OC-07 [883]: a pool twice in one hop keeps the exact figure priced side by side
+src/BlazePhoenixQuoter.sol	test_TwoPoolsBehindOneSwapHook_HaveNoExactFigure	exact-walk [EW-1]: two legs behind one hook that runs in the swap keep the exact figure each priced alone
+src/BlazePhoenixQuoter.sol	test_TwoHopsBehindOneSwapHook_HaveNoExactFigure	exact-walk [EW-2]: legs are compared within their own hop only, so a later hop never meets an earlier one
+src/BlazePhoenixQuoter.sol	test_TwoHooklessV4Pools_KeepTheExactFigure	exact-walk [EW-3]: every hook counts as one that runs in the swap, so two hookless V4 legs lose the exact figure
 src/BlazePhoenixCore.sol	test_AFeeThatRoseIsPromisedAsThePoolChargesIt	DEX-17 [884]: the quote prices a CL pool at its row key, not at the fee the pool charges now
 src/BlazePhoenixQuoter.sol	test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands	C-f2 3330 [885]: the Gate quoteCall is asked outside the reverting frame, so the venue keeps what its simulation wrote
 src/BlazePhoenixQuoter.sol	test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded	C-f2 3336 [886]: the encode doors do not ask the floor of the venues as the Router funds the route
@@ -1029,7 +1032,7 @@ src/BlazePhoenixQuoter.sol	test_Gas_PreviewPlanWithMinOut_OneHop	gas-1106 G3-4: 
 src/BlazePhoenixQuoter.sol	test_Gas_PreviewAndEncodeWithMinOut_OneHop	gas-1106 G3-5: _encode dry-runs the funding of a preview that already cannot execute
 src/BlazePhoenixQuoter.sol	test_Gas_PreviewRoute_OneHop	gas-1106 G3-6: _pack asks the fee calendar of a single hop (asked only at two hops or more)
 src/BlazePhoenixQuoter.sol	test_Gas_PreviewPlanExact_OneAndTwoHops	gas-1106 G3-7: _exact asks the fee calendar of a single hop (asked only at two hops or more)
-src/BlazePhoenixQuoter.sol	test_Gas_PreviewRouteExact_OneHop	gas-1106 G3-8: _poolTwiceInAHop compares every ordered pair of legs instead of each unordered pair once
+src/BlazePhoenixQuoter.sol	test_Gas_PreviewRouteExact_OneHop	gas-1106 G3-8: _legsShareState compares every ordered pair of legs instead of each unordered pair once
 src/BlazePhoenixQuoter.sol	test_Gas_BatchQuote_N1_N2_N4_N8	gas-1106 G3-9: batchQuote copies each entry from calldata to memory
 src/BlazePhoenixSolver.sol	test_Gas_FindBestRoutePlan_PerCandidatePools_1_2_4_8	gas-1106 G3-10: _registryFresh reads the rows past the third fresh one instead of exiting
 src/BlazePhoenixSolver.sol	test_Gas_FindBestRoutePlan_PerBridges_1_2_3	gas-1106 G3-11: _candsOf rebuilds an ordered pair it already holds (a memo hit is ignored)
