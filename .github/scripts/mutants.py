@@ -82,7 +82,7 @@ M = [
       teste="test_ListedHook_CodeMoved_IsPaused"),
  dict(nome="V4 promise: the edge-blind single-tick form again, instead of the walk",
       f="src/BlazePhoenixCore.sol",
-      old="        (, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);\n        if (lq == 0) return 0;\n        return v4WalkOut(manager, poolId, amountIn, effV4Fee(keyFee, lpF, pF, zeroForOne), tickSpacing, zeroForOne);",
+      old="        (, , uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);\n        return v4WalkOut(manager, poolId, amountIn, effV4Fee(keyFee, lpF, pF, zeroForOne), tickSpacing, zeroForOne);",
       new="        (uint160 sp, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);\n        if (lq == 0) return 0;\n        return outV3(amountIn, sp, lq, effV4Fee(keyFee, lpF, pF, zeroForOne), zeroForOne, 0); // MUTANT",
       teste="test_RangeExit_PromiseIsTruncatedAtTheBoundary"),
  dict(nome="V4: a static key composes the manager protocol fee per direction",
@@ -8592,11 +8592,13 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        if (amountIn == 0) return (0, 0, 0, 0, 0, 0);",
       new="        if (amountIn == 1) return (0, 0, 0, 0, 0, 0); // MUTANTE",
       teste="test_QuoteArmsZeroInput"),
- dict(nome="Core:2150: a V4 book with no liquidity in range is walked and quoted",
+ # caixa-1123 v4walk [VW-1]: the empty-tick cut of `_v4Quote` (was «Core:2150», `liq == 0` alone)
+ # asks the walk; the book that holds the next stretch is quoted (test/EmptyTickBookAnswersItsWalk.t.sol).
+ dict(nome="caixa-1123 v4walk [VW-1]: the empty-tick cut reads the current tick alone again, so a book holding the next stretch is quoted as a dead pool",
       f="src/BlazePhoenixCore.sol",
-      old="            if (liq == 0) return (0, 0, 0, 0, 0, 0);",
-      new="            if (liq == 1) return (0, 0, 0, 0, 0, 0); // MUTANTE",
-      teste="test_ConcLiqZeroQuotesNothing"),
+      old="            if (liq == 0 && v4Held(c.v4Manager, pid, c.tickSpacing, c.zeroForOne, V4_WALK_MAX_STEPS) == 0) return (0, 0, 0, 0, 0, 0);",
+      new="            if (liq == 0) return (0, 0, 0, 0, 0, 0); // MUTANTE",
+      teste="test_V4Arm_EmptyCurrentTick_LiquidityAtTheNextTick_IsQuotedForWhatItPays"),
  # A leg scaled to zero input is a no-op: it never reaches the pool, whose callback budget
  # cap would refuse a zero cap and revert the swap (test/BlindLegReachability.t.sol).
  dict(nome="Router:1741: a leg scaled to zero input reaches the pool",
@@ -11087,6 +11089,24 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="        try IConcPoolQ(pool).swap(address(this), !zfo, -int256(sizeIn), limit, \"\")",
       new="        try IConcPoolQ(pool).swap(address(this), !zfo, int256(sizeIn), limit, \"\") // MUTANTE",
       teste="test_Control_AnInputAtInt256MaxIsAskedAndRefused"),
+ # caixa-1123 v4walk (dex:v4walk-empty-stretches-hide-depth): a V4 book whose current tick is empty
+ # is quoted iff it holds something within V4_WALK_MAX_STEPS stretches, and the frame's door promises
+ # what the walk pays (test/EmptyTickBookAnswersItsWalk.t.sol). VW-1 is the reanchored «Core:2150».
+ dict(nome="caixa-1123 v4walk [VW-2]: the empty-tick cut removed, so an initialized and empty book is walked the ranking's 256 stretches and answers a ceiling",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (liq == 0 && v4Held(c.v4Manager, pid, c.tickSpacing, c.zeroForOne, V4_WALK_MAX_STEPS) == 0) return (0, 0, 0, 0, 0, 0);",
+      new="            if (false && v4Held(c.v4Manager, pid, c.tickSpacing, c.zeroForOne, V4_WALK_MAX_STEPS) == 0) return (0, 0, 0, 0, 0, 0); // MUTANTE",
+      teste="test_V4Arm_NothingWithinSixteenStretches_QuotesNothing"),  # also red: test_ConcLiqZeroQuotesNothing
+ dict(nome="caixa-1123 v4walk [VW-3]: the empty-tick cut asks the ranking's V4_WALK_DEEP_STEPS, so a book holding only past the promise's horizon is quoted",
+      f="src/BlazePhoenixCore.sol",
+      old="            if (liq == 0 && v4Held(c.v4Manager, pid, c.tickSpacing, c.zeroForOne, V4_WALK_MAX_STEPS) == 0) return (0, 0, 0, 0, 0, 0);",
+      new="            if (liq == 0 && v4Held(c.v4Manager, pid, c.tickSpacing, c.zeroForOne, V4_WALK_DEEP_STEPS) == 0) return (0, 0, 0, 0, 0, 0); // MUTANTE",
+      teste="test_V4Arm_LiquidityPastThePromiseHorizon_QuotesNothing"),
+ dict(nome="caixa-1123 v4walk [VW-4]: the frame's door reads the current tick alone again, so it promises 0 for the book the arm quoted",
+      f="src/BlazePhoenixCore.sol",
+      old="        (, , uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);\n",
+      new="        (, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId); if (lq == 0) return 0; // MUTANTE\n",
+      teste="test_Doors_EmptyTickBook_TheFramePromisesWhatTheArmQuoted"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

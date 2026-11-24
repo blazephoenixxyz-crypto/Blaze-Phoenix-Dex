@@ -2175,7 +2175,14 @@ library BlazePhoenixCore {
                 v4SqrtAndLiq(c.v4Manager, pid);
             // sp == 0 needs no branch of its own: the walk re-reads this slot0 word and
             // answers zeros, and depthFromL18 is 0 at sp == 0.
-            if (liq == 0) return (0, 0, 0, 0, 0, 0);
+            // THE CUT. A book whose current tick is empty is quoted if and only if it holds
+            // something within the promise's V4_WALK_MAX_STEPS stretches (`v4Held`): the swap
+            // crosses the gap for free and fills on the liquidity ahead, so the walk below
+            // answers what the pool pays, while `depthWad` and `mass` stay zero - the current
+            // tick declares nothing. A book holding nothing there says nothing, at the cost of
+            // those stretches: an initialized and empty book is never walked the ranking's
+            // V4_WALK_DEEP_STEPS.
+            if (liq == 0 && v4Held(c.v4Manager, pid, c.tickSpacing, c.zeroForOne, V4_WALK_MAX_STEPS) == 0) return (0, 0, 0, 0, 0, 0);
             // THE WALK, for ranking and for the promise alike. The single-tick form assumed
             // the current liquidity went on for ever: it ranked a pool holding one tick of
             // range as deep and let it take the whole route (dex-19, ninth wave), while its
@@ -2282,8 +2289,10 @@ library BlazePhoenixCore {
         uint24 keyFee, int24 tickSpacing, bool zeroForOne
     ) public view returns (uint256) {
         // sp == 0 needs no branch of its own: v4WalkOut re-reads this slot0 word and answers 0.
-        (, uint128 lq, uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);
-        if (lq == 0) return 0;
+        // An empty current tick needs none either: the walk crosses the gap and promises what
+        // the stretches ahead pay, the number `_v4Quote` quoted for the same book (a book
+        // holding nothing within V4_WALK_MAX_STEPS stretches is promised 0 by the walk itself).
+        (, , uint24 lpF, uint24 pF, ) = v4SqrtAndLiq(manager, poolId);
         return v4WalkOut(manager, poolId, amountIn, effV4Fee(keyFee, lpF, pF, zeroForOne), tickSpacing, zeroForOne);
     }
 

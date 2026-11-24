@@ -30,3 +30,7 @@ batch-place	ahead	cat	fz
 batch-place	last	cat	fz
 range	quantum-tax	cat	quoter
 range	int256-max	max	quoter
+empty-tick	gap-book	cat	v4walk
+empty-tick	empty-initialized-book	cat	v4walk
+empty-tick	past-the-horizon	cat	v4walk
+empty-tick	dust-in-the-gap	cat	v4walk
