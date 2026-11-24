@@ -41,3 +41,5 @@ input-baseline	restatement	fee-push-restatement	-	test_ANegativeInputRestatement
 input-baseline	restatement	leg-window-restatement	-	-	gap
 fz	decimals	0	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
 fz	decimals	2	-	test_Pack_CoarseInput_NetOutNeverAboveDelivery	covered
+fz	intermediate	fine	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
+fz	intermediate	coarse	-	test_Exhaustion_CoarseIntermediate_NetOutAboveDeliveryByUnderTwoIntermediateUnits	covered
