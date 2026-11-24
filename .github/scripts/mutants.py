@@ -5157,8 +5157,8 @@ M = [
  dict(nome='T2 Q773: a later hop divides its legs by the declared hop.amountIn again, not by their sum',
       f='src/BlazePhoenixQuoter.sol',
       # Re-pointed 2026-10-27 (T04): hop 0 joined the sum, so the loop lost its `if (h != 0)`.
-      old='            for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;\n',
-      new='            if (h != 0) legSum = hop.amountIn; else // MUTANT\n            for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;\n',
+      old='            uint256 legSum = _legSum(hop);\n',
+      new='            uint256 legSum = _legSum(hop);\n            if (h != 0) legSum = hop.amountIn; // MUTANT\n',
       teste='test_LaterHopCommitmentFundsTheLegsTheRouterFunds'),
  dict(nome='T2 T16: pairKey stops sorting the pair (an order-sensitive key)',
       f='src/BlazePhoenixCore.sol',
@@ -5168,8 +5168,8 @@ M = [
  # --- T04 and pairKey (2026-10-27): after the T16 mutant ---
  dict(nome='T04: hop 0 divides its legs by the declared hop.amountIn again, not by their sum',
       f='src/BlazePhoenixQuoter.sol',
-      old='            for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;\n',
-      new='            if (h == 0) legSum = hop.amountIn; else // MUTANT\n            for (uint256 l; l < hop.legs.length; l++) legSum += hop.legs[l].amountIn;\n',
+      old='            uint256 legSum = _legSum(hop);\n',
+      new='            uint256 legSum = _legSum(hop);\n            if (h == 0) legSum = hop.amountIn; // MUTANT\n',
       teste='test_HopZeroCommitmentFundsTheLegsTheRouterFunds'),
  dict(nome="T04: hop 0's fee is charged on the whole order, not on what its legs commit",
       f='src/BlazePhoenixQuoter.sol',
@@ -10857,8 +10857,8 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       teste="test_ALegGivenMoreInputIsHeldToTheAttestedRate"),
  dict(nome="caixa-1123 leg-bound-rescale: the door caps the attested bound at the plan, so it encodes a surplus leg the Router refuses",
       f="src/BlazePhoenixQuoter.sol",
-      old="            ? BPC.mulDiv(leg.expectedOut, legIn, leg.amountIn) : 0;",
-      new="            ? BPC.mulDiv(leg.expectedOut, legIn > leg.amountIn ? leg.amountIn : legIn, leg.amountIn) : 0; // MUTANT",
+      old="            ? BPC.mulDiv(leg.expectedOut, amt, leg.amountIn) : 0;",
+      new="            ? BPC.mulDiv(leg.expectedOut, amt > leg.amountIn ? leg.amountIn : amt, leg.amountIn) : 0; // MUTANT",
       teste="test_TheDoorAsksTheSurplusLegAsTheRouterAsksIt"),
  # caixa-1123 dex:core-gate-mass-cap-by-tokenout-held: the raised wrapper mass is capped by the
  # tokenOut held at its venuePool address (Core._quoteArms, KIND_EXTERNAL arm).
