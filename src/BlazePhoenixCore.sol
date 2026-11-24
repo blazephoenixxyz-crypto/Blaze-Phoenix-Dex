@@ -2097,8 +2097,11 @@ library BlazePhoenixCore {
     ///         (`rnd`): a concentrated arm spends at most 1/o of it there (its floor and the
     ///         zeroForOne lift pull opposite ways; the Solidly -1 is another arm's)
     ///         (2026-10-28: without the first a 62-wei probe behind a 54.66% fee read 0.42% under
-    ///         its spot with e = 1.25e-6, test/MedianProbeErrorBound.t.sol). NOT BOUNDED here,
-    ///         and written down as limits: a V4 walk that crosses into thinner ticks, a Solidly
+    ///         its spot with e = 1.25e-6, test/MedianProbeErrorBound.t.sol). A V4 walk that crosses into
+    ///         thinner ticks is MEASURED (the block at the end: the walked shortfall under the
+    ///         spot at rest, whenever it exceeds the model; test/V4BandProbeBound.t.sol). NOT
+    ///         BOUNDED here, and written down as limits: a singleton probe whose spot output
+    ///         does not fit 128 bits (the model stays), a Solidly
     ///         stable curve away from both of its asymptotes, a V3 range whose L is above 2^96
     ///         (its sqrt price floors then move the output by L / 2^96 wei), and a Gate wrapper's
     ///         impact (no reserve to read; its rounding is counted, and impact only lowers a rate,
@@ -2150,6 +2153,23 @@ library BlazePhoenixCore {
                 ? type(uint256).max : to18(mulDivUp(rank, orderIn, amountIn), _decOther(c));
             uint256 mOrder = aOrder < oOrder ? aOrder : oOrder;
             errOrder = n == 0 || mOrder >= depthWad ? WAD : rnd + 3 * WAD / n + mulDivUp(mOrder, WAD, depthWad);
+        }
+        // THE WALKED ARM'S BOUND IS MEASURED (V4-BAND, 2026-11-24). A singleton book's rate is
+        // walked through its own ticks while the terms above model it from the depth at the
+        // current price: where the walk crosses into thinner ticks the shortfall under the spot
+        // is the walk's own figure, and the measure wins (max). `_v4Ceil(0, ..)` is the probe's
+        // fee-net output at the price at rest, rounded up; rank carries the same fee, so
+        // 1 - rank / spot is the fee-free shortfall. Both bounds rise, so errOrder >= err holds.
+        if (kindHasAny(c.kind, A_CONC_SING)) {
+            (address b0, address b1) = sortTokens(c.tokenIn, c.tokenOther);
+            (uint160 sp, , , , ) = v4SqrtAndLiq(c.v4Manager, computeV4PoolId(b0, b1, c.fee, c.tickSpacing, c.hooks));
+            uint256 spot = _v4Ceil(0, amountIn, uint24(fee), sp, c.zeroForOne);
+            // 2^128 - 1 is `_v4Ceil` saturated, a ceiling and not a spot: no measure, the model stays.
+            if (spot < type(uint128).max && spot > rank) {
+                spot = mulDivUp(spot - rank, WAD, spot);
+                if (spot > err) err = spot;
+                if (spot > errOrder) errOrder = spot;
+            }
         }
         if (err > WAD) err = WAD;   // packed in 64 bits by the Solver: past WAD it would spill into errOrder's
     }

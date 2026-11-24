@@ -6,11 +6,11 @@ BlazePhoenixAdapterCurveNG runtime=3516 initcode=3829
 BlazePhoenixAdapterInfinityBin runtime=5205 initcode=5897
 BlazePhoenixAdapterInfinityCL runtime=5514 initcode=6206
 BlazePhoenixAdapterLB runtime=3114 initcode=3427
-BlazePhoenixCore runtime=19465 initcode=19495
+BlazePhoenixCore runtime=19724 initcode=19754
 BlazePhoenixGate runtime=10758 initcode=15919
 BlazePhoenixGateWrapper runtime=4414 initcode=4929
 BlazePhoenixHub runtime=21956 initcode=22190
 BlazePhoenixMath runtime=9768 initcode=9798
-BlazePhoenixQuoter runtime=19998 initcode=20373
+BlazePhoenixQuoter runtime=20002 initcode=20377
 BlazePhoenixRouter runtime=22818 initcode=23337
 BlazePhoenixSolver runtime=21349 initcode=31508
