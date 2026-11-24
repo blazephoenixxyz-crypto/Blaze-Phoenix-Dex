@@ -298,17 +298,17 @@ above is the place for it.
 | `BlazePhoenixAdapterBalancerV3` | 5,794 | 18,782 |
 | `BlazePhoenixAdapterCurveCryptoNG` | 3,014 | 21,562 |
 | `BlazePhoenixAdapterCurveNG` | 3,516 | 21,060 |
-| `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
-| `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
-| `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
-| `BlazePhoenixCore` | 19,450 | 5,126 |
+| `BlazePhoenixAdapterInfinityBin` | 5,235 | 19,341 |
+| `BlazePhoenixAdapterInfinityCL` | 5,544 | 19,032 |
+| `BlazePhoenixAdapterLB` | 3,124 | 21,452 |
+| `BlazePhoenixCore` | 19,739 | 4,837 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
-| `BlazePhoenixHub` | 21,956 | 2,620 |
+| `BlazePhoenixHub` | 22,235 | 2,341 |
 | `BlazePhoenixMath` | 9,768 | 14,808 |
-| `BlazePhoenixQuoter` | 20,002 | 4,574 |
+| `BlazePhoenixQuoter` | 20,382 | 4,194 |
 | `BlazePhoenixRouter` | 22,818 | 1,758 |
-| `BlazePhoenixSolver` | 21,473 | 3,103 |
+| `BlazePhoenixSolver` | 21,490 | 3,086 |
 <!-- protocol-constants:end -->
 
 ### Gas case studies (measured; linked as they are published)
