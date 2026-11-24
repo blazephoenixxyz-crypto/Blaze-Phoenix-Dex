@@ -28,3 +28,5 @@ intermediate	fine	cat	fz
 intermediate	coarse	cat	fz
 batch-place	ahead	cat	fz
 batch-place	last	cat	fz
+range	quantum-tax	cat	quoter
+range	int256-max	max	quoter

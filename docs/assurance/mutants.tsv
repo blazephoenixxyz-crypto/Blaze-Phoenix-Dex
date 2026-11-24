@@ -1498,7 +1498,7 @@ src/BlazePhoenixRouter.sol	test_TheCellSettlesWithTheFeeOnTheBridgeHop	Router br
 src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsTheWholeInputPromisesZero	Quoter exact: the writing walk ignores a fee that eats the carry, so the funded pass prices a 0 commitment
 src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsHopOne_LeavesNoUnfundedFigureInTheRoute	Quoter exact route: an unfunded hop past the first keeps its figures
 src/BlazePhoenixQuoter.sol	test_TwoHops_AFeeThatEatsTheAnchorHop_LeavesNoUnfundedFigureInTheRoute	Quoter exact route: the unfunding starts one hop after the one the fee ate
-src/BlazePhoenixQuoter.sol	testFuzz_AnOutputPastInt256MaxIsNotProbed	Quoter probe size: an output past int256 max is probed
+src/BlazePhoenixQuoter.sol	testFuzz_AnInputPastInt256MaxIsNotProbed	Quoter probe size: an input past int256 max is probed
 src/BlazePhoenixRouter.sol	testFuzz_AHopFeeIsTheCeilingNotTheFloor	Router hop fee: the fee is the floor of one wei more, not the ceiling
 src/BlazePhoenixCore.sol	testFuzz_TauMovesTowardDtAndNeverPastIt	Core tau EMA: tau jumps to dt plus one instead of moving toward it
 src/BlazePhoenixCore.sol	testFuzz_FactoryLookup_OnlyAnExactWordIsAPool	Core factory lookup: a short return word is read as a pool
@@ -1566,7 +1566,7 @@ src/BlazePhoenixRouter.sol	test_Control_AZeroInputLegIsNotBlindness	Router:1741:
 src/BlazePhoenixCore.sol	test_ZeroForOneCrossesBelowTheTick	Core:2551: the V3 walk going down restarts at the tick it crossed and applies its net twice
 src/BlazePhoenixQuoter.sol	test_OneWeiShort_IsMeasuredAndNotPromised	Quoter:600: a payment one wei short of what the pool paid back is read as untaxed
 src/BlazePhoenixQuoter.sol	test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor	Quoter:694: the probe asks the reserve legs, so a taxed concentrated leg is never measured
-src/BlazePhoenixQuoter.sol	test_AnOutputOneWeiPastInt256MaxIsNotProbed	Quoter:671: a size past int256.max is asked of the pool as a negative amount
+src/BlazePhoenixQuoter.sol	test_AnInputOneWeiPastInt256MaxIsNotProbed	Quoter:718: a size past int256.max is asked of the pool, its negation not fitting
 src/BlazePhoenixCore.sol	test_AGateWrapperIsBoundByItsRoundingAlone	Core:2109: a Gate wrapper is read for an impact term
 src/BlazePhoenixCore.sol	test_ACrossingPastUint128MaxSaturates	Core:2547: liquidityNet past uint128.max wraps to its low bits instead of saturating
 src/BlazePhoenixCore.sol	test_AnOrderPastTheLastTickIsPaidWhatTheBookHolds	Core:2550: the walk goes on past the price bound and prices the rest beyond the book
@@ -2027,3 +2027,5 @@ src/BlazePhoenixQuoter.sol	test_ExhaustingItemFirst_TheHeldItemStillAnswers	caix
 src/BlazePhoenixQuoter.sol	test_HeldItemAheadOfTheLast_ReadsItsSolve	caixa-1123 batchquote d: an item that stopped empty on its share is not marked to be asked again
 src/BlazePhoenixQuoter.sol	test_Floor_TheItemAskedAgainGetsSolveGasWhole_AndTheBatchAnswers	caixa-1123 batchquote e: PACK_RESERVE at the provisional 300,000, under what follows the solve
 src/BlazePhoenixQuoter.sol	test_Floor_TheItemAskedAgainGetsSolveGasWhole_AndTheBatchAnswers	caixa-1123 batchquote f: the floor leaves out what EIP-150 keeps back from the call
+src/BlazePhoenixQuoter.sol	test_HopZero_V3_SweepAcrossTheQuantum_PromisedMeansFilled	caixa-1123 quoter-inputtax-probe a: the probe is sized at the leg's priced output, not its input (bounty uid 5389)
+src/BlazePhoenixQuoter.sol	test_Control_AnInputAtInt256MaxIsAskedAndRefused	caixa-1123 quoter-inputtax-probe b: the probe asks a positive amount, exact input backwards, not exact output

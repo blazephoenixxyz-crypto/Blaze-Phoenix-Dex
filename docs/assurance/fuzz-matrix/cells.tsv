@@ -50,3 +50,5 @@ fz	intermediate	fine	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
 fz	intermediate	coarse	-	test_Exhaustion_CoarseIntermediate_NetOutAboveDeliveryByUnderTwoIntermediateUnits	covered
 fz	batch-place	ahead	-	testFuzz_HeldItem_EmptyOrItsSolve	covered
 fz	batch-place	last	-	test_Control_HeldItemLast_ReadsItsSolve	covered
+quoter	range	quantum-tax	-	test_HopZero_V3_SweepAcrossTheQuantum_PromisedMeansFilled	covered
+quoter	range	int256-max	-	test_AnInputOneWeiPastInt256MaxIsNotProbed	covered

@@ -185,7 +185,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `src/BlazePhoenixCore.sol` | 425 | 344 | 425 |
 | `src/BlazePhoenixSolver.sol` | 265 | 193 | 265 |
 | `src/BlazePhoenixHub.sol` | 233 | 203 | 233 |
-| `src/BlazePhoenixQuoter.sol` | 174 | 147 | 174 |
+| `src/BlazePhoenixQuoter.sol` | 176 | 149 | 176 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
 | `src/BlazePhoenixMath.sol` | 57 | 44 | 57 |
 | `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 52 | 40 | 52 |
@@ -206,7 +206,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
 | `test/fork/AtqForkVenueOracle.sol` | 1 | 1 | 1 |
-| **all** | 2,027 | 1,593 | 2,027 |
+| **all** | 2,029 | 1,595 | 2,029 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -260,12 +260,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,750 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 533 | `test/**/*.t.sol` |
+| Test declarations | 3,757 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 534 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 2,027 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,029 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -291,15 +291,15 @@ declaration counts, not pass counts.
 | `BlazePhoenixAdapterBalancerV3` | 5,794 | 18,782 |
 | `BlazePhoenixAdapterCurveCryptoNG` | 3,014 | 21,562 |
 | `BlazePhoenixAdapterCurveNG` | 3,516 | 21,060 |
-| `BlazePhoenixAdapterInfinityBin` | 5,235 | 19,341 |
-| `BlazePhoenixAdapterInfinityCL` | 5,544 | 19,032 |
-| `BlazePhoenixAdapterLB` | 3,124 | 21,452 |
+| `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
+| `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
+| `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
 | `BlazePhoenixCore` | 19,450 | 5,126 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
-| `BlazePhoenixHub` | 22,235 | 2,341 |
+| `BlazePhoenixHub` | 21,956 | 2,620 |
 | `BlazePhoenixMath` | 9,768 | 14,808 |
-| `BlazePhoenixQuoter` | 20,386 | 4,190 |
+| `BlazePhoenixQuoter` | 19,998 | 4,578 |
 | `BlazePhoenixRouter` | 22,818 | 1,758 |
 | `BlazePhoenixSolver` | 21,349 | 3,227 |
 <!-- protocol-constants:end -->
@@ -888,12 +888,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,750 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 533 | `test/**/*.t.sol` |
+| Test declarations | 3,757 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 534 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 2,027 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,029 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -919,15 +919,15 @@ above is the place for it.
 | `BlazePhoenixAdapterBalancerV3` | 5,794 | 18,782 |
 | `BlazePhoenixAdapterCurveCryptoNG` | 3,014 | 21,562 |
 | `BlazePhoenixAdapterCurveNG` | 3,516 | 21,060 |
-| `BlazePhoenixAdapterInfinityBin` | 5,235 | 19,341 |
-| `BlazePhoenixAdapterInfinityCL` | 5,544 | 19,032 |
-| `BlazePhoenixAdapterLB` | 3,124 | 21,452 |
+| `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
+| `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
+| `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
 | `BlazePhoenixCore` | 19,450 | 5,126 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
-| `BlazePhoenixHub` | 22,235 | 2,341 |
+| `BlazePhoenixHub` | 21,956 | 2,620 |
 | `BlazePhoenixMath` | 9,768 | 14,808 |
-| `BlazePhoenixQuoter` | 20,386 | 4,190 |
+| `BlazePhoenixQuoter` | 19,998 | 4,578 |
 | `BlazePhoenixRouter` | 22,818 | 1,758 |
 | `BlazePhoenixSolver` | 21,349 | 3,227 |
 <!-- protocol-constants:end -->
@@ -1878,6 +1878,15 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
 - **A token's `balanceOf` is read as the token answers it** (`Core.heldBy`, the Router's
   concentrated-liquidity callback). A token that misreports its balances deceives the
   measurements of the legs that trade it; what it can take is from that token's own pairs.
+- **An input tax that also takes the pool's payment back is promised for about one quantum**
+  (`Quoter._inputTaxed`). The exact doors ask a concentrated pool for exactly the leg's input,
+  backwards, and measure what it receives when paid back. A token that taxes the pool's payment
+  to the Quoter as well hands it the input less the tax, and the probe pays and measures that
+  smaller size: a tax charged per quantum (floor(x * bps / 1e4)) can round to zero there and not
+  at the Router's payment, a window of about one quantum [Q, Q + tax(Q)). There the preview
+  promises and the Router refuses: RouterE(13), or RouterE(5) when the payer's own transfer is
+  taxed too. This fails closed: the swap reverts and the payer keeps its input. Pinned by
+  `test_Residual_TaxBothWays_TheRouterRefusesAndThePayerIsWhole`.
 
 ## Out of scope
 
@@ -2581,7 +2590,7 @@ green test in front of it.
 | `sumPsi` (the split's denominator, S) | "Over what total are a split's shares floored, so that the remainder is never negative?" | `Math.select` returns it as the sum of psis[0..n) (`_weights` sums, `_cutByWeight` re-sums the kept budget, `_seatTheSplit` subtracts the rows it zeroes); `Solver._placed` subtracts psis[j] before `_leave` moves row j out of the first n. Read by `Solver._split`: each leg but the last takes floor(A * psi_i / S), the last A - allocated, plain and checked since 2026-11-14 (the old `allocated >= amountIn ? 0 :` could not fire) | `PINNED` (2026-11-14) | `test/SplitRemainderIsTheLastLeg.t.sol` (the legs sum to the input, unit and fuzz; mutant "Solver:1032"); the depth split against the KKT optimum of the concave V2 legs (the bench `KktGapCertificate`, which reads the psis through the plan, not `sumPsi`; prereg `docs/prereg/kkt-1114.tsv`, ledger `docs/assurance/kkt-gap.tsv`): the gap is within the certificate in every cell, and at one price and one fee the certificate is at most 3_500 ppm of the output (measured max 3_014; mutants "Math:655", "B9-M2") |
 | a leg's place in the split (`_placed`, EVERY LEG PAYS FOR ITS PLACE, 2026-10-28) | "Does this leg pay for its place in the split?" | `Solver._placed`: in a split of three legs or more, the leg whose probe paid least (`rates`, replayed with the candidates by the map `Math.select` returns; a tie to the lower address) is tried while another leg pays on average at least that rate (`Solver._onTrial`), and the split without it, on the same weights with the seat where `Math.seatOf` puts it, is kept unless the split with it ranks MIN_SPLIT_IMPROVEMENT_PPM higher, the price the min-split gate puts on a leg. The gate then measures the split against every survivor alone, as before | `PINNED` | `test/SplitLegPaysForItsPlace.t.sol` (MED follow-up, 2026-10-28: until then a venue behind a 10 % fee at the fair price took its depth's share of the split: beside two 0.3 % venues holding together 3.3 times its depth, 23.1 % of an order a tenth of each, and the output fell 1.10 %) |
 | `QuoteDeltas` (the Quoter's dry-run payload) | "Is this revert data a quote?" | produced by the `Quoter` fallback (every V3-shaped callback) and by `Quoter.unlockCallback` (V4); read by `Quoter._simConc` and `Quoter._simV4` through `_ownDeltas`. A venue's own revert data, of any length, is no quote: the leg falls back to the plan figure | `PINNED` | `test/QuoterReadsOnlyItsOwnPayload.t.sol` - `test_Conc_UntaggedTwoWordRevert_IsNoQuote`, `test_V4_UntaggedTwoWordRevert_IsNoQuote`: a two-word revert that is not `QuoteDeltas` is not read as a quote; `test_CallbackRoundTrip_IsStillPriced`: the genuine round trip still is |
-| `_inputTaxed` (the Quoter's input probe, at the exact doors) | "Will the pool receive less of this leg's input token than the Router pays it (RouterE(13))?" | `Router._v3Callback` pays a concentrated pool what it demands and refuses the leg when the pool's measured delta is short (the one place the tax on a V3-family input is measured). `Quoter._inputTaxed` is the one producer the exact doors ask (`_exact`, after `_hookRefusedIn`, through `_inputTaxedIn`, for every concentrated leg the Router will fund) and the encode doors ask (`_encode`, after the floor `_fundedOut` prices, on the route the bytes carry: a refused route has `canExecute` false and empty bytes): the pool is run backwards on the leg's priced output, it pays this frame the input token before it calls back (the order of UniswapV3Pool.swap and AlgebraPool.swap), and the fallback, armed by the probe's transient context, pays the pool what it holds, measures the pool's delta and reverts `InputProbe(taxed)`; short is a tax and the exact scalar is zero. A pool that pays nothing backwards leaves no measurement, and no measurement is not a tax. The view door holds no token and does not ask. Until 2026-11-11 the pool's own dry-run priced the leg (`_simConc`, whose callback never pays), so no transfer was measured and the exact scalar promised a fill the Router refuses (bounty uid 3984). NOT covered: a tax on the leg's OUTPUT token, which the Router measures at the recipient's balance after its own second transfer (RouterE(5), uid 3988); a Gate wrapper leg (kind 9) is not probed | `PINNED` (2026-11-11) | `test/QuoterMeasuresTheV3InputTax.t.sol`: `test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor`, `test_HopZero_AlgebraLegWithATaxedInput_IsNotPromised`, `test_HopOne_V3LegWithATaxedBridge_IsNotPromised`, `testFuzz_AnyInputTax_IsMeasuredAndNotPromised` (1 bps to 99.99 %), `test_HopZero_V3LegWithATaxedInput_IsNotEncodedByEitherEncodeDoor`, `testFuzz_AnyInputTax_IsNotEncoded`, with the controls `test_Control_NoTax_IsPromisedAndSettled`, `test_Control_NoTax_EncodeDoorBuildsBytesTheRouterSettles`, `test_Control_TheSameTaxOnAReservePair_IsNotRefusedAndFills`, `test_Control_DustOrder_WhoseTaxRoundsToZero_IsPromisedAndFilled`; the Router asserted by selector and code (mutants QS-10 to QS-13) |
+| `_inputTaxed` (the Quoter's input probe, at the exact doors) | "Will the pool receive less of this leg's input token than the Router pays it (RouterE(13))?" | `Router._v3Callback` pays a concentrated pool what it demands and refuses the leg when the pool's measured delta is short (the one place the tax on a V3-family input is measured). `Quoter._inputTaxed` is the one producer the exact doors ask (`_exact`, after `_hookRefusedIn`, through `_inputTaxedIn`, for every concentrated leg the Router will fund) and the encode doors ask (`_encode`, after the floor `_fundedOut` prices, on the route the bytes carry: a refused route has `canExecute` false and empty bytes): the pool is asked for exactly the leg's input, the size the Router pays it (a negative amount: exact output, backwards; a size past int256.max, whose negation does not fit, is not asked), it pays this frame the input token before it calls back (the order of UniswapV3Pool.swap and AlgebraPool.swap), and the fallback, armed by the probe's transient context, pays the pool what it holds, measures the pool's delta and reverts `InputProbe(taxed)`; short is a tax and the exact scalar is zero. A pool that pays nothing backwards leaves no measurement, and no measurement is not a tax. The view door holds no token and does not ask. Until 2026-11-11 the pool's own dry-run priced the leg (`_simConc`, whose callback never pays), so no transfer was measured and the exact scalar promised a fill the Router refuses (bounty uid 3984). Until 2026-11-24 the probe ran backwards on the leg's priced output, so the pool paid ~the leg's input less its fee twice and a tax charged per quantum (floor(x * bps / 1e4)) could round to zero there and not at the Router's payment (bounty uid 5389). On hop 0 the Router's leg input is at most the leg's `amountIn` (its scale is capped at 1 and its fee only reduces it), so the probe is asked at least what the Router pays and a floor tax, monotone in size, cannot read untaxed at the probe and taxed at the Router; on hops 1 and later the Router's scale is not capped, and that the probe still holds there is shown by the two-hop fuzz, not derived. NOT covered: a tax on the leg's OUTPUT token, which the Router measures at the recipient's balance after its own second transfer (RouterE(5), uid 3988); a Gate wrapper leg (kind 9) is not probed; a pool whose inverse book pays nothing backwards leaves no measurement (uid 5666); a token that also taxes the pool's payment to this frame: the frame receives the leg's input less the tax and pays that, so a window of about one quantum [Q, Q + tax(Q)) is still promised and the Router refuses it, RouterE(13), or RouterE(5) where the payer's pull is taxed too: it fails closed and the payer keeps its input (KNOWN_ISSUES) | `PINNED` (2026-11-11; sized at the leg's input 2026-11-24) | `test/QuoterMeasuresTheV3InputTax.t.sol`: `test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor`, `test_HopZero_AlgebraLegWithATaxedInput_IsNotPromised`, `test_HopOne_V3LegWithATaxedBridge_IsNotPromised`, `testFuzz_AnyInputTax_IsMeasuredAndNotPromised` (1 bps to 99.99 %), `test_HopZero_V3LegWithATaxedInput_IsNotEncodedByEitherEncodeDoor`, `testFuzz_AnyInputTax_IsNotEncoded`, with the controls `test_Control_NoTax_IsPromisedAndSettled`, `test_Control_NoTax_EncodeDoorBuildsBytesTheRouterSettles`, `test_Control_TheSameTaxOnAReservePair_IsNotRefusedAndFills`, `test_Control_DustOrder_WhoseTaxRoundsToZero_IsPromisedAndFilled`; the Router asserted by selector and code (mutants QS-10 to QS-13); `test/QuoterInputProbeSizedAtOwed.t.sol`: `test_HopZero_V3_SweepAcrossTheQuantum_PromisedMeansFilled`, `test_HopZero_Algebra_SweepAcrossTheQuantum_PromisedMeansFilled`, `test_HopOne_Bridge_SweepAcrossTheQuantum_PromisedMeansFilled`, `test_EncodeDoor_SweepAcrossTheQuantum_BytesMeanFilled`, `testFuzz_TwoHops_AnyTaxAnySize_PromisedMeansFilled`, `test_Residual_TaxBothWays_TheRouterRefusesAndThePayerIsWhole`, with the control `test_Control_AShortReverseBook_IsMeasuredAtWhatItPays` (mutant «caixa-1123 quoter-inputtax-probe a»); `test/QuoterProbeSizeBound.t.sol`: `test_AnInputOneWeiPastInt256MaxIsNotProbed`, `testFuzz_AnInputPastInt256MaxIsNotProbed`, with the control `test_Control_AnInputAtInt256MaxIsAskedAndRefused` (mutants «Quoter:718», «Quoter probe size», «caixa-1123 quoter-inputtax-probe b») |
 | the net output the exact door promises (`exactOut` of `previewPlanExact` / `previewRouteExact`, 2026-11-13) | "What does the Router deliver for this route, in this block, after the fee the calendar names?" | `Quoter._fundedOut` prices the route as the Router funds it (`BPC.feeCalendar` read once per route: the fee off the input at the hop the calendar names, rounded up, the legs funded pro rata; `type(uint256).max` where the calendar charges the output) and is the one producer of the input-charged figure. `Quoter._exact` applies the output deduction (gross less `PROTOCOL_FEE_BPS`, rounded up, the Router's own rounding at `_execute`'s end) only where `_fundedOut` answered no bound, and the min of the two is the pin. Until 2026-11-13 a single hop was deducted on its output whatever the calendar said and `_fundedOut` only bounded it from below: a venue's output is concave in its input, so an input-charged hop priced on the net input pays MORE than the gross less the fee, by the curve's bend over the fee - 25.5 bps on the Base DAI pool at block 49800000 (6533.52 DAI promised, 6550.18 delivered), 0.005 bps on a deep one - and the door under-promised by that much (the fork row asks 1 bps). The encode doors read `_fundedOut` directly (`canExecute`) | `PINNED` (2026-11-13) | `test/ExactDoorFollowsTheFeeCalendar.t.sol`: `test_OneHop_InputCharged_ThinBook_6to18_DeliveredIsExactOut` (the fork's shape), `_18to6_`, `_8to18_`, `_24to6_`, `test_OneHop_InputCharged_DeepBook_Dust_DeliveredIsExactOut`, `test_OneHop_InputCharged_DeepBook_FeeRoundingSeam_DeliveredIsExactOut`, `testFuzz_OneHop_InputCharged_ThinBook_6to18_AnyOrder_DeliveredIsExactOut`, `test_OneHop_InputCharged_V2Pair_DeliveredIsExactOut`; controls `test_Control_OneHop_OutputCharged_IntoABridge_IsTheDeductionToTheWei`, `test_Control_TwoHops_FeeAtHop1_ThroughABridge_DeliveredIsExactOut`, `test_Control_TwoHops_FeeAtHop0_BridgeInput_DeliveredIsExactOut`; on the fork `test/fork/FidelityMatrix.t.sol` `test_Matriz_DaiEPortaExata` and `test/fork/avax/AvaxBlackholeCore.t.sol` `test_AvaxBH_Q4_BaseMinted_AutoDoor_CrossesTick_QuoteExecOracle` (Algebra Integral across an initialized tick, min(gross, funded) of the raw venue to the wei); mutants [door-fee-1], [door-fee-2], [door-fee-3] and the tripwire [door-fee-meta] in `.github/scripts/mutants.py`, [door-fee-fork-1] in its M_FORK |
 | the fee walk (`Quoter._walk`, 2026-11-14) | "What does each hop of this route receive and yield once the calendar's input fee is taken where the Router takes it?" | `Quoter._walk`, the one producer for the exact pass of `_exact` (fee only on two hops or more, writing each leg's and hop's funded figures into the returned route) and for the funded pass of `_fundedOut` (fee wherever the calendar charges the input, no write); before, two loops, and only the funded one stopped when the fee took all that entered a hop. The exact pass read nothing past it: on two hops with a 1-wei order it priced hop 0's legs at 0 and wrote 0 into them, and the funded pass, which reads the rewritten route, then found a 0 commitment, a 0 fee and priced both hops again, so a venue that quotes something for nothing was promised in full (red at 2f1e1b5). | `PINNED` (2026-11-14) | `test/QuoterExactFeeThatEatsTheCarryIsZero.t.sol` (a kind-9 leg whose `quoteCall` answers 1e18 for any input: 1 and 2 hops at 1 wei promise 0, the control at 2 wei and 1e18 promises the venue's figure); mutant «Quoter: the walk asks a venue after the fee ate the carry» (`fee >= carry` -> `fee > carry`). The design's other three (fee ignored, hop 0 fee on the whole order, round-down) are the existing [915]/T04/[914]/[917] family, re-aimed at `_walk`. 2026-11-14: the exact pass stopped at that hop without writing it or the hops after it, so the returned route kept the plan's figures where the Router funds nothing; they are now written 0 (`_unfund`). `test/QuoterExactRouteShowsOnlyFundedFigures.t.sol` (three cases red at 90c2d85: 1 wei with no bridge, 2 wei, 1 wei with the anchor at hop 1), mutant «Quoter: the exact walk leaves the plan's figures in the hops a fee left unfunded». |
 | `finalHopQuote` (the anchor of the protocol floor) | "What does the floor anchor on when the last hop measured nothing?" | `Router.swapExactIn`, hop loop: the last hop's in-frame quote, else its attested figure, else - when every leg of it is blind - the hop's declared `expectedOut`; read by the protocol floor, published as `ExecutionProof.quoted` and read a second time, for the whole last hop, against the measured `amountOut` (`LEG_FLOOR_BPS` of it, re-priced by `fotSeen`; since 2026-11-16, because the protocol floor reads the declared `outCap`). A blind leg's declared figure only raises the hop's priced base (`hopBase`), never lowers it. With at most `MAX_HOPS` = 2 hops only the last hop ends in the output token, so no earlier anchor exists to lower; the guard that lets a blind last hop replace an earlier anchor in the output token only with a larger figure stays in the code for a longer route (three hops until 2026-11-06). A fully blind last hop that declares 0 arms no protocol floor and the caller's non-zero minimum governs | `PINNED` | `test/BlindLastHopAnchorsTheFloor.t.sol` - `test_FullyBlindLastHop_FinalHopQuote_AnchorsTheFloor_ThinFillRefused`: a fully blind last hop anchors the floor on its declared figure and a thin fill is refused; `test_BlindLeg_DeclaringNothing_CannotDisarmThePricedLegBesideIt` and fuzz `testFuzz_BlindLeg_HopDeclarationOnlyRaisesThePricedBase`: a blind leg's declaration never lowers the priced base beside it (until 2026-11-06 `test_BlindLastHop_DeclaringNothing_CannotDisarmAnEarlierAnchor`, on three hops); `test_ThreeHops_ReanchorThroughTheOutput_IsRefused_TwoHopAnalogueSettles`: the three-hop shape that could re-anchor through the output token is refused (`RouterE(3)`) and its two-hop analogue settles; `test_FullyBlindLastHop_DeclaringNothing_FallsBackToTheCallersMinimum`; the measured read: `test_TaxedOutput_BlindLastHop_AgreesWithItsQuotedSibling` and its fuzz, `test_TaxedOutput_BlindLastHop_AgreesAtTheLegFloorEdge`, `test_ABlindVenueDeclaringMoreThanItPays_IsHeldByTheHopsAnchor`, `test_MixedLastHop_ShortPayingBlindLeg_IsRefusedOnTheMeasuredDelivery`, `test_TaxedInput_BlindLastHop_HeavyEntryTax_StillSettles`, `test_TaxedOutput_QuotedUnattestedLastLeg_IsHeldLikeItsAttestedSibling` and its no-figure twin, `test_AnAttestedVenueDeclaringMoreThanItPays_IsRefusedAtTheLegShare`, `test_TaxedInput_MeasuredFloor_RePricedAndRoundedUp_ToTheWei`, and the three `test_NoNewRefusal_*` that settle on 969bcc6 (fot-out-1116 MB10-MB19) |

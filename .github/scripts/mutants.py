@@ -7009,8 +7009,8 @@ M = [
       teste='test_Control_NoTax_IsPromisedAndSettled'),
  dict(nome='fin2-qs [QS-12]: the probe runs the pool forwards, so this frame is never paid the input token and nothing is measured',
       f='src/BlazePhoenixQuoter.sol',
-      old='        try IConcPoolQ(pool).swap(address(this), !zfo, int256(sizeOut), limit, "")\n',
-      new='        try IConcPoolQ(pool).swap(address(this), zfo, int256(sizeOut), limit, "") // MUTANT\n',
+      old='        try IConcPoolQ(pool).swap(address(this), !zfo, -int256(sizeIn), limit, "")\n',
+      new='        try IConcPoolQ(pool).swap(address(this), zfo, -int256(sizeIn), limit, "") // MUTANT\n',
       teste='test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor'),
 dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxed, so the bytes of a leg the Router refuses are handed back (3984)',
       f='src/BlazePhoenixQuoter.sol',
@@ -8246,11 +8246,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='if (write) _unfund(route.hops, h);',
       new='if (write) _unfund(route.hops, h + 1); // MUTANTE',
       teste='test_TwoHops_AFeeThatEatsTheAnchorHop_LeavesNoUnfundedFigureInTheRoute'),
- dict(nome='Quoter probe size: an output past int256 max is probed',
+ dict(nome='Quoter probe size: an input past int256 max is probed',
       f='src/BlazePhoenixQuoter.sol',
-      old='if (sizeOut == 0 || sizeOut > uint256(type(int256).max)) return false;',
-      new='if (sizeOut == 0 || sizeOut >= type(uint256).max) return false; // MUTANTE',
-      teste='testFuzz_AnOutputPastInt256MaxIsNotProbed'),
+      old='if (sizeIn == 0 || sizeIn > uint256(type(int256).max)) return false;',
+      new='if (sizeIn == 0 || sizeIn >= type(uint256).max) return false; // MUTANTE',
+      teste='testFuzz_AnInputPastInt256MaxIsNotProbed'),
  dict(nome='Router hop fee: the fee is the floor of one wei more, not the ceiling',
       f='src/BlazePhoenixRouter.sol',
       old='uint256 feeH = BPC.mulDivUp(baseH, BPC.PROTOCOL_FEE_BPS, BPC.BPS);',
@@ -8627,13 +8627,14 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_CONC_POOL)",
       new="                if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_RESERVES) // MUTANTE",
       teste="test_HopZero_V3LegWithATaxedInput_IsNotPromisedByEitherExactDoor"),
- # A route the caller hands over can carry an output past int256.max into the input probe: asked
- # of the pool it would read as a negative (exact-out) amount (test/QuoterProbeSizeBound.t.sol).
- dict(nome="Quoter:671: a size past int256.max is asked of the pool as a negative amount",
+ # A route the caller hands over can carry an input past int256.max into the input probe: negated
+ # it would not fit (2^255 panics; above it reads as a positive, exact-input amount)
+ # (test/QuoterProbeSizeBound.t.sol).
+ dict(nome="Quoter:718: a size past int256.max is asked of the pool, its negation not fitting",
       f="src/BlazePhoenixQuoter.sol",
-      old="        if (sizeOut == 0 || sizeOut > uint256(type(int256).max)) return false;",
-      new="        if (sizeOut == 0) return false; // MUTANTE",
-      teste="test_AnOutputOneWeiPastInt256MaxIsNotProbed"),
+      old="        if (sizeIn == 0 || sizeIn > uint256(type(int256).max)) return false;",
+      new="        if (sizeIn == 0) return false; // MUTANTE",
+      teste="test_AnInputOneWeiPastInt256MaxIsNotProbed"),
  # A Gate wrapper rounds and nothing else: read for an impact term it would carry a bound it does
  # not have (test/ProbeTwoBounds.t.sol, ProbeTwoBoundsGateTest).
  dict(nome="Core:2109: a Gate wrapper is read for an impact term",
@@ -11075,6 +11076,17 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old='    uint256 internal constant SOLVE_AGAIN_FLOOR = BPC.SOLVE_GAS * 64 / 63 + PACK_RESERVE;',
       new='    uint256 internal constant SOLVE_AGAIN_FLOOR = BPC.SOLVE_GAS + PACK_RESERVE; // MUTANTE',
       teste='test_Floor_TheItemAskedAgainGetsSolveGasWhole_AndTheBatchAnswers'),
+ # caixa-1123 quoter-inputtax-probe: the input probe asks for exactly the leg's input, backwards
+ dict(nome="caixa-1123 quoter-inputtax-probe a: the probe is sized at the leg's priced output, not its input (bounty uid 5389)",
+      f="src/BlazePhoenixQuoter.sol",
+      old="                        && _inputTaxed(leg.pool, leg.zeroForOne, hop.tokenIn, leg.amountIn))",
+      new="                        && _inputTaxed(leg.pool, leg.zeroForOne, hop.tokenIn, leg.expectedOut)) // MUTANTE",
+      teste="test_HopZero_V3_SweepAcrossTheQuantum_PromisedMeansFilled"),
+ dict(nome="caixa-1123 quoter-inputtax-probe b: the probe asks a positive amount, exact input backwards, not exact output",
+      f="src/BlazePhoenixQuoter.sol",
+      old="        try IConcPoolQ(pool).swap(address(this), !zfo, -int256(sizeIn), limit, \"\")",
+      new="        try IConcPoolQ(pool).swap(address(this), !zfo, int256(sizeIn), limit, \"\") // MUTANTE",
+      teste="test_Control_AnInputAtInt256MaxIsAskedAndRefused"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin

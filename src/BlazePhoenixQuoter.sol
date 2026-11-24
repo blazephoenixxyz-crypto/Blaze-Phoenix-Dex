@@ -745,19 +745,25 @@ contract BlazePhoenixQuoter {
     }
 
     /// @dev Whether the pool receives less of `tIn` than a payer sends it, measured where the
-    ///      Router measures it (`_v3Callback`). A view frame holds no token and cannot pay one;
-    ///      the dry-run doors can: the pool is run backwards on the leg's output, it pays this
-    ///      frame `tIn` before it calls back (the order of UniswapV3Pool.swap and
-    ///      AlgebraPool.swap), and the callback pays it back and measures. A pool that pays
-    ///      nothing backwards leaves no measurement, and no measurement is not a tax.
-    function _inputTaxed(address pool, bool zfo, address tIn, uint256 sizeOut)
+    ///      Router measures it (`_v3Callback`) and at the size it pays there: the leg's input.
+    ///      A view frame holds no token and cannot pay one; the dry-run doors can: the pool is
+    ///      run backwards for exactly `sizeIn` of `tIn` (a negative amount, exact output), it
+    ///      pays this frame before it calls back (the order of UniswapV3Pool.swap and
+    ///      AlgebraPool.swap), and the callback pays it back and measures. Until 2026-11-24 the
+    ///      pool was run backwards on the leg's output, so it paid ~`sizeIn` less its fee twice
+    ///      and a tax charged per quantum (floor(x * bps / 1e4)) could round to zero there and
+    ///      not at the Router's payment (bounty uid 5389). A pool that pays nothing backwards
+    ///      leaves no measurement, and no measurement is not a tax; one that pays part of
+    ///      `sizeIn` is measured at that part. A size past int256.max is not asked: its
+    ///      negation does not fit.
+    function _inputTaxed(address pool, bool zfo, address tIn, uint256 sizeIn)
         private returns (bool taxed)
     {
-        if (sizeOut == 0 || sizeOut > uint256(type(int256).max)) return false;
+        if (sizeIn == 0 || sizeIn > uint256(type(int256).max)) return false;
         uint160 limit = zfo ? BPC.MAX_SQRT_PRICE_MINUS_ONE : BPC.MIN_SQRT_PRICE_PLUS_ONE;
         uint256 sP = TSLOT_PROBE_POOL; uint256 sT = TSLOT_PROBE_TOKEN;
         assembly { tstore(sP, pool) tstore(sT, tIn) }
-        try IConcPoolQ(pool).swap(address(this), !zfo, int256(sizeOut), limit, "")
+        try IConcPoolQ(pool).swap(address(this), !zfo, -int256(sizeIn), limit, "")
             returns (int256, int256)
         {} catch (bytes memory r) {
             if (r.length == 36 && bytes4(r) == InputProbe.selector) {
@@ -778,7 +784,7 @@ contract BlazePhoenixQuoter {
             for (uint256 l; l < hop.legs.length; ++l) {
                 Leg memory leg = hop.legs[l];
                 if (leg.amountIn != 0 && BPC.kindHas(leg.kind, BPC.A_CONC_POOL)
-                        && _inputTaxed(leg.pool, leg.zeroForOne, hop.tokenIn, leg.expectedOut))
+                        && _inputTaxed(leg.pool, leg.zeroForOne, hop.tokenIn, leg.amountIn))
                     return true;
             }
         }

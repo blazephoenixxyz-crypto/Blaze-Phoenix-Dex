@@ -785,6 +785,14 @@
       "guard": "findBestRoutePlan",
       "test": "test_LeaderPayingNothingWithNoRebuildIsNotHandedOut",
       "note": "PR #139, 2026-11-19. Red at 24959f0 and at 2c8cbbe (a one-hop plan, totalOut 0); pre-existing, not a regression, no funds at risk (the Router reverts). One check where every plan leaves the search (the self-call ends there too): a plan with totalOut 0 reverts SolverE(5). Mutant M-JUDGE-10."
+    },
+    {
+      "id": "QUOTER-INPUT-TAX-ON-THE-PROBE-PAYBACK",
+      "class": "A token that taxes both the payment into a concentrated pool and the pool's payment out: the input probe receives the leg's input less the tax and measures that size, so in a window of about one quantum [Q, Q + tax(Q)) a per-quantum tax reads untaxed at the probe and taxed at the Router's payment; the exact doors promise a fill the Router refuses",
+      "status": "blocked",
+      "guard": "Router._v3Callback",
+      "test": "test_Residual_TaxBothWays_TheRouterRefusesAndThePayerIsWhole",
+      "note": "caixa-1123, 2026-11-24, the residue of the probe sized at the leg's input (bounty uid 5389). Fails closed: the Router refuses with RouterE(13), or RouterE(5) when the payer's pull is taxed too ({13, 5}); the payer keeps its input. Mutants «caixa-1123 quoter-inputtax-probe a/b» pin the probe's size and sign."
     }
   ]
 }
