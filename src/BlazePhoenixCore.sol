@@ -1978,11 +1978,12 @@ library BlazePhoenixCore {
             // only when fee() does not.
             (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
             uint128 liq = getLiquidity(c.pool);
-            // NO boundary clamp, for now: `v3StateAndDynFee` does not yet return
-            // the tick, and the per-crossing cost in V3 is ~2x that of V4 (the
-            // `ticks()` getter drags 4 slots the quote does not use, against one
-            // batchable `extsload`). V4 goes first because that is where the
-            // error was measured; extending to V3 is the same change, one read up.
+            // NO boundary clamp here, by design: the rank is the single-range
+            // figure, one price and one liquidity read for every concentrated
+            // shape. The promise is what walks the ticks: `v3PaysOnBudget`
+            // crosses the initialized ticks of the bitmap shape (Uniswap V3) and
+            // of the list shape (Algebra Integral) on V3_PAY_READS reads, and
+            // never answers above the single-range figure it is handed.
             fee      = quoteV3Fee(c.pool, c.fee, dynFee, isDyn);
             out      = outV3(amountIn, sp, liq, uint24(fee), c.zeroForOne, 0);
             // depthWad must be TOKEN-DENOMINATED to be comparable across venue
@@ -2542,7 +2543,9 @@ library BlazePhoenixCore {
     /// @dev The reads a concentrated leg's promise may spend on its own pool's book (DEX-01): the
     ///      Solver's whole route shares them, the frame spends them on each leg. Five come before
     ///      the first stretch (fee, tickSpacing, the price, the tick, the liquidity), then one
-    ///      bitmap word per stretch and one tick per crossing.
+    ///      bitmap word per stretch and one tick per crossing. A pool that keeps its ticks as a
+    ///      list (Algebra Integral) spends the same five (globalState() in the tick's place), one
+    ///      for the first initialized tick, then one per crossing and no bitmap word.
     uint256 internal constant V3_PAY_READS = 12;
 
     /// @notice DEX-01: what a V3-shaped pool pays for `amountIn`, against `f`, the single-range
@@ -2552,7 +2555,11 @@ library BlazePhoenixCore {
     ///         min(walked + rest, f): what the stretches it read pay, plus the single-range figure
     ///         of the input left on the last range it read, from the price it reached (G3,
     ///         2026-11-13: every tick it crossed counts, and it never answers above `f`). A book
-    ///         that does not answer answers `f`, the band. `left` is what the walk did not spend. Each
+    ///         that does not answer answers `f`, the band. A pool with no slot0() is read as
+    ///         Algebra Integral keeps its book: the price in globalState(), the initialized ticks
+    ///         a list (prevTickGlobal() / nextTickGlobal(), then prevTick and nextTick in
+    ///         ticks(int24)); one that keeps no such list (Algebra 1.9) or whose list points past
+    ///         the tick bounds or behind the price answers `f`. `left` is what the walk did not spend. Each
     ///         read holds ASK_GAS_FLOOR first, so it gets its whole GAS_CAP: a starved read
     ///         reverts empty, and the answer is the state's, never the caller's gas (R1). ONE
     ///         producer for the Solver's promise and the Router's in-frame quote.
@@ -2567,10 +2574,28 @@ library BlazePhoenixCore {
         if (fee == 0 || fee >= 1_000_000 || ts <= 0) return (f, left);
         --left;
         uint160 sp = uint160(_fedRead(pool, 0, 0));
-        if (sp == 0) return (f, left);
+        // A pool that answers no slot0() is asked globalState(): the Algebra Integral shape, which
+        // keeps its initialized ticks as a list, not a bitmap. The read counts whether or not the
+        // pool answers it; on the list it stands for the tick, which the walk does not read.
+        bool list = sp == 0;
+        if (list) {
+            (uint256 p, ) = _fedPair(pool, 0xe76c01e4, 0, 0, 0);
+            sp = uint160(p);
+            if (sp == 0) return (f, left - 1);
+        }
         left -= 2;
-        int24 tick = int24(uint24(_fedRead(pool, 1, 0)));
+        int24 tick = list ? int24(0) : int24(uint24(_fedRead(pool, 1, 0)));
         uint128 liq = uint128(_fedRead(pool, 2, 0));
+        int256 t;
+        if (list) {
+            // On the list `tick` is the initialized tick the order meets first: prevTickGlobal()
+            // going down, nextTickGlobal() going up. One the pool does not answer, or that is past
+            // the tick bounds, is no tick: the band (a pool with globalState() and no list).
+            --left;
+            (, t) = _fedPair(pool, zeroForOne ? 0x050a4d21 : 0xd5c35a7e, 0, 0, 0);
+            if (t < V4_MIN_TICK || t > V4_MAX_TICK) return (f, left);
+            tick = int24(t);
+        }
         // A tick past the price bounds belongs to no price: the band. This walk runs outside the
         // rebuild's self-call, so it must answer, never revert (`_v4NextTick` overflows on the
         // last int24 tick rising).
@@ -2581,9 +2606,13 @@ library BlazePhoenixCore {
             // The next read is a bitmap word: a walk that cannot pay for it, or whose sixteenth
             // stretch closed with input unspent, prices the rest on the range it reached.
             if (left == 0 || i == V4_WALK_MAX_STEPS) { out += outV3(rem, sp, liq, fee, zeroForOne, 0); break; }
-            --left;
-            _fedRead(pool, 6, 0);
-            (int24 nt, bool init) = _v4NextTick(pool, 0, tick, ts, zeroForOne);
+            // The list already named the next initialized tick: no bitmap word is read.
+            (int24 nt, bool init) = (tick, true);
+            if (!list) {
+                --left;
+                _fedRead(pool, 6, 0);
+                (nt, init) = _v4NextTick(pool, 0, tick, ts, zeroForOne);
+            }
             uint160 target = sqrtPriceAtTick(nt);
             // A book whose tick disagrees with its price is not read: the band (a step the wrong
             // way underflows in `_v4Step`).
@@ -2596,8 +2625,18 @@ library BlazePhoenixCore {
                 // No read left for the crossing: the rest is priced from it on the range just read.
                 if (left == 0) { out += outV3(rem, target, liq, fee, zeroForOne, 0); break; }
                 --left;
+                // On the list one read of ticks(nt) answers both the liquidityDelta (word 1) and
+                // the next initialized tick this way (prevTick, word 2, going down; nextTick, word
+                // 3, going up). A pointer not answered or past the tick bounds: the band.
+                uint256 d;
+                if (list) {
+                    (d, t) = _fedPair(pool, 0xf30dba93, nt, 1, zeroForOne ? 2 : 3);
+                    if (t < V4_MIN_TICK || t > V4_MAX_TICK) return (f, left);
+                } else {
+                    d = _fedRead(pool, 4, nt);
+                }
                 // liquidityNet, negated crossing downward, saturating, as `_v4Walk` applies it.
-                int256 net = (zeroForOne ? -1 : int256(1)) * int256(int128(int256(_fedRead(pool, 4, nt))));
+                int256 net = (zeroForOne ? -1 : int256(1)) * int256(int128(int256(d)));
                 uint256 l = uint256(liq);
                 liq = uint128(net < 0 ? (l > uint256(-net) ? l - uint256(-net) : 0)
                     : (l + uint256(net) > type(uint128).max ? type(uint128).max : l + uint256(net)));
@@ -2605,6 +2644,7 @@ library BlazePhoenixCore {
             // At the price bound the book has ended: what the walk reached is what the pool pays.
             if (nt == V4_MIN_TICK || nt == V4_MAX_TICK) break;
             tick = zeroForOne ? nt - 1 : nt;
+            if (list) tick = int24(t);
             sp = target;
         }
         // The input spent (or the book ended) inside the reads: the promise is what the book pays;
@@ -2619,6 +2659,30 @@ library BlazePhoenixCore {
         assembly ("memory-safe") { if lt(gas(), ASK_GAS_FLOOR) { revert(0, 0) } }
         if (k == 5) return _v3Get(pool, 0xd0c93a7c, 0, 0);
         return k == 6 ? 0 : _book(pool, 0, k, arg);
+    }
+
+    /// @dev One read of `v3PaysOnBudget` on a pool that keeps its ticks as a list, ASK_GAS_FLOOR
+    ///      held first (`_fedRead`'s guard, the one a bitmap word holds): words `wa` and `wb` (`wa` <= `wb`) of the pool's answer to `sel(arg)`.
+    ///      A pool that does not answer (codeless, reverting, too short an answer) leaves `a` zero
+    ///      and `b` at int256.max, past every tick: an unanswered pointer is never tick 0.
+    ///      `_v3Get` cannot serve here: it copies two words (the pointers are words 2 and 3 of
+    ///      ticks(int24)) and its zero for "did not answer" is a tick.
+    function _fedPair(address pool, uint256 sel, int256 arg, uint256 wa, uint256 wb)
+        private view returns (uint256 a, int256 b)
+    {
+        b = type(int256).max;
+        _fedRead(pool, 6, 0);
+        assembly ("memory-safe") {
+            let m := mload(0x40)
+            mstore(m, shl(224, sel))
+            mstore(add(m, 4), arg)
+            if staticcall(GAS_CAP, pool, m, 36, m, 128) {
+                if gt(returndatasize(), add(shl(5, wb), 31)) {
+                    a := mload(add(m, shl(5, wa)))
+                    b := mload(add(m, shl(5, wb)))
+                }
+            }
+        }
     }
 
     /// @notice The same walk, for RANKING. `lo` is `v4WalkOut` - the sixteen-stretch figure, the

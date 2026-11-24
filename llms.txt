@@ -167,7 +167,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | Mutated file | Mutants | Distinct tests that must kill them | Target is exactly one line |
 |---|---:|---:|---:|
 | `src/BlazePhoenixRouter.sol` | 472 | 393 | 472 |
-| `src/BlazePhoenixCore.sol` | 425 | 345 | 425 |
+| `src/BlazePhoenixCore.sol` | 433 | 352 | 433 |
 | `src/BlazePhoenixSolver.sol` | 263 | 191 | 263 |
 | `src/BlazePhoenixHub.sol` | 218 | 190 | 218 |
 | `src/BlazePhoenixQuoter.sol` | 160 | 136 | 160 |
@@ -191,7 +191,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
 | `test/fork/AtqForkVenueOracle.sol` | 1 | 1 | 1 |
-| **all** | 1,986 | 1,560 | 1,986 |
+| **all** | 1,994 | 1,567 | 1,994 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -245,12 +245,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,700 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 528 | `test/**/*.t.sol` |
-| Fork suites against live liquidity | 41 | `test/fork/*.t.sol` |
+| Test declarations | 3,709 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 530 | `test/**/*.t.sol` |
+| Fork suites against live liquidity | 42 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,986 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 1,994 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |

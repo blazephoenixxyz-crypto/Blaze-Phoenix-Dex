@@ -579,6 +579,14 @@
       "note": "G3, 2026-11-13 (PR #123 guard review). A cut walk answers min(walked + outV3(rest, price reached, last liquidity read), f): every crossed tick counts, the rest stays a model on the last range read, and it never answers above f, so a promise only falls (same producer for Solver._paysWhatItWalks and Core.legQuoteImpact). No new read, no new constant: V3_PAY_READS stays 12. Tests in test/V3WalkCutPricesTheRest.t.sol: sparse (cut at a bitmap word), dense (cut at a crossing), thickening (the cap holds); mutants [g3-1]-[g3-4]. Residual: past the last read the model is the last range's, so a book thinning further is still over-promised up to f."
     },
     {
+      "id": "V3-PROMISE-ALGEBRA-LIST",
+      "class": "A concentrated leg on a pool that keeps its initialized ticks as a list (Algebra Integral: globalState(), prevTickGlobal()/nextTickGlobal(), the prevTick/nextTick pointers of ticks(int24)) answers neither slot0() nor tickBitmap(int16): the walk handed back the single-range figure f, so an order that crossed into thinner liquidity was promised the depth of the range it started in, and the Router's in-frame quote and floor with it.",
+      "status": "blocked",
+      "guard": "v3PaysOnBudget",
+      "test": "testFuzz_TheListWalkPaysWhatTheSpecSwapPays",
+      "note": "depth-clamp, 2026-11-24 (hydrex-1124). A pool with no slot0() is asked globalState() and walked on its list, one ticks(int24) read per crossing, no bitmap word; no list, an unanswered pointer or one past the tick bounds is the band, never a revert. Measured on Base at block 61800517, Hydrex USDC/TGN, fee priced as charged (15000): 2 000 TGN promised 68578926 against 63924843 delivered, now 63924843 to the wei (test/fork/AlgebraListPromiseIsWhatThePoolPays.t.sol). Unit test/AlgebraListWalkPaysWhatTheBookPays.t.sol red 0 of 7 without the change; mutants [1982]-[1989]. The rank stays single-range by design."
+    },
+    {
       "id": "V3-RANK-ON-THE-BAND",
       "class": "A route ranked on a figure no venue pays: the leading build's concentrated leg ranked on its single-range band, or at the cap of a held book, over a venue that pays more, then promised what its book pays, so the plan settled what the walked book paid and the better venue was passed over",
       "status": "blocked",

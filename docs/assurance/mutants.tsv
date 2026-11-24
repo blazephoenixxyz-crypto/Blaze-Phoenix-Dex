@@ -1986,3 +1986,11 @@ src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_
 src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB12b: the measured floor takes one bps less, watched by a pair paying under its word
 src/BlazePhoenixRouter.sol	testFuzz_PairPayingUnderItsWord_SettlesIffItClearsTheMeasuredShare	fot-out-1116 MB14b: the measured floor ignores the input tax, watched by the fuzz of a pair paying under its word
 src/BlazePhoenixRouter.sol	test_PairPayingUnderItsWord_OnTheSecondHop_IsHeldAtTheMeasuredShare_ToTheWei	fot-out-1116 MB12c: the measured floor takes one bps less, watched on the second hop of a pair paying under its word
+src/BlazePhoenixCore.sol	testFuzz_TheListWalkPaysWhatTheSpecSwapPays	depth-clamp: a pool with no slot0() is the band again, its tick list never walked
+src/BlazePhoenixCore.sol	test_AnOrderThatCrossesTicksIsPromisedWhatThePoolPays	depth-clamp: the list is followed by the pointer of the other way
+src/BlazePhoenixCore.sol	test_OneBookTwoShapesOnePromise	depth-clamp: after a crossing the list walk restarts from the crossed tick, not the next on the list
+src/BlazePhoenixCore.sol	test_TheListCostsOneReadPerTickCrossed	depth-clamp: the read of the first initialized tick is not counted
+src/BlazePhoenixCore.sol	test_AListWalkCutByItsReadsNeverAnswersAboveTheSingleRange	depth-clamp: the tick the list names is read as not initialized, so no crossing is counted
+src/BlazePhoenixCore.sol	test_APoolWithNoListIsTheBand	depth-clamp: an unanswered list pointer is read as tick 0 and walked
+src/BlazePhoenixCore.sol	test_APoolWithNoListIsTheBand	depth-clamp: the first pointer is not held to the tick bounds, so a pool with no list is walked
+src/BlazePhoenixCore.sol	test_AListThatLiesIsTheBandNotARevert	depth-clamp: a crossing's pointer is not held to the tick bounds, so a lying list reverts
