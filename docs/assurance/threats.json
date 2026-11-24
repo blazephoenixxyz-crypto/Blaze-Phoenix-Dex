@@ -534,9 +534,17 @@
       "id": "SOK-QUOTER-EXACT-POOL-TWICE-IN-HOP",
       "class": "The exact scalar of a route with the same pool twice in one hop prices every leg against the pool before the swap, while the Router runs the legs in turn: it promises more than delivery",
       "status": "blocked",
-      "guard": "_poolTwiceInAHop",
+      "guard": "_legsShareState",
       "test": "test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery",
-      "note": "opencode OC-07, 2026-10-27. _exact priced each leg against the initial state; the second leg on the same pool meets the pool the first moved. Red at c516601: one V2 pair, an order of 0.1% of its reserves split in two legs, exactOut 5 bps over delivery, so a userMinOut taken from it is refused. The Solver merges a pool's legs and never plans it; previewRouteExact takes routes built off-chain. Fails closed: exactOut 0, as for a leg the Router refuses. Mutant [883]."
+      "note": "opencode OC-07, 2026-10-27. _exact priced each leg against the initial state; the second leg on the same pool meets the pool the first moved. Red at c516601: one V2 pair, an order of 0.1% of its reserves split in two legs, exactOut 5 bps over delivery, so a userMinOut taken from it is refused. The Solver merges a pool's legs and never plans it; previewRouteExact takes routes built off-chain. Fails closed: exactOut 0, as for a leg the Router refuses. Mutant [883]. Since 2026-11-24 the guard is _legsShareState (_poolTwiceInAHop widened, see SOK-QUOTER-EXACT-LEGS-SHARE-STATE)."
+    },
+    {
+      "id": "SOK-QUOTER-EXACT-LEGS-SHARE-STATE",
+      "class": "The exact scalar of a route whose legs share state the swap moves across hops (a cyclic route meets its own pool again) or behind one hook that runs in the swap prices each leg alone, while the Router runs them in turn: it promises more than delivery",
+      "status": "blocked",
+      "guard": "_legsShareState",
+      "test": "test_TwoPoolsBehindOneSwapHook_HaveNoExactFigure",
+      "note": "caixa-1123 exact-walk, 2026-11-24. _poolTwiceInAHop compared the legs of one hop by pool only. Red at 2934a93 by the tests' own assertion: two V4 pools behind one swap hook (exactOut 987228e15), the same across two hops (974619e15), and a cyclic V2 route through one pair (989258904747630343261); controls (hookless V4 pools, a hook that does not run in the swap, two different swap hooks, the twin route through two pools) keep the figure on base and fix. _legsShareState compares each unordered pair of legs of the route once, by pool, and by hook when BPC.hookRunsInSwap. The V4 oracle is the Quoter's only: the mock manager holds no hook state, so the Router fill below the sum is not reproduced for hooks (follow-up). Fails closed: exactOut 0. Mutants EW-1, EW-2, EW-3."
     },
     {
       "id": "SOK-QUOTER-EXACT-DECLARED-HOP-AMOUNT",

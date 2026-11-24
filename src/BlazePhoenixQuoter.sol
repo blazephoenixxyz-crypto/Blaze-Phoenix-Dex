@@ -1022,17 +1022,32 @@ contract BlazePhoenixQuoter {
         // than the legs priced side by side (measured: 5 bps over delivery, one pair, an order of
         // 0.1% of its reserves), so the scalar over-promised. The Solver merges a pool's legs and
         // never plans it; a route built off-chain can. No exact figure: fail closed, as above.
-        if (_poolTwiceInAHop(route)) exactOut = 0;
+        // The same holds across hops (a cyclic route meets its own pool again on hop 1) and for
+        // two legs behind one hook that runs in the swap: the hook's state, moved by the first
+        // leg, prices the second, and each was priced alone. A leg priced on state another leg
+        // of the route moves was not measured.
+        if (_legsShareState(route)) exactOut = 0;
         return (route, exactOut);
     }
 
-    /// @dev True when two legs of one hop name the same pool (a V4 leg: the same poolId).
-    function _poolTwiceInAHop(Route memory route) private pure returns (bool) {
-        for (uint256 h; h < route.hops.length; ++h) {
-            Leg[] memory legs = route.hops[h].legs;
-            for (uint256 i = 1; i < legs.length; ++i) {
-                for (uint256 j; j < i; ++j) {
-                    if (legs[i].pool == legs[j].pool) return true;
+    /// @dev True when two legs of the route, in one hop or in two, share state the swap moves:
+    ///      the same pool (a V4 leg: the same poolId), or the same hook when it runs in the
+    ///      swap (`hookRunsInSwap`; no hook, or a hook of liquidity only, is not shared state).
+    ///      Each unordered pair of legs is compared once.
+    function _legsShareState(Route memory route) private pure returns (bool) {
+        Hop[] memory hops = route.hops;
+        for (uint256 h; h < hops.length; ++h) {
+            Leg[] memory legs = hops[h].legs;
+            for (uint256 i; i < legs.length; ++i) {
+                address pool = legs[i].pool;
+                address hooks = legs[i].hooks;
+                bool runs = BPC.hookRunsInSwap(hooks);
+                for (uint256 g; g <= h; ++g) {
+                    Leg[] memory seen = hops[g].legs;
+                    uint256 n = g == h ? i : seen.length;
+                    for (uint256 j; j < n; ++j) {
+                        if (seen[j].pool == pool || (runs && seen[j].hooks == hooks)) return true;
+                    }
                 }
             }
         }
