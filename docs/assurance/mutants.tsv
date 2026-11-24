@@ -1996,3 +1996,7 @@ src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_L
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual b: hop 0 measures against a zero baseline, the stranded balance not excluded
 src/BlazePhoenixRouter.sol	test_Control_APositiveRestatementIsNotSpent	caixa-1123 tokenin-residual c: hop 0 spends the whole delta past baseIn, without the measured-pull ceiling
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual d: baseIn is never parked in the free slot, so hop 0 reads a zero baseline
+src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_ICL_Hooks_CodeChangedAfterCreate_QuoteDeclaresNoDepth	caixa-1123 adapter-hook [AH-1]: Infinity CL quote reads depth behind a hook whose code moved
+src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_IBin_Hooks_CodeChangedAfterCreate_QuoteDeclaresNoDepth	caixa-1123 adapter-hook [AH-2]: Infinity Bin quote reads depth behind a hook whose code moved
+src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Hooks_PinnedHookCodeChanged_Refused	caixa-1123 adapter-hook [AH-3]: LB hooks check admits the pinned address with other code
+src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Hooks_SameCodeAtAnotherAddress_Refused	caixa-1123 adapter-hook [AH-4]: LB hooks check admits the pinned code at another address

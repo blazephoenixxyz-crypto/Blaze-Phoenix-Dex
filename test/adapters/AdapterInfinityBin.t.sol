@@ -343,6 +343,42 @@ contract AdapterInfinityBinTest is AdapterHarness {
         BlazePhoenixGateWrapper(w2).swap(address(this), true, 1e18, 0, "");
     }
 
+    /// Red at 42a242d (caixa-1123 adapter-hook): `quote` was the one door that did not ask
+    /// `_requireHookPinned`, so a wrapper whose pinned hook address came to hold other code still
+    /// declared the active bin's depth while exec refused it. Fixed: the view door asks the
+    /// predicate resolve, exec and quoteCall ask. Oracle: the active bin set by the test (600 X /
+    /// 400 Y) and the pinned codehashes set at construction. Cheatcodes: vm.etch, vm.prank.
+    function test_IBin_Hooks_CodeChangedAfterCreate_QuoteDeclaresNoDepth() public {
+        bytes32 hid = _pool(address(hook), 69, FEE);
+        address w2 = gate.create(address(t0), address(t1), KEY + 1, abi.encode(hid));
+        BlazePhoenixGateWrapper x = BlazePhoenixGateWrapper(w2);
+        (address vp, bytes32 a0, bytes32 a1) = (x.venuePool(), x.aux0(), x.aux1());
+        (, uint256 d) = x.quote(true, 0);
+        assertEq(d, 400e18, "control: with the pinned code, the active bin's short side");
+        vm.etch(address(hook), address(new RogueBinHook()).code);
+        (uint256 q, uint256 d2) = x.quote(true, 0);
+        assertEq(q + d2, 0, "the code moved: the wrapper's quote declares no depth");
+        vm.prank(w2);
+        vm.expectRevert(_aerr(7));
+        adapter.quote(vp, a0, a1, true, 0);
+        assertEq(x.quoteCall(true, 1e18), 0, "quoteCall: no price");
+        t0.mint(address(this), 1e18);
+        vm.expectRevert(_aerr(7));
+        x.swap(address(this), true, 1e18, 0, "");
+    }
+
+    /// The Gate's vitality view reads the leg's depth through the same view door: once the pinned
+    /// hook's code has moved, the wrapper has no depth there either.
+    function test_IBin_GateVital_WrapperWithMovedHookCode_HasNoDepth() public {
+        bytes32 hid = _pool(address(hook), 69, FEE);
+        address w2 = gate.create(address(t0), address(t1), KEY + 1, abi.encode(hid));
+        (, uint256 d, ) = gate.vitalOf(w2);
+        assertEq(d, 400e18, "control: with the pinned code vitalOf reads the active bin");
+        vm.etch(address(hook), address(new RogueBinHook()).code);
+        (, d, ) = gate.vitalOf(w2);
+        assertEq(d, 0, "the code moved: vitalOf reads no depth");
+    }
+
     /// Only the adapter's own path produces QuoteOut: a hook reverting with that payload reaches
     /// the adapter inside the manager's ERC-7751 envelope and is reported as QuoteSwapFailed.
     function test_InfBin_QuoteCall_HookForgingTheOut_NotRead() public {

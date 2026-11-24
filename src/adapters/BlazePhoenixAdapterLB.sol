@@ -37,8 +37,10 @@ interface ILBPair {
 ///         inside our exec, and is refused; BEFORE_SWAP runs inside the guard and returns no
 ///         amounts, and is admitted only with the hook the curator saw at create. Checked on every exec, quote and quoteCall against the pair's
 ///         hooks of now (the factory's hooks manager changes them at any time).
-///         aux0 = X0 (token0 is tokenX) | HOOKED (the pair answered getLBHooksParameters).
-///         aux1 = the BEFORE_SWAP hook pinned at create (0 when none).
+///         aux0 = X0 (token0 is tokenX) | HOOKED (the pair answered getLBHooksParameters)
+///         | the BEFORE_SWAP hook pinned at create << 96 (0 when none).
+///         aux1 = that hook's codehash at create (0 when none): the same address with other code
+///         is another hook.
 ///         ROUTING FLAG, IGNORED BY DESIGN: the factory record's fourth field,
 ///         ignoredForRouting, is never read, at `resolve` or after. It is a discovery hint for
 ///         LFJ's own quoter (its path search skips flagged pairs; its router and the pair never
@@ -78,8 +80,11 @@ contract BlazePhoenixAdapterLB is ExtAdapterBase, IExtAdapter {
         if (x != t0 && x != t1) revert AdapterE(3);
         (bool hooked, uint256 hp) = _hooksParameters(pair);
         if ((hp & AFTER_SWAP) != 0) revert AdapterE(7);
-        if ((hp & BEFORE_SWAP) != 0) aux1 = bytes32(uint256(uint160(hp)));
         aux0 = bytes32((x == t0 ? X0 : 0) | (hooked ? HOOKED : 0));
+        if ((hp & BEFORE_SWAP) != 0) {
+            aux0 |= bytes32(uint256(uint160(hp)) << 96);
+            aux1 = address(uint160(hp)).codehash;
+        }
     }
 
     function exec(address pair, bytes32 aux0, bytes32 aux1, bool zeroForOne, uint256 amtIn, address recipient)
@@ -132,14 +137,16 @@ contract BlazePhoenixAdapterLB is ExtAdapterBase, IExtAdapter {
 
     /// The pair's hooks of now, by shape: a pair without hooks (v2.1) passes; a HOOKED pair whose
     /// hooks cannot be read does not (absent is not zero); AFTER_SWAP never; BEFORE_SWAP only
-    /// with the hook pinned at create. The other flags never run in a swap.
+    /// with the hook pinned at create, at that address and with that code. The other flags never
+    /// run in a swap.
     function _hooksOk(address pair, bytes32 aux0, bytes32 aux1) private view returns (bool) {
         if ((uint256(aux0) & HOOKED) == 0) return true;
         (bool ok, uint256 hp) = _hooksParameters(pair);
         if (!ok) return false;
         if ((hp & AFTER_SWAP) != 0) return false;
-        if ((hp & BEFORE_SWAP) != 0 && uint160(hp) != uint160(uint256(aux1))) return false;
-        return true;
+        if ((hp & BEFORE_SWAP) == 0) return true;
+        if (uint160(hp) != uint160(uint256(aux0) >> 96)) return false;
+        return address(uint160(hp)).codehash == aux1;
     }
 
     /// getLBHooksParameters() (0x781a8915) by staticcall: a v2.1 pair has no such function, so a
