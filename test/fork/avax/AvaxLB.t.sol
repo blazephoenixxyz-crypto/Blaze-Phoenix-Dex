@@ -183,7 +183,7 @@ contract AvaxLBFork is AvaxForkBase {
         vm.cool(pairs[i]);
         vm.cool(WAVAX);
         vm.cool(USDC);
-        vm.cool(address(uint160(uint256(BlazePhoenixGateWrapper(wrappers[i]).aux1()))));
+        vm.cool(address(uint160(uint256(BlazePhoenixGateWrapper(wrappers[i]).aux0()) >> 96)));
     }
 
     function _fees(address t) internal view returns (uint256) {
@@ -238,10 +238,11 @@ contract AvaxLBFork is AvaxForkBase {
             assertEq(w.token0(), WAVAX, "sorted: WAVAX below USDC");
             bool x0 = p.getTokenX() == w.token0();
             (bool hooked, bytes memory hp) = pairs[i].staticcall(abi.encodeWithSignature("getLBHooksParameters()"));
-            assertEq(uint256(w.aux0()), (x0 ? X0 : 0) | (hooked ? HOOKED : 0), "aux0 = X0 | HOOKED, by the pair");
+            assertEq(uint256(w.aux0()) & ((1 << 96) - 1), (x0 ? X0 : 0) | (hooked ? HOOKED : 0), "aux0 = X0 | HOOKED, by the pair");
             console2.log("wrapper", address(w), uint256(w.aux0()), hooked ? 1 : 0);
             if (!hooked) {
                 assertEq(i, 0, "only the v2.1 pair has no hooks");
+                assertEq(uint256(w.aux0()) >> 96, 0, "no hook pinned");
                 assertEq(w.aux1(), bytes32(0), "no hook pinned");
                 continue;
             }
@@ -249,7 +250,9 @@ contract AvaxLBFork is AvaxForkBase {
             assertEq(bytes32(h), i == 1 ? LB22_HOOKS : DLMM_HOOKS, "the pair's hooks at FORK_BLOCK");
             assertTrue((h & BEFORE_SWAP) != 0, "BEFORE_SWAP on");
             assertEq(h & AFTER_SWAP, 0, "AFTER_SWAP off");
-            assertEq(uint256(w.aux1()), uint256(uint160(h)), "the hook pinned at create");
+            assertEq(uint256(w.aux0()) >> 96, uint256(uint160(h)), "the hook pinned at create");
+            assertTrue(address(uint160(h)).code.length > 0, "the hook has code");
+            assertEq(w.aux1(), address(uint160(h)).codehash, "the hook's code pinned at create");
         }
     }
 

@@ -180,6 +180,7 @@ contract BlazePhoenixAdapterInfinityCL is ExtAdapterBase, IExtAdapter, ILockCall
     {
         (address a, address b) = _pairOf(msg.sender, true);
         if (VAULT.getLocker() != address(0)) return (0, 0);
+        _requireHookPinned(_key(aux0).hooks); // and at quote: what exec refuses declares no depth
         (uint160 sp, , , ) = CL_MANAGER.getSlot0(aux0);
         (out, depth18) = (0, BPC.depthFromL18(CL_MANAGER.getLiquidity(aux0), sp, BPC.decimalsOf(a), BPC.decimalsOf(b)));
     }

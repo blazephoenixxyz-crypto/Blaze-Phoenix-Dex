@@ -1999,3 +1999,7 @@ src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_L
 src/BlazePhoenixSolver.sol	test_Split_AStableAndAVolatilePairOfEqualReserves_PlanIsNeverBelowTheBestSingleLeg	caixa-1123 solidly-depth a: the split gate never collapses a split, so a stable and a volatile pair of equal reserves are split below the best single leg
 src/BlazePhoenixCore.sol	test_Mass_AStablePairDeclaresTheTokenOutItHolds_LikeAVolatilePair	caixa-1123 solidly-depth b: the Solidly arm declares the sold token's reserve as its mass, not the bought token it holds
 src/BlazePhoenixSolver.sol	test_Split_AStablePairUnderTheDustShare_PlanIsTheDeepPairAlone	caixa-1123 solidly-depth c: the funnel stops dropping a row under the dust share, so a stable pair at 13.96 ppm is quoted (MR-R1d)
+src/adapters/BlazePhoenixAdapterInfinityCL.sol	test_ICL_Hooks_CodeChangedAfterCreate_QuoteDeclaresNoDepth	caixa-1123 adapter-hook [AH-1]: Infinity CL quote reads depth behind a hook whose code moved
+src/adapters/BlazePhoenixAdapterInfinityBin.sol	test_IBin_Hooks_CodeChangedAfterCreate_QuoteDeclaresNoDepth	caixa-1123 adapter-hook [AH-2]: Infinity Bin quote reads depth behind a hook whose code moved
+src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Hooks_PinnedHookCodeChanged_Refused	caixa-1123 adapter-hook [AH-3]: LB hooks check admits the pinned address with other code
+src/adapters/BlazePhoenixAdapterLB.sol	test_LB_Hooks_SameCodeAtAnotherAddress_Refused	caixa-1123 adapter-hook [AH-4]: LB hooks check admits the pinned code at another address
