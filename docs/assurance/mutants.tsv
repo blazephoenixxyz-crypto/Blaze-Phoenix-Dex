@@ -1996,3 +1996,11 @@ src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_L
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual b: hop 0 measures against a zero baseline, the stranded balance not excluded
 src/BlazePhoenixRouter.sol	test_Control_APositiveRestatementIsNotSpent	caixa-1123 tokenin-residual c: hop 0 spends the whole delta past baseIn, without the measured-pull ceiling
 src/BlazePhoenixRouter.sol	test_ANegativeInputRestatementFiredByTheHop0FeePush_LeavesTheStrandedBalance_PairLeg	caixa-1123 tokenin-residual d: baseIn is never parked in the free slot, so hop 0 reads a zero baseline
+src/BlazePhoenixCore.sol	test_ThinBookOverAVoid_Gap8_OneMass	v4-band [VB1]: the walked shortfall is never read, the modelled bound stands alone
+src/BlazePhoenixCore.sol	testFuzz_Identity_OneRangeKeepsTheModelledBound	v4-band [VB2]: the measure lowers the bound (min) instead of raising it
+src/BlazePhoenixCore.sol	test_Measured_ToTheWei_Gap8	v4-band [VB3]: the spot reference forgets the fee the rank carries
+src/BlazePhoenixCore.sol	test_Premise_OnTheEightRows	v4-band [VB4]: only errOrder reads the measure, the probe's bound stays modelled
+src/BlazePhoenixCore.sol	test_Measured_ToTheWei_Gap15	v4-band [VB5]: only err reads the measure, errOrder falls under it
+src/BlazePhoenixCore.sol	test_Measured_ToTheWei_Gap8_Flipped	v4-band [VB6]: the shortfall is rounded down
+src/BlazePhoenixCore.sol	test_Limit_AProbePast128BitsKeepsTheModelledBound	v4-band [VB7]: a saturated ceiling is read as a spot
+src/BlazePhoenixCore.sol	test_ThinBookOverAVoid_Gap8_OneMass_Flipped	v4-band [VB8]: the measure reads the book under its unsorted currencies
