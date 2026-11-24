@@ -526,7 +526,7 @@ contract BlazePhoenixSolver {
         // the legs-per-hop limit applies to it like to any other. It used to
         // use the global ceiling (MAX_LEGS, gone since 2026-11-06) and could
         // spend the entire budget on a single hop.
-        (Hop memory hop, uint256 up, bool held) = _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_HOP, m.walk | CUT | dec << 8);
+        (Hop memory hop, uint256 up, bool held) = _hop(tIn, tOut, amountIn, cands, m.walk | CUT | dec << 8);
         if (hop.expectedOut == 0) return;
         // One assembly for every route, one hop or two: one producer of the impact and the floor.
         Hop[] memory hops = new Hop[](1);
@@ -580,7 +580,7 @@ contract BlazePhoenixSolver {
             // judgement alone. The stage's rank is the larger of the two lower bounds.
             uint256 rk;
             for (uint256 k; ; ) {
-                (Hop memory h, uint256 up, bool hh) = _buildHop(path[i], path[i + 1], k == 0 ? p : r, cands, MAX_LEGS_PER_HOP, (i == 0 ? m.walk | CUT : m.walk) | dec << 8);
+                (Hop memory h, uint256 up, bool hh) = _hop(path[i], path[i + 1], k == 0 ? p : r, cands, (i == 0 ? m.walk | CUT : m.walk) | dec << 8);
                 if (hh) held = true;
                 if (k == 0) {
                     if (h.expectedOut == 0 || h.legs.length == 0) return;
@@ -602,6 +602,95 @@ contract BlazePhoenixSolver {
     // =========================================================================
     //  HOP CONSTRUCTION — depth-weighted allocation
     // =========================================================================
+
+    /// @dev A hookless V4 book whose deep walk stopped short of the hop's input (`BPC.v4Stop`):
+    ///      its seat among the candidates, the rank the walk verified, the input it spent, the
+    ///      sqrt price where it stopped and the fee it charged.
+    struct V4Stopped { PoolInfo cand; uint256 rank; uint256 used; uint160 sStop; uint24 fee; }
+
+    /// @dev One hop of `amountIn` over `cands`. A hookless V4 book whose deep walk stops short
+    ///      of the input has a book past anything its quote verified. The one ranked highest,
+    ///      `h`, may then ride as a price-limited first leg ahead of `e`, the hop built from the
+    ///      candidates with no such stop, one leg fewer: `h` spends out of the hop's whole input
+    ///      up to the tick where its rate no longer pays `z`, `e`'s own average rate
+    ///      (`BPC.v4LimitTick`), and `e`'s legs share what it leaves in their own proportions.
+    ///      Every unit `h` fills pays at least `z`, and `e` scaled down keeps at least its
+    ///      average (its output is concave in its input), so the hop pays at least what `e`
+    ///      alone promised. `h` rides only when its verified rank also pays `z` over the input it
+    ///      verified; otherwise the hop is built from every candidate, as it always was.
+    function _hop(address tIn, address tOut, uint256 amountIn, PoolInfo[] memory cands, uint256 mode)
+        private view returns (Hop memory hop, uint256 up, bool held)
+    {
+        (PoolInfo[] memory ex, V4Stopped memory s) = _v4Stops(tIn, amountIn, cands, mode);
+        if (s.sStop != 0) {
+            (hop, up, held) = _buildHop(tIn, tOut, amountIn, ex, MAX_LEGS_PER_HOP - 1, mode);
+            bool on;
+            (on, hop, up) = _limitedHop(hop, up, s, tIn);
+            if (on) return (hop, up, held);
+        }
+        return _buildHop(tIn, tOut, amountIn, cands, MAX_LEGS_PER_HOP, mode);
+    }
+
+    /// @dev Every hookless V4 candidate walked deep for `amountIn` (`BPC.v4Stop`): `s` the one
+    ///      that stopped short with the highest rank (`s.sStop == 0`: none did), `ex` the
+    ///      candidates that did not stop short, in their order.
+    function _v4Stops(address tIn, uint256 amountIn, PoolInfo[] memory cands, uint256 mode)
+        private view returns (PoolInfo[] memory ex, V4Stopped memory s)
+    {
+        uint256 n = cands.length;
+        ex = new PoolInfo[](n);
+        uint256 k;
+        for (uint256 i; i < n; ) {
+            PoolInfo memory c = cands[i];
+            uint160 st;
+            if (c.hooks == address(0) && BPC.kindHasAny(c.kind, BPC.A_CONC_SING)) {
+                uint256 r;
+                uint256 u;
+                uint24 f;
+                (r, u, st, f) = BPC.v4Stop(_ctx(c, tIn, uint8(mode >> 16), uint8(mode >> 8)), amountIn);
+                if (st != 0 && r > s.rank) s = V4Stopped(c, r, u, st, f);
+            }
+            if (st == 0) { ex[k] = c; unchecked { ++k; } }
+            unchecked { ++i; }
+        }
+        assembly ("memory-safe") { mstore(ex, k) }
+    }
+
+    /// @dev `e` (with `upE`, its rank above its promise) behind the price-limited leg of `s`,
+    ///      when it rides (`_hop`). `z` is `e`'s average rate, rounded up: the bar each unit of
+    ///      the limited leg must pay. The hop's input stays `e`'s; its promise is the limited
+    ///      leg's verified rank pro rata to the part of that input it covers, plus `e`'s promise
+    ///      pro rata to the rest.
+    function _limitedHop(Hop memory e, uint256 upE, V4Stopped memory s, address tIn)
+        private pure returns (bool on, Hop memory hop, uint256 up)
+    {
+        uint256 xE = e.amountIn;
+        if (e.legs.length == 0 || xE == 0) return (false, hop, 0);
+        uint256 z = BPC.mulDivUp(e.expectedOut, 1e18, xE);
+        if (s.rank < BPC.mulDivUp(z, s.used, 1e18)) return (false, hop, 0);
+        PoolInfo memory c = s.cand;
+        bool zfo = c.token0 == tIn;
+        int24 tick;
+        (on, tick) = BPC.v4LimitTick(z, s.fee, s.sStop, zfo);
+        if (!on) return (false, hop, 0);
+        uint256 n = e.legs.length;
+        Leg[] memory legs = new Leg[](n + 1);
+        legs[0] = Leg({
+            pool: c.pool, hooks: c.hooks, kind: c.kind,
+            fee: c.fee, tickSpacing: c.tickSpacing,
+            zeroForOne: zfo, stable: c.stable,
+            amountIn: s.used, expectedOut: s.rank,
+            auxId: bytes32(uint256(uint160(zfo ? c.token1 : c.token0)) | uint256(uint24(tick)) << 160 | 1 << 184)
+        });
+        for (uint256 i; i < n; ) { legs[i + 1] = e.legs[i]; unchecked { ++i; } }
+        uint256 a = s.used < xE ? s.used : xE;
+        hop = Hop({
+            tokenIn: e.tokenIn, tokenOut: e.tokenOut, amountIn: xE,
+            expectedOut: BPC.mulDiv(s.rank, a, s.used) + BPC.mulDiv(e.expectedOut, xE - a, xE),
+            legs: legs
+        });
+        up = BPC.mulDiv(upE, xE - a, xE);
+    }
 
     /// @dev `held`: a capacity-held candidate ranked at its cap could still change what this
     ///      hop chose - a leg of the split held at the cap, or a held single whose quote is
