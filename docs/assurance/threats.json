@@ -515,6 +515,14 @@
       "note": "Bug bounty lot 2026-11-10 (uid 4009). batchQuote isolates a failing item with a try, but forwarded all the gas that was left to each solve. A permissionlessly fragmented V4 book (one-wei positions on the order's path) makes one solve exceed any budget; the healthy items after it were left 1/64 and read zero, or the batch itself ran out. Item i is now given gasleft() / (n - i): the share never shrinks down the batch, so an item that solves inside 1/n of the budget is quoted whatever the others do, and the last item is given all that is left. View door only; no funds move. Limits, stated: an honest item that needs more than its share and is not last now reads zero in a batch (ask it alone); an item that exhausts its gas last still leaves 1/64 for the answer, as before. test/BatchQuoteItemGasShare.t.sol, mutants QS-6 to QS-8."
     },
     {
+      "id": "SOK-QUOTER-BATCH-HELD-ITEM-SHARE",
+      "class": "a batchQuote item ahead of the last whose solve walks a held leader reads empty on its share of the gas, for a pair the automatic door fills",
+      "status": "blocked",
+      "guard": "batchQuote",
+      "test": "test_HeldItemAheadOfTheLast_ReadsItsSolve",
+      "note": "caixa-1123 (5662). Item i is given gasleft() / (n - i); a solve that walks a held leader needs SOLVE_GAS whole and stops with empty revert data on less (Solver, SOLVE_B), so on a 50M call of n >= 4 items such a pair read zero unless it was last, while swapBestExactIn (SOLVE_GAS) fills it. An item ahead of the last that stopped with empty data is now asked once more, in order, with SOLVE_GAS, while the gas left covers SOLVE_GAS * 64 / 63 + PACK_RESERVE (560,000, measured 555,950); a revert with data is an answer and is not asked again; below the floor the slot stays empty. Floor, no-route, exhausting-first and fuzz rows in test/BatchQuoteHeldItemAskedAgain.t.sol; mutants caixa-1123 batchquote a-f."
+    },
+    {
       "id": "SOK-QUOTER-ENCODE-PASSED-DEADLINE",
       "class": "The encode doors return canExecute and the swap bytes for a deadline already behind the block, which Router._swap refuses with RouterE(4)",
       "status": "blocked",

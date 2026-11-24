@@ -26,3 +26,5 @@ row-read	short-answer	cat	hub-insert
 row-read	past-ceiling	cat	hub-insert
 intermediate	fine	cat	fz
 intermediate	coarse	cat	fz
+batch-place	ahead	cat	fz
+batch-place	last	cat	fz

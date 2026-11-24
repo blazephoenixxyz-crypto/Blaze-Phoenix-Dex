@@ -172,6 +172,15 @@ contract BlazePhoenixQuoter {
     ///         re-underwrite it.
     uint16  internal constant ASSUMED_FEE_SAFETY = 5;
     uint16  internal constant MAX_BATCH         = 32;
+    /// @dev What `batchQuote` keeps past a second-pass solve: the call's own cost, `_pack` of
+    ///      the largest route (MAX_HOPS x MAX_LEGS_PER_HOP hooked V4 legs) and MAX_BATCH such
+    ///      previews encoded: 555,950 measured cold (test/BatchQuoteHeldItemAskedAgain.t.sol,
+    ///      the floor test), rounded up to 10,000. Margin: the SOLVE_GAS / 63 = 233,333 that
+    ///      EIP-150 keeps back from the call is not counted in it.
+    uint256 internal constant PACK_RESERVE      = 560_000;
+    /// @dev The least gas left at which `batchQuote` asks an item again: EIP-150 hands the
+    ///      solve the whole SOLVE_GAS, and PACK_RESERVE is left to answer.
+    uint256 internal constant SOLVE_AGAIN_FLOOR = BPC.SOLVE_GAS * 64 / 63 + PACK_RESERVE;
     /// @dev Gas each Gate adapter answer (quote, then quoteCall) may spend in _priceLeg.
     uint256 internal constant GATE_QUOTE_GAS    = BPC.GATE_QUOTE_GAS;
     /// @dev The input probe's transient context (`_inputTaxed`): the pool run backwards and
@@ -333,6 +342,7 @@ contract BlazePhoenixQuoter {
         uint256 n = entries.length;
         if (n > MAX_BATCH) revert QuoterE(4);
         previews = new Preview[](n);
+        uint256 again;
         for (uint256 i; i < n; ) {
             BatchEntry calldata e = entries[i];
             // One item's solve is given its share of the gas that is left, not all of it: a solve
@@ -341,7 +351,25 @@ contract BlazePhoenixQuoter {
             // so it never shrinks down the batch and the last item is given everything.
             try solver.findBestRoutePlan{gas: gasleft() / (n - i)}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {
                 previews[i] = _pack(p.best, e.userMinOut);
-            } catch { /* leave zero-initialised */ }
+            } catch (bytes memory r) { if (r.length == 0 && i + 1 < n) again |= 1 << i; }
+            unchecked { ++i; }
+        }
+        // A share is not the automatic door's budget: a solve that walks a held leader needs
+        // SOLVE_GAS whole and stops with empty data on less (Solver, SOLVE_B), so an item ahead
+        // of the last could read empty for a pair with a route (5662). An item that stopped
+        // empty on its share is asked once more as the automatic door asks (Router,
+        // `swapBestExactIn`), in order, while the gas left hands it SOLVE_GAS whole and keeps
+        // PACK_RESERVE to answer. A refusal with data is an answer and is not asked again; the
+        // last item was given everything. Below the floor the slot stays empty, as before.
+        for (uint256 i; again != 0; ) {
+            if (again & 1 != 0) {
+                if (gasleft() < SOLVE_AGAIN_FLOOR) break;
+                BatchEntry calldata e = entries[i];
+                try solver.findBestRoutePlan{gas: BPC.SOLVE_GAS}(e.tIn, e.tOut, e.amountIn) returns (RoutePlan memory p) {
+                    previews[i] = _pack(p.best, e.userMinOut);
+                } catch {}
+            }
+            again >>= 1;
             unchecked { ++i; }
         }
     }
