@@ -82,6 +82,18 @@ for every class, is [`docs/assurance/threats.json`](assurance/threats.json).
   so such a route can preview `canExecute = true`. The swap then reverts as a whole and the caller
   keeps the input: no funds are lost. Detecting every hostile transfer rule at quote time would
   cost gas on every quote and could never be complete, so it is a documented limit.
+- **The preview can sit above the delivery, by less than two units of a coarse token between the
+  hops, when every hop pays the fee.** On a route with no registered bridge as any hop's input the
+  Router charges every hop, a later hop on what arrived from the one before. The preview charges
+  that hop on the plan's commitment, which can be one unit above the arrival when the token between
+  the hops is coarse (a 0-2 decimal token, or dust). `netOut` then exceeds the delivery by less
+  than `(2 - 0.0028) * grossOut / b1 + 1`, with `b1` the second hop's commitment: under two units
+  of the intermediate token at that hop's rate. Measured on 28 sizes and prices: 9 above the
+  delivery, the widest +0.226% (200 units of the intermediate). The regime is reachable only on a
+  route the caller writes, or with a bridge removed between the plan and the preview, and it fails
+  closed: a minimum set from that `netOut` reverts and no funds are lost. Reading each hop in its
+  arrival units would instead preview `canExecute = false` on dust routes the Router fills. Pinned
+  by `test_Exhaustion_CoarseIntermediate_NetOutAboveDeliveryByUnderTwoIntermediateUnits`.
 
 - **Price movement, MEV and sandwiching above the signed minimum.** The iron floor is a bound, not a
   promise of the quoted amount: a fill between the floor (or the caller's tighter `userMinOut`) and

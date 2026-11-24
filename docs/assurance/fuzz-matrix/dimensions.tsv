@@ -19,3 +19,5 @@ decimals	6	mid	fz
 decimals	18	max	fz
 restatement	fee-push-restatement	cat	input-baseline
 restatement	leg-window-restatement	cat	input-baseline
+intermediate	fine	cat	fz
+intermediate	coarse	cat	fz

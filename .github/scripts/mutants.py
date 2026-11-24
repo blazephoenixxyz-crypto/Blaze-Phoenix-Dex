@@ -10929,6 +10929,11 @@ dict(nome='fin2-qs [QS-13]: the encode doors never ask whether the input is taxe
       old="            Leg[] memory ls = route.hops[charges == 1 && feeHop != type(uint256).max ? feeHop : c].legs;",
       new="            Leg[] memory ls = route.hops[c].legs; // MUTANTE",
       teste="test_Parity_PackAndNetOfInputFees_OnASolverPlanOfTwoHops"),
+ dict(nome="caixa-1123 pack-fee e: on exhaustion the preview charges once, so a coarse intermediate's overshoot grows past its two rounding units",
+      f="src/BlazePhoenixQuoter.sol",
+      old="            if (feeHop == type(uint256).max) charges = route.hops.length;",
+      new="            if (feeHop == type(uint256).max) charges = 1; // MUTANTE",
+      teste="test_Exhaustion_CoarseIntermediate_NetOutAboveDeliveryByUnderTwoIntermediateUnits"),
 ]
 # [door-fee-meta] (2026-11-13): the fork row test_Matriz_DaiEPortaExata (test/fork/FidelityMatrix.t.sol)
 # asks the exact door for 1 bps of the delivery in the same block; its offline twin
