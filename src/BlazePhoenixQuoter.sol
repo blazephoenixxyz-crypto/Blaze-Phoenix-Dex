@@ -756,7 +756,7 @@ contract BlazePhoenixQuoter {
             = abi.decode(data, (IV4Q.V4PoolKey, bool, uint256, uint256, uint256, uint256));
         (int256 ow, int256 rc) = lim == 0
             ? _v4Swap(mgr, key, zfo, amt, zfo ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE)
-            : _v4Rounds(mgr, key, zfo, amt, int24(uint24(lim)), bar, floor);
+            : _v4Rounds(mgr, key, zfo, amt, [lim, bar, floor]);
         if (zfo) revert QuoteDeltas(ow, rc);
         revert QuoteDeltas(rc, ow);
     }
@@ -781,19 +781,21 @@ contract BlazePhoenixQuoter {
     ///      `Router._v4Rounds`, window by window on the same reads (`BPC.v4Window`,
     ///      `BPC.v4ValueAt`). Up to `floor` the leg always goes on; past it a window must pay at
     ///      least `bar` above what its input is worth at the limit price. Returns the summed
-    ///      deltas: what the leg owes (negative) and what it receives.
-    function _v4Rounds(
-        address mgr, IV4Q.V4PoolKey memory key, bool zfo, uint256 amt, int24 limTick, uint256 bar, uint256 floor
-    ) private returns (int256 owe, int256 recv) {
+    ///      deltas: what the leg owes (negative) and what it receives. `g` carries the leg's
+    ///      terms: [0] its limit tick, [1] the window bar, [2] the floor.
+    function _v4Rounds(address mgr, IV4Q.V4PoolKey memory key, bool zfo, uint256 amt, uint256[3] memory g)
+        private returns (int256 owe, int256 recv)
+    {
         bytes32 pid = BPC.computeV4PoolId(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks);
         while (true) {
-            (uint160 stop, uint160 limSqrt, uint24 fee) = BPC.v4Window(mgr, pid, key.fee, key.tickSpacing, zfo, limTick);
+            (uint160 stop, uint160 limSqrt, uint24 fee) =
+                BPC.v4Window(mgr, pid, key.fee, key.tickSpacing, zfo, int24(uint24(g[0])));
             if (stop == 0) break;
             (int256 t, int256 o) = _v4Swap(mgr, key, zfo, amt - uint256(-owe), stop);
             owe += t;
             recv += o;
             if (uint256(-owe) >= amt || stop == limSqrt) break;
-            if (uint256(-owe) >= floor && (o <= 0 || uint256(o) < BPC.v4ValueAt(uint256(-t), fee, limSqrt, zfo) + bar)) break;
+            if (uint256(-owe) >= g[2] && (o <= 0 || uint256(o) < BPC.v4ValueAt(uint256(-t), fee, limSqrt, zfo) + g[1])) break;
         }
     }
 
@@ -1189,33 +1191,38 @@ contract BlazePhoenixQuoter {
     function _fundLimited(uint256[6] memory acc, Hop memory hop, uint256 carry, bool first, bool ask)
         private returns (uint256 hopOut, uint256 hopBound, uint256 bounded)
     {
-        Leg[] memory legs = hop.legs;
         uint256 s = _legSum(hop);
         if (first && carry > s) carry = s;
         if (s == 0) s = 1;
-        uint256[4] memory w;
+        uint256[4] memory w = _limitedTerms(hop, carry, s);
+        hopOut = _simV4(hop.legs[0], hop.tokenIn, carry, w);
+        if (ask) {
+            (acc[3], acc[4], acc[5]) = (w[2], w[3] < w[2] ? w[3] : w[2], w[2] == 0 ? 1 : w[2]);
+            hopBound = _askLeg(acc, hop.legs[0], hop, w[3], hopOut);
+            if (hopBound == type(uint256).max) return (hopBound, 0, 0);
+            if (hopBound != 0) bounded = 1;
+        }
+        for (uint256 i = 1; i < hop.legs.length; i++) {
+            if (ask) (acc[3], acc[4], acc[5]) = (BPC.mulDiv(hop.legs[i].amountIn, carry, s), carry - w[3], carry);
+            (uint256 legOut, uint256 bound) =
+                _walkLeg(acc, hop.legs[i], hop, BPC.mulDiv(hop.legs[i].amountIn, carry - w[3], s), false, ask);
+            if (bound == type(uint256).max) return (bound, 0, 0);
+            if (bound != 0) { hopBound += bound; ++bounded; }
+            hopOut += legOut;
+        }
+        acc[5] = 0;
+    }
+
+    /// @dev The terms a price-limited hop's first leg fills under, out of `_fundLimited`'s frame
+    ///      for the stack: [0] its limit tick with bit 255 set, [1] the window bar, [2] its
+    ///      floor (its share of `carry` over the commitment `s`); [3] is `_simV4`'s to write.
+    function _limitedTerms(Hop memory hop, uint256 carry, uint256 s) private pure returns (uint256[4] memory w) {
+        Leg[] memory legs = hop.legs;
         (, int24 tick) = BPC.v4Limit(legs[0].auxId);
         w[0] = (uint256(1) << 255) | uint256(uint24(tick));
         for (uint256 i = 1; i < legs.length; i++) w[1] += legs[i].expectedOut;
         w[1] = BPC.mulDiv(w[1], MIN_SPLIT_IMPROVEMENT_PPM, 1_000_000);
         w[2] = BPC.mulDiv(legs[0].amountIn, carry, s);
-        hopOut = _simV4(legs[0], hop.tokenIn, carry, w);
-        uint256 rest = carry - w[3];
-        uint256 bound;
-        if (ask) {
-            (acc[3], acc[4], acc[5]) = (w[2], w[3] < w[2] ? w[3] : w[2], w[2] == 0 ? 1 : w[2]);
-            bound = _askLeg(acc, legs[0], hop, w[3], hopOut);
-        }
-        for (uint256 i = 1; ; i++) {
-            if (bound == type(uint256).max) return (bound, 0, 0);
-            if (bound != 0) { hopBound += bound; ++bounded; }
-            if (i == legs.length) break;
-            if (ask) (acc[3], acc[4], acc[5]) = (BPC.mulDiv(legs[i].amountIn, carry, s), rest, carry);
-            uint256 legOut;
-            (legOut, bound) = _walkLeg(acc, legs[i], hop, BPC.mulDiv(legs[i].amountIn, rest, s), false, ask);
-            hopOut += legOut;
-        }
-        acc[5] = 0;
     }
 
     /// @dev The hops from `h` on, which a fee that ate the carry left unfunded: every
