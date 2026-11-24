@@ -761,6 +761,14 @@
       "guard": "findBestRoutePlan",
       "test": "test_LeaderPayingNothingWithNoRebuildIsNotHandedOut",
       "note": "PR #139, 2026-11-19. Red at 24959f0 and at 2c8cbbe (a one-hop plan, totalOut 0); pre-existing, not a regression, no funds at risk (the Router reverts). One check where every plan leaves the search (the self-call ends there too): a plan with totalOut 0 reverts SolverE(5). Mutant M-JUDGE-10."
+    },
+    {
+      "id": "V4-EMPTY-TICK-BOOK-QUOTED-AS-DEAD",
+      "class": "A V4 book whose price sits in a gap (no liquidity on the current tick, liquidity on the next stretches) was quoted as a dead pool by the arm (`_v4Quote` cut on the current tick's liquidity alone) and promised 0 by the frame's door (`v4LegOut`), though the swap crosses the gap for free and fills on the liquidity ahead: a book anyone can leave in a gap was left out of the route",
+      "status": "blocked",
+      "guard": "_v4Quote",
+      "test": "test_V4Arm_EmptyCurrentTick_LiquidityAtTheNextTick_IsQuotedForWhatItPays",
+      "note": "caixa-1123 v4walk, 2026-11-24 (uids 5245, 5513). Red at 9b2855e. A book whose current tick is empty is quoted iff it holds something within the promise's V4_WALK_MAX_STEPS stretches (`v4Held`, the producer the Solver already reads), for what the walk pays; depthWad and mass stay 0, so it casts no vote in the band. An initialized and empty book costs sixteen stretches, never the ranking's 256. The frame's door asks the walk too, so it promises the arm's number (parity pin test_Doors_EmptyTickBook_TheFramePromisesWhatTheArmQuoted). Mutants VW-1..VW-4. Funnel seating of such a book over 2 rows and 2 hops: family funnel."
     }
   ]
 }

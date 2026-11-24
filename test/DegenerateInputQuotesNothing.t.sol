@@ -9,8 +9,10 @@ pragma solidity 0.8.36;
 // Mutant (.github/scripts/mutants.py):
 //   «Core:1909» `if (amountIn == 0)` -> `if (amountIn == 1)` (a zero probe reads the pair:
 //     its out reserve as mass and its fee) -> red;
-//   «Core:2150» `if (liq == 0)` -> `if (liq == 1)` (a V4 book with no liquidity in range
-//     is walked and quoted) -> red.
+//   «caixa-1123 v4walk [VW-2]» the empty-tick cut of `_v4Quote` removed (an initialized book
+//     holding nothing is walked and quoted) -> `test_ConcLiqZeroQuotesNothing` red. The cut
+//     (was «Core:2150», `liq == 0` alone) now asks `v4Held` over the promise's sixteen stretches:
+//     its other mutants live in test/EmptyTickBookAnswersItsWalk.t.sol.
 
 import {Test} from "forge-std/Test.sol";
 import {BlazePhoenixCore as BPC, QuoteCtx} from "../src/BlazePhoenixCore.sol";
