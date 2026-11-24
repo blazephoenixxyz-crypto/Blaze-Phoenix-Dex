@@ -7,6 +7,13 @@
 // mathematics, not to the doors; the doors are the unit this reference stands in for, so it
 // carries the new step and the comparison still fixes everything but the doors. The step itself
 // is held by test/OutV3IsNotAboveThePoolsSwap.t.sol and mutants [1081] [1082].
+// A SECOND CHANGE PORTED (hydrex-1124, 2026-11-24): `quoteV3Fee` asks an Algebra-shaped pool its
+// fee() too, as the live Core does; word 2 of globalState() answers only when fee() does not.
+// That is a change to what the one quote body reads, the same behind every door, so the
+// reference carries it and the doors stay the unit compared. Without it the two sides part on
+// every world whose Algebra-shaped pool answers fee(): measured, 4 of the 10 tests here, and
+// none once this one line is ported. The read itself is held by
+// test/AlgebraQuoteAsksThePoolItsFee.t.sol and the mutants labelled hydrex-1124 D1.
 // =============================================================================
 //  BlazePhoenix Protocol — BlazePhoenixCore
 //  Version    : 2.0.0
@@ -1324,7 +1331,8 @@ library CoreRefCb1d7d9 {
     function quoteV3Fee(address pool, uint24 cfgFee, uint24 dynFee, bool dyn)
         internal view returns (uint24)
     {
-        uint24 f = dyn ? 0 : getV3Fee(pool); // CL: the fee lives on the pool, asked now
+        // PORTED FROM hydrex-1124 (see the header): an Algebra-shaped pool is asked its fee() too.
+        uint24 f = getV3Fee(pool); // the fee lives on the pool, asked now
         if (f != 0) return f;
         if (cfgFee != 0) return cfgFee;   // a pool whose fee() does not answer: the key
         if (dyn) return dynFee;           // Algebra: measured live fee

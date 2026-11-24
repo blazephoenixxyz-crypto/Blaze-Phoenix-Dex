@@ -1,8 +1,8 @@
 {
-  "a_admitted_1hop_deep": "214175",
-  "b1_refused_1hop_honest": "190785",
-  "b2_refused_2hops_honest": "300554",
-  "c_refused_4topologies_burn": "3240449",
+  "a_admitted_1hop_deep": "214099",
+  "b1_refused_1hop_honest": "190709",
+  "b2_refused_2hops_honest": "300402",
+  "c_refused_4topologies_burn": "3239983",
   "n_refused_no_route": "59168",
-  "starve_solve_4topologies_burn": "3711547"
+  "starve_solve_4topologies_burn": "3711059"
 }

@@ -1085,10 +1085,11 @@ library BlazePhoenixCore {
     }
 
     /// @notice Uniswap-V3 pool fee via the immutable fee() getter (0xddca3f43).
-    /// @dev    Returns 0 when unreadable — Algebra's fee is dynamic and lives in
-    ///         globalState(), not fee(), so an Algebra pool reads 0 here and the
-    ///         caller must fail closed (never trust caller-supplied leg.fee for
-    ///         the protocol-fee base: execution charges the pool's own fee).
+    /// @dev    Returns 0 when unreadable. An Algebra v1/1.9 pool has no fee() and
+    ///         reads 0 here; an Algebra Integral pool answers with the fee its
+    ///         plugin charges now. On 0 the caller falls back or fails closed
+    ///         (never trust caller-supplied leg.fee for the protocol-fee base:
+    ///         execution charges the pool's own fee).
     ///         The read runs on CL_FEE_GAS, not GAS_CAP (aero-nova 2026-10-26: the new
     ///         Aerodrome CL fee() spends 78-178k cold, so at GAS_CAP every one of them quoted
     ///         0xFFFFFF). Three outcomes, never a fourth:
@@ -1360,17 +1361,24 @@ library BlazePhoenixCore {
     ///         A dynamic-fee CL pool moves it per block - measured on Base,
     ///         Slipstream WETH/USDC sp=100: 549 then 564 in consecutive
     ///         blocks, 150..937 across 35 samples - so the preview promised
-    ///         the old fee and a userMinOut taken from it was refused. A pool
-    ///         that is not Algebra-shaped is asked first, one staticcall per
-    ///         CL quote; the key answers only for a pool whose fee() does not.
-    ///         Algebra keeps its order: its measured fee comes with the price.
+    ///         the old fee and a userMinOut taken from it was refused. Every
+    ///         pool is asked first, one staticcall per CL quote; the key
+    ///         answers only for a pool whose fee() does not.
+    ///         ALGEBRA IS ASKED TOO (hydrex-1124, 2026-11-24). On Algebra
+    ///         Integral word 2 of globalState() is `lastFee`, which a
+    ///         dynamic-fee plugin leaves stale: the swap pays what the plugin
+    ///         answers, and pool.fee() asks that same plugin. Measured on Base
+    ///         at block 61800517, four Hydrex pools: word 2 = 500 on each,
+    ///         while their swaps paid 3081 / 15000 / 50 / 123 = fee(). Word 2
+    ///         answers only when fee() does not (Algebra v1/1.9 has no fee();
+    ///         an Integral fee() reverts when its plugin does).
     function quoteV3Fee(address pool, uint24 cfgFee, uint24 dynFee, bool dyn)
         internal view returns (uint24)
     {
-        uint24 f = dyn ? 0 : getV3Fee(pool); // CL: the fee lives on the pool, asked now
+        uint24 f = getV3Fee(pool); // the fee lives on the pool, asked now
         if (f != 0) return f;
         if (cfgFee != 0) return cfgFee;   // a pool whose fee() does not answer: the key
-        if (dyn) return dynFee;           // Algebra: measured live fee
+        if (dyn) return dynFee;           // Algebra whose fee() does not answer: word 2
         return 0xFFFFFF;                  // still unmeasurable -> fail closed
     }
 
@@ -1965,8 +1973,9 @@ library BlazePhoenixCore {
             // the live fee — measured, never the Hub's 0 sentinel. See
             // v3StateAndDynFee / quoteV3Fee: the INV-20 "measure, don't take the
             // nominal" rule, applied to the OTHER dynamic-fee family in this
-            // same dispatcher. A non-Algebra pool is asked its own fee() first
-            // (`quoteV3Fee`); the key's fee answers only when fee() does not.
+            // same dispatcher. Every pool is asked its own fee() first
+            // (`quoteV3Fee`); the key's fee, then Algebra's word 2, answer
+            // only when fee() does not.
             (uint160 sp, uint24 dynFee, bool isDyn) = v3StateAndDynFee(c.pool);
             uint128 liq = getLiquidity(c.pool);
             // NO boundary clamp, for now: `v3StateAndDynFee` does not yet return

@@ -523,6 +523,14 @@
       "note": "DEX-17 (revisao-total K5; opencode dx/it0020), 2026-10-27. provenShape writes a CL pool's fee() into its row at registration, and quoteV3Fee returned that key first ('static key is truth'), so the Solver's leg and the preview priced the registration block's fee; the Router's floor asks the pool (cfgFee 0) and the pool charges its own. Measured on Base: Slipstream WETH/USDC sp=100 answers fee() 549 and 564 in consecutive blocks, 150..937 across 35 samples. Red at 2a384f0: registered at 150, charging 937, netOut 997050419999003087 > delivered 996265623599004655, so a userMinOut taken from the preview is refused; registered at 937, charging 150, the venue priced worse than it is (test_AFeeThatFellIsPromisedAsThePoolChargesIt). quoteV3Fee now asks fee() of a pool that is not Algebra-shaped first, one staticcall per CL quote; the key answers only for a pool whose fee() does not; Algebra keeps its order. No funds at risk: the floor was already live. Mutant [884]."
     },
     {
+      "id": "SOK-QUOTE-ALGEBRA-STALE-WORD-FEE",
+      "class": "The quote prices an Algebra Integral pool at word 2 of globalState(), the last fee its dynamic-fee plugin wrote, while the swap pays what the plugin answers now",
+      "status": "blocked",
+      "guard": "quoteV3Fee",
+      "test": "test_AFeeAboveTheStaleWordIsTheFeePriced",
+      "note": "hydrex-1124 D1, 2026-11-24. quoteV3Fee skipped fee() for an Algebra-shaped pool and priced word 2 of globalState() (`lastFee` on Integral). Measured on Base at block 61800517, four Hydrex pools: word 2 = 500 on each, while their swaps paid 3081 / 15000 / 50 / 123, the pool's fee(). Every pool is now asked fee() first; word 2 answers only when fee() does not (Algebra v1/1.9 has no fee(); an Integral fee() reverts when its plugin does). Red at 6387350 in both directions (fee above and below the word) and through the leg floor; the fork file test/fork/AlgebraQuotePricesTheFeeTheSwapPays.t.sol pins priced == charged on the Hydrex, QuickSwap and Camelot pools. Mutant: hydrex-1124 D1 (the line as it stood)."
+    },
+    {
       "id": "SOK-QUOTER-GATE-QUOTECALL-STATE",
       "class": "A Gate leg priced by quoteCall on a venue that prices by running the swap leaves the venue moved inside the eth_call, and the next pricing of the leg in the same preview meets a venue the Router will not",
       "status": "blocked",

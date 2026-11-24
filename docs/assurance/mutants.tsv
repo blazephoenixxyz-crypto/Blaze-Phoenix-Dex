@@ -880,6 +880,10 @@ src/BlazePhoenixQuoter.sol	test_SixLegsOnTheSecondHop_PreviewRefusedAndRefused	P
 src/BlazePhoenixQuoter.sol	test_APassedDeadlineCannotExecute	OC-03 [882]: the encode doors do not ask the deadline the Router refuses with RouterE(4)
 src/BlazePhoenixQuoter.sol	test_APoolTwiceInAHopIsNeverPromisedMoreThanDelivery	OC-07 [883]: a pool twice in one hop keeps the exact figure priced side by side
 src/BlazePhoenixCore.sol	test_AFeeThatRoseIsPromisedAsThePoolChargesIt	DEX-17 [884]: the quote prices a CL pool at its row key, not at the fee the pool charges now
+src/BlazePhoenixCore.sol	test_AFeeAboveTheStaleWordIsTheFeePriced	hydrex-1124 D1: an Algebra-shaped pool is not asked its fee(): the quote prices the stale word 2 of globalState() under the fee the pool charges
+src/BlazePhoenixCore.sol	test_AFeeBelowTheStaleWordIsTheFeePriced	hydrex-1124 D1: an Algebra-shaped pool is not asked its fee(): the quote prices the stale word 2 of globalState() over the fee the pool charges
+src/BlazePhoenixCore.sol	test_TheLegFloorReadsTheSameFee	hydrex-1124 D1: an Algebra-shaped pool is not asked its fee(): the leg floor reads the stale word 2 as well
+src/BlazePhoenixCore.sol	test_AStarvedFrameRevertsEmptyAndNeverPricesTheWord	hydrex-1124 D1: an Algebra-shaped pool is not asked its fee(): a starved frame prices the word instead of reverting empty
 src/BlazePhoenixQuoter.sol	test_AGateLegPricedTwiceIsPricedOnTheVenueAsItStands	C-f2 3330 [885]: the Gate quoteCall is asked outside the reverting frame, so the venue keeps what its simulation wrote
 src/BlazePhoenixQuoter.sol	test_AFloorTheVenueCannotMeetAsFundedIsNotEncoded	C-f2 3336 [886]: the encode doors do not ask the floor of the venues as the Router funds the route
 src/BlazePhoenixQuoter.sol	test_ADirectRouteIntoABridge_UnderItsFloor_IsNotEncoded	G7 base midtail-3:4 M1: a direct route into a bridge asks no venue at the encode door
