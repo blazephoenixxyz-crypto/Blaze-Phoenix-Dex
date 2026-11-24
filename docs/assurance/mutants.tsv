@@ -407,6 +407,7 @@ src/BlazePhoenixSolver.sol	test_Q2i_TruncatedPastTheDeepWalkKeepsTheSplit	S2: th
 src/BlazePhoenixSolver.sol	test_Control_UntruncatedWalkSplitStillWins	S2: the split gate always collapses to the best single, even when the split beats it
 src/BlazePhoenixSolver.sol	test_LateTruncatedV4RowIsNotVetoedByItsOwnCeiling	S2: the whole-order rows' ceiling vetoes the collapse again (hMax <= sR)
 src/BlazePhoenixSolver.sol	test_LateTruncatedV4RowIsNotVetoedByItsOwnCeiling	S2: the split ceiling counts each leg's whole ceiling, not what it holds above its promise
+src/BlazePhoenixSolver.sol	test_MinSplitGate_LimiarTemDoisLados	S2: the split gate asks no margin, a split that merely ties the best single is kept
 src/BlazePhoenixMath.sol	test_Q2p_TheDeepReReadPutsTheBaseBackOnTheHonestBook	S2: a cut held vote is never re-read deep
 src/BlazePhoenixMath.sol	test_Q2p_TheDeepReReadPutsTheBaseBackOnTheHonestBook	S2: the median keeps the sixteen-stretch votes even when they change the band
 src/BlazePhoenixCore.sol	test_Q2j2_FragmentedProbeIsRankedOnTheDeepWalk_SmallOrder	S2: the probe rate reads the sixteen-stretch promise again (dust inside its reach drops the pool)

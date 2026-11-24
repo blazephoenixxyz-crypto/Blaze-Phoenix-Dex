@@ -168,7 +168,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 |---|---:|---:|---:|
 | `src/BlazePhoenixRouter.sol` | 477 | 396 | 477 |
 | `src/BlazePhoenixCore.sol` | 424 | 343 | 424 |
-| `src/BlazePhoenixSolver.sol` | 266 | 193 | 266 |
+| `src/BlazePhoenixSolver.sol` | 267 | 194 | 267 |
 | `src/BlazePhoenixHub.sol` | 220 | 192 | 220 |
 | `src/BlazePhoenixQuoter.sol` | 163 | 139 | 163 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
@@ -191,7 +191,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
 | `test/fork/AtqForkVenueOracle.sol` | 1 | 1 | 1 |
-| **all** | 1,999 | 1,569 | 1,999 |
+| **all** | 2,000 | 1,570 | 2,000 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -250,7 +250,7 @@ declaration counts, not pass counts.
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,999 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,000 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
