@@ -143,6 +143,7 @@ contract BlazePhoenixAdapterInfinityBin is ExtAdapterBase, IExtAdapter, ILockCal
     {
         (address a, address b) = _pairOf(msg.sender, true);
         if (VAULT.getLocker() != address(0)) return (0, 0);
+        _requireHookPinned(_key(aux0).hooks); // and at quote: what exec refuses declares no depth
         (uint24 active, , ) = BIN_MANAGER.getSlot0(aux0);
         (uint128 rx, uint128 ry, , ) = BIN_MANAGER.getBin(aux0, active);
         (out, depth18) = (0, _depth18(a, rx, b, ry));

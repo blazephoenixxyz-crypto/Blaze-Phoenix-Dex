@@ -314,6 +314,42 @@ contract AdapterInfinityCLTest is AdapterHarness {
         BlazePhoenixGateWrapper(w2).swap(address(this), true, 1e18, 0, "");
     }
 
+    /// Red at 42a242d (caixa-1123 adapter-hook): `quote` was the one door that did not ask
+    /// `_requireHookPinned`, so a wrapper whose pinned hook address came to hold other code still
+    /// declared depth while exec refused it. Fixed: the view door asks the predicate resolve, exec
+    /// and quoteCall ask. Oracle: the depth the same wrapper declared before the code moved, and
+    /// the pinned codehashes set at construction. Cheatcodes: vm.etch, vm.prank.
+    function test_ICL_Hooks_CodeChangedAfterCreate_QuoteDeclaresNoDepth() public {
+        bytes32 hid = _pool(address(hook), 69, FEE);
+        address w2 = gate.create(address(t0), address(t1), KEY + 1, abi.encode(hid));
+        BlazePhoenixGateWrapper x = BlazePhoenixGateWrapper(w2);
+        (address vp, bytes32 a0, bytes32 a1) = (x.venuePool(), x.aux0(), x.aux1());
+        (, uint256 d) = x.quote(true, 0);
+        assertGt(d, 0, "control: with the pinned code the leg declares depth");
+        vm.etch(address(hook), address(new RogueHook()).code);
+        (uint256 q, uint256 d2) = x.quote(true, 0);
+        assertEq(q + d2, 0, "the code moved: the wrapper's quote declares no depth");
+        vm.prank(w2);
+        vm.expectRevert(_aerr(7));
+        adapter.quote(vp, a0, a1, true, 0);
+        assertEq(x.quoteCall(true, 1e18), 0, "quoteCall: no price");
+        t0.mint(address(this), 1e18);
+        vm.expectRevert(_aerr(7));
+        x.swap(address(this), true, 1e18, 0, "");
+    }
+
+    /// The Gate's vitality view reads the leg's depth through the same view door: once the pinned
+    /// hook's code has moved, the wrapper has no depth there either.
+    function test_ICL_GateVital_WrapperWithMovedHookCode_HasNoDepth() public {
+        bytes32 hid = _pool(address(hook), 69, FEE);
+        address w2 = gate.create(address(t0), address(t1), KEY + 1, abi.encode(hid));
+        (, uint256 d, ) = gate.vitalOf(w2);
+        assertGt(d, 0, "control: with the pinned code vitalOf reads depth");
+        vm.etch(address(hook), address(new RogueHook()).code);
+        (, d, ) = gate.vitalOf(w2);
+        assertEq(d, 0, "the code moved: vitalOf reads no depth");
+    }
+
     /// Only the adapter's own path produces QuoteOut: a hook reverting with that payload is a
     /// failed swap, not a price. The pool manager wraps every hook revert in the ERC-7751
     /// WrappedError (Hooks.sol:83), so the forged bytes arrive as its reason and the adapter

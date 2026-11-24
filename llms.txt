@@ -173,10 +173,10 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `src/BlazePhoenixQuoter.sol` | 163 | 139 | 163 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
 | `src/BlazePhoenixMath.sol` | 57 | 44 | 57 |
-| `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 51 | 39 | 51 |
-| `src/adapters/BlazePhoenixAdapterLB.sol` | 44 | 32 | 44 |
+| `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 52 | 40 | 52 |
+| `src/adapters/BlazePhoenixAdapterLB.sol` | 46 | 34 | 46 |
+| `src/adapters/BlazePhoenixAdapterInfinityCL.sol` | 42 | 37 | 42 |
 | `src/adapters/ExtAdapterBase.sol` | 42 | 37 | 42 |
-| `src/adapters/BlazePhoenixAdapterInfinityCL.sol` | 41 | 36 | 41 |
 | `src/adapters/BlazePhoenixAdapterAlgebraIntegral.sol` | 40 | 40 | 40 |
 | `src/adapters/BlazePhoenixAdapterBalancerV3.sol` | 21 | 19 | 21 |
 | `src/adapters/BlazePhoenixAdapterCurveNG.sol` | 19 | 18 | 19 |
@@ -191,7 +191,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
 | `test/fork/AtqForkVenueOracle.sol` | 1 | 1 | 1 |
-| **all** | 1,996 | 1,567 | 1,996 |
+| **all** | 2,000 | 1,571 | 2,000 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -245,12 +245,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,704 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test declarations | 3,712 | `function test*` / `invariant*` / `check*` under `test/` |
 | Test files | 528 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,996 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,000 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -276,9 +276,9 @@ declaration counts, not pass counts.
 | `BlazePhoenixAdapterBalancerV3` | 5,794 | 18,782 |
 | `BlazePhoenixAdapterCurveCryptoNG` | 3,014 | 21,562 |
 | `BlazePhoenixAdapterCurveNG` | 3,516 | 21,060 |
-| `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
-| `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
-| `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
+| `BlazePhoenixAdapterInfinityBin` | 5,235 | 19,341 |
+| `BlazePhoenixAdapterInfinityCL` | 5,544 | 19,032 |
+| `BlazePhoenixAdapterLB` | 3,124 | 21,452 |
 | `BlazePhoenixCore` | 19,450 | 5,126 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |

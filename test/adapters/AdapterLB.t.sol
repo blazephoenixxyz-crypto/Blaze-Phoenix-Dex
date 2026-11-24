@@ -20,6 +20,11 @@ contract FakeWrapperLB {
     }
 }
 
+/// A working BEFORE_SWAP hook with other code: what a pinned hook's address may come to hold.
+contract RogueLBHooks is MockLBHooks {
+    function rogue() external {}
+}
+
 /// Liquidity Book adapter (LFJ v2.1 / v2.2, Pharaoh DLMM) behind the real wrapper. Red-first at
 /// 0cb3af4: every test below was written before the adapter body, against a stub with the
 /// same ABI; the guard each one watches has its mutant in .github/scripts/mutants.py
@@ -315,8 +320,8 @@ contract AdapterLBTest is AdapterHarness {
 
     function test_LB_Resolve_PinsTheBeforeSwapHook() public {
         (, MockLBHooks h, address w2) = _hookedPair(30);
-        assertEq(BlazePhoenixGateWrapper(w2).aux1(), bytes32(uint256(uint160(address(h)))), "the hook seen at create");
-        assertEq(uint256(BlazePhoenixGateWrapper(w2).aux0()), 2, "HOOKED, X is token1");
+        assertEq(BlazePhoenixGateWrapper(w2).aux1(), address(h).codehash, "the hook's code seen at create");
+        assertEq(uint256(BlazePhoenixGateWrapper(w2).aux0()), 2 | (uint256(uint160(address(h))) << 96), "HOOKED, X is token1, the hook seen at create");
     }
 
     /// BY DESIGN (docs/KNOWN_ISSUES.md, "LFJ's ignoredForRouting flag"): the record's fourth field
@@ -470,6 +475,50 @@ contract AdapterLBTest is AdapterHarness {
         p.setHooks(bytes32(0));
         _assertLive(w2);
         assertEq(h.beforeCalls(), 0);
+    }
+
+    // Red at 42a242d (caixa-1123 adapter-hook): `_hooksOk` compared only the BEFORE_SWAP hook's
+    // address with the one seen at create, so the same address holding other code still quoted,
+    // quoteCalled and executed. Fixed: `resolve` pins the hook's address (aux0, above bit 96) and
+    // its codehash (aux1); `_hooksOk` asks both on every exec, quote and quoteCall. Oracles: the
+    // values fixed by hand in `_assertLive` and the codehash read by the test. Cheatcode: vm.etch.
+
+    function test_LB_Hooks_PinnedHookCodeChanged_Refused() public {
+        (, MockLBHooks h, address w2) = _hookedPair(30);
+        _assertLive(w2);
+        assertEq(h.beforeCalls(), 1, "anti-vacuity: the pinned hook ran once");
+        vm.etch(address(h), address(new RogueLBHooks()).code);
+        assertTrue(address(h).codehash != keccak256(address(new MockLBHooks()).code), "the code moved");
+        _assertPaused(w2);
+    }
+
+    /// The address half: a hook with the pinned code at another address is not the pinned hook.
+    function test_LB_Hooks_SameCodeAtAnotherAddress_Refused() public {
+        (MockLBPair p, MockLBHooks h, address w2) = _hookedPair(30);
+        _assertLive(w2);
+        MockLBHooks twin = new MockLBHooks();
+        assertEq(address(twin).codehash, address(h).codehash, "anti-vacuity: the same code");
+        p.setHooks(_hp(LIVE_FLAGS, address(twin)));
+        _assertPaused(w2);
+    }
+
+    function testFuzz_LB_Hooks_AnyOtherCodeAtThePinnedAddress_Refused(bytes calldata code) public {
+        vm.assume(code.length == 0 || code[0] != 0xEF); // EIP-3541: no deployed code starts 0xEF
+        (, MockLBHooks h, address w2) = _hookedPair(30);
+        vm.assume(keccak256(code) != address(h).codehash);
+        vm.etch(address(h), code);
+        _assertPaused(w2);
+    }
+
+    /// The Gate's vitality view reads the leg's depth through the adapter's quote: a pinned hook
+    /// whose code moved leaves the wrapper no depth there.
+    function test_LB_GateVital_WrapperWithMovedHookCode_HasNoDepth() public {
+        (, MockLBHooks h, address w2) = _hookedPair(30);
+        (, uint256 d, ) = gate.vitalOf(w2);
+        assertEq(d, 1_000e18, "control: the short side of the books");
+        vm.etch(address(h), address(new RogueLBHooks()).code);
+        (, d, ) = gate.vitalOf(w2);
+        assertEq(d, 0, "the code moved: vitalOf reads no depth");
     }
 
     // ─── the venue's ABI and the Gate's scan ───
