@@ -2682,6 +2682,26 @@ library BlazePhoenixCore {
         return _v4Ceil(0, x, fee, sp, zeroForOne);
     }
 
+    /// @notice The limit of a price-limited V4 leg: the last tick, in the swap's direction, whose
+    ///         rate after `fee` still pays `z` per 1e18 of input (`v4ValueAt`), found by bisection
+    ///         over the whole tick range. The rate falls monotonically along the swap's direction,
+    ///         so every unit filled before the limit pays at least `z`. `ok` is false when the
+    ///         rate at `sStop`, where the deep walk stopped, already pays less than `z`.
+    function v4LimitTick(uint256 z, uint24 fee, uint160 sStop, bool zeroForOne)
+        public pure returns (bool ok, int24 tick)
+    {
+        if (_v4Ceil(0, 1e18, fee, sStop, zeroForOne) < z) return (false, 0);
+        int256 lo = V4_MIN_TICK;
+        int256 hi = V4_MAX_TICK;
+        while (lo < hi) {
+            int256 mid = zeroForOne ? lo + (hi - lo) / 2 : hi - (hi - lo) / 2;
+            bool pays = _v4Ceil(0, 1e18, fee, sqrtPriceAtTick(int24(mid)), zeroForOne) >= z;
+            if (zeroForOne) { if (pays) hi = mid; else lo = mid + 1; }
+            else { if (pays) lo = mid; else hi = mid - 1; }
+        }
+        return (true, int24(lo));
+    }
+
     /// @notice The next window of a price-limited V4 leg: the sqrt price where it stops, the
     ///         nearer of the leg's limit tick and V4_WALK_DEEP_STEPS spacings past the pool's
     ///         current tick (initialized ticks sit on spacing multiples, so one window crosses
