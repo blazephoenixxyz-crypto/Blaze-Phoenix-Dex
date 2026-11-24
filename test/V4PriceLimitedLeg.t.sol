@@ -182,4 +182,52 @@ contract V4PriceLimitedLegTest is Test {
         assertEq(MockERC20(lo).balanceOf(address(router)), 0, "router holds tokenIn");
         assertEq(MockERC20(hi).balanceOf(address(router)), 0, "router holds tokenOut");
     }
+
+    // ── the shape a limited leg may ride in ──────────────────────────────────
+
+    /// The limit bits on a pair-shaped leg: refused before anything moves.
+    function test_LimitOnAPairLegIsRefused() public {
+        MockV2Pair pair = new MockV2Pair(lo, hi);
+        MockERC20(lo).mint(address(pair), 1_000e18);
+        MockERC20(hi).mint(address(pair), 1_000e18);
+        pair.setReserves(1_000e18, 1_000e18);
+        uint256 v2Out = LIM_IN * 997 * 1_000e18 / (1_000e18 * 1000 + LIM_IN * 997) * 999 / 1000;
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = Leg({
+            pool: address(pair), hooks: address(0), kind: BPC.KIND_V2, fee: 30,
+            tickSpacing: 0, zeroForOne: true, stable: false,
+            amountIn: LIM_IN, expectedOut: v2Out, auxId: _aux(true, -400)
+        });
+        legs[1] = _exA(A_IN);
+        _expectShape(_route(legs));
+    }
+
+    /// A limited leg behind an exact leg: refused.
+    function test_LimitedLegOffTheFirstSeatIsRefused() public {
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = _exA(A_IN);
+        legs[1] = _limLeg(-400);
+        _expectShape(_route(legs));
+    }
+
+    /// A limited leg with no exact leg beside it: refused.
+    function test_LimitedLegAloneIsRefused() public {
+        Leg[] memory legs = new Leg[](1);
+        legs[0] = _limLeg(-400);
+        _expectShape(_route(legs));
+    }
+
+    /// A limited leg on a hooked pool (a hook with no swap bit, so no other hook rule applies):
+    /// refused.
+    function test_LimitedLegOnAHookedPoolIsRefused() public {
+        address hooks = address(uint160(1) << 20);
+        bytes32 pidH = BPC.computeV4PoolId(lo, hi, FEE_LIM, TS_LIM, hooks);
+        mgr.initialize(pidH, uint160(BPC.Q96), 0, FEE_LIM);
+        mgr.addPosition(pidH, -512, 256, TS_LIM, L_THICK);
+        Leg[] memory legs = new Leg[](2);
+        legs[0] = _v4Leg(pidH, FEE_LIM, TS_LIM, LIM_IN, _aux(true, -400));
+        legs[0].hooks = hooks;
+        legs[1] = _exA(A_IN);
+        _expectShape(_route(legs));
+    }
 }
