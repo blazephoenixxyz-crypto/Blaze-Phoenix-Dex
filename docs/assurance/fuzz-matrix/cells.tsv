@@ -46,3 +46,5 @@ hub-insert	row-read	short-answer	-	test_AShortAnswer_IsNotADepth	covered
 hub-insert	row-read	past-ceiling	-	test_TheReadCeiling_IsFiveGasCapsForTheWholeProducer	covered
 fz	decimals	0	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
 fz	decimals	2	-	test_Pack_CoarseInput_NetOutNeverAboveDelivery	covered
+fz	intermediate	fine	-	testFuzz_Pack_NetOutNeverAboveDelivery	covered
+fz	intermediate	coarse	-	test_Exhaustion_CoarseIntermediate_NetOutAboveDeliveryByUnderTwoIntermediateUnits	covered
