@@ -56,6 +56,8 @@ jobs:
           python3 -I "$D/mutants_g7.py"
           python3 -I "$D/mutants_build_spec.py"
           python3 -I "$D/mutants_inventory.py"
+          python3 -I "$D/test_compare_bridges.py"
+          python3 -I "$D/mutants_compare_bridges.py"
 
   run:
     # One leg per chain: the legs share nothing but the read-only spec/state of the commit, so
