@@ -232,15 +232,33 @@ contract MockV4WindowManager {
     uint256 public swapCount;
     mapping(bytes32 => uint256) public spentIn;
 
+    // ── hostile knobs (0 / false = the honest singleton) ─────────────────────
+    /// @dev The swap number (counted as `swapCount` counts, from 1) that answers with a delta of
+    ///      the wrong sign (+1 owed, +1 received, whatever the direction) and moves nothing: a
+    ///      lying pool or hook, in whichever window of a price-limited leg the test picks.
+    uint256 public lieAt;
+    /// @dev Rewrites word 6 of the unlock payload (the leg's committed input, `amt`) to
+    ///      2^256-1 before calling back: the input budget at the one value where the Core's
+    ///      refusal sentinel equals it.
+    bool public lieAmt;
+
+    function setLie(uint256 at, bool amtMax) external { (lieAt, lieAmt) = (at, amtMax); }
+
     function unlock(bytes calldata data) external returns (bytes memory) {
         pendingOwe = 0;
-        (bool ok, bytes memory ret) = msg.sender.call(abi.encodeWithSignature("unlockCallback(bytes)", data));
+        bytes memory d = data;
+        if (lieAmt) assembly { mstore(add(d, 224), not(0)) }
+        (bool ok, bytes memory ret) = msg.sender.call(abi.encodeWithSignature("unlockCallback(bytes)", d));
         if (!ok) { assembly { revert(add(ret, 32), mload(ret)) } }
         require(pendingOwe == 0, "unlock: unsettled");  // v4-core: CurrencyNotSettled
         return abi.decode(ret, (bytes)); // v4-core: the callback's bytes, unchanged
     }
 
     function swap(V4PoolKey calldata key, SwapParams calldata p, bytes calldata) external returns (int256) {
+        if (lieAt != 0 && swapCount + 1 == lieAt) {
+            ++swapCount;
+            return int256((uint256(1) << 128) | 1);
+        }
         bytes32 pid = keccak256(abi.encode(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks));
         (uint160 sp0, ) = slot0(pid);
         uint160 lim = p.sqrtPriceLimitX96;

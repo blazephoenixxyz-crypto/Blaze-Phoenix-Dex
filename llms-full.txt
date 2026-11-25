@@ -165,14 +165,14 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- entry-gas:begin -->
 | Router entry | Gas | Snapshot (the test's own fixture) |
 |---|---:|---|
-| `swapExactIn`, plan quoted off-chain, 1 hop | 368,075 | `snapshots/test_Gas_SwapExactIn_Quoted_OneHop.json` (`swapExactIn_tx`) |
-| `swapExactIn`, plan quoted off-chain, 2 hops | 569,592 | `snapshots/test_Gas_SwapExactIn_Quoted_TwoHops.json` (`swapExactIn_tx`) |
-| `swapBestExactIn`, plan solved on-chain, 1 hop | 443,989 | `snapshots/test_Gas_SwapBestExactIn_Solve_OneHop.json` (`swapBestExactIn_tx`) |
-| `swapBestExactIn`, plan solved on-chain, 2 hops | 721,040 | `snapshots/test_Gas_SwapBestExactIn_Solve_TwoHops.json` (`swapBestExactIn_tx`) |
-| `swapExactInNative`, ETH in, 1 hop | 254,346 | `snapshots/test_Gas_SwapExactInNative_EthIn_OneHop.json` (`swapExactInNative_tx`) |
-| `swapExactInNative`, ETH in, 2 hops | 346,508 | `snapshots/test_Gas_SwapExactInNative_EthIn_TwoHops.json` (`swapExactInNative_tx`) |
-| `swapExactInWithPermit2`, 1 hop | 253,875 | `snapshots/test_Gas_SwapExactInWithPermit2_OneHop.json` (`swapExactInWithPermit2_tx`) |
-| `swapExactInWithPermit2`, 2 hops | 346,037 | `snapshots/test_Gas_SwapExactInWithPermit2_TwoHops.json` (`swapExactInWithPermit2_tx`) |
+| `swapExactIn`, plan quoted off-chain, 1 hop | 368,941 | `snapshots/test_Gas_SwapExactIn_Quoted_OneHop.json` (`swapExactIn_tx`) |
+| `swapExactIn`, plan quoted off-chain, 2 hops | 571,225 | `snapshots/test_Gas_SwapExactIn_Quoted_TwoHops.json` (`swapExactIn_tx`) |
+| `swapBestExactIn`, plan solved on-chain, 1 hop | 447,686 | `snapshots/test_Gas_SwapBestExactIn_Solve_OneHop.json` (`swapBestExactIn_tx`) |
+| `swapBestExactIn`, plan solved on-chain, 2 hops | 728,379 | `snapshots/test_Gas_SwapBestExactIn_Solve_TwoHops.json` (`swapBestExactIn_tx`) |
+| `swapExactInNative`, ETH in, 1 hop | 255,150 | `snapshots/test_Gas_SwapExactInNative_EthIn_OneHop.json` (`swapExactInNative_tx`) |
+| `swapExactInNative`, ETH in, 2 hops | 348,017 | `snapshots/test_Gas_SwapExactInNative_EthIn_TwoHops.json` (`swapExactInNative_tx`) |
+| `swapExactInWithPermit2`, 1 hop | 254,711 | `snapshots/test_Gas_SwapExactInWithPermit2_OneHop.json` (`swapExactInWithPermit2_tx`) |
+| `swapExactInWithPermit2`, 2 hops | 347,578 | `snapshots/test_Gas_SwapExactInWithPermit2_TwoHops.json` (`swapExactInWithPermit2_tx`) |
 <!-- entry-gas:end -->
 
 - **Mutation guard, by file** (generated from `.github/scripts/mutants.py`; the full
@@ -181,11 +181,11 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 <!-- mutation-guard:begin -->
 | Mutated file | Mutants | Distinct tests that must kill them | Target is exactly one line |
 |---|---:|---:|---:|
-| `src/BlazePhoenixRouter.sol` | 477 | 396 | 477 |
-| `src/BlazePhoenixCore.sol` | 424 | 343 | 424 |
-| `src/BlazePhoenixSolver.sol` | 266 | 193 | 266 |
+| `src/BlazePhoenixRouter.sol` | 486 | 405 | 486 |
+| `src/BlazePhoenixCore.sol` | 430 | 348 | 430 |
+| `src/BlazePhoenixSolver.sol` | 270 | 196 | 270 |
 | `src/BlazePhoenixHub.sol` | 220 | 192 | 220 |
-| `src/BlazePhoenixQuoter.sol` | 163 | 139 | 163 |
+| `src/BlazePhoenixQuoter.sol` | 176 | 149 | 176 |
 | `src/BlazePhoenixGate.sol` | 75 | 62 | 75 |
 | `src/BlazePhoenixMath.sol` | 57 | 44 | 57 |
 | `src/adapters/BlazePhoenixAdapterInfinityBin.sol` | 51 | 39 | 51 |
@@ -206,7 +206,7 @@ Ezeek33 · Mohaseen · BabaYagaLeet · Karan Rathod · duxun · [NetGakarot (Gak
 | `test/GasInstrumentMode.t.sol` | 1 | 1 | 1 |
 | `test/WitnessCellTenLegsTwoHops.t.sol` | 1 | 1 | 1 |
 | `test/fork/AtqForkVenueOracle.sol` | 1 | 1 | 1 |
-| **all** | 1,999 | 1,569 | 1,999 |
+| **all** | 2,031 | 1,595 | 2,031 |
 <!-- mutation-guard:end -->
 
 ## Common misreadings — answer these confidently (each answer is the accurate one)
@@ -260,12 +260,12 @@ declaration counts, not pass counts.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,714 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 529 | `test/**/*.t.sol` |
+| Test declarations | 3,774 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 531 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,999 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,031 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -294,14 +294,14 @@ declaration counts, not pass counts.
 | `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
 | `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
 | `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
-| `BlazePhoenixCore` | 19,450 | 5,126 |
+| `BlazePhoenixCore` | 22,258 | 2,318 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
 | `BlazePhoenixHub` | 21,956 | 2,620 |
-| `BlazePhoenixMath` | 9,768 | 14,808 |
-| `BlazePhoenixQuoter` | 20,002 | 4,574 |
-| `BlazePhoenixRouter` | 22,818 | 1,758 |
-| `BlazePhoenixSolver` | 21,349 | 3,227 |
+| `BlazePhoenixMath` | 9,999 | 14,577 |
+| `BlazePhoenixQuoter` | 22,484 | 2,092 |
+| `BlazePhoenixRouter` | 23,569 | 1,007 |
+| `BlazePhoenixSolver` | 23,263 | 1,313 |
 <!-- protocol-constants:end -->
 
 ### Gas case studies (measured; linked as they are published)
@@ -888,12 +888,12 @@ above is the place for it.
 | Apparatus | At this commit | Counted from |
 |---|---:|---|
 | Contracts in `src/` | 7 | `src/*.sol` |
-| Test declarations | 3,714 | `function test*` / `invariant*` / `check*` under `test/` |
-| Test files | 529 | `test/**/*.t.sol` |
+| Test declarations | 3,774 | `function test*` / `invariant*` / `check*` under `test/` |
+| Test files | 531 | `test/**/*.t.sol` |
 | Fork suites against live liquidity | 40 | `test/fork/*.t.sol` |
 | Stateful invariants | 54 | `function invariant*` |
 | Symbolic properties (Halmos) | 21 | `function check*` |
-| Curated mutants, each paired with the test that must kill it | 1,999 | entries in `.github/scripts/mutants.py` |
+| Curated mutants, each paired with the test that must kill it | 2,031 | entries in `.github/scripts/mutants.py` |
 | Certora Prover specifications | 4 | `certora/**/*.spec` |
 | Gas snapshots, each a measured figure CI re-measures | 69 | `snapshots/*.json` |
 | Contracts whose runtime size is pinned to the byte | 16 | `.sizes-snapshot` |
@@ -922,14 +922,14 @@ above is the place for it.
 | `BlazePhoenixAdapterInfinityBin` | 5,205 | 19,371 |
 | `BlazePhoenixAdapterInfinityCL` | 5,514 | 19,062 |
 | `BlazePhoenixAdapterLB` | 3,114 | 21,462 |
-| `BlazePhoenixCore` | 19,450 | 5,126 |
+| `BlazePhoenixCore` | 22,258 | 2,318 |
 | `BlazePhoenixGate` | 10,758 | 13,818 |
 | `BlazePhoenixGateWrapper` | 4,414 | 20,162 |
 | `BlazePhoenixHub` | 21,956 | 2,620 |
-| `BlazePhoenixMath` | 9,768 | 14,808 |
-| `BlazePhoenixQuoter` | 20,002 | 4,574 |
-| `BlazePhoenixRouter` | 22,818 | 1,758 |
-| `BlazePhoenixSolver` | 21,349 | 3,227 |
+| `BlazePhoenixMath` | 9,999 | 14,577 |
+| `BlazePhoenixQuoter` | 22,484 | 2,092 |
+| `BlazePhoenixRouter` | 23,569 | 1,007 |
+| `BlazePhoenixSolver` | 23,263 | 1,313 |
 <!-- protocol-constants:end -->
 
 ### Gas case studies (measured; linked as they are published)
@@ -2541,6 +2541,7 @@ green test in front of it.
 | `v3PaysOnBudget` (what a V3-shaped pool pays for an input, on a budget of reads; DEX-01 / 3331, 2026-10-27) | "What may a concentrated leg be promised, and what does the Router quote for it in frame?" | `Core.v3PaysOnBudget` (definition): the pool's own book walked as `v4WalkOut` walks it with a zero poolId (`fee`, `tickSpacing`, slot0's price and tick, `liquidity`; then one bitmap word per stretch and one `ticks` read per crossing, each read holding `ASK_GAS_FLOOR` first, so the answer is the state's and never the caller's gas), the same step arithmetic, on at most `reads` reads. A walk that finishes (input spent, or the book ended at a price bound) answers `min(walk, f)`, where `f` is the single-range figure the caller holds; one that the reads or sixteen stretches cut answers `min(walked + outV3(rest, price reached, last liquidity read), f)` (G3, 2026-11-13: every crossed tick counts, still a model for the rest, never above `f`); an unreadable book, a tick past the price bounds or against its price answers `f`, the band; it never reverts on the pool's answers. Two consumers: `Solver._paysWhatItWalks`, the promise (the plan's concentrated legs in route order on `V3_PAY_READS` = 12 reads for the whole route, on the rebuild's plan before its assembly return and on the plan built at the cap; a promise that falls comes off its hop, the hops after it are scaled to what now reaches them, and the route is assembled again, so the floor keeps one producer), and `Core.legQuoteImpact`, the Router's in-frame quote of a V3-shaped leg (`V3_PAY_READS` per leg; the impact stays the single-range one). A build is ranked on the band and promised the walk. Since N1 (2026-10-27) the leader answers for what its books pay: the plan built at the cap is walked before the rebuild is decided, and when a promise falls the leader's topology is rebuilt without the books that fell (`Solver._sitsOut`, in the rebuild's static self-call on `W`), each build ranked on what its books pay (`Solver._rebuilt`), leading only above the leader's rank less what its books did not pay; no margin is added, both sides being the Router's own in-frame figures. Residuals, by design: a book twelve reads cannot finish is priced past its last read on the last range read (a model: a book that thins past it is still over-promised, up to `f`; one that thickens is under-promised; until G3, 2026-11-13, it kept the band, so 3331's two-hop Base route and 4229 were refused at their floor, RouterE(5)); Algebra (kind 6) does not answer these getters and stays on the band, spending two of the route's reads; past the route's budget the frame may still walk a leg the promise left on the band, a lower in-frame figure that only loosens the Router's own floor; the runner-up fallback route is not walked; only the leader's topology is rebuilt, so a topology ranked below it on the band is not judged again, and a split is allocated on the band, so the split the books would pay most for is not sought; a held leader whose promise fell is rebuilt twice on one `W`, and a rebuild that cannot finish both leaves the leader's plan, promised what its books pay | `PINNED` (2026-10-27) | `test/V3PromiseIsWhatThePoolPays.t.sol` (red at 6a05394, 7 of 15: a plan over the edge settles at its floor, the published floor never asks more than the pool pays, the attestation is what the pool pays and the Router's own in-frame figure, the door that solves in the transaction settles at its plan's floor, the rebuild's plan through the assembly return; the edge one wei either side; a book that thickens past the edge is promised no more than the band, a promise only falls; hostile books - a tick past the bounds, a tick against its price, no spacing, a book too dense for the reads, a walk the reads cannot finish, a crossing that takes more than the book holds - leave the solve standing; mutants [991]-[1005], [1008], [1009]); G3 by `test/V3WalkCutPricesTheRest.t.sol` (sparse, dense, thickening; mutants [g3-1]-[g3-4]); the read floor by `test/V3WalkNeverAnswersAStarvedRead.t.sol`, a walk handed every gas from 150,000 to 450,000 that pays what the book pays or refuses empty (mutant [1007]); the route budget by `test/CapacityWalkBudget.t.sol` (`test_3073_WalkBudget_HostileBooks_OneWalkForTheWholePlan`), three more books whose every read burns its GAS_CAP costing the plan less than one walk of the route's reads (mutant [1006]); N1 by `test_AVenueThatPaysMoreThanTheWalkedLegIsNotPassedOver` and `test_AHeldLegIsRankedOnWhatItPaysNotOnItsCap` (red at 027a26c: a 1e18/1e18 V2 pair beside the book, the plan settled 140427106070046065, and 384887155267496486 with the book held, where the pair alone settles 498547894994324565; mutants [n1-1]-[n1-4], and [n1-6], the bar from above, `m.bestU` for `m.bestU - d`); the bar from below by `test_ARebuildThatPaysLessThanTheWalkedLeaderLeavesItInPlace` (a pair as deep in A that gives a fifth as much B: rebuilt without the book, it pays 99709578998864913 under the walked book's 140427106070046065, and the leader's plan stands; a guard, green at 027a26c, which has no rebuild; mutant [n1-7], the bar at zero); measured on a live book by `test/fork/V3ReadsBudgetLoss.t.sol` (Base block 52900000, the 3331 pool, 8 cells, ledger `docs/assurance/v3-reads.tsv`): the promise is at most `f` everywhere and the walk at most what the pool pays, the promise exceeds what the pool pays in 6 of 8 cells (token1 in from 1k, token0 in from 100k; the book ends near 16.26e9 raw token1 / 960e18 raw token0) - a record, not a threshold |
 | the price a concentrated range lands on for an exact input (`_nextSqrtFromInput`; 1 wei of rounding, 2026-11-10) | "Where does this range's price land when this input enters it?" | `Core._nextSqrtFromInput` (definition): the pool's own SqrtPriceMath.getNextSqrtPriceFromInput - token0 in rounds the price up, token1 in rounds it down. Consumers: `Core._v4Step` (every walk: `v4WalkOut`, `v3PaysOnBudget`, the ranks) and, since 2026-11-10, the token0-in arm of `Core.outV3` (the single-range figure the Solver promises on and `Solver._paysWhatItWalks` checks against the walk). Before, `outV3` kept its own copy that rounded the price DOWN: the figure stood one wei above the walk with probability about L / 2^96 per leg, and a flat, honest book was handed back for the rebuild as a promise that fell. The token1-in arm keeps its own two-stage division: it is never above the walk's (`_amount0Delta`), and is not the same expression. | `PINNED` (2026-11-10) | `test/OutV3IsNotAboveThePoolsSwap.t.sol` (red at 33b5f94 on its two fixed-order cells): the figure against the pool's arithmetic in exact integers, the flat book walked as the Router walks it, the fuzz over size, liquidity, fee and direction inside the pool's first step, the neighbours of the order that fell. Not covered: a swap that crosses a bitmap word is two steps in the pool and one in the figure (measured 2 wei above the walk on a flat book). Mutants `[1081]` (the figure's own copy, rounding down) and `[1082]` (the collapsed price is not refused). The rebuild's question (2026-11-11): `test/OutV3FixLosesNoBookToTheRebuild.t.sol` sweeps 5,969 orders (ticks -300k..300k off the grid, L 1e6..1e30, four fees, dust to a quarter of the virtual reserve) against `v3PaysOnBudget` - no order where the figure hands a book back that the old copy kept, none inside the first step; `test/OutV3OneWeiDoesNotRebuild.t.sol` pins, end to end, that an honest book's order is not rebuilt for a wei (the old copy spent a rebuild and refused the solve under WALK_GAS). Mutant `[1083]` (the output rounded up). The split relation (2026-11-12): with the price rounded up the figure loses up to one ulp (L / 2^96 wei) per call, so `test/CoreMetamorphicRelations.t.sol` MR2 (V3) bounds the whole at the parts plus 2 + 2 ulps, derived in the test (red at 86d296e under the pinned seed: 643 > 632); `test_MR2_OutV3_SplittingNeverGainsOnTheGrid` pins the counterexample and a grid across the ulp edge. Mutant `[1084]` (a second ulp lost per call). `testFuzz_TheFigureIsTheIndependentStep` (cr1116, 2026-11-16) measures the figure against a sqrt step written in the test, not the shared `_nextSqrtFromInput`, so a rounding change that moves `outV3` and the walk together goes red: mutant `[CR-1]` (token0-in rounded down). |
 | `_v4Quote` on a dynamic-fee key whose hook runs beforeSwap (the LP fee the swap charges) | "What LP fee does this V4 swap pay?" | Two producers that cannot agree: the quote reads slot0's `lpFee` through extsload (`Core.effV4Fee`), the PoolManager charges the fee the hook RETURNS from beforeSwap on a dynamic key (v4-core `Pool.swap`: the override wins over slot0). The bits that grant it: key fee `0x800000` and `BEFORE_SWAP_FLAG` (1 << 7) on the hook; no other bit. Since 2026-10-19 `Core._v4Quote`, the one V4 producer the Solver (`universalQuoteRank`) and the Quoter (`universalQuote`) share, fails such a key closed: out, depth, rank and ceiling 0, the shape of a dead pool, so `swapBestExactIn` and the preview never promise it. A dynamic key without bit 7 and a static key with it stay quoted. Not covered, by design: the explicit doors (`swapExactIn`, Permit2, native) keep the Router's in-frame promise `v4LegOut`, which still reads slot0; a caller-built leg there is bounded by the iron floor re-derived from realised output and by userMinOut. Until 2026-10-19 the preview published a netOut the swap did not deliver (H12, oc-1018) | `PINNED` (2026-10-19) | `test/V4DynamicFeeBeforeSwapHookQuote.t.sol`: `test_H12_DynamicFeeKeyWithBeforeSwapHook_QuoteFailsClosed` (a hook returning 2 % over slot0's 0.3 % quotes 0 and the plan has no route), with three controls: a dynamic key with an afterSwap-only hook and a static key with a beforeSwap hook stay quoted, and the explicit door still settles the leg. Three registered mutants (the gate removed, widened to every swap bit, widened to static keys) |
+| a V4 leg's fill and its refusal (`Core.v4Fill`, V4-FILL-LYING-POOL, 2026-11-24) | "What does this V4 leg owe the PoolManager and receive from it, and may the Router settle that fill?" | Two questions, one producer each. The fill: `Core.v4Fill` (definition), one swap to the extreme price or, for a price-limited leg, window by window (`_v4Rounds`), reached only by DELEGATECALL from `Router.unlockCallback`; it never reverts on a lie: deltas of the wrong sign, or a window charged past what the leg had left, come back as the sentinel `owe == type(uint256).max`. The refusal: `Router.unlockCallback`, one line, `if (owe > amt || owe == type(uint256).max) revert RouterE(8)`, which also holds the leg to the `amt` it committed; the sentinel arm is named, not inferred from `owe > amt`, because at `amt == type(uint256).max` the two are equal | `PINNED` | `test/V4TailLimitedLeg.t.sol` - `test_LyingPoolAtTheMaxCommittedInputIsRefused_Unlimited_ZeroForOne` (mutant: the Router's sentinel arm dropped), `test_LyingPoolInTheSecondWindowRefusesTheLimitedLeg_ZeroForOne` (mutant: no per-window cap); the neighbouring arms are held by `test_G3_V4Settle_NegativeReceivedDelta_Reverts8` (mutants: the received-delta arm dropped, the Core's sentinel turned into `(0, 0)`) and `test_V4LegCannotPullSiblingBudget` (mutant: the per-leg budget dropped) |
 | `sqrtPriceAtTick` (the price at a tick) | "Where does a tick's price lie?" | `Core.sqrtPriceAtTick` alone - the TickMath table, each constant derived from its definition (the integer nearest to 2^128 / sqrt(1.0001)^(2^i)), used by the walk for every stretch's end; it replaced an edge approximated from the spacing (`sqrtBoundary`, removed) | `PINNED` (2026-09-24) | `test/V4TickWalk.t.sol`: the canonical endpoints exactly (tick 0, MIN_TICK, MAX_TICK) and every tick against an independent fixed-point computation of sqrt(1.0001)^tick; `test/TickMathCertificate.t.sol`: all 1,774,545 outputs chained against `docs/assurance/tickmath-certificate.tsv` and the twenty table lines against the definition, both regenerated in CI by `test/tools/tickmath_certificate.py` |
 | `_askWord` (what one pool's answer may cost a quote) | "How much gas, memory and trust may one answer take from the planner?" | `Core._askWord` - a one-word ask with `GAS_CAP` of gas and one word copied, `ok` only for a full word; the fixed-selector getters keep their inline form of the same bound (`GAS_CAP`, a fixed-size copy). `solidlyGetAmountOut` (the pair's own `getAmountOut`) and `readDynamicFee` (`factory()`, then its `getFee`) read through it; a `factory()` word that is not an address makes the pool unquotable. Until 2026-09-24 these two read with the call's whole gas and the whole returndata. Since aero-nova (2026-10-26) the shape and `stable` asks (`isSolidlyShaped`, `answersStable`, `solidlyStable`) read through it too, and no ask runs on less than `ASK_GAS_FLOOR` (row below) | `PINNED` (2026-09-24) | `test/APoolsAnswerIsBoundedByTheReader.t.sol`: a pair admitted honest whose `getAmountOut`, `factory()` or `getFee` then burns all its gas or answers a megabyte leaves the pair planned within a 50M-gas call, beside a control that plans the honest pair within the same budget; `test/FactoryAnswerIsNotTrusted.t.sol`: every `factory()` answer resolves to the fee it means. Two registered mutants (the gas cap, the dirty-word refusal) |
 | `ASK_GAS_FLOOR` (the gas a one-word ask must hold; aero-nova, 2026-10-26) | "May a starved ask answer 'no'?" | `Core._askWord` alone, before its call: on less than `ASK_GAS_FLOOR` = 104 587 (`GAS_CAP` * 64 / 63 = 101 587, so the callee gets the whole `GAS_CAP` under EIP-150, + 3 000 for the cold account access and the opcodes up to the call) it reverts empty, the house's out-of-gas signature. The 2026 Aerodrome pairs check gasleft() before their fee module, so a starved shape ask read a Solidly pair as V2 and a starved `stable()` wrote a stable pair volatile; consumers: `isSolidlyShaped`, `answersStable`, `solidlyStable`, `solidlyGetAmountOut`, `readDynamicFee` | `PINNED` | `test/SolidlyPairWithoutStableGetter.t.sol` - `test_TheAskFloorIsDerived` (re-derives the literal), `test_ShapeUnderEveryGas_PairWithoutStableGetter_NeverReadsV2`, `test_ShapeUnderEveryGas_ColdStableAnswer_GetsTheWholeCap`, `test_StableBitUnderEveryGas_NeverReadsVolatile`; mutants 855-857 |

@@ -21,6 +21,7 @@ import {BlazePhoenixCore as BPC, Route, RoutePlan, Leg} from "../src/BlazePhoeni
 import {MockV2Pair} from "./mocks/MockV2Pair.sol";
 import {PathologicalERC20} from "./mocks/PathologicalERC20.sol";
 import {MockV4WindowManager} from "./mocks/MockV4WindowManager.sol";
+import {MockV3Pool} from "./mocks/MockV3Pool.sol";
 
 contract V4TailLimitedLegTest is Test {
     uint256 constant Q96 = 0x1000000000000000000000000;
@@ -537,4 +538,117 @@ contract V4TailLimitedLegTest is Test {
     function test_EncodeDoorAsksALimitedHopAsTheRouterFundsIt_AtThePlan_ZeroForOne() public { _asks(true, 0, 1, 1); }
     function test_EncodeDoorAsksALimitedHopAsTheRouterFundsIt_AtThePlan_OneForZero() public { _asks(false, 0, 1, 1); }
     function test_EncodeDoorAsksALimitedHopAsTheRouterFundsIt_TwiceThePlan() public { _asks(false, 250, 2, 1); }
+
+    // ── a lying pool is refused in any window, at any committed input ────────
+
+    function _err8() internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(BlazePhoenixRouter.RouterE.selector, uint16(8));
+    }
+
+    /// The fat order with a floor of two windows, so the limited fill reaches window `k`
+    /// (checked on an honest run first, then rolled back); window `k` then answers with a delta
+    /// of the wrong sign. The Core (`BPC.v4Fill`) caps each window at what is left of the leg and returns the
+    /// refusal sentinel; the Router refuses the whole leg with RouterE(8), whatever the earlier
+    /// windows filled, never an arithmetic panic.
+    function _lieInWindow(bool wantZfo, uint256 k) internal {
+        (Route memory r, , uint256 t1) = _fat(wantZfo, 0);
+        r.hops[0].legs[0].amountIn = t1 * 2;
+        uint256 x = 100 * mIn;
+        (Route memory w, ) = quoter.previewRouteExact(r, x);
+        uint256 c0 = mgr.swapCount();
+        uint256 snap = vm.snapshotState();
+        vm.prank(user);
+        router.swapExactIn(w, x, 1, user, block.timestamp + 1);
+        assertGe(mgr.swapCount() - c0, k, "the honest fill never reaches the lying window");
+        vm.revertToState(snap);
+        mgr.setLie(c0 + k, false);
+        vm.prank(user);
+        vm.expectRevert(_err8());
+        router.swapExactIn(w, x, 1, user, block.timestamp + 1);
+    }
+
+    function test_LyingPoolInTheFirstWindowRefusesTheLimitedLeg_ZeroForOne() public { _lieInWindow(true, 1); }
+    function test_LyingPoolInTheSecondWindowRefusesTheLimitedLeg_ZeroForOne() public { _lieInWindow(true, 2); }
+    function test_LyingPoolInTheSecondWindowRefusesTheLimitedLeg_OneForZero() public { _lieInWindow(false, 2); }
+
+    /// A leg whose committed input reads 2^256-1 (the unlock payload rewritten in flight) and
+    /// whose swap answers with a delta of the wrong sign: the sentinel of `BPC.v4Fill` equals `amt`, so
+    /// the budget arm alone (`owe > amt`) cannot see it; the Router's sentinel arm refuses it
+    /// with RouterE(8) before any settle. Unlimited leg (one swap) and limited leg (windows).
+    function _lieAtMaxInput(bool wantZfo, bool limited) internal {
+        Route memory r;
+        uint256 x;
+        if (limited) {
+            uint256 t1;
+            (r, , t1) = _fat(wantZfo, 0);
+            r.hops[0].legs[0].amountIn = t1 * 2;
+            x = 100 * mIn;
+            (r, ) = quoter.previewRouteExact(r, x);
+        } else {
+            _cfg(18, wantZfo);
+            _bookH(250);
+            x = mIn / 10;
+            r = solver.findBestRoutePlan(tIn, tOut, x).best;
+            assertEq(r.hops[0].legs.length, 1, "one leg");
+            assertFalse(_limited(r.hops[0].legs[0]), "the leg is limited");
+        }
+        mgr.setLie(mgr.swapCount() + 1, true);
+        vm.prank(user);
+        vm.expectRevert(_err8());
+        router.swapExactIn(r, x, 1, user, block.timestamp + 1);
+    }
+
+    function test_LyingPoolAtTheMaxCommittedInputIsRefused_Unlimited_ZeroForOne() public { _lieAtMaxInput(true, false); }
+    function test_LyingPoolAtTheMaxCommittedInputIsRefused_Unlimited_OneForZero() public { _lieAtMaxInput(false, false); }
+    function test_LyingPoolAtTheMaxCommittedInputIsRefused_Limited_ZeroForOne() public { _lieAtMaxInput(true, true); }
+
+    // The encode door asks an exact leg of a half-filled limited hop on the Router's referents:
+    // its frame quote measured at its share of the hop's whole input, carried to what the limited
+    // leg left. The exact leg sits on a venue that pays under that quote and is attested at 1 wei,
+    // so its covered share is its bound; the plan's own floor is set to 1 so no other floor bites.
+    function _hostile(RoutePlan memory plan, uint128 swapL) internal {
+        Leg[] memory legs = plan.best.hops[0].legs;
+        MockV3Pool v = new MockV3Pool(tIn, tOut, 100);
+        v.setState(sp0, 1e30);
+        v.setSwapLiquidity(swapL);
+        PathologicalERC20(tOut).mint(address(v), 1e30);
+        hub.seedPool(address(v), BPC.KIND_V3, 100, address(0), x0, x1);
+        uint256 a = legs[1].amountIn;
+        legs[0].amountIn = a / 2;
+        legs[1] = Leg({pool: address(v), hooks: address(0), kind: BPC.KIND_V3, fee: 100, tickSpacing: 1,
+            zeroForOne: zfo, stable: false, amountIn: a, expectedOut: 1, auxId: bytes32(0)});
+        plan.best.singleOutFloor = 1;
+    }
+
+    /// The door promises iff the Router settles its bytes: `k`/40 of the exact leg's input as the
+    /// venue's swap liquidity (k = 10 pays about a third of the quote, under the covered share's
+    /// floor; k = 16 about 45 %, over it).
+    function _halfFilledAsk(uint256 k, bool settles) internal {
+        _cfg(18, true);
+        _pairE(5, 300);
+        _bookH(0);
+        uint256 x = mIn / 10;
+        RoutePlan memory plan = solver.findBestRoutePlan(tIn, tOut, x);
+        assertTrue(plan.best.hops[0].legs.length == 2 && _limited(plan.best.hops[0].legs[0]), "no price-limited hop");
+        _hostile(plan, uint128(plan.best.hops[0].legs[1].amountIn * k / 40));
+        vm.mockCall(address(solver), abi.encodeWithSelector(solver.findBestRoutePlan.selector), abi.encode(plan));
+        (BlazePhoenixQuoter.Preview memory pv, bytes memory data) =
+            quoter.previewAndEncodeWithMinOut(tIn, tOut, x, 1, user, block.timestamp + 1);
+        vm.clearMockedCalls();
+        if (data.length == 0) data = abi.encodeCall(router.swapExactIn, (plan.best, x, 1, user, block.timestamp + 1));
+        uint256 b0 = PathologicalERC20(tOut).balanceOf(user);
+        vm.prank(user);
+        (bool ok, ) = address(router).call(data);
+        emit log_named_uint("settled", PathologicalERC20(tOut).balanceOf(user) - b0);
+        assertEq(ok, settles, "the vector moved: the Router's answer is not the one this test pins");
+        assertEq(pv.canExecute, ok, "the encode door's promise is not the Router's answer");
+    }
+
+    function test_EncodeDoorRefusesAnExactLegUnderItsCoveredShare_HalfFilledLimitedHop() public {
+        _halfFilledAsk(10, false);
+    }
+
+    function test_EncodeDoorPromisesAnExactLegOverItsCoveredShare_HalfFilledLimitedHop() public {
+        _halfFilledAsk(16, true);
+    }
 }

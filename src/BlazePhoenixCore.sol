@@ -200,6 +200,14 @@ interface IBridgeAskC {
     function isBridgeToken(address t) external view returns (bool);
 }
 
+/// @notice The PoolManager's `swap`, as `v4Fill` calls it (the one call of the Core that moves
+///         state).
+interface IV4SwapC {
+    struct Key { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }
+    struct Params { bool zeroForOne; int256 amountSpecified; uint160 sqrtPriceLimitX96; }
+    function swap(Key calldata key, Params calldata params, bytes calldata hookData) external returns (int256 balanceDelta);
+}
+
 library BlazePhoenixCore {
 
     string  internal constant VERSION    = "2.0.0";
@@ -2732,6 +2740,77 @@ library BlazePhoenixCore {
         int256 t = zeroForOne ? int256(tick) - w : int256(tick) + w;
         stop = (zeroForOne ? t > limTick : t < limTick) ? sqrtPriceAtTick(int24(t)) : limSqrt;
         if (sp == 0 || (zeroForOne ? sp <= stop : sp >= stop)) stop = 0;
+    }
+
+    /// @notice The swap(s) of one V4 leg inside the Router's unlock: one swap to the extreme
+    ///         price, or, for a price-limited leg, window by window (`_v4Rounds`). `data` is what
+    ///         `Router._execV4Amt` encoded; `owe`/`recv` are what the leg owes the PoolManager
+    ///         and is owed by it, for the Router to settle and take.
+    /// @dev    The FIRST function of the Core that changes state: every other one reads and
+    ///         measures. It is reached only by DELEGATECALL from the Router's `unlockCallback`,
+    ///         so `swap` is called in the Router's frame, with the Router as `msg.sender`, on the
+    ///         manager the Router authenticated and inside the unlock it opened. The trust does
+    ///         not move: this is the same linked library that already runs in the Router's
+    ///         context on every call, with the authority the Router already gave it; no new
+    ///         contract, address or caller gains a power. The Core does not refuse here: a swap
+    ///         it cannot accept is returned as `owe == type(uint256).max` (fail closed, no
+    ///         amount is that large: a delta is an int128), and the Router's one line
+    ///         `if (owe > amt) revert RouterE(8)` turns it into the refusal.
+    function v4Fill(address mgr, bytes calldata data)
+        public returns (address c0, bool zfo, uint256 owe, uint256 recv)
+    {
+        (IV4SwapC.Key memory key, bool z, uint256 amt, bytes memory hookData, uint256 lim, uint256 bar, uint256 floor)
+            = abi.decode(data, (IV4SwapC.Key, bool, uint256, bytes, uint256, uint256, uint256));
+        (owe, recv) = lim == 0
+            ? _v4Swap(mgr, key, z, amt, z ? MIN_SQRT_PRICE_PLUS_ONE : MAX_SQRT_PRICE_MINUS_ONE, hookData)
+            : _v4Rounds(mgr, key, z, amt, int24(uint24(lim)), bar, floor);
+        (c0, zfo) = (key.currency0, z);
+    }
+
+    /// @dev A price-limited leg fills window by window (`v4Window`: at most
+    ///      V4_WALK_DEEP_STEPS spacings each, never past the limit). Up to `floor` (the input
+    ///      its quote verified) it always goes on; past it, a window must pay at least `bar`
+    ///      above what its input is worth at the limit price, or the leg stops there and the
+    ///      rest of the hop's input goes to its exact legs. Every unit it fills before the limit
+    ///      pays at least the limit's rate, so where it stops changes gas, not that bound.
+    function _v4Rounds(
+        address mgr, IV4SwapC.Key memory key, bool zfo, uint256 amt, int24 limTick, uint256 bar, uint256 floor
+    ) private returns (uint256 owe, uint256 recv) {
+        bytes32 pid = computeV4PoolId(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks);
+        while (true) {
+            (uint160 stop, uint160 limSqrt, uint24 fee) = v4Window(mgr, pid, key.fee, key.tickSpacing, zfo, limTick);
+            if (stop == 0) break;
+            (uint256 t, uint256 o) = _v4Swap(mgr, key, zfo, amt - owe, stop, "");
+            // A window charged more than what was left of the leg (which the refused swap's
+            // `t` always is) refuses the whole leg, whatever the earlier windows filled.
+            if (t > amt - owe) return (type(uint256).max, 0);
+            owe += t;
+            recv += o;
+            if (owe >= amt || stop == limSqrt) break;
+            if (owe >= floor && (o == 0 || o < v4ValueAt(t, fee, limSqrt, zfo) + bar)) break;
+        }
+    }
+
+    /// @dev One V4 swap of exact input `amt` to `limit`: what it owes and what it received;
+    ///      `owe == type(uint256).max` when the deltas carry the wrong sign.
+    function _v4Swap(
+        address mgr, IV4SwapC.Key memory key, bool zfo, uint256 amt, uint160 limit, bytes memory hookData
+    ) private returns (uint256 owe, uint256 recv) {
+        int256 bd = IV4SwapC(mgr).swap(key, IV4SwapC.Params({
+            zeroForOne:        zfo,
+            amountSpecified:   -int256(amt),
+            sqrtPriceLimitX96: limit
+        }), hookData);
+        // V4 returns a packed BalanceDelta: amount0 high 128 bits, amount1 low
+        // 128 bits, each int128. The mock returned two int256s; the real
+        // PoolManager packs them. This was only visible on a real fork.
+        int256 d0 = int256(int128(bd >> 128));
+        int256 d1 = int256(int128(bd));
+        int256 owedDelta     = zfo ? d0 : d1;
+        int256 receivedDelta = zfo ? d1 : d0;
+        if (owedDelta > 0 || receivedDelta < 0) return (type(uint256).max, 0);
+        owe  = uint256(-owedDelta);
+        recv = uint256(receivedDelta);
     }
 
     /// @notice What a singleton book HOLDS of tokenOut over its first `n` stretches (n is in

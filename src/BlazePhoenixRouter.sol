@@ -704,7 +704,7 @@ contract BlazePhoenixRouter {
 
     /// @dev The window bar of a hop whose first leg is price-limited: MIN_SPLIT_IMPROVEMENT_PPM
     ///      of what its exact legs declare. Past its floor the limited leg goes on only while a
-    ///      window pays this much above what its input is worth at the limit (`_v4Rounds`).
+    ///      window pays this much above what its input is worth at the limit (`BPC.v4Fill`).
     ///      The bar prices one more window's gas: it moves where the leg stops, never the rate
     ///      it fills at. `_carry` clears it once the leg has run.
     function _v4Bar(Hop calldata hop) private {
@@ -2285,7 +2285,18 @@ contract BlazePhoenixRouter {
         address tOut;
         assembly { tIn := tload(sI) tOut := tload(sO) }
         if (tIn == address(0) || tOut == address(0)) revert RouterE(6);
-        (address c0, bool zfo, uint256 owe, uint256 recv) = _v4Fill(mgr, data);
+        // The swap(s) run in the Core (`BPC.v4Fill`) by DELEGATECALL, in this frame: the
+        // PoolManager still sees this Router as the caller of `swap`. A swap whose deltas carry
+        // the wrong sign, or a window charged past what was left, comes back as
+        // `owe == type(uint256).max`; the line below is the one producer of the refusal, and it
+        // also holds the leg to the `amt` it committed (word 6 of `data`, as `_execV4Amt`
+        // encoded it): a pool or hook cannot pull the input budgeted to sibling legs. The
+        // sentinel is named, not inferred from `owe > amt`: at `amt == type(uint256).max` the
+        // two are equal and only the second arm refuses.
+        (address c0, bool zfo, uint256 owe, uint256 recv) = BPC.v4Fill(mgr, data);
+        uint256 amt;
+        assembly { amt := calldataload(add(data.offset, 192)) }
+        if (owe > amt || owe == type(uint256).max) revert RouterE(8);
         // Single-shot (checks-effects-interactions): clear the transient unlock
         // context before settling, so any re-entry into this callback reads
         // tIn == 0 and reverts(6).
@@ -2326,64 +2337,6 @@ contract BlazePhoenixRouter {
             IV4PoolManager(mgr).take(tOut, address(this), recv);
         }
         return abi.encode(recv, owe);
-    }
-
-    /// @dev The swap(s) of one V4 leg inside its unlock: one swap to the extreme price, or, for
-    ///      a price-limited leg, the windows of `_v4Rounds`.
-    function _v4Fill(address mgr, bytes calldata data) private returns (address c0, bool zfo, uint256 owe, uint256 recv) {
-        (IV4PoolManager.V4PoolKey memory key, bool z, uint256 amt, bytes memory hookData, uint256 lim, uint256 bar, uint256 floor)
-            = abi.decode(data, (IV4PoolManager.V4PoolKey, bool, uint256, bytes, uint256, uint256, uint256));
-        (owe, recv) = lim == 0
-            ? _v4Swap(mgr, key, z, amt, z ? BPC.MIN_SQRT_PRICE_PLUS_ONE : BPC.MAX_SQRT_PRICE_MINUS_ONE, hookData)
-            : _v4Rounds(mgr, key, z, amt, int24(uint24(lim)), bar, floor);
-        (c0, zfo) = (key.currency0, z);
-    }
-
-    /// @dev A price-limited leg fills window by window (`BPC.v4Window`: at most
-    ///      V4_WALK_DEEP_STEPS spacings each, never past the limit). Up to `floor` (the input
-    ///      its quote verified) it always goes on; past it, a window must pay at least `bar`
-    ///      above what its input is worth at the limit price, or the leg stops there and the
-    ///      rest of the hop's input goes to its exact legs. Every unit it fills before the limit
-    ///      pays at least the limit's rate, so where it stops changes gas, not that bound.
-    function _v4Rounds(
-        address mgr, IV4PoolManager.V4PoolKey memory key, bool zfo, uint256 amt, int24 limTick, uint256 bar, uint256 floor
-    ) private returns (uint256 owe, uint256 recv) {
-        bytes32 pid = BPC.computeV4PoolId(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks);
-        while (true) {
-            (uint160 stop, uint160 limSqrt, uint24 fee) = BPC.v4Window(mgr, pid, key.fee, key.tickSpacing, zfo, limTick);
-            if (stop == 0) break;
-            (uint256 t, uint256 o) = _v4Swap(mgr, key, zfo, amt - owe, stop, "");
-            owe += t;
-            recv += o;
-            if (owe >= amt || stop == limSqrt) break;
-            if (owe >= floor && (o == 0 || o < BPC.v4ValueAt(t, fee, limSqrt, zfo) + bar)) break;
-        }
-    }
-
-    /// @dev One V4 swap of exact input `amt` to `limit`: what it owes and what it received.
-    function _v4Swap(
-        address mgr, IV4PoolManager.V4PoolKey memory key, bool zfo, uint256 amt, uint160 limit, bytes memory hookData
-    ) private returns (uint256 owe, uint256 recv) {
-        int256 bd = IV4PoolManager(mgr).swap(key, IV4PoolManager.SwapParams({
-            zeroForOne:        zfo,
-            amountSpecified:   -int256(amt),
-            sqrtPriceLimitX96: limit
-        }), hookData);
-        // V4 returns a packed BalanceDelta: amount0 high 128 bits, amount1 low
-        // 128 bits, each int128. The mock returned two int256s; the real
-        // PoolManager packs them. This was only visible on a real fork.
-        int256 d0 = int256(int128(bd >> 128));
-        int256 d1 = int256(int128(bd));
-        int256 owedDelta     = zfo ? d0 : d1;
-        int256 receivedDelta = zfo ? d1 : d0;
-        if (owedDelta > 0 || receivedDelta < 0) revert RouterE(8);
-        owe  = uint256(-owedDelta);
-        recv = uint256(receivedDelta);
-        // The pool cannot demand more input than the amount committed to this
-        // swap — mirrors the V3 callback's maxAmt cap. Bounds a malicious pool
-        // or hook to the current leg's budget so it cannot pull the input
-        // budgeted to sibling legs.
-        if (owe > amt) revert RouterE(8);
     }
 
     // =========================================================================

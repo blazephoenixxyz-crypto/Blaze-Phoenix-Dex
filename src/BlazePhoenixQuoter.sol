@@ -778,7 +778,7 @@ contract BlazePhoenixQuoter {
     }
 
     /// @dev Where a price-limited leg stops, as the Router stops it: the quote-side text of
-    ///      `Router._v4Rounds`, window by window on the same reads (`BPC.v4Window`,
+    ///      `BPC.v4Fill`, window by window on the same reads (`BPC.v4Window`,
     ///      `BPC.v4ValueAt`). Up to `floor` the leg always goes on; past it a window must pay at
     ///      least `bar` above what its input is worth at the limit price. Returns the summed
     ///      deltas: what the leg owes (negative) and what it receives. `g` carries the leg's
@@ -1060,6 +1060,27 @@ contract BlazePhoenixQuoter {
         return w >= minOut;
     }
 
+    /// @dev A hop of exact legs, funded as `_walk` funds it: each leg takes its declared share of
+    ///      `carry` and is walked by `_walkLeg`. Returns the hop's output, the sum of the legs'
+    ///      bounds and how many legs carry one. `bounded == type(uint256).max` is the refusal
+    ///      (a leg the Router would stop): a count of legs never reaches it, so no sum is read
+    ///      as a refusal. Out of `_walk`'s frame for the stack of the other code generations.
+    function _fundExact(
+        uint256[6] memory acc, Hop memory hop, uint256 carry, uint256 legSum, bool write, bool ask
+    ) private returns (uint256 hopOut, uint256 hopBound, uint256 bounded) {
+        for (uint256 l; l < hop.legs.length; l++) {
+            Leg memory leg = hop.legs[l];
+            uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
+            (uint256 legOut, uint256 bound) = _walkLeg(acc, leg, hop, legIn, write, ask);
+            if (bound == type(uint256).max) return (0, 0, type(uint256).max);
+            if (bound != 0) {
+                hopBound += bound;
+                ++bounded;
+            }
+            hopOut += legOut;
+        }
+    }
+
     /// @dev THE FEE WALK, the one producer of the exact door's funded figure and of `_settles`'s:
     ///      the route funded from `amountIn` as `Router._execute` funds it. At every hop the divisor is the
     ///      hop commitment, the legs' own sum, as in the Router (`_hopScaleImpactAndQuote` reads
@@ -1115,17 +1136,9 @@ contract BlazePhoenixQuoter {
                 if (write) _writeShares(acc, hop, carry, legSum);
                 (hopOut, hopBound, bounded) = _fundLimited(acc, hop, carry, h == 0, ask);
                 if (hopOut == type(uint256).max) return 0;
-            } else
-            for (uint256 l; l < hop.legs.length; l++) {
-                Leg memory leg = hop.legs[l];
-                uint256 legIn = legSum == 0 ? 0 : BPC.mulDiv(leg.amountIn, carry, legSum);
-                (uint256 legOut, uint256 bound) = _walkLeg(acc, leg, hop, legIn, write, ask);
-                if (bound == type(uint256).max) return 0;
-                if (bound != 0) {
-                    hopBound += bound;
-                    ++bounded;
-                }
-                hopOut += legOut;
+            } else {
+                (hopOut, hopBound, bounded) = _fundExact(acc, hop, carry, legSum, write, ask);
+                if (bounded == type(uint256).max) return 0;
             }
             if (hopBound != 0
                 && hopOut + BPC.mulDiv(hopBound / bounded, BPC.BPS - BPC.LEG_FLOOR_BPS, BPC.BPS) < hopBound) return 0;

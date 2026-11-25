@@ -769,6 +769,14 @@
       "guard": "findBestRoutePlan",
       "test": "test_LeaderPayingNothingWithNoRebuildIsNotHandedOut",
       "note": "PR #139, 2026-11-19. Red at 24959f0 and at 2c8cbbe (a one-hop plan, totalOut 0); pre-existing, not a regression, no funds at risk (the Router reverts). One check where every plan leaves the search (the self-call ends there too): a plan with totalOut 0 reverts SolverE(5). Mutant M-JUDGE-10."
+    },
+    {
+      "id": "V4-FILL-LYING-POOL",
+      "class": "A V4 pool that answers a swap with deltas of the wrong sign, in any fill window or at a committed input of 2^256-1, makes the Router's settle owe nothing or more than the leg committed, so the sibling legs or the Router's balance pay",
+      "status": "blocked",
+      "guard": "v4Fill",
+      "test": "test_LyingPoolAtTheMaxCommittedInputIsRefused_Unlimited_ZeroForOne",
+      "note": "2026-11-24. The V4 fill moved from the Router into Core.v4Fill, Core's first state-changing function, reached by DELEGATECALL from the Router's unlockCallback (same library, same trust; the Router's authentication, transient slots and clean-up are unchanged). Core answers owe = type(uint256).max on a wrong-signed delta (_v4Swap) and on a window past what the leg has left (_v4Rounds); the Router's one line refuses owe > amt and the named sentinel with RouterE(8). Red before the sentinel arm at amt == 2^256-1 (BPC:transfer, not RouterE(8)). Mutants: the sentinel arm dropped, Core's sentinel returned as (0, 0), the per-window cap deleted (Panic 0x11 instead of RouterE(8))."
     }
   ]
 }
