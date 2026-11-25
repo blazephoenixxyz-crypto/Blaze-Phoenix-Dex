@@ -1050,7 +1050,7 @@ class Universe(unittest.TestCase):
         # mutant (yml): the report takes spec.json whatever the universe (liq_usd and strata of the wrong spec)
         self.assertEqual(report.count('[ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"'), 1)
         self.assertIn('report "$SPEC" out/results.tsv', report)
-        self.assertEqual(y.count("UNIVERSE: ${{ github.event_name == 'workflow_dispatch' && inputs.universe || 'prereg' }}"), 2)
+        self.assertEqual(y.count("UNIVERSE: ${{ inputs.universe || 'prereg' }}"), 2)
 
 
 class AcceptFams(unittest.TestCase):

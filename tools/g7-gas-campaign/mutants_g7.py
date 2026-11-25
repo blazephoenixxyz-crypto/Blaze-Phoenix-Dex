@@ -71,6 +71,7 @@ M = [  # (test id, old, new)
  ("ReportSplit.test_moonslot_effect_D_vs_each_natural_mode", 'r["mode"] == m and r["outcome"] == "ok" and r.get(s) not in ("", None)]', 'r["mode"] == m and r.get(s) not in ("", None)]'),
  ("Universe.test_universe_input_and_spec_branch", '          [ "$UNIVERSE" = site ] && SPEC="$D/site/spec.json"\n          if [ "$MODE" = measure ]; then', '          if [ "$MODE" = measure ]; then', "g7-gas-campaign.yml"),
  ("Universe.test_universe_input_and_spec_branch", 'report "$SPEC" out/results.tsv', 'report "$D/spec.json" out/results.tsv', "g7-gas-campaign.yml"),
+ ("Universe.test_universe_input_and_spec_branch", "UNIVERSE: ${{ inputs.universe || 'prereg' }}\n          CHAIN:", "UNIVERSE: ${{ inputs.universe }}\n          CHAIN:", "g7-gas-campaign.yml"),
  ("MsCase.test_report_table_per_chain_kind_case", 'for r in rows if r["outcome"] == "ok" and r["ms_case"]})', 'for r in rows if r["ms_case"]})'),
  ("PairedVsD.test_pairs_by_draw_not_by_stratum", 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and r["outcome"] == "ok" and', 'd = {draw_key(r): int(r[s]) for r in rows if r["mode"] == "D" and'),
  ("PairedVsD.test_p95_only_from_the_declared_minimum", "if len(v) >= PAIRED_MIN_N else", "if len(v) > PAIRED_MIN_N else"),
