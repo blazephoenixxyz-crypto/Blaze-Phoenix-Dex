@@ -1443,5 +1443,131 @@ class DetailNew(unittest.TestCase):
         self.assertEqual([x.split("\t")[:3] for x in sec(L, "# 8.7b ")], [["base", "R7", "1"], ["all", "R7", "1"]])
 
 
+class Usage(unittest.TestCase):
+    TSB = 1793500000
+    Z = "0x" + "0" * 64
+
+    def diff(self, pre, post):
+        return {"pre": pre, "post": post}
+
+    # Mutant: the clearing loop removed (a word the swap zeroed keeps its old value next step).
+    def test_cleared_word_is_zero_and_post_wins(self):
+        acc = {}
+        g7.apply_diff(acc, self.diff({POOL1: {"storage": {"0x1": "0x05", "0x2": "0x07"}}},
+                                     {POOL1: {"storage": {"0x2": "0x09"}, "balance": "0x3"}}), set())
+        self.assertEqual(acc[POOL1], {"storage": {"0x1": self.Z, "0x2": "0x09"}, "balance": "0x3"})
+        g7.apply_diff(acc, self.diff({POOL1: {"storage": {"0x2": "0x09"}}}, {POOL1: {"storage": {"0x2": "0x0a"}}}), set())
+        self.assertEqual(acc[POOL1]["storage"], {"0x1": self.Z, "0x2": "0x0a"})
+
+    # Mutant: the skip check removed (the probe's balance from a diff would undo the next re-funding).
+    def test_caller_and_probe_are_left_out(self):
+        acc = {}
+        g7.apply_diff(acc, self.diff({}, {TOKEN: {"balance": "0x1"}, POOL2: {"storage": {"0x1": "0x02"}}}), {TOKEN})
+        self.assertEqual(sorted(acc), [POOL2])
+
+    # Mutants: the ArbOS state account or a precompile folded in (U2 on arbitrum: rpc_err
+    # "overriding address 0xA4b05F... not allowed").
+    def test_system_accounts_are_left_out(self):
+        acc = {}
+        g7.apply_diff(acc, self.diff({}, {"0xA4B05FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF": {"storage": {"0x1": "0x02"}},
+                                          "0x" + "0" * 38 + "6c": {"storage": {"0x1": "0x02"}},
+                                          POOL2: {"storage": {"0x1": "0x02"}}}), set())
+        self.assertEqual(sorted(acc), [POOL2])
+
+    # Mutants: every acc word into "stateDiff" (a V2 account carries "state" too: invalid override),
+    # or the balance dropped.
+    def test_acc_goes_to_state_of_v2_and_statediff_elsewhere(self):
+        ch = object.__new__(g7.Chain)
+        ch.base, ch.hub, ch.probe, ch.admin = {HUB: {"code": "0x00", "nonce": "0x1", "state": {"0x0": "0x01"}}}, HUB, TOKEN, A1
+        o = ch.override(acc={HUB: {"storage": {"0x5": "0x02"}}, POOL1: {"storage": {"0x1": "0x03"}, "balance": "0x9"}})
+        self.assertEqual(o[HUB], {"code": "0x00", "nonce": "0x1", "state": {"0x0": "0x01", "0x5": "0x02"}})
+        self.assertEqual(o[POOL1], {"stateDiff": {"0x1": "0x03"}, "balance": "0x9"})
+        self.assertEqual(ch.base[HUB]["state"], {"0x0": "0x01"})  # the base is not mutated
+
+    def run_usage(self, outcomes, done=None, seed=False, seed_diff=None):
+        seen = []
+
+        def measure(ch, d, ts_b, m, hub_state, acc=None):
+            seen.append((m, {a: dict(e["storage"]) for a, e in acc.items()}))
+            k = int(m[1:])
+            out = outcomes[k - 1]
+            # a diff on every step, so the stop rests on the outcome, not on a missing diff
+            return {"outcome": out, "swept": 1, "_diff": self.diff({}, {POOL1: {"storage": {"0x1": "0x%02x" % k}}})}
+        ch = FakeChain(self.TSB, 0)
+        ch.probe, ch.admin = TOKEN, A1
+        sd = seed_diff or self.diff({}, {HUB: {"storage": {"0x9": "0x09"}}, A1: {"storage": {"0x7": "0x07"}}})
+        with mock.patch.object(g7, "measure_mode", measure), \
+                mock.patch.object(g7, "seed_after", lambda ch, d, acc: (sd, [True, False])):
+            rows = g7.measure_usage(ch, draw(), {"chain": "base"}, self.TSB, len(outcomes), done or {}, seed)
+        return rows, seen
+
+    # Mutants: acc1 aliased to acc (S2 runs on what U3 left, not U1), the seed diff not folded,
+    # the copy taken at another step, or the admin's own words folded in.
+    def test_seeded_steps_start_from_u1_plus_the_seed(self):
+        rows, seen = self.run_usage(["ok", "ok", "ok"], seed=True)
+        self.assertEqual([m for m, _ in seen], ["U1", "U2", "U3", "S2", "S3"])
+        s2 = dict(seen)["S2"]
+        self.assertEqual((s2.get(POOL1, {}).get("0x1"), s2.get(HUB, {}).get("0x9")), ("0x01", "0x09"))
+        self.assertNotIn(A1, s2)
+        self.assertEqual(dict(seen)["S3"].get(POOL1, {}).get("0x1"), "0x02")
+        self.assertEqual([(r["mode"], r.get("seeds_ok"), r.get("seeds_n")) for r in rows][3:], [("S2", 1, 2), ("S3", 1, 2)])
+
+    # Mutant: the spec flag ignored (S rows without "usage_seed").
+    def test_no_seeded_series_unless_asked(self):
+        rows, seen = self.run_usage(["ok", "ok"])
+        self.assertEqual([m for m, _ in seen], ["U1", "U2"])
+
+    # Mutants: the seed traced on the bare state (not on what U1 left), or at another block.
+    def test_seed_runs_on_the_state_u1_left_at_b(self):
+        got = []
+
+        class R:
+            def call(self, method, params):
+                got.append((method, params[1]))
+                return {"pre": {}, "post": {}} if method == "debug_traceCall" else "0x" + g7.w(32) + g7.w(1) + g7.w(1)
+
+        ch = FakeChain(self.TSB, 0)
+        ch.rpc, ch.admin, ch.hub = R(), A1, HUB
+        ov = []
+        ch.override = lambda **k: ov.append(k) or k
+        acc = {POOL1: {"storage": {"0x1": "0x01"}}}
+        tr, oks = g7.seed_after(ch, draw(), acc)
+        self.assertEqual(oks, [True])
+        self.assertEqual(ov, [{"admin_code": True, "acc": acc}])
+        self.assertEqual(got, [("debug_traceCall", hex(500)), ("eth_call", hex(500))])
+
+    # Mutant: apply_diff not called (every step re-runs the first execution's state).
+    def test_each_step_runs_on_the_state_the_earlier_left(self):
+        rows, seen = self.run_usage(["ok", "ok", "ok"])
+        self.assertEqual([m for m, _ in seen], ["U1", "U2", "U3"])
+        self.assertEqual([s.get(POOL1, {}).get("0x1") for _, s in seen], [None, "0x01", "0x02"])
+        self.assertNotIn("_diff", rows[0])
+        self.assertEqual(rows[1].get("ms_case"), "miss")
+
+    # Mutant: the stop on a step that is not ok removed (a later step runs on a state no swap left).
+    def test_stops_at_the_first_step_not_ok(self):
+        rows, seen = self.run_usage(["ok", "revert", "ok"])
+        self.assertEqual([r["mode"] for r in rows], ["U1", "U2"])
+        self.assertEqual(len(seen), 2)
+
+    # Mutant: the done check removed (a resumed draw writes its done steps twice).
+    def test_done_steps_are_not_written_twice(self):
+        rows, seen = self.run_usage(["ok", "ok"], {("base", "s1", "3", "U1"): {"outcome": "ok"}})
+        self.assertEqual([r["mode"] for r in rows], ["U2"])
+        self.assertEqual(len(seen), 2)  # U1 still runs: U2 needs the state it leaves
+
+    # Mutant: `if steps:` -> `if False:` (usage_steps set, no U row measured).
+    def test_measure_draw_runs_usage_when_the_spec_asks(self):
+        for steps, want in ((0, []), (2, ["U1", "U2"])):
+            ch = FakeChain(self.TSB, 0)
+            ch.spec = dict(SPEC, ages={}, mf_ages=[], usage_steps=steps)
+            ch.probe = TOKEN
+            with mock.patch.object(g7, "measure_mode", lambda *a, **k: {"outcome": "noquote"} if "acc" not in k else
+                                   {"outcome": "ok", "_diff": {}}), \
+                    mock.patch.object(g7, "mid_price", lambda ch, d: ""), mock.patch.object(g7, "vital", lambda ch, d: {}):
+                rows = g7.measure_draw(ch, draw(), {})
+            self.assertEqual([r["mode"] for r in rows if r["mode"].startswith("U")], want)
+
+
 if __name__ == "__main__":
     unittest.main()

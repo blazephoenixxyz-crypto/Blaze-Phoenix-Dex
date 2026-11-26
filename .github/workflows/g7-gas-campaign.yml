@@ -58,6 +58,8 @@ jobs:
           python3 -I "$D/mutants_inventory.py"
           python3 -I "$D/test_compare_bridges.py"
           python3 -I "$D/mutants_compare_bridges.py"
+          python3 -I "$D/test_usage_report.py"
+          python3 -I "$D/mutants_usage_report.py"
 
   run:
     # One leg per chain: the legs share nothing but the read-only spec/state of the commit, so
@@ -166,6 +168,8 @@ jobs:
           done
           pip install requests==2.32.3
           python3 -I "$D/g7.py" report "$SPEC" out/results.tsv > out/report.tsv
+          # usage curve (U<k> rows), only when the spec measured it
+          python3 -I "$D/usage_report.py" out/results.tsv > out/usage.tsv
           echo "legs: ${#F[@]}; rows: $(($(wc -l < out/results.tsv) - 1))"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -173,5 +177,6 @@ jobs:
           path: |
             out/results.tsv
             out/report.tsv
+            out/usage.tsv
           if-no-files-found: error
           retention-days: 30

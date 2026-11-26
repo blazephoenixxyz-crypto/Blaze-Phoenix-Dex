@@ -5,6 +5,15 @@ A 4th tuple field names the mutated file (default g7.py). META: the named meta-m
 import os, shutil, subprocess, sys, tempfile
 SRC = os.path.dirname(os.path.abspath(__file__))
 M = [  # (test id, old, new)
+ ("Usage.test_seeded_steps_start_from_u1_plus_the_seed", "acc1 = copy.deepcopy(acc)", "acc1 = acc"),
+ ("Usage.test_seeded_steps_start_from_u1_plus_the_seed", "    apply_diff(acc1, tr, skip | {ch.admin.lower()})\n", ""),
+ ("Usage.test_seeded_steps_start_from_u1_plus_the_seed", "        if k == 1:\n            acc1", "        if k == 2:\n            acc1"),
+ ("Usage.test_seeded_steps_start_from_u1_plus_the_seed", "skip | {ch.admin.lower()}", "skip"),
+ ("Usage.test_no_seeded_series_unless_asked", "    if not seed or acc1 is None:", "    if acc1 is None:"),
+ ("Usage.test_seed_runs_on_the_state_u1_left_at_b", "ov = ch.override(admin_code=True, acc=acc)", "ov = ch.override(admin_code=True)"),
+ ("Usage.test_seed_runs_on_the_state_u1_left_at_b", 'tr = ch.rpc.call("debug_traceCall", [tx, hex(d["b"]), {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True},\n                                                            "stateOverrides": ov}])', 'tr = ch.rpc.call("debug_traceCall", [tx, hex(d["b"] - 1), {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True},\n                                                            "stateOverrides": ov}])'),
+ ("Usage.test_system_accounts_are_left_out", "if a.lower() in skip or a.lower() in NO_OVERRIDE or int(a, 16) < 0x10000:", "if a.lower() in skip or int(a, 16) < 0x10000:"),
+ ("Usage.test_system_accounts_are_left_out", "if a.lower() in skip or a.lower() in NO_OVERRIDE or int(a, 16) < 0x10000:", "if a.lower() in skip or a.lower() in NO_OVERRIDE:"),
  ("RpcUrl.test_own_url_replaces_drpc_and_skips_the_key_file", 'url = os.environ.get("G7_RPC_URL_" + chain.upper())', "url = None"),
  ("TreeLabel.test_state_of_another_tree_is_refused", 'if man["tree_commit"][:7] not in self.label:', 'if False:'),
  ("TreeLabel.test_every_row_carries_the_code_ceiling", '"max_hops_code": ch.max_hops, ', ''),
@@ -112,6 +121,15 @@ M = [  # (test id, old, new)
  ("DetailNew.test_8_4d_input_share_per_dex_paid_in_tin", "{100 * a[2] / tot[cn]:.1f}", "{100 * a[2]:.1f}"),
  ("DetailNew.test_8_2e_bridge_token_by_symbol", '    if "route_mid_token" in cols:', "    if False:"),
  ("DetailNew.test_8_7_fallback_and_aged_route_tables", '[r for r in rows if r["mode"].startswith("R")]', "rows"),
+ ("Usage.test_cleared_word_is_zero_and_post_wins", "                e[\"storage\"][k.lower()] = \"0x\" + \"0\" * 64\n", "                pass\n"),
+ ("Usage.test_caller_and_probe_are_left_out", "if a.lower() in skip or a.lower() in NO_OVERRIDE", "if a.lower() in NO_OVERRIDE"),
+ ("Usage.test_acc_goes_to_state_of_v2_and_statediff_elsewhere", 'k = "state" if "state" in t else "stateDiff"', 'k = "stateDiff"'),
+ ("Usage.test_acc_goes_to_state_of_v2_and_statediff_elsewhere", '                t["balance"] = e["balance"]', "                pass"),
+ ("Usage.test_each_step_runs_on_the_state_the_earlier_left", "        apply_diff(acc, diff, skip)\n        if k == 1", "        if k == 1"),
+ ("Usage.test_stops_at_the_first_step_not_ok", 'return diff if row.get("outcome") == "ok" else None', 'return diff'),
+ ("Usage.test_done_steps_are_not_written_twice", "    if (ch.name, d[\"stratum\"], str(d[\"idx\"]), m) not in done:\n        rows.append(row)", "    rows.append(row)"),
+ ("Usage.test_measure_draw_runs_usage_when_the_spec_asks", "    if steps:\n        rows +=", "    if False:\n        rows +="),
+ ("Usage.test_each_step_runs_on_the_state_the_earlier_left", "    row.update(ms_case=ms_case(row))\n", ""),
 ]
 # Meta-mutants of the paired comparison and of the draw (name, test id, old, new[, file]): each one
 # must turn its named test red.
