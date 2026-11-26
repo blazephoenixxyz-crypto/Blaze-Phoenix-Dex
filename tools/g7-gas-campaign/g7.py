@@ -13,6 +13,10 @@ Modes per draw (chain, stratum, idx, block b, tIn, tOut, amountIn):
   MF<age> counterfactual: as M<age>, with the seed stamp ts(b - age) rewritten to ts(b) in the
           seeded words, so the registry reads fresh; verified in the trace (no discoverFor frame),
           else outcome mf_unforced.
+  U<k>    usage (spec "usage_steps" = n, default 0 = off): the k-th execution of the same draw in a
+          row at b, on the state the k-1 earlier ones left (registry rows, pools, tokens); U1 = D.
+  S<k>    seeded usage (spec "usage_seed": true): U<k> with the stratum's pools seedPool'ed (tier 0)
+          after U1's discovery, on the state U1 left; S1 = U1 (no row).
 Segments (callTracer frames): quote total, solve (Quoter -> Solver.findBestRoutePlan), discovery
 (Hub.discoverFor frames), gates (frames to the Gate or its wrappers inside the quote), exec per leg
 (frames under the Router to pools/wrappers/PoolManager with a swap/unlock selector), sweep
@@ -31,6 +35,7 @@ the denominator of the report. Swap coverage counts an mf_unforced row as its tw
 The RPC key is read from $DRPC_KEY_FILE (default ~/.drpc-key) and never printed or written.
 """
 import concurrent.futures as cf
+import copy
 import hashlib
 import json
 import os
@@ -528,10 +533,19 @@ class Chain:
         self.b0 = None  # window start, set by cmd_measure (mid_price code check)
         self.lock = threading.Lock()
 
-    def override(self, hub_state=None, fund=None, eth_wei=0, admin_code=False):
+    def override(self, hub_state=None, fund=None, eth_wei=0, admin_code=False, acc=None):
         o = {k: dict(v) for k, v in self.base.items()}
         if hub_state is not None:
             o[self.hub]["state"] = hub_state
+        # acc (usage mode): the words earlier executions left; a V2 account's storage is replaced
+        # whole, so its words go into "state", any other account's into "stateDiff"
+        for a, e in (acc or {}).items():
+            t = o.setdefault(a, {})
+            if e["storage"]:
+                k = "state" if "state" in t else "stateDiff"
+                t[k] = {**t.get(k, {}), **e["storage"]}
+            if "balance" in e:
+                t["balance"] = e["balance"]
         if eth_wei:
             o[self.probe]["balance"] = hex(eth_wei)
         if admin_code:
@@ -630,15 +644,17 @@ def pool_fee_bps(ch, d, legs_detail, hops, legs):
     return total
 
 
-def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None):
+def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None, acc=None):
     """Quote trace + preview + exec trace + cold/warm for one mode. Returns a row fragment.
     An aged-route mode (R<a>) quotes at block qb (timestamp ts_q, the deadline from it) and executes
-    that calldata at d["b"]; every other mode quotes and executes at d["b"]."""
+    that calldata at d["b"]; every other mode quotes and executes at d["b"]. With acc (usage mode)
+    both run on the state earlier executions left, and an ok row carries the exec's state diff
+    in "_diff" (prestateTracer diffMode) for the next step."""
     r = {}
     qb, ts_q = (d["b"], ts_b) if qb is None else (qb, ts_q)
     q = "0x" + SEL["preview"] + addr(d["tin"]) + addr(d["tout"]) + w(d["amount"]) + addr(ch.probe) + w(ts_q + ch.spec["deadline_s"])
     tx = {"from": CALLER, "to": ch.quoter, "data": q, "gas": GAS}
-    ov = ch.override(hub_state=hub_state)
+    ov = ch.override(hub_state=hub_state, acc=acc)
     tr, r["g_quote_cap"] = trace_call(ch, tx, qb, {"tracer": "callTracer", "stateOverrides": ov})
     seg = quote_segments(tr, ch.solver, ch.hub, ch.gate, ch.wrappers, (d["tin"], d["tout"]))
     r.update(seg)
@@ -665,7 +681,7 @@ def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None):
     else:
         holder, slot = ch.balance_slot(d["tin"], d["b"])
         fund = {holder: (slot, d["amount"])}
-    ovx = ch.override(hub_state=hub_state, fund=fund, eth_wei=(d["amount"] if wrap else 0) + 10 ** 18)
+    ovx = ch.override(hub_state=hub_state, fund=fund, eth_wei=(d["amount"] if wrap else 0) + 10 ** 18, acc=acc)
     if not wrap:
         # the funding override is verified before the exec: a slot that does not hold the probe's
         # balance would make every exec a revert that is not the Router's (prereq, not revert)
@@ -696,7 +712,97 @@ def measure_mode(ch, d, ts_b, mode, hub_state, qb=None, ts_q=None):
     r.update(g_warm=gas_warm if ok2 else "", g_coldpart=(gas_used - gas_warm) if ok2 else "", al_src=src,
              outcome="ok" if delivered >= pv["effectiveMinOut"] else "revert",
              detail="" if delivered >= pv["effectiveMinOut"] else f"below_min:{pv['effectiveMinOut'] - delivered}")
+    if acc is not None and r["outcome"] == "ok":
+        r["_diff"] = ch.rpc.call("debug_traceCall", [run, hex(d["b"]), {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True},
+                                                                         "stateOverrides": ovx}])
     return r
+
+
+# Accounts a node refuses to override (Arbitrum's ArbOS state: "overriding address ... not allowed")
+# and the precompile range: their words are chain bookkeeping (L1 pricing), not swap state.
+NO_OVERRIDE = {"0xa4b05fffffffffffffffffffffffffffffffffff"}
+
+
+def apply_diff(acc, tr, skip):
+    """Fold one prestateTracer diffMode result into acc ({account: {"storage", "balance"}}). diffMode
+    lists only what changed: a post word wins, a word in pre but not in post was cleared to zero.
+    Accounts in skip (the caller, the probe: re-funded by every override) are left out."""
+    pre, post = tr.get("pre") or {}, tr.get("post") or {}
+    for a in set(pre) | set(post):
+        if a.lower() in skip or a.lower() in NO_OVERRIDE or int(a, 16) < 0x10000:
+            continue
+        e = acc.setdefault(a.lower(), {"storage": {}})
+        p = post.get(a) or {}
+        ps = {k.lower(): v for k, v in (p.get("storage") or {}).items()}
+        for k in (pre.get(a) or {}).get("storage") or {}:
+            if k.lower() not in ps:
+                e["storage"][k.lower()] = "0x" + "0" * 64
+        e["storage"].update(ps)
+        if "balance" in p:
+            e["balance"] = p["balance"]
+
+
+def seed_after(ch, d, acc):
+    """Trace Hub.seedPool of the stratum's pools at b on the state acc carries (the moonslot seeded
+    after the discovery of U1). Returns (diffMode trace, per-call success of G7Probe.batch)."""
+    calls = [encode_seed(p["pool"], p["kind"], p["fee"], p.get("hooks", "0x" + "0" * 40), d["st"]["tA"], d["st"]["tB"])
+             for p in d["st"]["seed_pools"]]
+    tx = {"from": CALLER, "to": ch.admin, "data": encode_batch(ch.hub, calls), "gas": GAS}
+    ov = ch.override(admin_code=True, acc=acc)
+    tr = ch.rpc.call("debug_traceCall", [tx, hex(d["b"]), {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True},
+                                                            "stateOverrides": ov}])
+    return tr, decode_bools(ch.rpc.call("eth_call", [tx, hex(d["b"]), ov]))
+
+
+def usage_step(ch, d, base, ts_b, m, acc, done, rows, extra=None):
+    """One U/S step: measured on acc, its row kept unless done; returns its diff, None to stop."""
+    row = dict(base, mode=m, age_nom_s="", **(extra or {}))
+    try:
+        row.update(measure_mode(ch, d, ts_b, m, None, acc=acc))
+    except Reverted as x:
+        row.update(outcome="revert", detail=revert_detail("call:", x.data))
+    except RpcTimeout as x:
+        row.update(outcome="timeout", detail=str(x)[:60])
+    except RpcError as x:
+        row.update(outcome="rpc_err", detail=str(x)[:60])
+    diff = row.pop("_diff", None)
+    row.update(ms_case=ms_case(row))
+    if (ch.name, d["stratum"], str(d["idx"]), m) not in done:
+        rows.append(row)
+    return diff if row.get("outcome") == "ok" else None
+
+
+def measure_usage(ch, d, base, ts_b, steps, done, seed=False):
+    """U<k>: the draw quoted and executed for the k-th time in a row at block b, each step on the
+    state the earlier executions left (their diffs folded into the override): the pair's registry
+    rows, pool and token words advance as repeated use advances them; the block does not. U1 is
+    the D state. Stops at the first step that is not ok (a later step would run on another state).
+    S<k> (seed): the same chain, but after U1 the operator seeds the stratum's pools (seedPool,
+    tier 0, the rows Solver._registryFresh counts) on the state U1 left; S1 is U1, so it has no row."""
+    rows, acc, acc1 = [], {}, None
+    skip = {CALLER.lower(), ch.probe}
+    for k in range(1, steps + 1):
+        diff = usage_step(ch, d, base, ts_b, f"U{k}", acc, done, rows)
+        if diff is None:
+            break
+        apply_diff(acc, diff, skip)
+        if k == 1:
+            acc1 = copy.deepcopy(acc)
+    if not seed or acc1 is None:
+        return rows
+    try:
+        tr, oks = seed_after(ch, d, acc1)
+    except (Reverted, RpcTimeout, RpcError) as x:
+        rows.append(dict(base, mode="S2", age_nom_s="", outcome="seed_err", detail=str(x)[:60]))
+        return rows
+    apply_diff(acc1, tr, skip | {ch.admin.lower()})
+    extra = {"seeds_ok": sum(oks), "seeds_n": len(oks)}
+    for k in range(2, steps + 1):
+        diff = usage_step(ch, d, base, ts_b, f"S{k}", acc1, done, rows, extra)
+        if diff is None:
+            break
+        apply_diff(acc1, diff, skip)
+    return rows
 
 
 def mid_price(ch, d):
@@ -859,6 +965,9 @@ def measure_draw(ch, d, done):
                     row["vs_mid_net_bps"] = row["out_vs_mid_bps"] + row["pool_fee_bps"] + PROTOCOL_FEE_BPS
         row["ms_case"] = ms_case(row)
         rows.append(row)
+    steps = int(ch.spec.get("usage_steps", 0))
+    if steps:
+        rows += measure_usage(ch, d, dict(base, mid=mid, **vt), ts_b, steps, done, bool(ch.spec.get("usage_seed")))
     return rows
 
 

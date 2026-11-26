@@ -1,0 +1,7 @@
+variant	chains	run_id	branch	commit	source_file	sha256
+A	base,optimism,arbitrum	45727452792	ci-draft/g7-usage-2b	4d73e63	results.tsv (artifact g7-results-45727452792)	4ebdbbd1edf4d146f680caa213ede17151d0a1860e2e55daf1d07860d6e21f12
+A	robinhood	45727456340	ci-draft/g7-usage-3b	6f85afa	results.tsv (artifact g7-results-45727456340)	dd37e59477399a5930f10292913eaff545c1c10ed42758a00edad3e1219f5faf
+B	base,optimism,arbitrum	45732026556	ci-draft/g7-usage-2b-l2	b7a4bc1	results.tsv (artifact g7-results-45732026556)	1ba75a66073149cdeaead58a887db6209456091b5da5f2609a93302953c34dcb
+B	robinhood	45727452792	ci-draft/g7-usage-2b	4d73e63	results.tsv (artifact g7-results-45727452792)	4ebdbbd1edf4d146f680caa213ede17151d0a1860e2e55daf1d07860d6e21f12
+A	all four	-	-	-	results-A.tsv (merged)	04bf5cda42d51805e41b11a55fa9258350930d18233cc2c4e18dc5a43436f5a1
+B	all four	-	-	-	results-B.tsv (merged)	14b76e3fc56e6c7b38362e5d128cd3d5967639029cbbbf2ab13252286ea543ae

@@ -1,0 +1,5 @@
+campaign	variant	run_id	branch	commit	results_file	sha256
+G7	A	45720744246	ci-draft/g2b-bridges-3	e71eb82	g7/results-A-45720744246.tsv	2599329417adbaf8f120ebd4f19dfd14ae38b12eb6aeb8d4a6cdee4fd699f5ac
+G7	B	45720753978	ci-draft/g2b-bridges-2	5e14c2f	g7/results-B-45720753978.tsv	3a71ccd179795c56b8b9aba05871a4e3dacf063d3820e38ec8f175fa02c1445f
+G8	A	45720037905	ci-draft/g2b-bridges-3	5f95b9b	g8/results-A-45720037905.tsv	b1d9243beb30eacab4e223a460fa01e47eab640e475dbbf7955c4be3d8746a89
+G8	B	45720046359	ci-draft/g2b-bridges-2	86ff558	g8/results-B-45720046359.tsv	85577c620ccb411ab01bc976968f05a9f09a6f4edea883e1d25271081172363d
