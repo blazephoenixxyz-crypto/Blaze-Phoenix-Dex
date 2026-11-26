@@ -1,0 +1,233 @@
+# D check, draws with D and U1 ok: chain	n	g_exec_equal	delivered_equal
+all	303	303	303
+arbitrum	81	81	81
+base	78	78	78
+optimism	86	86	86
+robinhood	58	58	58
+# usage, draws ok at U1..Uk: chain	step	n	segment	Uk_p50	delta_vs_U1_p50	delta_p5	delta_p95	lower	same	higher
+all	1	606	g_exec	820560	0	0	0	0	606	0
+all	1	606	g_record	353984	0	0	0	0	606	0
+all	1	606	g_quote	4065642	0	0	0	0	606	0
+all	1	606	g_discovery	694889	0	0	0	0	606	0
+all	2	603	g_exec	421664	-384040	-1376742	398789	540	0	63
+all	2	603	g_record	12811	-314343	-810914	214764	538	16	49
+all	2	603	g_quote	3977943	8550	-1916410	915137	266	2	335
+all	2	603	g_discovery	677713	0	-423741	0	205	369	29
+all	3	600	g_exec	410022	-385970	-1319223	520738	530	0	70
+all	3	600	g_record	15425	-318981	-1086908	203441	540	12	48
+all	3	600	g_quote	3995080	11637	-1891812	1264402	271	0	329
+all	3	600	g_discovery	689198	0	-424464	39913	208	351	41
+all	4	595	g_exec	371009	-392465	-1333255	248473	555	0	40
+all	4	595	g_record	12811	-331887	-1158251	0	558	12	25
+all	4	595	g_quote	3944201	11502	-1883887	1788592	273	2	320
+all	4	595	g_discovery	677713	0	-423741	39913	212	340	43
+all	5	593	g_exec	409503	-389419	-1426145	345409	538	0	55
+all	5	593	g_record	12811	-328688	-1188102	3120	552	10	31
+all	5	593	g_quote	4002442	12554	-2022687	970427	253	0	340
+all	5	593	g_discovery	674177	0	-424464	44509	217	325	51
+arbitrum	1	81	g_exec	754597	0	0	0	0	81	0
+arbitrum	1	81	g_record	353984	0	0	0	0	81	0
+arbitrum	1	81	g_quote	4461861	0	0	0	0	81	0
+arbitrum	1	81	g_discovery	831340	0	0	0	0	81	0
+arbitrum	2	81	g_exec	476803	-392578	-1288154	365204	72	0	9
+arbitrum	2	81	g_record	21465	-325881	-747369	185753	74	0	7
+arbitrum	2	81	g_quote	4490030	9998	-1350594	1184600	34	0	47
+arbitrum	2	81	g_discovery	831340	0	-109881	116878	8	66	7
+arbitrum	3	81	g_exec	443720	-392794	-1175021	971018	70	0	11
+arbitrum	3	81	g_record	16528	-337236	-782227	203441	74	0	7
+arbitrum	3	81	g_quote	4492337	13043	-1207099	1597449	30	0	51
+arbitrum	3	81	g_discovery	831340	0	-116854	106661	8	67	6
+arbitrum	4	81	g_exec	318143	-396148	-1060816	711856	74	0	7
+arbitrum	4	81	g_record	12811	-338932	-778343	-1877	77	0	4
+arbitrum	4	81	g_quote	4493367	9942	-1318412	2210892	38	0	43
+arbitrum	4	81	g_discovery	831340	0	-116854	120609	10	63	8
+arbitrum	5	81	g_exec	443720	-397465	-1588452	526043	71	0	10
+arbitrum	5	81	g_record	16528	-341191	-798660	12953	74	0	7
+arbitrum	5	81	g_quote	4519408	13529	-1540879	1511804	33	0	48
+arbitrum	5	81	g_discovery	839381	0	-120607	120607	11	56	14
+arbitrum+seed	1	81	g_exec	754597	0	0	0	0	81	0
+arbitrum+seed	1	81	g_record	353984	0	0	0	0	81	0
+arbitrum+seed	1	81	g_quote	4461861	0	0	0	0	81	0
+arbitrum+seed	1	81	g_discovery	831340	0	0	0	0	81	0
+arbitrum+seed	2	81	g_exec	400940	-398554	-1712108	377133	73	0	8
+arbitrum+seed	2	81	g_record	12811	-341191	-790564	258406	73	0	8
+arbitrum+seed	2	81	g_quote	4168063	-380879	-1865291	496107	54	0	27
+arbitrum+seed	2	81	g_discovery	674177	-162905	-291708	0	60	21	0
+arbitrum+seed	3	81	g_exec	363384	-398198	-1175021	421656	74	0	7
+arbitrum+seed	3	81	g_record	16528	-337236	-798660	-209	77	0	4
+arbitrum+seed	3	81	g_quote	4111631	-461565	-1840587	2964940	54	0	27
+arbitrum+seed	3	81	g_discovery	678630	-162905	-272766	0	60	18	3
+arbitrum+seed	4	81	g_exec	318143	-396055	-1126024	711856	75	0	6
+arbitrum+seed	4	81	g_record	12811	-341191	-799761	-1877	77	0	4
+arbitrum+seed	4	81	g_quote	4161935	-491063	-1832812	3122205	56	0	25
+arbitrum+seed	4	81	g_discovery	678630	-162905	-291708	0	60	17	4
+arbitrum+seed	5	81	g_exec	359899	-398471	-1340632	292275	74	0	7
+arbitrum+seed	5	81	g_record	12793	-341191	-994150	-193911	78	0	3
+arbitrum+seed	5	81	g_quote	4189530	-355434	-1875510	2624922	54	0	27
+arbitrum+seed	5	81	g_discovery	674177	-162905	-291708	54776	61	15	5
+base	1	78	g_exec	1117846	0	0	0	0	78	0
+base	1	78	g_record	685766	0	0	0	0	78	0
+base	1	78	g_quote	9714814	0	0	0	0	78	0
+base	1	78	g_discovery	1740812	0	0	0	0	78	0
+base	2	78	g_exec	435467	-569637	-2876766	1183964	68	0	10
+base	2	78	g_record	21378	-501548	-1608739	669358	61	8	9
+base	2	78	g_quote	9788760	30122	-1845645	3191320	24	1	53
+base	2	78	g_discovery	1740812	0	-237149	181412	6	63	9
+base	3	77	g_exec	434394	-616159	-2484820	1198012	64	0	13
+base	3	77	g_record	21378	-578550	-1599963	564333	60	6	11
+base	3	77	g_quote	9685082	36626	-1436624	5572609	26	0	51
+base	3	77	g_discovery	1740812	0	-268043	278512	5	57	15
+base	4	75	g_exec	425465	-705711	-2484848	-55982	72	0	3
+base	4	75	g_record	12811	-673060	-1710068	0	66	6	3
+base	4	75	g_quote	9595614	39349	-529534	4652565	22	1	52
+base	4	75	g_discovery	1740812	0	-55634	283784	4	54	17
+base	5	74	g_exec	429610	-650628	-3397916	721262	66	0	8
+base	5	74	g_record	16476	-631849	-1627997	97423	64	5	5
+base	5	74	g_quote	9536370	33448	-2194651	3145479	25	0	49
+base	5	74	g_discovery	1740812	0	-258584	19769	7	57	10
+base+seed	1	78	g_exec	1117846	0	0	0	0	78	0
+base+seed	1	78	g_record	685766	0	0	0	0	78	0
+base+seed	1	78	g_quote	9714814	0	0	0	0	78	0
+base+seed	1	78	g_discovery	1740812	0	0	0	0	78	0
+base+seed	2	77	g_exec	429154	-642833	-3017656	927579	70	0	7
+base+seed	2	77	g_record	12811	-623724	-1783627	250576	63	8	6
+base+seed	2	77	g_quote	8842907	-948722	-4538563	957433	45	1	31
+base+seed	2	77	g_discovery	1646148	-387879	-673168	0	46	28	3
+base+seed	3	77	g_exec	434120	-663406	-3161428	1198012	68	0	9
+base+seed	3	77	g_record	21377	-647905	-1599963	564333	63	6	8
+base+seed	3	77	g_quote	8715990	-1000970	-4882405	2016926	51	0	26
+base+seed	3	77	g_discovery	1646148	-387879	-695086	0	47	27	3
+base+seed	4	76	g_exec	425465	-716653	-3397892	318156	70	0	6
+base+seed	4	76	g_record	12793	-664866	-1783627	12776	66	6	4
+base+seed	4	76	g_quote	8544225	-942781	-4993832	1475470	47	1	28
+base+seed	4	76	g_discovery	1646148	-387879	-695086	0	47	26	3
+base+seed	5	75	g_exec	425520	-724950	-3397916	465902	69	0	6
+base+seed	5	75	g_record	16020	-659499	-1730896	96652	66	5	4
+base+seed	5	75	g_quote	8753161	-1139417	-4547679	118283	50	0	25
+base+seed	5	75	g_discovery	1651652	-400080	-673168	0	47	26	2
+optimism	1	86	g_exec	623032	0	0	0	0	86	0
+optimism	1	86	g_record	304056	0	0	0	0	86	0
+optimism	1	86	g_quote	3622412	0	0	0	0	86	0
+optimism	1	86	g_discovery	655746	0	0	0	0	86	0
+optimism	2	85	g_exec	294508	-342688	-612945	401383	71	0	14
+optimism	2	85	g_record	16045	-279533	-509698	231135	73	0	12
+optimism	2	85	g_quote	3615828	12403	-428805	456504	21	0	64
+optimism	2	85	g_discovery	655746	0	0	0	3	79	3
+optimism	3	85	g_exec	309768	-334861	-695777	602400	69	0	16
+optimism	3	85	g_record	16274	-274957	-509698	234024	72	0	13
+optimism	3	85	g_quote	3736890	13236	-332519	587817	17	0	68
+optimism	3	85	g_discovery	655746	0	0	84596	3	77	5
+optimism	4	84	g_exec	290197	-342671	-713782	248473	75	0	9
+optimism	4	84	g_record	12811	-279533	-615020	22487	78	0	6
+optimism	4	84	g_quote	3592691	13701	-428805	305442	16	0	68
+optimism	4	84	g_discovery	655736	0	0	0	3	80	1
+optimism	5	84	g_exec	303923	-335729	-861150	183137	74	0	10
+optimism	5	84	g_record	16132	-279855	-614121	97156	78	0	6
+optimism	5	84	g_quote	3629408	13956	-213385	573426	18	0	66
+optimism	5	84	g_discovery	655736	0	0	0	3	79	2
+optimism+seed	1	86	g_exec	623032	0	0	0	0	86	0
+optimism+seed	1	86	g_record	304056	0	0	0	0	86	0
+optimism+seed	1	86	g_quote	3622412	0	0	0	0	86	0
+optimism+seed	1	86	g_discovery	655746	0	0	0	0	86	0
+optimism+seed	2	85	g_exec	345715	-334861	-612945	429584	78	0	7
+optimism+seed	2	85	g_record	12811	-281880	-623778	222501	78	0	7
+optimism+seed	2	85	g_quote	3624104	-4532	-536183	327661	44	0	41
+optimism+seed	2	85	g_discovery	547411	-126596	-152694	0	55	28	2
+optimism+seed	3	85	g_exec	342990	-327065	-713737	314746	76	0	9
+optimism+seed	3	85	g_record	12811	-280047	-515490	216765	80	0	5
+optimism+seed	3	85	g_quote	3571715	-5798	-572779	416093	43	0	42
+optimism+seed	3	85	g_discovery	547411	-126596	-152694	0	58	25	2
+optimism+seed	4	84	g_exec	336687	-334861	-804346	166759	77	0	7
+optimism+seed	4	84	g_record	12811	-280047	-623778	-3258	80	0	4
+optimism+seed	4	84	g_quote	3601511	-21555	-536183	608393	42	0	42
+optimism+seed	4	84	g_discovery	547403	-126596	-152694	0	58	25	1
+optimism+seed	5	84	g_exec	345760	-321095	-713737	345409	74	0	10
+optimism+seed	5	84	g_record	15558	-279533	-614121	223430	78	0	6
+optimism+seed	5	84	g_quote	3552602	8102	-513926	714629	35	0	49
+optimism+seed	5	84	g_discovery	547403	-126598	-152694	0	57	25	2
+robinhood	1	58	g_exec	796359	0	0	0	0	58	0
+robinhood	1	58	g_record	314568	0	0	0	0	58	0
+robinhood	1	58	g_quote	2016285	0	0	0	0	58	0
+robinhood	1	58	g_discovery	302813	0	0	0	0	58	0
+robinhood	2	58	g_exec	431379	-364200	-993111	35458	54	0	4
+robinhood	2	58	g_record	12811	-301792	-358947	-10650	58	0	0
+robinhood	2	58	g_quote	2005197	12587	-889299	359502	17	0	41
+robinhood	2	58	g_discovery	302813	0	-44509	44509	6	48	4
+robinhood	3	57	g_exec	390299	-345058	-666229	118085	54	0	3
+robinhood	3	57	g_record	12811	-301757	-358563	-131203	57	0	0
+robinhood	3	57	g_quote	1972163	12571	-1141157	157338	20	0	37
+robinhood	3	57	g_discovery	302813	0	-44509	39915	6	47	4
+robinhood	4	57	g_exec	410022	-376503	-960589	-39844	56	0	1
+robinhood	4	57	g_record	12811	-301792	-426697	-131203	57	0	0
+robinhood	4	57	g_quote	1949229	12386	-1132597	275642	21	0	36
+robinhood	4	57	g_discovery	302813	0	-44509	39915	7	45	5
+robinhood	5	57	g_exec	393447	-306908	-844620	-79045	55	0	2
+robinhood	5	57	g_record	12811	-301774	-426697	-175845	57	0	0
+robinhood	5	57	g_quote	2066054	12596	-1101095	509231	14	0	43
+robinhood	5	57	g_discovery	307441	0	-44509	44509	8	39	10
+robinhood+seed	1	58	g_exec	796359	0	0	0	0	58	0
+robinhood+seed	1	58	g_record	314568	0	0	0	0	58	0
+robinhood+seed	1	58	g_quote	2016285	0	0	0	0	58	0
+robinhood+seed	1	58	g_discovery	302813	0	0	0	0	58	0
+robinhood+seed	2	58	g_exec	430519	-364235	-993111	35458	54	0	4
+robinhood+seed	2	58	g_record	12811	-301810	-358947	-10650	58	0	0
+robinhood+seed	2	58	g_quote	1946966	12076	-998742	294291	27	0	31
+robinhood+seed	2	58	g_discovery	286762	0	-115518	0	21	36	1
+robinhood+seed	3	57	g_exec	390299	-368534	-666229	-44301	55	0	2
+robinhood+seed	3	57	g_record	12811	-301792	-358563	-155740	57	0	0
+robinhood+seed	3	57	g_quote	1946710	-43774	-1141157	76206	30	0	27
+robinhood+seed	3	57	g_discovery	286762	0	-115518	39913	21	33	3
+robinhood+seed	4	57	g_exec	393402	-376503	-960589	-89441	56	0	1
+robinhood+seed	4	57	g_record	12811	-301792	-426697	-184559	57	0	0
+robinhood+seed	4	57	g_quote	1910901	-61157	-1132597	136089	31	0	26
+robinhood+seed	4	57	g_discovery	286762	0	-115518	39913	23	30	4
+robinhood+seed	5	57	g_exec	393447	-306908	-844620	-79045	55	0	2
+robinhood+seed	5	57	g_record	12811	-301810	-426697	-184559	57	0	0
+robinhood+seed	5	57	g_quote	1946966	12596	-1101095	457298	24	0	33
+robinhood+seed	5	57	g_discovery	286762	0	-115518	39915	23	28	6
+# quote case by step (ms_case of Uk): chain	step	hit	partial	miss
+all	1	0	0	606
+all	2	0	179	424
+all	3	0	179	421
+all	4	0	179	416
+all	5	0	179	414
+arbitrum	1	0	0	81
+arbitrum	2	0	0	81
+arbitrum	3	0	0	81
+arbitrum	4	0	0	81
+arbitrum	5	0	0	81
+arbitrum+seed	1	0	0	81
+arbitrum+seed	2	0	58	23
+arbitrum+seed	3	0	58	23
+arbitrum+seed	4	0	58	23
+arbitrum+seed	5	0	58	23
+base	1	0	0	78
+base	2	0	0	78
+base	3	0	0	77
+base	4	0	0	75
+base	5	0	0	74
+base+seed	1	0	0	78
+base+seed	2	0	46	31
+base+seed	3	0	46	31
+base+seed	4	0	46	30
+base+seed	5	0	46	29
+optimism	1	0	0	86
+optimism	2	0	0	85
+optimism	3	0	0	85
+optimism	4	0	0	84
+optimism	5	0	0	84
+optimism+seed	1	0	0	86
+optimism+seed	2	0	57	28
+optimism+seed	3	0	57	28
+optimism+seed	4	0	57	27
+optimism+seed	5	0	57	27
+robinhood	1	0	0	58
+robinhood	2	0	0	58
+robinhood	3	0	0	57
+robinhood	4	0	0	57
+robinhood	5	0	0	57
+robinhood+seed	1	0	0	58
+robinhood+seed	2	0	18	40
+robinhood+seed	3	0	18	39
+robinhood+seed	4	0	18	39
+robinhood+seed	5	0	18	39
